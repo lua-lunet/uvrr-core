@@ -1,0 +1,9 @@
+# Isolated toolchain for the Maelstrom nemesis harness.
+# CONVENTIONS.md: experimental harnesses live entirely beneath not_stable_rust/
+# with their own explicit toolchain, and are not run by `make test`.
+[tools]
+java = "temurin-25"
+# Pinned, not "latest": mise's leiningen 2.13.0 bootstrap fetches a
+# 2.12.1-SNAPSHOT jar from a GitHub URL that 404s since Leiningen moved to
+# Codeberg. 2.11.2 has a working self-install and runs Maelstrom fine.
+leiningen = "2.11.2"

@@ -1,0 +1,42 @@
+[package]
+name = "vrr-core"
+version = "0.1.0"
+edition = "2024"
+# Edition 2024 requires 1.85, which sets this floor. Enforced by clippy's msrv
+# lints, so a newer API cannot creep in unnoticed.
+rust-version = "1.85"
+description = "Sans-io Viewstamped Replication Revisited core (normal operation, epoch change, recovery, state transfer) with a C ABI for LuaJIT FFI."
+repository = "https://github.com/simbo1905/vrr-core"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["consensus", "replication", "viewstamped", "vsr", "raft"]
+# Not a no-std category: the core uses Vec, BTreeMap and String.
+categories = [
+    "algorithms",
+    "network-programming",
+    "concurrency",
+    "external-ffi-bindings",
+]
+exclude = ["maelstrom/", "store/", ".state/", "mise.toml", ".gitmodules"]
+
+# `name = "vrr"` deliberately differs from the package name so consumers write
+# `use vrr::vrr::Replica`, and so the test suite this crate was extracted from
+# compiles verbatim. The core is unmodified by the extraction.
+[lib]
+name = "vrr"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+# The Maelstrom node. A binary, not a second crate: it needs the library and
+# nothing needs it, so it stays out of the published artifact's dependency
+# graph while still being built and tested by `cargo test --all-targets`.
+[[bin]]
+name = "maelstrom-lin-kv"
+path = "src/bin/maelstrom-lin-kv/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["serde", "v4"] }
+
+[dev-dependencies]
+proptest = "1.11.0"

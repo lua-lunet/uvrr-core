@@ -1,0 +1,18 @@
+# Ignore everything except what we need for building
+**/.git
+**/.gitignore
+**/.gitmodules
+**/.state
+**/target
+**/store
+Dockerfile*
+docker-compose*
+.dockerignore
+README.md
+LICENSE
+.*.toml
+*.md
+!Dockerfile.maelstrom
+!docker-entrypoint.sh
+!Makefile
+!maelstrom/

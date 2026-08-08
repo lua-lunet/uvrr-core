@@ -1,0 +1,56 @@
+# Dockerfile for running Maelstrom tests with vrr-core
+# Build with: docker build -f Dockerfile.maelstrom -t vrr-core-maelstrom .
+# The image architecture matches the Docker daemon's native architecture.
+
+# Build stage: compile the Rust binary
+FROM rust:1.85-slim AS builder
+
+# Install required tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and build the Rust project
+WORKDIR /usr/src/vrr-core
+COPY . .
+RUN cargo build --release --bin maelstrom-lin-kv
+
+# Runtime stage: minimal image with Java and Leiningen
+FROM eclipse-temurin:25-jdk-jammy
+
+# Install Leiningen and gnuplot
+ENV LEIN_VERSION 2.11.2
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    gnuplot \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Leiningen
+RUN curl -fsSL https://raw.githubusercontent.com/technomancy/leiningen/${LEIN_VERSION}/bin/lein \
+    -o /usr/local/bin/lein \
+    && chmod +x /usr/local/bin/lein
+
+# Copy entrypoint script, Maelstrom submodule and compiled binary
+WORKDIR /usr/src/vrr-core
+COPY docker-entrypoint.sh /usr/src/vrr-core/docker-entrypoint.sh
+COPY --from=builder /usr/src/vrr-core/target/release/maelstrom-lin-kv /usr/local/bin/
+COPY maelstrom/ ./maelstrom/
+
+# Create a non-root user for running tests
+RUN useradd -m -u 1000 -U testuser \
+    && chown -R testuser:testuser /usr/src/vrr-core/maelstrom
+USER testuser
+WORKDIR /home/testuser
+
+# Set environment variables
+ENV MAELSTROM_VRR_STATE_DIR=/tmp/maelstrom-state
+ENV PATH="/usr/local/bin:${PATH}"
+ENV NODES=5
+ENV TIME_LIMIT=180
+ENV RATE=20
+ENV INTERVAL=10
+
+# Entry point that can be overridden
+ENTRYPOINT ["/usr/src/vrr-core/docker-entrypoint.sh"]
+CMD ["test-all"]
