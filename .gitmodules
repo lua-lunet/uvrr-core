@@ -1,0 +1,4 @@
+[submodule "maelstrom"]
+	path = maelstrom
+	url = https://github.com/simbo1905/maelstrom.git
+	branch = main
