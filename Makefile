@@ -1,8 +1,11 @@
 # vrr-core: the Rust suite, and the Maelstrom node the core is checked with.
 #
-# Prerequisites for the Maelstrom targets: `mise install` (JDK 21 + Leiningen
+# Prerequisites for the Maelstrom targets: `mise install` (JDK 25 + Leiningen
 # 2.11.2) and `gnuplot` on PATH for Jepsen's latency/rate plots. Without gnuplot
 # the checkers still run but the overall verdict degrades to `:valid? :unknown`.
+#
+# For Docker-based end-to-end testing (no local JDK/Leiningen required):
+#   make e2e           # build Docker image and run all Maelstrom tests
 
 BIN        := $(CURDIR)/target/release/maelstrom-lin-kv
 STATE_DIR  ?= $(CURDIR)/.state
@@ -18,7 +21,7 @@ RATE       ?= 20
 INTERVAL   ?= 20
 WORKLOAD   ?= lin-kv
 
-.PHONY: help build check test clean-state test-clean test-partition test-kill test-all serve
+.PHONY: help build check test clean-state test-clean test-partition test-kill test-all serve e2e docker-build docker-run
 
 help:
 	@echo "make test            - the Rust test suite"
@@ -29,6 +32,9 @@ help:
 	@echo "make test-kill       - lin-kv under process kill/restart (exercises recovery)"
 	@echo "make test-all        - lin-kv under partition + kill + pause"
 	@echo "make serve           - browse past results at http://localhost:8080"
+	@echo "make e2e             - Docker: build image and run all Maelstrom tests"
+	@echo "make docker-build    - build the Docker image"
+	@echo "make docker-run      - run tests in the built Docker image"
 	@echo
 	@echo "Vars: NODES=$(NODES) TIME_LIMIT=$(TIME_LIMIT) RATE=$(RATE) INTERVAL=$(INTERVAL)"
 
@@ -71,3 +77,23 @@ test-all: build clean-state
 
 serve:
 	cd maelstrom && $(LEIN) run serve
+
+# Docker targets - no local JDK/Leiningen required
+# Works with Colima (no BuildKit, no volume mounts).
+# The image architecture matches the Docker daemon's native architecture.
+DOCKER_IMAGE ?= vrr-core-maelstrom
+DOCKER_FILE   ?= Dockerfile.maelstrom
+
+docker-build:
+	docker build -f $(DOCKER_FILE) -t $(DOCKER_IMAGE) .
+
+docker-run:
+	docker run --rm \
+		-e NODES=$(NODES) \
+		-e TIME_LIMIT=$(TIME_LIMIT) \
+		-e RATE=$(RATE) \
+		-e INTERVAL=$(INTERVAL) \
+		$(DOCKER_IMAGE) test-all
+
+# End-to-end: build Docker image and run all Maelstrom tests
+e2e: docker-build docker-run
