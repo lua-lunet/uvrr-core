@@ -12,19 +12,21 @@ let mut replica = Replica::new(vec!["n0".into(), "n1".into(), "n2".into()], "n0"
 let outputs = replica.step(Input::Request { /* ... */ });
 ```
 
-The Maelstrom node is a demo node a simple bin that does a trivial key-value store over stdin/stdout so that the Kyle Kingsbury Maelstrom test harness can create a cluster of nodes to then inject network partitions, crashes and other error conditions to test the core VSS library.
+To build and test without running the crash testing and network partitioning simply:
 
-The fact that the software passing Maelstrom testing is not evidence of no bugs. Yet it is a demonstration that there are no shallow bugs and that the library has some resiliance under only network partitions, only crashes, or combinations of both. Yet read the MIT license if you build a system on top of this library the bugs may be in the combination of all the code. You should consider writing custom Maelstrom logic to validate your entire system. 
+```
+cargo test
+```
+
+This repo includes an example binary that conforms to a trivial key-value store protocol so that the Kyle Kingsbury Maelstrom test harness may simulate network partitions, crashes and other error conditions. The Makefile is there to install and run the Kyle Kingsbury Maelstrom test harness as either a git submodule run run locally else in docker. See below. 
 
 ## Why this exists
 
-As at 2026-08 nothing published covers the hard half of VRR such as view change, recovery and reconfiguration. No crate exposes a C ABI, and the async ones are
-the wrong shape for FFI. You would be pumping a Tokio runtime from inside
-LuaJIT. 
+As at August 2026 there are not many, or possibly any, creates published covers the hard half of VRR such as view change, recovery and reconfiguration. Not many, or any, crate exposes a C ABI, and the async ones are the wrong shape for FFI. 
 
-This crate is extracted from my own system where a lightweight and embeedable strong consistency model over a small amount is more cost effective than Zookeeper or etcd. Just having one thing decided which is which of three data centers is the primary and being able to embed that into an openresty process is a very powerful capability.
+This crate is extracted from my own system where a lightweight and embeddable strong consistency model over a small amount is more cost effective than running something like Zookeeper or etcd. Strong consistency over which of three data centres is the primary embed that into an openresty process can be a very powerful capability.
 
-This crate implements the parts of Viewstamped Replication Revsited that often get skipped:
+This crate implements the parts of Viewstamped Replication Revisited that often get skipped:
 
 | | |
 |---|---|
@@ -42,12 +44,21 @@ the adoption rules are monotonic in epoch, then in slot/commit/log-prefix, and
 
 ## Evidence
 
+The demo passing Maelstrom testing is not evidence of zero bugs. Yet it is a demonstration of an absence of shallow bugs and that the library has some resilience to network partitions, crashes, or combinations of both. If you build a system on top of this library the bugs may be in the combination of all the code. You should consider writing custom Maelstrom logic to validate your entire system. 
+
 `make e2e` does a docker build to run the end-to-end Maelstrom test suite.
 
 `cargo test` runs 90 tests: unit and matrix tests per protocol path, targeted
 regressions, a deterministic seeded multi-replica cluster harness (K=3..7,
 loss / reorder / duplication / partition / crash-with-amnesia, safety asserted
 after *every* single step), and proptest companions.
+
+In order to run the maelstrom targets you need to fetch maelstrom as a submodule with 
+
+```shell
+git submodule init
+git submodule update
+```
 
 `maelstrom-lin-kv` runs the core as a [Maelstrom](https://github.com/jepsen-io/maelstrom)
 node so Jepsen's Knossos checker verifies **linearizability** — strictly
