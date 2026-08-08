@@ -1,7 +1,7 @@
 # vrr-core
 
-A **sans-io** [Viewstamped Replication Revisited](https://pmg.csail.mit.edu/papers/vr-revisited.pdf)
-core in Rust, with a C ABI for LuaJIT FFI and a Maelstrom node for checking it.
+A **sans-io** [Viewstamped Replication Revisited](https://dspace.mit.edu/server/api/core/bitstreams/9f8c52b3-ea46-4fde-9dc9-354ed6d9c7d9/content)
+core library in Rust, with a C ABI for LuaJIT FFI and a demo Maelstrom node for checking it.
 
 Sans-io means the whole protocol is a state machine: you hand a replica an input
 and drain the outputs it produced. No sockets, no threads, no async runtime, no
@@ -12,17 +12,19 @@ let mut replica = Replica::new(vec!["n0".into(), "n1".into(), "n2".into()], "n0"
 let outputs = replica.step(Input::Request { /* ... */ });
 ```
 
+The Maelstrom node is a demo node a simple bin that does a trivial key-value store over stdin/stdout so that the Kyle Kingsbury Maelstrom test harness can create a cluster of nodes to then inject network partitions, crashes and other error conditions to test the core VSS library.
+
+The fact that the software passing Maelstrom testing is not evidence of no bugs. Yet it is a demonstration that there are no shallow bugs and that the library has some resiliance under only network partitions, only crashes, or combinations of both. Yet read the MIT license if you build a system on top of this library the bugs may be in the combination of all the code. You should consider writing custom Maelstrom logic to validate your entire system. 
+
 ## Why this exists
 
-Nothing published covers the hard half of VRR. `viewstamped-replication` 0.9.0
-leaves view change, recovery and reconfiguration as TODO; `penberg/vsr-rs` and
-its forks are normal-operation only and say so; `vsr-rs` on crates.io is a
-12-line placeholder. The only battle-tested implementation is TigerBeetle's,
-which is Zig and not extractable. None expose a C ABI, and the async ones are
-the wrong shape for FFI — you would be pumping a Tokio runtime from inside
-LuaJIT.
+As at 2026-08 nothing published covers the hard half of VRR such as view change, recovery and reconfiguration. No crate exposes a C ABI, and the async ones are
+the wrong shape for FFI. You would be pumping a Tokio runtime from inside
+LuaJIT. 
 
-This crate implements the parts that get skipped:
+This crate is extracted from my own system where a lightweight and embeedable strong consistency model over a small amount is more cost effective than Zookeeper or etcd. Just having one thing decided which is which of three data centers is the primary and being able to embed that into an openresty process is a very powerful capability.
+
+This crate implements the parts of Viewstamped Replication Revsited that often get skipped:
 
 | | |
 |---|---|
@@ -40,6 +42,8 @@ the adoption rules are monotonic in epoch, then in slot/commit/log-prefix, and
 
 ## Evidence
 
+`make e2e` does a docker build to run the end-to-end Maelstrom test suite.
+
 `cargo test` runs 90 tests: unit and matrix tests per protocol path, targeted
 regressions, a deterministic seeded multi-replica cluster harness (K=3..7,
 loss / reorder / duplication / partition / crash-with-amnesia, safety asserted
@@ -52,7 +56,7 @@ under partition, process kill, and process pause. Latest: 10,880 operations at
 K=5 under all three nemeses, `:valid? true`, no failures.
 
 ```bash
-mise install          # JDK 21 + Leiningen 2.11.2
+mise install          # JDK 25 + Leiningen 2.11.2
 brew install gnuplot  # only for Jepsen's plots; checkers work without it
 make test             # the Rust suite
 make test-all         # lin-kv under partition + kill + pause
@@ -60,6 +64,24 @@ make serve            # browse results at http://localhost:8080
 ```
 
 `make help` lists the tunables (`NODES`, `TIME_LIMIT`, `RATE`, `INTERVAL`).
+
+### Docker
+
+For environments where installing Java, Leiningen, and Rust is difficult, use
+the Docker image:
+
+```bash
+make e2e
+```
+
+Or manually:
+
+```bash
+make docker-build
+docker run --rm -e NODES=5 -e TIME_LIMIT=60 -e RATE=20 -e INTERVAL=20 vrr-core-maelstrom test-all
+```
+
+See `Dockerfile.maelstrom` for the build definition.
 
 ## Two things that will mislead you
 
@@ -103,6 +125,28 @@ directly and its evidence says nothing about this limit.
 
 Pre-alpha. The protocol is covered by the tests above and by Maelstrom; the API
 is not stable and there has been no production use.
+
+## Attribution
+
+This project uses the following open-source tools for testing and validation:
+
+- **[Maelstrom](https://github.com/jepsen-io/maelstrom)** — a workbench for learning
+  distributed systems by writing your own, created by [Kyle Kingsbury](https://jepsen.io)
+  and the [Jepsen](https://jepsen.io) team. Licensed under the [Eclipse Public
+  License 1.0](https://www.eclipse.org/legal/epl-v10.html).
+
+- **[Jepsen](https://github.com/jepsen-io/jepsen)** — a framework for testing
+  distributed systems, also by Kyle Kingsbury. Licensed under the [Eclipse Public
+  License 1.0](https://www.eclipse.org/legal/epl-v10.html).
+
+- **[Knossos](https://github.com/jepsen-io/knossos)** — Jepsen's linearizability
+  checker. Licensed under the [Eclipse Public
+  License 1.0](https://www.eclipse.org/legal/epl-v10.html).
+
+The `maelstrom-lin-kv` binary implements a [Fly.io Distributed Systems
+Challenge](https://fly.io/dist-sys/) style linearizable key-value store using this
+core, allowing it to be tested against Maelstrom's `lin-kv` workload and
+Knossos checker under network partitions, process kills, and pauses.
 
 ## Licence
 
