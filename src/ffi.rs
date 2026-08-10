@@ -141,6 +141,7 @@ fn valid_message_payloads(message: &Message) -> bool {
         Body::RecoveryResponse {
             state: Some(state), ..
         } => state.log.iter().all(valid_entry),
+        Body::StateChunk { entries, .. } => entries.iter().all(valid_entry),
         _ => true,
     }
 }

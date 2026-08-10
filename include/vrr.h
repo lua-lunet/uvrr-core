@@ -41,12 +41,13 @@ extern "C" {
 #define VRR_OUT_SEND      2  /* send to the peer in out_to            */
 #define VRR_OUT_REPLY     3  /* client reply; header out-params are 0 */
 
-/* Largest datagram the node will emit or accept. A whole-log transfer
- * (DO_EPOCH_CHANGE / START_EPOCH / RECOVERY_RESPONSE) that would exceed this
- * is refused with VRR_TOO_LARGE, and the refusal is atomic: the node's state
- * is rolled back and it keeps serving. It cannot complete that transfer while
- * the log is moved whole, so treat VRR_TOO_LARGE on those tags as "this node
- * needs catch-up by some means other than one datagram". */
+/* Largest datagram the node will emit or accept. A state transfer
+ * (DO_EPOCH_CHANGE / START_EPOCH / RECOVERY_RESPONSE) whose whole-log
+ * encoding would exceed this is split by the core into an ordered run of
+ * STATE_CHUNK datagrams (tag 0x40), each at most this size, and reassembled
+ * by the receiving core. VRR_TOO_LARGE on a peer output is therefore an
+ * unreachable backstop for state transfer; it can still fire for an
+ * oversize client request or reply. */
 #define VRR_MAX_DATAGRAM 65507
 
 /* Opaque node handle. */

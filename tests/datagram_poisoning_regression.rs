@@ -1,35 +1,30 @@
 //! Regression for the whole-log datagram-poisoning boundary defect (review triage T0,
-//! consolidated finding F01, P0).
+//! consolidated finding F01, P0), re-pinned for core-owned chunked transfer.
 //!
 //! A public-path drive grows the log of an FFI node until the whole-log
 //! `DO_EPOCH_CHANGE` generated during epoch change encodes just beyond
-//! `MAX_DATAGRAM`. `Node::peer` (`ffi.rs:83`) rejects the datagram only after
-//! `Replica::step` has already applied the core mutations (`qualify_change` sets
-//! `sent_do_change` and records the peer's `StartEpochChange`), and `Node::step`
-//! (`ffi.rs:109`) then poisons the node permanently.
+//! `MAX_DATAGRAM`. Originally `Node::peer` rejected the datagram only after
+//! `Replica::step` had applied the core mutations, and `Node::step` then
+//! poisoned the node permanently; the F01 fix made that refusal atomic.
 //!
-//! The boundary assertions (largest fitting log / first oversize log) hold both
-//! before and after remediation: the one-datagram ceiling stays. The contract
-//! assertions (oversize output refused, node not poisoned) express the required
-//! post-fix behavior from item02: refusal before observable mutation and no
-//! permanent poisoning.
+//! The ceiling is now removed rather than refused: the core splits an
+//! oversize logical transfer into an ordered run of `STATE_CHUNK` datagrams,
+//! each at most `MAX_DATAGRAM`, so the qualifying `START_EPOCH_CHANGE` receive
+//! returns `OK` and the transfer commits through the public output queue.
+//! This test pins that contract end-to-end through the FFI: every queued
+//! datagram fits one datagram, the chunks reassemble to the exact whole-log
+//! `DO_EPOCH_CHANGE`, and the node is never poisoned.
 //!
-//! Observed current behavior at b971e8a:
-//! - the qualifying `StartEpochChange` receive returns `TOO_LARGE` (-6),
-//! - every subsequent public entry point returns permanent `SERVICE` (-7),
-//!   so the two "must keep serving" assertions fail today with `left: -7`.
-//!
-//! `START_EPOCH` and `RECOVERY_RESPONSE` share the same whole-log encoding path
-//! (`Node::peer` / `Node::run`); driving one path pins the shared ceiling.
+//! `START_EPOCH` and `RECOVERY_RESPONSE` share the same chunking path
+//! (`Replica::state_transfer`); driving one path pins the shared mechanism.
 
 use std::ffi::c_void;
 
 use uuid::Uuid;
 use vrr::locks::{Lease, Request};
-use vrr::vrr::{Body, LogEntry, LogState, MAX_DATAGRAM, Message};
+use vrr::vrr::{Body, ChunkKind, LogEntry, LogState, MAX_DATAGRAM, Message};
 
 const OK: i32 = 0;
-const TOO_LARGE: i32 = -6;
 
 unsafe extern "C" {
     fn vrr_node_new(
@@ -51,9 +46,56 @@ unsafe extern "C" {
     fn vrr_node_idle(node: *mut c_void) -> i32;
     fn vrr_node_leader_timeout(node: *mut c_void) -> i32;
     fn vrr_node_recover(node: *mut c_void, nonce_len: usize, nonce: *const u8) -> i32;
+    fn vrr_node_next(
+        node: *mut c_void,
+        out_kind: *mut u32,
+        out_to: *mut u32,
+        out_tag: *mut u32,
+        out_epoch: *mut u32,
+        out_slot_hi: *mut u32,
+        out_slot_lo: *mut u32,
+        capacity: usize,
+        out_len: *mut usize,
+        out_data: *mut u8,
+    ) -> i32;
 }
 
 struct Node(*mut c_void);
+
+impl Node {
+    fn next(&self) -> Option<(u32, u32, Vec<u8>)> {
+        let mut kind = 0;
+        let mut to = 0;
+        let mut tag = 0;
+        let mut epoch = 0;
+        let mut slot_hi = 0;
+        let mut slot_lo = 0;
+        let mut len = 0;
+        let mut bytes = vec![0; MAX_DATAGRAM];
+        let status = unsafe {
+            vrr_node_next(
+                self.0,
+                &mut kind,
+                &mut to,
+                &mut tag,
+                &mut epoch,
+                &mut slot_hi,
+                &mut slot_lo,
+                bytes.len(),
+                &mut len,
+                bytes.as_mut_ptr(),
+            )
+        };
+        match status {
+            0 => None,
+            1 => {
+                bytes.truncate(len);
+                Some((kind, to, bytes))
+            }
+            other => panic!("vrr_node_next failed with {other}"),
+        }
+    }
+}
 
 impl Drop for Node {
     fn drop(&mut self) {
@@ -111,8 +153,8 @@ fn do_epoch_change_datagram(entries: u64) -> usize {
 }
 
 #[test]
-fn oversize_whole_log_transfer_is_refused_without_poisoning_the_node() {
-    // Pin the ceiling deterministically: the first log length whose generated
+fn oversize_whole_log_transfer_is_chunked_without_poisoning_the_node() {
+    // Pin the boundary deterministically: the first log length whose generated
     // DO_EPOCH_CHANGE exceeds MAX_DATAGRAM, with the previous length still fitting.
     let oversize = (1u64..)
         .find(|&entries| do_epoch_change_datagram(entries) > MAX_DATAGRAM)
@@ -123,7 +165,7 @@ fn oversize_whole_log_transfer_is_refused_without_poisoning_the_node() {
         oversize - 1
     );
     eprintln!(
-        "whole-log DO_EPOCH_CHANGE ceiling: {oversize} entries encode to {} bytes \
+        "whole-log DO_EPOCH_CHANGE boundary: {oversize} entries encode to {} bytes \
          (> {MAX_DATAGRAM}); {} entries encode to {} bytes",
         do_epoch_change_datagram(oversize),
         oversize - 1,
@@ -165,8 +207,8 @@ fn oversize_whole_log_transfer_is_refused_without_poisoning_the_node() {
     }
 
     // Leader timeout moves the node into epoch 1, where node 1 leads and this
-    // node is a backup. One peer START_EPOCH_CHANGE then qualifies the
-    // whole-log DO_EPOCH_CHANGE.
+    // node is a backup. One peer START_EPOCH_CHANGE qualifies the whole-log
+    // DO_EPOCH_CHANGE, which the core now chunks instead of refusing.
     assert_eq!(unsafe { vrr_node_leader_timeout(node.0) }, OK);
     let start_epoch_change = Message {
         epoch: 1,
@@ -185,21 +227,82 @@ fn oversize_whole_log_transfer_is_refused_without_poisoning_the_node() {
                 start_epoch_change.as_ptr(),
             )
         },
-        TOO_LARGE,
-        "oversize whole-log DO_EPOCH_CHANGE must be refused"
+        OK,
+        "oversize whole-log DO_EPOCH_CHANGE must chunk, not refuse"
     );
 
-    // The refusal must not poison the node: public entry points keep serving.
-    // Both assertions fail today with SERVICE (-7): the refusal happens after
-    // the core mutation and Node::step marks the node permanently poisoned.
+    // Drain the queue: the ordinary outputs (one PREPARE broadcast per
+    // request, one START_EPOCH_CHANGE broadcast) then the chunked transfer —
+    // STATE_CHUNK datagrams to the epoch-1 leader, each within one datagram,
+    // sharing one transfer uuid and reassembling to the exact whole log.
+    let mut transfer = None;
+    let mut reassembled: Vec<Option<LogEntry>> = (0..oversize).map(|_| None).collect();
+    let mut chunks = 0_u64;
+    let mut ordinary = 0_u64;
+    while let Some((kind, to, bytes)) = node.next() {
+        assert!(
+            bytes.len() <= MAX_DATAGRAM,
+            "every queued datagram fits one datagram"
+        );
+        let message = Message::decode(&bytes).expect("queued datagram decodes");
+        if let Body::StateChunk {
+            transfer: uuid,
+            kind: chunk_kind,
+            total,
+            first,
+            entries,
+            state_slot,
+            state_commit,
+        } = message.body
+        {
+            assert_eq!(kind, 2, "STATE_CHUNK goes to the leader only");
+            assert_eq!(to, 1, "node 1 leads epoch 1");
+            assert_eq!(message.epoch, 1);
+            assert_eq!(message.slot, oversize, "header carries the logical slot");
+            assert_eq!(chunk_kind, ChunkKind::DoEpochChange { latest_normal: 0 });
+            assert_eq!(total, oversize);
+            assert_eq!(state_slot, oversize);
+            assert_eq!(state_commit, 0);
+            match transfer {
+                None => transfer = Some(uuid),
+                Some(ongoing) => assert_eq!(ongoing, uuid, "one transfer uuid per logical message"),
+            }
+            for (index, entry) in entries.into_iter().enumerate() {
+                let at = usize::try_from(first + index as u64).unwrap();
+                assert!(
+                    reassembled[at].replace(entry).is_none(),
+                    "no overlapping chunks"
+                );
+            }
+            chunks += 1;
+        } else {
+            ordinary += 1;
+        }
+    }
+    assert_eq!(
+        ordinary,
+        oversize + 1,
+        "prepares plus the start-epoch-change"
+    );
+    assert!(chunks > 1, "the oversize transfer must actually chunk");
+    let transfer = transfer.expect("a chunked transfer was emitted");
+    assert_ne!(transfer, Uuid::nil(), "transfer identity is a fresh uuid");
+    let log: Vec<LogEntry> = reassembled.into_iter().map(Option::unwrap).collect();
+    assert_eq!(
+        log,
+        (1..=oversize).map(entry).collect::<Vec<_>>(),
+        "chunks reassemble to the exact whole log"
+    );
+
+    // The node was never poisoned: public entry points keep serving.
     assert_eq!(
         unsafe { vrr_node_idle(node.0) },
         OK,
-        "node must keep serving after an oversize refusal"
+        "node must keep serving after a chunked transfer"
     );
     assert_eq!(
         unsafe { vrr_node_recover(node.0, 1, b"9".as_ptr()) },
         OK,
-        "node must accept recovery after an oversize refusal"
+        "node must accept recovery after a chunked transfer"
     );
 }

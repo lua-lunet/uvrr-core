@@ -1,32 +1,33 @@
 //! Boundary matrix around the one-datagram ceiling for generated peer output
-//! (item02 verification of the F01 transactional FFI fix).
+//! (item02 verification of the F01 transactional FFI fix, re-pinned for
+//! core-owned chunked transfer).
 //!
-//! `datagram_poisoning_regression.rs` pins the refusal and the keep-serving
-//! contract at the first oversize log length. This matrix covers the two arms
-//! around the exact boundary end-to-end through the public FFI output queue:
+//! This matrix covers the two arms around the exact boundary end-to-end
+//! through the public FFI output queue:
 //!
 //! - just-fits (largest log whose whole-log `DO_EPOCH_CHANGE` still fits): the
 //!   step commits exactly once — the queued datagram is at most `MAX_DATAGRAM`,
 //!   decodes to the exact expected message, and a repeat trigger produces no
-//!   duplicate output.
-//! - just-over (first oversize log): the refusal is atomic — a second trigger
-//!   refuses again (proving the core mutation rolled back instead of being
-//!   retained), every previously queued output survives both refusals in order,
-//!   and no partial output from the failed steps leaks into the queue.
+//!   duplicate output. Small-log clusters keep this single-message wire
+//!   behaviour.
+//! - just-over (first oversize log): the transfer commits chunked — the queue
+//!   gains an ordered run of `STATE_CHUNK` datagrams, each at most
+//!   `MAX_DATAGRAM`, sharing one transfer uuid and reassembling to the exact
+//!   whole-log `DO_EPOCH_CHANGE`. The commit is still exactly-once: a repeat
+//!   trigger produces no duplicate transfer.
 //!
-//! The ceiling itself is a liveness limit, not corruption: a node whose whole
-//! log cannot move in one datagram refuses that transfer and keeps serving, but
-//! cannot complete that transfer while the log stays whole.
+//! The one-datagram ceiling used to be a liveness limit; it is now only the
+//! chunk size. The `ffi.rs` cap remains as an unreachable backstop for state
+//! transfer.
 
 use std::ffi::c_void;
 use std::ptr;
 
 use uuid::Uuid;
 use vrr::locks::{Lease, Request};
-use vrr::vrr::{Body, LogEntry, LogState, MAX_DATAGRAM, Message, Tag};
+use vrr::vrr::{Body, ChunkKind, LogEntry, LogState, MAX_DATAGRAM, Message, Tag};
 
 const OK: i32 = 0;
-const TOO_LARGE: i32 = -6;
 
 unsafe extern "C" {
     fn vrr_node_new(
@@ -299,50 +300,105 @@ fn just_fits_transfer_commits_exactly_once_within_one_datagram() {
 }
 
 #[test]
-fn just_over_refusal_rolls_back_and_preserves_the_output_queue() {
+fn just_over_transfer_chunks_commit_exactly_once_within_datagrams() {
     let oversize = first_oversize_log();
     let node = Node::new();
     grow(&node, oversize);
 
     assert_eq!(
         node.receive(1, &start_epoch_change()),
-        TOO_LARGE,
-        "oversize whole-log DO_EPOCH_CHANGE must be refused"
-    );
-    assert_eq!(
-        node.receive(2, &start_epoch_change()),
-        TOO_LARGE,
-        "rollback proof: the refused step retained neither the peer's \
-         StartEpochChange nor sent_do_change, so a new trigger refuses again"
+        OK,
+        "oversize whole-log DO_EPOCH_CHANGE must chunk, not refuse"
     );
 
-    // Both refusals are atomic for the queue: every ordinary output enqueued
-    // before them survives in order, and no partial output from either failed
-    // step leaked in.
+    // The queue holds the ordinary outputs first, then the chunked transfer:
+    // `oversize` PREPARE broadcasts, one START_EPOCH_CHANGE broadcast, then
+    // the ordered run of STATE_CHUNK datagrams to the epoch-1 leader.
     let drained = node.drain();
-    assert_eq!(
-        drained.len(),
-        usize::try_from(oversize).unwrap() + 1,
-        "queue must hold exactly the pre-refusal outputs"
+    let ordinary = usize::try_from(oversize).unwrap() + 1;
+    assert!(
+        drained.len() > ordinary,
+        "queue must hold the ordinary outputs plus the chunked transfer"
     );
-    for (index, output) in drained[..drained.len() - 1].iter().enumerate() {
+    for (index, output) in drained[..ordinary - 1].iter().enumerate() {
         let slot = u64::try_from(index).unwrap() + 1;
         assert_eq!(output.kind, 1, "PREPARE {slot} is a broadcast");
         assert_eq!(output.tag, Tag::Prepare as u32, "PREPARE {slot}");
         assert_eq!(output.epoch, 0, "PREPARE {slot}");
         assert_eq!(output.slot(), slot, "PREPARE order is preserved");
     }
-    assert_start_epoch_change(&drained[drained.len() - 1], oversize);
+    assert_start_epoch_change(&drained[ordinary - 1], oversize);
+
+    let chunks = &drained[ordinary..];
     assert!(
-        drained
-            .iter()
-            .all(|output| output.tag != Tag::DoEpochChange as u32),
-        "no partial DO_EPOCH_CHANGE may leak from a refused step"
+        chunks.len() > 1,
+        "the oversize transfer must actually chunk; got {} chunk(s)",
+        chunks.len()
+    );
+    let mut transfer = None;
+    let mut reassembled: Vec<Option<LogEntry>> = (0..oversize).map(|_| None).collect();
+    for chunk in chunks {
+        assert_eq!(chunk.kind, 2, "STATE_CHUNK goes to the leader only");
+        assert_eq!(chunk.to, 1, "node 1 leads epoch 1");
+        assert_eq!(chunk.tag, Tag::StateChunk as u32);
+        assert_eq!(chunk.epoch, 1);
+        assert_eq!(
+            chunk.slot(),
+            oversize,
+            "header carries the logical message slot"
+        );
+        assert!(
+            chunk.bytes.len() <= MAX_DATAGRAM,
+            "chunk datagram is {} bytes (> {MAX_DATAGRAM})",
+            chunk.bytes.len()
+        );
+        let message = Message::decode(&chunk.bytes).expect("chunk datagram decodes");
+        let Body::StateChunk {
+            transfer: uuid,
+            kind,
+            total,
+            first,
+            entries,
+            state_slot,
+            state_commit,
+        } = message.body
+        else {
+            panic!("transfer datagrams are STATE_CHUNK; got {:?}", message.body)
+        };
+        assert_eq!(kind, ChunkKind::DoEpochChange { latest_normal: 0 });
+        assert_eq!(total, oversize);
+        assert_eq!(state_slot, oversize);
+        assert_eq!(state_commit, 0);
+        match transfer {
+            None => transfer = Some(uuid),
+            Some(ongoing) => assert_eq!(ongoing, uuid, "one transfer uuid per logical message"),
+        }
+        for (index, entry) in entries.into_iter().enumerate() {
+            let at = usize::try_from(first + index as u64).unwrap();
+            assert!(
+                reassembled[at].replace(entry).is_none(),
+                "chunks must not overlap"
+            );
+        }
+    }
+    let log: Vec<LogEntry> = reassembled
+        .into_iter()
+        .collect::<Option<Vec<_>>>()
+        .expect("chunks contiguously cover the whole log");
+    let Body::DoEpochChange { state, .. } = do_epoch_change(oversize).body else {
+        unreachable!()
+    };
+    assert_eq!(
+        log, state.log,
+        "chunks reassemble to the exact whole-log DO_EPOCH_CHANGE log"
     );
 
-    assert_eq!(
-        unsafe { vrr_node_idle(node.0) },
-        OK,
-        "node must keep serving after the refusals"
+    // The success committed exactly once: a second qualifying trigger adds no
+    // duplicate transfer, and the node keeps serving.
+    assert_eq!(node.receive(2, &start_epoch_change()), OK);
+    assert!(
+        node.next().is_none(),
+        "a committed sent_do_change must not retransmit"
     );
+    assert_eq!(unsafe { vrr_node_idle(node.0) }, OK);
 }

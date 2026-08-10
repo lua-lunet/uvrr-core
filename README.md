@@ -109,26 +109,35 @@ the verdict.
 recovering replica tolerates zero further failures. At K=5, `Q=3` of 4 others,
 leaving one spare. Rolling restarts only make progress from K=5 up.
 
-## The whole-log transfer ceiling
+## Multi-datagram state transfer
 
-`MAX_DATAGRAM` is 65,507 bytes — one UDP payload. Epoch change and recovery move
-the log **whole**, so with realistic payloads a transfer stops fitting at about
-85 entries (509 even with empty payloads, since `Vec<u8>` serialises as a JSON
-array of decimal numbers). Past that the transfer is refused with
-`VRR_TOO_LARGE`.
+`MAX_DATAGRAM` is 65,507 bytes — one UDP payload. A state transfer
+(`DO_EPOCH_CHANGE` / `START_EPOCH` / `RECOVERY_RESPONSE`) whose whole-log
+encoding fits one datagram is sent whole, exactly as a small-log cluster
+always has. Past that boundary the core splits the one logical message into an
+ordered run of `STATE_CHUNK` datagrams (tag `0x40`), each at most
+`MAX_DATAGRAM`, carrying a fresh transfer uuid, the chunk's entry range, and
+the invariant fields of the logical message.
 
-The refusal is **atomic** — state rolls back and the node keeps serving, which
-`tests/datagram_boundary_matrix.rs` pins on both arms of the boundary. So this
-is a liveness limit, not a safety one: a node that has fallen too far behind
-cannot be caught up in one datagram.
+The receiver reassembles per `(sender, message kind)`: chunks land in any
+order, duplicate ranges are idempotent, and conflicting overlaps, conflicting
+invariant fields, or a fresh transfer uuid (the retry path — whole-transfer
+restart, no ARQ) free the buffer. Completion of contiguous coverage re-enters
+the ordinary receive arm, so chunked delivery is observationally identical to
+single-datagram delivery and no partial state is ever adopted. Reassembly
+memory is bounded by declared caps (`MAX_CHUNK_TRANSFER_TOTAL`,
+`MAX_CHUNK_BUFFER_BYTES`, `MAX_CHUNK_REASSEMBLY_BYTES`) and grows only with
+received chunks, never with a peer's claimed total; stalled transfers expire
+after `CHUNK_TRANSFER_IDLE_LIMIT` idle ticks. Admission reserves the
+one-entry chunk framing inside `request_datagram_size`, so any admitted
+request is guaranteed to be chunk-representable.
 
-It is deliberately not papered over. Catch-up wants a different mechanism than
-"push the log in a packet" — a chunked stream with a sequence counter, a
-side-channel fetch, or a snapshot/restore, the way a database ships a backup
-rather than the database. Consumers that only ever hold small, expiring state
-may never reach the ceiling.
+`tests/datagram_boundary_matrix.rs` pins both arms of the boundary end-to-end
+through the FFI, and `tests/state_chunk_transfer.rs` covers the reassembly
+semantics and the oversize epoch-change and recovery drives. The `ffi.rs`
+datagram cap remains as an unreachable backstop for state transfer.
 
-Note this ceiling lives in `ffi.rs`, not in `Replica`. Using the crate as a Rust
+Note the cap lives in `ffi.rs`, not in `Replica`. Using the crate as a Rust
 library bypasses it entirely — which is why `maelstrom-lin-kv` links the library
 directly and its evidence says nothing about this limit.
 

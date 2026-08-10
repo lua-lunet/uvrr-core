@@ -4,7 +4,7 @@ use std::ptr;
 
 use uuid::Uuid;
 use vrr::locks::{Lease, Request};
-use vrr::vrr::{Body, LogEntry, LogState, MAX_DATAGRAM, Tag};
+use vrr::vrr::{Body, ChunkKind, LogEntry, LogState, MAX_DATAGRAM, Tag};
 
 const OK: i32 = 0;
 const INVALID: i32 = -1;
@@ -309,11 +309,23 @@ fn wire_codec_accepts_each_canonical_tag_and_refuses_non_messages() {
             Tag::RecoveryResponse,
             Body::RecoveryResponse {
                 nonce: 9,
-                state: Some(state),
+                state: Some(state.clone()),
+            },
+        ),
+        (
+            Tag::StateChunk,
+            Body::StateChunk {
+                transfer: Uuid::from_bytes([9; 16]),
+                kind: ChunkKind::StartEpoch,
+                total: 1,
+                first: 0,
+                entries: vec![entry(1)],
+                state_slot: 1,
+                state_commit: 0,
             },
         ),
     ];
-    assert_cases(8, cases.iter().map(|(tag, _)| *tag as u32).collect());
+    assert_cases(9, cases.iter().map(|(tag, _)| *tag as u32).collect());
     for (tag, body) in &cases {
         let node = Node::new(1);
         assert_eq!(
