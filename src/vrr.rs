@@ -332,6 +332,31 @@ impl Replica {
         self.leader_of(self.epoch) == self.node
     }
 
+    pub fn install_checkpoint(&mut self, committed_slot: Slot) -> Result<(), &'static str> {
+        if !self.in_recovery() {
+            return Err("must be in recovery to install a checkpoint");
+        }
+        let current_checkpoint = self.slot.saturating_sub(self.log.len() as u64);
+        if committed_slot < current_checkpoint {
+            return Err("checkpoint cannot retreat");
+        }
+        if committed_slot > self.commit_slot && self.slot > committed_slot {
+            return Err("cannot safely reconcile local suffix with checkpoint");
+        }
+        if committed_slot >= self.slot {
+            self.log.clear();
+            self.slot = committed_slot;
+        } else {
+            let to_drop = (committed_slot - current_checkpoint) as usize;
+            self.log.drain(..to_drop);
+        }
+        self.commit_slot = self.commit_slot.max(committed_slot);
+        self.executed_slot = self.executed_slot.max(committed_slot);
+        self.executing = None;
+        self.prepare_oks.retain(|&slot, _| slot > committed_slot);
+        Ok(())
+    }
+
     /// Captures the complete diagnostic projection of the internal state.
     /// Pure observability: no mutation, no effect on any later step.
     pub fn diagnostic(&self) -> Diagnostic {
@@ -414,6 +439,15 @@ impl Replica {
     }
     fn in_recovery(&self) -> bool {
         matches!(self.status, Status::Recovering | Status::Replaying)
+    }
+    fn get_log_entry(&self, slot: Slot) -> Option<&LogEntry> {
+        let checkpoint = self.slot.saturating_sub(self.log.len() as u64);
+        if slot <= checkpoint {
+            None
+        } else {
+            let index = usize::try_from(slot - checkpoint - 1).ok()?;
+            self.log.get(index)
+        }
     }
     fn message(&self, slot: Slot, body: Body) -> Message {
         Message {
@@ -535,10 +569,7 @@ impl Replica {
                     && !self.is_leader() =>
             {
                 if slot <= self.slot {
-                    let installed = usize::try_from(slot)
-                        .ok()
-                        .and_then(|slot| slot.checked_sub(1))
-                        .and_then(|index| self.log.get(index));
+                    let installed = self.get_log_entry(slot);
                     if installed != Some(&entry) || commit > self.slot {
                         return Vec::new();
                     }
@@ -695,7 +726,9 @@ impl Replica {
         if self.executing.is_some() || self.executed_slot >= self.commit_slot {
             return Vec::new();
         }
-        let entry = self.log[self.executed_slot as usize].clone();
+        let checkpoint = self.slot.saturating_sub(self.log.len() as u64);
+        let index = (self.executed_slot - checkpoint) as usize;
+        let entry = self.log[index].clone();
         self.executing = Some(entry.slot);
         vec![Output::Execute {
             slot: entry.slot,
@@ -714,7 +747,9 @@ impl Replica {
         {
             return Vec::new();
         }
-        let entry = &self.log[(slot - 1) as usize];
+        let checkpoint = self.slot.saturating_sub(self.log.len() as u64);
+        let index = (slot - 1 - checkpoint) as usize;
+        let entry = &self.log[index];
         let client_id = entry.client_id;
         let request_num = entry.request_num;
         let message_id = entry.message_id;
@@ -825,11 +860,25 @@ impl Replica {
         }
         match (stored_state, incoming_state) {
             (Some(stored), Some(incoming)) => {
-                (incoming.slot, incoming.commit) > (stored.slot, stored.commit)
-                    && incoming.slot >= stored.slot
-                    && incoming.commit >= stored.commit
-                    && incoming.log.len() >= stored.log.len()
-                    && incoming.log[..stored.log.len()] == stored.log[..]
+                if (incoming.slot, incoming.commit) <= (stored.slot, stored.commit)
+                    || incoming.slot < stored.slot
+                    || incoming.commit < stored.commit
+                {
+                    return false;
+                }
+                let incoming_checkpoint = incoming.slot - incoming.log.len() as u64;
+                let stored_checkpoint = stored.slot - stored.log.len() as u64;
+                let start = incoming_checkpoint.max(stored_checkpoint);
+                let end = incoming.slot.min(stored.slot);
+                if start <= end {
+                    let incoming_start = (start - incoming_checkpoint) as usize;
+                    let incoming_end = (end - incoming_checkpoint) as usize;
+                    let stored_start = (start - stored_checkpoint) as usize;
+                    let stored_end = (end - stored_checkpoint) as usize;
+                    incoming.log[incoming_start..incoming_end] == stored.log[stored_start..stored_end]
+                } else {
+                    true
+                }
             }
             (None, Some(_)) => true,
             _ => false,
@@ -870,15 +919,17 @@ impl Replica {
     }
 
     fn structurally_valid(state: &LogState) -> bool {
-        if u64::try_from(state.log.len()).ok() != Some(state.slot) || state.commit > state.slot {
+        if state.slot < state.log.len() as u64 || state.commit > state.slot {
             return false;
         }
+        let checkpoint = state.slot - state.log.len() as u64;
         let mut requests = BTreeMap::new();
         let mut messages = BTreeSet::new();
         state.log.iter().enumerate().all(|(index, entry)| {
             let slot = u64::try_from(index)
                 .ok()
-                .and_then(|index| index.checked_add(1));
+                .and_then(|index| index.checked_add(1))
+                .and_then(|s| s.checked_add(checkpoint));
             slot == Some(entry.slot)
                 && messages.insert(entry.message_id)
                 && requests
@@ -888,22 +939,42 @@ impl Replica {
     }
 
     fn valid_state_message(&self, header_slot: Slot, state: &LogState) -> bool {
-        header_slot == state.slot
-            && state.commit >= self.executed_slot
-            && Self::structurally_valid(state)
-            && state.log.len() >= self.executed_slot as usize
-            && state.log[..self.executed_slot as usize] == self.log[..self.executed_slot as usize]
+        if header_slot != state.slot || state.commit < self.executed_slot || !Self::structurally_valid(state) {
+            return false;
+        }
+        let state_checkpoint = state.slot - state.log.len() as u64;
+        if state_checkpoint > self.executed_slot {
+            return false;
+        }
+        let self_checkpoint = self.slot.saturating_sub(self.log.len() as u64);
+        let start = state_checkpoint.max(self_checkpoint);
+        let end = self.executed_slot;
+        if start <= end {
+            let state_start = (start - state_checkpoint) as usize;
+            let state_end = (end - state_checkpoint) as usize;
+            let self_start = (start - self_checkpoint) as usize;
+            let self_end = (end - self_checkpoint) as usize;
+            state.log[state_start..state_end] == self.log[self_start..self_end]
+        } else {
+            true
+        }
     }
 
     fn adopt(&mut self, state: LogState) {
         let old_clients = std::mem::take(&mut self.clients);
         let old_results = std::mem::take(&mut self.results);
-        self.log = state.log;
+        let old_log = std::mem::replace(&mut self.log, state.log);
+        
+        let self_checkpoint = self.slot.saturating_sub(old_log.len() as u64);
+        let state_checkpoint = state.slot.saturating_sub(self.log.len() as u64);
+
+        let old_slot = self.slot;
         self.slot = state.slot;
         self.commit_slot = state.commit;
         self.executing = None;
         self.prepare_oks.clear();
-        for entry in &self.log {
+
+        let mut rebuild_entry = |entry: &LogEntry| {
             let key = (entry.client_id, entry.request_num);
             let result = old_results.get(&key).cloned().or_else(|| {
                 old_clients
@@ -924,6 +995,18 @@ impl Replica {
                     result,
                 },
             );
+        };
+
+        let overlap_end = state_checkpoint.min(old_slot);
+        if overlap_end > self_checkpoint {
+            let end_idx = (overlap_end - self_checkpoint) as usize;
+            for entry in &old_log[..end_idx.min(old_log.len())] {
+                rebuild_entry(entry);
+            }
+        }
+        
+        for entry in &self.log {
+            rebuild_entry(entry);
         }
     }
 
