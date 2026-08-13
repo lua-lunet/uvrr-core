@@ -8,7 +8,7 @@
 //! binary codec is normative and fixed-width).
 //!
 //! This file gates the *fold*, not quorum policy. Nothing here evaluates a quorum: that
-//! is item06's `QuorumStrategy` and its closed gate in `vrr::quorum`. What is gated here
+//! is the `QuorumStrategy` and its closed gate in `vrr::quorum`. What is gated here
 //! is the set of configurations that can exist at all, because every later intersection
 //! argument (§8.7.4 `R1`/`R2`) is stated over configurations reachable by this fold and
 //! is meaningless over configurations that are not.
@@ -337,7 +337,7 @@ fn init_refuses_duplicate_node_ids() {
 }
 
 // ---------------------------------------------------------------------------
-// 2a. The membership cap (item03b1): a validation-cost bound, not a protocol limit
+// 2a. The membership cap: a validation-cost bound, not a protocol limit
 // ---------------------------------------------------------------------------
 
 /// `Init` with 17 members is refused, and the refusal names the cap. The cap exists so
@@ -391,7 +391,7 @@ fn add_refuses_the_seventeenth_member() {
 
 /// `len()` and `index_of()` are total **by cap, not by hope**: at the maximum
 /// membership every member reports its exact position and the count needs no
-/// conversion. This is the property that retired item03's documented `expect()` calls.
+/// conversion. This is the property that retired the documented `expect()` calls.
 #[test]
 fn len_and_index_of_are_total_at_the_cap() {
     let sixteen: Vec<NodeId> = (0..16).map(NodeId).collect();
@@ -655,7 +655,7 @@ fn halve_never_reaches_a_zero_total() {
 /// `Remove` whose result is an empty `order`: the "non-empty `order`" clause of §8.7.2 is
 /// discharged by the total floor rather than by an independent guard. The refusal a host
 /// actually sees is `NonZeroWeight`, and both halves of that route are asserted here so a
-/// later item cannot add a redundant emptiness variant and change the observable error.
+/// later change cannot add a redundant emptiness variant and change the observable error.
 #[test]
 fn remove_cannot_empty_the_order() {
     let pair = initialised(&[N0, N1]);
@@ -1143,7 +1143,7 @@ fn primary_is_modular_over_the_host_supplied_order() {
 /// Exactly three eras resident. After more than three advances, `record()` answers for
 /// `{current - 1, current}` and answers `None` for anything older. `None` is the whole
 /// mechanism: an out-of-window era is *undecidable*, so a message naming it is dropped
-/// rather than faulting the node (§10, §14.2), and the item17 crash matrix owns that
+/// rather than faulting the node (§10, §14.2), and the crash matrix owns that
 /// claim end to end.
 #[test]
 fn era_table_retains_a_three_era_window() {
@@ -1186,7 +1186,7 @@ fn era_table_retains_a_three_era_window() {
 /// The retained records are shared, not copied: the `Arc` in the surviving previous-era
 /// record after an `extend` is pointer-identical to the one in the receiver. Without
 /// this, configuration history would be a per-advance deep copy, and `Progress`
-/// snapshots (item05) would allocate a configuration per publication.
+/// snapshots (`vrr::progress::Progress`) would allocate a configuration per publication.
 #[test]
 fn era_table_shares_retained_arcs() {
     let table = era_table_three();
@@ -1208,8 +1208,8 @@ fn era_table_shares_retained_arcs() {
 // ---------------------------------------------------------------------------
 
 /// `extend` never mutates its receiver. A clone of the old table held across an `extend`
-/// is unchanged in era, in shape, and in `Arc` identity. This is what lets a later item
-/// hand an `EraTable` out by value to a diagnostic reader while the replica advances,
+/// is unchanged in era, in shape, and in `Arc` identity. This is what lets a
+/// diagnostic reader hold an `EraTable` by value while the replica advances,
 /// with no lock and no copy.
 #[test]
 fn extend_does_not_mutate_the_receiver() {
@@ -1266,7 +1266,8 @@ fn all_variants() -> Vec<SystemOperation> {
 }
 
 /// Round trip through the normative binary codec with `packed_len()` exact (W3, W4).
-/// `LogEntry` (item07) carries a typed `SystemOperation`, so this is the encoding a
+/// `LogEntry` (`vrr::journal`) carries a typed `SystemOperation`, so this is the
+/// encoding a
 /// `Prepare` for a reconfiguration operation actually uses.
 #[test]
 fn system_operation_round_trips_with_exact_length() {

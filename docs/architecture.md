@@ -18,10 +18,10 @@ V_g ⌢ V_g                   (§8.3, diskless self-intersection)
 ```
 
 These are mechanically checked — the family-intersection obligations by the free
-functions `quorum::validate_era`/`quorum::validate_transition` (item06), the
+functions `quorum::validate_era`/`quorum::validate_transition`, the
 transition-legality rules by `invariant::legal`. No host, feature flag, or extension may
-weaken them. `V_g ⌢ V_g` is called out separately because it is not required between
-arbitrary Paxos phase-one quorums, and its absence is the usual way a Flexible Paxos
+weaken them. `V_g ⌢ V_g` is called out separately because it does not follow from
+`QI ⌢ QII` alone, and its absence is the usual way a flexible-quorum
 policy satisfying `QI ⌢ QII` is nevertheless an invalid VRR-2012 policy. The
 open/closed ruling itself, with the counterexample that makes the gate necessary, is Q1
 in the decision record below.
@@ -99,7 +99,7 @@ graph TD
     class invariant closed;
 ```
 
-`ids` depends on nothing. `Fault` lives in `ids`, not in `invariant` (item05a ruling),
+`ids` depends on nothing. `Fault` lives in `ids`, not in `invariant`,
 precisely so that `invariant::legal` can consume `Progress` without `progress` importing
 anything back from `invariant`: that edge would close a cycle, and cycles are
 prohibited. `invariant` re-exports `Fault` so existing citations keep compiling.
@@ -326,11 +326,11 @@ them. Validation is over families, not counts: the threshold inequality `T_a + T
 a strategy validated only by thresholds is treated as unvalidated.
 
 `WeightedMajority` is the default, because §8.7.5 proves its closure across consecutive
-eras. `EvenSplit` ships as a non-default *reference* strategy (item18) to prove the
+eras. `EvenSplit` ships as a non-default *reference* strategy to prove the
 extension point admits the six-node three-datacentre profile. We ship a default and a
 trait. We do not ship a choice.
 
-**Amendment (item06).** The mechanical check landed in `crate::quorum` as the free
+The mechanical check lives in `crate::quorum` as the free
 functions `validate_era`/`validate_transition`, not as `invariant` code and not as trait
 methods: free functions are what makes the gate un-overridable by a strategy value.
 `invariant` retains the transition-legality checker `legal`. The discharge mechanism is
@@ -446,8 +446,8 @@ index in an `AD` state. `.tmp/failure.log` is 311 KB of alpha-era output.
 `.gitignore` entry is written `.tmp/` with the trailing slash so it unambiguously names a
 directory. Normative documents live in `docs/` and are tracked.
 
-**Consequence.** `.tmp/failure.log` stays on disk untracked; item17 mines it for
-regression signatures from the working tree, not from history.
+**Consequence.** `.tmp/failure.log` stays on disk untracked; the overlap crash matrix
+mines it for regression signatures from the working tree, not from history.
 
 #### P2 — MIT
 

@@ -23,7 +23,7 @@
 //!    that never reclaims is a legitimate configuration (S1).
 //! 5. **The wire form of an entry is exact.** `packed_len` is the byte count, the
 //!    payload discriminant reserves 0, and an untrusted length prefix yields
-//!    `Incomplete`, never a pre-allocation (mirroring item03's `Init` decision).
+//!    `Incomplete`, never a pre-allocation (mirroring the `Init` decode decision).
 //! 6. **The traits carry no reclamation vocabulary, mechanically** — see
 //!    `s1_gate_traits_carry_no_reclamation_vocabulary`.
 //!
@@ -937,8 +937,8 @@ fn wire_refuses_reserved_and_unknown_discriminants() {
     }
 
     // A client payload length prefix far beyond the input is Incomplete, and the
-    // decode must not pre-allocate from the untrusted prefix (item03's `Init`
-    // decision, mirrored): this buffer is 41 bytes and claims a 4 GiB payload.
+    // decode must not pre-allocate from the untrusted prefix (the `Init`
+    // decode decision, mirrored): this buffer is 41 bytes and claims a 4 GiB payload.
     let mut buf = Vec::new();
     buf.extend_from_slice(&0u64.to_be_bytes()); // slot
     buf.extend_from_slice(&0u32.to_be_bytes()); // era

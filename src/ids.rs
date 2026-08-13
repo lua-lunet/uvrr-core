@@ -22,7 +22,7 @@
 //! `type View = u32` is naming, not typing: it lets a slot be passed where a view is
 //! expected, and the resulting bug is a silent safety violation rather than a type
 //! error. Each identifier below is a distinct `#[repr(transparent)]` newtype, so the
-//! confusion is rejected at compile time while the C ABI (item21) still passes the
+//! confusion is rejected at compile time while the C ABI still passes the
 //! value as the bare primitive with no marshalling layer to disagree with itself. The
 //! `const` layout assertions exist so a later added field or changed repr is a
 //! compile error here rather than an ABI break discovered by a host.
@@ -278,8 +278,8 @@ pub struct ViewId {
 
 impl ViewId {
     /// The **genesis view**: [`Era::INITIAL`] and [`View::INITIAL`] — the view a
-    /// freshly provisioned node advertises, pinned by `Progress::genesis` (item05
-    /// ruling). Era 0 is the void configuration, quorum-impossible by arithmetic,
+    /// freshly provisioned node advertises, pinned by `Progress::genesis` (the
+    /// genesis ruling, §1.3). Era 0 is the void configuration, quorum-impossible by arithmetic,
     /// and view 0 is the first primary term once `Init` commits (§1.2:
     /// `primary(0) = order[0]`). It is not "no view": a freshly provisioned node
     /// has a real genesis view, so no `Option<ViewId>` appears anywhere. Named
@@ -326,7 +326,7 @@ impl ViewId {
     /// `e+1` is established by a single committed reconfiguration operation. View gaps
     /// are legal, so the view increase need not be by one.
     ///
-    /// This is the single point of truth for the rule. Later items call it; they do not
+    /// This is the single point of truth for the rule. Callers use it; they do not
     /// re-derive it, because two copies of an inequality are two chances to get it
     /// wrong. Note the asymmetry with the era: an era jump of two is refused even though
     /// a view jump of two is accepted, since skipping an era means skipping a
@@ -401,7 +401,7 @@ pub fn next_view_selecting(current: View, index: u32, members: u32) -> Option<Vi
 /// outcome the host could not determine is, because that is the only case in which the
 /// node cannot say what its own durable state is.
 ///
-/// This enum lives in `ids`, not in `invariant`, by the item05a ruling: `Fault` names
+/// This enum lives in `ids`, not in `invariant`, by architectural ruling: `Fault` names
 /// fault *kinds* and is identity-level state carried inside `Progress`. Placing it in
 /// `invariant` would close a module cycle — `invariant::legal` consumes `Progress`
 /// while `progress` would have to import `Fault` back from `invariant` — and the

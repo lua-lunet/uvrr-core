@@ -265,7 +265,7 @@ Let `C(n)` be the quorum which committed slot `n`. Let `D(v+1)` be the quorum of
 therefore C(n) intersect D(v+1) is non-empty.
 ```
 
-The VRR-2012 log-selection rule uses this intersection to preserve every committed operation in the same slot in all later views. This is analogous to a later Paxos phase-one quorum observing values accepted by an earlier phase-two quorum.
+The VRR-2012 log-selection rule uses this intersection to preserve every committed operation in the same slot in all later views.
 
 ### 8.2 Quorum families, not quorum counts
 
@@ -279,7 +279,7 @@ R_g = family of recovery quorums in configuration generation g
 
 A concrete recovery quorum contains only responses from replicas whose state survived independently. The recovering replica does not count its own lost or unqualified state toward `R_g`.
 
-`C_g` is the VRR analogue of a Paxos phase-two family `QII_g`. `V_g` is the analogue of a Paxos phase-one family `QI_g` for the limited purpose of history selection. These are correspondences between proof obligations; VRR does not execute Paxos phases.
+In the notation of the reconfiguration safety argument, `C_g` plays the `QII_g` role and `V_g` plays the `QI_g` role for the limited purpose of history selection. These are names for proof obligations.
 
 For quorum families `A` and `B`, write:
 
@@ -311,7 +311,7 @@ where `F_g` is the family of `StartViewChange` fence quorums. If one policy uses
 V_g ⌢ V_g
 ```
 
-This self-intersection is not required between arbitrary Paxos phase-one quorums. It is required by this diskless VRR construction because a recovering replica must encounter the volatile evidence that an earlier view was fenced. A Flexible Paxos policy is therefore not automatically a valid VRR-2012 policy merely because `QI ⌢ QII` holds.
+This self-intersection is not implied by `QI ⌢ QII` alone. It is required by this diskless VRR construction because a recovering replica must encounter the volatile evidence that an earlier view was fenced. A quorum policy is therefore not automatically a valid VRR-2012 policy merely because `QI ⌢ QII` holds.
 
 The initial quorum strategy should use one self-intersecting `V_g` family for all three roles. A future strategy may define distinct `F_g`, `V_g`, and `R_g` families, but it must validate their actual pairwise proof obligations explicitly.
 
@@ -370,7 +370,7 @@ The primary counts itself in `C_g`, so a four-replica primary needs one follower
 
 ### 8.6 Reconfiguration overlap
 
-For adjacent configuration generations, the UPaxos safety chain is:
+For adjacent configuration generations, the reconfiguration safety chain is:
 
 ```text
 C_g ⌢ V_g ⌢ C_(g+1) ⌢ V_(g+1)
@@ -394,11 +394,11 @@ The chain transfers to VRR as a necessary history-preservation condition: the vi
 4. how recovery intersects volatile view-fence knowledge across the boundary; and
 5. when a zero-weight learner is sufficiently caught up to receive positive weight.
 
-The UPaxos *leader casting vote* is a Paxos pipeline optimisation rather than a safety condition. Its prepare/accept routing sequence is not itself a VRR view-change sequence. Section 8.7 defines the corresponding Unbounded VSR transition which this project intends to support; implementation remains conditional on a complete model and safety proof of that VSR-specific transition.
+The *leader casting vote* is a pipelining optimisation rather than a safety condition. Its prepare/accept routing sequence is not itself a VRR view-change sequence. Section 8.7 defines the corresponding Unbounded VSR transition which this project intends to support; implementation remains conditional on a complete model and safety proof of that VSR-specific transition.
 
 ### 8.7 Planned extension: Unbounded VSR reconfiguration by voting weights
 
-`vrr-core` will support **Unbounded VSR**, a non-stop reconfiguration protocol corresponding to David Turner's [*Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters*](http://tessanddave.com/paxos-reconf-902f8b7.pdf) result but stated in VSR operations, views, and quorum evidence. This section is the normative design target. It is not a claim that the current implementation already supports reconfiguration.
+`vrr-core` will support **Unbounded VSR**, a non-stop reconfiguration protocol corresponding to David Turner's unbounded-pipelining reconfiguration result (reference 5) but stated in VSR operations, views, and quorum evidence. This section is the normative design target. It is not a claim that the current implementation already supports reconfiguration.
 
 #### 8.7.1 Configuration
 
@@ -473,7 +473,7 @@ primary(view) = config(era(view)).order[
 
 A replica may propose a view only if its accepted history contains the committed reconfiguration operation establishing that view's era. View-number gaps are legal. The implementation must use checked encoding and must reject an era or index which cannot be represented; wraparound is forbidden.
 
-Turner's Paxos relation between ballot era and slot era becomes the following VSR relation between the current view and the configuration authorizing an operation slot:
+Turner's relation between ballot era and slot era becomes the following VSR relation between the current view and the configuration authorizing an operation slot:
 
 ```text
 era(view) + 1 >= era(slot) >= era(view)
@@ -869,17 +869,17 @@ The FFI clone-and-stage implementation provides process-local failure atomicity.
 1. Brian M. Oki and Barbara H. Liskov, [*Viewstamped Replication: A New Primary Copy Method to Support Highly-Available Distributed Systems*](https://www.cs.princeton.edu/courses/archive/fall11/cos518/papers/viewstamped.pdf), ACM PODC, 15–17 August 1988. This is the publication denoted `VSR-1988`; its canonical DOI is [10.1145/62546.62549](https://doi.org/10.1145/62546.62549), and it is reference [10] in VRR-2012.
 2. Brian Masao Oki, [*Viewstamped Replication for Highly Available Distributed Systems*](https://publications.csail.mit.edu/lcs/pubs/pdf/MIT-LCS-TR-423.pdf), dissertation supervised by Professor Barbara H. Liskov and submitted to MIT on 20 May 1988; issued as MIT/LCS/TR-423, August 1988. This is the fuller supporting treatment and reference [11] in VRR-2012.
 3. Barbara Liskov and James Cowling, [*Viewstamped Replication Revisited*](https://dspace.mit.edu/entities/publication/80846d94-fcd3-40e6-87fb-8d91fe99a5d1), MIT-CSAIL-TR-2012-021, 2012. The disk-free recovery argument and the `StartViewChange` versus stable-view-record alternative are in §§4.3 and 8.2.
-4. Heidi Howard, Dahlia Malkhi, and Alexander Spiegelman, [*Flexible Paxos: Quorum Intersection Revisited*](https://arxiv.org/pdf/1608.06696), 2016.
-5. David Turner, [*Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters*](http://tessanddave.com/paxos-reconf-902f8b7.pdf), Tracsis technical report, 2016.
-6. Simon Birch, [“UPaxos: Unbounded Paxos Reconfigurations”](https://simbo1905.wordpress.com/2016/12/16/upaxos-unbounded-paxos-reconfigurations/), 2016.
-7. Simon Birch, [“Paxos Voting Weights”](https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/), 2017.
-8. Simon Birch, [“The FPaxos Even Nodes Optimisation”](https://simbo1905.wordpress.com/2016/09/30/the-fpaxos-even-nodes-optimisation/), 2016.
-9. Simon Birch, [“One More Frown Please! (UPaxos Quorum Overlaps)”](https://simbo1905.wordpress.com/2020/05/23/one-more-frown-please-upaxos-quorum-overlaps/), 2020.
-10. Allen Ling and Simon Birch, [“upaxos progress” discussion](https://gist.github.com/allenling/99bf0e965fa7e0b208f461446fcc97e1), GitHub Gist, 2020.
+4. Heidi Howard, Dahlia Malkhi, and Alexander Spiegelman, [*Flexible quorum intersection revisited*](https://arxiv.org/pdf/1608.06696), 2016.
+5. David Turner, [*Unbounded pipelining in dynamically reconfigurable clusters*](http://tessanddave.com/paxos-reconf-902f8b7.pdf), Tracsis technical report, 2016.
+6. Simon Birch, [“Unbounded reconfigurations”](https://simbo1905.wordpress.com/2016/12/16/upaxos-unbounded-paxos-reconfigurations/), 2016.
+7. Simon Birch, [“Voting weights”](https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/), 2017.
+8. Simon Birch, [“The even-nodes optimisation”](https://simbo1905.wordpress.com/2016/09/30/the-fpaxos-even-nodes-optimisation/), 2016.
+9. Simon Birch, [“One more frown please! (quorum overlaps)”](https://simbo1905.wordpress.com/2020/05/23/one-more-frown-please-upaxos-quorum-overlaps/), 2020.
+10. Allen Ling and Simon Birch, [unbounded-reconfiguration progress discussion](https://gist.github.com/allenling/99bf0e965fa7e0b208f461446fcc97e1), GitHub Gist, 2020.
 
 ## Amendment A1 — §8.7.3 view-number construction is superseded
 
-Ratified at item00. See `docs/architecture.md` decision **W1**.
+See `docs/architecture.md` decision **W1**.
 
 The packed encoding of §8.7.3:
 

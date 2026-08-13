@@ -455,7 +455,7 @@ fn rule3_retained_changes_only_on_reselection() {
     }
 }
 
-/// Rule 7 — the per-tag header-slot table (item02d, resolved here). The table
+/// Rule 7 — the per-tag header-slot table. The table
 /// itself is pinned exhaustively; each role then gets its violating and passing
 /// transitions below.
 #[test]
@@ -517,7 +517,7 @@ fn rule7_operation_tags_must_name_a_slot() {
     }
 }
 
-/// Rule 7, `Absent` class: these tags carry no meaningful slot (item02d), so the
+/// Rule 7, `Absent` class: these tags carry no meaningful slot, so the
 /// only legal value is the sentinel `Slot(0)` — never a fabricated position.
 #[test]
 fn rule7_absent_tags_must_send_the_sentinel() {
@@ -547,7 +547,7 @@ fn rule7_absent_tags_must_send_the_sentinel() {
 /// every slot value is meaningful — `Slot(0)` is the empty frontier a genesis
 /// node legitimately reports. The class has no violating value at the header
 /// level by design: whether a claimed frontier is *believable* is a transition
-/// rule of the replica (item07), not a property of the header.
+/// rule of the replica, not a property of the header.
 #[test]
 fn rule7_frontier_tags_admit_any_slot() {
     let table = genesis_table();
@@ -662,7 +662,7 @@ fn observation_read_returns_latest_write() {
 /// The race B1 exists to win: one writer publishing an incrementing counter,
 /// readers asserting `doubled == value * 2` on every read. A torn read — half of
 /// one write, half of another — violates that relation, so any seqlock bug that
-/// returns one fails here. Run under `--release` per the item brief; debug runs
+/// returns one fails here. Run under `--release`; debug runs
 /// exercise the same interleavings more slowly.
 #[test]
 fn observation_never_returns_a_torn_read() {
@@ -722,7 +722,7 @@ fn observation_never_returns_a_torn_read() {
 // 8. Genesis and the `ViewId::INITIAL` ruling
 // ---------------------------------------------------------------------------
 
-/// The ruling (item01 follow-on, resolved here): `ViewId::INITIAL` is pinned as
+/// The ruling (resolved here): `ViewId::INITIAL` is pinned as
 /// the **genesis view** — the `(era 0, view 0)` pair a freshly provisioned node
 /// advertises. Era 0 is the void configuration, quorum-impossible by arithmetic
 /// (see `Configuration::void`), and view 0 is the first primary term once `Init`

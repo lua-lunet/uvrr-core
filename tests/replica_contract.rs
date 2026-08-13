@@ -13,7 +13,8 @@
 //! `plan`; in an external-stability mode, publication happens at the `Stable`
 //! confirmation, not when the persistence intent is emitted.
 //!
-//! The properties pinned here, each of which items 09–18 are entitled to assume:
+//! The properties pinned here, each of which the protocol suites are entitled
+//! to assume:
 //!
 //! 1.  provision constructs exactly the genesis state (era 1, view 0, slots 1–2
 //!     committed, fenced `Recovering`) and refuses a non-member, a duplicate or
@@ -59,8 +60,8 @@ use vrr::wire::{Header, Malformed, Pack, Tag, Unpack, UnpackError};
 
 type TestReplica = Replica<SegmentedLog, WeightedMajority>;
 
-/// The view-change knobs that keep item10's machinery inert (item10
-/// follow-on): this suite contracts the pipeline and the lifecycle, not the
+/// The view-change knobs that keep the view-change machinery inert: this
+/// suite contracts the pipeline and the lifecycle, not the
 /// view change, so no tick ever suspects and no suffix ever truncates.
 const NO_VIEW_CHANGE: ViewChangeKnobs = ViewChangeKnobs {
     primary_timeout: 0,
@@ -404,9 +405,10 @@ fn reopen_preserves_a_persisted_fault() {
 /// Volatile mode: `plan` computes and releases nothing; `publish` installs,
 /// writes the observation, and releases the effects — exactly once. The
 /// observation changes on publish, never on plan (B1): **nothing externally
-/// observable is released before publication**. On the item07b fixture (this
+/// observable is released before publication**. On the genesis-primary
+/// fixture (this
 /// node IS the genesis primary, holding the complete committed genesis) the
-/// first tick is the item09 bootstrap: the promotion announces the committed
+/// first tick is the bootstrap promotion: the promotion announces the committed
 /// frontier to the two backups (§13.3); later ticks are bare.
 #[test]
 fn volatile_publish_releases_exactly_once_and_observes_on_publish_only() {
@@ -454,7 +456,7 @@ fn volatile_publish_releases_exactly_once_and_observes_on_publish_only() {
     );
     assert!(!after.faulted);
 
-    // A later tick is the bare transition the pre-item09 pin described: no
+    // A later tick is the bare transition the pre-bootstrap pin described: no
     // protocol state moves, no effects release.
     let planned = replica
         .plan(&tick(2), &view_of(&replica))
@@ -513,7 +515,7 @@ fn external_stability_parks_confirms_and_faults_three_ways() {
     );
 
     // Stable completes: the parked candidate publishes, effects release.
-    // This first tick is the item09 bootstrap promotion, so the parked
+    // This first tick is the bootstrap promotion, so the parked
     // effects are the two §13.3 Commit announcements, not none; later ticks
     // park bare.
     let planned = replica
@@ -888,7 +890,8 @@ fn an_illegal_candidate_is_discarded_and_faults_the_node() {
 // 9. SANS-I/O, mechanically enforced
 // ---------------------------------------------------------------------------
 
-/// The three modules of this item contain no clock read, no network, no
+/// The three modules of the pipeline — `replica`, `effects`, `message` —
+/// contain no clock read, no network, no
 /// filesystem and no thread spawn. This is a gate, not a smoke test: a future
 /// edit that reaches for the wall clock or a socket fails the build here.
 #[test]

@@ -7,12 +7,12 @@
 //! properties are asserted, and each of them is a property the rest of the crate is
 //! entitled to assume without re-checking:
 //!
-//! 1. every identifier is layout-identical to its primitive, so the item21 C ABI can
+//! 1. every identifier is layout-identical to its primitive, so the C ABI can
 //!    pass them by value without a conversion layer that could disagree with itself;
 //! 2. no successor wraps — every arithmetic edge is `None`, never a silently reused
 //!    view or slot, because a reused view number is unrecoverable divergence;
 //! 3. `ViewId::is_legal_successor` is the single point of truth for §8.7.3's surviving
-//!    era/view relation, and its truth table is pinned exhaustively so a later item
+//!    era/view relation, and its truth table is pinned exhaustively so a later change
 //!    cannot loosen it by accident;
 //! 4. the W1 ordering claim — that `(era, view)` and `(view, era)` lexicographic
 //!    orders coincide on legal histories — is discharged by proptest here rather than
@@ -36,7 +36,7 @@ use vrr::invariant::Fault;
 // ---------------------------------------------------------------------------
 
 /// Each newtype is `#[repr(transparent)]` over its primitive, so it crosses the C ABI
-/// (item21) without marshalling. A later derive or added field that changed the layout
+/// without marshalling. A later derive or added field that changed the layout
 /// would be an ABI break invisible at the Rust call sites; this pins it.
 #[test]
 fn layout_matches_primitive() {
@@ -225,7 +225,7 @@ fn constructors_agree_with_legality() {
     }
 }
 
-/// The era-exhaustion branch of `is_legal_successor` (item05): at `Era::MAX` the
+/// The era-exhaustion branch of `is_legal_successor`: at `Era::MAX` the
 /// era-`+1` successor is unrepresentable, so "era unchanged" is the only legal
 /// successor left. The branch exists because §8.7.3 forbids wraparound — a reused
 /// era would make `config(e)` ambiguous — and it had no direct test.

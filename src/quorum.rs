@@ -28,7 +28,7 @@
 //! protocol limit.
 //!
 //! We ship `WeightedMajority` as the default because §8.7.5 proves its closure across
-//! consecutive eras, and item18 ships `EvenSplit` as a non-default *reference*
+//! consecutive eras, and `EvenSplit` ships as a non-default *reference*
 //! strategy to demonstrate that the extension point genuinely admits the six-node
 //! three-datacentre profile. Shipping only a default would leave the extension point
 //! unexercised and therefore unproven.
@@ -139,8 +139,8 @@ pub enum QuorumError {
     /// role in the same era are disjoint. Required because the fence family equals
     /// the view family in diskless VRR, so a recovering replica must encounter the
     /// volatile evidence that an earlier view was fenced; not required between
-    /// arbitrary Paxos phase-one quorums, which is why a Flexible Paxos policy
-    /// satisfying `R1` can still fail here.
+    /// arbitrary phase-one quorums in the classical protocol family, which is why
+    /// a flexible-quorum policy satisfying `R1` can still fail here.
     SelfIntersectionViolation {
         /// The role whose family does not self-intersect.
         role: Role,

@@ -16,7 +16,7 @@
 //!
 //! # State of this crate
 //!
-//! The old alpha implementation was cut at item00 rather than patched: it encoded a
+//! The old alpha implementation was cut rather than patched: it encoded a
 //! mutable `&mut self step() -> Vec<Output>` transition, an embedded advisory-lock
 //! service, JSON in the datagram path, and a caller-supplied recovery nonce. All four
 //! are contradicted by the contract above.

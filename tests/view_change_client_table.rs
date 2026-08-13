@@ -1,4 +1,4 @@
-//! The client table as view-change evidence (item10a): the §9.2 table hole
+//! The client table as view-change evidence (§9.2): the table hole
 //! reproduced and closed.
 //!
 //! The hole: the client table is volatile, and nothing carried it through a
@@ -97,7 +97,7 @@ fn apply_all(h: &mut Harness, ids: [u32; 3]) {
     }
 }
 
-/// The timeout knob used by every test in this suite (item10's value).
+/// The timeout knob used by every test in this suite.
 const TIMEOUT: u64 = 3;
 
 /// A three-node cluster with the view-change knobs set explicitly.
@@ -143,7 +143,7 @@ fn era_proof_for(members: u32) -> EraProof {
 
 /// Drives a complete view change to `target` among the two live nodes
 /// `prime` (which must be `primary_of(target)` and times out first) and
-/// `voter`. Item10's helper, unchanged.
+/// `voter`. The view-change churn helper, unchanged.
 fn drive_view_change(h: &mut Harness, prime: NodeId, voter: NodeId, target: ViewId) {
     assert_eq!(
         primary_of(target, 3),
@@ -484,7 +484,8 @@ fn merge_precedence_greatest_request_wins_and_result_breaks_ties() {
 //    budget — everything in the message counts, a budget is a budget. The
 //    table is charged FIRST and is never truncated (it is safety evidence);
 //    the suffix shrinks to make room, down to empty, which §13.1 explicitly
-//    permits (the range is reconstructible via item12's fetch).
+//    permits (the range is reconstructible via the state-transfer fetch,
+//    §10).
 #[test]
 fn the_table_counts_against_the_suffix_budget_and_is_never_truncated() {
     let probe = LogEntry {
@@ -499,7 +500,7 @@ fn the_table_counts_against_the_suffix_budget_and_is_never_truncated() {
     let per_entry = probe.packed_len();
     let table_len = 4 + row(1, 1, None).packed_len(); // u32 count + one row
 
-    /// Drives the item10 budget scenario — slot 3 committed by {n0, n1},
+    /// Drives the view-change budget scenario — slot 3 committed by {n0, n1},
     /// n2 behind at genesis, view change among {n1, n2} with n0 held away —
     /// and returns the winning StartView's suffix and table.
     fn start_view_with_budget(budget: usize) -> (Vec<LogEntry>, Vec<ClientRow>) {
@@ -623,7 +624,7 @@ fn start_view_installs_the_merged_table() {
     assert_client_safety(&h);
 }
 
-// 8. Legality + safety under churn: item10's churn shape with client
+// 8. Legality + safety under churn: the view-change churn shape with client
 //    retries interleaved through the view changes. The gate stays clean (no
 //    fault is ever declared), `assert_safety()` runs at every quiesce, and
 //    the structural half of the soundness claim is asserted over the whole
@@ -761,7 +762,7 @@ fn churn_with_retries_never_replies_twice_with_different_results() {
 }
 
 /// The primary of the highest view any live node reports, if that node is
-/// itself live and Normal (item10's churn helper, unchanged).
+/// itself live and Normal (the churn helper, unchanged).
 fn current_primary(h: &Harness) -> Option<NodeId> {
     let mut highest: Option<ViewId> = None;
     for id in [n(0), n(1), n(2)] {

@@ -48,7 +48,7 @@
 //! [`Status::Recovering`] and not `Normal`. The pre-failure status is evidence
 //! about the past, not authority over the present; [`Progress::reconstitute`]
 //! accepts any status because it restores *evidence*, and downgrading that evidence
-//! to a fenced start is the replica's boot rule (item07), not a property of the
+//! to a fenced start is the replica's boot rule (§5), not a property of the
 //! record.
 
 use std::sync::Arc;
@@ -241,7 +241,7 @@ impl Progress {
     /// The genesis record: [`ViewId::INITIAL`], fenced and recovering, every
     /// frontier at [`Slot::FIRST`], revision 0, no fault.
     ///
-    /// This pins the meaning of `ViewId::INITIAL` (the item01 follow-on, ruled
+    /// This pins the meaning of `ViewId::INITIAL` (ruled
     /// here): it is the **genesis view**, the `(era 0, view 0)` pair a freshly
     /// provisioned node advertises. Era 0 is the void configuration —
     /// quorum-impossible by arithmetic, not by guard — and view 0 is the first
@@ -279,7 +279,7 @@ impl Progress {
     ///
     /// This is the restart path — the host read its durable record back and offers
     /// it as evidence. §5's rule that a reopened node starts fenced regardless of
-    /// the observed status is the replica's boot rule (item07), not enforced here:
+    /// the observed status is the replica's boot rule (§5), not enforced here:
     /// `reconstitute` restores evidence about the past, and evidence is not
     /// authority. It is also how tests reach interior states.
     ///

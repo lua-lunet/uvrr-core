@@ -332,8 +332,8 @@ fn undersized_commit_family_is_an_r1_violation() {
 
 /// Over four unit members a view threshold of 2 satisfies `R1` against a commit
 /// threshold of 3 (`2 + 3 > 4`) but does not self-intersect: `{n0,n1}` and `{n2,n3}`
-/// are disjoint view-change quorums. This is the §8.3 diskless obligation a Flexible
-/// Paxos reading of `QI ⌢ QII` would miss, and it must surface as
+/// are disjoint view-change quorums. This is the §8.3 diskless obligation a
+/// flexible-quorum reading of `QI ⌢ QII` would miss, and it must surface as
 /// `SelfIntersectionViolation`, not as a generic failure.
 #[test]
 fn non_self_intersecting_view_family_is_named() {
@@ -534,7 +534,7 @@ fn weighted_majority_threshold_matches_enumerated_minimum() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Cap enforcement (item03b1, via the fold)
+// 6. Cap enforcement (via the fold)
 // ---------------------------------------------------------------------------
 
 /// The membership cap is a validation-cost bound, not a protocol limit: 17-member

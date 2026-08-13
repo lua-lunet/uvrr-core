@@ -36,8 +36,8 @@ serde_json = { version = "1", optional = true }
 
 # `serde` buys derives on the wire types only. It never becomes the wire format:
 # the binary codec in `wire` is normative so the spec §13.1 suffix budget stays
-# deterministic (decision P3). `maelstrom` adds the JSON debug bridge and, from
-# item22, the Maelstrom node binary.
+# deterministic (decision P3). `maelstrom` adds the JSON debug bridge and the
+# Maelstrom node binary.
 [features]
 default = []
 serde = ["dep:serde"]

@@ -22,9 +22,7 @@ This repo includes an example binary that conforms to a trivial key-value store 
 
 ## Why this exists
 
-This create simply offers the strong consistency during non-stop cluster reconfigurations without disk flushes. This is achieved by porting to Viewstemped Replication Revisited the techniques of David Turner's leader casting vote described in [Unbounded Pipelining in Dynamically
-Reconfigurable Paxos Clusters
-](http://tessanddave.com/paxos-reconf-latest.pdf) 
+This create simply offers the strong consistency during non-stop cluster reconfigurations without disk flushes. This is achieved by porting to Viewstemped Replication Revisited the leader casting vote technique from David Turner's technical report on unbounded pipelining in dynamically reconfigurable clusters (Tracsis, 2016, tessanddave.com).
 
 This Rust crate exposes a C ABI for FFI. It scales down to offer a lightweight and embeddable strong consistency model. With a small amount of data, such as leader leases or advisory locks, it removes the need to run something like Zookeeper or etcd. 
 

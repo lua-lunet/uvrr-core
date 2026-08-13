@@ -10,7 +10,7 @@
 //! The mechanism is a single-writer seqlock over a POD snapshot: even sequence
 //! means stable, odd means write in progress, a torn read retries. Chosen over an
 //! `Arc` swap because there is **no reclamation race to prove** — nothing is freed,
-//! so no epoch, hazard pointer, or deferred drop whose soundness every later item
+//! so no epoch, hazard pointer, or deferred drop whose soundness every later module
 //! would have to re-establish. The cost is reader spin under a write storm; writes
 //! are bounded by the transition rate. This module and the future `ffi` module are
 //! the only two places `unsafe` is permitted. Observation is read-only (§15).
@@ -58,8 +58,8 @@ pub enum Diagnostic {
         view: ViewId,
     },
     /// The message's view differs from the node's current view and no
-    /// adoption rule applies. View change is item10's, recovery item11's;
-    /// normal operation drops the message.
+    /// adoption rule applies. View change and recovery have their own
+    /// adoption rules; normal operation drops the message.
     ViewMismatch {
         /// The view the message named.
         got: ViewId,
@@ -89,8 +89,8 @@ pub enum Diagnostic {
         slot: Slot,
     },
     /// A `Prepare` past the accepted frontier's successor: a gap. Dropped.
-    /// The primary's retransmit or item12's state transfer closes it — the
-    /// active fetch is deliberately NOT here; item12 owns it.
+    /// The primary's retransmit or state transfer (§10) closes it — the
+    /// active fetch is deliberately NOT here; it belongs to state transfer.
     GapDetected {
         /// The slot the node could have accepted.
         expected: Slot,

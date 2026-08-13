@@ -1,5 +1,5 @@
 //! View-change protocol integration tests: VRR-2012 §5 against spec §9, §13.1,
-//! and §1.3, on the item08 harness extended with timeout knobs (item10).
+//! and §1.3, on the scripted harness extended with view-change timeout knobs.
 //!
 //! Every test drives a three-node cluster whose `primary_timeout` is small
 //! enough for deterministic tick-driven view changes. View arithmetic is
@@ -294,7 +294,7 @@ fn divergent_uncommitted_tail_is_discarded() {
 //    view 0) and displace the entry committed at slot 4 under view 1. The
 //    normative ranking — `retained` view first, then `accepted` — selects
 //    n2's shorter history (accepted 4, retained view 1) and the committed
-//    entry survives. This is the load-bearing test of the item.
+//    entry survives. This is the load-bearing test of the ranking rule.
 #[test]
 fn retained_view_outranks_accepted_frontier_section_9_2_counterexample() {
     let mut h = cluster();
@@ -479,8 +479,8 @@ fn the_fence_is_real() {
         })
     );
 
-    // Client requests are refused with redirection information (the item09
-    // follow-on: current view and the primary of that view).
+    // Client requests are refused with redirection information (the
+    // §13.4 convergence hint: current view and the primary of that view).
     assert_eq!(
         h.client_request_numbered(n(1), ClientId(9), 1, b"w"),
         StepOutcome::PlanRefused(PlanRejection::NotPrimary {
@@ -510,7 +510,7 @@ fn bounded_suffix_rules_section_13_1() {
     };
     let per_entry = probe.packed_len();
     // The budget fits exactly one client entry ON TOP of the winner's client
-    // table: item10a charges the table against the §13.1 budget first (it is
+    // table: the table is charged against the §13.1 budget first (it is
     // safety evidence, never truncated) and packs the suffix inside what
     // remains. The winner below holds two result-less rows.
     let row_len = WireRow {
@@ -585,7 +585,8 @@ fn bounded_suffix_rules_section_13_1() {
     // n1's side of the partition, so its StartView copy delivers in the
     // same step — and n2 is missing history below the suffix base: slot 3
     // is unverifiable (base 4 > accepted + 1 = 3). GapDetected, no fault,
-    // no adoption — item12 owns the active fetch; the interim is honest.
+    // no adoption — the active fetch belongs to state transfer (§10); the
+    // interim is honest.
     h.deliver_all();
     assert_eq!(status_of(&h, n(1)), Status::Normal);
     assert_eq!(
@@ -634,7 +635,7 @@ fn bounded_suffix_rules_section_13_1() {
 
 // 8. A StartView whose suffix conflicts with a committed slot is a
 //    quorum-obligation violation: the node faults locally with
-//    IllegalTransition (the item's one deliberate fault-on-peer-input).
+//    IllegalTransition (the view-change path's one deliberate fault-on-peer-input).
 #[test]
 fn start_view_conflicting_at_a_committed_slot_faults() {
     let mut h = cluster();
@@ -763,7 +764,8 @@ fn two_view_changes_for_one_view_cannot_both_complete() {
 //     change with redirection, and afterwards the entry is committed exactly
 //     once with exactly one fresh Reply. A further retry hits the surviving
 //     client table: the cached Reply is re-emitted and no new entry appears
-//     (item09 semantics; §11 documents idempotence as the host's friend for
+//     (normal-operation semantics; §11 documents idempotence as the host's
+//     friend for
 //     the lost-result case, which this scenario avoids by discarding the
 //     original entry before it ever committed).
 #[test]
@@ -846,7 +848,7 @@ fn duplicate_retry_across_the_change() {
 // 11. Churn: requests, partitions, heals, crashes, amnesiac restarts, and
 //     ticks interleaved over ~300 harness steps. Safety is asserted at every
 //     quiesce; no fault is ever declared, so any gate or journal fault fails
-//     the suite. Includes the item09 follow-on note: an amnesiac genesis
+//     the suite. Includes the bootstrap note: an amnesiac genesis
 //     primary promoting itself into a stale view has its proposals refused
 //     and is deposed by the next view change.
 #[test]
@@ -928,7 +930,7 @@ fn churn_300_steps_requests_partitions_crashes_restarts_ticks() {
                     assert_eq!(
                         status_of(&h, n(0)),
                         Status::Normal,
-                        "the amnesiac genesis primary promotes itself (item07)"
+                        "the amnesiac genesis primary promotes itself (the boot rule)"
                     );
                     assert_eq!(current_view(&h, n(0)), view(0), "...into the stale view 0");
                     h.client_request_numbered(

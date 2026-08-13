@@ -7,7 +7,7 @@
 //!
 //! This file gates the codec substrate only. It knows about no message body, because
 //! `Prepare` carries a log entry and `StartView` carries configuration evidence, and
-//! neither exists yet. Later items add their own round-trip tests through the traits
+//! neither exists yet. Later message bodies add their own round-trip tests through the traits
 //! pinned here.
 //!
 //! Five properties, each of which the rest of the crate is entitled to assume without
@@ -120,8 +120,9 @@ fn header_golden_vector() {
 // 2. `ClientId` golden vector
 // ---------------------------------------------------------------------------
 
-/// item01 chose `u128` for `ClientId` and explicitly deferred the byte-order decision
-/// to this module. W4 settles it: big-endian, like every other integer on this wire.
+/// `u128` was chosen for `ClientId` and the byte-order decision was explicitly
+/// deferred to this module. W4 settles it: big-endian, like every other integer on
+/// this wire.
 /// Pinned by a vector so the deferral is discharged by a test and not by a sentence.
 #[test]
 fn client_id_golden_vector_is_big_endian() {
@@ -132,7 +133,7 @@ fn client_id_golden_vector_is_big_endian() {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
             0xee, 0xff,
         ],
-        "ClientId is 16 bytes big-endian (W4); item01 deferred this to wire"
+        "ClientId is 16 bytes big-endian (W4); the byte-order decision was deferred to wire"
     );
     assert_eq!(id.packed_len(), 16);
 
@@ -619,7 +620,7 @@ fn no_source_file_names_a_datagram_size() {
 
 /// A wildcard-free `match` over every variant. Adding a fourteenth tag without deciding
 /// its discriminant and its round trip is a compile error here, which is the point of
-/// the test: the wire numbering is not something a later item may extend by accident.
+/// the test: the wire numbering is not something a later change may extend by accident.
 #[test]
 fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
     for tag in ALL_TAGS {

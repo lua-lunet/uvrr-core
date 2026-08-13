@@ -26,7 +26,7 @@
 //! traits, the error taxonomy, the [`Tag`] discriminant table, and [`Header`]. It
 //! defines no message body. A body defined here would have to be redefined once
 //! `Prepare` has a log entry to carry and `StartView` has configuration evidence to
-//! carry; each later item owns its own body and adds its own round trip through the
+//! carry; each later message body owns its own encoding and adds its own round trip through the
 //! traits below.
 //!
 //! # Zero allocation, both directions
@@ -647,8 +647,8 @@ impl_newtype!(Slot, u64);
 impl_newtype!(Tick, u64);
 impl_newtype!(RequestNumber, u64);
 
-// `ClientId` is a `u128`, encoded big-endian. item01 chose `u128` over `[u8; 16]`
-// because the client table keys on it, and deferred the byte order to this module
+// `ClientId` is a `u128`, encoded big-endian. `u128` was chosen over `[u8; 16]`
+// because the client table keys on it, and the byte order was deferred to this module
 // explicitly; W4 settles it as big-endian like every other integer on this wire, so a
 // host reading a hex dump sees the identifier in the order it wrote it. Pinned by a
 // golden vector in `tests/wire_contract.rs`, because a round trip cannot detect a
@@ -728,8 +728,8 @@ pub enum Tag {
     /// Whether the evidence is ordinary or planned is a field of the **body**, not of
     /// this tag: the new primary needs to know which kind of quorum it is completing,
     /// but every recipient handles the message the same way, so the distinction does not
-    /// carry a dispatch decision the way [`Tag::PlannedViewChange`] does. item10 and
-    /// item16 own that field.
+    /// carry a dispatch decision the way [`Tag::PlannedViewChange`] does. The
+    /// view-change and overlap-mode paths own that field.
     DoViewChange = 6,
     /// The new primary installing the selected history (§9.1, §13.1).
     StartView = 7,

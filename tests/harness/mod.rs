@@ -42,15 +42,15 @@
 //!
 //! # What is not here
 //!
-//! The protocol behaviour of the later items: view change (item10), recovery
-//! (item11), state transfer (item12), checkpoints (item13) and
-//! reconfiguration (item15) inputs are still refused with the named
-//! `PlanRejection::Unsupported`. Normal operation (item09) is live:
+//! The protocol behaviour of the later paths — view change, recovery, state
+//! transfer, checkpoints and reconfiguration inputs — is still refused with
+//! the named
+//! `PlanRejection::Unsupported`. Normal operation is live:
 //! `Prepare`/`PrepareOk`/`Commit`, the client table, the Apply/Applied/Reply
 //! boundary, and the bootstrap from the fenced `Recovering` genesis state.
 
 // The harness is shared infrastructure compiled into every protocol test
-// target; no single target drives the whole scripted surface — items 09–18
+// target; no single target drives the whole scripted surface — the suites
 // do, collectively. Dead-code analysis runs per target, so the documented
 // allowance lives here at the module root rather than scattered per method.
 #![allow(dead_code)]
@@ -74,7 +74,7 @@ use vrr::wire::Tag;
 
 /// The replica configuration every harness node runs: the default journal
 /// and the default quorum strategy. Overridable per-node configuration is a
-/// later item's concern; nothing in items 09–13 needs it.
+/// later milestone's concern; nothing in the current suites needs it.
 pub type HarnessReplica = Replica<SegmentedLog, WeightedMajority>;
 
 /// Step-trace ring capacity. A failure prints the whole buffer; a script
@@ -106,7 +106,7 @@ struct Disk {
 /// One datagram in flight. `era` is the era authorising this copy, carried
 /// separately exactly as `Effect::Send` carries it (W1), and surfaced in the
 /// delivery trace: the era a copy was routed under is observable, so the
-/// item16 overlap-mode routing has something honest to decide over.
+/// overlap-mode routing has something honest to decide over.
 #[derive(Clone, Debug)]
 struct Envelope {
     from: NodeId,
@@ -421,7 +421,7 @@ pub struct Harness {
     tick: Tick,
     /// The stability level every node runs (S3).
     stability: Stability,
-    /// The view-change knobs every node runs (W5, item10) — threaded
+    /// The view-change knobs every node runs (W5) — threaded
     /// through restarts, because a restarted node plays by the cluster's
     /// rules, not fresh ones.
     knobs: ViewChangeKnobs,
@@ -451,15 +451,15 @@ impl Harness {
     /// `n` provisioned nodes, volatile stability, `SegmentedLog`,
     /// `WeightedMajority`, genesis order `[NodeId(0)..NodeId(n))`.
     ///
-    /// View-change knobs: suspicion disabled, unbounded suffix — item09's
-    /// behavior, so the legacy suites never time out. Item10 scripts use
+    /// View-change knobs: suspicion disabled, unbounded suffix — the
+    /// normal-operation suites never time out. View-change scripts use
     /// [`Harness::with_knobs`].
     #[must_use]
     pub fn provision(n: usize) -> Harness {
         Self::with_stability(n, Stability::Volatile)
     }
 
-    /// [`Harness::provision`] with explicit view-change knobs (item10): the
+    /// [`Harness::provision`] with explicit view-change knobs: the
     /// timeout and the §13.1 suffix budget are host policy (W5), and a
     /// script that tests them sets them, never inherits them.
     #[must_use]
@@ -476,8 +476,8 @@ impl Harness {
         Self::assemble(n, stability, Harness::no_view_change_knobs())
     }
 
-    /// The knob setting that makes item10's machinery inert: no suspicion
-    /// ever fires, and suffixes are never truncated.
+    /// The knob setting that makes the view-change machinery inert: no
+    /// suspicion ever fires, and suffixes are never truncated.
     fn no_view_change_knobs() -> ViewChangeKnobs {
         ViewChangeKnobs {
             primary_timeout: 0,
@@ -735,7 +735,7 @@ impl Harness {
 
     /// Explicitly drops the queued datagrams addressed to `id`. Recorded in
     /// the trace, like every drop: a script decision, never a default.
-    /// Item10's suffix-budget choreography uses it to strand a node at an
+    /// The view-change suffix-budget choreography uses it to strand a node at an
     /// older frontier.
     pub fn drop_queued(&mut self, id: NodeId) -> usize {
         let mut kept = VecDeque::new();
@@ -766,7 +766,7 @@ impl Harness {
 
     /// The first queued datagram addressed to `to` with the given tag,
     /// without delivering it — how a script inspects the evidence a node
-    /// emitted (item10's ranking and budget assertions).
+    /// emitted (the view-change ranking and budget assertions).
     #[must_use]
     pub fn peek_queued(&self, to: NodeId, tag: Tag) -> Option<Message> {
         self.network
@@ -793,7 +793,7 @@ impl Harness {
         Some(self.deliver_envelope(envelope))
     }
 
-    /// A whole-history copy of the node's journal (item10): what a
+    /// A whole-history copy of the node's journal: what a
     /// view-change install left behind, asserted directly — a divergent
     /// tail must be GONE from the journal, not merely from the frontier.
     /// The harness never reclaims, so the copy is always complete.
@@ -819,7 +819,7 @@ impl Harness {
     }
 
     /// The node's sticky fault, if declared — the identity, not just the
-    /// `faulted` word the observation carries (item10's `expect_fault`
+    /// `faulted` word the observation carries (the `expect_fault`
     /// scripts assert WHICH fault the breach declared).
     #[must_use]
     pub fn fault_of(&self, id: NodeId) -> Option<Fault> {
@@ -883,7 +883,7 @@ impl Harness {
     }
 
     /// Submits a client request with an explicit request number — the way a
-    /// script drives the duplicate-suppression table's edge cases (item09):
+    /// script drives the duplicate-suppression table's edge cases (§9.2):
     /// exact duplicates, in-flight duplicates, gaps, and replays.
     pub fn client_request_numbered(
         &mut self,
@@ -952,7 +952,7 @@ impl Harness {
     /// completion: for a client slot the replica advances `applied` and, on
     /// the primary, releases the Reply.
     ///
-    /// The unknown-result re-drive (item10a) is the host's to recognise
+    /// The unknown-result re-drive (§9.2) is the host's to recognise
     /// (§11): an `Apply` at or below the slot this node's application
     /// already reached is a re-execution of a committed slot, not new work.
     /// The echo application is idempotent, so the re-drive is performed and
@@ -1213,7 +1213,7 @@ impl Harness {
         &self.replies
     }
 
-    /// The node's latest published drop diagnostic (item09): every refused
+    /// The node's latest published drop diagnostic: every refused
     /// peer guard has a named outcome, and this is where it is observed.
     /// `None` if the node is down.
     #[must_use]

@@ -1,7 +1,7 @@
 //! Manifest contract: the published dependency surface of `vrr-core`.
 //!
 //! This is a gate, not a smoke test. It asserts properties of `Cargo.toml` and
-//! `src/lib.rs` that a later item cannot silently regress by adding a convenient
+//! `src/lib.rs` that a later change cannot silently regress by adding a convenient
 //! dependency or relaxing a lint. It reads both files with `include_str!` and
 //! parses with std string operations only, deliberately: pulling in a TOML crate
 //! to police the dependency set would be self-defeating, and a `[dev-dependencies]`

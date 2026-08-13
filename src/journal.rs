@@ -80,7 +80,7 @@ pub struct LogEntry {
 /// into history.
 ///
 /// The client operation carries its `(client, request)` identity IN the entry
-/// (item10a): the identity makes the entry self-describing across a view change — a
+/// (§9.2): the identity makes the entry self-describing across a view change — a
 /// backup records its client-table row from the `Prepare` it accepts, and a retry can
 /// be matched against the installed history without trusting any volatile record.
 /// Without it the client table could only ever exist at the primary that took the
@@ -90,7 +90,7 @@ pub struct LogEntry {
 pub enum Payload {
     /// A client operation: its duplicate-suppression identity (§9.2) and
     /// the opaque application bytes (§11). The identity rides in the entry
-    /// (item10a) so the client table is rebuildable from history itself.
+    /// (§9.2) so the client table is rebuildable from history itself.
     Client {
         /// The client that submitted the operation.
         client: ClientId,
@@ -152,7 +152,7 @@ impl Unpack for LogEntry {
                 // the journal takes ownership. `UnpackCursor::opaque` bounds the read
                 // by the input actually present, so an adversarial length prefix
                 // reports `Incomplete` and never pre-allocates — the same decision
-                // item03 made for `Init`'s untrusted member count.
+                // `Init`'s untrusted member count decode follows.
                 let bytes = c.opaque()?;
                 Payload::Client {
                     client,

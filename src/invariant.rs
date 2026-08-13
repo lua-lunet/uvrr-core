@@ -16,15 +16,16 @@
 //! rejected as unvalidated rather than accepted as probably fine.
 //!
 //! The self-intersection obligation `V_g ⌢ V_g` deserves separate mention because it is
-//! not required between arbitrary Paxos phase-one quorums, and its absence is the
-//! standard way a Flexible Paxos policy that satisfies `QI ⌢ QII` is nevertheless an
-//! invalid VRR-2012 policy: diskless recovery requires a recovering replica to encounter
-//! the volatile evidence that an earlier view was fenced (§8.3).
+//! not required between arbitrary phase-one quorums of the classical protocol family,
+//! and its absence is the standard way a flexible-quorum policy that satisfies
+//! `QI ⌢ QII` is nevertheless an invalid VRR-2012 policy: diskless recovery requires
+//! a recovering replica to encounter the volatile evidence that an earlier view was
+//! fenced (§8.3).
 //!
 //! This module holds the transition-legality checker [`legal`]. The family-intersection
-//! gate is `crate::quorum`'s `validate_era`/`validate_transition` (Q1, item06), free
+//! gate is `crate::quorum`'s `validate_era`/`validate_transition` (Q1), free
 //! functions there rather than trait methods so that no quorum strategy can override
-//! them. The fault taxonomy itself lives in `crate::ids` (item05a ruling: `Fault` is
+//! them. The fault taxonomy itself lives in `crate::ids` (`Fault` is
 //! identity-level state carried inside `Progress`, and placing it here would close a
 //! `progress` ↔ `invariant` module cycle); it is re-exported below so existing
 //! citations of `invariant::Fault` keep compiling.
@@ -74,11 +75,12 @@ pub enum InputKind {
 
 /// What a message's header slot may legally carry, per tag (rule 7).
 ///
-/// This resolves item02d: the 20-byte header (W1) has a slot field for framing
-/// regularity, but not every message names a slot in the protocol sense, and a
+/// This table resolves the question: the 20-byte header (W1) has a slot field for
+/// framing regularity, but not every message names a slot in the protocol sense, and a
 /// fabricated position in a fence or recovery message is worse than none — it is
-/// a claim about history the message never made. The table is public so item10 and
-/// item11 cite it rather than re-deciding it, and it lives here rather than in
+/// a claim about history the message never made. The table is public so the
+/// view-change and recovery paths cite it rather than re-deciding it, and it lives
+/// here rather than in
 /// `wire` because the wire layer stays agnostic: it encodes 20 bytes for every
 /// tag and asks no questions.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -114,7 +116,7 @@ impl HeaderSlotRole {
     }
 }
 
-/// The per-tag header-slot table (item02d, resolved here; rule 7 of [`legal`]).
+/// The per-tag header-slot table (rule 7 of [`legal`]).
 ///
 /// | Tag | Role | Why |
 /// |---|---|---|
@@ -183,7 +185,7 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
 ///    all, and the reported fault is the existing one.
 /// 6. **Era/slot discipline** (§8.7.3, W1): the era authorising `accepted` is
 ///    `era(current)` or `era(current) + 1` on `new`.
-/// 7. **Header-slot table** (item02d): a peer message's header slot satisfies
+/// 7. **Header-slot table**: a peer message's header slot satisfies
 ///    [`header_slot_role`].
 ///
 /// Rules 1, 2 and 6 are also enforced at construction (a violating `Progress` is
@@ -292,7 +294,7 @@ fn rule6_era_slot_violated(new: &Progress) -> bool {
     new.check_era_discipline().is_err()
 }
 
-/// Rule 7 — the per-tag header-slot table (item02d; [`header_slot_role`]).
+/// Rule 7 — the per-tag header-slot table ([`header_slot_role`]).
 fn rule7_header_slot_violated(input: &InputKind) -> bool {
     match input {
         InputKind::PeerMessage { tag, slot } => !header_slot_role(*tag).admits(*slot),

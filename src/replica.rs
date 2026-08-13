@@ -38,14 +38,13 @@
 //! information that distinguishes a retry from a recovery.
 //!
 //! Dispatch over inputs is exhaustive `match` with no wildcard arms. An input
-//! whose handler a later item owns is refused with the named, tested
+//! whose handler is future work is refused with the named, tested
 //! [`PlanRejection::Unsupported`] — never a silent no-op, never a placeholder
 //! handler.
 //!
-//! # Normal operation (item09)
+//! # Normal operation
 //!
-//! VRR-2012 §4 is live: the client table (§9.2's two-exchange answer, the
-//! resolved item01 follow-on), `Prepare`/`PrepareOk`/`Commit` with
+//! VRR-2012 §4 is live: the client table (§9.2's two-exchange answer), `Prepare`/`PrepareOk`/`Commit` with
 //! commit-frontier piggybacking (§13.3), the Apply/Applied/Reply boundary
 //! (§11), and the bootstrap from the fenced `Recovering` genesis state (the
 //! ruling is on the `plan_tick` handler). Every handler is total: invalid peer
@@ -54,7 +53,7 @@
 //! via `invariant::legal`. Quorum decisions go through the
 //! [`QuorumStrategy`] (`Role::Commit`) and nowhere else (Q1).
 //!
-//! # View change (item10)
+//! # View change
 //!
 //! VRR-2012 §5 is live: tick-driven timeout detection (S4 — the knob is
 //! [`ViewChangeKnobs::primary_timeout`], and only same-view `Prepare`/`Commit`
@@ -66,13 +65,14 @@
 //! bounded newest-first under [`ViewChangeKnobs::view_change_budget`] and
 //! encoded ascending (§13.1; W4: `Pack::packed_len` is normative, never
 //! exceeded by a byte). A `StartView` suffix that conflicts with a committed
-//! local slot is the item's one deliberate fault-on-peer-input: silent
+//! local slot is the view-change path's one deliberate fault-on-peer-input: silent
 //! repair would hide a safety breach, so the node declares
 //! [`Fault::IllegalTransition`]. The active fetch for a suffix the recipient
-//! cannot construct history from is item12's; the interim drop is
+//! cannot construct history from belongs to state transfer (§10); the interim
+//! drop is
 //! [`Diagnostic::GapDetected`], never a fault.
 //!
-//! # The client table as evidence (item10a)
+//! # The client table as evidence (§9.2)
 //!
 //! §9.2's guarantee completed: the client table is protocol evidence. Every
 //! client entry carries its `(client, request)` identity, so a backup
@@ -132,7 +132,7 @@ pub struct TimedInput {
 /// the serialized interval requires (§7, §11, §12).
 ///
 /// Every variant is dispatched by an exhaustive match in
-/// [`Replica::plan`]; a variant whose handler a later item owns is refused
+/// [`Replica::plan`]; a variant whose handler is future work is refused
 /// with [`PlanRejection::Unsupported`] today. Adding a variant is a compile
 /// error at every dispatch site, which is the point: no input is ever
 /// silently absorbed.
@@ -159,7 +159,7 @@ pub enum Input {
     },
     /// A host timer event (S4). Drives the bootstrap self-promotion of the
     /// genesis primary (see the `plan_tick` handler); the view-change and
-    /// recovery timeout bookkeeping is item10's and item11's. On a node with
+    /// recovery timeout bookkeeping belongs to those paths. On a node with
     /// nothing to decide it remains the smallest honest transition: no
     /// protocol state moves, and the interval machinery — revision, gate,
     /// stability handshake — is genuinely exercised by it.
@@ -208,8 +208,8 @@ pub enum Input {
 ///
 /// The shape is fixed by the spec: the pivot condition splits the old and new
 /// memberships into the two sets whose votes carry the transition without
-/// stopping client traffic. What item15 owes is the *construction* of a legal
-/// pivot; this record is only its statement.
+/// stopping client traffic. The *construction* of a legal pivot is the
+/// reconfiguration path's; this record is only its statement.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Pivot {
     /// The `qI` set of §8.7.6.
@@ -264,7 +264,7 @@ pub enum PlanRejection {
         got: u64,
     },
     /// No handler exists for this input yet. Named and tested — the honest
-    /// behaviour for inputs whose handlers later items own — never a silent
+    /// behaviour for inputs whose handlers are future work — never a silent
     /// no-op and never a placeholder handler.
     Unsupported {
         /// The legality-relevant summary of the refused input.
@@ -283,7 +283,7 @@ pub enum PlanRejection {
     },
     /// The candidate failed its own construction-time invariant set (see
     /// [`ProgressError`]). Unreachable for today's planners; stated so the
-    /// pipeline stays total when later items' planners compute richer
+    /// pipeline stays total when future planners compute richer
     /// candidates.
     Progress(ProgressError),
     /// A client request reached a node that is not the `Normal` primary of
@@ -291,7 +291,7 @@ pub enum PlanRejection {
     /// primary of some other view. Carries the node's current view and the
     /// primary of that view (when the configuration can name one) so the
     /// host can redirect the client (§13.4's convergence hint applied to
-    /// the client path; item10 follow-on).
+    /// the client path).
     NotPrimary {
         /// The node's current view.
         view: ViewId,
@@ -346,7 +346,7 @@ pub enum PublishRejection {
     },
     /// The closed [`legal`] gate rejected the candidate. The candidate is
     /// DISCARDED — never repaired, never installed — and the node faults with
-    /// the reported fault (item05's contract).
+    /// the reported fault (the closed gate's contract).
     ///
     /// [`legal`]: crate::invariant::legal
     IllegalCandidate(Fault),
@@ -359,7 +359,7 @@ pub enum PublishRejection {
     /// of that same journal. The two durable records disagree about history,
     /// so the node faults with [`Fault::ProgressJournalDivergence`].
     /// Unreachable for today's planners, which mutate nothing; stated so the
-    /// install path stays total when later items' handlers emit mutations.
+    /// install path stays total when future handlers emit mutations.
     JournalRefused(JournalError),
 }
 
@@ -387,7 +387,7 @@ pub enum PublishOutcome {
     },
 }
 
-/// The host's view-change knobs (W5; item10).
+/// The host's view-change knobs (W5).
 ///
 /// Both are policy, not consensus rules: correctness never depends on their
 /// values. `primary_timeout` is measured in host ticks (S4 — the core reads
@@ -395,7 +395,7 @@ pub enum PublishOutcome {
 /// `Commit` from the legitimate primary for more than `primary_timeout`
 /// ticks enters the next view change. `0` disables tick-driven suspicion
 /// (the bootstrap and message-driven view changes still run); the genesis
-/// bootstrap then behaves exactly as item09 specified.
+/// bootstrap then behaves exactly as the bootstrap rule specifies.
 ///
 /// `view_change_budget` bounds the byte size of the history suffix carried
 /// by `DoViewChange` and `StartView` (§13.1). The core's obligation is
@@ -503,7 +503,7 @@ impl From<&Progress> for PersistedProgress {
 /// view and the publish applies to the journal itself — the plan/publish
 /// split made concrete for the one piece of state besides [`Progress`] the
 /// pipeline mutates. No planner emits a mutation yet; the handlers that do
-/// are items 09–13's.
+/// are the protocol handlers'.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum JournalMutation {
     /// The transition writes no journal slots.
@@ -579,7 +579,8 @@ pub struct PlannedTransition {
     bookkeeping: Bookkeeping,
     /// The drop outcome to publish on the diagnostic observation.
     diagnostic: Diagnostic,
-    /// A deliberate fault the transition declares at publish (item10's one
+    /// A deliberate fault the transition declares at publish (the
+    /// view-change path's one
     /// fault-on-peer-input: a `StartView` suffix conflicting at a committed
     /// slot). The candidate is discarded without installing — the same
     /// outcome the closed gate produces, declared by the planner because the
@@ -587,11 +588,10 @@ pub struct PlannedTransition {
     fault: Option<Fault>,
 }
 
-/// One row of the client table (§9.2's two-exchange answer; the item01
-/// `RequestNumber` follow-on resolved here).
+/// One row of the client table (§9.2's two-exchange answer).
 ///
 /// Volatile, like the paper's: lost on crash. But it is not LOST to the
-/// protocol (item10a): the table rides `DoViewChange` as evidence, the new
+/// protocol (§9.2): the table rides `DoViewChange` as evidence, the new
 /// primary merges the quorum's tables, and `StartView` distributes the
 /// merge — and because every client entry carries its `(client, request)`
 /// identity, an install extends the merged table from the history itself.
@@ -683,7 +683,7 @@ fn local_rows(table: &[WireRow]) -> Vec<(ClientId, ClientRow)> {
 /// whose `PrepareOk`s have arrived. The primary's own vote is implicit.
 ///
 /// A slot installed by a view change (§9.1) gets its record re-seeded from
-/// the entry's own identity (item10a): the identity rides in the entry, so
+/// the entry's own identity (§9.2): the identity rides in the entry, so
 /// the new primary can still answer the request's commit with a `Reply`,
 /// and a `PrepareOk` for a HIGHER slot can vouch for this one: acceptance
 /// is prefix-contiguous, so an acknowledgement vouches for every lower
@@ -702,7 +702,7 @@ struct Proposal {
 /// One replica's `DoViewChange` evidence, as collected by the designated new
 /// primary (§9.1): the provenance and frontiers the ranking rule (§1.3)
 /// compares, the bounded suffix the selection may need (§13.1), and the
-/// sender's client table (§9.2 — item10a: the table is evidence, or the
+/// sender's client table (§9.2 — the table is evidence, or the
 /// merged table at the new primary would be empty and a committed request's
 /// retry would be appended a second time). The era proof is validated at
 /// receipt and not stored — after validation it has said everything it had
@@ -759,14 +759,14 @@ enum ViewChangeUpdate {
     Clear,
 }
 
-/// What the new primary's completion attempt produced (item10).
+/// What the new primary's completion attempt produced.
 enum WinOutcome {
     /// The transition to publish (the install, or the declared fault).
     /// Boxed: the variant dwarfs the gap report.
     Installed(Box<PlannedTransition>),
     /// The selected history cannot be constructed from the collected
     /// evidence (§13.1 step 5): the missing range must be fetched
-    /// (item12) before `StartView`. The effects the attempt had already
+    /// by state transfer (§10) before `StartView`. The effects the attempt had already
     /// accumulated (its own `StartViewChange`/`DoViewChange`) still
     /// release.
     Insufficient {
@@ -780,13 +780,14 @@ enum WinOutcome {
 }
 
 /// What checking an offered suffix against the local journal found
-/// (item10; §9.1 install, §13.1 sufficiency).
+/// (§9.1 install, §13.1 sufficiency).
 enum SuffixCheck {
     /// The installed history is locally constructible; this mutation makes
     /// the journal present it.
     Install(JournalMutation),
     /// The offer does not reach back far enough to verify or construct:
-    /// the node stays fenced and the missing range is item12's fetch.
+    /// the node stays fenced and the missing range is state transfer's
+    /// fetch (§10).
     Gap {
         /// The first slot the node cannot verify or construct.
         expected: Slot,
@@ -794,8 +795,8 @@ enum SuffixCheck {
         got: Slot,
     },
     /// A shared slot at or below the committed frontier disagrees: an
-    /// honest evidence quorum can never produce this (§9.2). The item's
-    /// one deliberate fault-on-peer-input.
+    /// honest evidence quorum can never produce this (§9.2). The
+    /// view-change path's one deliberate fault-on-peer-input.
     Conflict,
 }
 
@@ -808,7 +809,7 @@ enum SuffixCheck {
 struct Bookkeeping {
     /// Client-table rows to install or replace.
     clients: Vec<(ClientId, ClientRow)>,
-    /// Wholesale client-table replacement (item10a): a view-change install
+    /// Wholesale client-table replacement (§9.2): a view-change install
     /// adopts the merged table — it dominates the local one because it saw
     /// a view-change quorum's rows plus the installed history. Applied
     /// before the per-row `clients` upserts.
@@ -820,12 +821,12 @@ struct Bookkeeping {
     /// Slots whose proposals are resolved by application.
     resolved: Vec<Slot>,
     /// Committed slots whose `Apply` is an unknown-result re-drive
-    /// (item10a): the completion is accepted out of the applied-frontier
+    /// (§9.2): the completion is accepted out of the applied-frontier
     /// order and answered with a `Reply`, never a frontier move.
     redrive_begin: Vec<Slot>,
     /// Re-driven slots whose completion the host reported.
     redrive_done: Vec<Slot>,
-    /// The view-change attempt update (item10).
+    /// The view-change attempt update.
     view_change: ViewChangeUpdate,
     /// Refresh of the primary-activity baseline (S4): the tick of a
     /// same-view `Prepare`/`Commit` from the legitimate primary, or of a
@@ -864,7 +865,7 @@ impl PlannedTransition {
     /// Declares a deliberate fault at publish: the candidate is discarded,
     /// the node sticky-faults, nothing installs (§5 invariant 5). Used
     /// exactly once: a `StartView` suffix conflicting at a committed slot,
-    /// where silent repair would hide a safety breach (item10).
+    /// where silent repair would hide a safety breach (§9.1).
     fn with_fault_declared(mut self, fault: Fault) -> PlannedTransition {
         self.fault = Some(fault);
         self
@@ -922,7 +923,7 @@ impl Observer {
         self.shared.read()
     }
 
-    /// The latest published transition's drop outcome (item09): why invalid
+    /// The latest published transition's drop outcome: why invalid
     /// peer input was dropped, or [`Diagnostic::None`]. Same seqlock
     /// discipline as progress (B1).
     #[must_use]
@@ -955,7 +956,7 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// (B1; the §4 handlers' total-drop contract made observable).
     diagnostics: Arc<Observation<Diagnostic>>,
     /// The client table (§9.2), keyed by client. Volatile: lost on crash —
-    /// but carried through every view change as protocol evidence (item10a:
+    /// but carried through every view change as protocol evidence (§9.2:
     /// `DoViewChange` ships it, the new primary merges the quorum's tables,
     /// `StartView` distributes the merge), so the loss can never strand a
     /// committed request's reply.
@@ -964,7 +965,7 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// Volatile: a node that loses it reopens fenced `Recovering` (§5's
     /// boot rule), so the loss can never masquerade as authority.
     proposals: BTreeMap<Slot, Proposal>,
-    /// Committed slots with an unknown-result re-drive in flight (item10a):
+    /// Committed slots with an unknown-result re-drive in flight (§9.2):
     /// the retry of a committed request whose result no evidence quorum
     /// member had cached is answered by re-driving `Apply` for the existing
     /// slot — never by re-appending — and the completion is recognised
@@ -972,13 +973,13 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     redrives: BTreeSet<Slot>,
     /// The one outstanding parked transition, if any (§12).
     parked: Option<ParkedTransition>,
-    /// The host's view-change knobs (W5; item10).
+    /// The host's view-change knobs (W5).
     knobs: ViewChangeKnobs,
     /// The tick of the last same-view `Prepare`/`Commit` from the
     /// legitimate primary, or of the last view adoption (S4). The baseline
     /// the timeout in [`ViewChangeKnobs::primary_timeout`] measures from.
     primary_activity: Tick,
-    /// The in-flight view-change attempt, if any (item10). Volatile — the
+    /// The in-flight view-change attempt, if any. Volatile — the
     /// VRR-2012 fence exchange is volatile by design (§9.3).
     view_change: Option<ViewChangeVolatile>,
 }
@@ -1005,7 +1006,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// Genesis is exactly: `Void` at slot 1 and `Init { genesis_order }` at
     /// slot 2, both committed; current and retained at the era-1 genesis view;
     /// `accepted == committed == Slot(2)`; `applied == checkpoint ==
-    /// Slot(0)`; status [`Status::Recovering`] — the item05 genesis ruling,
+    /// Slot(0)`; status [`Status::Recovering`] — the genesis ruling (§1.3),
     /// §5's boot rule made uniform: a fresh node and a reopened node enter
     /// the protocol the same way, fenced until they prove their state
     /// current. Nothing about a fresh cluster is special-cased into `Normal`.
@@ -1251,7 +1252,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// [`PlanRejection::NoTransitionOutstanding`] or
     /// [`PlanRejection::ConfirmationMismatch`] for a confirmation that does
     /// not match the one outstanding intent; [`PlanRejection::Unsupported`]
-    /// for an input whose handler a later item owns;
+    /// for an input whose handler is future work;
     /// [`PlanRejection::JournalViewDivergence`] for an incoherent journal
     /// view; [`PlanRejection::Progress`] if the candidate fails its own
     /// invariant set.
@@ -1324,7 +1325,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// to be amnesiac about — the §14.2 objection does not apply to initial
     /// provisioning, only to reopen. A reopened node either changed view
     /// (`current.view != 0`) or holds post-genesis history (`accepted >
-    /// 2`), and both exclude it here; its path is §10 recovery (item11).
+    /// 2`), and both exclude it here; its path is §10 recovery.
     /// The promotion happens on a tick, not in `provision`, so construction
     /// stays uniform — every node starts fenced `Recovering` — and the
     /// promotion is an explicit protocol step the trace shows.
@@ -1337,14 +1338,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the view stalls but cannot diverge; deposing it is the view change
     /// below.
     ///
-    /// The tick's second decision (item10, S4): a `Normal` backup whose
+    /// The tick's second decision (S4): a `Normal` backup whose
     /// primary has been silent for more than
     /// [`ViewChangeKnobs::primary_timeout`] ticks enters the next view
     /// change. Silence is measured from the last same-view `Prepare` or
     /// `Commit` from the legitimate primary (or the last view adoption);
     /// the primary of the current view never suspects itself, and a
     /// `Recovering` or already-`ViewChange` node has nothing to suspect —
-    /// a stalled attempt is item12's repair, not a fresh timeout.
+    /// a stalled attempt is state transfer's repair (§10), not a fresh timeout.
     fn plan_tick(&self, journal: &J::View, at: Tick) -> Result<PlannedTransition, PlanRejection> {
         let current = self.progress.current();
         let promotable = self.progress.status() == Status::Recovering
@@ -1392,7 +1393,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .ok_or(PlanRejection::Progress(ProgressError::ViewSuccessor))?;
             return self.enter_view_change(journal, target, BTreeSet::new(), at, InputKind::Tick);
         }
-        // The smallest honest transition (item07): no protocol state
+        // The smallest honest transition: no protocol state
         // moves, and the interval machinery is genuinely exercised.
         let candidate = self
             .progress
@@ -1513,7 +1514,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     WinOutcome::Installed(plan) => return Ok(*plan),
                     // §13.1 step 5: the selected history cannot be
                     // constructed from the collected evidence — the missing
-                    // range must be fetched (item12) before `StartView`.
+                    // range must be fetched by state transfer (§10) before
+                    // `StartView`.
                     // The attempt and its selection are kept; the drop is
                     // named, never a fault.
                     WinOutcome::Insufficient {
@@ -1542,7 +1544,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The node's own evidence for the attempt at `target` (§9.1): the
     /// retained provenance, both frontiers, the bounded suffix (§13.1), the
-    /// client table (§9.2, item10a — charged against the suffix budget,
+    /// client table (§9.2 — charged against the suffix budget,
     /// never truncated), ordinary kind — and the era proof, attached only
     /// when the evidence is sent (§8.7.8).
     fn own_evidence(&self, journal: &J::View) -> Evidence {
@@ -1625,7 +1627,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// does not yet hold (the winner's just-selected suffix); entries below
     /// the overlay come from the journal's physically retained window.
     /// `reserve` is the packed length of the client table riding in the
-    /// same message (item10a): the table is charged against the §13.1
+    /// same message (§9.2): the table is charged against the §13.1
     /// budget FIRST and is never truncated — it is safety evidence — so the
     /// suffix packs inside what remains, down to empty, which §13.1
     /// explicitly permits. An entry larger than the remaining budget stops
@@ -1682,7 +1684,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The slot of `(client, request)`'s entry in the installed history,
-    /// found greatest-slot-first (a duplicate would be the bug item10a's
+    /// found greatest-slot-first (a duplicate would be the bug the §9.2
     /// structural tests hunt; the newest is the one the protocol believes).
     /// `None` means the entry is not in the history this node holds — the
     /// genuinely-new case of the retry rules.
@@ -1715,7 +1717,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The client-table rows the installed history itself implies
-    /// (item10a): per client, the greatest request number among its client
+    /// (§9.2): per client, the greatest request number among its client
     /// entries, with no result — history carries identity, not outcomes.
     /// `overlay` supplies the suffix being installed in the same transition
     /// (the journal does not hold it yet). Merged INTO a view-change table
@@ -1760,7 +1762,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .collect()
     }
 
-    /// The client-table half of a view-change install (item10a): the merged
+    /// The client-table half of a view-change install (§9.2): the merged
     /// evidence table — the quorum's rows at the winner, the offered table
     /// at a `StartView` recipient — extended with the rows the installed
     /// history implies. Canonical wire form; [`local_rows`] converts for
@@ -1779,10 +1781,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The proposal records for the uncommitted client tail of an installed
-    /// history (item10a): identity now rides in the entry, so a won view's
+    /// history (§9.2): identity now rides in the entry, so a won view's
     /// tail keeps its client identity and its commit can be answered with a
-    /// `Reply` when it applies — the item09 "no identity, no reply" gap is
-    /// closed.
+    /// `Reply` when it applies — the normal-operation "no identity, no
+    /// reply" gap is closed.
     fn installed_proposals(
         &self,
         journal: &J::View,
@@ -1822,15 +1824,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The primary's client-request handler (§4, §6): the client table
     /// first, then acceptance.
     ///
-    /// Client-table semantics (§9.2's two-exchange answer, the resolved
-    /// item01 follow-on; every branch pinned by
+    /// Client-table semantics (§9.2's two-exchange answer; every branch
+    /// pinned by
     /// `tests/normal_operation.rs`, the view-change survival of every
     /// branch by `tests/view_change_client_table.rs`):
     ///
     /// - `request == last` with a cached result: re-emit the cached
     ///   `Effect::Reply`; no new log entry (idempotent retry).
     /// - `request == last` with no cached result: the row survived a view
-    ///   change but the result did not (item10a's unknown-result case).
+    ///   change but the result did not (the §9.2 unknown-result case).
     ///   The installed history decides, and the answer is NEVER a silent
     ///   re-append of a committed entry:
     ///   - the entry is in history at or below the committed frontier:
@@ -1869,9 +1871,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let is_primary = self.progress.status() == Status::Normal
             && record.config.primary(current.view) == Some(self.own);
         if !is_primary {
-            // Redirection (item10 follow-on): the node names its current
-            // view and the primary of that view, so the host can point the
-            // client at the node this cluster would serve from.
+            // Redirection (§13.4's convergence hint): the node names its
+            // current view and the primary of that view, so the host can
+            // point the client at the node this cluster would serve from.
             return Err(PlanRejection::NotPrimary {
                 view: current,
                 primary: record.config.primary(current.view),
@@ -1884,7 +1886,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             /// Silent drop: in-flight duplicate or out of the window.
             Drop,
             /// Re-drive `Apply` for the committed slot the request already
-            /// occupies (item10a's unknown-result case).
+            /// occupies (the §9.2 unknown-result case).
             Redrive(Slot),
             /// Assign the next slot and replicate.
             Accept,
@@ -2035,8 +2037,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The peer-message dispatch (§4, §9): normal operation and the
-    /// view-change exchange are live; every other tag's handler is a later
-    /// item's and the refusal is named.
+    /// view-change exchange are live; every other tag's handler is future
+    /// work and the refusal is named.
     ///
     /// A same-view `Prepare` or `Commit` from the legitimate primary is
     /// proof of primary life: whatever its outcome (accept, gap, named
@@ -2235,8 +2237,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // (rule 7's Frontier role); the frontiers are a legal chain; the
         // suffix is a contiguous ascending run ending at the frontier; the
         // client table is canonical (strictly ascending clients); the
-        // evidence is ordinary (planned evidence is item14's and never
-        // lands here); the era proof matches the configuration history
+        // evidence is ordinary (planned evidence belongs to the planned
+        // view-change path and never lands here); the era proof matches
+        // the configuration history
         // (§8.7.8).
         if header.slot != accepted
             || committed > accepted
@@ -2288,7 +2291,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// A `StartView` (§9.1, §13.1): the designated new primary installing
-    /// the selected history and the merged client table (§9.2, item10a).
+    /// the selected history and the merged client table (§9.2).
     ///
     /// The adoption rule: any node the change passed by — `Normal` or
     /// `Recovering` in an earlier view, or fencing into this very view —
@@ -2296,9 +2299,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// must reach back to a slot the node can check (its frontier, or a
     /// shared slot whose entry agrees). A suffix that starts past the
     /// node's frontier is a gap — named [`Diagnostic::GapDetected`], kept
-    /// fenced, never faulted; item12 owns the active fetch (§13.1 step 5).
-    /// A suffix that CONFLICTS at a committed local slot is the item's one
-    /// deliberate fault-on-peer-input: an honest evidence quorum can never
+    /// fenced, never faulted; the active fetch belongs to state transfer
+    /// (§13.1 step 5).
+    /// A suffix that CONFLICTS at a committed local slot is the view-change
+    /// path's one deliberate fault-on-peer-input: an honest evidence quorum
+    /// can never
     /// produce it, and silently repairing would hide the safety breach, so
     /// the node declares [`Fault::IllegalTransition`].
     ///
@@ -2406,7 +2411,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// broadcasts the selection with a freshly packed bounded suffix
     /// (§13.1).
     ///
-    /// The client table is evidence (§9.2, item10a): the install merges the
+    /// The client table is evidence (§9.2): the install merges the
     /// quorum's tables — per client the greatest `last_request`, ties
     /// toward the cached result — extends the merge with the rows the
     /// installed history itself implies, installs the result wholesale, and
@@ -2529,8 +2534,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// The gap rule is deliberately interim: a `Prepare` past the accepted
     /// frontier's successor is dropped and reported as
-    /// [`Diagnostic::GapDetected`]; the primary's retransmit or item12's
-    /// state transfer closes it — the active fetch is item12's.
+    /// [`Diagnostic::GapDetected`]; the primary's retransmit or state
+    /// transfer (§10) closes it — the active fetch belongs to state
+    /// transfer.
     fn plan_prepare(
         &self,
         journal: &J::View,
@@ -2563,8 +2569,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             );
         }
         // The message's view must be the node's current view; a `Recovering`
-        // node adopts it (the bootstrap rule above). Anything else is
-        // item10's view change or item11's recovery, and the message drops.
+        // node adopts it (the bootstrap rule above). Anything else is a
+        // view change or a recovery, and the message drops.
         let current = self.progress.current();
         let eligible = header.view == current
             && match self.progress.status() {
@@ -2607,7 +2613,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         } else {
             self.progress.status()
         };
-        // The entry's identity is protocol state (item10a): accepting or
+        // The entry's identity is protocol state (§9.2): accepting or
         // re-acknowledging it records the client-table row, so a backup's
         // `DoViewChange` evidence carries the row and §9.2's guarantee
         // survives the primary the request arrived from. Only an advance
@@ -2889,11 +2895,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///   record; a backup replies to no one). Either way the result is
     ///   cached into the client's row when it is still the client's latest
     ///   — at any node, so a backup's `DoViewChange` evidence can carry the
-    ///   cached result through a view change (item10a). The
+    ///   cached result through a view change (§9.2). The
     ///   Reply-after-Apply property is structural: a `Reply` is emitted
     ///   ONLY here and in the cached/re-drive paths of the client-request
     ///   handler.
-    /// - A slot in the re-drive set (item10a): the completion of an
+    /// - A slot in the re-drive set (§9.2): the completion of an
     ///   unknown-result re-drive. The frontier does not move — the slot was
     ///   applied before — and the `Reply` is produced from the entry's own
     ///   identity. A completion for a slot nobody re-drove, or a duplicate,
@@ -3000,7 +3006,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // Cache the result for the idempotent retry — only if this is
         // still the client's latest request; a superseded row belongs to a
         // newer slot. At any node, primary or backup: the cached result is
-        // view-change evidence (item10a).
+        // view-change evidence (§9.2).
         if self
             .clients
             .get(&client)
@@ -3200,11 +3206,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// suffix: the suffix must reach back to the local frontier's successor
     /// or below, and every shared slot must agree. A shared slot at or
     /// below the local COMMITTED frontier that disagrees is
-    /// [`SuffixCheck::Conflict`] — the one deliberate fault of the item. A
+    /// [`SuffixCheck::Conflict`] — the one deliberate fault of the
+    /// view-change path. A
     /// suffix that starts past the frontier's successor, or an empty suffix
     /// that cannot prove the installed history is already held, is
     /// [`SuffixCheck::Gap`]: the node stays fenced and waits for the
-    /// missing range (item12).
+    /// missing range (state transfer, §10).
     fn check_suffix(
         &self,
         journal: &J::View,
@@ -3449,8 +3456,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// The closed [`legal`] gate runs on every old→candidate pair before
     /// anything installs. A `Some` from the gate DISCARDS the candidate and
-    /// sticky-faults the node — never repair, never install (item05's
-    /// contract). In [`Stability::Volatile`] the candidate then installs, the
+    /// sticky-faults the node — never repair, never install (the closed
+    /// gate's contract). In [`Stability::Volatile`] the candidate then installs, the
     /// observation is written, and the effects release. In every other mode
     /// exactly one effect releases — the [`Effect::Persist`] intent — and the
     /// transition parks until the matching
@@ -3482,7 +3489,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 got: planned.base,
             });
         }
-        // A planner-declared fault (item10's conflicting `StartView`
+        // A planner-declared fault (the conflicting `StartView`
         // suffix): the same outcome the gate produces, declared by the
         // planner because the breach is journal-visible only. Discards the
         // candidate, never parks, never installs.

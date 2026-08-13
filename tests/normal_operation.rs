@@ -1,9 +1,9 @@
 //! Normal operation: VRR-2012 §4 (Request/Prepare/PrepareOk/Commit), the
-//! client table (§9.2's two-exchange answer, the resolved item01 follow-on),
+//! client table (§9.2's two-exchange answer),
 //! the Apply/Applied/Reply boundary (§11), commit-frontier piggybacking
 //! (§13.3), and the bootstrap from the fenced `Recovering` genesis state.
 //!
-//! The bootstrap (item09 ruling): a `Recovering` node whose journal holds
+//! The bootstrap (the genesis ruling, §1.3): a `Recovering` node whose journal holds
 //! the complete committed genesis (slots 1–2, nothing missing) and which IS
 //! `config.primary(View(0))` enters `Normal` on a tick — at initial
 //! provisioning there is no prior state to be amnesiac about, so the §14.2
@@ -52,8 +52,8 @@ fn bootstrapped() -> Harness {
 /// The `Prepare` a view-0 primary would send for a client payload at `slot`.
 /// Scripts use it to re-offer a dropped `Prepare` (the harness's documented
 /// fabrication path), standing in for the primary's retransmit, which
-/// item12 owns. The entry carries its `(client, request)` identity
-/// (item10a), so the fabrication must name it.
+/// belongs to state transfer (§10). The entry carries its `(client, request)` identity
+/// (§9.2), so the fabrication must name it.
 fn prepare(slot: u64, committed: u64, client: u128, request: u64, payload: &[u8]) -> Message {
     Message {
         header: Header {
@@ -296,9 +296,9 @@ fn commit_lands_on_a_weighted_majority_not_unanimity() {
     h.assert_safety();
 }
 
-/// The client table, every branch pinned (§9.2, the resolved item01
-/// follow-on): cached reply on an exact duplicate after completion, silent
-/// drop while in flight, accept exactly `last + 1`, silent drop for anything
+/// The client table, every branch pinned (§9.2): cached reply on an exact
+/// duplicate after completion, silent drop while in flight, accept exactly
+/// `last + 1`, silent drop for anything
 /// else — and an unknown client's first request must be number 1.
 #[test]
 fn client_table_every_branch() {
@@ -436,7 +436,7 @@ fn duplicate_prepare_is_idempotent() {
 /// An out-of-order `Prepare` is a gap: dropped, reported as `GapDetected`,
 /// never faulted. The missing `Prepare` closes the gap; the re-offered slot
 /// then completes the chain. The re-offer stands in for the primary's
-/// retransmit — item12 owns the active fetch.
+/// retransmit — the active fetch belongs to state transfer (§10).
 #[test]
 fn out_of_order_prepare_gap_is_dropped_and_recovered() {
     let mut h = bootstrapped();
@@ -496,7 +496,7 @@ fn out_of_order_prepare_gap_is_dropped_and_recovered() {
 /// Client requests route to the primary of the current view, and only
 /// there: the named `NotPrimary` refusal, before and after the bootstrap.
 /// The refusal carries the node's current view and the primary of that view
-/// (the item10 follow-on), so a host can redirect the client.
+/// (§13.4's convergence hint), so a host can redirect the client.
 #[test]
 fn client_requests_to_non_primaries_are_not_primary_refusals() {
     // The fenced genesis primary is not yet Normal: NotPrimary, not a silent
@@ -607,7 +607,7 @@ fn commit_cascade_orders_applies_and_replies() {
 /// A load script: requests across clients, deliveries, applies, ticks, and
 /// one crash with an amnesiac restart. The legality gate stands after every
 /// step; `assert_safety` runs after every quiesce. The amnesiac node lags
-/// behind on gaps (item12 owns the state transfer) but never faults and
+/// behind on gaps (the state transfer is §10's) but never faults and
 /// never diverges.
 fn load_script() -> Harness {
     let mut h = bootstrapped();

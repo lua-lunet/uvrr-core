@@ -36,7 +36,7 @@
 //!
 //! Nothing here is mutated. [`Configuration::apply`] folds one configuration into the
 //! next and [`EraTable::extend`] returns a new table that shares the retained `Arc`s
-//! with its receiver, so later items can hand configuration history out by `Arc`
+//! with its receiver, so later consumers can hand configuration history out by `Arc`
 //! without copying and without locking.
 
 use std::sync::Arc;
@@ -58,7 +58,7 @@ pub const INIT_SLOT: Slot = Slot(2);
 
 /// The largest membership the fold will establish: 16 members.
 ///
-/// The cap is a **validation-cost bound, not a protocol limit** (item03b1 ruling). The
+/// The cap is a **validation-cost bound, not a protocol limit**. The
 /// cross-era quorum discharge in [`crate::quorum`] enumerates all `2^N` subsets of the
 /// membership; at `N = 16` that is 65536 predicate evaluations per reconfiguration
 /// preflight — microseconds. Raising the cap is a one-constant change whose cost
@@ -250,7 +250,7 @@ impl Configuration {
 
     /// The sum of the weights of `members`, or `None` if any is unknown or named twice.
     ///
-    /// Later items build quorum evaluation on this. Duplicate rejection here is what
+    /// Quorum evaluation builds on this. Duplicate rejection here is what
     /// stops a set from voting twice; a caller that deduplicated for itself would hold
     /// a second copy of the rule, and two copies of an intersection rule are two
     /// chances to get it wrong. The sum of distinct members' weights is bounded by
@@ -329,8 +329,8 @@ impl Configuration {
     ///
     /// §8.7.2 also requires that `Init` not be proposed after any view change. That is
     /// a proposal-time condition on the proposer's state, not a property of the fold:
-    /// the fold sees slots and configurations, not views. It belongs to item14's
-    /// proposal path, and its absence here is deliberate, not an omission.
+    /// the fold sees slots and configurations, not views. It belongs to the planned
+    /// view-change proposal path, and its absence here is deliberate, not an omission.
     pub fn apply(&self, op: &SystemOperation, at: Slot) -> Result<Configuration, ConfigError> {
         match op {
             SystemOperation::Void => {
@@ -358,7 +358,7 @@ impl Configuration {
                 if order.is_empty() {
                     return Err(ConfigError::EmptyInitOrder);
                 }
-                // The membership cap (item03b1) bounds the quorum gate's subset
+                // The membership cap bounds the quorum gate's subset
                 // enumeration; see `MAX_MEMBERS`.
                 if order.len() > MAX_MEMBERS_USIZE {
                     return Err(ConfigError::MembershipCapExceeded { cap: MAX_MEMBERS });
@@ -462,7 +462,7 @@ impl Configuration {
                 if self.order.iter().any(|member| member.node == *node) {
                     return Err(ConfigError::DuplicateNode(*node));
                 }
-                // One more member would take the membership past the cap (item03b1);
+                // One more member would take the membership past the cap;
                 // see `MAX_MEMBERS`.
                 if self.order.len() >= MAX_MEMBERS_USIZE {
                     return Err(ConfigError::MembershipCapExceeded { cap: MAX_MEMBERS });
@@ -595,7 +595,7 @@ pub enum ConfigError {
 /// The reconfiguration operation alphabet of §8.7.2, exhaustive.
 ///
 /// Operations are replicated history, not ambient state: they travel in the log as
-/// typed payloads (item04's [`crate::journal::LogEntry`] carries one), so configuration
+/// typed payloads ([`crate::journal::LogEntry`] carries one), so configuration
 /// construction is
 /// itself recoverable and two replicas cannot disagree about genesis without the
 /// disagreement appearing in the history itself.
@@ -737,8 +737,8 @@ impl Unpack for SystemOperation {
 /// without locking, and precomputes `total` so a quorum evaluator never walks the
 /// membership to rediscover it.
 ///
-/// item15 adds a `pivot: Option<Pivot>` field recording the concrete `qI`/`qII` vote
-/// sets that carried a non-stop transition (§8.7.6–§8.7.7). It is deliberately not
+/// A `pivot: Option<Pivot>` field recording the concrete `qI`/`qII` vote
+/// sets that carried a non-stop transition (§8.7.6–§8.7.7) is deliberately not
 /// pre-declared here.
 #[derive(Clone, Debug)]
 pub struct EraRecord {
@@ -775,8 +775,8 @@ pub struct EraRecord {
 /// would make the overlap mode unexpressible.
 ///
 /// The safety of *dropping* an out-of-window message is exercised end to end by the
-/// item17 crash matrix; that claim has a named owner and is not asserted by this
-/// module's own tests.
+/// crash matrix (`docs/architecture.md`); that claim has a named owner and is not
+/// asserted by this module's own tests.
 #[derive(Clone, Debug)]
 pub struct EraTable {
     /// Retained records, non-decreasing in era; the last is current. Never empty: the

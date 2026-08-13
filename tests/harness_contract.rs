@@ -1,13 +1,13 @@
 //! Contract for the scripted step-through harness (`tests/harness/mod.rs`).
 //!
 //! The harness is loaded infrastructure: a harness that can silently pass is
-//! worse than none. The properties pinned here, each of which items 09–18 are
-//! entitled to assume:
+//! worse than none. The properties pinned here, each of which the protocol
+//! suites are entitled to assume:
 //!
 //! 1. determinism — the same script run twice produces byte-identical step
 //!    traces;
 //! 2. force-feed — `inject` reaches a node with exactly the outcome of a
-//!    queued delivery of the same datagram, and (since item09) a legitimate
+//!    queued delivery of the same datagram, and a legitimate
 //!    `Prepare` from the view-0 primary is adopted and accepted by a
 //!    `Recovering` backup while a client request to a non-primary is the
 //!    named `NotPrimary` refusal;
@@ -231,7 +231,7 @@ fn the_same_script_produces_byte_identical_traces() {
 
 /// `inject` bypasses the network queues but reaches the node through the same
 /// plan/publish path as a queued delivery: identical input, identical
-/// outcome. Since item09 the handlers are live: a legitimate `Prepare` from
+/// outcome. The normal-operation handlers are live: a legitimate `Prepare` from
 /// the view-0 primary is adopted and accepted by a `Recovering` backup
 /// (VRR-2012 §4), which answers `PrepareOk`.
 #[test]
@@ -260,8 +260,8 @@ fn inject_reaches_the_node_exactly_as_a_queued_delivery() {
         "force-feed and queued delivery agree"
     );
 
-    // A client request to a non-primary is the named `NotPrimary` refusal
-    // (item09), carrying the redirection information (the item10 follow-on):
+    // A client request to a non-primary is the named `NotPrimary` refusal,
+    // carrying the redirection information (§13.4's convergence hint):
     // the backup adopted view 0 above and is Normal, but the primary of
     // view 0 is n0.
     let refusal = injected.client_request(n(1), ClientId(9), b"op");
@@ -315,7 +315,7 @@ fn partition_holds_counts_and_releases_on_heal() {
     assert_eq!(
         h.deliver_all().len(),
         2,
-        "the requeued Prepare is live (item09): it is accepted, and its PrepareOk is delivered too"
+        "the requeued Prepare is live: it is accepted, and its PrepareOk is delivered too"
     );
 
     // An explicit drop is a script decision and the trace says so.

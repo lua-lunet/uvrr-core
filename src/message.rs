@@ -335,7 +335,7 @@ impl Unpack for EvidenceKind {
 /// greatest request accepted from this client, and the cached reply if the
 /// volatile result is still at hand.
 ///
-/// The table is protocol evidence (item10a), riding `DoViewChange` and
+/// The table is protocol evidence (§9.2), riding `DoViewChange` and
 /// `StartView`: without it the new primary's table would be empty, and a
 /// retry of a committed request whose result died with the old primary
 /// would be accepted as new — a second log entry for one logical request.
