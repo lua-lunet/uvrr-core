@@ -7,7 +7,7 @@ edition = "2024"
 rust-version = "1.85"
 description = "Sans-io Viewstamped Replication Revisited core (normal operation, view change, recovery, state transfer) with a C ABI for LuaJIT FFI."
 repository = "https://github.com/simbo1905/vrr-core"
-license = "Apache-2.0"
+license = "MIT"
 readme = "README.md"
 keywords = ["consensus", "replication", "viewstamped", "vsr", "raft"]
 # Not a no-std category: the core uses Vec, BTreeMap and String.
@@ -19,24 +19,35 @@ categories = [
 ]
 exclude = ["maelstrom/", "store/", ".state/", "mise.toml", ".gitmodules"]
 
-# `name = "vrr"` deliberately differs from the package name so consumers write
-# `use vrr::vrr::Replica`, and so the test suite this crate was extracted from
-# compiles verbatim. The core is unmodified by the extraction.
+# `name = "vrr"` deliberately differs from the package name. The cdylib and
+# staticlib artifacts are named after the lib target, and the C ABI symbol
+# prefix and the shared-object name a LuaJIT host dlopens are `vrr`, not
+# `vrr_core`.
 [lib]
 name = "vrr"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
-# The Maelstrom node. A binary, not a second crate: it needs the library and
-# nothing needs it, so it stays out of the published artifact's dependency
-# graph while still being built and tested by `cargo test --all-targets`.
-[[bin]]
-name = "maelstrom-lin-kv"
-path = "src/bin/maelstrom-lin-kv/main.rs"
-
+# Every entry is optional, so a consumer's non-optional dependency set is empty
+# and `default-features = false` pulls in zero transitive crates. Enforced by
+# tests/manifest_contract.rs, which is a gate rather than a smoke test.
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-uuid = { version = "1", features = ["serde", "v4"] }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
+# `serde` buys derives on the wire types only. It never becomes the wire format:
+# the binary codec in `wire` is normative so the spec §13.1 suffix budget stays
+# deterministic (decision P3). `maelstrom` adds the JSON debug bridge and, from
+# item22, the Maelstrom node binary.
+[features]
+default = []
+serde = ["dep:serde"]
+maelstrom = ["serde", "dep:serde_json"]
+
+# Build-time tooling for `cargo test`, not a consumer's supply chain: nothing here
+# reaches a crate that depends on `vrr-core`, and the [dependencies] gate above is
+# what protects the consumer. Bounded by an explicit allowlist rather than left open
+# — tests/manifest_contract.rs asserts this table names exactly {proptest,
+# serde_json}, so a further entry requires a P3 amendment rather than a quiet commit.
 [dev-dependencies]
 proptest = "1.11.0"
+serde_json = "1"

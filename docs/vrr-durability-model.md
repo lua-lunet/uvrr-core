@@ -104,7 +104,6 @@ The algorithm interacts with the following state classes.
 | Configuration | generation, ordered node identities, voting weights, and legal quorum families | Defines voting authority and `primary(v)` | Supplied by the host in the current core; planned replicated Unbounded VSR support is specified in §8.7 |
 | Progress | current view, retained view, status, `accepted`, `committed`, `applied` | Fences older views and identifies the provenance of retained protocol history | Candidate for a host-supplied progress strategy |
 | Accepted history | logical slot-to-operation history required for normal operation, view change, recovery, and state transfer | Preserves operations which a later view may have to select | Candidate for a host-supplied journal strategy |
-| Client table | latest request identity and result per client, according to the declared client semantics | Duplicate suppression and result replay | Core state; host may include it in a wider durable transaction |
 | Application state | lock/lease state or other replicated service state | Result of applying committed operations | Host-owned application upcall boundary |
 | Quorum evidence | prepare acknowledgements, start-view-change senders, view-change reports, recovery responses | Proves one in-flight protocol transition | Core-local and transient; no storage strategy |
 | Recovery attempt | status, nonce, collected responses | Prevents mixing distinct recovery attempts | Core-local attempt state; nonce derived from the host-supplied event clock |
@@ -180,7 +179,7 @@ The core performs no clock reads. It neither selects a clock source nor calls an
 
 `Input` is one of:
 
-- client request;
+- a proposed operation;
 - peer message;
 - timer event;
 - recovery request;
@@ -198,8 +197,7 @@ PersistenceIntent {
 `Effects` contains:
 
 - peer messages;
-- application executions;
-- client replies;
+- application upcalls;
 - timer requests.
 
 The host may record progress, journal changes, and application changes in one wider transaction. That composition does not merge their logical semantics.
@@ -566,14 +564,14 @@ The notation distinguishes quorum families (`QI`, `QII`) from the concrete quoru
 The non-stop transition is:
 
 1. `L` sends `Prepare` for the reconfiguration operation to `qII` under view `v`.
-2. When acknowledgements from `qII` commit the operation, era `e+1` is established. `L` may continue streaming client operations to the same `qII` under `v`; these slots are authorized by `config(e+1)`.
+2. When acknowledgements from `qII` commit the operation, era `e+1` is established. `L` may continue streaming further operations to the same `qII` under `v`; these slots are authorized by `config(e+1)`.
 3. `L` selects `v' > v` such that `era(v') = e+1` and `primary(v') = L` under the new ordered membership. View-number gaps are permitted.
 4. `L` sends `PlannedViewChange(v')` only to `qI - {L}`. This message solicits planned view-change evidence. It is never sent to `qII - {L}` and does not itself make a recipient stop accepting otherwise valid `Prepare` messages in view `v`.
 5. Each recipient records the planned target separately from `current_view` and returns its `DoViewChange` evidence for `v'`. After `L` has all responses from `qI - {L}`, it casts the final vote locally. Completion of `qI` and `L`'s switch to `v'` are one serialized node transition. `L` retains its own accepted history, which is at least as complete as every history it generated and sent during overlap mode.
 6. `L` broadcasts `StartView(v', suffix, accepted, committed)` to every member of `config(e+1)`. The bounded-suffix and missing-range rules in §13.1 apply.
-7. `L` sends subsequent client operations under `v'` to a legal `QII_(e+1)` quorum.
+7. `L` sends subsequent operations under `v'` to a legal `QII_(e+1)` quorum.
 
-The client-operation stream need not pause during steps 1–7: while planned view-change evidence is collected, `L` continues committing operations through `qII` in view `v`. `PlannedViewChange` is not `StartViewChange`: it neither establishes the ordinary diskless view fence nor changes `current_view` at a recipient. Its safety depends on the disjoint concrete quorum routing and on `L` supplying the casting vote as the serialized transition point.
+The operation stream need not pause during steps 1–7: while planned view-change evidence is collected, `L` continues committing operations through `qII` in view `v`. `PlannedViewChange` is not `StartViewChange`: it neither establishes the ordinary diskless view fence nor changes `current_view` at a recipient. Its safety depends on the disjoint concrete quorum routing and on `L` supplying the casting vote as the serialized transition point.
 
 #### 8.7.8 Primary failure during overlap mode
 
@@ -643,7 +641,7 @@ After restarting, `R` cannot participate in any lower view. Therefore the `Start
 
 “Persist the view” means that each sender records its own monotonic view fence on its own stable storage before its report is released. It does not mean distributing the view record or permitting the new primary to start without a quorum.
 
-Persisting only the view fence does not recover accepted operations, commitment, application state, or client results. A replica which recovers only that fence remains unable to participate until the remaining state has been restored or recovered.
+Persisting only the view fence does not recover accepted operations, commitment, application state, or application completions. A replica which recovers only that fence remains unable to participate until the remaining state has been restored or recovered.
 
 This mechanism is not a selectable `vrr-core` protocol mode. `vrr-core` always retains the VRR-2012 `StartViewChange` exchange. A host may persist progress for recovery, but that persistence does not permit the core to omit or abbreviate the VRR-2012 view-change protocol.
 
@@ -682,32 +680,56 @@ A rejection or NACK containing the higher view can accelerate convergence. It is
 
 ## 11. Application boundary
 
-Commitment and application are separate state transitions.
+`vrr-core` orders opaque operations. It does not model clients, sockets, retries, deduplication, forwarding, or replies.
 
-### 11.1 Application participating in a host transaction
+An operation is:
+
+```text
+Operation {
+    id:      OperationId,   -- opaque correlation token { msb: u64, lsb: u64 }
+    payload: bytes
+}
+```
+
+`OperationId` is an opaque 128-bit correlation token. The core never compares identifiers for duplicate detection and assigns no retry semantics. Repeating an identifier is not suppressed; the host protocol decides whether a repetition is a retry, a duplication, or another valid invocation. Transport, leader forwarding, connection tracking, and response formatting are host extensions.
+
+### 11.1 Application upcalls and completion
+
+Commitment and application are separate state transitions. When a replica locally learns that an operation is committed, it emits an ordered application upcall containing `(slot, OperationId, payload)`. Every replica applies the operation to its local host state, so every replica emits the same ordered application sequence.
+
+The host reports `Applied { slot }` as a later serialized input. The completion carries no result: application results never enter consensus state.
+
+A host may retain an ephemeral `OperationId -> pending request` association. After successful application and completion publication, the host returns its result only when such an association still exists; otherwise it discards the result. On process failure the pending connections and associations disappear, while the operation may nevertheless commit and apply. An I/O failure therefore means the caller cannot know the write outcome and must reconnect and query according to the host protocol.
+
+Recovery may replay application upcalls. Application durability, replay handling, and side-effect semantics remain host responsibilities.
+
+### 11.2 Application participating in a host transaction
 
 ```text
 establish committed n
     -> stage progress and journal intent
     -> apply operation n in the host transaction
-    -> stage applied n and client result
+    -> stage applied n
     -> commit the host transaction
     -> publish candidate state
-    -> release reply and peer effects
+    -> release peer effects
 ```
 
-### 11.2 Application not participating in the same transaction
+### 11.3 Application not participating in the same transaction
 
 ```text
 establish committed n
     -> publish committed n after the selected stability action
-    -> emit Execute(n)
-    -> receive Complete(n,result) as a later serialized input
-    -> publish applied n and client result
-    -> release reply
+    -> emit the application upcall for n
+    -> receive Applied { slot: n } as a later serialized input
+    -> publish applied n
 ```
 
-A crash may cause `Execute(n)` to be issued again. Exactly-once external side effects require cooperation from the application through idempotence, an operation-identity transaction, or durable deduplication state. The consensus core cannot manufacture exactly-once effects across an external application boundary.
+A crash may cause an application upcall to be issued again. Exactly-once external side effects require cooperation from the application through idempotence, an operation-identity transaction, or durable deduplication state. The consensus core cannot manufacture exactly-once effects across an external application boundary.
+
+### 11.4 Contrast with the VRR-2012 client table
+
+The VRR-2012 paper describes a per-client table recording each client's latest request number and result, with at most one outstanding request per client, so that the primary can suppress duplicate requests and replay cached results (<https://dspace.mit.edu/server/api/core/bitstreams/9f8c52b3-ea46-4fde-9dc9-354ed6d9c7d9/content>). That design is a client-proxy convenience for a specific request/response service shape. This generic core does not adopt it: correlation identifiers live inside log entries and therefore survive view change and recovery as ordinary protocol history, while duplicate policy, result caching, and reply delivery belong to the host. Section 9.2 of this document concerns why the view-change protocol has two exchanges; it is unrelated to request deduplication.
 
 ## 12. Concurrency contract for the C ABI
 
@@ -857,7 +879,7 @@ The FFI clone-and-stage implementation provides process-local failure atomicity.
 
 ## Amendment A1 — §8.7.3 view-number construction is superseded
 
-Ratified at item00. See `docs/decisions.md` decision **D2**.
+Ratified at item00. See `docs/architecture.md` decision **W1**.
 
 The packed encoding of §8.7.3:
 

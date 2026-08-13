@@ -6,3 +6,4 @@ Cargo.lock
 # Scratch and item ledger. Never committed (decision D5).
 .tmp/
 
+.DS_Store
