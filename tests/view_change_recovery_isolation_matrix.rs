@@ -1,27 +1,23 @@
 mod support;
 
 use support::{
-    EPOCH, Relation, ReplicaSnapshot, assert_complete_cases, assert_replica_unchanged, entry,
+    Relation, ReplicaSnapshot, VIEW, assert_complete_cases, assert_replica_unchanged, entry,
     message, node, receive, state,
 };
 use vrr::vrr::{Body, Input, LogState, NodeId};
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-enum EpochChangeMessage {
-    StartEpochChange,
-    DoEpochChange,
-    StartEpoch,
+enum ViewChangeMessage {
+    StartViewChange,
+    DoViewChange,
+    StartView,
 }
 
-impl EpochChangeMessage {
-    const ALL: [Self; 3] = [
-        Self::StartEpochChange,
-        Self::DoEpochChange,
-        Self::StartEpoch,
-    ];
+impl ViewChangeMessage {
+    const ALL: [Self; 3] = [Self::StartViewChange, Self::DoViewChange, Self::StartView];
 
     fn carries_state(self) -> bool {
-        !matches!(self, Self::StartEpochChange)
+        !matches!(self, Self::StartViewChange)
     }
 }
 
@@ -47,17 +43,17 @@ impl StateValidity {
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 struct Case {
-    message: EpochChangeMessage,
-    epoch: Relation,
+    message: ViewChangeMessage,
+    view: Relation,
     sender: SenderEligibility,
     state: Option<StateValidity>,
 }
 
-fn sender(case: Case, epoch: u32) -> NodeId {
-    let leader = epoch % 4;
+fn sender(case: Case, view: u32) -> NodeId {
+    let leader = view % 4;
     match (case.message, case.sender) {
-        (EpochChangeMessage::StartEpochChange, SenderEligibility::Eligible) => 0,
-        (EpochChangeMessage::StartEpochChange, SenderEligibility::Ineligible) => 4,
+        (ViewChangeMessage::StartViewChange, SenderEligibility::Eligible) => 0,
+        (ViewChangeMessage::StartViewChange, SenderEligibility::Ineligible) => 4,
         (_, SenderEligibility::Eligible) => leader,
         (_, SenderEligibility::Ineligible) => (0..4)
             .find(|node| *node != leader && *node != 3)
@@ -78,30 +74,30 @@ fn transferred_state(validity: StateValidity) -> LogState {
 
 fn body(case: Case) -> Body {
     match case.message {
-        EpochChangeMessage::StartEpochChange => Body::StartEpochChange,
-        EpochChangeMessage::DoEpochChange => Body::DoEpochChange {
-            latest_normal: 0,
-            state: transferred_state(case.state.expect("DO_EPOCH_CHANGE carries state")),
+        ViewChangeMessage::StartViewChange => Body::StartViewChange,
+        ViewChangeMessage::DoViewChange => Body::DoViewChange {
+            retained_view: 0,
+            state: transferred_state(case.state.expect("DO_VIEW_CHANGE carries state")),
         },
-        EpochChangeMessage::StartEpoch => Body::StartEpoch {
-            state: transferred_state(case.state.expect("START_EPOCH carries state")),
+        ViewChangeMessage::StartView => Body::StartView {
+            state: transferred_state(case.state.expect("START_VIEW carries state")),
         },
     }
 }
 
 #[test]
-fn recovering_replica_isolates_the_complete_epoch_change_matrix() {
-    let cases: Vec<_> = EpochChangeMessage::ALL
+fn recovering_replica_isolates_the_complete_view_change_matrix() {
+    let cases: Vec<_> = ViewChangeMessage::ALL
         .into_iter()
         .flat_map(|message| {
-            Relation::ALL.into_iter().flat_map(move |epoch| {
+            Relation::ALL.into_iter().flat_map(move |view| {
                 SenderEligibility::ALL.into_iter().flat_map(move |sender| {
                     if message.carries_state() {
                         StateValidity::ALL
                             .into_iter()
                             .map(move |state| Case {
                                 message,
-                                epoch,
+                                view,
                                 sender,
                                 state: Some(state),
                             })
@@ -109,7 +105,7 @@ fn recovering_replica_isolates_the_complete_epoch_change_matrix() {
                     } else {
                         vec![Case {
                             message,
-                            epoch,
+                            view,
                             sender,
                             state: None,
                         }]
@@ -119,7 +115,7 @@ fn recovering_replica_isolates_the_complete_epoch_change_matrix() {
         })
         .collect();
     assert_complete_cases(
-        "recovering epoch-change isolation",
+        "recovering view-change isolation",
         30,
         cases.iter().copied(),
     );
@@ -131,31 +127,27 @@ fn recovering_replica_isolates_the_complete_epoch_change_matrix() {
                 &mut replica,
                 1,
                 message(
-                    EPOCH,
+                    VIEW,
                     0,
-                    Body::StartEpoch {
+                    Body::StartView {
                         state: state(vec![], 0)
                     }
                 ),
             )
             .is_empty()
         );
-        assert_eq!(replica.epoch(), EPOCH);
+        assert_eq!(replica.view(), VIEW);
         assert_eq!(replica.step(Input::Recover { nonce: 7 }).len(), 1);
         let before = ReplicaSnapshot::capture(&replica);
 
-        let epoch = case.epoch.epoch();
+        let view = case.view.view();
         let body = body(case);
         let slot = match &body {
-            Body::DoEpochChange { state, .. } | Body::StartEpoch { state } => state.slot,
-            Body::StartEpochChange => 0,
-            _ => unreachable!("matrix contains only epoch-change messages"),
+            Body::DoViewChange { state, .. } | Body::StartView { state } => state.slot,
+            Body::StartViewChange => 0,
+            _ => unreachable!("matrix contains only view-change messages"),
         };
-        let outputs = receive(
-            &mut replica,
-            sender(case, epoch),
-            message(epoch, slot, body),
-        );
+        let outputs = receive(&mut replica, sender(case, view), message(view, slot, body));
 
         assert!(
             outputs.is_empty(),

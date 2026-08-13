@@ -26,7 +26,7 @@
 //!   acceptances (suffix of three entries, two clients) is restored by the
 //!   rollback;
 //! - recovery arm: results computed during `Status::Replaying` (which never
-//!   reply) are preserved through epoch adoption and rollback, and replay with
+//!   reply) are preserved through view adoption and rollback, and replay with
 //!   exact bytes once the recoverer leads.
 //!
 //! The completion-order and multiple-suffixes arms fail on the pre-remedy core
@@ -77,13 +77,13 @@ fn execute_output(entry: &LogEntry) -> Output {
     }
 }
 
-/// Drives a node-0 replica of a 3-member cluster out of epoch 0: the epoch-1
+/// Drives a node-0 replica of a 3-member cluster out of view 0: the view-1
 /// leader (node 1) installs `installed` — rolling the uncommitted suffix back —
-/// the epoch-2 leader (node 2) installs it again, and the replica then leads
-/// the epoch-3 change itself, activating with the same installed state.
+/// the view-2 leader (node 2) installs it again, and the replica then leads
+/// the view-3 change itself, activating with the same installed state.
 /// Asserts the exact message contract at every step, including that the
-/// replica's own epoch-1 report still carries its pre-rollback state.
-fn rollback_and_relead_epoch_three(replica: &mut Replica, installed: LogState) {
+/// replica's own view-1 report still carries its pre-rollback state.
+fn rollback_and_relead_view_three(replica: &mut Replica, installed: LogState) {
     let reported = LogState {
         slot: replica.slot(),
         commit: replica.commit(),
@@ -95,15 +95,11 @@ fn rollback_and_relead_epoch_three(replica: &mut Replica, installed: LogState) {
         vec![Output::Broadcast(message(
             1,
             reported.slot,
-            Body::StartEpochChange
+            Body::StartViewChange
         ))],
-        "timeout starts the epoch-1 change"
+        "timeout starts the view-1 change"
     );
-    let out = receive(
-        replica,
-        1,
-        message(1, reported.slot, Body::StartEpochChange),
-    );
+    let out = receive(replica, 1, message(1, reported.slot, Body::StartViewChange));
     assert_eq!(
         out,
         vec![Output::To(
@@ -111,13 +107,13 @@ fn rollback_and_relead_epoch_three(replica: &mut Replica, installed: LogState) {
             message(
                 1,
                 reported.slot,
-                Body::DoEpochChange {
-                    latest_normal: 0,
+                Body::DoViewChange {
+                    retained_view: 0,
                     state: reported,
                 },
             ),
         )],
-        "the replica reports its pre-rollback state to the epoch-1 leader"
+        "the replica reports its pre-rollback state to the view-1 leader"
     );
     let out = receive(
         replica,
@@ -125,13 +121,13 @@ fn rollback_and_relead_epoch_three(replica: &mut Replica, installed: LogState) {
         message(
             1,
             installed.slot,
-            Body::StartEpoch {
+            Body::StartView {
                 state: installed.clone(),
             },
         ),
     );
     assert!(out.is_empty(), "the rolled-back state installs quietly");
-    assert_eq!(replica.epoch(), 1);
+    assert_eq!(replica.view(), 1);
     assert_eq!(replica.log(), installed.log.as_slice());
     assert_eq!(replica.commit(), installed.commit);
     assert_eq!(replica.slot(), installed.slot);
@@ -142,9 +138,9 @@ fn rollback_and_relead_epoch_three(replica: &mut Replica, installed: LogState) {
         vec![Output::Broadcast(message(
             2,
             installed.slot,
-            Body::StartEpochChange
+            Body::StartViewChange
         ))],
-        "timeout starts the epoch-2 change"
+        "timeout starts the view-2 change"
     );
     let out = receive(
         replica,
@@ -152,13 +148,13 @@ fn rollback_and_relead_epoch_three(replica: &mut Replica, installed: LogState) {
         message(
             2,
             installed.slot,
-            Body::StartEpoch {
+            Body::StartView {
                 state: installed.clone(),
             },
         ),
     );
     assert!(out.is_empty(), "the same state installs again quietly");
-    assert_eq!(replica.epoch(), 2);
+    assert_eq!(replica.view(), 2);
 
     let out = replica.step(Input::LeaderTimeout);
     assert_eq!(
@@ -166,14 +162,14 @@ fn rollback_and_relead_epoch_three(replica: &mut Replica, installed: LogState) {
         vec![Output::Broadcast(message(
             3,
             installed.slot,
-            Body::StartEpochChange
+            Body::StartViewChange
         ))],
-        "timeout starts the epoch-3 change the replica leads"
+        "timeout starts the view-3 change the replica leads"
     );
     let out = receive(
         replica,
         1,
-        message(3, installed.slot, Body::StartEpochChange),
+        message(3, installed.slot, Body::StartViewChange),
     );
     assert!(out.is_empty(), "the leader waits for a report quorum");
     let out = receive(
@@ -182,8 +178,8 @@ fn rollback_and_relead_epoch_three(replica: &mut Replica, installed: LogState) {
         message(
             3,
             installed.slot,
-            Body::DoEpochChange {
-                latest_normal: 2,
+            Body::DoViewChange {
+                retained_view: 2,
                 state: installed.clone(),
             },
         ),
@@ -193,15 +189,15 @@ fn rollback_and_relead_epoch_three(replica: &mut Replica, installed: LogState) {
         vec![Output::Broadcast(message(
             3,
             installed.slot,
-            Body::StartEpoch {
+            Body::StartView {
                 state: installed.clone(),
             },
         ))],
-        "quorum activates epoch 3 and broadcasts the installed state"
+        "quorum activates view 3 and broadcasts the installed state"
     );
-    assert_eq!(replica.epoch(), 3);
+    assert_eq!(replica.view(), 3);
     assert_eq!(replica.status(), Status::Normal);
-    assert!(replica.is_leader(), "the replica leads epoch 3");
+    assert!(replica.is_leader(), "the replica leads view 3");
 }
 
 /// Completion-order arm (leader side): request 1 is committed and its
@@ -209,7 +205,7 @@ fn rollback_and_relead_epoch_three(replica: &mut Replica, installed: LogState) {
 /// then does the host complete slot 1. The completion must NOT emit an
 /// immediate `Reply` — the client table's latest entry already describes
 /// request 2 — but the result must be retained in the history map. When a
-/// later valid epoch state rolls the uncommitted request 2 back, the rebuilt
+/// later valid view state rolls the uncommitted request 2 back, the rebuilt
 /// table entry carries the retained result, and the exact-byte leader retry
 /// replays it. Fails on the pre-remedy core: the `matched` guard dropped the
 /// post-acceptance completion from every replica structure, so the retry
@@ -277,7 +273,7 @@ fn completion_after_newer_same_client_request_replies_nothing_and_is_replayed_af
     assert!(replica.step(request_of(&a2)).is_empty());
     assert_eq!(replica.slot(), 2, "retries do not re-prepare");
 
-    rollback_and_relead_epoch_three(&mut replica, state(vec![a1.clone()], 1));
+    rollback_and_relead_view_three(&mut replica, state(vec![a1.clone()], 1));
 
     let retry = replica.step(request_of(&a1));
     assert_eq!(
@@ -304,7 +300,7 @@ fn completion_after_newer_same_client_request_replies_nothing_and_is_replayed_af
                 entry: a2.clone(),
             },
         ))],
-        "request 2 is re-prepared in epoch 3 after its rollback"
+        "request 2 is re-prepared in view 3 after its rollback"
     );
     assert!(replica.step(request_of(&a1)).is_empty());
     assert!(replica.step(request_of(&a2)).is_empty());
@@ -366,7 +362,7 @@ fn completion_before_successor_acceptance_replies_immediately_and_survives_rollb
     );
     assert!(replica.step(request_of(&a1)).is_empty());
 
-    rollback_and_relead_epoch_three(&mut replica, state(vec![a1.clone()], 1));
+    rollback_and_relead_view_three(&mut replica, state(vec![a1.clone()], 1));
 
     assert_eq!(
         replica.step(request_of(&a1)),
@@ -466,7 +462,7 @@ fn multiple_clients_results_survive_rollback_and_non_latest_requests_stay_silent
     assert!(replica.step(request_of(&a1)).is_empty());
     assert!(replica.step(request_of(&b1)).is_empty());
 
-    rollback_and_relead_epoch_three(&mut replica, state(vec![a1.clone(), b1.clone()], 2));
+    rollback_and_relead_view_three(&mut replica, state(vec![a1.clone(), b1.clone()], 2));
 
     assert_eq!(
         replica.step(request_of(&a1)),
@@ -492,7 +488,7 @@ fn multiple_clients_results_survive_rollback_and_non_latest_requests_stay_silent
                 entry: a2.clone(),
             },
         ))],
-        "client A's request 2 is re-prepared in epoch 3"
+        "client A's request 2 is re-prepared in view 3"
     );
     assert!(replica.step(request_of(&a1)).is_empty());
     assert!(replica.step(request_of(&a2)).is_empty());
@@ -515,7 +511,7 @@ fn multiple_clients_results_survive_rollback_and_non_latest_requests_stay_silent
 fn multi_entry_suffix_rollback_restores_result_completed_after_successor_acceptances() {
     const FIRST_LEADER: u32 = 0;
     const SECOND_LEADER: u32 = 1;
-    // The replica is node 2 of a 3-member cluster; it leads epoch 2 itself.
+    // The replica is node 2 of a 3-member cluster; it leads view 2 itself.
     const REPLICA: usize = 2;
 
     let mut replica = node(3, REPLICA);
@@ -579,7 +575,7 @@ fn multi_entry_suffix_rollback_restores_result_completed_after_successor_accepta
     );
     assert_eq!(replica.executed(), 1, "request 1 executed");
 
-    // The epoch-1 leader installs slot 1 / commit 1 holding only request 1:
+    // The view-1 leader installs slot 1 / commit 1 holding only request 1:
     // the three-entry suffix rolls back.
     let out = receive(
         &mut replica,
@@ -587,28 +583,28 @@ fn multi_entry_suffix_rollback_restores_result_completed_after_successor_accepta
         message(
             1,
             1,
-            Body::StartEpoch {
+            Body::StartView {
                 state: rolled_back.clone(),
             },
         ),
     );
     assert!(out.is_empty(), "nothing committed remains to execute");
-    assert_eq!(replica.epoch(), 1);
+    assert_eq!(replica.view(), 1);
     assert_eq!(replica.log(), [a1.clone()].as_slice());
     assert_eq!(replica.commit(), 1);
     assert_eq!(replica.executed(), 1, "request 1 stays executed");
 
-    // The replica leads epoch 2.
+    // The replica leads view 2.
     let out = replica.step(Input::LeaderTimeout);
     assert_eq!(
         out,
-        vec![Output::Broadcast(message(2, 1, Body::StartEpochChange))],
-        "timeout starts the epoch-2 change"
+        vec![Output::Broadcast(message(2, 1, Body::StartViewChange))],
+        "timeout starts the view-2 change"
     );
     let out = receive(
         &mut replica,
         FIRST_LEADER,
-        message(2, 1, Body::StartEpochChange),
+        message(2, 1, Body::StartViewChange),
     );
     assert!(out.is_empty(), "quorum is not yet reached");
     let out = receive(
@@ -617,8 +613,8 @@ fn multi_entry_suffix_rollback_restores_result_completed_after_successor_accepta
         message(
             2,
             1,
-            Body::DoEpochChange {
-                latest_normal: 1,
+            Body::DoViewChange {
+                retained_view: 1,
                 state: rolled_back.clone(),
             },
         ),
@@ -628,13 +624,13 @@ fn multi_entry_suffix_rollback_restores_result_completed_after_successor_accepta
         vec![Output::Broadcast(message(
             2,
             1,
-            Body::StartEpoch {
+            Body::StartView {
                 state: rolled_back.clone(),
             },
         ))],
-        "quorum activates epoch 2 and broadcasts the installed state"
+        "quorum activates view 2 and broadcasts the installed state"
     );
-    assert!(replica.is_leader(), "the replica leads epoch 2");
+    assert!(replica.is_leader(), "the replica leads view 2");
 
     assert_eq!(
         replica.step(request_of(&a1)),
@@ -644,14 +640,14 @@ fn multi_entry_suffix_rollback_restores_result_completed_after_successor_accepta
 }
 
 /// Recovery arm: results computed during the `Status::Replaying` phase never
-/// reply and are recorded unconditionally; epoch adoption then preserves them
-/// (here: the epoch-3 install rolls the recovered uncommitted suffix back),
-/// and once the recoverer leads epoch 4 the exact-byte retry replays the
+/// reply and are recorded unconditionally; view adoption then preserves them
+/// (here: the view-3 install rolls the recovered uncommitted suffix back),
+/// and once the recoverer leads view 4 the exact-byte retry replays the
 /// replayed result.
 #[test]
-fn recovery_replay_and_epoch_adoption_preserve_exact_result_bytes() {
-    // The recoverer is node 1 of a 3-member cluster: node 2 leads epoch 2,
-    // node 0 leads epoch 3, and the recoverer leads epoch 4.
+fn recovery_replay_and_view_adoption_preserve_exact_result_bytes() {
+    // The recoverer is node 1 of a 3-member cluster: node 2 leads view 2,
+    // node 0 leads view 3, and the recoverer leads view 4.
     let mut replica = node(3, 1);
     let a1 = entry(1, CLIENT_A, 1);
     let a2 = entry(2, CLIENT_A, 2);
@@ -668,7 +664,7 @@ fn recovery_replay_and_epoch_adoption_preserve_exact_result_bytes() {
         ))],
         "the recovery attempt broadcasts its nonce"
     );
-    // The epoch-2 leader reports a committed request 1 plus the uncommitted
+    // The view-2 leader reports a committed request 1 plus the uncommitted
     // same-client request 2; a nonleader reports no state.
     let out = receive(
         &mut replica,
@@ -701,7 +697,7 @@ fn recovery_replay_and_epoch_adoption_preserve_exact_result_bytes() {
         "quorum completion enters the replay phase at the committed frontier"
     );
     assert_eq!(replica.status(), Status::Replaying);
-    assert_eq!(replica.epoch(), 2);
+    assert_eq!(replica.view(), 2);
     assert_eq!(replica.commit(), 1);
     assert_eq!(replica.executed(), 0);
     assert_eq!(replica.log(), recovered.log.as_slice());
@@ -724,7 +720,7 @@ fn recovery_replay_and_epoch_adoption_preserve_exact_result_bytes() {
     );
     assert_eq!(replica.executed(), 1);
 
-    // The epoch-3 leader installs the rolled-back state: the recovered
+    // The view-3 leader installs the rolled-back state: the recovered
     // uncommitted request 2 is gone, and adoption must keep request 1's
     // replayed result.
     let out = receive(
@@ -733,24 +729,24 @@ fn recovery_replay_and_epoch_adoption_preserve_exact_result_bytes() {
         message(
             3,
             1,
-            Body::StartEpoch {
+            Body::StartView {
                 state: rolled_back.clone(),
             },
         ),
     );
     assert!(out.is_empty(), "the rolled-back state installs quietly");
-    assert_eq!(replica.epoch(), 3);
+    assert_eq!(replica.view(), 3);
     assert_eq!(replica.log(), rolled_back.log.as_slice());
     assert_eq!(replica.executed(), 1, "request 1 stays executed");
 
-    // The recoverer leads epoch 4.
+    // The recoverer leads view 4.
     let out = replica.step(Input::LeaderTimeout);
     assert_eq!(
         out,
-        vec![Output::Broadcast(message(4, 1, Body::StartEpochChange))],
-        "timeout starts the epoch-4 change"
+        vec![Output::Broadcast(message(4, 1, Body::StartViewChange))],
+        "timeout starts the view-4 change"
     );
-    let out = receive(&mut replica, 0, message(4, 1, Body::StartEpochChange));
+    let out = receive(&mut replica, 0, message(4, 1, Body::StartViewChange));
     assert!(out.is_empty(), "quorum is not yet reached");
     let out = receive(
         &mut replica,
@@ -758,8 +754,8 @@ fn recovery_replay_and_epoch_adoption_preserve_exact_result_bytes() {
         message(
             4,
             1,
-            Body::DoEpochChange {
-                latest_normal: 3,
+            Body::DoViewChange {
+                retained_view: 3,
                 state: rolled_back.clone(),
             },
         ),
@@ -769,13 +765,13 @@ fn recovery_replay_and_epoch_adoption_preserve_exact_result_bytes() {
         vec![Output::Broadcast(message(
             4,
             1,
-            Body::StartEpoch {
+            Body::StartView {
                 state: rolled_back.clone(),
             },
         ))],
-        "quorum activates epoch 4 and broadcasts the installed state"
+        "quorum activates view 4 and broadcasts the installed state"
     );
-    assert!(replica.is_leader(), "the recoverer leads epoch 4");
+    assert!(replica.is_leader(), "the recoverer leads view 4");
 
     assert_eq!(
         replica.step(request_of(&a1)),

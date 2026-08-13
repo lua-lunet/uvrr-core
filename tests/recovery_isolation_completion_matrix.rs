@@ -33,9 +33,9 @@ enum PeerBody {
     Prepare,
     PrepareOk,
     Commit,
-    StartEpochChange,
-    DoEpochChange,
-    StartEpoch,
+    StartViewChange,
+    DoViewChange,
+    StartView,
     Recovery,
     RecoveryResponse,
 }
@@ -45,9 +45,9 @@ impl PeerBody {
         Self::Prepare,
         Self::PrepareOk,
         Self::Commit,
-        Self::StartEpochChange,
-        Self::DoEpochChange,
-        Self::StartEpoch,
+        Self::StartViewChange,
+        Self::DoViewChange,
+        Self::StartView,
         Self::Recovery,
         Self::RecoveryResponse,
     ];
@@ -194,19 +194,19 @@ fn recovering_peer_body_matrix_refuses_every_non_response_form() {
             ),
             PeerBody::PrepareOk => message(0, 0, Body::PrepareOk),
             PeerBody::Commit => message(0, 0, Body::Commit),
-            PeerBody::StartEpochChange => message(1, 0, Body::StartEpochChange),
-            PeerBody::DoEpochChange => message(
+            PeerBody::StartViewChange => message(1, 0, Body::StartViewChange),
+            PeerBody::DoViewChange => message(
                 1,
                 0,
-                Body::DoEpochChange {
-                    latest_normal: 0,
+                Body::DoViewChange {
+                    retained_view: 0,
                     state: state(vec![], 0),
                 },
             ),
-            PeerBody::StartEpoch => message(
+            PeerBody::StartView => message(
                 1,
                 0,
-                Body::StartEpoch {
+                Body::StartView {
                     state: state(vec![], 0),
                 },
             ),
@@ -257,7 +257,7 @@ fn recovery_response_nonce_provenance_and_transfer_matrix_is_finite() {
             ),
         );
         // Admission per the core's own predicate (`src/vrr.rs`): the nonce
-        // must match, and `state.is_some() == (from == leader_of(epoch))` —
+        // must match, and `state.is_some() == (from == leader_of(view))` —
         // so a matching nonleader response with `state: None` is valid
         // quorum evidence, exactly like the leader's valid state transfer.
         // A single admissible response is below the K=4 quorum of three, so
@@ -285,7 +285,7 @@ fn recovery_response_nonce_provenance_and_transfer_matrix_is_finite() {
 }
 
 #[test]
-fn recovery_quorum_matrix_requires_distinct_responses_and_selects_maximum_epoch() {
+fn recovery_quorum_matrix_requires_distinct_responses_and_selects_maximum_view() {
     assert_complete_cases("recovery member counts", 2, MEMBER_COUNTS);
 
     for count in MEMBER_COUNTS {
@@ -343,9 +343,9 @@ fn recovery_quorum_matrix_requires_distinct_responses_and_selects_maximum_epoch(
         );
         assert_replica_unchanged((count, "duplicate responder"), &before_duplicate, &replica);
 
-        let maximum_epoch = count as u32;
+        let maximum_view = count as u32;
         assert_eq!(
-            maximum_epoch % count as u32,
+            maximum_view % count as u32,
             0,
             "K={count} exact maximum leader"
         );
@@ -354,7 +354,7 @@ fn recovery_quorum_matrix_requires_distinct_responses_and_selects_maximum_epoch(
                 &mut replica,
                 0,
                 message(
-                    maximum_epoch,
+                    maximum_view,
                     1,
                     Body::RecoveryResponse {
                         nonce: NONCE,
@@ -370,9 +370,9 @@ fn recovery_quorum_matrix_requires_distinct_responses_and_selects_maximum_epoch(
             "K={count} valid quorum activates"
         );
         assert_eq!(
-            replica.epoch(),
-            maximum_epoch,
-            "K={count} selects maximum epoch"
+            replica.view(),
+            maximum_view,
+            "K={count} selects maximum view"
         );
         assert_eq!(
             replica.log(),
@@ -383,7 +383,7 @@ fn recovery_quorum_matrix_requires_distinct_responses_and_selects_maximum_epoch(
 }
 
 #[test]
-fn recovery_quorum_refuses_completion_when_the_maximum_epoch_lacks_its_leader_state() {
+fn recovery_quorum_refuses_completion_when_the_maximum_view_lacks_its_leader_state() {
     assert_complete_cases("missing maximum leader K", 2, MEMBER_COUNTS);
 
     for count in MEMBER_COUNTS {
@@ -396,20 +396,20 @@ fn recovery_quorum_refuses_completion_when_the_maximum_epoch_lacks_its_leader_st
         let before = ReplicaSnapshot::capture(&replica);
 
         // Every response is admissible evidence (`state.is_some() ==
-        // (from == leader_of(epoch))` holds by construction), so the evidence
+        // (from == leader_of(view))` holds by construction), so the evidence
         // map fills to exactly quorum size; completion stalls only because
-        // the maximum-epoch leader's state is absent.
+        // the maximum-view leader's state is absent.
         let mut expected = before.diagnostic().clone();
         for from in responders {
-            let epoch = if from == 0 { count as u32 - 1 } else { from };
+            let view = if from == 0 { count as u32 - 1 } else { from };
             let state =
-                (from == epoch % count as u32).then(|| state(vec![entry(1, from as u64, 1)], 0));
+                (from == view % count as u32).then(|| state(vec![entry(1, from as u64, 1)], 0));
             assert!(
                 receive(
                     &mut replica,
                     from,
                     message(
-                        epoch,
+                        view,
                         state.as_ref().map_or(0, |state| state.slot),
                         Body::RecoveryResponse {
                             nonce: NONCE,
@@ -419,7 +419,7 @@ fn recovery_quorum_refuses_completion_when_the_maximum_epoch_lacks_its_leader_st
                 )
                 .is_empty()
             );
-            expected.recovery.insert(from, (epoch, state));
+            expected.recovery.insert(from, (view, state));
         }
         assert_eq!(
             quorum,

@@ -87,10 +87,10 @@ proptest! {
     #[test]
     fn wide_headers_round_trip(tag in prop_oneof![
         Just(Tag::Prepare), Just(Tag::PrepareOk), Just(Tag::Commit),
-        Just(Tag::StartEpochChange), Just(Tag::DoEpochChange), Just(Tag::StartEpoch),
+        Just(Tag::StartViewChange), Just(Tag::DoViewChange), Just(Tag::StartView),
         Just(Tag::Recovery), Just(Tag::RecoveryResponse),
-    ], epoch in any::<u32>(), slot in any::<u64>()) {
-        let header = Header { tag, epoch, slot };
+    ], view in any::<u32>(), slot in any::<u64>()) {
+        let header = Header { tag, view, slot };
         prop_assert_eq!(Header::decode(&header.encode()), Some(header));
     }
 
@@ -117,7 +117,7 @@ proptest! {
             payload: payload.clone(),
         }]);
         prop_assert_eq!(outputs, vec![vrr::vrr::Output::Broadcast(Message {
-            epoch: 0,
+            view: 0,
             slot: 1,
             body: Body::Prepare { commit: 0, entry: replica.log()[0].clone() },
         })]);

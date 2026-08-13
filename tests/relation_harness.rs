@@ -12,8 +12,8 @@ use vrr::vrr::{Body, Input};
 fn relation_vocabulary_has_safe_total_concrete_mappings() {
     for relation in Relation::ALL {
         assert!(
-            relation.epoch() > 0,
-            "relation {relation:?} has a concrete epoch"
+            relation.view() > 0,
+            "relation {relation:?} has a concrete view"
         );
         assert!(
             relation.slot() > 0,
@@ -32,8 +32,8 @@ fn relation_vocabulary_has_safe_total_concrete_mappings() {
             "relation {relation:?} has a concrete lease expiry"
         );
     }
-    assert!(Relation::Less.epoch() < Relation::Equal.epoch());
-    assert!(Relation::Equal.epoch() < Relation::Greater.epoch());
+    assert!(Relation::Less.view() < Relation::Equal.view());
+    assert!(Relation::Equal.view() < Relation::Greater.view());
     assert!(Relation::Less.slot() < Relation::Equal.slot());
     assert!(Relation::Equal.slot() < Relation::Greater.slot());
     assert!(Relation::Less.node_id() < Relation::Equal.node_id());
@@ -55,7 +55,7 @@ fn relation_vocabulary_has_safe_total_concrete_mappings() {
 
     let senders: HashSet<_> = Sender::ALL
         .into_iter()
-        .map(|sender| sender.node_id(Relation::Equal.epoch()))
+        .map(|sender| sender.node_id(Relation::Equal.view()))
         .collect();
     assert_eq!(
         senders.len(),
@@ -124,21 +124,21 @@ fn snapshot_detects_each_protocol_state_category() {
     assert_eq!(after.diagnostic().prepare_oks.len(), 1);
     assert_eq!(after.diagnostic().commit, before.diagnostic().commit);
 
-    // Epoch-change evidence: start-change votes, the sent marker, and the
-    // do-change reports all move before activation sets latest_normal.
+    // View-change evidence: start-change votes, the sent marker, and the
+    // do-change reports all move before activation sets retained_view.
     let mut replica = node(4, 1);
     replica.step(Input::LeaderTimeout);
     let before = ReplicaSnapshot::capture(&replica);
-    assert!(receive(&mut replica, 0, message(1, 0, Body::StartEpochChange)).is_empty());
+    assert!(receive(&mut replica, 0, message(1, 0, Body::StartViewChange)).is_empty());
     let after = ReplicaSnapshot::capture(&replica);
     assert_ne!(before, after, "snapshot detects the start-change vote");
-    assert_eq!(after.diagnostic().start_changes.len(), 1);
-    assert!(!after.diagnostic().sent_do_change);
-    assert!(receive(&mut replica, 2, message(1, 0, Body::StartEpochChange)).is_empty());
+    assert_eq!(after.diagnostic().start_view_changes.len(), 1);
+    assert!(!after.diagnostic().sent_do_view_change);
+    assert!(receive(&mut replica, 2, message(1, 0, Body::StartViewChange)).is_empty());
     let qualified = ReplicaSnapshot::capture(&replica);
     assert_ne!(after, qualified, "snapshot detects qualification");
-    assert!(qualified.diagnostic().sent_do_change);
-    assert_eq!(qualified.diagnostic().do_changes.len(), 1);
+    assert!(qualified.diagnostic().sent_do_view_change);
+    assert_eq!(qualified.diagnostic().do_view_changes.len(), 1);
     assert!(
         receive(
             &mut replica,
@@ -146,8 +146,8 @@ fn snapshot_detects_each_protocol_state_category() {
             message(
                 1,
                 0,
-                Body::DoEpochChange {
-                    latest_normal: 0,
+                Body::DoViewChange {
+                    retained_view: 0,
                     state: support::state(Vec::new(), 0),
                 },
             ),
@@ -156,8 +156,8 @@ fn snapshot_detects_each_protocol_state_category() {
     );
     let reported = ReplicaSnapshot::capture(&replica);
     assert_ne!(qualified, reported, "snapshot detects the do-change report");
-    assert_eq!(reported.diagnostic().do_changes.len(), 2);
-    assert_eq!(reported.diagnostic().latest_normal, 0);
+    assert_eq!(reported.diagnostic().do_view_changes.len(), 2);
+    assert_eq!(reported.diagnostic().retained_view, 0);
     assert_eq!(
         receive(
             &mut replica,
@@ -165,8 +165,8 @@ fn snapshot_detects_each_protocol_state_category() {
             message(
                 1,
                 0,
-                Body::DoEpochChange {
-                    latest_normal: 0,
+                Body::DoViewChange {
+                    retained_view: 0,
                     state: support::state(Vec::new(), 0),
                 },
             ),
@@ -175,8 +175,8 @@ fn snapshot_detects_each_protocol_state_category() {
         1
     );
     let activated = ReplicaSnapshot::capture(&replica);
-    assert_ne!(reported, activated, "snapshot detects epoch activation");
-    assert_eq!(activated.diagnostic().latest_normal, 1);
+    assert_ne!(reported, activated, "snapshot detects view activation");
+    assert_eq!(activated.diagnostic().retained_view, 1);
 
     // Client table, result history, and the in-flight execution marker.
     let mut leader = node(4, 0);

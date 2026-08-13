@@ -46,16 +46,9 @@ fn constructor_membership_and_leader_rotation_matrices_are_finite_and_determinis
 
         for (index, own) in membership.iter().enumerate() {
             let replica = Replica::new(membership.clone(), own).expect("sorted member is valid");
-            let epochs: Vec<_> = (0..(count * 2) as u32).collect();
-            assert_complete_cases(
-                format!("K={count} leader epochs"),
-                count * 2,
-                epochs.clone(),
-            );
-            let leaders: Vec<_> = epochs
-                .iter()
-                .map(|epoch| replica.leader_of(*epoch))
-                .collect();
+            let views: Vec<_> = (0..(count * 2) as u32).collect();
+            assert_complete_cases(format!("K={count} leader views"), count * 2, views.clone());
+            let leaders: Vec<_> = views.iter().map(|view| replica.leader_of(*view)).collect();
             assert_eq!(leaders.len(), count * 2, "K={count} leader cardinality");
             for leader in 0..count as NodeId {
                 assert_eq!(
@@ -154,15 +147,11 @@ fn normal_commit_quorum_and_sender_provenance_matrices() {
 }
 
 #[test]
-fn epoch_change_qualification_quorum_and_sender_provenance_matrices() {
+fn view_change_qualification_quorum_and_sender_provenance_matrices() {
     for count in MEMBER_COUNTS {
         let q = quorum(count);
         let vote_counts = [q - 2, q - 1, q];
-        assert_complete_cases(
-            format!("K={count} epoch-change vote counts"),
-            3,
-            vote_counts,
-        );
+        assert_complete_cases(format!("K={count} view-change vote counts"), 3, vote_counts);
 
         for vote_count in vote_counts {
             let mut leader = node(count, 1);
@@ -170,7 +159,7 @@ fn epoch_change_qualification_quorum_and_sender_provenance_matrices() {
             let voters = members_except(count, 1);
             for from in voters.iter().copied().take(vote_count) {
                 assert!(
-                    receive(&mut leader, from, message(1, 0, Body::StartEpochChange)).is_empty()
+                    receive(&mut leader, from, message(1, 0, Body::StartViewChange)).is_empty()
                 );
             }
 
@@ -181,8 +170,8 @@ fn epoch_change_qualification_quorum_and_sender_provenance_matrices() {
                     message(
                         1,
                         0,
-                        Body::DoEpochChange {
-                            latest_normal: 0,
+                        Body::DoViewChange {
+                            retained_view: 0,
                             state: state(Vec::new(), 0),
                         },
                     ),
@@ -199,9 +188,9 @@ fn epoch_change_qualification_quorum_and_sender_provenance_matrices() {
                 if vote_count >= q - 1 {
                     Status::Normal
                 } else {
-                    Status::EpochChange
+                    Status::ViewChange
                 },
-                "K={count}, epoch-change votes={vote_count}"
+                "K={count}, view-change votes={vote_count}"
             );
         }
 
@@ -209,38 +198,38 @@ fn epoch_change_qualification_quorum_and_sender_provenance_matrices() {
         leader.step(Input::LeaderTimeout);
         assert_refused(
             &mut leader,
-            "self START_EPOCH_CHANGE",
+            "self START_VIEW_CHANGE",
             1,
-            message(1, 0, Body::StartEpochChange),
+            message(1, 0, Body::StartViewChange),
         );
         assert_refused(
             &mut leader,
-            "nonmember START_EPOCH_CHANGE",
+            "nonmember START_VIEW_CHANGE",
             count as NodeId,
-            message(1, 0, Body::StartEpochChange),
+            message(1, 0, Body::StartViewChange),
         );
         assert_refused(
             &mut leader,
-            "self DO_EPOCH_CHANGE",
+            "self DO_VIEW_CHANGE",
             1,
             message(
                 1,
                 0,
-                Body::DoEpochChange {
-                    latest_normal: 0,
+                Body::DoViewChange {
+                    retained_view: 0,
                     state: state(Vec::new(), 0),
                 },
             ),
         );
         assert_refused(
             &mut leader,
-            "nonmember DO_EPOCH_CHANGE",
+            "nonmember DO_VIEW_CHANGE",
             count as NodeId,
             message(
                 1,
                 0,
-                Body::DoEpochChange {
-                    latest_normal: 0,
+                Body::DoViewChange {
+                    retained_view: 0,
                     state: state(Vec::new(), 0),
                 },
             ),

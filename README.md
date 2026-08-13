@@ -31,7 +31,7 @@ This crate implements the parts of Viewstamped Replication Revisited that often 
 | | |
 |---|---|
 | Normal operation | PREPARE / PREPARE_OK / COMMIT, quorum `Q = floor(K/2)+1` |
-| Epoch change | START_EPOCH_CHANGE / DO_EPOCH_CHANGE / START_EPOCH |
+| View change | START_VIEW_CHANGE / DO_VIEW_CHANGE / START_VIEW |
 | Recovery | RECOVERY / RECOVERY_RESPONSE, with restart amnesia handled |
 | State transfer | whole-log, with monotonicity rules on adoption |
 | C ABI | `cdylib` + `staticlib` + [`include/vrr.h`](include/vrr.h) |
@@ -39,7 +39,7 @@ This crate implements the parts of Viewstamped Replication Revisited that often 
 Liskov and Cowling's paper has known defects in the recovery and state-transfer
 sections — the recovery algorithm can leave the system inconsistent and state
 transfer can lose data. This core does not implement those sections literally;
-the adoption rules are monotonic in epoch, then in slot/commit/log-prefix, and
+the adoption rules are monotonic in view, then in slot/commit/log-prefix, and
 `tests/recovery_evidence_monotonicity_matrix.rs` pins that.
 
 ## Evidence
@@ -108,38 +108,6 @@ the verdict.
 *other* Normal responders. At K=3 and K=4 that is every remaining member, so a
 recovering replica tolerates zero further failures. At K=5, `Q=3` of 4 others,
 leaving one spare. Rolling restarts only make progress from K=5 up.
-
-## Multi-datagram state transfer
-
-`MAX_DATAGRAM` is 65,507 bytes — one UDP payload. A state transfer
-(`DO_EPOCH_CHANGE` / `START_EPOCH` / `RECOVERY_RESPONSE`) whose whole-log
-encoding fits one datagram is sent whole, exactly as a small-log cluster
-always has. Past that boundary the core splits the one logical message into an
-ordered run of `STATE_CHUNK` datagrams (tag `0x40`), each at most
-`MAX_DATAGRAM`, carrying a fresh transfer uuid, the chunk's entry range, and
-the invariant fields of the logical message.
-
-The receiver reassembles per `(sender, message kind)`: chunks land in any
-order, duplicate ranges are idempotent, and conflicting overlaps, conflicting
-invariant fields, or a fresh transfer uuid (the retry path — whole-transfer
-restart, no ARQ) free the buffer. Completion of contiguous coverage re-enters
-the ordinary receive arm, so chunked delivery is observationally identical to
-single-datagram delivery and no partial state is ever adopted. Reassembly
-memory is bounded by declared caps (`MAX_CHUNK_TRANSFER_TOTAL`,
-`MAX_CHUNK_BUFFER_BYTES`, `MAX_CHUNK_REASSEMBLY_BYTES`) and grows only with
-received chunks, never with a peer's claimed total; stalled transfers expire
-after `CHUNK_TRANSFER_IDLE_LIMIT` idle ticks. Admission reserves the
-one-entry chunk framing inside `request_datagram_size`, so any admitted
-request is guaranteed to be chunk-representable.
-
-`tests/datagram_boundary_matrix.rs` pins both arms of the boundary end-to-end
-through the FFI, and `tests/state_chunk_transfer.rs` covers the reassembly
-semantics and the oversize epoch-change and recovery drives. The `ffi.rs`
-datagram cap remains as an unreachable backstop for state transfer.
-
-Note the cap lives in `ffi.rs`, not in `Replica`. Using the crate as a Rust
-library bypasses it entirely — which is why `maelstrom-lin-kv` links the library
-directly and its evidence says nothing about this limit.
 
 ## Status
 

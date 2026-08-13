@@ -13,7 +13,7 @@
 //! When `Complete { slot: 1 }` then arrives, the guard finds `request_num` 2
 //! in the entry, so `matched` is false and the freshly computed result is
 //! dropped: it reaches neither the table entry nor the `results` history map.
-//! A later valid epoch state that rolls request 2 back rebuilds the entry for
+//! A later valid view state that rolls request 2 back rebuilds the entry for
 //! request 1 with `result: None`, and once this replica leads, the retry of
 //! the executed request 1 hits the cache arm (`src/vrr.rs:403-409`) and earns
 //! no `Reply`. The log prefix is intact and `executed == commit`, so nothing
@@ -26,7 +26,7 @@
 //! the leader retry emits nothing instead of replaying the exact result. The
 //! control delivers the identical scenario with the completion BEFORE the
 //! successor acceptance; it passes on the staged core, pinning that the loss
-//! is the completion-time drop, not the suffix-rollback, epoch-change, or
+//! is the completion-time drop, not the suffix-rollback, view-change, or
 //! cache-replay mechanisms themselves.
 
 mod support;
@@ -36,24 +36,24 @@ use vrr::vrr::{Body, Input, LogEntry, LogState, Output, Replica};
 
 const CLIENT: u64 = 7;
 const RESULT_ONE: &[u8] = b"completion-order-result-one";
-/// Node 0 leads epoch 0 and later contributes epoch-change evidence.
+/// Node 0 leads view 0 and later contributes view-change evidence.
 const FIRST_LEADER: u32 = 0;
-/// Node 1 leads epoch 1 and installs the rolled-back state.
+/// Node 1 leads view 1 and installs the rolled-back state.
 const SECOND_LEADER: u32 = 1;
-/// The replica is node 2 of a 3-member cluster; it leads epoch 2 itself.
+/// The replica is node 2 of a 3-member cluster; it leads view 2 itself.
 const REPLICA: usize = 2;
 
 fn request_entry(slot: u64, request_num: u64) -> LogEntry {
     entry(slot, CLIENT, request_num)
 }
 
-/// The later epochs' valid installed state: slot 1 / commit 1 holding only
+/// The later views' valid installed state: slot 1 / commit 1 holding only
 /// request 1 — the uncommitted request 2 suffix is rolled back.
 fn rolled_back_state() -> LogState {
     state(vec![request_entry(1, 1)], 1)
 }
 
-/// Request 1 prepared and committed at slot 1 by the epoch-0 leader.
+/// Request 1 prepared and committed at slot 1 by the view-0 leader.
 fn prepare_request_one() -> vrr::vrr::Message {
     message(
         0,
@@ -65,7 +65,7 @@ fn prepare_request_one() -> vrr::vrr::Message {
     )
 }
 
-/// The epoch-0 leader pipelines the same client's uncommitted request 2 at
+/// The view-0 leader pipelines the same client's uncommitted request 2 at
 /// slot 2 (commit stays 1).
 fn accept_uncommitted_request_two(replica: &mut Replica) {
     let out = receive(
@@ -98,7 +98,7 @@ fn complete_request_one(replica: &mut Replica) {
     assert_eq!(replica.executed(), 1, "request 1 executed");
 }
 
-/// Installs the rolled-back state via the epoch-1 leader's `StartEpoch`,
+/// Installs the rolled-back state via the view-1 leader's `StartView`,
 /// asserting the uncommitted suffix is gone and request 1 stays executed.
 fn install_rolled_back_state(replica: &mut Replica) {
     let out = receive(
@@ -107,28 +107,28 @@ fn install_rolled_back_state(replica: &mut Replica) {
         message(
             1,
             1,
-            Body::StartEpoch {
+            Body::StartView {
                 state: rolled_back_state(),
             },
         ),
     );
     assert!(out.is_empty(), "nothing committed remains to execute");
-    assert_eq!(replica.epoch(), 1);
+    assert_eq!(replica.view(), 1);
     assert_eq!(replica.log(), [request_entry(1, 1)].as_slice());
     assert_eq!(replica.commit(), 1);
     assert_eq!(replica.executed(), 1, "request 1 stays executed");
 }
 
-/// Drives the replica through the epoch change into epoch 2, which it leads
+/// Drives the replica through the view change into view 2, which it leads
 /// (`leader_of(2) == 2`), activating with the rolled-back state.
-fn become_leader_of_epoch_two(replica: &mut Replica) {
+fn become_leader_of_view_two(replica: &mut Replica) {
     let out = replica.step(Input::LeaderTimeout);
     assert_eq!(
         out,
-        vec![Output::Broadcast(message(2, 1, Body::StartEpochChange))],
-        "timeout starts the epoch change"
+        vec![Output::Broadcast(message(2, 1, Body::StartViewChange))],
+        "timeout starts the view change"
     );
-    let out = receive(replica, FIRST_LEADER, message(2, 1, Body::StartEpochChange));
+    let out = receive(replica, FIRST_LEADER, message(2, 1, Body::StartViewChange));
     assert!(out.is_empty(), "quorum is not yet reached");
     let out = receive(
         replica,
@@ -136,8 +136,8 @@ fn become_leader_of_epoch_two(replica: &mut Replica) {
         message(
             2,
             1,
-            Body::DoEpochChange {
-                latest_normal: 1,
+            Body::DoViewChange {
+                retained_view: 1,
                 state: rolled_back_state(),
             },
         ),
@@ -147,13 +147,13 @@ fn become_leader_of_epoch_two(replica: &mut Replica) {
         vec![Output::Broadcast(message(
             2,
             1,
-            Body::StartEpoch {
+            Body::StartView {
                 state: rolled_back_state()
             }
         ))],
-        "quorum activates epoch 2 and broadcasts the installed state"
+        "quorum activates view 2 and broadcasts the installed state"
     );
-    assert!(replica.is_leader(), "the replica leads epoch 2");
+    assert!(replica.is_leader(), "the replica leads view 2");
 }
 
 /// A client retry of the already-executed request 1 (same `request_num` and
@@ -171,8 +171,8 @@ fn retry_request_one(replica: &mut Replica) -> Vec<Output> {
 /// Stop-line headline: request 1 is committed and its execution completes
 /// AFTER the same client's uncommitted request 2 was accepted — the normal
 /// backup-side interleaving when the leader pipelines prepares while the
-/// host's execution of slot 1 is still in flight. A later valid epoch state
-/// rolls request 2 back, and once this replica leads epoch 2 the retry of
+/// host's execution of slot 1 is still in flight. A later valid view state
+/// rolls request 2 back, and once this replica leads view 2 the retry of
 /// request 1 must replay the exact computed result. Fails on the staged core:
 /// `complete()`'s `matched` guard drops the result because the table entry
 /// already describes request 2, so the retry earns no `Reply`.
@@ -203,7 +203,7 @@ fn retry_must_replay_result_completed_after_uncommitted_successor_acceptance() {
     complete_request_one(&mut replica);
 
     install_rolled_back_state(&mut replica);
-    become_leader_of_epoch_two(&mut replica);
+    become_leader_of_view_two(&mut replica);
 
     assert_eq!(
         retry_request_one(&mut replica),
@@ -217,7 +217,7 @@ fn retry_must_replay_result_completed_after_uncommitted_successor_acceptance() {
 /// map while the table entry still describes request 1, survives the rollback,
 /// and the leader retry replays it. Passes on the staged core, pinning that
 /// the headline loss is the completion-time drop under the `matched` guard,
-/// not the suffix-rollback, epoch-change, or cache-replay mechanisms.
+/// not the suffix-rollback, view-change, or cache-replay mechanisms.
 #[test]
 fn retry_replays_result_completed_before_uncommitted_successor_acceptance() {
     let mut replica = node(3, REPLICA);
@@ -245,7 +245,7 @@ fn retry_replays_result_completed_before_uncommitted_successor_acceptance() {
     accept_uncommitted_request_two(&mut replica);
 
     install_rolled_back_state(&mut replica);
-    become_leader_of_epoch_two(&mut replica);
+    become_leader_of_view_two(&mut replica);
 
     assert_eq!(
         retry_request_one(&mut replica),

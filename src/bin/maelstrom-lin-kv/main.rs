@@ -33,7 +33,7 @@ const TICK: Duration = Duration::from_millis(100);
 /// Leader heartbeat period, in ticks. Must be well under the election floor.
 const HEARTBEAT_TICKS: u32 = 2;
 /// Election timeout floor, in ticks, plus a per-node stagger so replicas do
-/// not all time out on the same tick and trade epochs forever.
+/// not all time out on the same tick and trade views forever.
 const ELECTION_FLOOR_TICKS: u32 = 12;
 const ELECTION_STAGGER_TICKS: u32 = 5;
 /// A recovery attempt that collects no quorum is retried with a fresh nonce.
@@ -235,10 +235,10 @@ impl NodeRunner {
             return;
         };
 
-        // Any traffic from the current epoch's leader is evidence the leader
+        // Any traffic from the current view's leader is evidence the leader
         // is alive, which is what suppresses this replica's election timeout.
         if let Some(replica) = &self.replica {
-            if from == replica.leader_of(replica.epoch()) {
+            if from == replica.leader_of(replica.view()) {
                 self.ticks_since_leader = 0;
             }
         }
@@ -332,9 +332,9 @@ impl NodeRunner {
 
         if replica.status() != Status::Normal || !replica.is_leader() {
             // Forward once. A node that received a forward and still does not
-            // lead refuses rather than bouncing it on, so a stale epoch cannot
+            // lead refuses rather than bouncing it on, so a stale view cannot
             // start a forwarding loop.
-            let leader_index = replica.leader_of(replica.epoch());
+            let leader_index = replica.leader_of(replica.view());
             let leader = self.members.get(leader_index as usize).cloned();
             match (&waiter, leader) {
                 (Waiter::Client { node, msg_id }, Some(leader)) if leader != self.id => {
@@ -643,7 +643,7 @@ mod tests {
     fn a_vrr_datagram_survives_the_hex_transport() {
         use vrr::vrr::Body;
         let message = Message {
-            epoch: 0x0102_0304,
+            view: 0x0102_0304,
             slot: 0x0506_0708_090a_0b0c,
             body: Body::Recovery { nonce: 42 },
         };

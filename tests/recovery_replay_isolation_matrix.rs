@@ -3,7 +3,7 @@
 //! when `executed` reaches `commit`.
 //!
 //! Independent verification of the foreground F03 fix (`Status::Replaying`,
-//! the `in_recovery()` fencing of leader-timeout and epoch-change paths, and
+//! the `in_recovery()` fencing of leader-timeout and view-change paths, and
 //! frontier-exact activation in `Replica::complete` / `finish_recovery` in
 //! `src/vrr.rs`), complementing the item 05 exposure regression in
 //! `recovery_early_activation_regression.rs` and the `Status::Recovering`
@@ -12,7 +12,7 @@
 //! - local-input arm: every non-completion local input is fenced during the
 //!   replay phase (`Recover` restarts the attempt, as during `Recovering`);
 //!   `Complete` is the only replay-progress input;
-//! - peer-body arm: every peer body — normal-operation, epoch-change, and
+//! - peer-body arm: every peer body — normal-operation, view-change, and
 //!   recovery forms — is fenced without mutation while replay is unfinished;
 //! - activation arm: only completions matching the in-flight committed slot
 //!   advance replay, and activation happens exactly when `executed` reaches
@@ -36,12 +36,12 @@ const NONCE: u64 = 7;
 const CLIENT: u64 = 10;
 /// Recoverer: node 0 of a 3-member cluster; quorum is 2 distinct responses.
 const RECOVERER: usize = 0;
-/// Node 2 leads epoch 2 (`leader_of(e) = e % 3`); recovery completes there.
+/// Node 2 leads view 2 (`leader_of(e) = e % 3`); recovery completes there.
 const LEADER: NodeId = 2;
-/// Node 1 is a nonleader at epoch 2 and leads epoch 1.
+/// Node 1 is a nonleader at view 2 and leads view 1.
 const OTHER: NodeId = 1;
-/// Recovery completes into epoch 2; the recoverer then leads epoch 3.
-const EPOCH: u32 = 2;
+/// Recovery completes into view 2; the recoverer then leads view 3.
+const VIEW: u32 = 2;
 
 fn committed_log() -> Vec<LogEntry> {
     vec![
@@ -57,10 +57,10 @@ fn committed_state() -> LogState {
     state(committed_log(), 3)
 }
 
-fn response(epoch: u32, state: Option<LogState>) -> Message {
+fn response(view: u32, state: Option<LogState>) -> Message {
     let slot = state.as_ref().map_or(0, |state| state.slot);
     message(
-        epoch,
+        view,
         slot,
         Body::RecoveryResponse {
             nonce: NONCE,
@@ -86,17 +86,17 @@ fn replaying() -> Replica {
         receive(
             &mut replica,
             LEADER,
-            response(EPOCH, Some(committed_state()))
+            response(VIEW, Some(committed_state()))
         )
         .is_empty()
     );
-    let out = receive(&mut replica, OTHER, response(EPOCH, None));
+    let out = receive(&mut replica, OTHER, response(VIEW, None));
     assert!(
         matches!(out.as_slice(), [Output::Execute { slot: 1, .. }]),
         "quorum completion emits the first committed-replay execution; got {out:?}"
     );
     assert_eq!(replica.status(), Status::Replaying);
-    assert_eq!(replica.epoch(), EPOCH);
+    assert_eq!(replica.view(), VIEW);
     assert_eq!(replica.executed(), 0);
     assert_eq!(replica.commit(), 3);
     replica
@@ -169,7 +169,7 @@ fn replaying_local_input_matrix_fences_everything_except_complete_and_host_recov
                 assert_eq!(
                     replica.step(Input::Recover { nonce: NONCE + 1 }),
                     vec![Output::Broadcast(message(
-                        EPOCH,
+                        VIEW,
                         3,
                         Body::Recovery { nonce: NONCE + 1 },
                     ))],
@@ -186,9 +186,9 @@ enum PeerBody {
     Prepare,
     PrepareOk,
     Commit,
-    StartEpochChange,
-    DoEpochChange,
-    StartEpoch,
+    StartViewChange,
+    DoViewChange,
+    StartView,
     Recovery,
     RecoveryResponse,
 }
@@ -198,9 +198,9 @@ impl PeerBody {
         Self::Prepare,
         Self::PrepareOk,
         Self::Commit,
-        Self::StartEpochChange,
-        Self::DoEpochChange,
-        Self::StartEpoch,
+        Self::StartViewChange,
+        Self::DoViewChange,
+        Self::StartView,
         Self::Recovery,
         Self::RecoveryResponse,
     ];
@@ -208,7 +208,7 @@ impl PeerBody {
 
 /// Peer-body arm: during the replay phase every peer body is fenced without
 /// mutation. Each message is shaped to be admissible in the phase where the
-/// body is normally processed (correct epoch, provenance, slot, and a
+/// body is normally processed (correct view, provenance, slot, and a
 /// structurally valid state where carried), so the refusal is attributable to
 /// the replay phase alone.
 #[test]
@@ -223,7 +223,7 @@ fn replaying_peer_body_matrix_fences_every_body() {
             PeerBody::Prepare => (
                 LEADER,
                 message(
-                    EPOCH,
+                    VIEW,
                     4,
                     Body::Prepare {
                         commit: 3,
@@ -231,42 +231,39 @@ fn replaying_peer_body_matrix_fences_every_body() {
                     },
                 ),
             ),
-            PeerBody::PrepareOk => (OTHER, message(EPOCH, 3, Body::PrepareOk)),
-            PeerBody::Commit => (LEADER, message(EPOCH, 3, Body::Commit)),
+            PeerBody::PrepareOk => (OTHER, message(VIEW, 3, Body::PrepareOk)),
+            PeerBody::Commit => (LEADER, message(VIEW, 3, Body::Commit)),
             // Would be admitted outside recovery (item 05 pins this one).
-            PeerBody::StartEpochChange => (OTHER, message(EPOCH + 1, 3, Body::StartEpochChange)),
-            // The recoverer leads epoch 3, so only the recovery fence keeps
+            PeerBody::StartViewChange => (OTHER, message(VIEW + 1, 3, Body::StartViewChange)),
+            // The recoverer leads view 3, so only the recovery fence keeps
             // this report from being collected.
-            PeerBody::DoEpochChange => (
+            PeerBody::DoViewChange => (
                 OTHER,
                 message(
-                    EPOCH + 1,
+                    VIEW + 1,
                     3,
-                    Body::DoEpochChange {
-                        latest_normal: EPOCH,
+                    Body::DoViewChange {
+                        retained_view: VIEW,
                         state: committed_state(),
                     },
                 ),
             ),
-            // Node 1 leads epoch 4, so provenance is valid.
-            PeerBody::StartEpoch => (
+            // Node 1 leads view 4, so provenance is valid.
+            PeerBody::StartView => (
                 OTHER,
                 message(
-                    EPOCH + 2,
+                    VIEW + 2,
                     3,
-                    Body::StartEpoch {
+                    Body::StartView {
                         state: committed_state(),
                     },
                 ),
             ),
             // Would be answered in `Status::Normal`.
-            PeerBody::Recovery => (
-                OTHER,
-                message(EPOCH, 3, Body::Recovery { nonce: NONCE + 1 }),
-            ),
+            PeerBody::Recovery => (OTHER, message(VIEW, 3, Body::Recovery { nonce: NONCE + 1 })),
             // A late quorum response: would be admissible in
             // `Status::Recovering` (nonce match, valid provenance and state).
-            PeerBody::RecoveryResponse => (LEADER, response(EPOCH, Some(committed_state()))),
+            PeerBody::RecoveryResponse => (LEADER, response(VIEW, Some(committed_state()))),
         };
         assert!(receive(&mut replica, from, message).is_empty(), "{body:?}");
         assert_replica_unchanged(body, &before, &replica);
@@ -318,28 +315,21 @@ fn zero_commit_recovery_activates_immediately() {
             Body::Recovery { nonce: NONCE }
         ))]
     );
-    assert!(
-        receive(
-            &mut replica,
-            LEADER,
-            response(EPOCH, Some(state(vec![], 0)))
-        )
-        .is_empty()
-    );
-    let out = receive(&mut replica, OTHER, response(EPOCH, None));
+    assert!(receive(&mut replica, LEADER, response(VIEW, Some(state(vec![], 0)))).is_empty());
+    let out = receive(&mut replica, OTHER, response(VIEW, None));
     assert!(out.is_empty(), "zero-commit recovery has nothing to replay");
     assert_eq!(
         replica.status(),
         Status::Normal,
         "zero-commit recovery activates immediately at quorum completion"
     );
-    assert_eq!(replica.epoch(), EPOCH);
+    assert_eq!(replica.view(), VIEW);
 
     let out = receive(
         &mut replica,
         LEADER,
         message(
-            EPOCH,
+            VIEW,
             1,
             Body::Prepare {
                 commit: 0,
@@ -349,7 +339,7 @@ fn zero_commit_recovery_activates_immediately() {
     );
     assert_eq!(
         out,
-        vec![Output::To(LEADER, message(EPOCH, 1, Body::PrepareOk))],
+        vec![Output::To(LEADER, message(VIEW, 1, Body::PrepareOk))],
         "post-activation Prepare is admitted and acked without any completion"
     );
 }
@@ -361,12 +351,12 @@ fn zero_commit_recovery_activates_immediately() {
 #[test]
 fn replay_resumes_from_the_preserved_executed_prefix() {
     let mut replica = node(3, RECOVERER);
-    // Install and execute a two-slot committed prefix in epoch 1 (node 1 leads).
+    // Install and execute a two-slot committed prefix in view 1 (node 1 leads).
     let prefix = state(committed_log()[..2].to_vec(), 2);
     let out = receive(
         &mut replica,
         OTHER,
-        message(1, 2, Body::StartEpoch { state: prefix }),
+        message(1, 2, Body::StartView { state: prefix }),
     );
     assert!(matches!(out.as_slice(), [Output::Execute { slot: 1, .. }]));
     let out = replica.step(Input::Complete {
@@ -398,11 +388,11 @@ fn replay_resumes_from_the_preserved_executed_prefix() {
         receive(
             &mut replica,
             LEADER,
-            response(EPOCH, Some(committed_state()))
+            response(VIEW, Some(committed_state()))
         )
         .is_empty()
     );
-    let out = receive(&mut replica, OTHER, response(EPOCH, None));
+    let out = receive(&mut replica, OTHER, response(VIEW, None));
     assert!(
         matches!(out.as_slice(), [Output::Execute { slot: 3, .. }]),
         "replay resumes at the executed frontier; got {out:?}"
@@ -447,20 +437,20 @@ fn cached_results_and_new_prepares_work_after_replay() {
     assert_eq!(replica.status(), Status::Normal);
     assert_eq!(replica.executed(), 3);
 
-    // Epoch change into epoch 3, which this replica leads.
+    // View change into view 3, which this replica leads.
     assert_eq!(
         replica.step(Input::LeaderTimeout),
-        vec![Output::Broadcast(message(3, 3, Body::StartEpochChange))]
+        vec![Output::Broadcast(message(3, 3, Body::StartViewChange))]
     );
-    assert!(receive(&mut replica, OTHER, message(3, 3, Body::StartEpochChange)).is_empty());
+    assert!(receive(&mut replica, OTHER, message(3, 3, Body::StartViewChange)).is_empty());
     let out = receive(
         &mut replica,
         LEADER,
         message(
             3,
             3,
-            Body::DoEpochChange {
-                latest_normal: EPOCH,
+            Body::DoViewChange {
+                retained_view: VIEW,
                 state: committed_state(),
             },
         ),
@@ -468,17 +458,17 @@ fn cached_results_and_new_prepares_work_after_replay() {
     assert!(out.iter().any(|output| matches!(
         output,
         Output::Broadcast(Message {
-            body: Body::StartEpoch { .. },
+            body: Body::StartView { .. },
             ..
         })
     )));
     assert_eq!(replica.status(), Status::Normal);
     assert!(replica.is_leader());
-    assert_eq!(replica.epoch(), 3);
+    assert_eq!(replica.view(), 3);
     assert_eq!(
         replica.executed(),
         3,
-        "epoch change preserves the executed frontier"
+        "view change preserves the executed frontier"
     );
 
     // The replayed client results are cached: the client's final request

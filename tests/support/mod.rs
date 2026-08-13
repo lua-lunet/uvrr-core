@@ -9,7 +9,7 @@ use vrr::vrr::{
 };
 
 pub const MEMBER_COUNT: usize = 4;
-pub const EPOCH: u32 = 17;
+pub const VIEW: u32 = 17;
 pub const SLOT: u64 = 19;
 pub const NODE_ID: NodeId = 2;
 pub const CLIENT_ID: u64 = 23;
@@ -28,15 +28,13 @@ pub enum Relation {
 impl Relation {
     pub const ALL: [Self; 3] = [Self::Less, Self::Equal, Self::Greater];
 
-    pub fn epoch(self) -> u32 {
+    pub fn view(self) -> u32 {
         match self {
-            Self::Less => EPOCH
+            Self::Less => VIEW
                 .checked_sub(1)
-                .expect("epoch baseline has a predecessor"),
-            Self::Equal => EPOCH,
-            Self::Greater => EPOCH
-                .checked_add(1)
-                .expect("epoch baseline has a successor"),
+                .expect("view baseline has a predecessor"),
+            Self::Equal => VIEW,
+            Self::Greater => VIEW.checked_add(1).expect("view baseline has a successor"),
         }
     }
 
@@ -123,7 +121,7 @@ impl Boundary {
     pub fn u32(self) -> u32 {
         match self {
             Self::Minimum => u32::MIN,
-            Self::Baseline => EPOCH,
+            Self::Baseline => VIEW,
             Self::Maximum => u32::MAX,
         }
     }
@@ -155,8 +153,8 @@ impl Sender {
         Self::NonMember,
     ];
 
-    pub fn node_id(self, epoch: u32) -> NodeId {
-        let leader = epoch % MEMBER_COUNT as u32;
+    pub fn node_id(self, view: u32) -> NodeId {
+        let leader = view % MEMBER_COUNT as u32;
         match self {
             Self::Leader => leader,
             Self::BackupOne => (leader + 1) % MEMBER_COUNT as u32,
@@ -210,8 +208,8 @@ pub fn baseline_state() -> LogState {
     state(vec![baseline_entry()], 0)
 }
 
-pub fn message(epoch: u32, slot: u64, body: Body) -> Message {
-    Message { epoch, slot, body }
+pub fn message(view: u32, slot: u64, body: Body) -> Message {
+    Message { view, slot, body }
 }
 
 pub fn receive(replica: &mut Replica, from: NodeId, message: Message) -> Vec<Output> {
@@ -250,7 +248,7 @@ pub fn baseline_service() -> Service {
 /// boundary (`Replica::diagnostic`), covering every protocol-relevant piece
 /// of internal state: the public scalars and log, the in-flight execution
 /// marker, the client table and result history, the prepare-acknowledgement
-/// quorum accumulator, the epoch-change evidence (latest-normal, start-change
+/// quorum accumulator, the view-change evidence (latest-normal, start-change
 /// votes, do-change reports, sent marker), and the recovery nonce and
 /// evidence map. Equality of two snapshots is complete state equality, so a
 /// refusal assertion over snapshots detects mutation of any of those

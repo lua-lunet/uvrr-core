@@ -4,17 +4,17 @@
 //! in `src/vrr.rs`), complementing the item 03 reorder/duplicate regressions in
 //! `recovery_evidence_overwrite_regression.rs`. Every fed message is admissible
 //! under the core's own recovery admission rules (nonce match, provenance
-//! `state.is_some() == (from == leader_of(epoch))`, `valid_state_message`), so
+//! `state.is_some() == (from == leader_of(view))`, `valid_state_message`), so
 //! each outcome is decided by the per-sender monotonicity gate alone:
 //!
-//! - epoch arm: a delayed older-epoch response cannot overwrite newer evidence,
-//!   even when it carries strictly stronger state content (epoch dominates);
-//! - same-epoch frontier arm: leader evidence cannot regress slot or commit —
+//! - view arm: a delayed older-view response cannot overwrite newer evidence,
+//!   even when it carries strictly stronger state content (view dominates);
+//! - same-view frontier arm: leader evidence cannot regress slot or commit —
 //!   a higher slot with a lower commit is rejected, and an equal frontier with
 //!   different content (a tie) never overwrites;
-//! - same-epoch prefix arm: a forked log is rejected even with a strictly
+//! - same-view prefix arm: a forked log is rejected even with a strictly
 //!   higher slot/commit frontier;
-//! - advance arm: older-to-newer same-epoch evidence is accepted and installed;
+//! - advance arm: older-to-newer same-view evidence is accepted and installed;
 //! - duplicate arm: exact same-sender duplicates (state or nonleader) are
 //!   idempotent no-ops;
 //! - completion arm: a stale response against a quorum-sized but blocked map
@@ -34,9 +34,9 @@ const NONCE: u64 = 7;
 const CLIENT: u64 = 10;
 /// Recoverer: node 0 of a 3-member cluster; quorum is 2 distinct responses.
 const RECOVERER: usize = 0;
-/// Node 2 leads epoch 2 (`leader_of(e) = e % 3`) and trails epochs 0, 1, 4.
+/// Node 2 leads view 2 (`leader_of(e) = e % 3`) and trails views 0, 1, 4.
 const LEADER: NodeId = 2;
-/// Node 1 leads epochs 1 and 4 and is a nonleader at epoch 2.
+/// Node 1 leads views 1 and 4 and is a nonleader at view 2.
 const OTHER: NodeId = 1;
 
 fn committed_log() -> Vec<LogEntry> {
@@ -74,10 +74,10 @@ fn forked_log() -> Vec<LogEntry> {
     ]
 }
 
-fn response(epoch: u32, state: Option<LogState>) -> Message {
+fn response(view: u32, state: Option<LogState>) -> Message {
     let slot = state.as_ref().map_or(0, |state| state.slot);
     message(
-        epoch,
+        view,
         slot,
         Body::RecoveryResponse {
             nonce: NONCE,
@@ -124,13 +124,13 @@ fn assert_stale_rejected(
 /// the replay phase (the installed committed prefix is unexecuted), then
 /// drives `Input::Complete` through the committed frontier and asserts the
 /// replica activates with the installed evidence intact.
-fn assert_recovered(replica: &mut Replica, epoch: u32, log: &[LogEntry], commit: u64) {
+fn assert_recovered(replica: &mut Replica, view: u32, log: &[LogEntry], commit: u64) {
     assert_eq!(
         replica.status(),
         Status::Replaying,
         "quorum completes recovery into the replay phase while the committed prefix is unexecuted"
     );
-    assert_eq!(replica.epoch(), epoch, "recovery selects the maximum epoch");
+    assert_eq!(replica.view(), view, "recovery selects the maximum view");
     assert_eq!(replica.slot(), log.len() as u64, "installed log frontier");
     assert_eq!(replica.commit(), commit, "installed commit frontier");
     assert_eq!(replica.log(), log, "installed log content");
@@ -140,11 +140,7 @@ fn assert_recovered(replica: &mut Replica, epoch: u32, log: &[LogEntry], commit:
         "installed committed prefix is entirely unexecuted"
     );
     complete_committed_replay(replica);
-    assert_eq!(
-        replica.epoch(),
-        epoch,
-        "replay preserves the recovered epoch"
-    );
+    assert_eq!(replica.view(), view, "replay preserves the recovered view");
     assert_eq!(
         replica.slot(),
         log.len() as u64,
@@ -158,37 +154,37 @@ fn assert_recovered(replica: &mut Replica, epoch: u32, log: &[LogEntry], commit:
     assert_eq!(replica.log(), log, "replay preserves the installed log");
 }
 
-/// Epoch arm, strengthened: node 2's newer epoch-4 nonleader evidence arrives
-/// first, then a delayed epoch-2 response from the same sender carrying a
-/// strictly stronger committed leader state. Epoch dominates content strength:
-/// the older-epoch state must not overwrite. A quorum then completed by
-/// lower-epoch evidence alone must stay blocked (the maximum observed epoch is
-/// still 4 and its leader's state is absent); only the epoch-4 leader's state
+/// View arm, strengthened: node 2's newer view-4 nonleader evidence arrives
+/// first, then a delayed view-2 response from the same sender carrying a
+/// strictly stronger committed leader state. View dominates content strength:
+/// the older-view state must not overwrite. A quorum then completed by
+/// lower-view evidence alone must stay blocked (the maximum observed view is
+/// still 4 and its leader's state is absent); only the view-4 leader's state
 /// may finish the attempt. Fails on the defective core: the overwrite drags
-/// the maximum epoch down to 2 and the third response completes with the
-/// stale epoch-2 state.
+/// the maximum view down to 2 and the third response completes with the
+/// stale view-2 state.
 #[test]
-fn older_epoch_stronger_state_cannot_overwrite_newer_epoch_evidence() {
+fn older_view_stronger_state_cannot_overwrite_newer_view_evidence() {
     let mut replica = recovering();
 
     assert!(receive(&mut replica, LEADER, response(4, None)).is_empty());
     assert_stale_rejected(
-        "older epoch with stronger state",
+        "older view with stronger state",
         &mut replica,
         LEADER,
         response(2, Some(committed_state())),
     );
 
-    // Node 1's epoch-1 leader state reaches a quorum of two, but cannot
-    // complete: the maximum epoch remains 4 and its leader's state is absent.
+    // Node 1's view-1 leader state reaches a quorum of two, but cannot
+    // complete: the maximum view remains 4 and its leader's state is absent.
     assert!(receive(&mut replica, OTHER, response(1, Some(state(vec![], 0)))).is_empty());
     assert_eq!(
         replica.status(),
         Status::Recovering,
-        "stale epoch-2 overwrite would let this quorum complete at epoch 2"
+        "stale view-2 overwrite would let this quorum complete at view 2"
     );
 
-    // Node 1 leads epoch 4; its leader state completes the quorum at epoch 4.
+    // Node 1 leads view 4; its leader state completes the quorum at view 4.
     receive(
         &mut replica,
         OTHER,
@@ -197,12 +193,12 @@ fn older_epoch_stronger_state_cannot_overwrite_newer_epoch_evidence() {
     assert_recovered(&mut replica, 4, &extended_log(), 4);
 }
 
-/// Same-epoch commit arm: a delayed same-sender response with a higher slot
+/// Same-view commit arm: a delayed same-sender response with a higher slot
 /// but a lower commit (slot 4 / commit 2 over slot 3 / commit 3) is a
 /// lexicographic frontier advance that still regresses commit evidence. It
 /// must not overwrite; quorum completion must install commit 3.
 #[test]
-fn same_epoch_higher_slot_lower_commit_does_not_overwrite() {
+fn same_view_higher_slot_lower_commit_does_not_overwrite() {
     let mut replica = recovering();
 
     assert!(receive(&mut replica, LEADER, response(2, Some(committed_state()))).is_empty());
@@ -217,12 +213,12 @@ fn same_epoch_higher_slot_lower_commit_does_not_overwrite() {
     assert_recovered(&mut replica, 2, &committed_log(), 3);
 }
 
-/// Same-epoch prefix arm: a delayed same-sender response with a strictly
+/// Same-view prefix arm: a delayed same-sender response with a strictly
 /// higher slot/commit frontier but a forked log (diverging at slot 3) is
 /// incompatible with the stored evidence and must not overwrite, even though
 /// every scalar frontier component advances.
 #[test]
-fn same_epoch_incompatible_prefix_with_higher_frontier_does_not_overwrite() {
+fn same_view_incompatible_prefix_with_higher_frontier_does_not_overwrite() {
     let mut replica = recovering();
 
     assert!(receive(&mut replica, LEADER, response(2, Some(committed_state()))).is_empty());
@@ -237,12 +233,12 @@ fn same_epoch_incompatible_prefix_with_higher_frontier_does_not_overwrite() {
     assert_recovered(&mut replica, 2, &committed_log(), 3);
 }
 
-/// Same-epoch tie arm: a delayed same-sender response with an identical
+/// Same-view tie arm: a delayed same-sender response with an identical
 /// slot/commit frontier but different log content is not an advance, so it
 /// must not overwrite; only exact duplicates and genuine advances leave the
 /// stored evidence intact.
 #[test]
-fn same_epoch_equal_frontier_different_log_does_not_overwrite() {
+fn same_view_equal_frontier_different_log_does_not_overwrite() {
     let mut replica = recovering();
 
     let retied = state(forked_log()[..3].to_vec(), 3);
@@ -258,12 +254,12 @@ fn same_epoch_equal_frontier_different_log_does_not_overwrite() {
     assert_recovered(&mut replica, 2, &committed_log(), 3);
 }
 
-/// Advance arm, same epoch: the leader's older committed prefix arrives first,
+/// Advance arm, same view: the leader's older committed prefix arrives first,
 /// its newer extended state second. The newer evidence must replace the older
 /// and quorum completion must install it — monotonicity gates staleness, not
 /// progress.
 #[test]
-fn same_epoch_older_to_newer_state_advances_and_is_installed() {
+fn same_view_older_to_newer_state_advances_and_is_installed() {
     let mut replica = recovering();
 
     assert!(receive(&mut replica, LEADER, response(2, Some(prefix_state()))).is_empty());
@@ -297,11 +293,11 @@ fn exact_duplicate_nonleader_response_is_idempotent() {
     assert_recovered(&mut replica, 2, &committed_log(), 3);
 }
 
-/// Completion arm: with a quorum-sized map blocked because the maximum-epoch
-/// leader's stored evidence trails (node 2's stale epoch-1 nonleader response
-/// vs node 1's epoch 2), a delayed even-older same-sender response must be a
+/// Completion arm: with a quorum-sized map blocked because the maximum-view
+/// leader's stored evidence trails (node 2's stale view-1 nonleader response
+/// vs node 1's view 2), a delayed even-older same-sender response must be a
 /// pure no-op — no outputs, no mutation, no spurious `finish_recovery`. The
-/// attempt then unblocks when the leader's newer same-epoch evidence arrives,
+/// attempt then unblocks when the leader's newer same-view evidence arrives,
 /// proving the stale rejection wedged nothing.
 #[test]
 fn stale_response_against_blocked_quorum_neither_finishes_nor_wedges() {
@@ -312,7 +308,7 @@ fn stale_response_against_blocked_quorum_neither_finishes_nor_wedges() {
     assert_eq!(
         replica.status(),
         Status::Recovering,
-        "quorum-sized map blocked: maximum-epoch leader state trails"
+        "quorum-sized map blocked: maximum-view leader state trails"
     );
 
     assert_stale_rejected(

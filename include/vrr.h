@@ -41,13 +41,6 @@ extern "C" {
 #define VRR_OUT_SEND      2  /* send to the peer in out_to            */
 #define VRR_OUT_REPLY     3  /* client reply; header out-params are 0 */
 
-/* Largest datagram the node will emit or accept. A state transfer
- * (DO_EPOCH_CHANGE / START_EPOCH / RECOVERY_RESPONSE) whose whole-log
- * encoding would exceed this is split by the core into an ordered run of
- * STATE_CHUNK datagrams (tag 0x40), each at most this size, and reassembled
- * by the receiving core. VRR_TOO_LARGE on a peer output is therefore an
- * unreachable backstop for state transfer; it can still fire for an
- * oversize client request or reply. */
 #define VRR_MAX_DATAGRAM 65507
 
 /* Opaque node handle. */
@@ -69,12 +62,12 @@ int32_t vrr_node_request(void *node, size_t execution_time_len,
                          const uint8_t *json);
 
 /* Delivers one peer datagram: a 16-byte big-endian header
- * (tag u32, epoch u32, slot u64) followed by the JSON body. */
+ * (tag u32, view u32, slot u64) followed by the JSON body. */
 int32_t vrr_node_receive(void *node, uint32_t from, size_t len,
                          const uint8_t *data);
 
 /* Clock ticks. `idle` makes a Normal leader heartbeat; `leader_timeout` starts
- * an epoch change. The host owns all timing. */
+ * a view change. The host owns all timing. */
 int32_t vrr_node_idle(void *node);
 int32_t vrr_node_leader_timeout(void *node);
 
@@ -95,7 +88,7 @@ int32_t vrr_node_recover(void *node, size_t nonce_len, const uint8_t *nonce);
  * left on the queue and *out_len already holds the length needed, so a caller
  * may resize and retry. Drain in a loop until 0. */
 int32_t vrr_node_next(void *node, uint32_t *out_kind, uint32_t *out_to,
-                      uint32_t *out_tag, uint32_t *out_epoch,
+                      uint32_t *out_tag, uint32_t *out_view,
                       uint32_t *out_slot_hi, uint32_t *out_slot_lo,
                       size_t capacity, size_t *out_len, uint8_t *out_data);
 

@@ -1,7 +1,7 @@
 //! Source 01 R1 / F02 regression: recovery evidence must be monotonic per sender.
 //!
 //! `Replica::receive` stores each admissible `RecoveryResponse` with
-//! `self.recovery.insert(from, (epoch, state))` (`src/vrr.rs`), unconditionally
+//! `self.recovery.insert(from, (view, state))` (`src/vrr.rs`), unconditionally
 //! replacing any earlier response from the same sender. Under the permitted
 //! network model (duplicated and reordered messages — e.g. a duplicated
 //! `Recovery` broadcast draws one response from a node before and one after it
@@ -25,9 +25,9 @@ const NONCE: u64 = 7;
 const CLIENT: u64 = 10;
 /// Recoverer: node 0 of a 3-member cluster; quorum is 2 distinct responses.
 const RECOVERER: usize = 0;
-/// Node 2 leads epoch 2 (`leader_of(e) = e % 3`).
+/// Node 2 leads view 2 (`leader_of(e) = e % 3`).
 const LEADER: NodeId = 2;
-/// Node 1 leads epoch 1 and is a nonleader at epoch 2.
+/// Node 1 leads view 1 and is a nonleader at view 2.
 const OTHER: NodeId = 1;
 
 fn committed_log() -> Vec<LogEntry> {
@@ -48,10 +48,10 @@ fn prefix_state() -> LogState {
     state(committed_log()[..1].to_vec(), 1)
 }
 
-fn response(epoch: u32, state: Option<LogState>) -> Message {
+fn response(view: u32, state: Option<LogState>) -> Message {
     let slot = state.as_ref().map_or(0, |state| state.slot);
     message(
-        epoch,
+        view,
         slot,
         Body::RecoveryResponse {
             nonce: NONCE,
@@ -73,16 +73,16 @@ fn recovering() -> Replica {
     replica
 }
 
-/// R1 reorder, epoch arm: the epoch-2 leader's committed state arrives first,
+/// R1 reorder, view arm: the view-2 leader's committed state arrives first,
 /// then a delayed older response from the same sender (sent while it was an
-/// epoch-1 nonleader, so it honestly carries no state) must not overwrite it.
+/// view-1 nonleader, so it honestly carries no state) must not overwrite it.
 /// Quorum completion must install the newest evidence, not the stale slot-0
-/// state. Fails on the defective core: the overwrite drops epoch 2 to epoch 1.
+/// state. Fails on the defective core: the overwrite drops view 2 to view 1.
 #[test]
-fn newer_epoch_then_delayed_older_same_sender_response_does_not_overwrite() {
+fn newer_view_then_delayed_older_same_sender_response_does_not_overwrite() {
     let mut replica = recovering();
 
-    // Newest evidence first: epoch-2 leader, slot 3, commit 3.
+    // Newest evidence first: view-2 leader, slot 3, commit 3.
     assert!(receive(&mut replica, LEADER, response(2, Some(committed_state()))).is_empty());
     assert_eq!(
         replica.status(),
@@ -90,7 +90,7 @@ fn newer_epoch_then_delayed_older_same_sender_response_does_not_overwrite() {
         "one response is not a quorum"
     );
 
-    // Delayed older same-sender response: epoch 1, no state (not the epoch-1 leader).
+    // Delayed older same-sender response: view 1, no state (not the view-1 leader).
     assert!(receive(&mut replica, LEADER, response(1, None)).is_empty());
     assert_eq!(
         replica.status(),
@@ -98,7 +98,7 @@ fn newer_epoch_then_delayed_older_same_sender_response_does_not_overwrite() {
         "still one distinct sender"
     );
 
-    // The epoch-1 leader's empty state completes the quorum.
+    // The view-1 leader's empty state completes the quorum.
     receive(&mut replica, OTHER, response(1, Some(state(vec![], 0))));
 
     assert_eq!(
@@ -107,9 +107,9 @@ fn newer_epoch_then_delayed_older_same_sender_response_does_not_overwrite() {
         "quorum completes recovery into the replay phase: the committed prefix is unexecuted"
     );
     assert_eq!(
-        replica.epoch(),
+        replica.view(),
         2,
-        "recovery must select the maximum epoch from monotonic per-sender evidence"
+        "recovery must select the maximum view from monotonic per-sender evidence"
     );
     assert_eq!(
         replica.slot(),
@@ -129,17 +129,17 @@ fn newer_epoch_then_delayed_older_same_sender_response_does_not_overwrite() {
     complete_committed_replay(&mut replica);
 }
 
-/// R1 reorder, same-epoch arm: the leader's newest committed state arrives
-/// first, then a delayed same-epoch response from the same leader carrying an
+/// R1 reorder, same-view arm: the leader's newest committed state arrives
+/// first, then a delayed same-view response from the same leader carrying an
 /// older committed prefix must not overwrite it. Fails on the defective core:
 /// the quorum installs slot 1 / commit 1 instead of slot 3 / commit 3.
 #[test]
-fn same_epoch_newer_state_then_delayed_older_state_does_not_overwrite() {
+fn same_view_newer_state_then_delayed_older_state_does_not_overwrite() {
     let mut replica = recovering();
 
     // Newest committed state first.
     assert!(receive(&mut replica, LEADER, response(2, Some(committed_state()))).is_empty());
-    // Delayed same-sender, same-epoch response carrying an older committed prefix.
+    // Delayed same-sender, same-view response carrying an older committed prefix.
     assert!(receive(&mut replica, LEADER, response(2, Some(prefix_state()))).is_empty());
     assert_eq!(
         replica.status(),
@@ -147,7 +147,7 @@ fn same_epoch_newer_state_then_delayed_older_state_does_not_overwrite() {
         "still one distinct sender"
     );
 
-    // A nonleader response at epoch 2 completes the quorum.
+    // A nonleader response at view 2 completes the quorum.
     receive(&mut replica, OTHER, response(2, None));
 
     assert_eq!(
@@ -155,11 +155,11 @@ fn same_epoch_newer_state_then_delayed_older_state_does_not_overwrite() {
         Status::Replaying,
         "quorum completes recovery into the replay phase: the committed prefix is unexecuted"
     );
-    assert_eq!(replica.epoch(), 2);
+    assert_eq!(replica.view(), 2);
     assert_eq!(
         replica.slot(),
         3,
-        "same-epoch older state must not overwrite the newer committed state"
+        "same-view older state must not overwrite the newer committed state"
     );
     assert_eq!(replica.commit(), 3, "committed prefix must not roll back");
     assert_eq!(
@@ -193,7 +193,7 @@ fn older_then_newer_same_sender_response_recovers_the_newest_state() {
         Status::Replaying,
         "quorum completes recovery into the replay phase: the committed prefix is unexecuted"
     );
-    assert_eq!(replica.epoch(), 2);
+    assert_eq!(replica.view(), 2);
     assert_eq!(replica.slot(), 3);
     assert_eq!(replica.commit(), 3);
     assert_eq!(replica.log(), committed_log().as_slice());
@@ -219,7 +219,7 @@ fn exact_duplicate_same_sender_response_is_idempotent() {
         Status::Replaying,
         "quorum completes recovery into the replay phase: the committed prefix is unexecuted"
     );
-    assert_eq!(replica.epoch(), 2);
+    assert_eq!(replica.view(), 2);
     assert_eq!(replica.slot(), 3);
     assert_eq!(replica.commit(), 3);
     assert_eq!(replica.log(), committed_log().as_slice());

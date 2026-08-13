@@ -4,7 +4,7 @@ use std::ptr;
 
 use uuid::Uuid;
 use vrr::locks::{Lease, Request};
-use vrr::vrr::{Body, ChunkKind, LogEntry, LogState, MAX_DATAGRAM, Tag};
+use vrr::vrr::{Body, LogEntry, LogState, MAX_DATAGRAM, Tag};
 
 const OK: i32 = 0;
 const INVALID: i32 = -1;
@@ -39,7 +39,7 @@ unsafe extern "C" {
         out_kind: *mut u32,
         out_to: *mut u32,
         out_tag: *mut u32,
-        out_epoch: *mut u32,
+        out_view: *mut u32,
         out_slot_hi: *mut u32,
         out_slot_lo: *mut u32,
         capacity: usize,
@@ -93,7 +93,7 @@ impl Node {
                 &mut output.kind,
                 &mut output.to,
                 &mut output.tag,
-                &mut output.epoch,
+                &mut output.view,
                 &mut output.slot_hi,
                 &mut output.slot_lo,
                 bytes.len(),
@@ -118,7 +118,7 @@ struct Output {
     kind: u32,
     to: u32,
     tag: u32,
-    epoch: u32,
+    view: u32,
     slot_hi: u32,
     slot_lo: u32,
     len: usize,
@@ -140,10 +140,10 @@ fn request(message: u8, request_num: u64) -> Vec<u8> {
     .unwrap()
 }
 
-fn wire(tag: Tag, epoch: u32, slot: u64, body: &Body) -> Vec<u8> {
+fn wire(tag: Tag, view: u32, slot: u64, body: &Body) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(16);
     bytes.extend_from_slice(&(tag as u32).to_be_bytes());
-    bytes.extend_from_slice(&epoch.to_be_bytes());
+    bytes.extend_from_slice(&view.to_be_bytes());
     bytes.extend_from_slice(&slot.to_be_bytes());
     bytes.extend(serde_json::to_vec(body).unwrap());
     bytes
@@ -290,17 +290,17 @@ fn wire_codec_accepts_each_canonical_tag_and_refuses_non_messages() {
         ),
         (Tag::PrepareOk, Body::PrepareOk),
         (Tag::Commit, Body::Commit),
-        (Tag::StartEpochChange, Body::StartEpochChange),
+        (Tag::StartViewChange, Body::StartViewChange),
         (
-            Tag::DoEpochChange,
-            Body::DoEpochChange {
-                latest_normal: 0,
+            Tag::DoViewChange,
+            Body::DoViewChange {
+                retained_view: 0,
                 state: state.clone(),
             },
         ),
         (
-            Tag::StartEpoch,
-            Body::StartEpoch {
+            Tag::StartView,
+            Body::StartView {
                 state: state.clone(),
             },
         ),
@@ -312,20 +312,8 @@ fn wire_codec_accepts_each_canonical_tag_and_refuses_non_messages() {
                 state: Some(state.clone()),
             },
         ),
-        (
-            Tag::StateChunk,
-            Body::StateChunk {
-                transfer: Uuid::from_bytes([9; 16]),
-                kind: ChunkKind::StartEpoch,
-                total: 1,
-                first: 0,
-                entries: vec![entry(1)],
-                state_slot: 1,
-                state_commit: 0,
-            },
-        ),
     ];
-    assert_cases(9, cases.iter().map(|(tag, _)| *tag as u32).collect());
+    assert_cases(8, cases.iter().map(|(tag, _)| *tag as u32).collect());
     for (tag, body) in &cases {
         let node = Node::new(1);
         assert_eq!(
@@ -384,12 +372,12 @@ fn datagram_boundaries_output_retry_order_and_slots_are_preserved() {
     assert_eq!(first.kind, 2);
     assert_eq!(first.to, 0);
     assert_eq!(first.tag, Tag::PrepareOk as u32);
-    assert_eq!(first.epoch, 0);
+    assert_eq!(first.view, 0);
     assert_eq!(((first.slot_hi as u64) << 32) | first.slot_lo as u64, 1);
     let (status, second) = backup.next(MAX_DATAGRAM);
     assert_eq!(status, 1);
     assert_eq!(second.kind, 1);
-    assert_eq!(second.tag, Tag::StartEpochChange as u32);
+    assert_eq!(second.tag, Tag::StartViewChange as u32);
     assert_eq!(backup.next(MAX_DATAGRAM).0, 0);
 }
 

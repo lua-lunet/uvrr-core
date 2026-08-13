@@ -6,7 +6,7 @@
 //! when the old table's single latest request for that client exactly matches
 //! the rebuilt latest request (same `request_num` and `message_id`). Accepting
 //! the same client's uncommitted request 2 has already replaced that table
-//! entry (`request_num` 2, no result), so when a later valid epoch state rolls
+//! entry (`request_num` 2, no result), so when a later valid view state rolls
 //! request 2 back, the rebuilt entry describes request 1 again but the restore
 //! loop's exact-match guard cannot revive request 1's cached result. When this
 //! replica later becomes leader, a retry of the executed request 1 hits the
@@ -27,24 +27,24 @@ use vrr::vrr::{Body, Input, LogEntry, LogState, Message, NodeId, Output, Replica
 
 const CLIENT: u64 = 1;
 const CACHED_RESULT: &[u8] = b"cached-result";
-/// Node 0 leads epoch 0 and later contributes epoch-change evidence.
+/// Node 0 leads view 0 and later contributes view-change evidence.
 const FIRST_LEADER: NodeId = 0;
-/// Node 1 leads epoch 1 and installs the rolled-back state.
+/// Node 1 leads view 1 and installs the rolled-back state.
 const SECOND_LEADER: NodeId = 1;
-/// The replica is node 2 of a 3-member cluster; it leads epoch 2 itself.
+/// The replica is node 2 of a 3-member cluster; it leads view 2 itself.
 const REPLICA: usize = 2;
 
 fn request_entry(slot: u64, request_num: u64) -> LogEntry {
     entry(slot, CLIENT, request_num)
 }
 
-/// The later epochs' valid installed state: slot 1 / commit 1 holding only
+/// The later views' valid installed state: slot 1 / commit 1 holding only
 /// request 1 — the uncommitted request 2 suffix is rolled back.
 fn rolled_back_state() -> LogState {
     state(vec![request_entry(1, 1)], 1)
 }
 
-/// Request 1 prepared and committed at slot 1 by the epoch-0 leader.
+/// Request 1 prepared and committed at slot 1 by the view-0 leader.
 fn prepare_request_one() -> Message {
     message(
         0,
@@ -69,7 +69,7 @@ fn retry_request_one() -> Input {
 }
 
 /// Executes request 1 at slot 1 and caches its result, asserting the
-/// prepare/execute/ack contract of the epoch-0 backup path.
+/// prepare/execute/ack contract of the view-0 backup path.
 fn execute_and_cache_request_one(replica: &mut Replica) {
     let first = request_entry(1, 1);
     let out = receive(replica, FIRST_LEADER, prepare_request_one());
@@ -96,7 +96,7 @@ fn execute_and_cache_request_one(replica: &mut Replica) {
     assert_eq!(replica.executed(), 1, "request 1 executed");
 }
 
-/// Installs the rolled-back state via the epoch-1 leader's `StartEpoch`,
+/// Installs the rolled-back state via the view-1 leader's `StartView`,
 /// asserting the uncommitted suffix is gone and request 1 stays executed.
 fn install_rolled_back_state(replica: &mut Replica) {
     let out = receive(
@@ -105,13 +105,13 @@ fn install_rolled_back_state(replica: &mut Replica) {
         message(
             1,
             1,
-            Body::StartEpoch {
+            Body::StartView {
                 state: rolled_back_state(),
             },
         ),
     );
     assert!(out.is_empty(), "nothing committed remains to execute");
-    assert_eq!(replica.epoch(), 1);
+    assert_eq!(replica.view(), 1);
     assert_eq!(replica.status(), Status::Normal);
     assert_eq!(
         replica.log(),
@@ -122,16 +122,16 @@ fn install_rolled_back_state(replica: &mut Replica) {
     assert_eq!(replica.executed(), 1, "request 1 stays executed");
 }
 
-/// Drives the replica through the epoch change into epoch 2, which it leads
+/// Drives the replica through the view change into view 2, which it leads
 /// (`leader_of(2) == 2`), and asserts activation with the rolled-back state.
-fn become_leader_of_epoch_two(replica: &mut Replica) {
+fn become_leader_of_view_two(replica: &mut Replica) {
     let out = replica.step(Input::LeaderTimeout);
     assert_eq!(
         out,
-        vec![Output::Broadcast(message(2, 1, Body::StartEpochChange))],
-        "timeout starts the epoch change"
+        vec![Output::Broadcast(message(2, 1, Body::StartViewChange))],
+        "timeout starts the view change"
     );
-    let out = receive(replica, FIRST_LEADER, message(2, 1, Body::StartEpochChange));
+    let out = receive(replica, FIRST_LEADER, message(2, 1, Body::StartViewChange));
     assert!(out.is_empty(), "quorum is not yet reached");
     let out = receive(
         replica,
@@ -139,8 +139,8 @@ fn become_leader_of_epoch_two(replica: &mut Replica) {
         message(
             2,
             1,
-            Body::DoEpochChange {
-                latest_normal: 1,
+            Body::DoViewChange {
+                retained_view: 1,
                 state: rolled_back_state(),
             },
         ),
@@ -150,20 +150,20 @@ fn become_leader_of_epoch_two(replica: &mut Replica) {
         vec![Output::Broadcast(message(
             2,
             1,
-            Body::StartEpoch {
+            Body::StartView {
                 state: rolled_back_state()
             }
         ))],
-        "quorum activates epoch 2 and broadcasts the installed state"
+        "quorum activates view 2 and broadcasts the installed state"
     );
-    assert_eq!(replica.epoch(), 2);
+    assert_eq!(replica.view(), 2);
     assert_eq!(replica.status(), Status::Normal);
-    assert!(replica.is_leader(), "the replica leads epoch 2");
+    assert!(replica.is_leader(), "the replica leads view 2");
 }
 
 /// R2 headline: request 1 is executed and its result cached, the same client's
-/// uncommitted request 2 is accepted, a later valid epoch state rolls request
-/// 2 back, and once this replica leads epoch 2 the retry of request 1 must
+/// uncommitted request 2 is accepted, a later valid view state rolls request
+/// 2 back, and once this replica leads view 2 the retry of request 1 must
 /// replay the exact cached result. Fails on the defective core: the cache arm
 /// finds `result: None` and the retry earns no `Reply`.
 #[test]
@@ -192,7 +192,7 @@ fn leader_retry_of_executed_request_must_replay_cached_result_after_suffix_rollb
     assert_eq!(replica.slot(), 2);
 
     install_rolled_back_state(&mut replica);
-    become_leader_of_epoch_two(&mut replica);
+    become_leader_of_view_two(&mut replica);
 
     let retry = replica.step(retry_request_one());
     assert_eq!(
@@ -213,7 +213,7 @@ fn leader_retry_replays_cached_result_when_no_uncommitted_successor_is_rolled_ba
     execute_and_cache_request_one(&mut replica);
 
     install_rolled_back_state(&mut replica);
-    become_leader_of_epoch_two(&mut replica);
+    become_leader_of_view_two(&mut replica);
 
     let retry = replica.step(retry_request_one());
     assert_eq!(

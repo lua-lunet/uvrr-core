@@ -135,13 +135,12 @@ fn valid_entry(entry: &LogEntry) -> bool {
 fn valid_message_payloads(message: &Message) -> bool {
     match &message.body {
         Body::Prepare { entry, .. } => valid_entry(entry),
-        Body::DoEpochChange { state, .. } | Body::StartEpoch { state } => {
+        Body::DoViewChange { state, .. } | Body::StartView { state } => {
             state.log.iter().all(valid_entry)
         }
         Body::RecoveryResponse {
             state: Some(state), ..
         } => state.log.iter().all(valid_entry),
-        Body::StateChunk { entries, .. } => entries.iter().all(valid_entry),
         _ => true,
     }
 }
@@ -346,7 +345,7 @@ pub unsafe extern "C" fn vrr_node_next(
     out_kind: *mut u32,
     out_to: *mut u32,
     out_tag: *mut u32,
-    out_epoch: *mut u32,
+    out_view: *mut u32,
     out_slot_hi: *mut u32,
     out_slot_lo: *mut u32,
     capacity: usize,
@@ -358,7 +357,7 @@ pub unsafe extern "C" fn vrr_node_next(
             || out_kind.is_null()
             || out_to.is_null()
             || out_tag.is_null()
-            || out_epoch.is_null()
+            || out_view.is_null()
             || out_slot_hi.is_null()
             || out_slot_lo.is_null()
             || out_len.is_null()
@@ -378,12 +377,12 @@ pub unsafe extern "C" fn vrr_node_next(
             *out_to = output.to;
             if let Some(header) = output.header {
                 *out_tag = header.tag as u32;
-                *out_epoch = header.epoch;
+                *out_view = header.view;
                 *out_slot_hi = (header.slot >> 32) as u32;
                 *out_slot_lo = header.slot as u32;
             } else {
                 *out_tag = 0;
-                *out_epoch = 0;
+                *out_view = 0;
                 *out_slot_hi = 0;
                 *out_slot_lo = 0;
             }

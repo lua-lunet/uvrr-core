@@ -2,12 +2,12 @@
 //! before committed replay finishes.
 //!
 //! `Replica::finish_recovery` (`src/vrr.rs`) installs the recovered state with
-//! `adopt`, then runs `activate_epoch` — status becomes `Normal` — and only
+//! `adopt`, then runs `activate_view` — status becomes `Normal` — and only
 //! afterwards emits the first reconstruction work via `pending_execution`.
 //! The replica therefore spends the whole committed-replay window (every
 //! `Input::Complete` from the first emitted `Output::Execute` up to the final
 //! committed slot) observable as `Normal`, so its `status == Status::Normal`
-//! guards admit normal and epoch-change traffic while the deterministic
+//! guards admit normal and view-change traffic while the deterministic
 //! service state and the cached client results are still incomplete.
 //!
 //! The first three tests assert the required contract — activation only after
@@ -26,12 +26,12 @@ const NONCE: u64 = 7;
 const CLIENT: u64 = 10;
 /// Recoverer: node 0 of a 3-member cluster; quorum is 2 distinct responses.
 const RECOVERER: usize = 0;
-/// Node 2 leads epoch 2 (`leader_of(e) = e % 3`).
+/// Node 2 leads view 2 (`leader_of(e) = e % 3`).
 const LEADER: NodeId = 2;
-/// Node 1 is a nonleader at epoch 2.
+/// Node 1 is a nonleader at view 2.
 const OTHER: NodeId = 1;
-/// Recovery completes into epoch 2.
-const EPOCH: u32 = 2;
+/// Recovery completes into view 2.
+const VIEW: u32 = 2;
 
 fn committed_log() -> Vec<LogEntry> {
     vec![
@@ -47,10 +47,10 @@ fn committed_state() -> LogState {
     state(committed_log(), 3)
 }
 
-fn response(epoch: u32, state: Option<LogState>) -> Message {
+fn response(view: u32, state: Option<LogState>) -> Message {
     let slot = state.as_ref().map_or(0, |state| state.slot);
     message(
-        epoch,
+        view,
         slot,
         Body::RecoveryResponse {
             nonce: NONCE,
@@ -75,7 +75,7 @@ fn complete_recovery() -> (Replica, Vec<Output>) {
         receive(
             &mut replica,
             LEADER,
-            response(EPOCH, Some(committed_state()))
+            response(VIEW, Some(committed_state()))
         )
         .is_empty()
     );
@@ -84,7 +84,7 @@ fn complete_recovery() -> (Replica, Vec<Output>) {
         Status::Recovering,
         "one response is not a quorum"
     );
-    let out = receive(&mut replica, OTHER, response(EPOCH, None));
+    let out = receive(&mut replica, OTHER, response(VIEW, None));
     (replica, out)
 }
 
@@ -92,7 +92,7 @@ fn complete_recovery() -> (Replica, Vec<Output>) {
 /// slot 4, committing nothing new.
 fn next_prepare() -> Message {
     message(
-        EPOCH,
+        VIEW,
         4,
         Body::Prepare {
             commit: 3,
@@ -123,7 +123,7 @@ fn recovery_emits_replay_execute_but_must_not_activate_normal_before_replay_fini
         }],
         "quorum completion must emit the first committed-replay execution"
     );
-    assert_eq!(replica.epoch(), EPOCH);
+    assert_eq!(replica.view(), VIEW);
     assert_eq!(replica.slot(), 3);
     assert_eq!(replica.commit(), 3, "committed prefix installed");
     assert_eq!(
@@ -158,31 +158,27 @@ fn leader_prepare_is_processed_while_committed_replay_is_unfinished() {
     assert_replica_unchanged("Prepare during committed replay", &before, &replica);
 }
 
-/// R3 epoch-change arm: in the same exposed intermediate state, epoch-change
-/// traffic for a later epoch is processed — the replica leaves the replay
-/// window for `Status::EpochChange` and broadcasts its own `StartEpochChange`.
+/// R3 view-change arm: in the same exposed intermediate state, view-change
+/// traffic for a later view is processed — the replica leaves the replay
+/// window for `Status::ViewChange` and broadcasts its own `StartViewChange`.
 /// Non-completion traffic must remain fenced until replay finishes. Fails on
 /// the defective core.
 #[test]
-fn start_epoch_change_is_processed_while_committed_replay_is_unfinished() {
+fn start_view_change_is_processed_while_committed_replay_is_unfinished() {
     let (mut replica, _) = complete_recovery();
     let before = ReplicaSnapshot::capture(&replica);
 
     let out = receive(
         &mut replica,
         OTHER,
-        message(EPOCH + 1, 3, Body::StartEpochChange),
+        message(VIEW + 1, 3, Body::StartViewChange),
     );
 
     assert!(
         out.is_empty(),
-        "StartEpochChange must be fenced while committed replay is unfinished; got {out:?}"
+        "StartViewChange must be fenced while committed replay is unfinished; got {out:?}"
     );
-    assert_replica_unchanged(
-        "StartEpochChange during committed replay",
-        &before,
-        &replica,
-    );
+    assert_replica_unchanged("StartViewChange during committed replay", &before, &replica);
 }
 
 /// Control: completion inputs — the one input class that must stay enabled
@@ -214,7 +210,7 @@ fn completions_finish_replay_and_then_normal_traffic_is_admitted() {
     let out = receive(&mut replica, LEADER, next_prepare());
     assert_eq!(
         out,
-        vec![Output::To(LEADER, message(EPOCH, 4, Body::PrepareOk))],
+        vec![Output::To(LEADER, message(VIEW, 4, Body::PrepareOk))],
         "post-replay Prepare must be acked"
     );
     assert_eq!(replica.slot(), 4);

@@ -10,17 +10,13 @@ const NONCE: u64 = 71;
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 enum TransferPath {
-    DoEpochChange,
-    StartEpoch,
+    DoViewChange,
+    StartView,
     RecoveryResponse,
 }
 
 impl TransferPath {
-    const ALL: [Self; 3] = [
-        Self::DoEpochChange,
-        Self::StartEpoch,
-        Self::RecoveryResponse,
-    ];
+    const ALL: [Self; 3] = [Self::DoViewChange, Self::StartView, Self::RecoveryResponse];
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
@@ -125,19 +121,19 @@ fn executed_replica(index: usize) -> Replica {
     replica
 }
 
-fn do_epoch_change_recipient() -> Replica {
+fn do_view_change_recipient() -> Replica {
     let mut replica = executed_replica(1);
     replica.step(Input::LeaderTimeout);
-    assert!(receive(&mut replica, 2, message(1, 1, Body::StartEpochChange)).is_empty());
-    assert!(receive(&mut replica, 3, message(1, 1, Body::StartEpochChange)).is_empty());
-    assert_eq!(replica.status(), Status::EpochChange);
+    assert!(receive(&mut replica, 2, message(1, 1, Body::StartViewChange)).is_empty());
+    assert!(receive(&mut replica, 3, message(1, 1, Body::StartViewChange)).is_empty());
+    assert_eq!(replica.status(), Status::ViewChange);
     replica
 }
 
 fn refuse(path: TransferPath, header_slot: u64, state: LogState) {
     let mut replica = match path {
-        TransferPath::DoEpochChange => do_epoch_change_recipient(),
-        TransferPath::StartEpoch | TransferPath::RecoveryResponse => executed_replica(3),
+        TransferPath::DoViewChange => do_view_change_recipient(),
+        TransferPath::StartView | TransferPath::RecoveryResponse => executed_replica(3),
     };
     if path == TransferPath::RecoveryResponse {
         assert_eq!(
@@ -151,22 +147,22 @@ fn refuse(path: TransferPath, header_slot: u64, state: LogState) {
     }
     let before = ReplicaSnapshot::capture(&replica);
     let output = match path {
-        TransferPath::DoEpochChange => receive(
+        TransferPath::DoViewChange => receive(
             &mut replica,
             0,
             message(
                 1,
                 header_slot,
-                Body::DoEpochChange {
-                    latest_normal: 1,
+                Body::DoViewChange {
+                    retained_view: 1,
                     state,
                 },
             ),
         ),
-        TransferPath::StartEpoch => receive(
+        TransferPath::StartView => receive(
             &mut replica,
             1,
-            message(1, header_slot, Body::StartEpoch { state }),
+            message(1, header_slot, Body::StartView { state }),
         ),
         TransferPath::RecoveryResponse => receive(
             &mut replica,
@@ -233,7 +229,7 @@ fn assert_installed(replica: &Replica) {
 
 #[test]
 fn valid_state_installations_preserve_committed_and_executed_prefixes_on_every_path() {
-    let mut do_change = do_epoch_change_recipient();
+    let mut do_change = do_view_change_recipient();
     assert!(
         receive(
             &mut do_change,
@@ -241,8 +237,8 @@ fn valid_state_installations_preserve_committed_and_executed_prefixes_on_every_p
             message(
                 1,
                 2,
-                Body::DoEpochChange {
-                    latest_normal: 1,
+                Body::DoViewChange {
+                    retained_view: 1,
                     state: valid_state(),
                 },
             ),
@@ -256,8 +252,8 @@ fn valid_state_installations_preserve_committed_and_executed_prefixes_on_every_p
             message(
                 1,
                 2,
-                Body::DoEpochChange {
-                    latest_normal: 1,
+                Body::DoViewChange {
+                    retained_view: 1,
                     state: valid_state(),
                 },
             ),
@@ -267,15 +263,15 @@ fn valid_state_installations_preserve_committed_and_executed_prefixes_on_every_p
     ));
     assert_installed(&do_change);
 
-    let mut start_epoch = executed_replica(3);
+    let mut start_view = executed_replica(3);
     assert!(matches!(
         receive(
-            &mut start_epoch,
+            &mut start_view,
             1,
             message(
                 1,
                 2,
-                Body::StartEpoch {
+                Body::StartView {
                     state: valid_state()
                 }
             ),
@@ -283,7 +279,7 @@ fn valid_state_installations_preserve_committed_and_executed_prefixes_on_every_p
         .as_slice(),
         [Output::To(1, _)]
     ));
-    assert_installed(&start_epoch);
+    assert_installed(&start_view);
 
     let mut recovery = executed_replica(3);
     recovery.step(Input::Recover { nonce: NONCE });
@@ -359,7 +355,7 @@ fn executed_prefix_length_is_implied_by_structural_and_commit_cardinality() {
             message(
                 1,
                 transferred.slot,
-                Body::StartEpoch {
+                Body::StartView {
                     state: transferred.clone(),
                 },
             ),

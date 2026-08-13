@@ -305,14 +305,14 @@ impl Cluster {
         self.after_step();
     }
 
-    /// Injects the next client request at the leader of the highest epoch
+    /// Injects the next client request at the leader of the highest view
     /// any replica currently reports (a client that keeps asking finds the
     /// leader; refusals when the cluster disagrees are protocol-legal).
     ///
     /// A refusal must not consume the request number. The leader refuses
-    /// whenever it has not yet activated the epoch the client aimed at, so
+    /// whenever it has not yet activated the view the client aimed at, so
     /// charging the budget for a refusal caps the campaign at `max_requests`
-    /// *attempts* rather than `max_requests` accepted entries. Epoch change
+    /// *attempts* rather than `max_requests` accepted entries. View change
     /// costs O(K) messages, so the refusal rate climbs with K, and at K>=5
     /// whole seeds burned the budget without ever appending an entry — the
     /// campaign silently degraded to asserting safety over an empty log.
@@ -325,13 +325,13 @@ impl Cluster {
         }
         self.count("request");
         let n = self.requests_sent + 1;
-        let max_epoch = self
+        let max_view = self
             .replicas
             .iter()
-            .map(|replica| replica.epoch())
+            .map(|replica| replica.view())
             .max()
             .expect("nonempty cluster");
-        let target = max_epoch % self.replicas.len() as NodeId;
+        let target = max_view % self.replicas.len() as NodeId;
         let appended = self.replicas[target as usize].log().len();
         self.step_replica(
             target,
@@ -409,27 +409,27 @@ impl Cluster {
     }
 
     /// Steps `Input::LeaderTimeout` on a schedule-chosen node.
-    /// Fires a leader timeout, but not while an epoch change is in flight and
+    /// Fires a leader timeout, but not while an view change is in flight and
     /// still has traffic that could complete it.
     ///
-    /// VR requires the leader timeout to exceed the time an epoch change takes
+    /// VR requires the leader timeout to exceed the time an view change takes
     /// to complete. A fixed per-step timeout probability breaks that as K
-    /// grows: epoch change costs O(K) message deliveries while the timeout
-    /// rate stays constant, so K>=6 livelocks in perpetual epoch change and
+    /// grows: view change costs O(K) message deliveries while the timeout
+    /// rate stays constant, so K>=6 livelocks in perpetual view change and
     /// commits nothing — a property of the schedule's timer model, not of the
     /// protocol.
     ///
     /// Gating on an empty bus rather than on the mere existence of a change is
     /// what keeps the stuck-change path covered: a change with no traffic left
-    /// to deliver is genuinely wedged and a real timer would fire, so epoch
+    /// to deliver is genuinely wedged and a real timer would fire, so view
     /// churn stays high. Gating on the change's existence alone starves it,
-    /// costing ~20x epoch-change coverage.
+    /// costing ~20x view-change coverage.
     fn timeout(&mut self, rng: &mut Rng) {
         self.count("timeout");
         let advancing = self
             .replicas
             .iter()
-            .any(|replica| replica.status() == Status::EpochChange)
+            .any(|replica| replica.status() == Status::ViewChange)
             && self.bus.iter().any(|envelope| self.eligible(envelope));
         if advancing {
             self.after_step();
@@ -463,7 +463,7 @@ impl Cluster {
     }
 
     /// Replaces a schedule-chosen replica with a fresh amnesiac one (empty
-    /// log, epoch 0, executed 0), drops its in-flight execution, then
+    /// log, view 0, executed 0), drops its in-flight execution, then
     /// drives `Input::Recover` with a fresh nonce.  The guard is the same
     /// as `recover()`: refuse if any other replica is `Recovering` or
     /// `Replaying`, keeping us within the `f = 1` crash bound for K=3/K=4.
@@ -534,7 +534,7 @@ impl Cluster {
     }
 
     /// Fair schedule: no faults, immediate completion, leader heartbeat
-    /// every round. Drives `total` requests through the epoch-0 leader and
+    /// every round. Drives `total` requests through the view-0 leader and
     /// returns once every replica has executed every slot. Asserts the
     /// schedule actually converges (progress).
     fn run_fair(&mut self, total: u64) {
@@ -574,7 +574,7 @@ impl Cluster {
                 self.replicas
                     .iter()
                     .map(|replica| (
-                        replica.epoch(),
+                        replica.view(),
                         replica.status(),
                         replica.slot(),
                         replica.commit(),
@@ -585,12 +585,12 @@ impl Cluster {
         }
     }
 
-    /// Every replica is `Status::Normal` at one shared epoch.
+    /// Every replica is `Status::Normal` at one shared view.
     fn converged(&self) -> bool {
-        let epoch = self.replicas[0].epoch();
+        let view = self.replicas[0].view();
         self.replicas
             .iter()
-            .all(|replica| replica.status() == Status::Normal && replica.epoch() == epoch)
+            .all(|replica| replica.status() == Status::Normal && replica.view() == view)
     }
 
     /// Fully settled: converged, nothing in flight, and identical log,
@@ -611,9 +611,9 @@ impl Cluster {
     }
 
     /// Post-chaos stabilization tail: heal, then drive the cluster to one
-    /// quiesced epoch — drain everything, complete executions, re-drive
+    /// quiesced view — drain everything, complete executions, re-drive
     /// stuck host recovery attempts with fresh nonces (a legitimate host
-    /// retry), and ratchet the cluster epoch forward with a leader timeout
+    /// retry), and ratchet the cluster view forward with a leader timeout
     /// on the lagging non-recovering replica. Returns `true` once quiesced.
     /// Returns `false` if every replica ended up in `Status::Recovering`
     /// (unreachable under the driver's rolling-restart host policy, kept as
@@ -633,7 +633,7 @@ impl Cluster {
             }
             // Heartbeat every round: the current leader's Commit broadcast
             // is the only way backups learn a suffix commit the leader
-            // reached from their own post-StartEpoch PrepareOks.
+            // reached from their own post-StartView PrepareOks.
             for node in 0..self.replicas.len() as NodeId {
                 self.step_replica(node, Input::Idle);
             }
@@ -649,7 +649,7 @@ impl Cluster {
                         Status::Recovering | Status::Replaying
                     )
                 })
-                .min_by_key(|&node| (self.replicas[node as usize].epoch(), node))
+                .min_by_key(|&node| (self.replicas[node as usize].view(), node))
             else {
                 return false; // every replica is recovering: terminal stall
             };
@@ -660,7 +660,7 @@ impl Cluster {
             self.replicas
                 .iter()
                 .map(|replica| (
-                    replica.epoch(),
+                    replica.view(),
                     replica.status(),
                     replica.slot(),
                     replica.commit(),
@@ -962,7 +962,7 @@ proptest! {
             "K={k} seed={seed} did not stabilize after {actions_len} actions; frontiers: {frontiers:?}",
             actions_len = actions.len(),
             frontiers = cluster.replicas.iter().map(|replica| (
-                replica.epoch(), replica.status(), replica.slot(),
+                replica.view(), replica.status(), replica.slot(),
                 replica.commit(), replica.executed()
             )).collect::<Vec<_>>()
         );

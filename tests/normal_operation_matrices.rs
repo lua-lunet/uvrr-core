@@ -1,7 +1,7 @@
 mod support;
 
 use support::{
-    EPOCH, EXECUTION_TIME, Relation, ReplicaSnapshot, assert_complete_cases,
+    EXECUTION_TIME, Relation, ReplicaSnapshot, VIEW, assert_complete_cases,
     assert_replica_unchanged, entry, id, message, node, receive, request, state,
 };
 use vrr::vrr::{Body, Input, LogEntry, Message, Output, Replica, Status};
@@ -29,9 +29,9 @@ impl AckCount {
     const ALL: [Self; 3] = [Self::First, Self::Duplicate, Self::Quorum];
 }
 
-fn exact_prepare(epoch: u32, slot: u64, request_num: u64, message_id: uuid::Uuid) -> Output {
+fn exact_prepare(view: u32, slot: u64, request_num: u64, message_id: uuid::Uuid) -> Output {
     Output::Broadcast(Message {
-        epoch,
+        view,
         slot,
         body: Body::Prepare {
             commit: 0,
@@ -56,42 +56,38 @@ fn leader_with_request() -> Replica {
     replica
 }
 
-fn epoch_leader_with_request() -> Replica {
+fn view_leader_with_request() -> Replica {
     let mut replica = node(4, 1);
-    for _ in 0..EPOCH {
+    for _ in 0..VIEW {
         replica.step(Input::LeaderTimeout);
     }
     for from in [0, 2] {
-        receive(
-            &mut replica,
-            from,
-            message(EPOCH, 0, Body::StartEpochChange),
-        );
+        receive(&mut replica, from, message(VIEW, 0, Body::StartViewChange));
     }
     for from in [0, 2] {
         receive(
             &mut replica,
             from,
             message(
-                EPOCH,
+                VIEW,
                 0,
-                Body::DoEpochChange {
-                    latest_normal: 0,
+                Body::DoViewChange {
+                    retained_view: 0,
                     state: state(vec![], 0),
                 },
             ),
         );
     }
-    assert_eq!(replica.epoch(), EPOCH);
+    assert_eq!(replica.view(), VIEW);
     assert_eq!(replica.status(), Status::Normal);
     assert_eq!(
         replica.step(request(1, 1)),
-        vec![exact_prepare(EPOCH, 1, 1, id(1))]
+        vec![exact_prepare(VIEW, 1, 1, id(1))]
     );
     replica
 }
 
-fn epoch_backup_with_prepare() -> Replica {
+fn view_backup_with_prepare() -> Replica {
     let mut replica = node(4, 2);
     assert!(
         receive(
@@ -100,14 +96,14 @@ fn epoch_backup_with_prepare() -> Replica {
             message(
                 1,
                 0,
-                Body::StartEpoch {
+                Body::StartView {
                     state: state(vec![], 0)
                 }
             ),
         )
         .is_empty()
     );
-    assert_eq!(replica.epoch(), 1);
+    assert_eq!(replica.view(), 1);
     assert_eq!(
         receive(
             &mut replica,
@@ -262,16 +258,16 @@ fn prepare_continuity_duplicate_conflict_and_gap_matrix() {
 }
 
 #[test]
-fn prepare_ok_provenance_slot_epoch_and_quorum_matrix() {
+fn prepare_ok_provenance_slot_view_and_quorum_matrix() {
     assert_complete_cases("prepare-ok provenance", 4, Provenance::ALL);
-    assert_complete_cases("prepare-ok epoch relation", 3, Relation::ALL);
+    assert_complete_cases("prepare-ok view relation", 3, Relation::ALL);
     assert_complete_cases("prepare-ok slot relation", 3, Relation::ALL);
     assert_complete_cases("prepare-ok count", 3, AckCount::ALL);
 
     for provenance in Provenance::ALL {
-        for epoch_relation in Relation::ALL {
+        for view_relation in Relation::ALL {
             for slot_relation in Relation::ALL {
-                let mut replica = epoch_leader_with_request();
+                let mut replica = view_leader_with_request();
                 let from = match provenance {
                     Provenance::Leader | Provenance::SelfNode => 1,
                     Provenance::Backup => 0,
@@ -282,17 +278,17 @@ fn prepare_ok_provenance_slot_epoch_and_quorum_matrix() {
                 let outputs = receive(
                     &mut replica,
                     from,
-                    message(epoch_relation.epoch(), slot, Body::PrepareOk),
+                    message(view_relation.view(), slot, Body::PrepareOk),
                 );
                 // Admission per the core's guard (`src/vrr.rs`): a member
-                // PrepareOk in the replica's epoch at or below the frontier
+                // PrepareOk in the replica's view at or below the frontier
                 // is counted in the quorum accumulator. A below-frontier
                 // (slot 0) vote names no log entry and can never advance
                 // commit (`commit.max(0)` is a no-op), so admission is
                 // observable only in the accumulator; a single vote is below
                 // the K=4 quorum of two external votes.
                 let accepted = provenance == Provenance::Backup
-                    && epoch_relation == Relation::Equal
+                    && view_relation == Relation::Equal
                     && slot_relation != Relation::Greater;
                 if accepted {
                     assert!(outputs.is_empty());
@@ -303,16 +299,16 @@ fn prepare_ok_provenance_slot_epoch_and_quorum_matrix() {
                     assert_eq!(
                         after.diagnostic(),
                         &expected,
-                        "accepted prepare-ok {provenance:?} {epoch_relation:?} \
+                        "accepted prepare-ok {provenance:?} {view_relation:?} \
                          {slot_relation:?} adds exactly the quorum vote"
                     );
                 } else {
                     assert!(
                         outputs.is_empty(),
-                        "prepare-ok {provenance:?} {epoch_relation:?} {slot_relation:?}"
+                        "prepare-ok {provenance:?} {view_relation:?} {slot_relation:?}"
                     );
                     assert_replica_unchanged(
-                        (provenance, epoch_relation, slot_relation),
+                        (provenance, view_relation, slot_relation),
                         &before,
                         &replica,
                     );
@@ -339,15 +335,15 @@ fn prepare_ok_provenance_slot_epoch_and_quorum_matrix() {
 }
 
 #[test]
-fn commit_provenance_slot_and_epoch_matrix() {
+fn commit_provenance_slot_and_view_matrix() {
     assert_complete_cases("commit provenance", 4, Provenance::ALL);
-    assert_complete_cases("commit epoch relation", 3, Relation::ALL);
+    assert_complete_cases("commit view relation", 3, Relation::ALL);
     assert_complete_cases("commit slot relation", 3, Relation::ALL);
 
     for provenance in Provenance::ALL {
-        for epoch_relation in Relation::ALL {
+        for view_relation in Relation::ALL {
             for slot_relation in Relation::ALL {
-                let mut replica = epoch_backup_with_prepare();
+                let mut replica = view_backup_with_prepare();
                 let from = match provenance {
                     Provenance::Leader => 1,
                     Provenance::Backup => 3,
@@ -360,14 +356,14 @@ fn commit_provenance_slot_and_epoch_matrix() {
                     Relation::Greater => 2,
                 };
                 let before = ReplicaSnapshot::capture(&replica);
-                let epoch = match epoch_relation {
+                let view = match view_relation {
                     Relation::Less => 0,
                     Relation::Equal => 1,
                     Relation::Greater => 2,
                 };
-                let outputs = receive(&mut replica, from, message(epoch, slot, Body::Commit));
+                let outputs = receive(&mut replica, from, message(view, slot, Body::Commit));
                 let accepted = provenance == Provenance::Leader
-                    && epoch_relation == Relation::Equal
+                    && view_relation == Relation::Equal
                     && slot_relation != Relation::Greater;
                 if accepted {
                     assert_eq!(replica.commit(), slot);
@@ -389,10 +385,10 @@ fn commit_provenance_slot_and_epoch_matrix() {
                 } else {
                     assert!(
                         outputs.is_empty(),
-                        "commit {provenance:?} {epoch_relation:?} {slot_relation:?}"
+                        "commit {provenance:?} {view_relation:?} {slot_relation:?}"
                     );
                     assert_replica_unchanged(
-                        (provenance, epoch_relation, slot_relation),
+                        (provenance, view_relation, slot_relation),
                         &before,
                         &replica,
                     );
@@ -428,7 +424,7 @@ fn execution_ordering_and_exact_result_replay_matrix() {
             payload: b"request".to_vec(),
         }),
         vec![Output::Broadcast(Message {
-            epoch: 0,
+            view: 0,
             slot: 2,
             body: Body::Prepare {
                 commit: 1,
@@ -485,8 +481,8 @@ fn execution_ordering_and_exact_result_replay_matrix() {
 }
 
 #[test]
-fn checked_epoch_overflow_fail_stop_matrix() {
-    assert_complete_cases("epoch overflow boundary", 3, [u32::MIN, 1, u32::MAX]);
+fn checked_view_overflow_fail_stop_matrix() {
+    assert_complete_cases("view overflow boundary", 3, [u32::MIN, 1, u32::MAX]);
 
     let mut replica = node(3, 1);
     receive(
@@ -495,13 +491,13 @@ fn checked_epoch_overflow_fail_stop_matrix() {
         message(
             u32::MAX,
             0,
-            Body::StartEpoch {
+            Body::StartView {
                 state: state(vec![], 0),
             },
         ),
     );
-    assert_eq!(replica.epoch(), u32::MAX);
+    assert_eq!(replica.view(), u32::MAX);
     let before = ReplicaSnapshot::capture(&replica);
     assert!(replica.step(Input::LeaderTimeout).is_empty());
-    assert_replica_unchanged("u32::MAX epoch timeout", &before, &replica);
+    assert_replica_unchanged("u32::MAX view timeout", &before, &replica);
 }

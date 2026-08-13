@@ -13,16 +13,16 @@ fn configuration_and_canonical_tags_are_unambiguous() {
         (Tag::Prepare, 0x10),
         (Tag::PrepareOk, 0x11),
         (Tag::Commit, 0x12),
-        (Tag::StartEpochChange, 0x20),
-        (Tag::DoEpochChange, 0x21),
-        (Tag::StartEpoch, 0x22),
+        (Tag::StartViewChange, 0x20),
+        (Tag::DoViewChange, 0x21),
+        (Tag::StartView, 0x22),
         (Tag::Recovery, 0x30),
         (Tag::RecoveryResponse, 0x31),
     ];
     for (tag, number) in tags {
         let header = Header {
             tag,
-            epoch: 0x0102_0304,
+            view: 0x0102_0304,
             slot: 0x0102_0304_0506_0708,
         };
         let bytes = header.encode();
@@ -30,11 +30,11 @@ fn configuration_and_canonical_tags_are_unambiguous() {
         assert_eq!(Header::decode(&bytes), Some(header));
     }
 
-    let encoded = message(1, 0, Body::StartEpochChange).encode().unwrap();
+    let encoded = message(1, 0, Body::StartViewChange).encode().unwrap();
     assert!(
         std::str::from_utf8(&encoded[16..])
             .unwrap()
-            .contains("StartEpochChange")
+            .contains("StartViewChange")
     );
 }
 
@@ -138,32 +138,32 @@ fn duplicate_prepare_resends_ack_but_conflict_and_gap_are_refused() {
 }
 
 #[test]
-fn four_node_epoch_change_uses_two_votes_and_three_reports() {
+fn four_node_view_change_uses_two_votes_and_three_reports() {
     let mut leader = node(4, 1);
     leader.step(Input::LeaderTimeout);
     let report = |from_entry: LogEntry| {
         message(
             1,
             1,
-            Body::DoEpochChange {
-                latest_normal: 0,
+            Body::DoViewChange {
+                retained_view: 0,
                 state: state(vec![from_entry], 0),
             },
         )
     };
     assert!(receive(&mut leader, 0, report(entry(1, 1, 1))).is_empty());
-    assert!(receive(&mut leader, 2, message(1, 0, Body::StartEpochChange)).is_empty());
-    assert_eq!(leader.status(), Status::EpochChange);
-    assert!(receive(&mut leader, 2, message(1, 0, Body::StartEpochChange)).is_empty());
-    assert!(receive(&mut leader, 3, message(1, 0, Body::StartEpochChange)).is_empty());
-    assert_eq!(leader.status(), Status::EpochChange);
+    assert!(receive(&mut leader, 2, message(1, 0, Body::StartViewChange)).is_empty());
+    assert_eq!(leader.status(), Status::ViewChange);
+    assert!(receive(&mut leader, 2, message(1, 0, Body::StartViewChange)).is_empty());
+    assert!(receive(&mut leader, 3, message(1, 0, Body::StartViewChange)).is_empty());
+    assert_eq!(leader.status(), Status::ViewChange);
 
     let outputs = receive(&mut leader, 2, report(entry(1, 1, 1)));
     assert_eq!(leader.status(), Status::Normal);
     assert!(outputs.iter().any(|output| matches!(
         output,
         Output::Broadcast(Message {
-            body: Body::StartEpoch { .. },
+            body: Body::StartView { .. },
             ..
         })
     )));
@@ -264,10 +264,10 @@ fn malformed_transferred_states_are_rejected_without_mutation() {
         let outputs = receive(
             &mut replica,
             1,
-            message(1, bad.slot, Body::StartEpoch { state: bad }),
+            message(1, bad.slot, Body::StartView { state: bad }),
         );
         assert!(outputs.is_empty());
-        assert_eq!(replica.epoch(), 0);
+        assert_eq!(replica.view(), 0);
         assert_eq!(replica.slot(), 0);
         assert_eq!(replica.status(), Status::Normal);
     }
@@ -280,18 +280,18 @@ fn malformed_transferred_states_are_rejected_without_mutation() {
             message(
                 1,
                 0,
-                Body::StartEpoch {
+                Body::StartView {
                     state: state(vec![entry(1, 1, 1)], 0),
                 },
             ),
         )
         .is_empty()
     );
-    assert_eq!(replica.epoch(), 0);
+    assert_eq!(replica.view(), 0);
 }
 
 #[test]
-fn epoch_change_selects_one_whole_log_and_rejects_uncovered_commit() {
+fn view_change_selects_one_whole_log_and_rejects_uncovered_commit() {
     let mut leader = node(3, 1);
     leader.step(Input::LeaderTimeout);
     let short = state(vec![entry(1, 1, 1)], 0);
@@ -301,19 +301,19 @@ fn epoch_change_selects_one_whole_log_and_rejects_uncovered_commit() {
         message(
             1,
             1,
-            Body::DoEpochChange {
-                latest_normal: 1,
+            Body::DoViewChange {
+                retained_view: 1,
                 state: short,
             },
         ),
     );
-    let outputs = receive(&mut leader, 2, message(1, 0, Body::StartEpochChange));
+    let outputs = receive(&mut leader, 2, message(1, 0, Body::StartViewChange));
     assert_eq!(leader.status(), Status::Normal);
     let installed = outputs
         .iter()
         .find_map(|output| match output {
             Output::Broadcast(Message {
-                body: Body::StartEpoch { state },
+                body: Body::StartView { state },
                 ..
             }) => Some(state),
             _ => None,
@@ -329,8 +329,8 @@ fn epoch_change_selects_one_whole_log_and_rejects_uncovered_commit() {
         message(
             1,
             1,
-            Body::DoEpochChange {
-                latest_normal: 1,
+            Body::DoViewChange {
+                retained_view: 1,
                 state: state(vec![entry(1, 1, 1)], 0),
             },
         ),
@@ -343,19 +343,19 @@ fn epoch_change_selects_one_whole_log_and_rejects_uncovered_commit() {
         message(
             1,
             2,
-            Body::DoEpochChange {
-                latest_normal: 0,
+            Body::DoViewChange {
+                retained_view: 0,
                 state: own_long,
             },
         ),
     );
-    let outputs = receive(&mut rejected, 2, message(1, 0, Body::StartEpochChange));
+    let outputs = receive(&mut rejected, 2, message(1, 0, Body::StartViewChange));
     assert!(outputs.is_empty());
-    assert_eq!(rejected.status(), Status::EpochChange);
+    assert_eq!(rejected.status(), Status::ViewChange);
 }
 
 #[test]
-fn delayed_same_epoch_install_and_report_cannot_reinstall_stale_state() {
+fn delayed_same_view_install_and_report_cannot_reinstall_stale_state() {
     let mut backup = node(3, 2);
     receive(
         &mut backup,
@@ -363,7 +363,7 @@ fn delayed_same_epoch_install_and_report_cannot_reinstall_stale_state() {
         message(
             1,
             0,
-            Body::StartEpoch {
+            Body::StartView {
                 state: state(vec![], 0),
             },
         ),
@@ -388,7 +388,7 @@ fn delayed_same_epoch_install_and_report_cannot_reinstall_stale_state() {
             message(
                 1,
                 0,
-                Body::StartEpoch {
+                Body::StartView {
                     state: state(vec![], 0)
                 }
             ),
@@ -400,8 +400,8 @@ fn delayed_same_epoch_install_and_report_cannot_reinstall_stale_state() {
     let delayed = message(
         1,
         0,
-        Body::DoEpochChange {
-            latest_normal: 0,
+        Body::DoViewChange {
+            retained_view: 0,
             state: state(vec![], 0),
         },
     );
@@ -420,13 +420,13 @@ fn reconstructed_client_table_does_not_mark_newer_suffix_executed() {
         message(
             1,
             2,
-            Body::DoEpochChange {
-                latest_normal: 0,
+            Body::DoViewChange {
+                retained_view: 0,
                 state: transferred,
             },
         ),
     );
-    let outputs = receive(&mut leader, 2, message(1, 0, Body::StartEpochChange));
+    let outputs = receive(&mut leader, 2, message(1, 0, Body::StartViewChange));
     assert!(
         outputs
             .iter()
@@ -446,7 +446,7 @@ fn reconstructed_client_table_does_not_mark_newer_suffix_executed() {
 }
 
 #[test]
-fn future_install_must_preserve_locally_executed_prefix_and_epoch_exhaustion_fails_stop() {
+fn future_install_must_preserve_locally_executed_prefix_and_view_exhaustion_fails_stop() {
     let mut backup = node(3, 1);
     let first = entry(1, 1, 1);
     let outputs = receive(
@@ -476,11 +476,11 @@ fn future_install_must_preserve_locally_executed_prefix_and_epoch_exhaustion_fai
         receive(
             &mut backup,
             2,
-            message(2, 1, Body::StartEpoch { state: conflicting }),
+            message(2, 1, Body::StartView { state: conflicting }),
         )
         .is_empty()
     );
-    assert_eq!(backup.epoch(), 0);
+    assert_eq!(backup.view(), 0);
     assert_eq!(backup.log(), &[first]);
 
     receive(
@@ -489,12 +489,12 @@ fn future_install_must_preserve_locally_executed_prefix_and_epoch_exhaustion_fai
         message(
             u32::MAX,
             1,
-            Body::StartEpoch {
+            Body::StartView {
                 state: state(vec![entry(1, 1, 1)], 1),
             },
         ),
     );
-    assert_eq!(backup.epoch(), u32::MAX);
+    assert_eq!(backup.view(), u32::MAX);
     assert!(backup.step(Input::LeaderTimeout).is_empty());
-    assert_eq!(backup.epoch(), u32::MAX);
+    assert_eq!(backup.view(), u32::MAX);
 }
