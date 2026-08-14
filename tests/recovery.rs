@@ -194,6 +194,61 @@ fn crash_and_reopen(h: &mut Harness, id: NodeId) {
     assert_eq!(status_of(h, id), Status::Recovering);
 }
 
+/// Stages an accepted-but-uncommitted tail at `straggler`: each operation
+/// commits at the primary and `voters` through the ordinary pipeline, and
+/// lands in the straggler's journal under a fabricated Prepare whose
+/// piggybacked committed frontier is pinned at the genesis one — the
+/// straggler ACCEPTS every entry but never learns that any of them
+/// committed. The straggler's answering PrepareOks and every leftover
+/// datagram are drained each round, so the queue starts empty per op.
+fn stage_accepted_tail(
+    h: &mut Harness,
+    straggler: NodeId,
+    voters: &[NodeId],
+    ops: &[(u64, &[u8])],
+) {
+    for (lsb, payload) in ops {
+        let proposed = h.propose(n(0), op_id(*lsb), payload);
+        assert!(
+            matches!(proposed, StepOutcome::Published { .. }),
+            "the primary accepts its own proposal: {proposed:?}"
+        );
+        for voter in voters {
+            h.deliver_to(*voter).expect("the Prepare reaches a voter");
+        }
+        for _ in voters {
+            h.deliver_to(n(0))
+                .expect("a voter's PrepareOk reaches the primary");
+        }
+        for voter in voters {
+            h.deliver_to(*voter).expect("the Commit reaches a voter");
+        }
+        h.drop_queued(straggler);
+        h.execute_apply_effects(n(0));
+        for voter in voters {
+            h.execute_apply_effects(*voter);
+        }
+        let slot = lsb + 2;
+        let prepare = Message {
+            header: Header {
+                tag: Tag::Prepare,
+                view: view(0),
+                slot: Slot(slot),
+            },
+            body: Body::Prepare {
+                entry: operation_entry(slot, *lsb, payload),
+                committed: INIT_SLOT,
+            },
+        };
+        let accepted = h.inject(n(0), straggler, prepare);
+        assert!(
+            matches!(accepted, StepOutcome::Published { .. }),
+            "the straggler accepts the entry: {accepted:?}"
+        );
+        h.deliver_all();
+    }
+}
+
 /// The nonce of the `Recovery` solicitation queued to `to`, asserting one
 /// is queued.
 fn queued_recovery_nonce(h: &Harness, to: NodeId) -> Tick {
@@ -1421,5 +1476,306 @@ fn recovery_completion_leaves_no_stale_view_change_evidence() {
         assert_eq!(status_of(&h, id), Status::Normal, "{id:?} installs view 3");
         assert_eq!(current_view(&h, id), view(3));
     }
+    h.assert_safety();
+}
+
+// 14. The committed fast-forward (§6.1, §10, §11.1): an accepted response
+//     whose `committed` exceeds the local frontier — one weighted answer,
+//     short of the quorum — advances it over the sequentially-adjacent,
+//     locally journal-present entries, emitting the same ordered `Apply`
+//     upcalls the node would have emitted had it never crashed, while the
+//     node is still fenced `Recovering`. The operation slots then await
+//     the host's §11.1 acknowledgements exactly as in normal operation.
+#[test]
+fn fast_forward_applies_locally_present_committed_entries() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    stage_accepted_tail(&mut h, n(2), &[n(1)], &[(1, b"a"), (2, b"b"), (3, b"c")]);
+    crash_and_reopen(&mut h, n(2));
+    let reopened = snap(&h, n(2));
+    assert_eq!(reopened.committed, 2);
+    assert_eq!(reopened.accepted, 5);
+
+    h.recover(n(2));
+    let nonce = h.now();
+    let outcome = h.inject(
+        n(1),
+        n(2),
+        recovery_response(nonce, view(0), Slot(5), Slot(5), None),
+    );
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the accepted response publishes: {outcome:?}");
+    };
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Apply {
+                slot: Slot(3),
+                operation_id: op_id(1),
+                payload: b"a"[..].into(),
+            },
+            Effect::Apply {
+                slot: Slot(4),
+                operation_id: op_id(2),
+                payload: b"b"[..].into(),
+            },
+            Effect::Apply {
+                slot: Slot(5),
+                operation_id: op_id(3),
+                payload: b"c"[..].into(),
+            },
+        ],
+        "the fast-forward emits the ordered Apply upcalls",
+    );
+    let forwarded = snap(&h, n(2));
+    assert_eq!(forwarded.committed, 5);
+    assert_eq!(
+        forwarded.applied, 2,
+        "operation slots await the host's acknowledgements",
+    );
+    assert_eq!(
+        status_of(&h, n(2)),
+        Status::Recovering,
+        "the attempt is still open",
+    );
+
+    // The acknowledgements land through the ordinary §11.1 path, still
+    // fenced: the attempt completes separately.
+    let outcomes = h.execute_apply_effects(n(2));
+    assert_eq!(outcomes.len(), 3);
+    assert_eq!(snap(&h, n(2)).applied, 5);
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+    h.assert_safety();
+}
+
+// 15. Idempotence: the same response delivered twice emits each upcall
+//     exactly once — slots at or below the fast-forwarded frontier are
+//     skipped.
+#[test]
+fn fast_forward_is_idempotent_to_duplicate_responses() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    stage_accepted_tail(&mut h, n(2), &[n(1)], &[(1, b"a"), (2, b"b"), (3, b"c")]);
+    crash_and_reopen(&mut h, n(2));
+
+    h.recover(n(2));
+    let nonce = h.now();
+    let response = recovery_response(nonce, view(0), Slot(5), Slot(5), None);
+    let first = h.inject(n(1), n(2), response.clone());
+    let StepOutcome::Published { effects, .. } = first else {
+        panic!("the accepted response publishes: {first:?}");
+    };
+    assert_eq!(effects.len(), 3, "the first delivery fast-forwards");
+
+    let second = h.inject(n(1), n(2), response);
+    let StepOutcome::Published { effects, .. } = second else {
+        panic!("the duplicate publishes: {second:?}");
+    };
+    assert!(
+        effects.is_empty(),
+        "a duplicate response emits nothing: {effects:?}",
+    );
+
+    let outcomes = h.execute_apply_effects(n(2));
+    assert_eq!(outcomes.len(), 3, "each upcall executes exactly once");
+    assert_eq!(snap(&h, n(2)).applied, 5);
+    h.assert_safety();
+}
+
+// 16. TakeWhile: a response claiming `committed` beyond what the local
+//     journal physically holds applies only up to the first slot the
+//     journal does not hold — here the accepted frontier itself is the
+//     gap.
+#[test]
+fn fast_forward_stops_at_the_journal_gap() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    stage_accepted_tail(&mut h, n(2), &[n(1)], &[(1, b"a"), (2, b"b"), (3, b"c")]);
+    crash_and_reopen(&mut h, n(2));
+
+    h.recover(n(2));
+    let nonce = h.now();
+    let outcome = h.inject(
+        n(1),
+        n(2),
+        recovery_response(nonce, view(0), Slot(7), Slot(7), None),
+    );
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the accepted response publishes: {outcome:?}");
+    };
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Apply {
+                slot: Slot(3),
+                operation_id: op_id(1),
+                payload: b"a"[..].into(),
+            },
+            Effect::Apply {
+                slot: Slot(4),
+                operation_id: op_id(2),
+                payload: b"b"[..].into(),
+            },
+            Effect::Apply {
+                slot: Slot(5),
+                operation_id: op_id(3),
+                payload: b"c"[..].into(),
+            },
+        ],
+        "only the locally journal-present slots apply",
+    );
+    assert_eq!(
+        snap(&h, n(2)).committed,
+        5,
+        "the walk stops at the first slot the journal does not hold",
+    );
+    h.assert_safety();
+}
+
+// 17. A completion after a fast-forward never re-applies a fast-forwarded
+//     slot: the host acknowledged the upcalls, so the completion's replay
+//     walk — which starts from the applied frontier — has nothing left to
+//     re-emit (§11.1).
+#[test]
+fn completion_after_fast_forward_does_not_reapply() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    stage_accepted_tail(&mut h, n(2), &[n(1)], &[(1, b"a"), (2, b"b"), (3, b"c")]);
+    crash_and_reopen(&mut h, n(2));
+
+    h.recover(n(2));
+    let nonce = h.now();
+    let outcome = h.inject(
+        n(1),
+        n(2),
+        recovery_response(nonce, view(0), Slot(5), Slot(5), None),
+    );
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the accepted response publishes: {outcome:?}");
+    };
+    assert_eq!(effects.len(), 3, "the first answer fast-forwards");
+    h.execute_apply_effects(n(2));
+    assert_eq!(snap(&h, n(2)).applied, 5);
+
+    // The view-0 primary's answer carries the installation history and
+    // completes the quorum: the replay re-emits nothing.
+    let completing = h.inject(
+        n(0),
+        n(2),
+        recovery_response(
+            nonce,
+            view(0),
+            Slot(5),
+            Slot(5),
+            Some(h.journal_entries(n(0))),
+        ),
+    );
+    let StepOutcome::Published { effects, .. } = completing else {
+        panic!("the completing response publishes: {completing:?}");
+    };
+    assert!(
+        effects.is_empty(),
+        "no fast-forwarded slot is re-applied: {effects:?}",
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    let recovered = snap(&h, n(2));
+    assert_eq!(recovered.committed, 5);
+    assert_eq!(recovered.applied, 5);
+    assert_eq!(h.journal_entries(n(2)), h.journal_entries(n(0)));
+    h.assert_safety();
+}
+
+// 18. Monotonicity (§1.3): the completing evidence's `committed` — the
+//     latest fenced view's primary's, recorded earlier in the episode —
+//     sits BELOW the frontier a later answer already fast-forwarded. The
+//     completion installs the primary's history but never moves the
+//     frontier backward, and nothing re-applies. Five nodes, so the
+//     primary's stale answer can be recorded before the quorum completes.
+#[test]
+fn completion_evidence_below_fast_forwarded_frontier_does_not_regress() {
+    let mut h = Harness::with_knobs(
+        5,
+        ViewChangeKnobs {
+            primary_timeout: TIMEOUT,
+            view_change_budget: usize::MAX,
+        },
+    );
+    h.tick_all();
+    h.deliver_all();
+    h.assert_safety();
+    stage_accepted_tail(
+        &mut h,
+        n(4),
+        &[n(1), n(2)],
+        &[(1, b"a"), (2, b"b"), (3, b"c"), (4, b"d")],
+    );
+    assert_eq!(snap(&h, n(4)).accepted, 6);
+    assert_eq!(snap(&h, n(4)).committed, 2);
+    crash_and_reopen(&mut h, n(4));
+
+    h.recover(n(4));
+    let nonce = h.now();
+
+    // The view-0 primary's answer — an older committed frontier, with its
+    // history — is recorded first and fast-forwards what it vouches for.
+    let outcome = h.inject(
+        n(0),
+        n(4),
+        recovery_response(
+            nonce,
+            view(0),
+            Slot(6),
+            Slot(3),
+            Some(h.journal_entries(n(0))),
+        ),
+    );
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the primary's answer publishes: {outcome:?}");
+    };
+    assert_eq!(
+        effects,
+        vec![Effect::Apply {
+            slot: Slot(3),
+            operation_id: op_id(1),
+            payload: b"a"[..].into(),
+        }],
+    );
+    assert_eq!(snap(&h, n(4)).committed, 3);
+    h.execute_apply_effects(n(4));
+
+    // A second answer carries the fuller frontier: fast-forward to 6.
+    let outcome = h.inject(
+        n(1),
+        n(4),
+        recovery_response(nonce, view(0), Slot(6), Slot(6), None),
+    );
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the second answer publishes: {outcome:?}");
+    };
+    assert_eq!(effects.len(), 3, "slots 4 through 6 fast-forward");
+    assert_eq!(snap(&h, n(4)).committed, 6);
+    h.execute_apply_effects(n(4));
+    assert_eq!(snap(&h, n(4)).applied, 6);
+
+    // The third answer completes the `R_g` quorum: the completion
+    // installs the primary's recorded evidence — committed 3, below the
+    // fast-forwarded frontier. The frontier never moves backward.
+    let completing = h.inject(
+        n(2),
+        n(4),
+        recovery_response(nonce, view(0), Slot(6), Slot(6), None),
+    );
+    let StepOutcome::Published { effects, .. } = completing else {
+        panic!("the completing answer publishes: {completing:?}");
+    };
+    assert!(effects.is_empty(), "nothing re-applies: {effects:?}");
+    let recovered = snap(&h, n(4));
+    assert_eq!(
+        recovered.committed, 6,
+        "the completion never regresses the frontier",
+    );
+    assert_eq!(recovered.applied, 6);
+    assert_eq!(status_of(&h, n(4)), Status::Normal);
+    assert_eq!(h.fault_of(n(4)), None);
     h.assert_safety();
 }

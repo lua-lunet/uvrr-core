@@ -10,9 +10,15 @@
 //! in-set nonces combine into the one `R_g` quorum. The attempt state is
 //! volatile by design — a crash discards it and the reopened node starts
 //! a fresh one with a fresh tick. Only the reported view's primary carries
-//! installation evidence (§6.1). A completion that stalls on an
-//! unconstructible suffix re-drives from the tick once state transfer has
-//! supplied the missing range (§13.1 step 5).
+//! installation evidence (§6.1). While the attempt runs, an accepted
+//! response whose `committed` exceeds the local frontier fast-forwards
+//! it: the sequentially-adjacent, locally journal-present entries above
+//! the frontier emit the ordered `Apply` upcalls the node would have
+//! emitted had it never crashed (§11.1, B2), and the completion's
+//! installed frontiers never move backward from the fast-forwarded ones.
+//! A completion that stalls on an unconstructible suffix re-drives from
+//! the tick once state transfer has supplied the missing range (§13.1
+//! step 5).
 
 use super::*;
 
@@ -148,7 +154,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// quorum holds, the completion ruling: the latest view the quorum
     /// reports is the latest fenced view the attempt can know (`F_g ⌢
     /// R_g`), and only that view's primary's response is installation
-    /// evidence.
+    /// evidence. An accepted response whose `committed` exceeds the local
+    /// frontier fast-forwards it within the same transition (§6.1, §11.1,
+    /// B2 — see [`Self::plan_committed_fast_forward`]).
     #[allow(clippy::too_many_arguments)]
     pub(in crate::replica) fn plan_recovery_response(
         &self,
@@ -236,11 +244,18 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         );
         // The completion ruling becomes evaluable only when the weighted
         // `R_g` quorum holds (the strategy decides — Q1). Until it does,
-        // the attempt just records the response and waits for more.
+        // the attempt just records the response and waits for more. An
+        // accepted response whose committed frontier exceeds the local
+        // one fast-forwards it within this same transition (§6.1); a
+        // duplicate or overlapping response claims nothing new and the
+        // fast-forward is the identity.
         let record_attempt = |attempt: RecoveryVolatile, diagnostic| {
-            let candidate = self.identity_candidate()?;
+            let (candidate, effects) = match self.plan_committed_fast_forward(journal, committed)? {
+                Some((candidate, effects)) => (candidate, effects),
+                None => (self.identity_candidate()?, Vec::new()),
+            };
             Ok(self
-                .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
                 .with_bookkeeping(Bookkeeping {
                     recovery: RecoveryUpdate::Set(attempt),
                     ..Bookkeeping::default()
@@ -287,6 +302,52 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             return record_attempt(attempt, Diagnostic::None);
         };
         self.plan_recovery_completion(journal, attempt, source, latest, evidence, at, kind)
+    }
+
+    /// The committed fast-forward of an accepted `RecoveryResponse`
+    /// (§6.1, §10, §11.1): evidence whose `committed` exceeds the local
+    /// frontier advances it over the sequentially-adjacent, locally
+    /// journal-present slots — takeWhile: the walk stops at the first
+    /// slot the journal does not physically hold — emitting the ordered
+    /// `Apply` upcalls (B2) the node would have emitted had it never
+    /// crashed. The applied frontier moves only by the §11 system-slot
+    /// walk: the operation slots await the host's `Input::Applied`
+    /// acknowledgements through the ordinary path, exactly as in normal
+    /// operation, and the node stays fenced `Recovering`. Returns `None`
+    /// when the evidence claims nothing beyond the local frontier — a
+    /// duplicate or overlapping response is an identity transition:
+    /// slots at or below the frontier are skipped.
+    fn plan_committed_fast_forward(
+        &self,
+        journal: &J::View,
+        claimed: Slot,
+    ) -> Result<Option<(Progress, Vec<Effect>)>, PlanRejection> {
+        let committed = self.progress.committed();
+        // takeWhile over sequentially-adjacent, locally journal-present
+        // slots: the frontier the evidence vouches for, capped at the
+        // first slot the journal does not physically hold.
+        let mut target = committed;
+        while let Some(next) = target.next() {
+            if next > claimed || journal.get(next).is_none() {
+                break;
+            }
+            target = next;
+        }
+        if target == committed {
+            return Ok(None);
+        }
+        // The same shape the recovery completion's replay takes (§11.1):
+        // the ordered `Apply` upcalls over the newly committed range, and
+        // the §11 system-slot walk over the same range for `applied`.
+        let applies = self.apply_effects_merged(journal, &[], committed, target)?;
+        let applied = self.applied_walk(journal, &[], self.progress.applied(), target)?;
+        let candidate = self.candidate_with(
+            self.progress.status(),
+            self.progress.accepted(),
+            target,
+            applied,
+        )?;
+        Ok(Some((candidate, applies)))
     }
 
     /// The completing ruling of an open recovery attempt, when it is
@@ -339,7 +400,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// below `committed` leaves the node `Replaying` until `applied ==
     /// committed`; a retained base above the base the recovery must read
     /// from surfaces [`Effect::RequestApplicationState`] (§4, §11), never
-    /// a fault.
+    /// a fault. The installed committed frontier never moves backward
+    /// (§1.3): a fast-forward earlier in the attempt may have advanced
+    /// the local frontier past the completing evidence's, and the replay
+    /// walk — starting from the local applied seed — never re-applies a
+    /// fast-forwarded slot.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::replica) fn plan_recovery_completion(
         &self,
@@ -354,6 +419,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let Some(suffix) = evidence.suffix.as_ref() else {
             unreachable!("installation evidence carries a suffix");
         };
+        // The frontier this completion drives the replay and the install
+        // to: the completing evidence's, floored at the local one — a
+        // committed fast-forward earlier in the attempt advanced it, and
+        // no completion moves it backward (§1.3).
+        let committed = evidence.committed.max(self.progress.committed());
         let shortfall = |attempt: RecoveryVolatile, required: Slot, retained: Slot| {
             // The journal physically let the required prefix go (S1): §4's
             // answer is the host's application-state transfer facility, not
@@ -363,9 +433,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .candidate_plan(
                     candidate,
                     JournalMutation::None,
-                    vec![Effect::RequestApplicationState {
-                        through: evidence.committed,
-                    }],
+                    vec![Effect::RequestApplicationState { through: committed }],
                     kind,
                     false,
                 )
@@ -411,23 +479,23 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 }
             };
         // The replay ruling (§11.1): everything committed-but-unapplied —
-        // by the installed history's `committed` — is re-emitted as
-        // ordered `Apply` upcalls. The replay reads from the node's
-        // applied seed, so what the node durably applied is never
-        // re-applied; and the §11 system-slot ruling folds every committed
-        // system slot the walk crosses into `applied` without an upcall or
-        // an acknowledgement.
+        // by the installed history's `committed`, floored at the local
+        // frontier — is re-emitted as ordered `Apply` upcalls. The replay
+        // reads from the node's applied seed, so what the node durably
+        // applied — fast-forwarded slots included — is never re-applied;
+        // and the §11 system-slot ruling folds every committed system
+        // slot the walk crosses into `applied` without an upcall or an
+        // acknowledgement.
         let replay_base = self.progress.applied();
-        let applies =
-            match self.apply_effects_merged(journal, suffix, replay_base, evidence.committed) {
-                Ok(applies) => applies,
-                Err(PlanRejection::JournalEntryUnavailable { slot }) => {
-                    let (retained_base, _) = journal.retained();
-                    return shortfall(attempt, slot, retained_base);
-                }
-                Err(rejection) => return Err(rejection),
-            };
-        let applied = match self.applied_walk(journal, suffix, replay_base, evidence.committed) {
+        let applies = match self.apply_effects_merged(journal, suffix, replay_base, committed) {
+            Ok(applies) => applies,
+            Err(PlanRejection::JournalEntryUnavailable { slot }) => {
+                let (retained_base, _) = journal.retained();
+                return shortfall(attempt, slot, retained_base);
+            }
+            Err(rejection) => return Err(rejection),
+        };
+        let applied = match self.applied_walk(journal, suffix, replay_base, committed) {
             Ok(applied) => applied,
             Err(PlanRejection::JournalEntryUnavailable { slot }) => {
                 let (retained_base, _) = journal.retained();
@@ -438,24 +506,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // Normal once the walked frontier reached the committed one;
         // Replaying — fenced from participation — while host
         // acknowledgements are still owed.
-        let status = if applied == evidence.committed {
+        let status = if applied == committed {
             Status::Normal
         } else {
             Status::Replaying
         };
-        let candidate = self.recovery_candidate(
-            latest,
-            status,
-            evidence.accepted,
-            evidence.committed,
-            applied,
-        )?;
+        let candidate =
+            self.recovery_candidate(latest, status, evidence.accepted, committed, applied)?;
         // The recovery install supersedes any view change the node was
         // fencing (the attempt cleared below), and if the node is the
         // primary of the view it recovered into it picks the reassembled
         // history's uncommitted tail up and starts driving it (§8.1).
         let proposals = if self.primary_of(latest) == Some(self.own) {
-            self.installed_proposals(journal, suffix, evidence.committed, evidence.accepted)
+            self.installed_proposals(journal, suffix, committed, evidence.accepted)
         } else {
             Vec::new()
         };
@@ -476,7 +539,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// latest fenced view (§1.3 — the history was re-selected from protocol
     /// evidence), the frontiers become the installed history's, and the
     /// status is `Normal` when nothing is left to replay, `Replaying` while
-    /// committed operations await their application upcalls (§11.1).
+    /// committed operations await their application upcalls (§11.1). The
+    /// monotone frontiers never move backward (§1.3): a committed
+    /// fast-forward earlier in the attempt may have advanced a frontier
+    /// past the completing evidence's, so each installed frontier is the
+    /// evidence's floored at the local one.
     fn recovery_candidate(
         &self,
         view: ViewId,
@@ -485,6 +552,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         committed: Slot,
         applied: Slot,
     ) -> Result<Progress, PlanRejection> {
+        let committed = committed.max(self.progress.committed());
+        let applied = applied.max(self.progress.applied());
         let revision = self
             .progress
             .revision()
