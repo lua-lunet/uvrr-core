@@ -24,8 +24,9 @@
 //! ```
 //!
 //! No clock read occurs anywhere beneath this module. Every input carries the
-//! host tick, and for a recovery input that tick *is* the recovery nonce
-//! (§6.1, decision S4). `Input::Tick` exists as an ordinary event, not as a
+//! host tick, and for a recovery input that tick *is* a recovery nonce — the
+//! attempt retains a bounded set of them, one per re-drive (§6.1, decision
+//! S4). `Input::Tick` exists as an ordinary event, not as a
 //! timer callback, so a harness can replay sloppy, late, early and reordered
 //! timeouts deterministically — a timeout the core cannot be *told* about is a
 //! timeout no test can reproduce.
@@ -126,10 +127,11 @@ mod view_change;
 ///
 /// `at` is host observation metadata sampled when the host began dispatching
 /// the event — never a timestamp received from a peer — and for
-/// [`Input::Recover`] it is also the recovery nonce (§6.1).
+/// [`Input::Recover`] it is also a recovery nonce (§6.1): the attempt
+/// retains a bounded set of them, one per re-drive.
 #[derive(Clone, Debug)]
 pub struct TimedInput {
-    /// The host tick at dispatch time; the recovery nonce for
+    /// The host tick at dispatch time; a recovery nonce for
     /// [`Input::Recover`] (S4).
     pub at: Tick,
     /// The event.
@@ -171,7 +173,9 @@ pub enum Input {
     /// protocol state moves, and the interval machinery — revision, gate,
     /// stability handshake — is genuinely exercised by it.
     Tick,
-    /// Begin a recovery attempt (§10). The nonce is [`TimedInput::at`] (S4).
+    /// Begin (or re-drive) a recovery attempt (§10). The nonce is
+    /// [`TimedInput::at`] (S4); a re-drive adds it to the open attempt's
+    /// bounded nonce set and preserves the collected responses.
     Recover,
     /// The host's report on the one outstanding [`PersistenceIntent`] (S2/S3).
     StabilityConfirmation {
@@ -688,20 +692,29 @@ struct RecoveryEvidence {
     suffix: Option<Vec<LogEntry>>,
 }
 
-/// The volatile recovery-attempt state (§10, §6.1): the nonce — the
-/// recovery input's tick (S4) — and the distinct responders counted toward
-/// the `R_g` quorum. The node itself is never among them.
+/// The bound on a recovery attempt's nonce memory (§10, §6.1): a re-drive
+/// past the bound evicts the OLDEST nonce, and a response echoing an
+/// evicted nonce is stale exactly like one to an attempt that never ran.
+pub(crate) const MAX_RECOVERY_NONCES: usize = 8;
+
+/// The volatile recovery-attempt state (§10, §6.1): the nonce set — each
+/// element the tick of one of the episode's recovery inputs (S4) — and
+/// the distinct responders counted toward the `R_g` quorum. The node
+/// itself is never among them.
 ///
 /// Volatile by design (§8.3's diskless argument: quorum memory, not local
 /// storage, survives a crash): a crash discards the attempt, and the
 /// reopened node starts a fresh one with a fresh tick.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct RecoveryVolatile {
-    /// The attempt's nonce: the `TimedInput.at` of the recovery input (S4).
-    nonce: Tick,
+    /// The episode's nonce memory: the tick of each of its recovery
+    /// inputs (S4), bounded by [`MAX_RECOVERY_NONCES`] with the oldest
+    /// evicted on overflow. A response is this episode's iff its echoed
+    /// nonce is in the set.
+    nonces: BTreeSet<Tick>,
     /// The counted responses, by transport-attributed sender. A refreshed
-    /// answer replaces the earlier one: the nonce binds both to this
-    /// attempt, and the fresher frontiers are the better evidence.
+    /// answer replaces the earlier one: every nonce in the set binds both
+    /// to this episode, and the fresher frontiers are the better evidence.
     responses: BTreeMap<NodeId, RecoveryEvidence>,
 }
 

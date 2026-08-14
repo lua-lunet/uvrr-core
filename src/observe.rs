@@ -221,7 +221,8 @@ pub enum Diagnostic {
     StaleRecoveryResponse {
         /// The nonce the response echoed.
         nonce: Tick,
-        /// The open attempt's nonce, when an attempt is open.
+        /// The newest nonce in the open attempt's bounded nonce set (§6.1,
+        /// S4), when an attempt is open.
         attempt: Option<Tick>,
     },
     /// A `RecoveryResponse` attributed to this node itself. A recovery

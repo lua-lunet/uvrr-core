@@ -3,26 +3,33 @@
 //!
 //! A reopened node re-proves its state through an `R_g` quorum rather than
 //! from local storage (§8.3's diskless argument: quorum memory, not local
-//! storage, survives a crash). The attempt's nonce is the recovery input's
-//! tick (S4), and the attempt state is volatile by design — a crash
-//! discards it and the reopened node starts a fresh one with a fresh tick.
-//! Only the reported view's primary carries installation evidence (§6.1).
-//! A completion that stalls on an unconstructible suffix re-drives from the
-//! tick once state transfer has supplied the missing range (§13.1 step 5).
+//! storage, survives a crash). A recovery nonce is the recovery input's
+//! tick (S4), and the attempt retains a bounded set of them — one per
+//! re-drive, the oldest evicted on overflow — so a delayed response to a
+//! superseded solicitation is still this episode's, and responses across
+//! in-set nonces combine into the one `R_g` quorum. The attempt state is
+//! volatile by design — a crash discards it and the reopened node starts
+//! a fresh one with a fresh tick. Only the reported view's primary carries
+//! installation evidence (§6.1). A completion that stalls on an
+//! unconstructible suffix re-drives from the tick once state transfer has
+//! supplied the missing range (§13.1 step 5).
 
 use super::*;
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
-    /// Begin a recovery attempt (§10, §6.1): broadcast the solicitation to
-    /// the rest of the configuration and open the volatile attempt state.
+    /// Begin (or re-drive) a recovery attempt (§10, §6.1): broadcast the
+    /// solicitation to the rest of the configuration and record the nonce
+    /// in the volatile attempt state.
     ///
-    /// The nonce IS the recovery input's tick (S4) — one value cannot
+    /// A nonce IS the recovery input's tick (S4) — one value cannot
     /// disagree with itself, and §6.1's retry-with-a-fresh-nonce rule is a
     /// retry with a fresh tick. Only a fenced `Recovering` node recovers:
     /// recovery is how a reopened node re-proves its state, and every other
-    /// status answers [`PlanRejection::NotRecovering`]. A fresh attempt
-    /// replaces an open one wholesale — the old nonce dies with it, which
-    /// is what makes a delayed response to it stale.
+    /// status answers [`PlanRejection::NotRecovering`]. A re-drive inserts
+    /// the fresh tick into the open attempt's bounded nonce set — the
+    /// oldest evicted on overflow — and PRESERVES the collected responses:
+    /// a delayed answer to a remembered nonce is still this episode's. A
+    /// fresh start opens with a singleton set.
     ///
     /// The node never counts itself: the `R_g` quorum is other replicas'
     /// responses (§8.3), so the solicitation goes only to the backups.
@@ -53,6 +60,20 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 message: message.clone(),
             })
             .collect();
+        let attempt = match &self.recovery {
+            Some(open) => {
+                let mut attempt = open.clone();
+                attempt.nonces.insert(at);
+                if attempt.nonces.len() > MAX_RECOVERY_NONCES {
+                    attempt.nonces.pop_first();
+                }
+                attempt
+            }
+            None => RecoveryVolatile {
+                nonces: BTreeSet::from([at]),
+                responses: BTreeMap::new(),
+            },
+        };
         let candidate = self.identity_candidate()?;
         Ok(self
             .candidate_plan(
@@ -63,10 +84,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 false,
             )
             .with_bookkeeping(Bookkeeping {
-                recovery: RecoveryUpdate::Set(RecoveryVolatile {
-                    nonce: at,
-                    responses: BTreeMap::new(),
-                }),
+                recovery: RecoveryUpdate::Set(attempt),
                 ..Bookkeeping::default()
             }))
     }
@@ -74,12 +92,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// A `Recovery` solicitation (§10, §6.1): only a `Normal` node answers
     /// — a node that has not proved its state current cannot vouch for the
     /// cluster's, so a fenced, recovering or replaying node declines. The
-    /// answer echoes the nonce (a delayed answer to an earlier attempt is
-    /// then stale at the recoverer), reports the responder's current view —
-    /// the fence knowledge the `F_g ⌢ R_g` intersection (§8.3) exists to
-    /// deliver — and carries the bounded history suffix only when the
-    /// responder is the primary of the view it reports: the primary's log
-    /// is the one installation evidence may come from (§6.1).
+    /// answer echoes the nonce (a delayed answer the episode no longer
+    /// remembers is then stale at the recoverer), reports the responder's
+    /// current view — the fence knowledge the `F_g ⌢ R_g` intersection
+    /// (§8.3) exists to deliver — and carries the bounded history suffix
+    /// only when the responder is the primary of the view it reports: the
+    /// primary's log is the one installation evidence may come from (§6.1).
     pub(in crate::replica) fn plan_recovery_request(
         &self,
         from: NodeId,
@@ -144,8 +162,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         at: Tick,
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRejection> {
-        // The nonce names the attempt: a response to an earlier attempt —
-        // or to none — is stale and counts toward nothing (§6.1).
+        // The nonce names the episode: a response whose echoed nonce no
+        // remembered solicitation carries — to an earlier episode, an
+        // evicted nonce, or none — is stale and counts toward nothing
+        // (§6.1).
         let Some(attempt) = self.recovery.clone() else {
             return self.drop_plan(
                 Diagnostic::StaleRecoveryResponse {
@@ -155,11 +175,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         };
-        if nonce != attempt.nonce {
+        if !attempt.nonces.contains(&nonce) {
             return self.drop_plan(
                 Diagnostic::StaleRecoveryResponse {
                     nonce,
-                    attempt: Some(attempt.nonce),
+                    attempt: attempt.nonces.iter().next_back().copied(),
                 },
                 kind,
             );

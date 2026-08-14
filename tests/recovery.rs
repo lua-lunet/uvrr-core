@@ -16,7 +16,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::configuration::INIT_SLOT;
-use vrr::effects::Effect;
+use vrr::effects::{Effect, Stability, StabilityResult};
 use vrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, Message};
@@ -260,11 +260,106 @@ fn happy_path_recovery_completes_from_weighted_quorum() {
     h.assert_safety();
 }
 
-// 2. A retry carries a fresh tick — hence a fresh nonce — and a response
-//    to the earlier attempt is stale: named, ignored, counted toward
-//    nothing.
+// A recovery episode is not one nonce: the host's re-drive carries a
+// fresh tick (S4) but the episode's collected evidence survives, bounded,
+// and responses to any nonce the episode still remembers combine into
+// the one `R_g` quorum. A completion never requires an answer to the
+// very latest nonce — the nonce names the episode, not a round.
 #[test]
-fn stale_nonce_responses_are_ignored() {
+fn recovery_host_redrive_invalidates_inflight_response() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    crash_and_reopen(&mut h, n(2));
+
+    // T1: n0 answers; its response is queued to n2 but not yet delivered.
+    h.recover(n(2));
+    let first = h.now();
+    assert_eq!(queued_recovery_nonce(&h, n(0)), first);
+    h.deliver_to(n(0)).expect("the T1 solicitation reaches n0");
+    h.drop_queued(n(1));
+
+    // The host re-drives: a fresh tick, hence a fresh nonce.
+    h.recover(n(2));
+    let second = h.now();
+    assert!(second > first, "every re-drive carries a fresh tick");
+    assert_eq!(queued_recovery_nonce(&h, n(1)), second);
+
+    // n0's in-flight T1 response finally lands: superseded, but still
+    // this episode's — half the `R_g` quorum.
+    h.deliver_tag(n(2), Tag::RecoveryResponse)
+        .expect("n0's T1 response reaches n2");
+    assert_eq!(
+        status_of(&h, n(2)),
+        Status::Recovering,
+        "one weighted answer is not the quorum",
+    );
+
+    // n1 answers T2; no T2 round ever runs at n0.
+    h.deliver_to(n(1)).expect("the T2 solicitation reaches n1");
+    h.deliver_tag(n(2), Tag::RecoveryResponse)
+        .expect("n1's T2 response reaches n2");
+
+    // The two responses — one per nonce — are the quorum, and the
+    // completion installs from n0's T1 evidence (§6.1: the reported
+    // view's primary carries the history).
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(current_view(&h, n(2)), view(0));
+    h.assert_safety();
+}
+
+// The quorum is one across the episode's nonces: n0's answer to the
+// first nonce and n1's answer to the second share no nonce, yet they are
+// the same `R_g` quorum.
+#[test]
+fn cross_nonce_responses_complete_quorum() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    crash_and_reopen(&mut h, n(2));
+
+    h.recover(n(2));
+    let first = h.now();
+    h.recover(n(2));
+    let second = h.now();
+    assert!(second > first, "every re-drive carries a fresh tick");
+    h.drop_queued(n(0));
+    h.drop_queued(n(1));
+
+    // n0 answers the FIRST nonce, with the view-0 primary's history.
+    let history = h.journal_entries(n(0));
+    let outcome = h.inject(
+        n(0),
+        n(2),
+        recovery_response(first, view(0), INIT_SLOT, INIT_SLOT, Some(history)),
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    assert_eq!(
+        status_of(&h, n(2)),
+        Status::Recovering,
+        "one weighted answer is not the quorum",
+    );
+
+    // n1 answers the SECOND nonce: the quorum holds across the two.
+    let outcome = h.inject(
+        n(1),
+        n(2),
+        recovery_response(second, view(0), INIT_SLOT, INIT_SLOT, None),
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(current_view(&h, n(2)), view(0));
+    assert_eq!(
+        h.journal_entries(n(2)),
+        h.journal_entries(n(0)),
+        "the installed history is the reported view's primary's",
+    );
+    h.assert_safety();
+}
+
+// A delayed response to a SUPERSEDED nonce is still this episode's:
+// accepted and counted toward the one quorum, never named stale while
+// the episode remembers the nonce.
+#[test]
+fn mixed_nonce_responses_are_accepted() {
     let mut h = cluster();
     bootstrap(&mut h);
     crash_and_reopen(&mut h, n(2));
@@ -275,13 +370,63 @@ fn stale_nonce_responses_are_ignored() {
     h.drop_queued(n(0));
     h.drop_queued(n(1));
 
-    // The retry's nonce is the fresh tick, never a caller-supplied value.
     h.recover(n(2));
     let second = h.now();
-    assert!(second > first, "every attempt carries a fresh tick");
+    assert!(second > first, "every re-drive carries a fresh tick");
     assert_eq!(queued_recovery_nonce(&h, n(0)), second);
 
-    // A delayed response to the first attempt is stale (§6.1).
+    // n1's delayed answer to the first nonce: superseded, still counted.
+    let outcome = h.inject(
+        n(1),
+        n(2),
+        recovery_response(first, view(0), INIT_SLOT, INIT_SLOT, None),
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    assert_eq!(
+        status_of(&h, n(2)),
+        Status::Recovering,
+        "one weighted answer is not the quorum",
+    );
+
+    // n0 answers the second nonce with the view-0 primary's history: the
+    // quorum holds across the nonces and the completion installs n0's.
+    h.deliver_to(n(0)).expect("the T2 solicitation reaches n0");
+    h.deliver_to(n(2)).expect("n0's T2 response reaches n2");
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(current_view(&h, n(2)), view(0));
+    h.assert_safety();
+}
+
+// The episode's nonce memory is bounded: nine solicitations in, the
+// first nonce is forgotten, and a response to it is exactly as stale as
+// one to an attempt that never happened — named, ignored, counted
+// toward nothing.
+#[test]
+fn evicted_nonce_responses_are_stale() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    crash_and_reopen(&mut h, n(2));
+
+    h.recover(n(2));
+    let first = h.now();
+    assert_eq!(queued_recovery_nonce(&h, n(0)), first);
+    h.drop_queued(n(0));
+    h.drop_queued(n(1));
+
+    // Eight more re-drives, each with a fresh tick: the ninth nonce
+    // crowds the first out of the episode's bounded memory.
+    let mut latest = first;
+    for _ in 0..8 {
+        h.recover(n(2));
+        let fresh = h.now();
+        assert!(fresh > latest, "every re-drive carries a fresh tick");
+        assert_eq!(queued_recovery_nonce(&h, n(0)), fresh);
+        h.drop_queued(n(0));
+        h.drop_queued(n(1));
+        latest = fresh;
+    }
+
+    // A response to the evicted first nonce is stale (§6.1).
     let outcome = h.inject(
         n(1),
         n(2),
@@ -292,20 +437,78 @@ fn stale_nonce_responses_are_ignored() {
         h.diagnostic(n(2)),
         Some(Diagnostic::StaleRecoveryResponse {
             nonce: first,
-            attempt: Some(second),
+            attempt: Some(latest),
         }),
     );
-
-    // n0's fresh response alone cannot complete: had the stale n1 answer
-    // counted, the quorum would hold with the primary's suffix and the
-    // attempt would complete here.
-    h.deliver_to(n(0)).expect("the solicitation reaches n0");
-    h.deliver_to(n(2)).expect("n0's response reaches n2");
     assert_eq!(status_of(&h, n(2)), Status::Recovering);
+    h.assert_safety();
+}
 
-    h.deliver_to(n(1)).expect("the solicitation reaches n1");
-    h.deliver_to(n(2)).expect("n1's response reaches n2");
+// The §8.3 fence knowledge rides the reported views, not the nonces:
+// n0's answer to the first nonce reports view 0, the cluster fences
+// view 1 around the recovering node, and n1's answer to the second nonce
+// reports view 1 with its history. n0's superseded-nonce answer still
+// counts toward the quorum, and the completion installs the LATEST
+// fenced view's evidence — n1's.
+#[test]
+fn recovery_view_fence_respected_across_nonces() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    commit_one(&mut h, n(0), 1, b"a");
+    crash_and_reopen(&mut h, n(2));
+
+    // T1: n0 answers reporting view 0, with its history.
+    h.recover(n(2));
+    let first = h.now();
+    h.deliver_to(n(0)).expect("the T1 solicitation reaches n0");
+    h.drop_queued(n(1));
+    h.deliver_tag(n(2), Tag::RecoveryResponse)
+        .expect("n0's T1 response reaches n2");
+    assert_eq!(
+        status_of(&h, n(2)),
+        Status::Recovering,
+        "one weighted answer is not the quorum",
+    );
+
+    // The cluster fences view 1 around the recovering node: n0 and n1
+    // complete the view change; n2 hears none of it.
+    tick_into_view_change(&mut h, n(1), view(1));
+    h.deliver_tag(n(0), Tag::StartViewChange)
+        .expect("n0 joins the view-1 fence");
+    h.drop_queued(n(2));
+    h.deliver_tag(n(1), Tag::StartViewChange)
+        .expect("n0's fence vote reaches n1");
+    h.deliver_tag(n(1), Tag::DoViewChange)
+        .expect("n0's evidence reaches n1");
+    h.deliver_to_matching(n(0), Tag::StartView, Slot(3))
+        .expect("n0 installs view 1");
+    for id in [n(0), n(1)] {
+        assert_eq!(status_of(&h, id), Status::Normal);
+        assert_eq!(current_view(&h, id), view(1));
+    }
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+    assert_eq!(current_view(&h, n(2)), view(0));
+    h.drop_queued(n(1));
+    h.drop_queued(n(2));
+
+    // T2: n1 answers as the view-1 primary, with the view's history.
+    h.recover(n(2));
+    let second = h.now();
+    assert!(second > first, "every re-drive carries a fresh tick");
+    h.drop_queued(n(0));
+    h.deliver_to(n(1)).expect("the T2 solicitation reaches n1");
+    h.deliver_tag(n(2), Tag::RecoveryResponse)
+        .expect("n1's T2 response reaches n2");
+
+    // n0's view-0 answer counted toward the quorum; the completion
+    // selects view 1's evidence — the latest fenced view wins.
     assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(current_view(&h, n(2)), view(1));
+    assert_eq!(
+        h.journal_entries(n(2)),
+        h.journal_entries(n(1)),
+        "the installed history is the view-1 primary's",
+    );
     h.assert_safety();
 }
 
@@ -761,5 +964,462 @@ fn same_view_recovery_preserves_the_primary_accepted_tail() {
     assert_eq!(snap(&h, n(2)).accepted, 3);
     assert_eq!(snap(&h, n(2)).committed, 2);
     assert_eq!(status_of(&h, n(2)), Status::Normal);
+    h.assert_safety();
+}
+
+// 11. Request liveness when the quorum's latest-view primary answers late
+//     (§6.1, §8.3, S4): a five-node cluster lets the weighted `R_g` quorum
+//     hold without the dead primary. The attempt then waits — ticks
+//     neither fault, complete, nor re-broadcast — until the HOST re-issues
+//     `Input::Recover` with a fresh tick: the fresh nonce joins the
+//     attempt's bounded nonce set and the collected responses carry over.
+//     The dead primary's delayed response to the first nonce still names
+//     this episode, so it is accepted, completes the quorum with the
+//     genuine view-1 history, and the node recovers into view 1; the
+//     replacement primary's view-2 fence then reaches it through the
+//     ordinary `StartView` path.
+#[test]
+fn redrive_with_fresh_nonce_outlives_dead_primary() {
+    let mut h = Harness::with_knobs(
+        5,
+        ViewChangeKnobs {
+            primary_timeout: TIMEOUT,
+            view_change_budget: usize::MAX,
+        },
+    );
+    h.tick_all();
+    h.deliver_all();
+    h.assert_safety();
+
+    // The cluster settles in view 1 (primary n1); n1 dies; n4 reopens
+    // fenced into view 1.
+    tick_into_view_change(&mut h, n(1), view(1));
+    h.deliver_all();
+    for id in [n(0), n(1), n(2), n(3), n(4)] {
+        assert_eq!(status_of(&h, id), Status::Normal, "{id:?} adopts view 1");
+    }
+    h.assert_safety();
+    h.crash(n(1));
+    crash_and_reopen(&mut h, n(4));
+    assert_eq!(current_view(&h, n(4)), view(1));
+
+    // Attempt 1: the `R_g` quorum (3 of 5) gathers WITHOUT the dead
+    // primary's answer. The completion ruling is not evaluable — the
+    // latest fenced view's primary holds the only installation evidence —
+    // so the attempt waits.
+    h.recover(n(4));
+    let first = h.now();
+    for id in [n(0), n(2), n(3)] {
+        h.deliver_to(id)
+            .expect("the solicitation reaches a live backup");
+    }
+    for _ in 0..3 {
+        h.deliver_to(n(4)).expect("a quorum response reaches n4");
+    }
+    assert_eq!(
+        status_of(&h, n(4)),
+        Status::Recovering,
+        "the quorum holds but the latest view's primary never answered",
+    );
+
+    // Ticks change nothing: no fault, no completion, and no automatic
+    // re-broadcast — the request's re-drive is host-initiated (S4).
+    for _ in 0..8 {
+        h.tick(n(4));
+    }
+    assert_eq!(h.fault_of(n(4)), None);
+    assert_eq!(status_of(&h, n(4)), Status::Recovering);
+    assert!(
+        h.peek_queued(n(0), Tag::Recovery).is_none()
+            && h.peek_queued(n(2), Tag::Recovery).is_none()
+            && h.peek_queued(n(3), Tag::Recovery).is_none(),
+        "no tick re-drives the solicitation",
+    );
+
+    // The host re-issues recovery with a fresh tick: accepted while the
+    // attempt is in flight, re-broadcast under the fresh nonce.
+    let redrive = h.recover(n(4));
+    assert!(
+        matches!(redrive, StepOutcome::Published { .. }),
+        "a fresh Recover is accepted mid-attempt: {redrive:?}",
+    );
+    let second = h.now();
+    assert!(second > first, "every attempt carries a fresh tick");
+    assert_eq!(queued_recovery_nonce(&h, n(0)), second);
+    assert_eq!(queued_recovery_nonce(&h, n(3)), second);
+
+    // Two fresh responses arrive: one short of the quorum.
+    h.deliver_to(n(0))
+        .expect("the fresh solicitation reaches n0");
+    h.deliver_to(n(3))
+        .expect("the fresh solicitation reaches n3");
+    h.deliver_to(n(4)).expect("n0's fresh response reaches n4");
+    h.deliver_to(n(4)).expect("n3's fresh response reaches n4");
+    assert_eq!(status_of(&h, n(4)), Status::Recovering);
+
+    // The dead primary's delayed response to the FIRST nonce finally
+    // arrives — with history. The first nonce still names this episode
+    // (the re-drive joined the fresh nonce to the attempt's set, S4), so
+    // the response is accepted: no staleness diagnostic. The `R_g`
+    // quorum now holds across both nonces, the latest reported view is
+    // 1, and that view's primary answered with the genuine history — the
+    // completion ruling installs it (§6.1). The nonce set changes WHEN
+    // a response counts, never WHAT may install: anything committed in
+    // the selected view-1 history is preserved by any later view's
+    // `F_g ⌢ V_g` intersection (§8.3).
+    let delayed = h.inject(
+        n(1),
+        n(4),
+        recovery_response(
+            first,
+            view(1),
+            INIT_SLOT,
+            INIT_SLOT,
+            Some(h.journal_entries(n(0))),
+        ),
+    );
+    assert!(
+        matches!(delayed, StepOutcome::Published { .. }),
+        "the in-set nonce is accepted: {delayed:?}",
+    );
+    assert_eq!(
+        h.diagnostic(n(4)),
+        Some(Diagnostic::None),
+        "accepted, not stale",
+    );
+    assert_eq!(h.fault_of(n(4)), None);
+    assert_eq!(status_of(&h, n(4)), Status::Normal);
+    assert_eq!(current_view(&h, n(4)), view(1));
+    assert_eq!(
+        h.journal_entries(n(4)),
+        h.journal_entries(n(0)),
+        "the installed history is the genuine view-1 primary's",
+    );
+
+    // The ordinary pipeline installs a replacement primary: view 2, owned
+    // by n2, driven by the three live members.
+    tick_into_view_change(&mut h, n(2), view(2));
+    h.deliver_to(n(0)).expect("n0 joins the view-2 fence");
+    h.deliver_to(n(3)).expect("n3 joins the view-2 fence");
+    // The fence quorum is 3 of 5: each fencing member emits its evidence
+    // only once a third vote lands (§9.1's ordering: evidence follows the
+    // fence).
+    h.deliver_tag(n(0), Tag::StartViewChange)
+        .expect("n3's vote completes n0's fence");
+    h.deliver_tag(n(3), Tag::StartViewChange)
+        .expect("n0's vote completes n3's fence");
+    h.deliver_tag(n(2), Tag::StartViewChange)
+        .expect("n0's fence vote reaches n2");
+    h.deliver_tag(n(2), Tag::StartViewChange)
+        .expect("n3's fence vote reaches n2");
+    h.deliver_tag(n(2), Tag::DoViewChange)
+        .expect("n0's evidence");
+    h.deliver_tag(n(2), Tag::DoViewChange)
+        .expect("n3's evidence");
+    h.deliver_tag(n(0), Tag::StartView)
+        .expect("n0 installs view 2");
+    h.deliver_tag(n(3), Tag::StartView)
+        .expect("n3 installs view 2");
+    for id in [n(0), n(2), n(3)] {
+        assert_eq!(status_of(&h, id), Status::Normal, "{id:?} installs view 2");
+        assert_eq!(current_view(&h, id), view(2));
+    }
+
+    // n4 — already Normal in view 1 — takes view 2 through the ordinary
+    // `StartView` path (§9.1): the adoption rule installs any node the
+    // change passed by — Normal in an earlier view — straight from the
+    // new primary's offer. No recovery completion is involved.
+    h.deliver_tag(n(4), Tag::StartView)
+        .expect("the replacement primary's StartView reaches n4");
+    assert_eq!(h.fault_of(n(4)), None);
+    assert_eq!(status_of(&h, n(4)), Status::Normal);
+    assert_eq!(current_view(&h, n(4)), view(2));
+    assert_eq!(
+        h.journal_entries(n(4)),
+        h.journal_entries(n(2)),
+        "the installed history is the replacement primary's",
+    );
+    h.assert_safety();
+}
+
+/// The external-stability host step (S2/S3): a parked transition is
+/// confirmed `Stable`; anything else passes through.
+fn settle(h: &mut Harness, id: NodeId, outcome: StepOutcome) -> StepOutcome {
+    match outcome {
+        StepOutcome::Parked { .. } => h.confirm(
+            id,
+            StabilityResult::Stable {
+                receipt: b"ok"[..].into(),
+            },
+        ),
+        other => other,
+    }
+}
+
+/// Executes a node's pending `Apply` effects, confirming the park each
+/// acknowledgement raises under an external-stability mode (§11.1, S2).
+fn apply_settled(h: &mut Harness, id: NodeId) {
+    for applied in h.execute_apply_effects(id) {
+        settle(h, id, applied.outcome);
+    }
+}
+
+// 12. The plan/publish handshake (§7, §12, S2/S3) under an
+//     external-stability mode, driven through a recovery install: nothing
+//     is observable while the completion is parked, a determinate `Failed`
+//     confirmation discards the candidate and leaves the old state visible
+//     with the node still `Recovering`, a duplicate confirmation is
+//     rejected, and the re-driven completion publishes the install exactly
+//     once — the replay upcall included — before the node replays to
+//     `Normal`.
+#[test]
+fn external_stability_recovery_handshake() {
+    let mut h = Harness::with_stability(3, Stability::ExternalTransaction);
+    for (id, outcome) in h.tick_all() {
+        settle(&mut h, id, outcome);
+    }
+    while let Some(delivery) = h.deliver_next() {
+        settle(&mut h, delivery.to, delivery.outcome);
+    }
+    h.assert_safety();
+
+    // One operation commits at slot 3 and applies at n0 and n1 only: n2's
+    // pending upcall dies with the crash, so the recovery must replay it.
+    let proposed = h.propose(n(0), op_id(1), b"a");
+    let proposed = settle(&mut h, n(0), proposed);
+    assert!(matches!(proposed, StepOutcome::Published { .. }));
+    for id in [n(1), n(2)] {
+        let delivery = h.deliver_to(id).expect("the Prepare reaches a backup");
+        settle(&mut h, id, delivery.outcome);
+    }
+    for _ in 0..2 {
+        let delivery = h.deliver_to(n(0)).expect("a PrepareOk reaches the primary");
+        settle(&mut h, n(0), delivery.outcome);
+    }
+    for id in [n(1), n(2)] {
+        let delivery = h.deliver_to(id).expect("the Commit reaches a backup");
+        settle(&mut h, id, delivery.outcome);
+    }
+    apply_settled(&mut h, n(0));
+    apply_settled(&mut h, n(1));
+
+    h.crash(n(2));
+    h.restart_with(n(2)).expect("the disk record reopens");
+    let reopened = snap(&h, n(2));
+    assert_eq!(reopened.committed, 3);
+    assert_eq!(reopened.applied, 2);
+
+    // Even the solicitation parks: nothing is observable before publish.
+    let solicitation = h.recover(n(2));
+    assert!(
+        matches!(solicitation, StepOutcome::Parked { .. }),
+        "the recovery input parks: {solicitation:?}",
+    );
+    assert!(
+        h.peek_queued(n(0), Tag::Recovery).is_none()
+            && h.peek_queued(n(1), Tag::Recovery).is_none(),
+        "no solicitation is released before the barrier confirms",
+    );
+    settle(&mut h, n(2), solicitation);
+
+    let delivery = h.deliver_to(n(0)).expect("the solicitation reaches n0");
+    settle(&mut h, n(0), delivery.outcome);
+    let delivery = h.deliver_to(n(2)).expect("n0's response reaches n2");
+    settle(&mut h, n(2), delivery.outcome);
+    let delivery = h.deliver_to(n(1)).expect("the solicitation reaches n1");
+    settle(&mut h, n(1), delivery.outcome);
+
+    // The completing response parks the install: the published state is
+    // untouched and nothing releases.
+    let before = snap(&h, n(2));
+    let completing = h.deliver_to(n(2)).expect("n1's response reaches n2");
+    let StepOutcome::Parked { revision } = completing.outcome else {
+        panic!("the completion parks: {:?}", completing.outcome);
+    };
+    assert_eq!(snap(&h, n(2)), before, "nothing observable before publish");
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+
+    // A determinate `Failed`: the candidate is discarded, the previously
+    // published state stays visible, the node continues (S3). The revision
+    // moves — the interval must close so plans against the parked base die
+    // (§12) — and nothing else does.
+    let failed = h.confirm(
+        n(2),
+        StabilityResult::Failed {
+            reason: b"barrier lost"[..].into(),
+        },
+    );
+    assert!(matches!(failed, StepOutcome::Published { .. }));
+    let after_failed = snap(&h, n(2));
+    assert_eq!(
+        after_failed.revision,
+        before.revision + 1,
+        "the failed interval closes",
+    );
+    assert_eq!(
+        ProgressSnapshot {
+            revision: before.revision,
+            ..after_failed
+        },
+        before,
+        "the old state stays visible",
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+
+    // A duplicate confirmation is rejected: the interval is closed.
+    let duplicate = h.confirm_raw(
+        n(2),
+        revision,
+        StabilityResult::Failed {
+            reason: b"barrier lost"[..].into(),
+        },
+    );
+    assert_eq!(
+        duplicate,
+        StepOutcome::PlanRefused(PlanRejection::NoTransitionOutstanding),
+    );
+
+    // The completing response's record died with the discarded candidate
+    // (S3: a `Failed` confirmation discards the record updates with the
+    // candidate), so the attempt is short of the quorum again and the
+    // host re-drives: a fresh `Recover` under a fresh nonce (S4), and the
+    // quorum re-gathers.
+    let redrive = h.recover(n(2));
+    settle(&mut h, n(2), redrive);
+    let delivery = h
+        .deliver_to(n(0))
+        .expect("the fresh solicitation reaches n0");
+    settle(&mut h, n(0), delivery.outcome);
+    let delivery = h.deliver_to(n(2)).expect("n0's fresh response reaches n2");
+    settle(&mut h, n(2), delivery.outcome);
+    let delivery = h
+        .deliver_to(n(1))
+        .expect("the fresh solicitation reaches n1");
+    settle(&mut h, n(1), delivery.outcome);
+
+    // The re-driven completion parks: still nothing observable.
+    let parked = snap(&h, n(2));
+    let completing = h.deliver_to(n(2)).expect("n1's fresh response reaches n2");
+    let StepOutcome::Parked { revision: second } = completing.outcome else {
+        panic!("the re-driven completion parks: {:?}", completing.outcome);
+    };
+    assert_eq!(snap(&h, n(2)), parked, "still nothing observable");
+
+    // `Stable` publishes the install exactly once: one replay upcall, one
+    // publication; a further confirmation names nothing outstanding.
+    let published = h.confirm(
+        n(2),
+        StabilityResult::Stable {
+            receipt: b"ok"[..].into(),
+        },
+    );
+    let StepOutcome::Published { effects, .. } = published else {
+        panic!("the confirmed completion publishes: {published:?}");
+    };
+    assert_eq!(
+        effects,
+        vec![Effect::Apply {
+            slot: Slot(3),
+            operation_id: op_id(1),
+            payload: b"a"[..].into(),
+        }],
+        "the committed-but-unapplied suffix replays exactly once (§11.1)",
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Replaying);
+    let duplicate = h.confirm_raw(
+        n(2),
+        second,
+        StabilityResult::Stable {
+            receipt: b"ok"[..].into(),
+        },
+    );
+    assert_eq!(
+        duplicate,
+        StepOutcome::PlanRefused(PlanRejection::NoTransitionOutstanding),
+    );
+
+    apply_settled(&mut h, n(2));
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(current_view(&h, n(2)), view(0));
+    assert_eq!(h.journal_entries(n(2)), h.journal_entries(n(0)));
+    h.assert_safety();
+}
+
+// 13. A node that recovers out of an open view-change attempt carries no
+//     stale evidence forward (§6.1's completion clears the attempt
+//     bookkeeping): afterwards it answers a `StartViewChange` for a LATER
+//     view with its fenced evidence — the recovered view's — emits nothing
+//     toward the pre-recovery attempt's primary, and the fresh view change
+//     completes with the node inside it.
+#[test]
+fn recovery_completion_leaves_no_stale_view_change_evidence() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    commit_one(&mut h, n(0), 1, b"a");
+
+    // n2 fences view 1 on its own timeout: the attempt is open — its
+    // fence votes are queued, never delivered.
+    tick_into_view_change(&mut h, n(2), view(1));
+
+    // The quorum completes view 1 without n2: n1 times out too, n0 joins
+    // n1's fence, and the evidence exchange installs the view at n0/n1.
+    tick_into_view_change(&mut h, n(1), view(1));
+    h.deliver_to(n(0)).expect("n0 joins the fence");
+    h.deliver_to(n(0)).expect("n0 hears n1's vote");
+    h.deliver_tag(n(1), Tag::StartViewChange)
+        .expect("a fence vote completes at the new primary");
+    h.deliver_tag(n(1), Tag::DoViewChange)
+        .expect("n0's evidence reaches the new primary");
+    h.deliver_tag(n(0), Tag::StartView)
+        .expect("n0 installs view 1");
+    assert_eq!(status_of(&h, n(0)), Status::Normal);
+    assert_eq!(status_of(&h, n(1)), Status::Normal);
+    assert_eq!(current_view(&h, n(1)), view(1));
+    assert_eq!(status_of(&h, n(2)), Status::ViewChange);
+    h.drop_queued(n(0));
+    h.drop_queued(n(1));
+    h.drop_queued(n(2));
+
+    // n2 crashes mid-attempt and recovers into the quorum's view.
+    crash_and_reopen(&mut h, n(2));
+    assert_eq!(current_view(&h, n(2)), view(1));
+    h.recover(n(2));
+    h.deliver_to(n(0)).expect("the solicitation reaches n0");
+    h.deliver_to(n(1)).expect("the solicitation reaches n1");
+    h.deliver_to(n(2)).expect("n0's response reaches n2");
+    h.deliver_to(n(2)).expect("n1's response reaches n2");
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(current_view(&h, n(2)), view(1));
+
+    // A fresh `StartViewChange` for a later view: the node answers with
+    // its fenced evidence — selected in the view it recovered into — and
+    // emits nothing toward the pre-recovery attempt's primary.
+    let outcome = h.inject(n(0), n(2), svc(view(3)));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    assert_eq!(status_of(&h, n(2)), Status::ViewChange);
+    assert_eq!(current_view(&h, n(2)), view(3));
+    let evidence = h
+        .peek_queued(n(0), Tag::DoViewChange)
+        .expect("the node answers the view-3 primary with evidence");
+    assert_eq!(evidence.header.view, view(3));
+    let Body::DoViewChange { retained, .. } = &evidence.body else {
+        panic!("the peeked message is a DoViewChange");
+    };
+    assert_eq!(
+        *retained,
+        view(1),
+        "the evidence is the recovered view's, not the stale attempt's",
+    );
+    assert!(
+        h.peek_queued(n(1), Tag::DoViewChange).is_none(),
+        "no stale evidence goes to the pre-recovery attempt's primary",
+    );
+
+    // The fresh view change completes with the recovered node inside it.
+    h.deliver_all();
+    for id in [n(0), n(1), n(2)] {
+        assert_eq!(status_of(&h, id), Status::Normal, "{id:?} installs view 3");
+        assert_eq!(current_view(&h, id), view(3));
+    }
     h.assert_safety();
 }
