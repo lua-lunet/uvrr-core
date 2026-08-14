@@ -716,6 +716,14 @@ struct RecoveryVolatile {
     /// answer replaces the earlier one: every nonce in the set binds both
     /// to this episode, and the fresher frontiers are the better evidence.
     responses: BTreeMap<NodeId, RecoveryEvidence>,
+    /// The `committed` frontier the attempt opened with: this life's
+    /// volatile emission boundary (§11.1). Every slot above it that the
+    /// local frontier reaches this life was emitted by the fast-forward,
+    /// so the completion re-emits only the durable debt at or below it
+    /// plus the range it newly installs. Volatile like the rest of the
+    /// attempt: a crash discards it, and the reopened node's replay
+    /// re-emits from the durable `applied` as ever.
+    open_committed: Slot,
 }
 
 /// The volatile view-change attempt state (VRR-2012 §5): the fence target,

@@ -78,6 +78,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             None => RecoveryVolatile {
                 nonces: BTreeSet::from([at]),
                 responses: BTreeMap::new(),
+                // This life's emission boundary (§11.1) opens at the
+                // durable frontier; a re-drive preserves it through the
+                // clone above, and completion clears it with the attempt.
+                open_committed: self.progress.committed(),
             },
         };
         let candidate = self.identity_candidate()?;
@@ -402,9 +406,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// from surfaces [`Effect::RequestApplicationState`] (§4, §11), never
     /// a fault. The installed committed frontier never moves backward
     /// (§1.3): a fast-forward earlier in the attempt may have advanced
-    /// the local frontier past the completing evidence's, and the replay
-    /// walk — starting from the local applied seed — never re-applies a
-    /// fast-forwarded slot.
+    /// the local frontier past the completing evidence's. The replay
+    /// emits the durable debt — what was committed when the attempt
+    /// opened, never emitted this life — plus the range this completion
+    /// itself newly installs; the slots between, exactly what this
+    /// life's fast-forward already emitted, are not re-emitted. The
+    /// boundary is volatile: a crash discards it, and the reopened
+    /// node's replay re-emits from the durable `applied` unchanged
+    /// (§11.1's at-least-once boundary is the crash, not the lagging
+    /// acknowledgement).
     #[allow(clippy::too_many_arguments)]
     pub(in crate::replica) fn plan_recovery_completion(
         &self,
@@ -478,23 +488,36 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                         .with_fault_declared(Fault::IllegalTransition));
                 }
             };
-        // The replay ruling (§11.1): everything committed-but-unapplied —
-        // by the installed history's `committed`, floored at the local
-        // frontier — is re-emitted as ordered `Apply` upcalls. The replay
-        // reads from the node's applied seed, so what the node durably
-        // applied — fast-forwarded slots included — is never re-applied;
-        // and the §11 system-slot ruling folds every committed system
-        // slot the walk crosses into `applied` without an upcall or an
-        // acknowledgement.
+        // The replay ruling (§11.1): the committed-but-unapplied suffix
+        // re-emits as ordered `Apply` upcalls, as the union of two ranges
+        // in slot order — the durable debt (applied, open_committed],
+        // committed before the attempt opened and never emitted this
+        // life; and (local_committed, committed], the range this
+        // completion itself newly installs. Between them lies exactly
+        // what this life's committed fast-forward already emitted:
+        // emitted once, never re-emitted here. The `applied` walk reads
+        // from the node's applied seed as ever, and the §11 system-slot
+        // ruling folds every committed system slot the walk crosses into
+        // `applied` without an upcall or an acknowledgement.
         let replay_base = self.progress.applied();
-        let applies = match self.apply_effects_merged(journal, suffix, replay_base, committed) {
-            Ok(applies) => applies,
+        let local_committed = self.progress.committed();
+        let mut applies =
+            match self.apply_effects_merged(journal, suffix, replay_base, attempt.open_committed) {
+                Ok(applies) => applies,
+                Err(PlanRejection::JournalEntryUnavailable { slot }) => {
+                    let (retained_base, _) = journal.retained();
+                    return shortfall(attempt, slot, retained_base);
+                }
+                Err(rejection) => return Err(rejection),
+            };
+        match self.apply_effects_merged(journal, suffix, local_committed, committed) {
+            Ok(installed) => applies.extend(installed),
             Err(PlanRejection::JournalEntryUnavailable { slot }) => {
                 let (retained_base, _) = journal.retained();
                 return shortfall(attempt, slot, retained_base);
             }
             Err(rejection) => return Err(rejection),
-        };
+        }
         let applied = match self.applied_walk(journal, suffix, replay_base, committed) {
             Ok(applied) => applied,
             Err(PlanRejection::JournalEntryUnavailable { slot }) => {

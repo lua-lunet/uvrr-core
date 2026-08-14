@@ -81,6 +81,18 @@ fn prepare(slot: u64, committed: u64, operation_id: OperationId, payload: &[u8])
     }
 }
 
+/// The `Apply` slots one step released, in release order — the
+/// duplicate-delivery assertions are stated over these.
+fn apply_slots(effects: &[Effect]) -> Vec<Slot> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Apply { slot, .. } => Some(*slot),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Bootstrap plus one operation end to end (§4): the tick promotes the
 /// genesis primary; the `Prepare` adopts+accepts at the backup; the
 /// `PrepareOk` completes the Commit quorum; the `Apply` carries the
@@ -667,6 +679,352 @@ fn apply_carries_the_proposals_identity() {
             "n{} applied every proposal in slot order, identity attached",
             id.0
         );
+    }
+    h.assert_safety();
+}
+
+/// A duplicate `Commit` to a backup — same view, same committed frontier,
+/// redelivered by a lossy transport — is a silent no-effect transition: no
+/// diagnostic, no second `Apply`, and the frontier does not move. The
+/// redelivery is the very datagram the primary emitted, captured from the
+/// queue and re-enqueued.
+#[test]
+fn duplicate_commit_to_a_backup_is_a_silent_no_effect() {
+    let mut h = bootstrapped();
+    h.propose(n(0), op_id(1), b"one"); // slot 3
+    h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
+        .expect("queued");
+    h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
+        .expect("queued");
+    assert_eq!(h.snapshot(n(0)).expect("up").committed, 3);
+
+    let commit = h.peek_queued(n(1), Tag::Commit).expect("queued");
+    let delivery = h
+        .deliver_to_matching(n(1), Tag::Commit, Slot(3))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the first Commit publishes: {:?}", delivery.outcome);
+    };
+    assert_eq!(
+        apply_slots(&effects),
+        vec![Slot(3)],
+        "the first Commit applies slot 3"
+    );
+    assert_eq!(h.snapshot(n(1)).expect("up").committed, 3);
+
+    h.send(n(0), n(1), commit);
+    let delivery = h
+        .deliver_to_matching(n(1), Tag::Commit, Slot(3))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the duplicate publishes: {:?}", delivery.outcome);
+    };
+    assert!(
+        effects.is_empty(),
+        "the duplicate Commit publishes nothing: {effects:?}"
+    );
+    assert_eq!(
+        h.snapshot(n(1)).expect("up").committed,
+        3,
+        "the frontier does not move"
+    );
+
+    let applies = h.execute_apply_effects(n(1));
+    assert_eq!(applies.len(), 1, "slot 3 applied exactly once");
+    assert_eq!(applies[0].slot, Slot(3));
+
+    h.deliver_all();
+    for id in [n(0), n(1), n(2)] {
+        h.execute_apply_effects(id);
+    }
+    h.assert_safety();
+}
+
+/// A duplicate `Prepare` to a backup — same slot, same entry — delivered
+/// after the backup accepted the original: the primary's retransmit now
+/// piggybacks the committed frontier (§13.3), so the first copy commits
+/// and applies the slot; the second is a bare re-acknowledgement — a
+/// fresh `PrepareOk`, no re-append, and no second `Apply`. The re-offer
+/// stands in for the primary's retransmit, the harness's documented
+/// fabrication path.
+#[test]
+fn duplicate_prepare_reacknowledges_without_reapplying() {
+    let mut h = bootstrapped();
+    h.propose(n(0), op_id(1), b"x"); // slot 3
+    h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
+        .expect("queued");
+    h.deliver_to_matching(n(2), Tag::Prepare, Slot(3))
+        .expect("queued");
+    h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
+        .expect("queued");
+    assert_eq!(h.snapshot(n(0)).expect("up").committed, 3);
+    assert_eq!(
+        h.snapshot(n(1)).expect("up").committed,
+        2,
+        "n1 accepted slot 3 but the original Prepare piggybacked the stale frontier"
+    );
+
+    // The retransmit's first copy: the piggybacked frontier commits and
+    // applies slot 3 at n1.
+    h.send(n(0), n(1), prepare(3, 3, op_id(1), b"x"));
+    let delivery = h
+        .deliver_to_matching(n(1), Tag::Prepare, Slot(3))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the re-offer publishes: {:?}", delivery.outcome);
+    };
+    assert_eq!(
+        apply_slots(&effects),
+        vec![Slot(3)],
+        "the piggybacked frontier applies slot 3"
+    );
+    assert_eq!(h.snapshot(n(1)).expect("up").committed, 3);
+
+    // The duplicate, same slot and same entry: re-acknowledged, never
+    // re-appended, never re-applied.
+    h.send(n(0), n(1), prepare(3, 3, op_id(1), b"x"));
+    let delivery = h
+        .deliver_to_matching(n(1), Tag::Prepare, Slot(3))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the re-acknowledgement publishes: {:?}", delivery.outcome);
+    };
+    assert!(
+        apply_slots(&effects).is_empty(),
+        "no second Apply for the slot: {effects:?}"
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Send { message, .. }
+            if message.header.tag == Tag::PrepareOk)),
+        "the duplicate is re-acknowledged: {effects:?}"
+    );
+    let s1 = h.snapshot(n(1)).expect("up");
+    assert_eq!(s1.accepted, 3, "still one journal entry");
+    assert_eq!(s1.committed, 3, "the frontier does not move");
+
+    let applies = h.execute_apply_effects(n(1));
+    assert_eq!(applies.len(), 1, "slot 3 applied exactly once");
+    assert_eq!(applies[0].slot, Slot(3));
+
+    h.deliver_all();
+    for id in [n(0), n(1), n(2)] {
+        h.execute_apply_effects(id);
+    }
+    h.assert_safety();
+}
+
+/// A duplicate `PrepareOk` at the primary — the same backup's
+/// acknowledgement delivered twice for one proposal — is the named
+/// [`Diagnostic::DuplicatePrepareOk`] drop while the slot is still
+/// outstanding: no vote is double-counted, the commit fires exactly once
+/// when the quorum later lands, and the slot applies exactly once. Five
+/// unit-weight members make the Commit quorum 3 (Q1), so the first
+/// acknowledgement alone does not commit and the duplicate arrives while
+/// the slot is still outstanding.
+#[test]
+fn duplicate_prepare_ok_at_the_primary_commits_once() {
+    let mut h = Harness::provision(5);
+    h.tick_all();
+    h.deliver_all();
+    h.propose(n(0), op_id(1), b"op"); // slot 3
+    h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
+        .expect("queued");
+
+    let prepare_ok = h.peek_queued(n(0), Tag::PrepareOk).expect("queued");
+    let delivery = h
+        .deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the vote publishes: {:?}", delivery.outcome);
+    };
+    assert!(
+        effects.is_empty(),
+        "own vote + one backup is short of the quorum: {effects:?}"
+    );
+    assert_eq!(h.snapshot(n(0)).expect("up").committed, 2);
+
+    // The duplicate: a named drop, no commit, no Apply.
+    h.send(n(1), n(0), prepare_ok);
+    let delivery = h
+        .deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the drop publishes: {:?}", delivery.outcome);
+    };
+    assert!(
+        effects.is_empty(),
+        "the duplicate publishes nothing: {effects:?}"
+    );
+    assert_eq!(
+        h.diagnostic(n(0)),
+        Some(Diagnostic::DuplicatePrepareOk {
+            slot: Slot(3),
+            sender: n(1)
+        }),
+        "the duplicate is a named drop"
+    );
+    assert_eq!(
+        h.snapshot(n(0)).expect("up").committed,
+        2,
+        "the duplicate vote counted nothing"
+    );
+
+    // A second backup's acknowledgement completes the quorum: the commit
+    // fires once, the Apply once.
+    h.deliver_to_matching(n(2), Tag::Prepare, Slot(3))
+        .expect("queued");
+    let delivery = h
+        .deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the commit publishes: {:?}", delivery.outcome);
+    };
+    assert_eq!(
+        apply_slots(&effects),
+        vec![Slot(3)],
+        "the commit applies slot 3 exactly once"
+    );
+    assert_eq!(h.snapshot(n(0)).expect("up").committed, 3);
+
+    let applies = h.execute_apply_effects(n(0));
+    assert_eq!(applies.len(), 1, "slot 3 applied exactly once");
+    assert_eq!(applies[0].slot, Slot(3));
+
+    h.deliver_all();
+    for id in [n(0), n(1), n(2), n(3), n(4)] {
+        h.execute_apply_effects(id);
+    }
+    h.assert_safety();
+}
+
+/// A reordered duplicate `Commit` carrying a stale frontier, delivered
+/// after the frontier already advanced past it: nothing is re-emitted and
+/// the frontier never moves backward. Both commits land at the backup in
+/// order first; then the FIRST commit's `Commit` datagram is redelivered.
+#[test]
+fn stale_commit_after_frontier_advanced_is_a_no_op() {
+    let mut h = bootstrapped();
+    h.propose(n(0), op_id(1), b"one"); // slot 3
+    h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
+        .expect("queued");
+    h.deliver_to_matching(n(2), Tag::Prepare, Slot(3))
+        .expect("queued");
+    h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
+        .expect("queued");
+    assert_eq!(h.snapshot(n(0)).expect("up").committed, 3);
+
+    let stale = h.peek_queued(n(1), Tag::Commit).expect("queued");
+    h.deliver_to_matching(n(1), Tag::Commit, Slot(3))
+        .expect("queued");
+    assert_eq!(h.snapshot(n(1)).expect("up").committed, 3);
+
+    // The frontier advances: slot 4 commits and its Commit lands at n1.
+    h.propose(n(0), op_id(2), b"two"); // slot 4
+    h.deliver_to_matching(n(1), Tag::Prepare, Slot(4))
+        .expect("queued");
+    h.deliver_to_matching(n(2), Tag::Prepare, Slot(4))
+        .expect("queued");
+    h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(4))
+        .expect("queued");
+    let delivery = h
+        .deliver_to_matching(n(1), Tag::Commit, Slot(4))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the second Commit publishes: {:?}", delivery.outcome);
+    };
+    assert_eq!(
+        apply_slots(&effects),
+        vec![Slot(4)],
+        "the advancing frontier applies slot 4"
+    );
+    assert_eq!(h.snapshot(n(1)).expect("up").committed, 4);
+
+    // The reordered stale duplicate: a silent no-effect transition.
+    h.send(n(0), n(1), stale);
+    let delivery = h
+        .deliver_to_matching(n(1), Tag::Commit, Slot(3))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the stale duplicate publishes: {:?}", delivery.outcome);
+    };
+    assert!(
+        effects.is_empty(),
+        "the stale Commit re-emits nothing: {effects:?}"
+    );
+    assert_eq!(
+        h.snapshot(n(1)).expect("up").committed,
+        4,
+        "the frontier never moves backward"
+    );
+
+    let applies = h.execute_apply_effects(n(1));
+    assert_eq!(
+        applies.iter().map(|apply| apply.slot).collect::<Vec<_>>(),
+        vec![Slot(3), Slot(4)],
+        "each slot applied exactly once, in slot order"
+    );
+
+    h.deliver_all();
+    for id in [n(0), n(1), n(2)] {
+        h.execute_apply_effects(id);
+    }
+    h.assert_safety();
+}
+
+/// A duplicate `Commit` arriving at the applied boundary — after the host
+/// performed the slot's `Apply` and acknowledged it with `Input::Applied`
+/// (§11.1) — re-emits nothing: the applied frontier stands and the slot's
+/// upcall fired exactly once within the life.
+#[test]
+fn duplicate_commit_after_host_acknowledgement_does_not_reemit() {
+    let mut h = bootstrapped();
+    h.propose(n(0), op_id(1), b"one"); // slot 3
+    h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
+        .expect("queued");
+    h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
+        .expect("queued");
+
+    let commit = h.peek_queued(n(1), Tag::Commit).expect("queued");
+    h.deliver_to_matching(n(1), Tag::Commit, Slot(3))
+        .expect("queued");
+    let applies = h.execute_apply_effects(n(1));
+    assert_eq!(applies.len(), 1);
+    assert_eq!(applies[0].slot, Slot(3));
+    assert_eq!(
+        h.snapshot(n(1)).expect("up").applied,
+        3,
+        "the host's acknowledgement advanced the applied frontier"
+    );
+
+    // The duplicate arrives after the acknowledgement: a silent no-effect
+    // transition, nothing left to apply.
+    h.send(n(0), n(1), commit);
+    let delivery = h
+        .deliver_to_matching(n(1), Tag::Commit, Slot(3))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the duplicate publishes: {:?}", delivery.outcome);
+    };
+    assert!(
+        effects.is_empty(),
+        "the duplicate Commit re-emits nothing: {effects:?}"
+    );
+    assert!(
+        h.execute_apply_effects(n(1)).is_empty(),
+        "nothing is pending after the duplicate"
+    );
+    let expected: &[(Slot, Box<[u8]>)] = &[(Slot(3), Box::from(&b"one"[..]))];
+    assert_eq!(
+        h.applied(n(1)),
+        expected,
+        "slot 3 applied exactly once within the life"
+    );
+
+    h.deliver_all();
+    for id in [n(0), n(1), n(2)] {
+        h.execute_apply_effects(id);
     }
     h.assert_safety();
 }

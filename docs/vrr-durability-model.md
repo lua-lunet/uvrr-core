@@ -106,7 +106,7 @@ The algorithm interacts with the following state classes.
 | Accepted history | logical slot-to-operation history required for normal operation, view change, recovery, and state transfer | Preserves operations which a later view may have to select | Candidate for a host-supplied journal strategy |
 | Application state | lock/lease state or other replicated service state | Result of applying committed operations | Host-owned application upcall boundary |
 | Quorum evidence | prepare acknowledgements, start-view-change senders, view-change reports, recovery responses | Proves one in-flight protocol transition | Core-local and transient; no storage strategy |
-| Recovery attempt | status, nonce, collected responses | Prevents mixing distinct recovery attempts | Core-local attempt state; nonce derived from the host-supplied event clock |
+| Recovery attempt | status, bounded nonce set, collected responses | Correlates responses to the recovery episode across its re-drives; a response counts iff its echoed nonce is in the set | Core-local and volatile; a crash discards it; nonces derived from the host-supplied event clock |
 | Event clock | one `u64` value sampled at the start of every input | Orders host observations and supplies fresh recovery nonces | Host-owned; the core never reads a system clock |
 | Transfer state | source cursor, destination assembly, encoding state | Carries logical history between replicas | Per-transfer state; never shared protocol progress |
 
@@ -206,7 +206,7 @@ The host may record progress, journal changes, and application changes in one wi
 
 `TimedInput.at` is an unsigned 64-bit tick supplied by the host. Nanosecond-resolution time is preferred because normal process scheduling makes accidental reuse unlikely. Millisecond time is also valid subject to the explicit restart rule below. The core treats the value as opaque and does not convert units.
 
-For a recovery input, the core uses `TimedInput.at` as the recovery nonce. The nonce correlates `Recovery` and `RecoveryResponse` messages and prevents a delayed response from an earlier recovery attempt being counted in the current attempt. It need not be forced to disk when the host clock contract supplies a fresh value.
+For a recovery input, the core uses `TimedInput.at` as a recovery nonce. The attempt retains a bounded set of nonces — one per recovery event, the oldest evicted past the bound — and a `RecoveryResponse` counts iff its echoed nonce is in the set: a delayed response to a remembered solicitation of the same episode still counts, and responses across in-set nonces combine into one `R_g` quorum, while a response to a nonce the attempt never minted or has already evicted is stale. The set is volatile; a crash discards it. No nonce need be forced to disk when the host clock contract supplies a fresh value.
 
 The mandatory invariant is:
 
@@ -223,7 +223,9 @@ A strictly increasing clock across recovery attempts is the simplest implementat
 | Continuous millisecond `u64` clock | The process supervisor must ensure at least one complete millisecond elapses between termination of the old process and dispatch of the new process's recovery event. This is required even for a sub-millisecond restart. |
 | Clock which can reset, regress, or repeat across restart | The host must construct a fresh `u64` by another method, such as an external incarnation source or persisted last value. A delay alone is insufficient if the clock domain itself resets. |
 
-If recovery is retried, every retry is a new recovery event and must receive a fresh tick. A host may persist the last nonce, but that is an optional nonce-generation strategy rather than a VRR-2012 requirement to force storage before recovery traffic is sent.
+If recovery is retried, every retry is a new recovery event and must receive a fresh tick, which joins the attempt's nonce set; the collected responses are preserved across the retry. A host may persist the last nonce, but that is an optional nonce-generation strategy rather than a VRR-2012 requirement to force storage before recovery traffic is sent.
+
+While the attempt runs, an accepted response whose `committed` exceeds the local committed frontier advances that frontier toward the evidence's — over the sequentially-adjacent slots the local journal holds, stopping at the first slot the journal does not hold — and emits the ordered application upcalls for the newly committed slots (§11.1). The `committed` and `applied` frontiers are monotone across this fast-forward and the completion that ends the attempt: neither moves backward.
 
 ## 7. Transition publication and durability
 
@@ -701,7 +703,7 @@ The host reports `Applied { slot }` as a later serialized input. The completion 
 
 A host may retain an ephemeral `OperationId -> pending request` association. After successful application and completion publication, the host returns its result only when such an association still exists; otherwise it discards the result. On process failure the pending connections and associations disappear, while the operation may nevertheless commit and apply. An I/O failure therefore means the caller cannot know the write outcome and must reconnect and query according to the host protocol.
 
-Recovery may replay application upcalls. Application durability, replay handling, and side-effect semantics remain host responsibilities.
+Recovery re-emits the application upcalls of committed-but-unapplied slots: the §6.1 fast-forward emits the newly committed slots' upcalls as the frontier advances, and the completion's replay walk does not re-emit a slot the fast-forward already emitted in the same process life. A crash discards that emission memory, so replay after a crash re-emits from the durable `applied` frontier. Application durability, replay handling, and side-effect semantics remain host responsibilities.
 
 ### 11.2 Application participating in a host transaction
 

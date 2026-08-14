@@ -46,8 +46,8 @@ The core performs no clock reads. The transition is
 tick + message + state -> state + list(messages)
 ```
 
-Every input carries the host tick, and for a recovery input that tick is the recovery
-nonce (§6.1, S4).
+Every input carries the host tick, and for a recovery input that tick is a recovery
+nonce; the attempt retains a bounded set of them, one per re-drive (§6.1, S4).
 
 ## Modules
 
@@ -291,7 +291,8 @@ recovery nonce from it. The alpha took a caller-supplied nonce separately from t
 allowing the two to disagree.
 
 **Decision.** Every input carries the host tick. The core performs no clock reads. For a
-recovery input the tick **is** the recovery nonce. `Input::Tick` exists as an ordinary
+recovery input the tick **is** a recovery nonce, and the attempt retains a bounded set of
+them, one per re-drive. `Input::Tick` exists as an ordinary
 event.
 
 **Rationale.** One value cannot disagree with itself. The §6.1 invariant — no recovery

@@ -1824,3 +1824,99 @@ fn completion_before_acknowledgement_does_not_reemit_fast_forwarded_upcalls() {
         "exactly-once: no second Apply for an unacknowledged fast-forwarded slot: {effects:?}",
     );
 }
+
+// The §11.1 crash boundary survives the within-life suppression: the
+// fast-forward emits, the host never acknowledges, and the node CRASHES
+// before the completion. The volatile attempt-open emission boundary
+// dies with the attempt, so the reopened node's completion re-emits the
+// committed-but-unapplied slots from the durable `applied` seed.
+#[test]
+fn crash_before_acknowledgement_reemits_fast_forwarded_upcalls() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    stage_accepted_tail(&mut h, n(2), &[n(1)], &[(1, b"a"), (2, b"b"), (3, b"c")]);
+    crash_and_reopen(&mut h, n(2));
+
+    h.recover(n(2));
+    let nonce = h.now();
+    let outcome = h.inject(
+        n(1),
+        n(2),
+        recovery_response(nonce, view(0), Slot(5), Slot(5), None),
+    );
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the accepted response publishes: {outcome:?}");
+    };
+    assert_eq!(effects.len(), 3, "the fast-forward emits slots 3 through 5");
+
+    // The host never acknowledges, and the node crashes with the upcalls
+    // outstanding: the volatile emission boundary dies with the attempt,
+    // the fast-forwarded frontier survives on disk.
+    crash_and_reopen(&mut h, n(2));
+    let reopened = snap(&h, n(2));
+    assert_eq!(
+        reopened.committed, 5,
+        "the fast-forwarded frontier is durable"
+    );
+    assert_eq!(
+        reopened.applied, 2,
+        "the unacknowledged slots never applied"
+    );
+
+    h.recover(n(2));
+    let nonce = h.now();
+    let recorded = h.inject(
+        n(1),
+        n(2),
+        recovery_response(nonce, view(0), Slot(5), Slot(5), None),
+    );
+    let StepOutcome::Published { effects, .. } = recorded else {
+        panic!("the recorded response publishes: {recorded:?}");
+    };
+    assert!(
+        effects.is_empty(),
+        "the durable frontier already vouches for the slots: {effects:?}",
+    );
+    let completing = h.inject(
+        n(0),
+        n(2),
+        recovery_response(
+            nonce,
+            view(0),
+            Slot(5),
+            Slot(5),
+            Some(h.journal_entries(n(0))),
+        ),
+    );
+    let StepOutcome::Published { effects, .. } = completing else {
+        panic!("the completing response publishes: {completing:?}");
+    };
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Apply {
+                slot: Slot(3),
+                operation_id: op_id(1),
+                payload: b"a"[..].into(),
+            },
+            Effect::Apply {
+                slot: Slot(4),
+                operation_id: op_id(2),
+                payload: b"b"[..].into(),
+            },
+            Effect::Apply {
+                slot: Slot(5),
+                operation_id: op_id(3),
+                payload: b"c"[..].into(),
+            },
+        ],
+        "the crash boundary survives suppression: the unacknowledged slots re-emit",
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Replaying);
+
+    let outcomes = h.execute_apply_effects(n(2));
+    assert_eq!(outcomes.len(), 3, "each re-emitted upcall executes once");
+    assert_eq!(snap(&h, n(2)).applied, 5);
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    h.assert_safety();
+}
