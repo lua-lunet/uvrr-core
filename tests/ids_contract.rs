@@ -26,9 +26,7 @@ use std::cmp::Ordering;
 use std::mem::{align_of, size_of};
 
 use proptest::prelude::*;
-use vrr::ids::{
-    Era, MessageId, NodeId, OperationId, Slot, Tick, View, ViewId, next_view_selecting,
-};
+use vrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId, next_view_selecting};
 use vrr::invariant::Fault;
 
 // ---------------------------------------------------------------------------
@@ -54,9 +52,6 @@ fn layout_matches_primitive() {
 
     assert_eq!(size_of::<Tick>(), size_of::<u64>());
     assert_eq!(align_of::<Tick>(), align_of::<u64>());
-
-    assert_eq!(size_of::<MessageId>(), size_of::<[u8; 16]>());
-    assert_eq!(align_of::<MessageId>(), align_of::<[u8; 16]>());
 
     // `OperationId` is two `u64` words and nothing else (§11.1): the
     // identity crosses the boundary exactly as the host assigned it.
@@ -91,7 +86,7 @@ fn successors_do_not_wrap() {
 
     assert_eq!(View::INITIAL, View(0));
     assert_eq!(Era::INITIAL, Era(0));
-    assert_eq!(Slot::FIRST, Slot(0));
+    assert_eq!(Slot::NONE, Slot(0));
 }
 
 /// `ViewId` succession is checked in both components independently: W1's whole point is

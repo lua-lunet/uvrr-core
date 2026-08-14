@@ -13,7 +13,7 @@ pub struct DropControl(Arc<AtomicU64>);
 
 impl DropControl {
     pub fn drop_next_accept_at(&self, slot: Slot) {
-        assert_ne!(slot, Slot::FIRST, "slot zero is the no-drop sentinel");
+        assert_ne!(slot, Slot::NONE, "slot zero is the no-drop sentinel");
         self.0.store(slot.0, Ordering::Relaxed);
     }
 }
@@ -81,7 +81,7 @@ impl JournalView for HoleyLog {
     fn retained(&self) -> (Slot, Slot) {
         match (self.held.keys().next(), self.held.keys().next_back()) {
             (Some(first), Some(last)) => (*first, *last),
-            _ => (VOID_SLOT, Slot::FIRST),
+            _ => (VOID_SLOT, Slot::NONE),
         }
     }
 

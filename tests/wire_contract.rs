@@ -35,7 +35,7 @@
 //! and total coverage is strictly stronger than any number of random draws.
 
 use proptest::prelude::*;
-use vrr::ids::{Era, MessageId, NodeId, OperationId, Slot, Tick, View, ViewId};
+use vrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
 use vrr::wire::{Header, Malformed, Pack, PackError, Tag, Unpack, UnpackCursor, UnpackError};
 
 /// Every `Tag`, in discriminant order. Used by the round-trip and exhaustiveness
@@ -185,7 +185,6 @@ proptest! {
         d in any::<u64>(),
         e in any::<u128>(),
         f in any::<bool>(),
-        g in any::<[u8; 16]>(),
         header in any_header(),
         payload in prop::collection::vec(any::<u8>(), 0..512),
     ) {
@@ -195,7 +194,6 @@ proptest! {
         prop_assert_eq!(encode(&d).len(), 8);
         prop_assert_eq!(encode(&e).len(), 16);
         prop_assert_eq!(encode(&f).len(), 1);
-        prop_assert_eq!(encode(&MessageId(g)).len(), 16);
         prop_assert_eq!(encode(&header).len(), Header::LEN);
 
         // Opaque bytes: a u32 big-endian length prefix and then the payload (§11).
@@ -232,7 +230,6 @@ proptest! {
         d in any::<u64>(),
         e in any::<u128>(),
         f in any::<bool>(),
-        g in any::<[u8; 16]>(),
         header in any_header(),
     ) {
         round_trip(a);
@@ -247,7 +244,6 @@ proptest! {
         round_trip(View(c));
         round_trip(Slot(d));
         round_trip(Tick(d));
-        round_trip(MessageId(g));
         round_trip(OperationId { msb: d, lsb: d });
         round_trip(ViewId { era: Era(c), view: View(c) });
         round_trip(header);
@@ -367,7 +363,6 @@ proptest! {
         let _ = Tag::unpack_from(&bytes);
         let _ = ViewId::unpack_from(&bytes);
         let _ = OperationId::unpack_from(&bytes);
-        let _ = MessageId::unpack_from(&bytes);
         let _ = bool::unpack_from(&bytes);
 
         // Drive the cursor directly, in a sequence that mixes widths, so a length
@@ -504,7 +499,7 @@ fn trailing_bytes_are_rejected() {
     let header = Header {
         tag: Tag::Commit,
         view: ViewId::INITIAL,
-        slot: Slot::FIRST,
+        slot: Slot::NONE,
     };
     let mut bytes = encode(&header);
     bytes.extend_from_slice(&[0xFF, 0xFF, 0xFF]);
@@ -743,9 +738,6 @@ fn serde_round_trip_ids() {
         lsb: u64::MAX,
     });
     assert_round_trip(OperationId { msb: 0, lsb: 42 });
-    assert_round_trip(MessageId([
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0xFF,
-    ]));
     assert_round_trip(ViewId {
         era: Era(1),
         view: View(2),

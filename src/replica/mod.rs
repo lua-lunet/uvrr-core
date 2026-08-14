@@ -1121,7 +1121,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             INIT_SLOT,
             INIT_SLOT,
             INIT_SLOT,
-            Slot::FIRST,
+            Slot::NONE,
             0,
             Arc::new(table),
             None,
@@ -1167,7 +1167,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // Q1 at construction, exactly as at provision: the gate does not
         // trust that a reconstructed table was gated before it was persisted.
         validate_era(&strategy, &config.current().config).map_err(LifecycleError::Quorum)?;
-        let frontier = journal.view().accepted().unwrap_or(Slot::FIRST);
+        let frontier = journal.view().accepted().unwrap_or(Slot::NONE);
         if frontier != persisted.accepted {
             return Err(LifecycleError::ProgressJournalDivergence {
                 progress: persisted.accepted,
@@ -1302,7 +1302,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // The §12 envelope: the plan is computed against the published state
         // and a journal view read atomically with it (§5 invariant 1).
-        let frontier = journal.accepted().unwrap_or(Slot::FIRST);
+        let frontier = journal.accepted().unwrap_or(Slot::NONE);
         if frontier != self.progress.accepted() {
             return Err(PlanRejection::JournalViewDivergence {
                 progress: self.progress.accepted(),
@@ -2431,7 +2431,7 @@ fn suffix_shape_ok(suffix: &[LogEntry], accepted: Slot) -> bool {
     let mut expected: Option<Slot> = None;
     for entry in suffix {
         let legal = match expected {
-            None => entry.slot != Slot::FIRST,
+            None => entry.slot != Slot::NONE,
             Some(next) => entry.slot == next,
         };
         if !legal {
@@ -2462,7 +2462,7 @@ impl Replica<SegmentedLog, crate::quorum::WeightedMajority> {
     /// §13.1 transfer) are surfaced by the ordinary paths.
     pub fn reclaim_journal(&mut self) {
         let checkpoint = self.progress.checkpoint();
-        if checkpoint == Slot::FIRST {
+        if checkpoint == Slot::NONE {
             return;
         }
         self.journal.reclaim_through(checkpoint);

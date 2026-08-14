@@ -48,7 +48,7 @@
 
 use core::mem::size_of;
 
-use crate::ids::{Era, MessageId, NodeId, OperationId, Slot, Tick, View, ViewId};
+use crate::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
 
 /// Byte width of the `u32` length prefix in front of an opaque payload.
 const LENGTH_PREFIX_LEN: usize = 4;
@@ -667,22 +667,6 @@ impl Unpack for OperationId {
         let msb = u64::unpack(c)?;
         let lsb = u64::unpack(c)?;
         Ok(OperationId { msb, lsb })
-    }
-}
-
-impl Pack for MessageId {
-    fn packed_len(&self) -> usize {
-        16
-    }
-
-    fn pack(&self, w: &mut PackWriter<'_>) {
-        w.bytes16(&self.0);
-    }
-}
-
-impl Unpack for MessageId {
-    fn unpack(c: &mut UnpackCursor<'_>) -> Result<Self, UnpackError> {
-        c.bytes16().map(MessageId)
     }
 }
 

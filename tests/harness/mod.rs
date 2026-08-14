@@ -1276,7 +1276,7 @@ impl Harness {
             let snapshot = node.observer.read();
             let mut committed = Vec::new();
             let frontier = Slot(snapshot.committed);
-            if frontier != Slot::FIRST {
+            if frontier != Slot::NONE {
                 // A node whose host retention policy let the committed
                 // prefix go (S1) serves its retained window; the checker
                 // aligns by slot.

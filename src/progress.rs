@@ -239,7 +239,7 @@ fn era_of_slot(table: &EraTable, slot: Slot) -> Option<Era> {
 
 impl Progress {
     /// The genesis record: [`ViewId::INITIAL`], fenced and recovering, every
-    /// frontier at [`Slot::FIRST`], revision 0, no fault.
+    /// frontier at [`Slot::NONE`], revision 0, no fault.
     ///
     /// This pins the meaning of `ViewId::INITIAL` (ruled
     /// here): it is the **genesis view**, the `(era 0, view 0)` pair a freshly
@@ -264,10 +264,10 @@ impl Progress {
             ViewId::INITIAL,
             ViewId::INITIAL,
             Status::Recovering,
-            Slot::FIRST,
-            Slot::FIRST,
-            Slot::FIRST,
-            Slot::FIRST,
+            Slot::NONE,
+            Slot::NONE,
+            Slot::NONE,
+            Slot::NONE,
             0,
             config,
             None,

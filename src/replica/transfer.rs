@@ -37,7 +37,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             header: Header {
                 tag: Tag::GetState,
                 view,
-                slot: from.prev().unwrap_or(Slot::FIRST),
+                slot: from.prev().unwrap_or(Slot::NONE),
             },
             body: Body::GetState { from },
         };

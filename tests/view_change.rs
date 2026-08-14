@@ -131,7 +131,7 @@ fn svc(view: ViewId) -> Message {
         header: Header {
             tag: Tag::StartViewChange,
             view,
-            slot: Slot::FIRST,
+            slot: Slot::NONE,
         },
         body: Body::StartViewChange {},
     }
@@ -328,7 +328,7 @@ fn retained_view_outranks_accepted_frontier_section_9_2_counterexample() {
     // §8.7.3), its fence quorum completes on n2's vote, and its evidence
     // flows to n2, the designated primary of view 2.
     tick_into_view_change(&mut h, n(2), view(2));
-    h.deliver_to_matching(n(0), Tag::StartViewChange, Slot::FIRST);
+    h.deliver_to_matching(n(0), Tag::StartViewChange, Slot::NONE);
     assert_eq!(status_of(&h, n(0)), Status::ViewChange);
     assert_eq!(current_view(&h, n(0)), view(2));
     let dvc = h
@@ -498,7 +498,7 @@ fn the_fence_is_real() {
 fn bounded_suffix_rules_section_13_1() {
     let payload = b"pp";
     let probe = LogEntry {
-        slot: Slot::FIRST,
+        slot: Slot::NONE,
         era: Era::INITIAL,
         payload: Payload::Operation {
             id: op_id(1),
@@ -975,7 +975,7 @@ fn churn_300_steps_requests_partitions_crashes_restarts_ticks() {
 #[test]
 fn bounded_suffix_packing_break_never_emits_a_hole() {
     let probe = LogEntry {
-        slot: Slot::FIRST,
+        slot: Slot::NONE,
         era: Era::INITIAL,
         payload: Payload::Operation {
             id: op_id(1),

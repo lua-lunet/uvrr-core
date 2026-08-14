@@ -42,7 +42,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             header: Header {
                 tag: Tag::StartViewChange,
                 view: target,
-                slot: Slot::FIRST,
+                slot: Slot::NONE,
             },
             body: Body::StartViewChange {},
         };

@@ -856,7 +856,7 @@ fn install_suffix_refuses_the_end_of_slot_space_without_mutation() {
 fn entry_cases() -> Vec<LogEntry> {
     vec![
         LogEntry {
-            slot: Slot::FIRST,
+            slot: Slot::NONE,
             era: Era::INITIAL,
             payload: Payload::Operation {
                 id: OperationId { msb: 0, lsb: 5 },

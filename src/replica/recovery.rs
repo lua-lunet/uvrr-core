@@ -40,7 +40,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             header: Header {
                 tag: Tag::Recovery,
                 view: current,
-                slot: Slot::FIRST,
+                slot: Slot::NONE,
             },
             body: Body::Recovery { nonce: at },
         };
@@ -106,7 +106,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             header: Header {
                 tag: Tag::RecoveryResponse,
                 view: current,
-                slot: Slot::FIRST,
+                slot: Slot::NONE,
             },
             body: Body::RecoveryResponse {
                 nonce,

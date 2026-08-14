@@ -1,4 +1,4 @@
-//! Identity: node identifiers, view identifiers, slots, message identifiers.
+//! Identity: node identifiers, view identifiers, slots, operation identities.
 //!
 //! Spec §1.2 (view and configuration generation), §1.3 (slots and frontiers), and
 //! Amendment A1 / decision W1, which supersede the packed `view = (era << k) | index`
@@ -9,9 +9,10 @@
 //! wraparound are discharged by construction rather than by validation, and a host can
 //! route on era without decoding a protocol number.
 //!
-//! `MessageId` is `[u8; 16]` supplied by the host (decision W2). The core never mints
-//! one, so it needs no randomness source and no `uuid` dependency; correlation is
-//! whatever the host's naming discipline says it is.
+//! Identifiers are supplied by the host (decision W2): `OperationId` is 128
+//! host-chosen bits the core carries opaque. The core never mints one, so it needs
+//! no randomness source and no `uuid` dependency; correlation is whatever the
+//! host's naming discipline says it is.
 //!
 //! Ordering on identifiers is total and lexicographic in `(era, view)`, because the
 //! higher-view rule of §10 must be decidable from the header alone, without consulting
@@ -42,7 +43,7 @@
 //! record or a published `Progress` (§5), where "zero because nobody set it" and "zero
 //! because that is the genesis value" are indistinguishable after the fact. Where a base
 //! value is genuinely meaningful it is a named constant with documented meaning:
-//! [`Era::INITIAL`], [`View::INITIAL`], [`Slot::FIRST`]. `NodeId` and `Tick` get none,
+//! [`Era::INITIAL`], [`View::INITIAL`], [`Slot::NONE`]. `NodeId` and `Tick` get none,
 //! because no node identifier is privileged (§8.7.1: `order` is host-assigned) and no
 //! tick is (S4: every tick comes from the host).
 //!
@@ -129,20 +130,6 @@ pub struct Tick(pub u64);
 const _: () = assert!(size_of::<Tick>() == size_of::<u64>());
 const _: () = assert!(align_of::<Tick>() == align_of::<u64>());
 
-/// Host-supplied message correlation identifier.
-///
-/// Decision W2: 16 opaque bytes, minted by the host. The core never generates one, so it
-/// needs no randomness source and no `uuid` dependency. It is a newtype rather than a
-/// bare `[u8; 16]` so it cannot be confused with a digest, a key, or an
-/// [`OperationId`] of the same width, and so the W3 codec has a distinct type to encode.
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct MessageId(pub [u8; 16]);
-
-const _: () = assert!(size_of::<MessageId>() == 16);
-const _: () = assert!(align_of::<MessageId>() == align_of::<[u8; 16]>());
-
 /// An operation's identity at the application boundary (§11.1, B2): 128
 /// bits the proposing host assigns, and the core carries opaque — proposed
 /// with the operation, replicated inside its log entry, and handed back on
@@ -222,11 +209,12 @@ impl View {
 }
 
 impl Slot {
-    /// The first log position. Named rather than defaulted, and named `FIRST` rather
-    /// than `ZERO` because §1.3's frontiers are positions in a history, so the identity
-    /// of the first position is a protocol fact while the integer that represents it is
-    /// not.
-    pub const FIRST: Slot = Slot(0);
+    /// The crate-wide no-slot sentinel: strictly below the first history position
+    /// (`crate::configuration::VOID_SLOT`, slot 1), at a position that can never hold
+    /// an entry. Named rather than defaulted, and named `NONE` rather than `ZERO`
+    /// because §1.3's frontiers are positions in a history, so the absence of a
+    /// position is a protocol fact while the integer that represents it is not.
+    pub const NONE: Slot = Slot(0);
 
     /// The next log position, or `None` if the slot space is exhausted.
     ///
@@ -237,11 +225,11 @@ impl Slot {
         self.0.checked_add(1).map(Slot)
     }
 
-    /// The preceding log position, or `None` at [`Slot::FIRST`].
+    /// The preceding log position, or `None` at [`Slot::NONE`].
     ///
-    /// `None` rather than a saturating `FIRST` because "the slot before the first" is
-    /// not a position, and a caller walking a history backwards must terminate on the
-    /// absence rather than loop on a fixed point.
+    /// `None` rather than a saturating sentinel because "the slot before the
+    /// sentinel" is not a position, and a caller walking a history backwards must
+    /// terminate on the absence rather than loop on a fixed point.
     #[must_use]
     pub fn prev(self) -> Option<Slot> {
         self.0.checked_sub(1).map(Slot)

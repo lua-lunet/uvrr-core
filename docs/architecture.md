@@ -150,13 +150,14 @@ anywhere in the wire format. Recorded as Amendment A1 at the end of
 legal view-number gaps, and the rule that a replica may propose a view only if its
 accepted history contains that era's establishing reconfiguration are all unchanged.
 
-#### W2 — No `uuid`; `MessageId = [u8; 16]`, host-supplied
+#### W2 — No `uuid`; identifiers are host-supplied
 
 **Context.** The alpha depended on `uuid` with the `v4` and `serde` features to mint
-message identifiers, which requires a randomness source inside a library that is supposed
+identifiers, which requires a randomness source inside a library that is supposed
 to have no ambient inputs.
 
-**Decision.** `MessageId = [u8; 16]`. The host supplies it. The core never mints one.
+**Decision.** Identifiers are host-supplied: `OperationId` is the example. The host
+supplies it. The core never mints one.
 `uuid` is removed and must appear nowhere in the manifest.
 
 **Consequence.** A host that wants UUIDv4 identifiers can produce them; a host with an
@@ -414,8 +415,9 @@ tracking, and response formatting remain host extensions.
 
 **Recorded API consequences** (normative for the implementation items that follow):
 
-- `OperationId` replaces `ClientId`, `RequestNumber`, and client-semantics uses of
-  `MessageId`.
+- `OperationId` replaces `ClientId`, `RequestNumber`, and client-semantics uses of the
+  16-byte message-correlation identifier, which is thereby fully superseded and
+  removed from the public surface.
 - `Input::Client` becomes `Input::Propose { operation }`; every application-origin
   log entry stores the complete identifier and the opaque payload.
 - `Effect::Apply` carries `{ slot, operation_id, payload }`; `Input::Applied` is

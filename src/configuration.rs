@@ -794,7 +794,7 @@ impl EraTable {
     /// The void era 0 alone.
     ///
     /// The genesis record predates the log, so its `established_by` is
-    /// [`Slot::FIRST`] as a placeholder: era 0 is established by construction, not by
+    /// [`Slot::NONE`] as a placeholder: era 0 is established by construction, not by
     /// an operation. The `Void` operation at [`VOID_SLOT`] records the first real
     /// establishing slot on top of it.
     #[must_use]
@@ -804,7 +804,7 @@ impl EraTable {
                 era: Era::INITIAL,
                 config: Arc::new(Configuration::void()),
                 total: 0,
-                established_by: Slot::FIRST,
+                established_by: Slot::NONE,
                 establishing_operation: SystemOperation::Void,
             }],
         }

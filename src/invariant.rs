@@ -109,9 +109,9 @@ impl HeaderSlotRole {
     #[must_use]
     pub fn admits(self, slot: Slot) -> bool {
         match self {
-            HeaderSlotRole::Operation => slot != Slot::FIRST,
+            HeaderSlotRole::Operation => slot != Slot::NONE,
             HeaderSlotRole::Frontier => true,
-            HeaderSlotRole::Absent => slot == Slot::FIRST,
+            HeaderSlotRole::Absent => slot == Slot::NONE,
         }
     }
 }

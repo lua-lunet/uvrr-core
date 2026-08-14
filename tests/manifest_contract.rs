@@ -138,7 +138,7 @@ fn uuid_appears_nowhere() {
     assert!(
         !MANIFEST.contains("uuid"),
         "`uuid` must not appear anywhere in the manifest; \
-         MessageId = [u8; 16] is host-supplied (decision W2)"
+         OperationId is host-supplied (decision W2)"
     );
 }
 

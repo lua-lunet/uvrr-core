@@ -93,7 +93,7 @@ fn recovery_response(
         header: Header {
             tag: Tag::RecoveryResponse,
             view,
-            slot: Slot::FIRST,
+            slot: Slot::NONE,
         },
         body: Body::RecoveryResponse {
             nonce,
@@ -112,7 +112,7 @@ fn svc(view: ViewId) -> Message {
         header: Header {
             tag: Tag::StartViewChange,
             view,
-            slot: Slot::FIRST,
+            slot: Slot::NONE,
         },
         body: Body::StartViewChange {},
     }

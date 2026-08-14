@@ -734,10 +734,10 @@ fn genesis_advertises_view_id_initial_fenced() {
     assert_eq!(genesis.current(), ViewId::INITIAL);
     assert_eq!(genesis.retained(), ViewId::INITIAL);
     assert_eq!(genesis.status(), Status::Recovering);
-    assert_eq!(genesis.accepted(), Slot::FIRST);
-    assert_eq!(genesis.committed(), Slot::FIRST);
-    assert_eq!(genesis.applied(), Slot::FIRST);
-    assert_eq!(genesis.checkpoint(), Slot::FIRST);
+    assert_eq!(genesis.accepted(), Slot::NONE);
+    assert_eq!(genesis.committed(), Slot::NONE);
+    assert_eq!(genesis.applied(), Slot::NONE);
+    assert_eq!(genesis.checkpoint(), Slot::NONE);
     assert_eq!(genesis.revision(), 0);
     assert_eq!(genesis.fault(), None);
     assert!(Arc::ptr_eq(genesis.config(), &table));
