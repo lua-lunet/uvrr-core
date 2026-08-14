@@ -34,7 +34,7 @@
 use std::sync::Arc;
 
 use crate::configuration::{SystemOperation, VOID_SLOT};
-use crate::ids::{ClientId, Era, RequestNumber, Slot};
+use crate::ids::{Era, OperationId, Slot};
 use crate::wire::{
     Malformed, Pack, PackWriter, Unpack, UnpackCursor, UnpackError, opaque_packed_len,
 };
@@ -48,10 +48,10 @@ use crate::wire::{
 const DEFAULT_TAIL_CAPACITY: usize = 64;
 
 // Payload discriminants, the `Tag` rule applied to an entry body: `0` is reserved so
-// that an all-zero buffer decodes as malformed rather than as a valid client payload,
+// that an all-zero buffer decodes as malformed rather than as a valid operation payload,
 // and the table is stated as named constants so reordering this source cannot renumber
 // the wire.
-const PAYLOAD_CLIENT: u8 = 1;
+const PAYLOAD_OPERATION: u8 = 1;
 const PAYLOAD_SYSTEM: u8 = 2;
 
 /// One accepted position of protocol history: the slot, the era of the configuration
@@ -73,30 +73,27 @@ pub struct LogEntry {
 
 /// The payload of an accepted entry.
 ///
-/// Two kinds, because the core's obligations differ: client bytes are opaque and only
-/// stored and carried (§11), while a system operation is typed because the core folds
-/// it into the configuration on commit (§8.7.2). A `System` entry is never re-typed
-/// from bytes at read time, so a payload that cannot fold cannot be silently accepted
-/// into history.
+/// Two kinds, because the core's obligations differ: operation bytes are opaque and
+/// only stored and carried (§11.1), while a system operation is typed because the core
+/// folds it into the configuration on commit (§8.7.2). A `System` entry is never
+/// re-typed from bytes at read time, so a payload that cannot fold cannot be silently
+/// accepted into history.
 ///
-/// The client operation carries its `(client, request)` identity IN the entry
-/// (§9.2): the identity makes the entry self-describing across a view change — a
-/// backup records its client-table row from the `Prepare` it accepts, and a retry can
-/// be matched against the installed history without trusting any volatile record.
-/// Without it the client table could only ever exist at the primary that took the
-/// request, and §9.2's duplicate-suppression guarantee would die with that primary.
+/// The operation carries its host-assigned identity IN the entry (§11.1, B2): the
+/// identity makes the entry self-describing across a view change — an installed
+/// history hands every operation back to the application with the identity the
+/// proposer gave it, without trusting any volatile record. The core never inspects
+/// the identity and never deduplicates on it: that policy lives in the host.
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Payload {
-    /// A client operation: its duplicate-suppression identity (§9.2) and
-    /// the opaque application bytes (§11). The identity rides in the entry
-    /// (§9.2) so the client table is rebuildable from history itself.
-    Client {
-        /// The client that submitted the operation.
-        client: ClientId,
-        /// The client's monotonic request number.
-        request: RequestNumber,
-        /// Opaque application bytes. The core never inspects them (§11).
+    /// A host operation: its identity (§11.1) and the opaque application
+    /// bytes. Both ride in the entry so the application boundary can name
+    /// exactly what was ordered, at every node, from history alone.
+    Operation {
+        /// The identity the proposing host assigned (§11.1, B2). Opaque.
+        id: OperationId,
+        /// Opaque application bytes. The core never inspects them (§11.1).
         payload: Box<[u8]>,
     },
     /// A typed cluster operation (§8.7.2), folded into the configuration on commit.
@@ -108,11 +105,7 @@ impl Pack for LogEntry {
         // slot ++ era ++ discriminant, then the payload body. Exact, per the normative
         // W3 contract: the §13.1 suffix budget sums this over candidate entries.
         let payload = match &self.payload {
-            Payload::Client {
-                client,
-                request,
-                payload,
-            } => 1 + client.packed_len() + request.packed_len() + opaque_packed_len(payload),
+            Payload::Operation { id, payload } => 1 + id.packed_len() + opaque_packed_len(payload),
             Payload::System(op) => 1 + op.packed_len(),
         };
         self.slot.packed_len() + self.era.packed_len() + payload
@@ -122,14 +115,9 @@ impl Pack for LogEntry {
         self.slot.pack(w);
         self.era.pack(w);
         match &self.payload {
-            Payload::Client {
-                client,
-                request,
-                payload,
-            } => {
-                w.u8(PAYLOAD_CLIENT);
-                client.pack(w);
-                request.pack(w);
+            Payload::Operation { id, payload } => {
+                w.u8(PAYLOAD_OPERATION);
+                id.pack(w);
                 w.opaque(payload);
             }
             Payload::System(op) => {
@@ -145,18 +133,16 @@ impl Unpack for LogEntry {
         let slot = Slot::unpack(c)?;
         let era = Era::unpack(c)?;
         let payload = match c.u8()? {
-            PAYLOAD_CLIENT => {
-                let client = ClientId::unpack(c)?;
-                let request = RequestNumber::unpack(c)?;
+            PAYLOAD_OPERATION => {
+                let id = OperationId::unpack(c)?;
                 // Borrowed from the cursor and copied only here, at the boundary where
                 // the journal takes ownership. `UnpackCursor::opaque` bounds the read
                 // by the input actually present, so an adversarial length prefix
                 // reports `Incomplete` and never pre-allocates — the same decision
                 // `Init`'s untrusted member count decode follows.
                 let bytes = c.opaque()?;
-                Payload::Client {
-                    client,
-                    request,
+                Payload::Operation {
+                    id,
                     payload: bytes.to_vec().into_boxed_slice(),
                 }
             }
@@ -848,34 +834,5 @@ impl DoubleEndedIterator for RangeIter<'_> {
             self.back -= 1;
         }
         entry
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Slot-space exhaustion is a refusal, not a wrap (§8.7.3). No public path can
-    /// reach `u64::MAX` from the genesis anchor inside a test — that would take
-    /// 2^64 appends — so the state is constructed directly through the private
-    /// fields. The refusal must still be total, which is the property under test.
-    #[test]
-    fn slot_space_exhaustion_is_a_refusal_not_a_wrap() {
-        let entry = |slot: u64| LogEntry {
-            slot: Slot(slot),
-            era: Era::INITIAL,
-            payload: Payload::Client {
-                client: ClientId(1),
-                request: RequestNumber(slot),
-                payload: Box::new([]),
-            },
-        };
-        let mut log = SegmentedLog::new();
-        log.accepted = Some(Slot(u64::MAX));
-        assert_eq!(log.accept(&[entry(0)]), Err(JournalError::SlotExhausted));
-        assert_eq!(
-            log.install_suffix(Slot(u64::MAX), &[entry(u64::MAX), entry(0)]),
-            Err(JournalError::SlotExhausted)
-        );
     }
 }

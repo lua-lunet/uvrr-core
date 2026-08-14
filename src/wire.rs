@@ -48,7 +48,7 @@
 
 use core::mem::size_of;
 
-use crate::ids::{ClientId, Era, MessageId, NodeId, RequestNumber, Slot, Tick, View, ViewId};
+use crate::ids::{Era, MessageId, NodeId, OperationId, Slot, Tick, View, ViewId};
 
 /// Byte width of the `u32` length prefix in front of an opaque payload.
 const LENGTH_PREFIX_LEN: usize = 4;
@@ -645,15 +645,30 @@ impl_newtype!(Era, u32);
 impl_newtype!(View, u32);
 impl_newtype!(Slot, u64);
 impl_newtype!(Tick, u64);
-impl_newtype!(RequestNumber, u64);
 
-// `ClientId` is a `u128`, encoded big-endian. `u128` was chosen over `[u8; 16]`
-// because the client table keys on it, and the byte order was deferred to this module
-// explicitly; W4 settles it as big-endian like every other integer on this wire, so a
-// host reading a hex dump sees the identifier in the order it wrote it. Pinned by a
-// golden vector in `tests/wire_contract.rs`, because a round trip cannot detect a
-// symmetric endianness mistake.
-impl_newtype!(ClientId, u128);
+// `OperationId` (§11.1) is two `u64` words, most significant first, each big-endian —
+// W4, like every other integer on this wire. The byte order is a decision this module
+// owns (a host reading a hex dump sees the identity in the order it wrote it), and it
+// is pinned by a golden vector in `tests/wire_contract.rs`, because a round trip cannot
+// detect a symmetric endianness mistake.
+impl Pack for OperationId {
+    fn packed_len(&self) -> usize {
+        self.msb.packed_len() + self.lsb.packed_len()
+    }
+
+    fn pack(&self, w: &mut PackWriter<'_>) {
+        self.msb.pack(w);
+        self.lsb.pack(w);
+    }
+}
+
+impl Unpack for OperationId {
+    fn unpack(c: &mut UnpackCursor<'_>) -> Result<Self, UnpackError> {
+        let msb = u64::unpack(c)?;
+        let lsb = u64::unpack(c)?;
+        Ok(OperationId { msb, lsb })
+    }
+}
 
 impl Pack for MessageId {
     fn packed_len(&self) -> usize {
@@ -706,14 +721,17 @@ impl Unpack for ViewId {
 ///
 /// `0` is not a tag. It is reserved so that an all-zero buffer — a zeroed page, an
 /// unwritten scratch buffer, a datagram padded by a transport — decodes as
-/// [`Malformed::UnknownTag`] rather than as a valid `Request`. A codec in which the
+/// [`Malformed::UnknownTag`] rather than as a valid message. A codec in which the
 /// absence of a message is a message cannot report a framing bug.
+///
+/// Discriminants `1` and `13` are retired: they belonged to the client-datagram tags,
+/// which left the wire when the client boundary became a host concern (§11.1, B2).
+/// They stay reserved — reassigning them would collide with any deployment still
+/// carrying the old numbering on a wire.
 #[repr(u32)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Tag {
-    /// Client operation submitted to the primary (§6, §11).
-    Request = 1,
     /// The primary's proposal of an operation at a slot (§6).
     Prepare = 2,
     /// A replica's acceptance of a `Prepare` (§6).
@@ -762,8 +780,6 @@ pub enum Tag {
     GetState = 11,
     /// A history range in reply to `GetState`. Sizing is the host's (W5).
     NewState = 12,
-    /// The primary's reply to a client (§6, §11).
-    Reply = 13,
 }
 
 impl Tag {
@@ -775,7 +791,6 @@ impl Tag {
     #[must_use]
     pub fn as_u32(self) -> u32 {
         match self {
-            Tag::Request => 1,
             Tag::Prepare => 2,
             Tag::PrepareOk => 3,
             Tag::Commit => 4,
@@ -787,7 +802,6 @@ impl Tag {
             Tag::RecoveryResponse => 10,
             Tag::GetState => 11,
             Tag::NewState => 12,
-            Tag::Reply => 13,
         }
     }
 
@@ -801,7 +815,6 @@ impl Tag {
     #[must_use]
     pub fn from_u32(value: u32) -> Option<Tag> {
         match value {
-            1 => Some(Tag::Request),
             2 => Some(Tag::Prepare),
             3 => Some(Tag::PrepareOk),
             4 => Some(Tag::Commit),
@@ -813,7 +826,6 @@ impl Tag {
             10 => Some(Tag::RecoveryResponse),
             11 => Some(Tag::GetState),
             12 => Some(Tag::NewState),
-            13 => Some(Tag::Reply),
             _ => None,
         }
     }

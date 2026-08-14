@@ -11,9 +11,9 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{INIT_SLOT, SystemOperation};
-use vrr::ids::{ClientId, Era, Fault, NodeId, RequestNumber, Slot, View, ViewId};
+use vrr::ids::{Era, Fault, NodeId, OperationId, Slot, View, ViewId};
 use vrr::journal::{LogEntry, Payload};
-use vrr::message::{Body, ClientRow as WireRow, EraProof, EvidenceKind, Message};
+use vrr::message::{Body, EraProof, EvidenceKind, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
 use vrr::replica::{PlanRejection, ViewChangeKnobs};
@@ -56,13 +56,19 @@ fn primary_of(view: ViewId) -> NodeId {
     n(view.view.0 % 3)
 }
 
-/// The client payload bytes of a journal entry (genesis entries panic; the
-/// tests only inspect client slots).
+/// The operation payload bytes of a journal entry (genesis entries panic;
+/// the tests only inspect operation slots).
 fn payload_of(entry: &LogEntry) -> &[u8] {
-    let Payload::Client { payload, .. } = &entry.payload else {
-        panic!("expected a client payload at {:?}", entry.slot);
+    let Payload::Operation { payload, .. } = &entry.payload else {
+        panic!("expected an operation payload at {:?}", entry.slot);
     };
     payload
+}
+
+/// An operation identity for the scripts: the host assigns it, the core
+/// carries it opaque (§11.1, B2).
+fn op_id(lsb: u64) -> OperationId {
+    OperationId { msb: 0, lsb }
 }
 
 /// Executes every pending `Apply` at the given nodes (one harness step per
@@ -148,12 +154,12 @@ fn drive_view_change(h: &mut Harness, prime: NodeId, voter: NodeId, target: View
 }
 
 // 1. Happy path: partitioned primary, tick-driven fence quorum, evidence
-//    quorum, StartView install, and a client request completing under view 1.
+//    quorum, StartView install, and an operation completing under view 1.
 #[test]
-fn happy_path_view_change_completes_and_serves_clients() {
+fn happy_path_view_change_completes_and_serves_operations() {
     let mut h = cluster();
     bootstrap(&mut h);
-    h.client_request(n(0), ClientId(1), b"a");
+    h.propose(n(0), op_id(1), b"a");
     h.deliver_all();
     apply_all(&mut h, [0, 1, 2]);
     h.assert_safety();
@@ -179,9 +185,8 @@ fn happy_path_view_change_completes_and_serves_clients() {
     }
     h.assert_safety();
 
-    // The client table on the new primary starts empty, but a fresh client
-    // request completes end-to-end under view 1 (§9).
-    h.client_request(n(1), ClientId(2), b"b");
+    // A fresh proposal completes end-to-end under view 1 (§9).
+    h.propose(n(1), op_id(2), b"b");
     h.deliver_all();
     apply_all(&mut h, [1, 2, 0]);
     assert_eq!(snap(&h, n(1)).committed, 4);
@@ -192,12 +197,6 @@ fn happy_path_view_change_completes_and_serves_clients() {
             (Slot(4), b"b".to_vec().into_boxed_slice())
         ]
     );
-    assert!(h.replies().contains(&(
-        n(1),
-        ClientId(2),
-        vrr::ids::RequestNumber(1),
-        b"b".to_vec().into_boxed_slice()
-    )));
 
     // Heal: the partitioned primary joins on the stale StartViewChange,
     // adopts the StartView history, accepts the new entry, and catches up.
@@ -217,13 +216,13 @@ fn happy_path_view_change_completes_and_serves_clients() {
 fn committed_entries_survive_a_mid_pipeline_crash() {
     let mut h = cluster();
     bootstrap(&mut h);
-    h.client_request(n(0), ClientId(1), b"x"); // slot 3
-    h.client_request(n(0), ClientId(2), b"y"); // slot 4
+    h.propose(n(0), op_id(1), b"x"); // slot 3
+    h.propose(n(0), op_id(2), b"y"); // slot 4
     h.deliver_all();
     apply_all(&mut h, [0, 1, 2]);
 
     // Slot 5 is accepted by n0 and n1 but never committed.
-    h.client_request(n(0), ClientId(3), b"z");
+    h.propose(n(0), op_id(3), b"z");
     h.deliver_to_matching(n(1), Tag::Prepare, Slot(5));
     h.crash(n(0));
 
@@ -249,7 +248,7 @@ fn committed_entries_survive_a_mid_pipeline_crash() {
     // the next commit reaches over it because a PrepareOk vouches for every
     // lower slot the sender holds contiguously (VRR-2012 §4's cumulative
     // acknowledgement).
-    h.client_request(n(1), ClientId(9), b"w"); // slot 6
+    h.propose(n(1), op_id(9), b"w"); // slot 6
     h.deliver_all();
     apply_all(&mut h, [1, 2, 0]);
     assert_eq!(snap(&h, n(1)).committed, 6);
@@ -265,10 +264,10 @@ fn divergent_uncommitted_tail_is_discarded() {
     let mut h = cluster();
     bootstrap(&mut h);
 
-    // Partition the primary first, then let it accept a client request no
+    // Partition the primary first, then let it accept an operation no
     // backup ever sees.
     h.partition(vec![n(0)], vec![n(1), n(2)]);
-    h.client_request(n(0), ClientId(1), b"x");
+    h.propose(n(0), op_id(1), b"x");
     assert_eq!(snap(&h, n(0)).accepted, 3);
     assert_eq!(payload_of(&h.journal_entries(n(0))[2]), b"x");
 
@@ -301,21 +300,21 @@ fn retained_view_outranks_accepted_frontier_section_9_2_counterexample() {
     bootstrap(&mut h);
 
     // View 0: X@3 committed everywhere.
-    h.client_request(n(0), ClientId(1), b"x");
+    h.propose(n(0), op_id(1), b"x");
     h.deliver_all();
     apply_all(&mut h, [0, 1, 2]);
 
     // Partition n0 and let it accept two entries nobody else holds.
     h.partition(vec![n(0)], vec![n(1), n(2)]);
-    h.client_request(n(0), ClientId(2), b"y"); // Y@4
-    h.client_request(n(0), ClientId(3), b"w"); // W@5
+    h.propose(n(0), op_id(2), b"y"); // Y@4
+    h.propose(n(0), op_id(3), b"w"); // W@5
     assert_eq!(snap(&h, n(0)).accepted, 5);
 
     // View 1 completes among {n1, n2}: the selected history ends at X@3.
     drive_view_change(&mut h, n(1), n(2), view(1));
 
     // View 1: Z@4 committed by {n1, n2}. n0 never sees it.
-    h.client_request(n(1), ClientId(9), b"z");
+    h.propose(n(1), op_id(9), b"z");
     h.deliver_all();
     apply_all(&mut h, [1, 2, 0]);
     assert_eq!(snap(&h, n(2)).committed, 4);
@@ -435,12 +434,12 @@ fn start_view_change_stale_ignored_and_ahead_joined() {
 }
 
 // 6. The fence is real: a node in ViewChange refuses old-view Prepares and
-//    client requests, with named diagnostics.
+//    proposals, with named diagnostics.
 #[test]
 fn the_fence_is_real() {
     let mut h = cluster();
     bootstrap(&mut h);
-    h.client_request(n(0), ClientId(1), b"a");
+    h.propose(n(0), op_id(1), b"a");
     h.deliver_all();
 
     h.partition(vec![n(0)], vec![n(1), n(2)]);
@@ -457,9 +456,8 @@ fn the_fence_is_real() {
             entry: LogEntry {
                 slot: Slot(4),
                 era: Era(1),
-                payload: Payload::Client {
-                    client: ClientId(7),
-                    request: RequestNumber(1),
+                payload: Payload::Operation {
+                    id: op_id(7),
                     payload: b"late".to_vec().into_boxed_slice(),
                 },
             },
@@ -479,10 +477,10 @@ fn the_fence_is_real() {
         })
     );
 
-    // Client requests are refused with redirection information (the
+    // Proposals are refused with redirection information (the
     // §13.4 convergence hint: current view and the primary of that view).
     assert_eq!(
-        h.client_request_numbered(n(1), ClientId(9), 1, b"w"),
+        h.propose(n(1), op_id(9), b"w"),
         StepOutcome::PlanRefused(PlanRejection::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
@@ -502,40 +500,31 @@ fn bounded_suffix_rules_section_13_1() {
     let probe = LogEntry {
         slot: Slot::FIRST,
         era: Era::INITIAL,
-        payload: Payload::Client {
-            client: ClientId(1),
-            request: RequestNumber(1),
+        payload: Payload::Operation {
+            id: op_id(1),
             payload: payload.to_vec().into_boxed_slice(),
         },
     };
     let per_entry = probe.packed_len();
-    // The budget fits exactly one client entry ON TOP of the winner's client
-    // table: the table is charged against the §13.1 budget first (it is
-    // safety evidence, never truncated) and packs the suffix inside what
-    // remains. The winner below holds two result-less rows.
-    let row_len = WireRow {
-        client: ClientId(1),
-        last_request: RequestNumber(1),
-        result: None,
-    }
-    .packed_len();
-    let table_len = 4 + 2 * row_len;
+    // The budget admits exactly one operation entry: the §13.1 suffix packs
+    // newest-first inside the budget and stops, which §13.1 explicitly
+    // permits (a short — even empty — suffix is well-formed).
     let mut h = Harness::with_knobs(
         3,
         ViewChangeKnobs {
             primary_timeout: TIMEOUT,
-            view_change_budget: per_entry + table_len,
+            view_change_budget: per_entry,
         },
     );
     bootstrap(&mut h);
 
     // Slot 3 committed by {n0, n1}; n2 stays behind at genesis.
-    h.client_request(n(0), ClientId(1), payload);
+    h.propose(n(0), op_id(1), payload);
     h.deliver_to_matching(n(1), Tag::Prepare, Slot(3));
     h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(3));
     h.drop_queued(n(2));
     // Slot 4 committed by {n0, n1} as well; n2 sees none of it.
-    h.client_request(n(0), ClientId(2), payload);
+    h.propose(n(0), op_id(2), payload);
     h.deliver_to_matching(n(1), Tag::Prepare, Slot(4));
     h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(4));
     h.drop_queued(n(2));
@@ -545,9 +534,9 @@ fn bounded_suffix_rules_section_13_1() {
     assert_eq!(snap(&h, n(2)).accepted, 2);
     assert_eq!(snap(&h, n(2)).committed, 2);
 
-    // View change among {n1, n2} with n0 down: n2's evidence table is empty
-    // (it never prepared a client slot), so its suffix packs the genesis
-    // `Init` — the newest entry its share of the budget admits.
+    // View change among {n1, n2} with n0 down: n2's evidence suffix packs
+    // the newest genesis entries its budget admits — and never a byte
+    // beyond it (W4).
     h.partition(vec![n(0)], vec![n(1), n(2)]);
     tick_into_view_change(&mut h, n(1), view(1));
     h.deliver_tag(n(2), Tag::StartViewChange);
@@ -569,26 +558,25 @@ fn bounded_suffix_rules_section_13_1() {
         Slot(2),
         "the committed scalar travels outside the suffix"
     );
-    assert_eq!(
-        suffix.len(),
-        2,
-        "the genesis window is the newest that fits the remainder"
-    );
-    assert_eq!(suffix[0].slot, Slot(1));
-    assert_eq!(suffix[1].slot, Slot(2));
+    let offered: usize = suffix.iter().map(Pack::packed_len).sum();
     assert!(
-        matches!(&suffix[1].payload, Payload::System(_)),
-        "the Init entry"
+        offered <= per_entry,
+        "the suffix never exceeds the budget by a byte (W4)"
+    );
+    assert!(
+        suffix.last().is_some_and(|entry| entry.slot == Slot(2)),
+        "the suffix ends at the reported frontier, ascending order"
     );
 
     // Complete the change: n1 is the winner (its own history). n2 sits on
-    // n1's side of the partition, so its StartView copy delivers in the
-    // same step — and n2 is missing history below the suffix base: slot 3
-    // is unverifiable (base 4 > accepted + 1 = 3). GapDetected, no fault,
-    // no adoption — the active fetch belongs to state transfer (§10); the
-    // interim is honest.
-    h.deliver_all();
+    // n1's side of the partition — but n2 is missing history below the
+    // suffix base: slot 3 is unverifiable (base 4 > accepted + 1 = 3).
+    // GapDetected, no fault, no adoption — and the fetch half of the
+    // ruling (§13.1 step 5) asks the new primary for the missing range.
+    h.deliver_tag(n(1), Tag::StartViewChange); // n2's fence completes n1's fence quorum
+    h.deliver_tag(n(1), Tag::DoViewChange); // n1 wins and broadcasts StartView
     assert_eq!(status_of(&h, n(1)), Status::Normal);
+    h.deliver_tag(n(2), Tag::StartView);
     assert_eq!(
         h.diagnostic(n(2)),
         Some(Diagnostic::GapDetected {
@@ -598,6 +586,22 @@ fn bounded_suffix_rules_section_13_1() {
     );
     assert!(!snap(&h, n(2)).faulted);
     assert_eq!(status_of(&h, n(2)), Status::ViewChange);
+    let request = h
+        .peek_queued(n(1), Tag::GetState)
+        .expect("the gap fetches from the new primary");
+    let Body::GetState { from } = &request.body else {
+        panic!("expected GetState");
+    };
+    assert_eq!(*from, Slot(3));
+    assert_eq!(request.header.slot, Slot(2));
+
+    // The rest of the exchange: the fetch is served chunk by chunk under
+    // the budget; n2 stays fenced — the completing ruling is the
+    // StartView's, already spent — and nothing faults.
+    h.deliver_all();
+    assert!(!snap(&h, n(2)).faulted);
+    assert_eq!(status_of(&h, n(2)), Status::ViewChange);
+    assert_eq!(snap(&h, n(2)).accepted, 4, "the chunks filled the gap");
 
     // The StartView carries the newest entry under the budget — exactly
     // one. n0's copy was partition-held at broadcast time; heal surfaces
@@ -640,7 +644,7 @@ fn bounded_suffix_rules_section_13_1() {
 fn start_view_conflicting_at_a_committed_slot_faults() {
     let mut h = cluster();
     bootstrap(&mut h);
-    h.client_request(n(0), ClientId(1), b"x");
+    h.propose(n(0), op_id(1), b"x");
     h.deliver_all();
     apply_all(&mut h, [0, 1, 2]);
     assert_eq!(snap(&h, n(2)).committed, 3);
@@ -657,15 +661,13 @@ fn start_view_conflicting_at_a_committed_slot_faults() {
             suffix: vec![LogEntry {
                 slot: Slot(3),
                 era: Era(1),
-                payload: Payload::Client {
-                    client: ClientId(1),
-                    request: RequestNumber(1),
+                payload: Payload::Operation {
+                    id: op_id(1),
                     payload: b"forged".to_vec().into_boxed_slice(),
                 },
             }],
             accepted: Slot(3),
             committed: Slot(3),
-            client_table: Vec::new(),
             era_proof: era_proof(),
         },
     };
@@ -685,7 +687,7 @@ fn start_view_conflicting_at_a_committed_slot_faults() {
 fn two_view_changes_for_one_view_cannot_both_complete() {
     let mut h = cluster();
     bootstrap(&mut h);
-    h.client_request(n(0), ClientId(1), b"a");
+    h.propose(n(0), op_id(1), b"a");
     h.deliver_all();
 
     h.partition(vec![n(0)], vec![n(1), n(2)]);
@@ -722,7 +724,6 @@ fn two_view_changes_for_one_view_cannot_both_complete() {
             accepted: Slot(3),
             committed: Slot(3),
             suffix: h.journal_entries(n(0)),
-            client_table: Vec::new(),
             evidence: EvidenceKind::Ordinary,
             era_proof: era_proof(),
         },
@@ -759,30 +760,29 @@ fn two_view_changes_for_one_view_cannot_both_complete() {
     h.assert_safety();
 }
 
-// 10. Duplicate retry across the change: the client's in-flight entry is
-//     discarded with the old primary's tail, the retry is refused during the
-//     change with redirection, and afterwards the entry is committed exactly
-//     once with exactly one fresh Reply. A further retry hits the surviving
-//     client table: the cached Reply is re-emitted and no new entry appears
-//     (normal-operation semantics; §11 documents idempotence as the host's
-//     friend for
-//     the lost-result case, which this scenario avoids by discarding the
-//     original entry before it ever committed).
+// 10. A retried proposal across the change: the proposer's in-flight entry
+//     is discarded with the old primary's tail, the retry is refused during
+//     the change with redirection, and afterwards the retried operation —
+//     the same host-assigned identity — commits at a fresh slot and
+//     applies exactly once in the surviving history. The core tracks
+//     nothing about the retry (§11.1, B2); exactly-once across the
+//     discard-and-retry window is the host's deduplication policy above
+//     the boundary.
 #[test]
-fn duplicate_retry_across_the_change() {
+fn retried_proposal_across_the_change() {
     let mut h = cluster();
     bootstrap(&mut h);
 
-    // The request is accepted by the old primary alone, under partition.
+    // The proposal is accepted by the old primary alone, under partition.
     h.partition(vec![n(0)], vec![n(1), n(2)]);
-    h.client_request_numbered(n(0), ClientId(1), 1, b"x");
+    h.propose(n(0), op_id(1), b"x");
     assert_eq!(snap(&h, n(0)).accepted, 3);
 
-    // The client retries during the change: n1 is fenced and refuses with
+    // The proposer retries during the change: n1 is fenced and refuses with
     // redirection to the primary of the view it is fencing into.
     tick_into_view_change(&mut h, n(1), view(1));
     assert_eq!(
-        h.client_request_numbered(n(1), ClientId(1), 1, b"x"),
+        h.propose(n(1), op_id(1), b"x"),
         StepOutcome::PlanRefused(PlanRejection::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
@@ -796,34 +796,24 @@ fn duplicate_retry_across_the_change() {
     assert_eq!(snap(&h, n(1)).accepted, 2);
     assert_eq!(h.journal_entries(n(1)).len(), 2);
 
-    // The retry is accepted fresh under view 1 and commits exactly once.
-    h.client_request_numbered(n(1), ClientId(1), 1, b"x");
+    // The retry is accepted fresh under view 1 — the core does not
+    // deduplicate, so the same identity takes the next slot — and commits
+    // exactly once.
+    h.propose(n(1), op_id(1), b"x");
     h.deliver_all();
     apply_all(&mut h, [1, 2, 0]);
     assert_eq!(snap(&h, n(1)).accepted, 3);
     assert_eq!(snap(&h, n(1)).committed, 3);
-    let fresh = h
-        .replies()
+    let applied: Vec<&(Slot, Box<[u8]>)> = h
+        .applied(n(1))
         .iter()
-        .filter(|(node, client, _, _)| *node == n(1) && *client == ClientId(1))
-        .count();
-    assert_eq!(fresh, 1, "exactly one fresh Reply");
-
-    // A further retry hits the client table that survived n1's own view
-    // change: cached Reply re-emitted, no new entry.
-    h.client_request_numbered(n(1), ClientId(1), 1, b"x");
-    h.deliver_all();
+        .filter(|(_, payload)| payload.as_ref() == b"x")
+        .collect();
     assert_eq!(
-        snap(&h, n(1)).accepted,
-        3,
-        "no new entry for the cached row"
+        applied.len(),
+        1,
+        "the retried operation applied exactly once in the surviving history"
     );
-    let replies = h
-        .replies()
-        .iter()
-        .filter(|(node, client, _, _)| *node == n(1) && *client == ClientId(1))
-        .count();
-    assert_eq!(replies, 2, "the cached reply is re-emitted");
 
     // The old primary heals and adopts: its private slot 3 is replaced by
     // the selected history (which happens to carry the same payload — the
@@ -836,7 +826,7 @@ fn duplicate_retry_across_the_change() {
         let copies = journal
             .iter()
             .filter(
-                |entry| matches!(&entry.payload, Payload::Client { payload, .. } if payload.as_ref() == b"x"),
+                |entry| matches!(&entry.payload, Payload::Operation { payload, .. } if payload.as_ref() == b"x"),
             )
             .count();
         assert_eq!(copies, 1, "the entry exists once on {id:?}");
@@ -845,7 +835,7 @@ fn duplicate_retry_across_the_change() {
     h.assert_safety();
 }
 
-// 11. Churn: requests, partitions, heals, crashes, amnesiac restarts, and
+// 11. Churn: proposals, partitions, heals, crashes, amnesiac restarts, and
 //     ticks interleaved over ~300 harness steps. Safety is asserted at every
 //     quiesce; no fault is ever declared, so any gate or journal fault fails
 //     the suite. Includes the bootstrap note: an amnesiac genesis
@@ -855,17 +845,17 @@ fn duplicate_retry_across_the_change() {
 fn churn_300_steps_requests_partitions_crashes_restarts_ticks() {
     let mut h = cluster();
     bootstrap(&mut h);
-    let mut client = 1u64;
+    let mut operation = 1u64;
 
     // 40 rounds of a fixed deterministic mix, ~8 harness steps each.
     for round in 0..40u64 {
         match round % 8 {
             0 => {
-                // A client request at the current primary, if one is live
+                // A proposal at the current primary, if one is live
                 // and Normal.
                 if let Some(primary) = current_primary(&h) {
-                    client += 1;
-                    h.client_request(primary, ClientId(u128::from(client)), b"c");
+                    operation += 1;
+                    h.propose(primary, op_id(operation), b"c");
                 }
             }
             1 => {
@@ -916,7 +906,7 @@ fn churn_300_steps_requests_partitions_crashes_restarts_ticks() {
             6 => {
                 // The amnesiac genesis primary episode (rounds 6, 14, ...):
                 // n0 re-provisions from genesis, tick-promotes itself into
-                // the stale view (1,0), and accepts a client request that
+                // the stale view (1,0), and accepts a proposal that
                 // every live peer refuses (ViewMismatch or
                 // ConflictingEntry, depending on the peer's view) — it
                 // never commits, and the next view change deposes n0 and
@@ -933,12 +923,7 @@ fn churn_300_steps_requests_partitions_crashes_restarts_ticks() {
                         "the amnesiac genesis primary promotes itself (the boot rule)"
                     );
                     assert_eq!(current_view(&h, n(0)), view(0), "...into the stale view 0");
-                    h.client_request_numbered(
-                        n(0),
-                        ClientId(u128::from(900 + round)),
-                        1,
-                        b"amnesiac",
-                    );
+                    h.propose(n(0), op_id(900 + round), b"amnesiac");
                     assert_eq!(snap(&h, n(0)).accepted, 3);
                 }
             }
@@ -975,6 +960,135 @@ fn churn_300_steps_requests_partitions_crashes_restarts_ticks() {
         assert_eq!(status_of(&h, id), Status::Normal);
         assert!(!snap(&h, id).faulted);
     }
+    h.assert_safety();
+}
+
+// 12. The §13.1 bounded suffix under an early packing break: the winner's
+//     budget may stop the packing of the selected suffix part-way (an
+//     entry exceeds the remaining budget — the budget is host policy, W5,
+//     so a peer's evidence may honestly carry more than the winner's
+//     budget admits). The packing then stops entirely: walking the journal
+//     below the selected suffix's base would emit a suffix with a hole
+//     between the packed journal entries and the unpacked selected entries
+//     above, and §13.1's shape rule refuses a non-contiguous offer at
+//     every backup — the change could never complete.
+#[test]
+fn bounded_suffix_packing_break_never_emits_a_hole() {
+    let probe = LogEntry {
+        slot: Slot::FIRST,
+        era: Era::INITIAL,
+        payload: Payload::Operation {
+            id: op_id(1),
+            payload: b"pp".to_vec().into_boxed_slice(),
+        },
+    };
+    let small = probe.packed_len();
+    // Admits exactly three small entries: the selected suffix's newest two
+    // pack, its big entry breaks the packing, and the remaining budget
+    // still has room for one more small journal entry — the hole shape.
+    let budget = 3 * small;
+    let mut h = Harness::with_knobs(
+        3,
+        ViewChangeKnobs {
+            primary_timeout: TIMEOUT,
+            view_change_budget: budget,
+        },
+    );
+    bootstrap(&mut h);
+
+    // Slots 3..=5 commit everywhere; slot 4 is the big entry.
+    h.propose(n(0), op_id(1), b"pp");
+    h.deliver_all();
+    h.propose(n(0), op_id(2), &[0x42; 64]);
+    h.deliver_all();
+    h.propose(n(0), op_id(3), b"pp");
+    h.deliver_all();
+    // Slot 6 commits at {n0, n2} only: n1's frontier stays at 5.
+    h.propose(n(0), op_id(4), b"pp");
+    h.deliver_to_matching(n(2), Tag::Prepare, Slot(6));
+    h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(6));
+    h.drop_queued(n(1));
+    h.deliver_tag(n(2), Tag::Commit);
+    assert_eq!(snap(&h, n(1)).accepted, 5);
+    assert_eq!(snap(&h, n(2)).accepted, 6);
+    assert_eq!(snap(&h, n(2)).committed, 6);
+
+    // The view-1 change: n1 (the view's primary) fences, n2 joins, both
+    // fence quorums complete. n2's real evidence stays queued; in its
+    // place arrives the evidence an n2 with a larger suffix budget would
+    // honestly send (W5): the real entries for slots 4..=6, more than
+    // n1's budget admits.
+    h.partition(vec![n(0)], vec![n(1), n(2)]);
+    tick_into_view_change(&mut h, n(1), view(1));
+    h.deliver_tag(n(2), Tag::StartViewChange);
+    h.deliver_tag(n(1), Tag::StartViewChange);
+    h.drop_queued(n(1));
+    let suffix: Vec<LogEntry> = h
+        .journal_entries(n(2))
+        .into_iter()
+        .filter(|entry| entry.slot >= Slot(4))
+        .collect();
+    assert_eq!(suffix.len(), 3);
+    let outcome = h.inject(
+        n(2),
+        n(1),
+        Message {
+            header: Header {
+                tag: Tag::DoViewChange,
+                view: view(1),
+                slot: Slot(6),
+            },
+            body: Body::DoViewChange {
+                retained: view(0),
+                accepted: Slot(6),
+                committed: Slot(6),
+                suffix,
+                evidence: EvidenceKind::Ordinary,
+                era_proof: era_proof(),
+            },
+        },
+    );
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the evidence quorum completes and the change installs"
+    );
+    assert_eq!(status_of(&h, n(1)), Status::Normal);
+
+    // The winner's StartView suffix: strictly contiguous, ending at the
+    // selected frontier, never a byte beyond the budget (§13.1, W4).
+    let start_view = h
+        .peek_queued(n(2), Tag::StartView)
+        .expect("the completed change broadcasts StartView");
+    let Body::StartView {
+        suffix,
+        accepted,
+        committed,
+        ..
+    } = &start_view.body
+    else {
+        panic!("expected StartView");
+    };
+    assert_eq!(*accepted, Slot(6));
+    assert_eq!(*committed, Slot(6));
+    assert_eq!(suffix.last().map(|entry| entry.slot), Some(Slot(6)));
+    assert!(
+        suffix
+            .windows(2)
+            .all(|pair| pair[0].slot.next() == Some(pair[1].slot)),
+        "the emitted suffix is strictly contiguous: {suffix:?}"
+    );
+    let bytes: usize = suffix.iter().map(Pack::packed_len).sum();
+    assert!(
+        bytes <= budget,
+        "the suffix never exceeds the budget by a byte (W4)"
+    );
+
+    // A backup holding the history adopts cleanly: the change completes.
+    h.deliver_tag(n(2), Tag::StartView);
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(current_view(&h, n(2)), view(1));
+    assert!(!snap(&h, n(2)).faulted);
+    assert_eq!(snap(&h, n(2)).committed, 6);
     h.assert_safety();
 }
 

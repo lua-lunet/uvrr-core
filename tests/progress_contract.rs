@@ -411,7 +411,7 @@ fn rule2_view_succession() {
 /// Rule 3 — `retained` identifies the provenance of the retained history (§1.3);
 /// it changes only when that history was re-selected: recovery, or a peer message
 /// that installs one (`DoViewChange` completing the new primary's quorum,
-/// `StartView`, `NewState`).
+/// `StartView`, `NewState`, `RecoveryResponse` completing a recovery attempt).
 #[test]
 fn rule3_retained_changes_only_on_reselection() {
     let table = genesis_table();
@@ -442,13 +442,14 @@ fn rule3_retained_changes_only_on_reselection() {
 
     // Borderline passes: each re-selection input.
     assert_eq!(legal(&old, &installed, &InputKind::Recovery), None);
-    for tag in [Tag::DoViewChange, Tag::StartView, Tag::NewState] {
+    for (tag, slot) in [
+        (Tag::DoViewChange, Slot(5)),
+        (Tag::StartView, Slot(5)),
+        (Tag::NewState, Slot(5)),
+        (Tag::RecoveryResponse, Slot(0)),
+    ] {
         assert_eq!(
-            legal(
-                &old,
-                &installed,
-                &InputKind::PeerMessage { tag, slot: Slot(5) },
-            ),
+            legal(&old, &installed, &InputKind::PeerMessage { tag, slot },),
             None,
             "{tag:?} may re-select history"
         );
@@ -460,8 +461,7 @@ fn rule3_retained_changes_only_on_reselection() {
 /// transitions below.
 #[test]
 fn rule7_header_slot_table_is_the_documented_one() {
-    let expected: [(Tag, HeaderSlotRole); 13] = [
-        (Tag::Request, HeaderSlotRole::Absent),
+    let expected: [(Tag, HeaderSlotRole); 11] = [
         (Tag::Prepare, HeaderSlotRole::Operation),
         (Tag::PrepareOk, HeaderSlotRole::Operation),
         (Tag::Commit, HeaderSlotRole::Frontier),
@@ -470,10 +470,9 @@ fn rule7_header_slot_table_is_the_documented_one() {
         (Tag::StartView, HeaderSlotRole::Frontier),
         (Tag::PlannedViewChange, HeaderSlotRole::Absent),
         (Tag::Recovery, HeaderSlotRole::Absent),
-        (Tag::RecoveryResponse, HeaderSlotRole::Frontier),
+        (Tag::RecoveryResponse, HeaderSlotRole::Absent),
         (Tag::GetState, HeaderSlotRole::Frontier),
         (Tag::NewState, HeaderSlotRole::Frontier),
-        (Tag::Reply, HeaderSlotRole::Absent),
     ];
     for (tag, role) in expected {
         assert_eq!(header_slot_role(tag), role, "{tag:?}");
@@ -526,11 +525,10 @@ fn rule7_absent_tags_must_send_the_sentinel() {
     let candidate = normal(ViewId::INITIAL, 5, 2, 1, 1, 1, &table);
 
     for tag in [
-        Tag::Request,
         Tag::StartViewChange,
         Tag::PlannedViewChange,
         Tag::Recovery,
-        Tag::Reply,
+        Tag::RecoveryResponse,
     ] {
         let violating = InputKind::PeerMessage { tag, slot: Slot(1) };
         assert_eq!(
@@ -558,7 +556,6 @@ fn rule7_frontier_tags_admit_any_slot() {
         Tag::Commit,
         Tag::DoViewChange,
         Tag::StartView,
-        Tag::RecoveryResponse,
         Tag::GetState,
         Tag::NewState,
     ] {

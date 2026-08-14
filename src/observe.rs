@@ -24,7 +24,7 @@ use core::hint::spin_loop;
 use core::ptr;
 use core::sync::atomic::{AtomicU64, Ordering, fence};
 
-use crate::ids::{Era, NodeId, Slot, ViewId};
+use crate::ids::{Era, NodeId, Slot, Tick, ViewId};
 
 /// Why a published transition dropped its peer input — or `None`, when it
 /// dropped nothing.
@@ -88,14 +88,49 @@ pub enum Diagnostic {
         /// The contested slot.
         slot: Slot,
     },
-    /// A `Prepare` past the accepted frontier's successor: a gap. Dropped.
-    /// The primary's retransmit or state transfer (§10) closes it — the
-    /// active fetch is deliberately NOT here; it belongs to state transfer.
+    /// A `Prepare` past the accepted frontier's successor, or a view-change
+    /// offer the node cannot verify against its own journal: a gap. Dropped.
+    /// The fetch half of the ruling (§10, §13.1 step 5) rides the same
+    /// transition: a `GetState` for the missing range goes to the sender,
+    /// and the installed chunks re-run the stalled ruling.
     GapDetected {
-        /// The slot the node could have accepted.
+        /// The first slot the node could not accept or verify: the
+        /// accepted frontier's successor in normal operation; in view
+        /// change, the first offered slot the node cannot check against
+        /// its journal.
         expected: Slot,
-        /// The slot the message offered.
+        /// The slot the message offered: normal operation names the single
+        /// offered slot, past `expected`; view change names the offer's
+        /// base, which sits at or below `expected` when the offer reached
+        /// back past a shared slot the node has physically let go (S1).
+        /// The pair is not ordered.
         got: Slot,
+    },
+    /// A `NewState` that is not protocol-qualified evidence for the open
+    /// fetch (§10): the node asked under another view, asked another
+    /// responder, opened no fetch at all, or already holds the chunk's
+    /// whole range. Ignored, never faulted.
+    StaleTransfer {
+        /// The transport-attributed sender.
+        sender: NodeId,
+        /// The view the chunk carried.
+        view: ViewId,
+    },
+    /// A transfer message whose shape is malformed: the header slot
+    /// disagrees with the covered range, the entries are not a contiguous
+    /// ascending run ending at it, a final chunk's committed frontier
+    /// exceeds the covered range, or an empty chunk claims more remains
+    /// (§13.1's shape rule). Dropped whole.
+    MalformedTransfer,
+    /// A `GetState` the node cannot serve (§10, §13.1 step 5): it is not
+    /// `Normal` in the requested view, the requested base is ahead of its
+    /// frontier, or its journal no longer holds the base (S1). The
+    /// requester's fetch stays open; another answer closes the gap.
+    TransferNotServed {
+        /// The transport-attributed requester.
+        sender: NodeId,
+        /// The view the request named.
+        view: ViewId,
     },
     /// A `PrepareOk` reached a node that is not the `Normal` primary of its
     /// current view.
@@ -179,6 +214,49 @@ pub enum Diagnostic {
     /// ordinary path (§8.7.7). Dropped whole; the wire cannot say which
     /// field lied.
     MalformedViewChange,
+    /// A `RecoveryResponse` whose echoed nonce names no open recovery
+    /// attempt: a delayed response from an earlier attempt (§6.1's nonce
+    /// freshness rule), or a response to an attempt this node never started.
+    /// Ignored; it counts toward nothing.
+    StaleRecoveryResponse {
+        /// The nonce the response echoed.
+        nonce: Tick,
+        /// The open attempt's nonce, when an attempt is open.
+        attempt: Option<Tick>,
+    },
+    /// A `RecoveryResponse` attributed to this node itself. A recovery
+    /// quorum is other replicas' evidence (§8.3's `R_g`); a node never
+    /// counts itself.
+    RecoveryResponseFromSelf,
+    /// A `Recovery` solicitation at a node that is not `Normal`. Only a
+    /// node that has proved its state current answers for the cluster
+    /// (§10); a fenced, recovering or replaying node declines.
+    RecoveryWhileNotNormal,
+    /// A `RecoveryResponse` carrying a history suffix from a sender that is
+    /// not the primary of the view it reported. Only the latest fenced
+    /// view's primary's log is installation evidence (§6.1); a suffix from
+    /// anywhere else is dropped with the response that carried it.
+    RecoveryHistoryNotFromPrimary {
+        /// The transport-attributed sender.
+        sender: NodeId,
+        /// The view the response reported.
+        view: ViewId,
+    },
+    /// A recovery message whose shape is malformed: the committed frontier
+    /// exceeds the accepted one, or the suffix is not a contiguous ascending
+    /// run ending at the accepted frontier. Dropped whole.
+    MalformedRecovery,
+    /// A recovery could not complete from local evidence: the base the
+    /// recovery must read from sits below the journal's retained base (S1),
+    /// so the missing prefix must come from the host's application-state
+    /// transfer facility (§4, §11). Surfaced with
+    /// [`crate::effects::Effect::RequestApplicationState`]; never a fault.
+    ApplicationStateShortfall {
+        /// The first slot the recovery required and the journal cannot serve.
+        required: Slot,
+        /// The journal's retained base: the first slot physically present.
+        retained: Slot,
+    },
 }
 
 /// A single-writer, multi-reader seqlock over a `Copy` snapshot.

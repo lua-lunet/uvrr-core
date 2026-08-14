@@ -133,8 +133,8 @@ const _: () = assert!(align_of::<Tick>() == align_of::<u64>());
 ///
 /// Decision W2: 16 opaque bytes, minted by the host. The core never generates one, so it
 /// needs no randomness source and no `uuid` dependency. It is a newtype rather than a
-/// bare `[u8; 16]` so it cannot be confused with a digest, a key, or a [`ClientId`] of
-/// the same width, and so the W3 codec has a distinct type to encode.
+/// bare `[u8; 16]` so it cannot be confused with a digest, a key, or an
+/// [`OperationId`] of the same width, and so the W3 codec has a distinct type to encode.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -143,35 +143,49 @@ pub struct MessageId(pub [u8; 16]);
 const _: () = assert!(size_of::<MessageId>() == 16);
 const _: () = assert!(align_of::<MessageId>() == align_of::<[u8; 16]>());
 
-/// Client identity, opaque to the core.
+/// An operation's identity at the application boundary (§11.1, B2): 128
+/// bits the proposing host assigns, and the core carries opaque — proposed
+/// with the operation, replicated inside its log entry, and handed back on
+/// `Effect::Apply`. The core never generates one, never inspects one, and
+/// never deduplicates on one: the same identity proposed twice is two
+/// operations. Deduplication is the host's policy above the boundary.
 ///
-/// Represented as `u128` rather than `[u8; 16]` because the client table keys on it: a
-/// `u128` is `Ord`, `Hash` and `Copy` with a single machine-level comparison, whereas a
-/// byte array of the same width gives lexicographic ordering that is only meaningful
-/// once an endianness convention is fixed. The width matches [`MessageId`], so a host
-/// with a 128-bit identifier scheme loses nothing; the W3 wire codec fixes big-endian at
-/// the boundary, which is the one place the byte order is a decision rather than an
-/// accident.
-#[repr(transparent)]
+/// Two `u64` words rather than a `u128` or a byte array: the words are the
+/// host's name for the operation (a split such as `{client, sequence}` is
+/// the host's scheme, invisible here), the pair is `Ord`, `Hash` and `Copy`
+/// with machine-level comparisons, and the W3 wire codec fixes the byte
+/// order — most significant word first, both words big-endian — at the one
+/// place byte order is a decision rather than an accident.
+///
+/// `#[repr(C)]` so the layout is as fixed as the newtypes': `msb` at offset
+/// 0, `lsb` at offset 8, no padding — a host handing the identity across an
+/// FFI boundary reads the words where it wrote them.
+#[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ClientId(pub u128);
+pub struct OperationId {
+    /// The most significant 64 bits of the identity.
+    pub msb: u64,
+    /// The least significant 64 bits of the identity.
+    pub lsb: u64,
+}
 
-const _: () = assert!(size_of::<ClientId>() == size_of::<u128>());
-const _: () = assert!(align_of::<ClientId>() == align_of::<u128>());
+const _: () = assert!(size_of::<OperationId>() == 2 * size_of::<u64>());
+const _: () = assert!(align_of::<OperationId>() == align_of::<u64>());
 
-/// Per-client monotonic request number, for the client table.
-///
-/// Duplicate suppression compares this against the highest number recorded for the
-/// client, so it must not wrap: a wrapped request number makes a fresh request look like
-/// a retransmission and returns a stale cached result.
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+/// One host operation at the application boundary (§11.1, B2): the identity
+/// the proposing host assigned and the opaque bytes to be ordered. This is
+/// the unit `Input::Propose` carries; commitment hands its parts back on
+/// `Effect::Apply` — same identity, same bytes, at every replica.
+#[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct RequestNumber(pub u64);
-
-const _: () = assert!(size_of::<RequestNumber>() == size_of::<u64>());
-const _: () = assert!(align_of::<RequestNumber>() == align_of::<u64>());
+pub struct Operation {
+    /// The operation's identity, host-assigned (§11.1). Opaque to the core.
+    pub id: OperationId,
+    /// Opaque application bytes. The core stores and carries them, and
+    /// never inspects them (§11.1).
+    pub payload: Box<[u8]>,
+}
 
 impl Era {
     /// The era established at provisioning, before any reconfiguration operation has

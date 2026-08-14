@@ -40,9 +40,14 @@
 
 use std::sync::Arc;
 
+#[path = "support/holey_journal.rs"]
+mod holey_journal;
+
+use holey_journal::HoleyLog;
+
 use vrr::configuration::{ConfigError, Configuration, SystemOperation};
 use vrr::effects::{Effect, Stability, StabilityResult};
-use vrr::ids::{ClientId, Era, Fault, NodeId, RequestNumber, Slot, Tick, View, ViewId};
+use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
 use vrr::invariant::{InputKind, header_slot_role};
 use vrr::journal::{Journal, JournalView, LogEntry, LogView, Payload, SegmentedLog};
 use vrr::message::{Body, EraProof, EvidenceKind, Message};
@@ -172,7 +177,9 @@ impl QuorumStrategy for AnythingQuorums {
 
 /// Provision constructs exactly the genesis state of §5 and §8.7.2: era 1,
 /// view 0, `Void` at slot 1 and `Init` at slot 2 both committed, `accepted ==
-/// committed == Slot(2)`, `applied == checkpoint == Slot(0)`, fenced in
+/// committed == Slot(2)`, `applied == Slot(2)` (the §11 system-slot ruling:
+/// both genesis slots are core-internal and walk `applied` by themselves)
+/// and `checkpoint == Slot(0)`, fenced in
 /// `Recovering` (the genesis ruling: a fresh node and a reopened node are
 /// uniform — fenced until they prove their state current). Nothing about a
 /// fresh cluster is special-cased into `Normal`.
@@ -186,7 +193,7 @@ fn provision_constructs_exactly_the_genesis_state() {
     assert_eq!(progress.status(), Status::Recovering);
     assert_eq!(progress.accepted(), Slot(2));
     assert_eq!(progress.committed(), Slot(2));
-    assert_eq!(progress.applied(), Slot(0));
+    assert_eq!(progress.applied(), Slot(2));
     assert_eq!(progress.checkpoint(), Slot(0));
     assert_eq!(progress.revision(), 0);
     assert_eq!(progress.fault(), None);
@@ -210,9 +217,91 @@ fn provision_constructs_exactly_the_genesis_state() {
     assert!(!snapshot.faulted);
     assert_eq!(snapshot.accepted, 2);
     assert_eq!(snapshot.committed, 2);
-    assert_eq!(snapshot.applied, 0);
+    assert_eq!(snapshot.applied, 2);
     assert_eq!(snapshot.checkpoint, 0);
     assert_eq!(snapshot.revision, 0);
+}
+
+#[test]
+fn let_go_shared_slot_reports_the_unverifiable_slot_and_offer_base() {
+    let (journal, control) = HoleyLog::controlled();
+    let mut replica = Replica::provision(
+        NodeId(0),
+        order3(),
+        WeightedMajority,
+        journal,
+        Stability::Volatile,
+        NO_VIEW_CHANGE,
+    )
+    .expect("a legal genesis provisions");
+
+    let plan = replica
+        .plan(&tick(1), &replica.journal().view())
+        .expect("the genesis primary promotes");
+    replica.publish(plan).expect("promotion publishes");
+
+    control.drop_next_accept_at(Slot(3));
+    let proposal = TimedInput {
+        at: Tick(2),
+        event: Input::Propose {
+            operation: Operation {
+                id: OperationId { msb: 0, lsb: 3 },
+                payload: b"three".to_vec().into_boxed_slice(),
+            },
+        },
+    };
+    let plan = replica
+        .plan(&proposal, &replica.journal().view())
+        .expect("the primary proposes slot 3");
+    replica.publish(plan).expect("the proposal publishes");
+    assert_eq!(replica.journal().view().accepted(), Some(Slot(3)));
+    assert_eq!(replica.journal().view().get(Slot(3)), None);
+
+    let offered = LogEntry {
+        slot: Slot(3),
+        era: Era(1),
+        payload: Payload::Operation {
+            id: OperationId { msb: 0, lsb: 3 },
+            payload: b"three".to_vec().into_boxed_slice(),
+        },
+    };
+    let start_view = TimedInput {
+        at: Tick(3),
+        event: Input::Peer {
+            from: NodeId(1),
+            message: Message {
+                header: Header {
+                    tag: Tag::StartView,
+                    view: ViewId {
+                        era: Era(1),
+                        view: View(1),
+                    },
+                    slot: Slot(3),
+                },
+                body: Body::StartView {
+                    suffix: vec![genesis_entries(order3())[1].clone(), offered],
+                    accepted: Slot(3),
+                    committed: Slot(2),
+                    era_proof: EraProof {
+                        op: SystemOperation::Init { order: order3() },
+                        committed_at: Slot(2),
+                    },
+                },
+            },
+        },
+    };
+    let plan = replica
+        .plan(&start_view, &replica.journal().view())
+        .expect("the qualified offer is evaluated");
+    replica.publish(plan).expect("the gap diagnostic publishes");
+    assert_eq!(
+        replica.observer().read_diagnostic(),
+        vrr::observe::Diagnostic::GapDetected {
+            expected: Slot(3),
+            got: Slot(2),
+        }
+    );
+    assert_eq!(replica.progress().fault(), None);
 }
 
 /// A node outside the genesis order cannot provision as that cluster.
@@ -756,9 +845,8 @@ fn a_faulted_replica_refuses_every_input_variant() {
             entry: LogEntry {
                 slot: Slot(3),
                 era: Era(1),
-                payload: Payload::Client {
-                    client: ClientId(1),
-                    request: RequestNumber(1),
+                payload: Payload::Operation {
+                    id: OperationId { msb: 0, lsb: 1 },
                     payload: Box::new([1]),
                 },
             },
@@ -770,10 +858,11 @@ fn a_faulted_replica_refuses_every_input_variant() {
             from: NodeId(0),
             message,
         },
-        Input::Client {
-            client: ClientId(7),
-            request: RequestNumber(1),
-            payload: Box::new([1, 2]),
+        Input::Propose {
+            operation: Operation {
+                id: OperationId { msb: 0, lsb: 7 },
+                payload: Box::new([1, 2]),
+            },
         },
         Input::Tick,
         Input::Recover,
@@ -781,16 +870,18 @@ fn a_faulted_replica_refuses_every_input_variant() {
             revision: 0,
             result: stable(),
         },
-        Input::Applied {
-            slot: Slot(2),
-            result: Box::new([1]),
-        },
+        Input::Applied { slot: Slot(2) },
         Input::Checkpointed { through: Slot(2) },
         Input::Reconfigure {
             op: SystemOperation::Double,
             pivot: None,
         },
-        Input::AdminForceView { view: View(9) },
+        Input::AdminForceView {
+            target: ViewId {
+                era: Era(1),
+                view: View(9),
+            },
+        },
     ];
 
     for input in inputs {
@@ -800,7 +891,7 @@ fn a_faulted_replica_refuses_every_input_variant() {
                 tag: message.header.tag,
                 slot: message.header.slot,
             },
-            Input::Client { .. } => InputKind::ClientRequest,
+            Input::Propose { .. } => InputKind::ClientRequest,
             Input::Tick => InputKind::Tick,
             Input::Recover => InputKind::Recovery,
             Input::StabilityConfirmation { .. } => InputKind::StabilityConfirmed,
@@ -925,9 +1016,8 @@ fn entry(slot: u64) -> LogEntry {
     LogEntry {
         slot: Slot(slot),
         era: Era(1),
-        payload: Payload::Client {
-            client: ClientId(1),
-            request: RequestNumber(slot),
+        payload: Payload::Operation {
+            id: OperationId { msb: 0, lsb: slot },
             payload: Box::new([0xAB, slot as u8]),
         },
     }
@@ -959,15 +1049,6 @@ fn message(tag: Tag, slot: Slot, body: Body) -> Message {
 fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
     let cases: Vec<Message> = vec![
         message(
-            Tag::Request,
-            Slot(0),
-            Body::Request {
-                client: ClientId(3),
-                request: RequestNumber(4),
-                payload: Box::new([9, 8, 7]),
-            },
-        ),
-        message(
             Tag::Prepare,
             Slot(3),
             Body::Prepare {
@@ -986,7 +1067,6 @@ fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
                 accepted: Slot(5),
                 committed: Slot(2),
                 suffix: vec![entry(4), entry(5)],
-                client_table: Vec::new(),
                 evidence: EvidenceKind::Ordinary,
                 era_proof: era_proof(),
             },
@@ -998,7 +1078,6 @@ fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
                 suffix: vec![entry(4), entry(5)],
                 accepted: Slot(5),
                 committed: Slot(2),
-                client_table: Vec::new(),
                 era_proof: era_proof(),
             },
         ),
@@ -1006,9 +1085,10 @@ fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
         message(Tag::Recovery, Slot(0), Body::Recovery { nonce: Tick(99) }),
         message(
             Tag::RecoveryResponse,
-            Slot(5),
+            Slot(0),
             Body::RecoveryResponse {
                 nonce: Tick(99),
+                view: genesis_view(),
                 accepted: Slot(5),
                 committed: Slot(2),
                 suffix: Some(vec![entry(4), entry(5)]),
@@ -1016,9 +1096,10 @@ fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
         ),
         message(
             Tag::RecoveryResponse,
-            Slot(5),
+            Slot(0),
             Body::RecoveryResponse {
                 nonce: Tick(99),
+                view: genesis_view(),
                 accepted: Slot(5),
                 committed: Slot(2),
                 suffix: None,
@@ -1032,21 +1113,13 @@ fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
                 entries: vec![entry(3), entry(4), entry(5)],
                 through: Slot(5),
                 committed: Slot(2),
-            },
-        ),
-        message(
-            Tag::Reply,
-            Slot(0),
-            Body::Reply {
-                client: ClientId(3),
-                request: RequestNumber(4),
-                result: Box::new([1]),
+                more: false,
             },
         ),
     ];
 
     // One case per tag: the coverage is exhaustive by construction.
-    assert_eq!(cases.len(), 14, "13 tags plus the RecoveryResponse option");
+    assert_eq!(cases.len(), 12, "11 tags plus the RecoveryResponse option");
 
     for case in &cases {
         assert_eq!(

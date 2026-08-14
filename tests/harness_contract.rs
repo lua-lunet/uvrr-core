@@ -9,7 +9,7 @@
 //! 2. force-feed — `inject` reaches a node with exactly the outcome of a
 //!    queued delivery of the same datagram, and a legitimate
 //!    `Prepare` from the view-0 primary is adopted and accepted by a
-//!    `Recovering` backup while a client request to a non-primary is the
+//!    `Recovering` backup while a proposal to a non-primary is the
 //!    named `NotPrimary` refusal;
 //! 3. partition accounting — datagrams sent across a partition are held,
 //!    counted, and deliverable after `heal`; an explicit drop is recorded;
@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, Stability, StabilityResult};
-use vrr::ids::{ClientId, Era, Fault, NodeId, RequestNumber, Slot, Tick, View, ViewId};
+use vrr::ids::{Era, Fault, NodeId, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, Message};
 use vrr::progress::{ProgressSnapshot, Status};
@@ -66,9 +66,8 @@ fn prepare(slot: u64) -> Message {
             entry: LogEntry {
                 slot: Slot(slot),
                 era: Era(1),
-                payload: Payload::Client {
-                    client: ClientId(1),
-                    request: RequestNumber(slot),
+                payload: Payload::Operation {
+                    id: OperationId { msb: 0, lsb: slot },
                     payload: Box::new([0xAB]),
                 },
             },
@@ -193,7 +192,7 @@ fn run_script() -> Harness {
     h.send(n(0), n(2), prepare(3));
     h.deliver_next();
     h.inject(n(0), n(2), commit(2));
-    h.client_request(n(0), ClientId(7), b"set x=1");
+    h.propose(n(0), OperationId { msb: 0, lsb: 7 }, b"set x=1");
     h.tick_all();
     h.partition(vec![n(0)], vec![n(1), n(2)]);
     h.send(n(2), n(0), prepare_ok(3));
@@ -217,7 +216,7 @@ fn the_same_script_produces_byte_identical_traces() {
     // nothing to execute and the records are empty. Asserted, not assumed.
     assert!(harness.execute_apply_effects(n(0)).is_empty());
     assert!(harness.applied(n(0)).is_empty());
-    assert!(harness.replies().is_empty());
+    assert!(harness.boundary_events().is_empty());
 
     let first = harness.trace_dump();
     let second = run_script().trace_dump();
@@ -260,11 +259,11 @@ fn inject_reaches_the_node_exactly_as_a_queued_delivery() {
         "force-feed and queued delivery agree"
     );
 
-    // A client request to a non-primary is the named `NotPrimary` refusal,
+    // A proposal to a non-primary is the named `NotPrimary` refusal,
     // carrying the redirection information (§13.4's convergence hint):
     // the backup adopted view 0 above and is Normal, but the primary of
     // view 0 is n0.
-    let refusal = injected.client_request(n(1), ClientId(9), b"op");
+    let refusal = injected.propose(n(1), OperationId { msb: 0, lsb: 9 }, b"op");
     assert_eq!(
         refusal,
         StepOutcome::PlanRefused(PlanRejection::NotPrimary {
@@ -363,7 +362,10 @@ fn crash_makes_deliveries_undeliverable_and_restart_restores() {
     assert_eq!(s.status, Status::Recovering.to_word());
     assert_eq!(s.accepted, 2);
     assert_eq!(s.committed, 2);
-    assert_eq!(s.applied, 0);
+    assert_eq!(
+        s.applied, 2,
+        "the §11 system-slot ruling: the genesis slots walk applied by themselves"
+    );
     assert_eq!(s.checkpoint, 0);
     assert_eq!(s.revision, 0, "the prior life is gone");
     assert!(!s.faulted);

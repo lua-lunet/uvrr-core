@@ -14,7 +14,7 @@
 //! re-deriving it:
 //!
 //! 1. **The wire is pinned by golden vectors.** `Header` is exactly 20 bytes in a
-//!    stated order, and `ClientId` is big-endian. A golden vector is the only test that
+//!    stated order, and `OperationId` is big-endian. A golden vector is the only test that
 //!    catches a symmetric mistake — an encoder and decoder that agree with each other
 //!    and disagree with the specification round-trip perfectly.
 //! 2. **`packed_len()` is normative, not advisory (W3).** It equals the byte count
@@ -35,14 +35,13 @@
 //! and total coverage is strictly stronger than any number of random draws.
 
 use proptest::prelude::*;
-use vrr::ids::{ClientId, Era, MessageId, NodeId, RequestNumber, Slot, Tick, View, ViewId};
+use vrr::ids::{Era, MessageId, NodeId, OperationId, Slot, Tick, View, ViewId};
 use vrr::wire::{Header, Malformed, Pack, PackError, Tag, Unpack, UnpackCursor, UnpackError};
 
 /// Every `Tag`, in discriminant order. Used by the round-trip and exhaustiveness
 /// groups. Kept as an explicit list rather than derived from a `Tag::ALL` constant so
 /// that the test agrees with the brief's table independently of the implementation.
-const ALL_TAGS: [Tag; 13] = [
-    Tag::Request,
+const ALL_TAGS: [Tag; 11] = [
     Tag::Prepare,
     Tag::PrepareOk,
     Tag::Commit,
@@ -54,7 +53,6 @@ const ALL_TAGS: [Tag; 13] = [
     Tag::RecoveryResponse,
     Tag::GetState,
     Tag::NewState,
-    Tag::Reply,
 ];
 
 /// Encodes `value` into a fresh `Vec` sized by `packed_len()` and asserts the write
@@ -117,31 +115,40 @@ fn header_golden_vector() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. `ClientId` golden vector
+// 2. `OperationId` golden vector
 // ---------------------------------------------------------------------------
 
-/// `u128` was chosen for `ClientId` and the byte-order decision was explicitly
-/// deferred to this module. W4 settles it: big-endian, like every other integer on
-/// this wire.
-/// Pinned by a vector so the deferral is discharged by a test and not by a sentence.
+/// An `OperationId` is 16 bytes, most-significant word first, each word
+/// big-endian — like every other integer on this wire (W4). The identity is
+/// opaque to the core (§11.1, B2), but its wire shape is pinned by a vector
+/// so two hosts cannot disagree about the byte order.
 #[test]
-fn client_id_golden_vector_is_big_endian() {
-    let id = ClientId(0x0011_2233_4455_6677_8899_aabb_ccdd_eeff);
+fn operation_id_golden_vector_is_big_endian() {
+    let id = OperationId {
+        msb: 0x0011_2233_4455_6677,
+        lsb: 0x8899_aabb_ccdd_eeff,
+    };
     assert_eq!(
         encode(&id),
         vec![
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
             0xee, 0xff,
         ],
-        "ClientId is 16 bytes big-endian (W4); the byte-order decision was deferred to wire"
+        "OperationId is 16 bytes, msb first, both words big-endian (W4)"
     );
     assert_eq!(id.packed_len(), 16);
 
-    // The most significant byte leads, so a one-valued id is fifteen zeros then 0x01.
-    let one = ClientId(1);
+    // The most significant byte of the least significant word trails.
+    let one = OperationId { msb: 0, lsb: 1 };
     let mut expect = vec![0u8; 16];
     expect[15] = 0x01;
     assert_eq!(encode(&one), expect);
+
+    // The most significant word leads.
+    let high = OperationId { msb: 1, lsb: 0 };
+    let mut expect = vec![0u8; 16];
+    expect[7] = 0x01;
+    assert_eq!(encode(&high), expect);
 }
 
 // ---------------------------------------------------------------------------
@@ -241,8 +248,7 @@ proptest! {
         round_trip(Slot(d));
         round_trip(Tick(d));
         round_trip(MessageId(g));
-        round_trip(ClientId(e));
-        round_trip(RequestNumber(d));
+        round_trip(OperationId { msb: d, lsb: d });
         round_trip(ViewId { era: Era(c), view: View(c) });
         round_trip(header);
     }
@@ -360,7 +366,7 @@ proptest! {
         let _ = Header::unpack_from(&bytes);
         let _ = Tag::unpack_from(&bytes);
         let _ = ViewId::unpack_from(&bytes);
-        let _ = ClientId::unpack_from(&bytes);
+        let _ = OperationId::unpack_from(&bytes);
         let _ = MessageId::unpack_from(&bytes);
         let _ = bool::unpack_from(&bytes);
 
@@ -384,8 +390,8 @@ proptest! {
 // ---------------------------------------------------------------------------
 
 /// Zero is reserved, so an all-zero buffer is not a message. Without the reservation a
-/// zeroed page, a zero-filled scratch buffer, or a padded datagram would decode as a
-/// valid `Request`, and the codec would have no way to tell a message from an absence.
+/// zeroed page, a zero-filled scratch buffer, or a padded datagram would decode as the
+/// lowest-numbered tag, and the codec would have no way to tell a message from an absence.
 #[test]
 fn tag_zero_is_reserved() {
     let bytes = [0u8; 4];
@@ -625,7 +631,6 @@ fn no_source_file_names_a_datagram_size() {
 fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
     for tag in ALL_TAGS {
         let discriminant: u32 = match tag {
-            Tag::Request => 1,
             Tag::Prepare => 2,
             Tag::PrepareOk => 3,
             Tag::Commit => 4,
@@ -637,7 +642,6 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
             Tag::RecoveryResponse => 10,
             Tag::GetState => 11,
             Tag::NewState => 12,
-            Tag::Reply => 13,
         };
         assert_eq!(
             tag.as_u32(),
@@ -653,11 +657,17 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
     }
 
     // The whole numbering, including both boundaries of the reserved space.
-    for candidate in 1u32..=13 {
-        let tag = Tag::from_u32(candidate).expect("1..=13 are all tags");
+    // Discriminants 1 and 13 belonged to the retired client-datagram tags
+    // (B2: client traffic is a host concern, never a core datagram); they
+    // stay reserved — reuse would collide with deployments that still carry
+    // the old numbering on a wire.
+    for candidate in 2u32..=12 {
+        let tag = Tag::from_u32(candidate).expect("2..=12 are all tags");
         assert_eq!(tag.as_u32(), candidate);
     }
     assert_eq!(Tag::from_u32(0), None, "0 is reserved, not a tag");
+    assert_eq!(Tag::from_u32(1), None, "1 is retired, not a tag");
+    assert_eq!(Tag::from_u32(13), None, "13 is retired, not a tag");
     assert_eq!(Tag::from_u32(14), None, "14 is not yet a tag");
 
     // `PlannedViewChange` is a distinct tag rather than a flag on `StartViewChange`
@@ -728,8 +738,11 @@ fn serde_round_trip_ids() {
     assert_round_trip(View(9));
     assert_round_trip(Slot(u64::MAX));
     assert_round_trip(Tick(1_000_000));
-    assert_round_trip(ClientId(u128::MAX));
-    assert_round_trip(RequestNumber(42));
+    assert_round_trip(OperationId {
+        msb: u64::MAX,
+        lsb: u64::MAX,
+    });
+    assert_round_trip(OperationId { msb: 0, lsb: 42 });
     assert_round_trip(MessageId([
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0xFF,
     ]));

@@ -1,7 +1,7 @@
-//! Normal operation: VRR-2012 §4 (Request/Prepare/PrepareOk/Commit), the
-//! client table (§9.2's two-exchange answer),
-//! the Apply/Applied/Reply boundary (§11), commit-frontier piggybacking
-//! (§13.3), and the bootstrap from the fenced `Recovering` genesis state.
+//! Normal operation: VRR-2012 §4 (Prepare/PrepareOk/Commit), the
+//! Propose/Apply/Applied application boundary (§11.1), commit-frontier
+//! piggybacking (§13.3), and the bootstrap from the fenced `Recovering`
+//! genesis state.
 //!
 //! The bootstrap (the genesis ruling, §1.3): a `Recovering` node whose journal holds
 //! the complete committed genesis (slots 1–2, nothing missing) and which IS
@@ -13,7 +13,7 @@
 
 use vrr::configuration::INIT_SLOT;
 use vrr::effects::Effect;
-use vrr::ids::{ClientId, Era, NodeId, RequestNumber, Slot, View, ViewId};
+use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
 use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
@@ -28,6 +28,12 @@ use harness::{BoundaryEvent, Harness, StepOutcome};
 
 fn n(id: u32) -> NodeId {
     NodeId(id)
+}
+
+/// An operation identity for the scripts: the host assigns it, the core
+/// carries it opaque (§11.1, B2).
+fn op_id(lsb: u64) -> OperationId {
+    OperationId { msb: 0, lsb }
 }
 
 /// The view every node in these tests provisions and bootstraps into: era 1
@@ -49,12 +55,12 @@ fn bootstrapped() -> Harness {
     h
 }
 
-/// The `Prepare` a view-0 primary would send for a client payload at `slot`.
+/// The `Prepare` a view-0 primary would send for an operation at `slot`.
 /// Scripts use it to re-offer a dropped `Prepare` (the harness's documented
 /// fabrication path), standing in for the primary's retransmit, which
-/// belongs to state transfer (§10). The entry carries its `(client, request)` identity
-/// (§9.2), so the fabrication must name it.
-fn prepare(slot: u64, committed: u64, client: u128, request: u64, payload: &[u8]) -> Message {
+/// belongs to state transfer (§10). The entry carries its operation
+/// identity (§11.1), so the fabrication must name it.
+fn prepare(slot: u64, committed: u64, operation_id: OperationId, payload: &[u8]) -> Message {
     Message {
         header: Header {
             tag: Tag::Prepare,
@@ -65,9 +71,8 @@ fn prepare(slot: u64, committed: u64, client: u128, request: u64, payload: &[u8]
             entry: LogEntry {
                 slot: Slot(slot),
                 era: Era(1),
-                payload: Payload::Client {
-                    client: ClientId(client),
-                    request: RequestNumber(request),
+                payload: Payload::Operation {
+                    id: operation_id,
                     payload: payload.into(),
                 },
             },
@@ -76,9 +81,11 @@ fn prepare(slot: u64, committed: u64, client: u128, request: u64, payload: &[u8]
     }
 }
 
-/// Bootstrap plus one request end to end (§4): the tick promotes the genesis
-/// primary; the `Prepare` adopts+accepts at the backup; the `PrepareOk`
-/// completes the Commit quorum; the Apply precedes the Reply (§11.2).
+/// Bootstrap plus one operation end to end (§4): the tick promotes the
+/// genesis primary; the `Prepare` adopts+accepts at the backup; the
+/// `PrepareOk` completes the Commit quorum; the `Apply` carries the
+/// operation's identity to the host, whose `Applied` acknowledgement
+/// advances the applied frontier (§11.1).
 #[test]
 fn bootstrap_and_one_request_end_to_end() {
     let mut h = Harness::provision(3);
@@ -116,9 +123,9 @@ fn bootstrap_and_one_request_end_to_end() {
         "the promotion announced the committed frontier to both backups (§13.3)"
     );
 
-    let outcome = h.client_request(n(0), ClientId(1), b"first");
+    let outcome = h.propose(n(0), op_id(1), b"first");
     let StepOutcome::Published { effects, .. } = outcome else {
-        panic!("the primary accepts the request: {outcome:?}");
+        panic!("the primary accepts the proposal: {outcome:?}");
     };
     assert_eq!(effects.len(), 2, "Prepare broadcast to both backups");
     for effect in &effects {
@@ -155,26 +162,23 @@ fn bootstrap_and_one_request_end_to_end() {
         panic!("the commit publishes: {:?}", delivery.outcome);
     };
     assert!(
-        matches!(&effects[0], Effect::Apply { slot, payload } if *slot == Slot(3) && payload.as_ref() == b"first"),
-        "the Apply is the first released effect (§11.1): {effects:?}"
+        matches!(&effects[0], Effect::Apply { slot, operation_id, payload }
+            if *slot == Slot(3) && *operation_id == op_id(1) && payload.as_ref() == b"first"),
+        "the Apply is the first released effect, carrying the operation's identity (§11.1): {effects:?}"
     );
     assert_eq!(h.snapshot(n(0)).expect("up").committed, 3);
 
-    // The application completes the slot; only then does the Reply exist.
+    // The application performs the slot and acknowledges it; the applied
+    // frontier advances. Nothing comes back: `Applied` carries no result
+    // and the boundary has no reply (B2).
     let applies = h.execute_apply_effects(n(0));
     assert_eq!(applies.len(), 1);
     assert_eq!(applies[0].slot, Slot(3));
     assert!(matches!(applies[0].outcome, StepOutcome::Published { .. }));
-    let expected_replies: &[(NodeId, ClientId, RequestNumber, Box<[u8]>)] = &[(
-        n(0),
-        ClientId(1),
-        RequestNumber(1),
-        Box::from(&b"first"[..]),
-    )];
     assert_eq!(
-        h.replies(),
-        expected_replies,
-        "the reply carries the application's result (§11.2)"
+        h.snapshot(n(0)).expect("up").applied,
+        3,
+        "the Applied acknowledgement advanced the applied frontier"
     );
 
     // Quiesce: every node commits and applies slot 3, in order, and the
@@ -196,7 +200,7 @@ fn bootstrap_and_one_request_end_to_end() {
 #[test]
 fn commit_propagates_by_commit_message_and_by_piggyback() {
     let mut h = bootstrapped();
-    h.client_request(n(0), ClientId(1), b"one"); // slot 3
+    h.propose(n(0), op_id(1), b"one"); // slot 3
     h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
         .expect("queued");
     h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
@@ -225,7 +229,7 @@ fn commit_propagates_by_commit_message_and_by_piggyback() {
 
     // The NEXT Prepare carries the new frontier: the piggyback commits slot
     // 3 at n2 without any further Commit message (§13.3).
-    h.client_request(n(0), ClientId(1), b"two"); // slot 4, piggyback 3
+    h.propose(n(0), op_id(2), b"two"); // slot 4, piggyback 3
     let delivery = h
         .deliver_to_matching(n(2), Tag::Prepare, Slot(4))
         .expect("queued");
@@ -233,10 +237,10 @@ fn commit_propagates_by_commit_message_and_by_piggyback() {
         panic!("n2 accepts slot 4: {:?}", delivery.outcome);
     };
     assert!(
-        effects
-            .iter()
-            .any(|effect| matches!(effect, Effect::Apply { slot, payload }
-            if *slot == Slot(3) && payload.as_ref() == b"one")),
+        effects.iter().any(
+            |effect| matches!(effect, Effect::Apply { slot, payload, .. }
+            if *slot == Slot(3) && payload.as_ref() == b"one")
+        ),
         "the piggybacked frontier applied slot 3 at n2: {effects:?}"
     );
     assert_eq!(h.snapshot(n(2)).expect("up").committed, 3);
@@ -263,7 +267,7 @@ fn commit_propagates_by_commit_message_and_by_piggyback() {
 #[test]
 fn commit_lands_on_a_weighted_majority_not_unanimity() {
     let mut h = bootstrapped();
-    h.client_request(n(0), ClientId(1), b"op"); // slot 3
+    h.propose(n(0), op_id(1), b"op"); // slot 3
     h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
         .expect("queued");
     h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
@@ -296,88 +300,56 @@ fn commit_lands_on_a_weighted_majority_not_unanimity() {
     h.assert_safety();
 }
 
-/// The client table, every branch pinned (§9.2): cached reply on an exact
-/// duplicate after completion, silent drop while in flight, accept exactly
-/// `last + 1`, silent drop for anything
-/// else — and an unknown client's first request must be number 1.
+/// No deduplication at the boundary (§11.1, B2): the same [`OperationId`]
+/// proposed twice is TWO operations to the core — two slots, two commits,
+/// two `Apply` effects, each carrying the identity the host assigned.
+/// Exactly-once is the host's deduplication policy above the boundary,
+/// never the core's.
 #[test]
-fn client_table_every_branch() {
+fn duplicate_proposal_is_a_distinct_operation() {
     let mut h = bootstrapped();
-
-    // A completed request: (7, 1) committed, applied, replied.
-    h.client_request(n(0), ClientId(7), b"op"); // slot 3
-    h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
-        .expect("queued");
-    h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
-        .expect("queued");
-    h.execute_apply_effects(n(0));
-    assert_eq!(h.replies().len(), 1);
-
-    // Exact duplicate after the Reply: the cached result is re-emitted; no
-    // new log entry, no new Prepare.
-    let queued = h.queued_len();
-    let outcome = h.client_request_numbered(n(0), ClientId(7), 1, b"op");
-    let StepOutcome::Published { effects, .. } = outcome else {
-        panic!("the cached reply publishes: {outcome:?}");
-    };
-    let expected: &[Effect] = &[Effect::Reply {
-        client: ClientId(7),
-        request: RequestNumber(1),
-        result: Box::from(&b"op"[..]),
-    }];
-    assert_eq!(
-        effects.as_slice(),
-        expected,
-        "the cached reply is re-emitted"
-    );
-    assert_eq!(h.queued_len(), queued, "no new Prepare");
+    let id = op_id(42);
+    h.propose(n(0), id, b"first"); // slot 3
+    h.propose(n(0), id, b"second"); // the same identity again: slot 4
     assert_eq!(
         h.snapshot(n(0)).expect("up").accepted,
-        3,
-        "no new log entry"
+        4,
+        "the duplicate identity took the next slot — nothing was dropped"
     );
 
-    // In-flight duplicate: (7, 2) is accepted; resubmitting it while it is
-    // in the pipe is a silent drop.
-    h.client_request_numbered(n(0), ClientId(7), 2, b"op2"); // slot 4
-    let queued = h.queued_len();
-    let outcome = h.client_request_numbered(n(0), ClientId(7), 2, b"op2");
-    let StepOutcome::Published { effects, .. } = outcome else {
-        panic!("the drop publishes: {outcome:?}");
-    };
-    assert!(effects.is_empty(), "in-flight duplicate: silent drop");
-    assert_eq!(h.queued_len(), queued, "no second Prepare");
-    assert_eq!(h.snapshot(n(0)).expect("up").accepted, 4);
-
-    // A gap in the client sequence (last is 2, this is 4): dropped. The
-    // client protocol is one-outstanding monotonic; a gap is a client
-    // violation, not a node fault.
-    let outcome = h.client_request_numbered(n(0), ClientId(7), 4, b"skip");
-    assert!(matches!(outcome, StepOutcome::Published { ref effects, .. } if effects.is_empty()));
-    assert_eq!(h.snapshot(n(0)).expect("up").accepted, 4);
-
-    // A replay of number 0: behind the table, dropped.
-    let outcome = h.client_request_numbered(n(0), ClientId(7), 0, b"zero");
-    assert!(matches!(outcome, StepOutcome::Published { ref effects, .. } if effects.is_empty()));
-
-    // An unknown client's first request must be 1: (9, 3) drops, (9, 1)
-    // accepts slot 5.
-    let outcome = h.client_request_numbered(n(0), ClientId(9), 3, b"late");
-    assert!(matches!(outcome, StepOutcome::Published { ref effects, .. } if effects.is_empty()));
-    let outcome = h.client_request_numbered(n(0), ClientId(9), 1, b"hi");
-    assert!(matches!(outcome, StepOutcome::Published { ref effects, .. } if effects.len() == 2));
-    assert_eq!(h.snapshot(n(0)).expect("up").accepted, 5);
-
     h.deliver_all();
-    for id in [n(0), n(1), n(2)] {
-        h.execute_apply_effects(id);
+    for node in [n(0), n(1), n(2)] {
+        h.execute_apply_effects(node);
     }
-    let cached = h
-        .replies()
+    let applies: Vec<(Slot, OperationId)> = h
+        .boundary_events()
         .iter()
-        .filter(|(_, client, request, _)| *client == ClientId(7) && *request == RequestNumber(1))
-        .count();
-    assert_eq!(cached, 2, "the original reply and the cached re-emission");
+        .filter_map(|event| match event {
+            BoundaryEvent::Applied {
+                node,
+                slot,
+                operation_id,
+            } if *node == n(0) => Some((*slot, *operation_id)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        applies,
+        vec![(Slot(3), id), (Slot(4), id)],
+        "the duplicate identity applied twice, once per proposal, in slot order"
+    );
+    let expected: &[(Slot, Box<[u8]>)] = &[
+        (Slot(3), Box::from(&b"first"[..])),
+        (Slot(4), Box::from(&b"second"[..])),
+    ];
+    for node in [n(0), n(1), n(2)] {
+        assert_eq!(
+            h.applied(node),
+            expected,
+            "n{} applied both proposals",
+            node.0
+        );
+    }
     h.assert_safety();
 }
 
@@ -386,7 +358,7 @@ fn client_table_every_branch() {
 #[test]
 fn duplicate_prepare_is_idempotent() {
     let mut h = bootstrapped();
-    h.client_request(n(0), ClientId(1), b"x"); // slot 3
+    h.propose(n(0), op_id(1), b"x"); // slot 3
     h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
         .expect("queued");
     h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
@@ -395,7 +367,7 @@ fn duplicate_prepare_is_idempotent() {
 
     // The retransmitted Prepare carries the same entry: re-acknowledged,
     // never re-appended.
-    h.send(n(0), n(1), prepare(3, 2, 1, 1, b"x"));
+    h.send(n(0), n(1), prepare(3, 2, op_id(1), b"x"));
     let delivery = h
         .deliver_to_matching(n(1), Tag::Prepare, Slot(3))
         .expect("queued");
@@ -434,22 +406,23 @@ fn duplicate_prepare_is_idempotent() {
 }
 
 /// An out-of-order `Prepare` is a gap: dropped, reported as `GapDetected`,
-/// never faulted. The missing `Prepare` closes the gap; the re-offered slot
-/// then completes the chain. The re-offer stands in for the primary's
-/// retransmit — the active fetch belongs to state transfer (§10).
+/// never faulted — and the fetch half of the ruling (§13.1 step 5) rides
+/// the same transition, asking the primary for the missing range. The
+/// missing `Prepare` closes the gap; the re-offered slot then completes
+/// the chain. The re-offer stands in for the primary's retransmit.
 #[test]
 fn out_of_order_prepare_gap_is_dropped_and_recovered() {
     let mut h = bootstrapped();
-    h.client_request(n(0), ClientId(1), b"first"); // slot 3
-    h.client_request(n(0), ClientId(1), b"second"); // slot 4
+    h.propose(n(0), op_id(1), b"first"); // slot 3
+    h.propose(n(0), op_id(2), b"second"); // slot 4
 
     // Slot 4 before slot 3: a gap.
     let delivery = h
         .deliver_to_matching(n(1), Tag::Prepare, Slot(4))
         .expect("queued");
     assert!(
-        matches!(delivery.outcome, StepOutcome::Published { ref effects, .. } if effects.is_empty()),
-        "the gap publishes no effects: {:?}",
+        matches!(delivery.outcome, StepOutcome::Published { ref effects, .. } if effects.len() == 1),
+        "the gap publishes only its fetch: {:?}",
         delivery.outcome
     );
     assert_eq!(
@@ -466,13 +439,25 @@ fn out_of_order_prepare_gap_is_dropped_and_recovered() {
         "the gap was dropped, not accepted"
     );
 
+    // The fetch half of the ruling: a `GetState` for the missing range,
+    // addressed to the primary, resuming one past the frontier.
+    let request = h
+        .peek_queued(n(0), Tag::GetState)
+        .expect("the gap fetches from the primary");
+    let Body::GetState { from } = &request.body else {
+        panic!("expected GetState");
+    };
+    assert_eq!(*from, Slot(3));
+    assert_eq!(request.header.slot, Slot(2));
+    h.drop_queued(n(0)); // the re-offer below closes the gap instead
+
     // The missing Prepare arrives: the chain resumes without any fault.
     h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
         .expect("queued");
     assert_eq!(h.snapshot(n(1)).expect("up").accepted, 3);
 
     // Slot 4 is re-offered and the chain completes.
-    h.send(n(0), n(1), prepare(4, 3, 1, 2, b"second"));
+    h.send(n(0), n(1), prepare(4, 3, op_id(2), b"second"));
     h.deliver_all();
     for id in [n(0), n(1), n(2)] {
         h.execute_apply_effects(id);
@@ -493,18 +478,18 @@ fn out_of_order_prepare_gap_is_dropped_and_recovered() {
     h.assert_safety();
 }
 
-/// Client requests route to the primary of the current view, and only
-/// there: the named `NotPrimary` refusal, before and after the bootstrap.
-/// The refusal carries the node's current view and the primary of that view
-/// (§13.4's convergence hint), so a host can redirect the client.
+/// Proposals route to the primary of the current view, and only there: the
+/// named `NotPrimary` refusal, before and after the bootstrap. The refusal
+/// carries the node's current view and the primary of that view (§13.4's
+/// convergence hint), so a host can redirect the proposer.
 #[test]
-fn client_requests_to_non_primaries_are_not_primary_refusals() {
+fn proposals_to_non_primaries_are_not_primary_refusals() {
     // The fenced genesis primary is not yet Normal: NotPrimary, not a silent
     // no-op. It names itself — it IS the primary of its current view, just
     // not yet serving it.
     let mut fresh = Harness::provision(3);
     assert_eq!(
-        fresh.client_request(n(0), ClientId(1), b"early"),
+        fresh.propose(n(0), op_id(1), b"early"),
         StepOutcome::PlanRefused(PlanRejection::NotPrimary {
             view: genesis_view(),
             primary: Some(n(0)),
@@ -516,22 +501,23 @@ fn client_requests_to_non_primaries_are_not_primary_refusals() {
     // primary of the wrong view: NotPrimary, redirecting to n0. n2 is a
     // plain backup, same redirection.
     assert_eq!(
-        h.client_request(n(1), ClientId(1), b"wrong-view-primary"),
+        h.propose(n(1), op_id(1), b"wrong-view-primary"),
         StepOutcome::PlanRefused(PlanRejection::NotPrimary {
             view: genesis_view(),
             primary: Some(n(0)),
         })
     );
     assert_eq!(
-        h.client_request(n(2), ClientId(1), b"backup"),
+        h.propose(n(2), op_id(1), b"backup"),
         StepOutcome::PlanRefused(PlanRejection::NotPrimary {
             view: genesis_view(),
             primary: Some(n(0)),
         })
     );
-    // The refusals consumed nothing: (1, 1) still accepts at the primary.
+    // The refusals consumed nothing: the next proposal still accepts at the
+    // primary.
     assert!(matches!(
-        h.client_request_numbered(n(0), ClientId(1), 1, b"right"),
+        h.propose(n(0), op_id(1), b"right"),
         StepOutcome::Published { .. }
     ));
     h.deliver_all();
@@ -541,14 +527,14 @@ fn client_requests_to_non_primaries_are_not_primary_refusals() {
     h.assert_safety();
 }
 
-/// Three pipelined requests, one quorum: `PrepareOk`s delivered in slot
-/// order commit the slots one after another; Apply effects release strictly
-/// in slot order (§11.1) and Replies follow strictly in slot order (§11.2).
+/// Three pipelined proposals, one quorum: `PrepareOk`s delivered in slot
+/// order commit the slots one after another, and Apply effects release
+/// strictly in slot order (§11.1).
 #[test]
-fn commit_cascade_orders_applies_and_replies() {
+fn commit_cascade_orders_applies() {
     let mut h = bootstrapped();
     for request in 1..=3u64 {
-        h.client_request_numbered(n(0), ClientId(1), request, format!("r{request}").as_bytes());
+        h.propose(n(0), op_id(request), format!("r{request}").as_bytes());
     }
     // All three Prepares to n1, in slot order; no PrepareOk delivered yet.
     for slot in 3..=5u64 {
@@ -586,16 +572,6 @@ fn commit_cascade_orders_applies_and_replies() {
 
     let outcomes = h.execute_apply_effects(n(0));
     assert_eq!(outcomes.len(), 3);
-    let replied: Vec<RequestNumber> = h
-        .replies()
-        .iter()
-        .map(|(_, _, request, _)| *request)
-        .collect();
-    assert_eq!(
-        replied,
-        vec![RequestNumber(1), RequestNumber(2), RequestNumber(3)],
-        "Replies strictly in slot order"
-    );
 
     h.deliver_all();
     for id in [n(0), n(1), n(2)] {
@@ -604,16 +580,16 @@ fn commit_cascade_orders_applies_and_replies() {
     h.assert_safety();
 }
 
-/// A load script: requests across clients, deliveries, applies, ticks, and
-/// one crash with an amnesiac restart. The legality gate stands after every
-/// step; `assert_safety` runs after every quiesce. The amnesiac node lags
-/// behind on gaps (the state transfer is §10's) but never faults and
-/// never diverges.
+/// A load script: proposals, deliveries, applies, ticks, and one crash with
+/// an amnesiac restart. The legality gate stands after every step;
+/// `assert_safety` runs after every quiesce. The amnesiac node lags behind
+/// on gaps (the state transfer is §10's) but never faults and never
+/// diverges. Reused identities across rounds exercise the boundary's
+/// no-deduplication rule (§11.1) under load.
 fn load_script() -> Harness {
     let mut h = bootstrapped();
     for round in 0..30u64 {
-        let client = ClientId(u128::from(round % 3) + 1);
-        h.client_request(n(0), client, format!("op-{round}").as_bytes());
+        h.propose(n(0), op_id(round % 3 + 1), format!("op-{round}").as_bytes());
         if round % 4 == 1 {
             h.tick_all();
         }
@@ -654,73 +630,43 @@ fn the_legality_gate_stands_under_load() {
     );
 }
 
-/// Reply-after-Apply, pinned structurally over the whole boundary record
-/// (§11.2): scanning the ordered Apply/Reply events, no node's k-th fresh
-/// Reply ever precedes its k-th Apply; a repeated Reply for the same
-/// (client, request) is a cached re-emission and is legal only after the
-/// original.
+/// The boundary carries identity end to end, at every node (§11.1): every
+/// `Apply` names the slot and the proposing host's [`OperationId`], in slot
+/// order, and the host's `Applied` acknowledgement is a bare slot — no
+/// result travels back, and no node ever emits a reply (B2).
 #[test]
-fn no_reply_ever_precedes_its_apply() {
+fn apply_carries_the_proposals_identity() {
     let mut h = bootstrapped();
     for round in 0..6u64 {
-        h.client_request(
-            n(0),
-            ClientId(u128::from(round % 2) + 1),
-            format!("req-{round}").as_bytes(),
-        );
+        h.propose(n(0), op_id(round + 1), format!("req-{round}").as_bytes());
     }
     h.deliver_all();
     for id in [n(0), n(1), n(2)] {
         h.execute_apply_effects(id);
     }
-    // A cached re-emission: client 1's LATEST request (3) resubmitted — no
-    // Apply corresponds to this Reply.
-    h.client_request_numbered(n(0), ClientId(1), 3, b"req-4");
 
     let events = h.boundary_events().to_vec();
     assert!(events.len() >= 6, "the property is exercised, not vacuous");
-    let mut cached_seen = false;
+    let expected: Vec<(Slot, OperationId)> = (3..=8u64)
+        .map(|slot| (Slot(slot), op_id(slot - 2)))
+        .collect();
     for id in [n(0), n(1), n(2)] {
-        let mut applies = 0usize;
-        let mut fresh = 0usize;
-        let mut replied: Vec<(ClientId, RequestNumber)> = Vec::new();
-        for event in &events {
-            match event {
-                BoundaryEvent::Applied { node, .. } => {
-                    if *node == id {
-                        applies += 1;
-                    }
-                }
-                BoundaryEvent::Replied {
+        let seen: Vec<(Slot, OperationId)> = events
+            .iter()
+            .filter_map(|event| match event {
+                BoundaryEvent::Applied {
                     node,
-                    client,
-                    request,
-                } => {
-                    if *node == id {
-                        if replied.contains(&(*client, *request)) {
-                            // A cached re-emission of an earlier reply: legal
-                            // only because the original (and so its Apply)
-                            // precedes it in this very record.
-                            cached_seen = true;
-                        } else {
-                            assert!(
-                                applies > fresh,
-                                "n{} emitted a Reply before its Apply completed",
-                                id.0
-                            );
-                            fresh += 1;
-                            replied.push((*client, *request));
-                        }
-                    }
-                }
-            }
-        }
-        if id == n(0) {
-            assert_eq!(fresh, applies, "every primary apply was replied");
-        } else {
-            assert!(replied.is_empty(), "only the primary replies");
-        }
+                    slot,
+                    operation_id,
+                } if *node == id => Some((*slot, *operation_id)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            seen, expected,
+            "n{} applied every proposal in slot order, identity attached",
+            id.0
+        );
     }
-    assert!(cached_seen, "the scan covered a cached re-emission");
     h.assert_safety();
 }

@@ -38,8 +38,8 @@ pub use crate::ids::Fault;
 
 /// What drove a transition, summarised to exactly what the legality rules need.
 ///
-/// The checker never sees the host's bytes — a client operation's payload, a
-/// journal record, an application result — because legality is a property of the
+/// The checker never sees the host's bytes — an operation's payload, a
+/// journal record, an application effect — because legality is a property of the
 /// state pair and the *kind* of the input, not of the input's content. A peer
 /// message is the one input whose header is itself protocol state, so it is the
 /// one input that carries fields: the tag, for the header-slot table (rule 7) and
@@ -53,7 +53,7 @@ pub enum InputKind {
         /// The header slot field, whose legal values [`header_slot_role`] fixes.
         slot: Slot,
     },
-    /// A client request submitted to the primary (§6).
+    /// An operation proposed to the primary by the host (§6, §11.1).
     ClientRequest,
     /// A host timer event (S4; the tick itself is clock metadata, not protocol
     /// state, so the kind carries nothing).
@@ -62,7 +62,7 @@ pub enum InputKind {
     Recovery,
     /// The host confirmed the stability of a persistence intent (§7, S2).
     StabilityConfirmed,
-    /// The application incorporated committed slots (§11).
+    /// The application acknowledged an applied slot (§11.1).
     Applied,
     /// The host checkpointed application state.
     Checkpointed,
@@ -120,7 +120,6 @@ impl HeaderSlotRole {
 ///
 /// | Tag | Role | Why |
 /// |---|---|---|
-/// | `Request` | `Absent` | a client knows no slots (§6) |
 /// | `Prepare` | `Operation` | names the slot it proposes (§6) |
 /// | `PrepareOk` | `Operation` | names the slot accepted (§6) |
 /// | `Commit` | `Frontier` | the commit frontier; no new operation (§6, §13.3) |
@@ -129,10 +128,9 @@ impl HeaderSlotRole {
 /// | `StartView` | `Frontier` | the accepted frontier of the installed history (§9.1) |
 /// | `PlannedViewChange` | `Absent` | like `StartViewChange`, and must not fence (§8.7.7) |
 /// | `Recovery` | `Absent` | the nonce is the tick (S4); no slot is spoken about (§10) |
-/// | `RecoveryResponse` | `Frontier` | the responder's accepted frontier (§10) |
-/// | `GetState` | `Frontier` | the requester's accepted frontier; the gap starts after it (§4, §13.1) |
-/// | `NewState` | `Frontier` | the last slot the range covers (§4) |
-/// | `Reply` | `Absent` | the client protocol carries no slots (§6, §11) |
+/// | `RecoveryResponse` | `Absent` | nonce and frontiers ride in the body; no slot is spoken about (§6.1) |
+/// | `GetState` | `Frontier` | the requester's accepted frontier; the fetch resumes one past it (§4, §13.1 step 5) |
+/// | `NewState` | `Frontier` | the last slot the chunk covers; `more` on a partial answer resumes from the requester's cursor (§4, §13.1 step 5) |
 ///
 /// A `match` rather than a lookup table, on the codebase's standing reasoning: the
 /// compiler checks that every tag has a rule, and a tag added to `wire` without a
@@ -140,7 +138,6 @@ impl HeaderSlotRole {
 #[must_use]
 pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
     match tag {
-        Tag::Request => HeaderSlotRole::Absent,
         Tag::Prepare => HeaderSlotRole::Operation,
         Tag::PrepareOk => HeaderSlotRole::Operation,
         Tag::Commit => HeaderSlotRole::Frontier,
@@ -149,10 +146,9 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
         Tag::StartView => HeaderSlotRole::Frontier,
         Tag::PlannedViewChange => HeaderSlotRole::Absent,
         Tag::Recovery => HeaderSlotRole::Absent,
-        Tag::RecoveryResponse => HeaderSlotRole::Frontier,
+        Tag::RecoveryResponse => HeaderSlotRole::Absent,
         Tag::GetState => HeaderSlotRole::Frontier,
         Tag::NewState => HeaderSlotRole::Frontier,
-        Tag::Reply => HeaderSlotRole::Absent,
     }
 }
 
@@ -247,8 +243,10 @@ fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {
 /// so it changes only when that history was re-selected. The re-selection inputs:
 /// recovery (§10 installs a coherent state), and the peer messages that install a
 /// history — `DoViewChange`, the one that completes the new primary's quorum
-/// (§9.1), `StartView`, and `NewState` (state transfer, §4). The match is
-/// exhaustive so a new tag forces a ruling here rather than inheriting one.
+/// (§9.1), `StartView`, `NewState` (state transfer, §4), and `RecoveryResponse`,
+/// the one that completes a recovery attempt with the latest fenced view's
+/// primary's history (§6.1). The match is exhaustive so a new tag forces a
+/// ruling here rather than inheriting one.
 fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) -> bool {
     if new.retained() == old.retained() {
         return false;
@@ -256,17 +254,14 @@ fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) ->
     let reselects = match input {
         InputKind::Recovery => true,
         InputKind::PeerMessage { tag, .. } => match tag {
-            Tag::DoViewChange | Tag::StartView | Tag::NewState => true,
-            Tag::Request
-            | Tag::Prepare
+            Tag::DoViewChange | Tag::StartView | Tag::NewState | Tag::RecoveryResponse => true,
+            Tag::Prepare
             | Tag::PrepareOk
             | Tag::Commit
             | Tag::StartViewChange
             | Tag::PlannedViewChange
             | Tag::Recovery
-            | Tag::RecoveryResponse
-            | Tag::GetState
-            | Tag::Reply => false,
+            | Tag::GetState => false,
         },
         InputKind::ClientRequest
         | InputKind::Tick

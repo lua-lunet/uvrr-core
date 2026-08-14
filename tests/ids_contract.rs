@@ -27,7 +27,7 @@ use std::mem::{align_of, size_of};
 
 use proptest::prelude::*;
 use vrr::ids::{
-    ClientId, Era, MessageId, NodeId, RequestNumber, Slot, Tick, View, ViewId, next_view_selecting,
+    Era, MessageId, NodeId, OperationId, Slot, Tick, View, ViewId, next_view_selecting,
 };
 use vrr::invariant::Fault;
 
@@ -55,14 +55,13 @@ fn layout_matches_primitive() {
     assert_eq!(size_of::<Tick>(), size_of::<u64>());
     assert_eq!(align_of::<Tick>(), align_of::<u64>());
 
-    assert_eq!(size_of::<RequestNumber>(), size_of::<u64>());
-    assert_eq!(align_of::<RequestNumber>(), align_of::<u64>());
-
     assert_eq!(size_of::<MessageId>(), size_of::<[u8; 16]>());
     assert_eq!(align_of::<MessageId>(), align_of::<[u8; 16]>());
 
-    assert_eq!(size_of::<ClientId>(), size_of::<u128>());
-    assert_eq!(align_of::<ClientId>(), align_of::<u128>());
+    // `OperationId` is two `u64` words and nothing else (§11.1): the
+    // identity crosses the boundary exactly as the host assigned it.
+    assert_eq!(size_of::<OperationId>(), 2 * size_of::<u64>());
+    assert_eq!(align_of::<OperationId>(), align_of::<u64>());
 
     // `ViewId` is two `u32` fields and nothing else. The 20-byte big-endian header of
     // W1 is `(tag, era, view, slot)`; the eight bytes contributed by `ViewId` must not

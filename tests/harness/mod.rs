@@ -37,17 +37,26 @@
 //!    history is a prefix of the other — entries identical at every shared
 //!    slot, era and payload included.
 //! 4. **Applied agreement**: applied slots are contiguous from the first
-//!    client slot (`INIT_SLOT + 1`), and no two nodes applied different
+//!    operation slot (`INIT_SLOT + 1`), and no two nodes applied different
 //!    payloads at the same slot.
 //!
 //! # What is not here
 //!
-//! The protocol behaviour of the later paths — view change, recovery, state
-//! transfer, checkpoints and reconfiguration inputs — is still refused with
-//! the named
+//! The reconfiguration input is still refused with the named
 //! `PlanRejection::Unsupported`. Normal operation is live:
-//! `Prepare`/`PrepareOk`/`Commit`, the client table, the Apply/Applied/Reply
-//! boundary, and the bootstrap from the fenced `Recovering` genesis state.
+//! `Prepare`/`PrepareOk`/`Commit`, the Propose/Apply/Applied boundary
+//! (§11.1), the bootstrap from the fenced `Recovering` genesis state, view
+//! change, recovery (§6.1), state transfer (§10, §13.1 step 5), the
+//! checkpoint frontier and the lazy reclamation it authorizes (§4, §11,
+//! S1), and the host-forced view change (§14.2).
+//!
+//! # Reclamation
+//!
+//! The harness mirrors the host's retention policy (S1): after any step
+//! that appended to a node's journal it offers the node the reclamation
+//! opportunity, and the default journal drops whole slabs whose final slot
+//! the PUBLISHED checkpoint frontier covers — the sole authorization (§4,
+//! §11). No published checkpoint, no reclamation, however old the history.
 
 // The harness is shared infrastructure compiled into every protocol test
 // target; no single target drives the whole scripted surface — the suites
@@ -60,7 +69,7 @@ use std::sync::Arc;
 
 use vrr::configuration::{EraTable, INIT_SLOT, VOID_SLOT};
 use vrr::effects::{Effect, Stability, StabilityResult};
-use vrr::ids::{ClientId, Era, Fault, NodeId, RequestNumber, Slot, Tick, View, ViewId};
+use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::{Journal, JournalView, LogEntry, RangeOutcome, SegmentedLog};
 use vrr::message::Message;
 use vrr::observe::Diagnostic;
@@ -205,8 +214,8 @@ pub struct ApplyOutcome {
 }
 
 /// One application-boundary event in harness step order: an `Apply` the
-/// harness executed, or a `Reply` a node released. The record the
-/// Reply-after-Apply property (§11.2) is asserted over structurally.
+/// harness executed. The record the §11.1 boundary assertions (identity
+/// carried through, slot order, no deduplication) are stated over.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum BoundaryEvent {
     /// The harness performed an `Apply` effect and fed `Applied` back.
@@ -215,15 +224,8 @@ pub enum BoundaryEvent {
         node: NodeId,
         /// The applied slot.
         slot: Slot,
-    },
-    /// A node released a `Reply`.
-    Replied {
-        /// The replying node.
-        node: NodeId,
-        /// The client addressed.
-        client: ClientId,
-        /// The request answered.
-        request: RequestNumber,
+        /// The identity the proposing host assigned (§11.1), carried opaque.
+        operation_id: OperationId,
     },
 }
 
@@ -285,7 +287,7 @@ pub enum SafetyViolation {
         b: NodeId,
     },
     /// Rule 4: a node's apply record is not contiguous from the first
-    /// client slot.
+    /// operation slot.
     AppliedGap {
         /// The node with the gap.
         node: NodeId,
@@ -360,10 +362,15 @@ pub fn check_cluster_safety(nodes: &[NodeEvidence]) -> Result<(), SafetyViolatio
     }
 
     // Rule 3 — committed-prefix agreement: identical entries at every shared
-    // slot, so one history is a prefix of the other.
+    // slot, so one history is a prefix of the other. Slots align the
+    // comparison: a node whose host retention policy let a committed prefix
+    // go (S1) serves only its retained window.
     for (position, a) in nodes.iter().enumerate() {
         for b in &nodes[position + 1..] {
-            for (left, right) in a.committed.iter().zip(b.committed.iter()) {
+            for left in &a.committed {
+                let Some(right) = b.committed.iter().find(|entry| entry.slot == left.slot) else {
+                    continue;
+                };
                 if left != right {
                     return Err(SafetyViolation::CommittedDivergence {
                         a: a.id,
@@ -375,9 +382,9 @@ pub fn check_cluster_safety(nodes: &[NodeEvidence]) -> Result<(), SafetyViolatio
         }
     }
 
-    // Rule 4 — applied agreement and contiguity from the first client slot:
-    // slots 1 and 2 are the genesis system operations (§8.7.2), which the
-    // core folds and the application never sees.
+    // Rule 4 — applied agreement and contiguity from the first operation
+    // slot: slots 1 and 2 are the genesis system operations (§8.7.2), which
+    // the core folds and the application never sees.
     let mut seen: BTreeMap<Slot, (NodeId, &[u8])> = BTreeMap::new();
     for node in nodes {
         let mut expected = INIT_SLOT.next().expect("INIT_SLOT has a successor");
@@ -425,13 +432,16 @@ pub struct Harness {
     /// through restarts, because a restarted node plays by the cluster's
     /// rules, not fresh ones.
     knobs: ViewChangeKnobs,
+    /// The journal tail capacity every node runs, when a script pinned it:
+    /// slab boundaries decide what reclamation can drop (whole slabs
+    /// only), so a reclamation script must place them deterministically.
+    /// `None` is the default journal's own capacity.
+    tail_capacity: Option<usize>,
     /// Genesis order; also the node-index mapping (`NodeId(i)` is index `i`).
     genesis_order: Vec<NodeId>,
     /// Per-node record of the `Apply` effects the harness executed.
     applied: Vec<Vec<(Slot, Box<[u8]>)>>,
-    /// Client replies released by nodes, in release order.
-    replies: Vec<(NodeId, ClientId, RequestNumber, Box<[u8]>)>,
-    /// The ordered Apply/Reply boundary record (§11.2 assertions).
+    /// The ordered Apply boundary record (§11.1 assertions).
     boundary: Vec<BoundaryEvent>,
     /// Per-node durable state recorded at crash time.
     disks: Vec<Option<Disk>>,
@@ -439,12 +449,13 @@ pub struct Harness {
     declared_faults: Vec<bool>,
     /// Per-node faults already observed and accounted for.
     faulted_known: Vec<bool>,
-    /// Next request number per client, for `client_request`.
-    requests: BTreeMap<ClientId, u64>,
     /// The step trace ring.
     trace: VecDeque<String>,
     /// Steps taken, also the trace line number.
     step_seq: u64,
+    /// The application-state transfer requests surfaced so far (§4, §11):
+    /// `(node, through)` in release order.
+    application_state_requests: Vec<(NodeId, Slot)>,
 }
 
 impl Harness {
@@ -464,7 +475,7 @@ impl Harness {
     /// script that tests them sets them, never inherits them.
     #[must_use]
     pub fn with_knobs(n: usize, knobs: ViewChangeKnobs) -> Harness {
-        Self::assemble(n, Stability::Volatile, knobs)
+        Self::assemble(n, Stability::Volatile, knobs, None)
     }
 
     /// [`Harness::provision`] with an explicit stability level. In every
@@ -473,7 +484,21 @@ impl Harness {
     /// real host contract, mirrored.
     #[must_use]
     pub fn with_stability(n: usize, stability: Stability) -> Harness {
-        Self::assemble(n, stability, Harness::no_view_change_knobs())
+        Self::assemble(n, stability, Harness::no_view_change_knobs(), None)
+    }
+
+    /// [`Harness::provision`] with an explicit journal tail capacity. Slab
+    /// boundaries decide what checkpoint-authorized reclamation can drop
+    /// (whole slabs only, §4), so a reclamation script pins the capacity
+    /// rather than inheriting the default journal's.
+    #[must_use]
+    pub fn with_journal_capacity(n: usize, tail_capacity: usize) -> Harness {
+        Self::assemble(
+            n,
+            Stability::Volatile,
+            Harness::no_view_change_knobs(),
+            Some(tail_capacity),
+        )
     }
 
     /// The knob setting that makes the view-change machinery inert: no
@@ -485,7 +510,12 @@ impl Harness {
         }
     }
 
-    fn assemble(n: usize, stability: Stability, knobs: ViewChangeKnobs) -> Harness {
+    fn assemble(
+        n: usize,
+        stability: Stability,
+        knobs: ViewChangeKnobs,
+        tail_capacity: Option<usize>,
+    ) -> Harness {
         let genesis_order: Vec<NodeId> = (0..n)
             .map(|i| NodeId(u32::try_from(i).expect("cluster size fits u32")))
             .collect();
@@ -495,7 +525,7 @@ impl Harness {
                 id,
                 genesis_order.clone(),
                 WeightedMajority,
-                SegmentedLog::new(),
+                make_journal(tail_capacity),
                 stability,
                 knobs,
             )
@@ -520,16 +550,16 @@ impl Harness {
             tick: Tick(0),
             stability,
             knobs,
+            tail_capacity,
             genesis_order,
             applied: (0..n).map(|_| Vec::new()).collect(),
-            replies: Vec::new(),
             boundary: Vec::new(),
             disks: (0..n).map(|_| None).collect(),
             declared_faults: vec![false; n],
             faulted_known: vec![false; n],
-            requests: BTreeMap::new(),
             trace: VecDeque::new(),
             step_seq: 0,
+            application_state_requests: Vec::new(),
         };
         harness.record(format!("provision n={n} stability={stability:?}"));
         harness
@@ -553,6 +583,20 @@ impl Harness {
                 .checked_add(1)
                 .expect("the tick space is not exhausted in a test"),
         );
+    }
+
+    /// The host-forced view change (§14.2): drives
+    /// `Input::AdminForceView { target }` through the ordinary step
+    /// machinery — the refusal or the fence is the script's to assert.
+    pub fn force_view(&mut self, id: NodeId, target: ViewId) -> StepOutcome {
+        self.drive(
+            id,
+            format!(
+                "n={} admin force-view e{}v{}",
+                id.0, target.era.0, target.view.0
+            ),
+            Input::AdminForceView { target },
+        )
     }
 
     /// Advances the clock and delivers `Input::Tick` to one node.
@@ -796,7 +840,8 @@ impl Harness {
     /// A whole-history copy of the node's journal: what a
     /// view-change install left behind, asserted directly — a divergent
     /// tail must be GONE from the journal, not merely from the frontier.
-    /// The harness never reclaims, so the copy is always complete.
+    /// Only meaningful on a script that never published a checkpoint: the
+    /// copy starts at slot 1, and a reclaimed prefix fails loudly.
     #[must_use]
     pub fn journal_entries(&self, id: NodeId) -> Vec<LogEntry> {
         let index = self.index_of(id);
@@ -813,9 +858,31 @@ impl Harness {
             RangeOutcome::Short { .. }
             | RangeOutcome::BelowRetention { .. }
             | RangeOutcome::Empty => {
-                panic!("the harness never reclaims: its journals are whole")
+                panic!("journal_entries requires an unreclaimed journal (no checkpoint published)")
             }
         }
+    }
+
+    /// The node's physical retention window — first and last slot the
+    /// journal still holds (§4). This is what checkpoint-authorized
+    /// reclamation moves; the logical accepted frontier never moves with
+    /// it. `None` if the node is down.
+    #[must_use]
+    pub fn retained(&self, id: NodeId) -> Option<(Slot, Slot)> {
+        self.nodes
+            .get(usize::try_from(id.0).expect("node ids are small"))
+            .and_then(Option::as_ref)
+            .map(|node| node.replica.journal().view().retained())
+    }
+
+    /// The journal entry at `slot`, or `None` when the slot is past the
+    /// frontier or was reclaimed under a published checkpoint (§4).
+    #[must_use]
+    pub fn journal_entry(&self, id: NodeId, slot: Slot) -> Option<LogEntry> {
+        self.nodes
+            .get(usize::try_from(id.0).expect("node ids are small"))
+            .and_then(Option::as_ref)
+            .and_then(|node| node.replica.journal().view().get(slot).cloned())
     }
 
     /// The node's sticky fault, if declared — the identity, not just the
@@ -865,42 +932,66 @@ impl Harness {
     }
 
     // ------------------------------------------------------------------
-    // Client and stability inputs
+    // Operation and stability inputs
     // ------------------------------------------------------------------
 
-    /// Submits a client request to a specific node. Request numbers are
-    /// per-client and monotonic, assigned by the harness from 1 — one less
-    /// thing for a script to get wrong.
-    pub fn client_request(&mut self, id: NodeId, client: ClientId, payload: &[u8]) -> StepOutcome {
-        let request = self.requests.get(&client).copied().unwrap_or(1);
-        self.requests.insert(
-            client,
-            request
-                .checked_add(1)
-                .expect("the request-number space is not exhausted in a test"),
-        );
-        self.client_request_numbered(id, client, request, payload)
-    }
-
-    /// Submits a client request with an explicit request number — the way a
-    /// script drives the duplicate-suppression table's edge cases (§9.2):
-    /// exact duplicates, in-flight duplicates, gaps, and replays.
-    pub fn client_request_numbered(
+    /// Proposes an operation to a specific node (§6): the host assigns the
+    /// operation's identity, and the core carries it opaque — there is no
+    /// request numbering to manage, because the core never deduplicates
+    /// (§11.1, B2).
+    pub fn propose(
         &mut self,
         id: NodeId,
-        client: ClientId,
-        request: u64,
+        operation_id: OperationId,
         payload: &[u8],
     ) -> StepOutcome {
-        let summary = format!("n={} client={} req={request}", id.0, client.0);
+        let summary = format!(
+            "n={} op={:016x}:{:016x}",
+            id.0, operation_id.msb, operation_id.lsb
+        );
         self.drive(
             id,
             summary,
-            Input::Client {
-                client,
-                request: RequestNumber(request),
-                payload: payload.into(),
+            Input::Propose {
+                operation: Operation {
+                    id: operation_id,
+                    payload: payload.into(),
+                },
             },
+        )
+    }
+
+    /// Begins a recovery attempt at the node (§10): the clock advances —
+    /// every attempt carries a fresh tick, so the nonce (the tick, S4) is
+    /// fresh by construction — and `Input::Recover` is driven through the
+    /// ordinary step machinery.
+    pub fn recover(&mut self, id: NodeId) -> StepOutcome {
+        self.advance_clock();
+        self.drive(id, format!("n={} recover", id.0), Input::Recover)
+    }
+
+    /// Feeds an `Input::Applied` the harness's own apply execution did not
+    /// generate — the way a script stages a duplicate, out-of-order or
+    /// not-yet-committed acknowledgement (§11.1). The refusal is the
+    /// script's to assert. One step.
+    pub fn report_applied(&mut self, id: NodeId, slot: Slot) -> StepOutcome {
+        self.drive(
+            id,
+            format!("n={} applied s{} (scripted)", id.0, slot.0),
+            Input::Applied { slot },
+        )
+    }
+
+    /// The host's checkpoint report (§5, §11): `Input::Checkpointed`
+    /// through the ordinary step machinery — the refusal or the frontier
+    /// advance is the script's to assert. The published frontier is the
+    /// sole reclamation authorization (§4, S1); the drop itself is lazy,
+    /// fired by a later append, never by this report alone.
+    pub fn checkpoint(&mut self, id: NodeId, through: Slot) -> StepOutcome {
+        self.drive(
+            id,
+            format!("n={} checkpoint s{}", id.0, through.0),
+            Input::Checkpointed { through },
         )
     }
 
@@ -946,19 +1037,12 @@ impl Harness {
         outcome
     }
 
-    /// Performs the node's pending `Apply` effects in release order: records
-    /// each into the apply log and feeds `Input::Applied` back with the
-    /// payload echoed as the application's result. The feedback is the §11.2
-    /// completion: for a client slot the replica advances `applied` and, on
-    /// the primary, releases the Reply.
-    ///
-    /// The unknown-result re-drive (§9.2) is the host's to recognise
-    /// (§11): an `Apply` at or below the slot this node's application
-    /// already reached is a re-execution of a committed slot, not new work.
-    /// The echo application is idempotent, so the re-drive is performed and
-    /// its completion fed back — the core answers the outstanding retry —
-    /// but the apply log records only the first execution, keeping the
-    /// record the safety checker's contiguity rule rules on.
+    /// Executes the node's pending `Apply` effects in release order, feeding
+    /// each completion back as `Input::Applied` (§11.1). The acknowledgement
+    /// carries no result: the boundary is one-way, propose to apply, and the
+    /// core never answers a proposal (B2). The echo application records
+    /// every execution in slot order — the core does not deduplicate, so
+    /// neither does the log the safety checker's contiguity rule rules on.
     pub fn execute_apply_effects(&mut self, id: NodeId) -> Vec<ApplyOutcome> {
         let index = self.index_of(id);
         let pending = match self.nodes[index].as_mut() {
@@ -969,26 +1053,24 @@ impl Harness {
         for effect in pending {
             match effect {
                 apply @ Effect::Apply { .. } => {
-                    let Effect::Apply { slot, payload } = apply else {
+                    let Effect::Apply {
+                        slot,
+                        operation_id,
+                        payload,
+                    } = apply
+                    else {
                         unreachable!("the pattern matched Apply")
                     };
-                    let redrive = self.applied[index]
-                        .last()
-                        .is_some_and(|(greatest, _)| slot <= *greatest);
-                    if !redrive {
-                        self.applied[index].push((slot, payload.clone()));
-                    }
+                    self.applied[index].push((slot, payload.clone()));
                     self.boundary.push(BoundaryEvent::Applied {
                         node: self.genesis_order[index],
                         slot,
+                        operation_id,
                     });
                     let outcome = self.drive(
                         id,
                         format!("n={} apply s{}", id.0, slot.0),
-                        Input::Applied {
-                            slot,
-                            result: payload.clone(),
-                        },
+                        Input::Applied { slot },
                     );
                     outcomes.push(ApplyOutcome {
                         slot,
@@ -996,7 +1078,9 @@ impl Harness {
                         outcome,
                     });
                 }
-                Effect::Send { .. } | Effect::Reply { .. } | Effect::Persist(_) => {
+                Effect::Send { .. }
+                | Effect::Persist(_)
+                | Effect::RequestApplicationState { .. } => {
                     panic!("only Apply effects are routed to a node's pending list")
                 }
             }
@@ -1019,12 +1103,52 @@ impl Harness {
             .unwrap_or_else(|| panic!("n={} is already down", id.0));
         self.disks[index] = Some(Disk {
             persisted: PersistedProgress::from(node.replica.progress()),
-            journal: clone_journal(node.replica.journal()),
+            journal: clone_journal(node.replica.journal(), self.tail_capacity),
             config: Arc::clone(node.replica.progress().config()),
         });
         self.faulted_known[index] = false;
         self.declared_faults[index] = false;
         self.record(format!("n={} crash (disk recorded)", id.0));
+    }
+
+    /// Crashes a node like [`Harness::crash`], but the recorded disk's
+    /// journal physically retains only slots from `base` onward: a host
+    /// retention policy (S1) let the earlier prefix go while the logical
+    /// frontier stands. This is how a script stages a retained-base
+    /// shortfall (§4).
+    pub fn crash_with_retained_base(&mut self, id: NodeId, base: Slot) {
+        let index = self.index_of(id);
+        let node = self.nodes[index]
+            .take()
+            .unwrap_or_else(|| panic!("n={} is already down", id.0));
+        let view = node.replica.journal().view();
+        let frontier = view
+            .accepted()
+            .expect("a node with no history retains nothing to truncate");
+        assert!(
+            base > VOID_SLOT && base <= frontier,
+            "retained base {base:?} must sit inside the history ..={frontier:?}",
+        );
+        let mut entries = Vec::new();
+        match view.copy_out(base, frontier, &mut entries) {
+            RangeOutcome::Complete => {}
+            other => panic!("the retained range is whole by construction: {other:?}"),
+        }
+        let mut journal = make_journal(self.tail_capacity);
+        journal
+            .install_suffix(base, &entries)
+            .expect("a contiguous range installs on a pristine log, anchoring its window there");
+        self.disks[index] = Some(Disk {
+            persisted: PersistedProgress::from(node.replica.progress()),
+            journal,
+            config: Arc::clone(node.replica.progress().config()),
+        });
+        self.faulted_known[index] = false;
+        self.declared_faults[index] = false;
+        self.record(format!(
+            "n={} crash (disk recorded, retained from s{})",
+            id.0, base.0
+        ));
     }
 
     /// A new life with no memory: `provision` semantics on a node that was a
@@ -1049,7 +1173,7 @@ impl Harness {
             id,
             self.genesis_order.clone(),
             WeightedMajority,
-            SegmentedLog::new(),
+            make_journal(self.tail_capacity),
             self.stability,
             self.knobs,
         ) {
@@ -1077,7 +1201,7 @@ impl Harness {
         );
         let (journal, persisted, config) = match self.disks[index].as_ref() {
             Some(disk) => (
-                clone_journal(&disk.journal),
+                clone_journal(&disk.journal, self.tail_capacity),
                 disk.persisted,
                 Arc::clone(&disk.config),
             ),
@@ -1153,11 +1277,12 @@ impl Harness {
             let mut committed = Vec::new();
             let frontier = Slot(snapshot.committed);
             if frontier != Slot::FIRST {
-                let outcome =
-                    node.replica
-                        .journal()
-                        .view()
-                        .copy_out(VOID_SLOT, frontier, &mut committed);
+                // A node whose host retention policy let the committed
+                // prefix go (S1) serves its retained window; the checker
+                // aligns by slot.
+                let view = node.replica.journal().view();
+                let (base, _) = view.retained();
+                let outcome = view.copy_out(base, frontier, &mut committed);
                 match outcome {
                     RangeOutcome::Complete => {}
                     RangeOutcome::Short { .. }
@@ -1207,10 +1332,11 @@ impl Harness {
         &self.applied[usize::try_from(id.0).expect("node ids are small")]
     }
 
-    /// Client replies released by nodes, in release order.
+    /// The application-state transfer requests surfaced so far (§4, §11):
+    /// `(node, through)` in release order.
     #[must_use]
-    pub fn replies(&self) -> &[(NodeId, ClientId, RequestNumber, Box<[u8]>)] {
-        &self.replies
+    pub fn application_state_requests(&self) -> &[(NodeId, Slot)] {
+        &self.application_state_requests
     }
 
     /// The node's latest published drop diagnostic: every refused
@@ -1224,8 +1350,8 @@ impl Harness {
             .map(|node| node.observer.read_diagnostic())
     }
 
-    /// The ordered Apply/Reply boundary record — what the Reply-after-Apply
-    /// property (§11.2) is asserted over.
+    /// The ordered Apply boundary record — what the §11.1 boundary
+    /// assertions are stated over.
     #[must_use]
     pub fn boundary_events(&self) -> &[BoundaryEvent] {
         &self.boundary
@@ -1269,12 +1395,20 @@ impl Harness {
         let (outcome, released) = match self.nodes[index].as_mut() {
             None => (StepOutcome::NodeDown, Vec::new()),
             Some(node) => {
+                let accepted_before = node.replica.progress().accepted();
                 let planned = node.replica.plan(&timed, &node.replica.journal().view());
                 match planned {
                     Err(rejection) => (StepOutcome::PlanRefused(rejection), Vec::new()),
                     Ok(plan) => match node.replica.publish(plan) {
                         Err(rejection) => (StepOutcome::PublishRefused(rejection), Vec::new()),
                         Ok(PublishOutcome::Published { revision, effects }) => {
+                            // Opportunistic reclamation (§4, S1): an append
+                            // is the lazy moment, and the published
+                            // checkpoint is the sole authorization — with
+                            // none, this is a no-op however old the history.
+                            if node.replica.progress().accepted() > accepted_before {
+                                node.replica.reclaim_journal();
+                            }
                             let released = effects.clone();
                             (StepOutcome::Published { revision, effects }, released)
                         }
@@ -1293,8 +1427,8 @@ impl Harness {
     }
 
     /// Routes one released effect to where the host would take it: `Send`
-    /// to the network, `Apply` to the node's pending list, `Reply` to the
-    /// reply log, `Persist` to the node's outstanding intent.
+    /// to the network, `Apply` to the node's pending list, `Persist` to the
+    /// node's outstanding intent.
     fn route_effect(&mut self, from: usize, effect: Effect) {
         match effect {
             Effect::Send { to, era, message } => {
@@ -1310,23 +1444,17 @@ impl Harness {
                     node.pending_effects.push(apply);
                 }
             }
-            Effect::Reply {
-                client,
-                request,
-                result,
-            } => {
-                let node = self.genesis_order[from];
-                self.replies.push((node, client, request, result));
-                self.boundary.push(BoundaryEvent::Replied {
-                    node,
-                    client,
-                    request,
-                });
-            }
             Effect::Persist(intent) => {
                 if let Some(node) = self.nodes[from].as_mut() {
                     node.outstanding_intent = Some(intent.revision);
                 }
+            }
+            Effect::RequestApplicationState { through } => {
+                // The host's application-state transfer facility is out of
+                // scope (§4); the harness records the request for scripts
+                // to assert.
+                self.application_state_requests
+                    .push((self.genesis_order[from], through));
             }
         }
     }
@@ -1374,23 +1502,35 @@ impl Harness {
 }
 
 /// A whole-history copy of a journal, for the harness's disk. The harness
-/// never reclaims, so the copy is always complete.
-fn clone_journal(journal: &SegmentedLog) -> SegmentedLog {
+/// never reclaims below the published checkpoint, so the copy is always
+/// the retained window; a disk recorded with a retained base (S1, see
+/// `crash_with_retained_base`) copies that window.
+fn clone_journal(journal: &SegmentedLog, tail_capacity: Option<usize>) -> SegmentedLog {
     let view = journal.view();
-    let mut clone = SegmentedLog::new();
+    let mut clone = make_journal(tail_capacity);
     if let Some(frontier) = view.accepted() {
+        let (base, _) = view.retained();
         let mut entries = Vec::new();
-        match view.copy_out(VOID_SLOT, frontier, &mut entries) {
+        match view.copy_out(base, frontier, &mut entries) {
             RangeOutcome::Complete => {}
             RangeOutcome::Short { .. }
             | RangeOutcome::BelowRetention { .. }
             | RangeOutcome::Empty => {
-                panic!("the harness never reclaims: its disks are whole")
+                panic!("the retained window is whole by construction: {frontier:?}")
             }
         }
         clone
-            .install_suffix(VOID_SLOT, &entries)
+            .install_suffix(base, &entries)
             .expect("a whole-history copy installs on an empty log");
     }
     clone
+}
+
+/// The cluster's journal construction: the default log, or one with the
+/// script-pinned tail capacity (see [`Harness::with_journal_capacity`]).
+fn make_journal(tail_capacity: Option<usize>) -> SegmentedLog {
+    match tail_capacity {
+        Some(capacity) => SegmentedLog::with_tail_capacity(capacity),
+        None => SegmentedLog::new(),
+    }
 }

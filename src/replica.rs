@@ -44,9 +44,9 @@
 //!
 //! # Normal operation
 //!
-//! VRR-2012 §4 is live: the client table (§9.2's two-exchange answer), `Prepare`/`PrepareOk`/`Commit` with
-//! commit-frontier piggybacking (§13.3), the Apply/Applied/Reply boundary
-//! (§11), and the bootstrap from the fenced `Recovering` genesis state (the
+//! VRR-2012 §4 is live: `Prepare`/`PrepareOk`/`Commit` with
+//! commit-frontier piggybacking (§13.3), the Propose/Apply/Applied boundary
+//! (§11.1), and the bootstrap from the fenced `Recovering` genesis state (the
 //! ruling is on the `plan_tick` handler). Every handler is total: invalid peer
 //! input is dropped with a named [`Diagnostic`] on the observation, never
 //! faults the node; faulting stays reserved for impossible LOCAL transitions
@@ -67,32 +67,34 @@
 //! exceeded by a byte). A `StartView` suffix that conflicts with a committed
 //! local slot is the view-change path's one deliberate fault-on-peer-input: silent
 //! repair would hide a safety breach, so the node declares
-//! [`Fault::IllegalTransition`]. The active fetch for a suffix the recipient
-//! cannot construct history from belongs to state transfer (§10); the interim
-//! drop is
-//! [`Diagnostic::GapDetected`], never a fault.
+//! [`Fault::IllegalTransition`]. A suffix the recipient cannot construct
+//! history from is a named gap — [`Diagnostic::GapDetected`], never a
+//! fault — whose fetch half (§10, §13.1 step 5) rides the same
+//! transition: a `GetState` for the missing range, and the installed
+//! chunks re-run the stalled ruling.
 //!
-//! # The client table as evidence (§9.2)
+//! # The application boundary (§11.1, B2)
 //!
-//! §9.2's guarantee completed: the client table is protocol evidence. Every
-//! client entry carries its `(client, request)` identity, so a backup
-//! records a row from the `Prepare` it accepts and any node rebuilds rows
-//! from the history it installs. The table rides `DoViewChange`, the new
-//! primary merges the evidence quorum's tables (per client the greatest
-//! `last_request`; a tie prefers the row WITH a cached result — a total
-//! deterministic function of the evidence set), extends the merge with the
-//! rows the installed history implies, and `StartView` distributes it;
-//! recipients install it in place of their own. The soundness claim this
-//! buys: **a request is replied-to at most once per unique result, and the
-//! log holds at most one entry per accepted request number per client.** A
-//! retry of a committed request whose result no quorum member cached is
-//! answered by re-driving `Effect::Apply` for the existing slot — never by
-//! re-appending (§11 puts idempotence on the host, which recognises the
-//! re-drive by the slot being at or below its applied frontier). An entry
-//! that died uncommitted is genuinely new: no reply was ever produced for
-//! it, and the retry is accepted fresh. The table is charged against the
-//! §13.1 budget FIRST and is never truncated; the suffix shrinks to make
-//! room, down to empty, which §13.1 explicitly permits.
+//! The core orders opaque operations and nothing else. A host proposal
+//! carries an [`OperationId`] the proposing host assigns; the core replicates
+//! it inside the log entry, never inspects it, and never deduplicates on it —
+//! the same identity proposed twice is two operations, at two slots, applied
+//! twice. Commitment releases `Effect::Apply` with the slot, the identity and
+//! the payload, in slot order, at every node; the host's acknowledgement is
+//! `Input::Applied { slot }` with no result, because the boundary is one-way
+//! and the core never answers a proposal. Answering a proposer — and any
+//! exactly-once policy — is the host's affair above the boundary.
+//!
+//! The system-slot ruling (§11): `applied` walks EVERY slot. A committed
+//! system operation (the genesis `Void`/`Init` of §8.7.2) is core-internal
+//! — it emits no `Apply` upcall and expects no acknowledgement — but it
+//! advances `applied` the moment the contiguous committed prefix allows,
+//! on every path that moves the committed or applied frontier, recovery
+//! replay included. The host's `Input::Checkpointed { through }` is
+//! accepted only when `through <= applied`; the published checkpoint
+//! frontier is the sole reclamation authorization (§4, S1), applied to the
+//! default journal by [`Replica::reclaim_journal`] — lazy, whole slabs at
+//! a time, never the tail, opportunistic on append.
 //!
 //! [`legal`]: crate::invariant::legal
 
@@ -105,10 +107,10 @@ use crate::configuration::{
 use crate::effects::{
     Effect, JournalIntent, PersistenceIntent, ProgressIntent, Stability, StabilityResult,
 };
-use crate::ids::{ClientId, Era, Fault, NodeId, RequestNumber, Slot, Tick, View, ViewId};
+use crate::ids::{Era, Fault, NodeId, Operation, Slot, Tick, View, ViewId};
 use crate::invariant::{InputKind, legal};
-use crate::journal::{Journal, JournalError, JournalView, LogEntry, Payload};
-use crate::message::{Body, ClientRow as WireRow, EraProof, EvidenceKind, Message};
+use crate::journal::{Journal, JournalError, JournalView, LogEntry, Payload, SegmentedLog};
+use crate::message::{Body, EraProof, EvidenceKind, Message};
 use crate::observe::{Diagnostic, Observation};
 use crate::progress::{Progress, ProgressError, ProgressSnapshot, Status};
 use crate::quorum::{QuorumError, QuorumStrategy, Role, validate_era};
@@ -148,14 +150,13 @@ pub enum Input {
         /// The datagram.
         message: Message,
     },
-    /// A client request submitted to this node (§6, §11).
-    Client {
-        /// The client identity, for the duplicate-suppression table.
-        client: ClientId,
-        /// The client's monotonic request number.
-        request: RequestNumber,
-        /// Opaque application bytes (§11).
-        payload: Box<[u8]>,
+    /// An operation the host proposes for ordering (§6, §11.1): its identity
+    /// is the host's to assign, and the core carries it opaque — replicated
+    /// inside the entry, handed back on `Effect::Apply`, never inspected and
+    /// never deduplicated on (B2).
+    Propose {
+        /// The operation: identity and opaque bytes (§11.1).
+        operation: Operation,
     },
     /// A host timer event (S4). Drives the bootstrap self-promotion of the
     /// genesis primary (see the `plan_tick` handler); the view-change and
@@ -174,15 +175,18 @@ pub enum Input {
         /// The three-way outcome (S3).
         result: StabilityResult,
     },
-    /// The application incorporated a committed slot (§11.2).
+    /// The application incorporated a committed slot (§11.1). The
+    /// acknowledgement carries no result: the boundary is one-way, and the
+    /// core never answers a proposal (B2).
     Applied {
         /// The slot whose application completed.
         slot: Slot,
-        /// The application's result bytes, opaque to the core.
-        result: Box<[u8]>,
     },
-    /// The host checkpointed application state through a slot (§5's checkpoint
-    /// frontier).
+    /// The host checkpointed application state through a slot (§5's
+    /// checkpoint frontier, §11). Accepted only when `through` is at or
+    /// below the applied frontier — a checkpoint cannot claim state the
+    /// application has not incorporated. The published frontier is the
+    /// sole reclamation authorization (§4, S1).
     Checkpointed {
         /// The greatest slot the host can now restore through.
         through: Slot,
@@ -197,10 +201,15 @@ pub enum Input {
         /// error.
         pivot: Option<Pivot>,
     },
-    /// The host forced entry into a view (§12's host-declared fencing path).
+    /// The host forced entry into `target` (§14.2): an ordinary view
+    /// change driven from the host's say-so, whose new primary is the
+    /// member `target` maps to under the current membership order. The
+    /// target must strictly advance the view within the current era;
+    /// anything else is refused as bad input.
     AdminForceView {
-        /// The view to enter.
-        view: View,
+        /// The view to enter: `target.view` past the current view number,
+        /// `target.era` the current era.
+        target: ViewId,
     },
 }
 
@@ -226,7 +235,7 @@ impl Input {
                 tag: message.header.tag,
                 slot: message.header.slot,
             },
-            Input::Client { .. } => InputKind::ClientRequest,
+            Input::Propose { .. } => InputKind::ClientRequest,
             Input::Tick => InputKind::Tick,
             Input::Recover => InputKind::Recovery,
             Input::StabilityConfirmation { .. } => InputKind::StabilityConfirmed,
@@ -286,17 +295,25 @@ pub enum PlanRejection {
     /// pipeline stays total when future planners compute richer
     /// candidates.
     Progress(ProgressError),
-    /// A client request reached a node that is not the `Normal` primary of
+    /// A proposal reached a node that is not the `Normal` primary of
     /// its current view (§4): a backup, a fenced `Recovering` node, or the
     /// primary of some other view. Carries the node's current view and the
     /// primary of that view (when the configuration can name one) so the
-    /// host can redirect the client (§13.4's convergence hint applied to
-    /// the client path).
+    /// host can redirect the proposer (§13.4's convergence hint applied to
+    /// the proposal path).
     NotPrimary {
         /// The node's current view.
         view: ViewId,
         /// The primary of `view` under its era's configuration.
         primary: Option<NodeId>,
+    },
+    /// A recovery input reached a node that is not fenced `Recovering`
+    /// (§10): recovery is how a reopened node re-proves its state, and a
+    /// participating node has nothing to recover. Carries the status the
+    /// node is in.
+    NotRecovering {
+        /// The node's current status.
+        status: Status,
     },
     /// An [`Input::Applied`] the node could not accept: a duplicate, an
     /// out-of-order completion, or a completion for a slot that is not yet
@@ -309,12 +326,13 @@ pub enum PlanRejection {
         /// The slot the host reported.
         got: Slot,
     },
-    /// An [`Input::Applied`] for a slot that committed a system payload
-    /// (§11's boundary is not theirs; the core never emitted an `Apply` for
-    /// it, so the host's report is incoherent).
-    AppliedSystemSlot {
-        /// The misreported slot.
-        slot: Slot,
+    /// An [`Input::Checkpointed`] past the applied frontier (§11): a
+    /// checkpoint cannot claim state the application has not incorporated.
+    CheckpointExceedsApplied {
+        /// The applied frontier at refusal time.
+        applied: Slot,
+        /// The frontier the host claimed.
+        through: Slot,
     },
     /// A slot the published record says is accepted is absent from the
     /// journal view offered for planning: the two durable records disagree
@@ -328,6 +346,33 @@ pub enum PlanRejection {
     /// slot can be assigned (§8.7.3 forbids wraparound, so acceptance stops
     /// rather than reuses a position).
     SlotSpaceExhausted,
+    /// An [`Input::AdminForceView`] whose target does not strictly advance
+    /// the view (§14.2): forcing a change backwards or sideways is bad
+    /// input, not a fence.
+    AdminTargetNotAhead {
+        /// The node's current view.
+        current: ViewId,
+        /// The refused target.
+        target: ViewId,
+    },
+    /// An [`Input::AdminForceView`] naming an era other than the node's
+    /// current era (§14.2): either an era whose establishing operation the
+    /// replica does not hold as committed — the membership order it names
+    /// was never decided — or a superseded one. The forced change maps its
+    /// target under the CURRENT membership order.
+    AdminEraNotCurrent {
+        /// The node's current era.
+        current: Era,
+        /// The era the target named.
+        got: Era,
+    },
+    /// An [`Input::AdminForceView`] naming the last representable view:
+    /// the forced fence could never be superseded (§8.7.3 forbids
+    /// wraparound), so the target is refused outright.
+    AdminViewExhausted {
+        /// The refused target.
+        target: ViewId,
+    },
 }
 
 /// Why `publish` refused a planned transition.
@@ -588,125 +633,26 @@ pub struct PlannedTransition {
     fault: Option<Fault>,
 }
 
-/// One row of the client table (§9.2's two-exchange answer).
-///
-/// Volatile, like the paper's: lost on crash. But it is not LOST to the
-/// protocol (§9.2): the table rides `DoViewChange` as evidence, the new
-/// primary merges the quorum's tables, and `StartView` distributes the
-/// merge — and because every client entry carries its `(client, request)`
-/// identity, an install extends the merged table from the history itself.
-/// The table is what makes a retry idempotent across a view change; it is
-/// not what makes the record durable.
-#[derive(Clone, PartialEq, Eq, Debug)]
-struct ClientRow {
-    /// The highest request number accepted from this client.
-    last: RequestNumber,
-    /// The cached result once the request's slot applied; `None` while the
-    /// request is in flight.
-    result: Option<Box<[u8]>>,
-}
-
-/// The wire form of the node's client table: rows sorted by client (the
-/// `BTreeMap` iteration order), no duplicates — the canonical shape the
-/// decoder enforces at the boundary.
-fn wire_table(clients: &BTreeMap<ClientId, ClientRow>) -> Vec<WireRow> {
-    clients
-        .iter()
-        .map(|(client, row)| WireRow {
-            client: *client,
-            last_request: row.last,
-            result: row.result.clone(),
-        })
-        .collect()
-}
-
-/// The packed length of a client table in its codec form (u32 count ++
-/// rows): what the §13.1 budget charges BEFORE the suffix. The table is
-/// never truncated to fit — it is safety evidence; the suffix shrinks, down
-/// to empty, which §13.1 explicitly permits.
-fn wire_table_packed_len(table: &[WireRow]) -> usize {
-    4 + table.iter().map(Pack::packed_len).sum::<usize>()
-}
-
-/// The §9.2 merge the new primary computes over the evidence quorum's
-/// tables: per client, the row with the greatest `last_request`; a tie
-/// prefers the row WITH a cached result. The comparison is a total order
-/// per client, so the result is a deterministic function of the evidence
-/// SET — delivery order cannot change it. Greatest-request wins wholesale:
-/// the merge keeps the row the client protocol will actually retry against,
-/// and a newer row without a result never re-executes anything (its request
-/// superseded the cached one before it committed, or its entry died
-/// uncommitted — the genuinely-new case of the retry rules).
-fn merge_client_tables<'a>(tables: impl IntoIterator<Item = &'a [WireRow]>) -> Vec<WireRow> {
-    let mut merged: BTreeMap<ClientId, WireRow> = BTreeMap::new();
-    for row in tables.into_iter().flatten() {
-        merged
-            .entry(row.client)
-            .and_modify(|incumbent| {
-                if (row.last_request, row.result.is_some())
-                    > (incumbent.last_request, incumbent.result.is_some())
-                {
-                    *incumbent = row.clone();
-                }
-            })
-            .or_insert_with(|| row.clone());
-    }
-    merged.into_values().collect()
-}
-
-/// The canonical-shape check for a table arriving in a message (the
-/// decoder enforces it on the wire; a host-fabricated message is checked
-/// here): strictly ascending clients, hence no duplicates.
-fn wire_table_shape_ok(table: &[WireRow]) -> bool {
-    table.windows(2).all(|pair| pair[0].client < pair[1].client)
-}
-
-/// The local (map-entry) form of a canonical wire table, for the
-/// install-time bookkeeping's wholesale replacement.
-fn local_rows(table: &[WireRow]) -> Vec<(ClientId, ClientRow)> {
-    table
-        .iter()
-        .map(|row| {
-            (
-                row.client,
-                ClientRow {
-                    last: row.last_request,
-                    result: row.result.clone(),
-                },
-            )
-        })
-        .collect()
-}
-
 /// The primary's record of one proposed slot, from acceptance until the slot
-/// applies: the client request the slot answers, and the distinct backups
-/// whose `PrepareOk`s have arrived. The primary's own vote is implicit.
+/// applies: the distinct backups whose `PrepareOk`s have arrived. The
+/// primary's own vote is implicit.
 ///
 /// A slot installed by a view change (§9.1) gets its record re-seeded from
-/// the entry's own identity (§9.2): the identity rides in the entry, so
-/// the new primary can still answer the request's commit with a `Reply`,
-/// and a `PrepareOk` for a HIGHER slot can vouch for this one: acceptance
-/// is prefix-contiguous, so an acknowledgement vouches for every lower
-/// uncommitted slot (VRR-2012 §4's cumulative acknowledgement) — without
-/// the record, an installed tail could never commit.
+/// the entry alone, and a `PrepareOk` for a HIGHER slot can vouch for this
+/// one: acceptance is prefix-contiguous, so an acknowledgement vouches for
+/// every lower uncommitted slot (VRR-2012 §4's cumulative acknowledgement) —
+/// without the record, an installed tail could never commit.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct Proposal {
-    /// The client the slot answers, when this node proposed it.
-    client: Option<ClientId>,
-    /// The client's request number, when this node proposed it.
-    request: Option<RequestNumber>,
     /// The distinct `PrepareOk` senders recorded so far.
     oks: Vec<NodeId>,
 }
 
 /// One replica's `DoViewChange` evidence, as collected by the designated new
 /// primary (§9.1): the provenance and frontiers the ranking rule (§1.3)
-/// compares, the bounded suffix the selection may need (§13.1), and the
-/// sender's client table (§9.2 — the table is evidence, or the
-/// merged table at the new primary would be empty and a committed request's
-/// retry would be appended a second time). The era proof is validated at
-/// receipt and not stored — after validation it has said everything it had
-/// to say.
+/// compares and the bounded suffix the selection may need (§13.1). The era
+/// proof is validated at receipt and not stored — after validation it has
+/// said everything it had to say.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct Evidence {
     /// The view at which the reported history was selected (§1.3).
@@ -717,8 +663,40 @@ struct Evidence {
     committed: Slot,
     /// The reported history's newest entries, ascending, budget-bounded.
     suffix: Vec<LogEntry>,
-    /// The sender's client table, canonical shape (validated at receipt).
-    client_table: Vec<WireRow>,
+}
+
+/// One responder's `RecoveryResponse` evidence (§6.1): the view it reported
+/// — the fence knowledge the `F_g ⌢ R_g` intersection (§8.3) exists to
+/// deliver — its frontiers, and the bounded history suffix, which only the
+/// reported view's primary may carry.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct RecoveryEvidence {
+    /// The responder's current view.
+    view: ViewId,
+    /// The responder's accepted frontier.
+    accepted: Slot,
+    /// The responder's committed frontier.
+    committed: Slot,
+    /// The responder's bounded history suffix (§13.1); only the reported
+    /// view's primary's is installation evidence (§6.1).
+    suffix: Option<Vec<LogEntry>>,
+}
+
+/// The volatile recovery-attempt state (§10, §6.1): the nonce — the
+/// recovery input's tick (S4) — and the distinct responders counted toward
+/// the `R_g` quorum. The node itself is never among them.
+///
+/// Volatile by design (§8.3's diskless argument: quorum memory, not local
+/// storage, survives a crash): a crash discards the attempt, and the
+/// reopened node starts a fresh one with a fresh tick.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct RecoveryVolatile {
+    /// The attempt's nonce: the `TimedInput.at` of the recovery input (S4).
+    nonce: Tick,
+    /// The counted responses, by transport-attributed sender. A refreshed
+    /// answer replaces the earlier one: the nonce binds both to this
+    /// attempt, and the fresher frontiers are the better evidence.
+    responses: BTreeMap<NodeId, RecoveryEvidence>,
 }
 
 /// The volatile view-change attempt state (VRR-2012 §5): the fence target,
@@ -756,6 +734,54 @@ enum ViewChangeUpdate {
     /// or a completed selection that could not yet install).
     Set(ViewChangeVolatile),
     /// The attempt is over: a view installed. Cleared, never rewound.
+    Clear,
+}
+
+/// The recovery half of [`Bookkeeping`]: what a transition does to the
+/// volatile attempt state.
+#[derive(Clone, Debug, Default)]
+enum RecoveryUpdate {
+    /// The attempt state is untouched.
+    #[default]
+    Unchanged,
+    /// Install this attempt state (attempt start, a counted response).
+    Set(RecoveryVolatile),
+    /// The attempt is over: the recovered history installed.
+    Clear,
+}
+
+/// The volatile state-transfer cursor (§10, §13.1 step 5): the one open
+/// fetch — the view it rides, the responder it asked, and the first slot
+/// it still needs. A `NewState` is protocol-qualified evidence only while
+/// it answers this record; anything else is a named drop, never a fault.
+///
+/// Volatile by design, exactly like the recovery attempt: a crash
+/// discards the cursor and the reopened node re-fetches under a fresh
+/// ruling. A fresh fetch replaces an older one wholesale — the old
+/// cursor's answers are then stale.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct TransferVolatile {
+    /// The view the fetch rides: the current view for a normal-operation
+    /// gap, the fence target for a higher-view pull, the latest fenced
+    /// view for a recovery gap.
+    view: ViewId,
+    /// The responder the fetch asked.
+    to: NodeId,
+    /// The first slot the node still needs: the cursor a partial answer
+    /// resumes from.
+    next: Slot,
+}
+
+/// The state-transfer half of [`Bookkeeping`]: what a transition does to
+/// the volatile fetch cursor.
+#[derive(Clone, Debug, Default)]
+enum TransferUpdate {
+    /// The cursor is untouched.
+    #[default]
+    Unchanged,
+    /// Open (or re-aim) the fetch.
+    Set(TransferVolatile),
+    /// The fetch is over: the responder had nothing more.
     Clear,
 }
 
@@ -801,33 +827,24 @@ enum SuffixCheck {
 }
 
 /// The volatile-bookkeeping half of a planned transition — §6's `state ->
-/// state` made concrete for the tables that are not part of the durable §5
+/// state` made concrete for the records that are not part of the durable §5
 /// record. Computed by `plan`, carried by the transition, applied by
 /// `install` — and by the completion of a parked transition, so a `Failed`
-/// confirmation discards the table updates with the candidate (S3).
+/// confirmation discards the record updates with the candidate (S3).
 #[derive(Clone, Debug, Default)]
 struct Bookkeeping {
-    /// Client-table rows to install or replace.
-    clients: Vec<(ClientId, ClientRow)>,
-    /// Wholesale client-table replacement (§9.2): a view-change install
-    /// adopts the merged table — it dominates the local one because it saw
-    /// a view-change quorum's rows plus the installed history. Applied
-    /// before the per-row `clients` upserts.
-    table_replace: Option<Vec<(ClientId, ClientRow)>>,
     /// New proposal records.
     proposals: Vec<(Slot, Proposal)>,
     /// `PrepareOk` senders to record against outstanding slots.
     oks: Vec<(Slot, NodeId)>,
     /// Slots whose proposals are resolved by application.
     resolved: Vec<Slot>,
-    /// Committed slots whose `Apply` is an unknown-result re-drive
-    /// (§9.2): the completion is accepted out of the applied-frontier
-    /// order and answered with a `Reply`, never a frontier move.
-    redrive_begin: Vec<Slot>,
-    /// Re-driven slots whose completion the host reported.
-    redrive_done: Vec<Slot>,
     /// The view-change attempt update.
     view_change: ViewChangeUpdate,
+    /// The recovery attempt update.
+    recovery: RecoveryUpdate,
+    /// The state-transfer cursor update.
+    transfer: TransferUpdate,
     /// Refresh of the primary-activity baseline (S4): the tick of a
     /// same-view `Prepare`/`Commit` from the legitimate primary, or of a
     /// `StartView` adoption — the new primary has just proved itself alive.
@@ -875,6 +892,15 @@ impl PlannedTransition {
     /// message that drove this transition proved the primary alive.
     fn with_activity(mut self, at: Tick) -> PlannedTransition {
         self.bookkeeping.activity = Some(at);
+        self
+    }
+
+    /// Attaches the fetch half of a gap ruling (§13.1 step 5): the
+    /// `GetState` joins the transition's effects and the cursor joins its
+    /// bookkeeping, so one serialized interval both rules and asks.
+    fn with_fetch(mut self, effect: Effect, fetch: TransferVolatile) -> PlannedTransition {
+        self.effects.push(effect);
+        self.bookkeeping.transfer = TransferUpdate::Set(fetch);
         self
     }
 }
@@ -955,22 +981,10 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// The seqlock the per-transition drop outcome is published through
     /// (B1; the §4 handlers' total-drop contract made observable).
     diagnostics: Arc<Observation<Diagnostic>>,
-    /// The client table (§9.2), keyed by client. Volatile: lost on crash —
-    /// but carried through every view change as protocol evidence (§9.2:
-    /// `DoViewChange` ships it, the new primary merges the quorum's tables,
-    /// `StartView` distributes the merge), so the loss can never strand a
-    /// committed request's reply.
-    clients: BTreeMap<ClientId, ClientRow>,
     /// The primary's outstanding and unapplied proposals, keyed by slot.
     /// Volatile: a node that loses it reopens fenced `Recovering` (§5's
     /// boot rule), so the loss can never masquerade as authority.
     proposals: BTreeMap<Slot, Proposal>,
-    /// Committed slots with an unknown-result re-drive in flight (§9.2):
-    /// the retry of a committed request whose result no evidence quorum
-    /// member had cached is answered by re-driving `Apply` for the existing
-    /// slot — never by re-appending — and the completion is recognised
-    /// against this set. Volatile like the table it serves.
-    redrives: BTreeSet<Slot>,
     /// The one outstanding parked transition, if any (§12).
     parked: Option<ParkedTransition>,
     /// The host's view-change knobs (W5).
@@ -982,6 +996,14 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// The in-flight view-change attempt, if any. Volatile — the
     /// VRR-2012 fence exchange is volatile by design (§9.3).
     view_change: Option<ViewChangeVolatile>,
+    /// The in-flight recovery attempt, if any (§6.1). Volatile — a crash
+    /// discards it; the reopened node starts a fresh attempt with a fresh
+    /// tick (S4).
+    recovery: Option<RecoveryVolatile>,
+    /// The one open state-transfer fetch, if any (§10, §13.1 step 5).
+    /// Volatile — a crash discards it; the reopened node re-fetches under
+    /// a fresh ruling.
+    transfer: Option<TransferVolatile>,
 }
 
 // Manual, non-exhaustive: `Observation` is a seqlock with no `Debug` of its
@@ -1005,8 +1027,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// Genesis is exactly: `Void` at slot 1 and `Init { genesis_order }` at
     /// slot 2, both committed; current and retained at the era-1 genesis view;
-    /// `accepted == committed == Slot(2)`; `applied == checkpoint ==
-    /// Slot(0)`; status [`Status::Recovering`] — the genesis ruling (§1.3),
+    /// `accepted == committed == Slot(2)`; `applied == Slot(2)` (the §11
+    /// system-slot ruling: both genesis slots are core-internal and walk
+    /// `applied` by themselves) and `checkpoint == Slot(0)`; status
+    /// [`Status::Recovering`] — the genesis ruling (§1.3),
     /// §5's boot rule made uniform: a fresh node and a reopened node enter
     /// the protocol the same way, fenced until they prove their state
     /// current. Nothing about a fresh cluster is special-cased into `Normal`.
@@ -1080,13 +1104,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             era,
             view: View::INITIAL,
         };
+        // The §11 system-slot ruling, applied at birth: the genesis history
+        // is system operations only — core-internal, committed by
+        // construction, never upcalled — so `applied` is born having walked
+        // them both.
         let progress = Progress::reconstitute(
             view,
             view,
             Status::Recovering,
             INIT_SLOT,
             INIT_SLOT,
-            Slot::FIRST,
+            INIT_SLOT,
             Slot::FIRST,
             0,
             Arc::new(table),
@@ -1175,9 +1203,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             own,
             observation: Arc::new(Observation::new(progress.to_snapshot())),
             diagnostics: Arc::new(Observation::new(Diagnostic::None)),
-            clients: BTreeMap::new(),
             proposals: BTreeMap::new(),
-            redrives: BTreeSet::new(),
             progress,
             journal,
             strategy,
@@ -1186,6 +1212,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             knobs,
             primary_activity: Tick(0),
             view_change: None,
+            recovery: None,
+            transfer: None,
         }
     }
 
@@ -1283,26 +1311,31 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 self.refuse_if_parked()?;
                 self.plan_tick(journal, input.at)
             }
-            Input::Client {
-                client,
-                request,
-                payload,
-            } => {
+            Input::Propose { operation } => {
                 self.refuse_if_parked()?;
-                self.plan_client(journal, *client, *request, payload, input.at)
+                self.plan_propose(journal, operation)
             }
             Input::Peer { from, message } => {
                 self.refuse_if_parked()?;
                 self.plan_peer(journal, *from, message, input.at, input.event.kind())
             }
-            Input::Applied { slot, result } => {
+            Input::Applied { slot } => {
                 self.refuse_if_parked()?;
-                self.plan_applied(journal, *slot, result)
+                self.plan_applied(journal, *slot)
             }
-            Input::Recover
-            | Input::Checkpointed { .. }
-            | Input::Reconfigure { .. }
-            | Input::AdminForceView { .. } => {
+            Input::Recover => {
+                self.refuse_if_parked()?;
+                self.plan_recover(input.at)
+            }
+            Input::AdminForceView { target } => {
+                self.refuse_if_parked()?;
+                self.plan_admin_force_view(journal, *target, input.at)
+            }
+            Input::Checkpointed { through } => {
+                self.refuse_if_parked()?;
+                self.plan_checkpointed(*through)
+            }
+            Input::Reconfigure { .. } => {
                 // The outstanding check precedes dispatch, so even an
                 // otherwise unsupported input reports the real reason (§12).
                 self.refuse_if_parked()?;
@@ -1393,6 +1426,28 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .ok_or(PlanRejection::Progress(ProgressError::ViewSuccessor))?;
             return self.enter_view_change(journal, target, BTreeSet::new(), at, InputKind::Tick);
         }
+        // §13.1 step 5: a recovery completion that stalled on an
+        // unconstructible evidence suffix re-runs once state transfer has
+        // supplied the missing range. The precheck keeps an ordinary tick
+        // honest: no quorum, no primary history, or a still-
+        // unconstructible suffix falls through to the no-op below.
+        // Completion remains a recovery install (§6.1): the tick only
+        // schedules the re-drive after transfer supplied the missing range.
+        if self.progress.status() == Status::Recovering
+            && let Some(attempt) = self.recovery.clone()
+            && let Some((source, latest, evidence)) =
+                self.recovery_completion_ready(journal, &attempt)
+        {
+            return self.plan_recovery_completion(
+                journal,
+                attempt,
+                source,
+                latest,
+                evidence,
+                at,
+                InputKind::Recovery,
+            );
+        }
         // The smallest honest transition: no protocol state
         // moves, and the interval machinery is genuinely exercised.
         let candidate = self
@@ -1453,6 +1508,95 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             selected: None,
         };
         self.continue_view_change(journal, candidate, view_change, effects, at, kind)
+    }
+
+    /// The host-forced view change (§14.2): drive the ORDINARY
+    /// fence/evidence/install pipeline into `target`, whose primary is
+    /// the member `primary(target)` names under the current membership
+    /// order — no state is installed from the host's say-so. The target
+    /// must strictly advance the view within the current era: a
+    /// non-advancing target is bad input, an era other than the current
+    /// one names a membership order the replica cannot map the target
+    /// under (its establishing operation was never committed here, or the
+    /// era is superseded), and the last representable view has no
+    /// successor (§8.7.3 forbids wraparound, so a fence there could never
+    /// be superseded).
+    fn plan_admin_force_view(
+        &self,
+        journal: &J::View,
+        target: ViewId,
+        at: Tick,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let current = self.progress.current();
+        if target.view <= current.view {
+            return Err(PlanRejection::AdminTargetNotAhead { current, target });
+        }
+        if target.era != current.era {
+            return Err(PlanRejection::AdminEraNotCurrent {
+                current: current.era,
+                got: target.era,
+            });
+        }
+        if target.next_in_era().is_none() {
+            return Err(PlanRejection::AdminViewExhausted { target });
+        }
+        self.enter_view_change(journal, target, BTreeSet::new(), at, InputKind::Admin)
+    }
+
+    /// A qualified higher-view signal (§10): a normal-operation message
+    /// from the legitimate primary of a view past the node's current one
+    /// (the caller has verified the attribution). The message proves the
+    /// node stale — but it is NOT installation evidence (§13.4's hint
+    /// rule), so the node ceases lower-view participation by fencing into
+    /// the message's view through the ordinary change pipeline, fetches
+    /// the history it lacks from the sender, and installs only when the
+    /// qualified evidence — the `StartView` — arrives.
+    fn plan_higher_view_signal(
+        &self,
+        journal: &J::View,
+        from: NodeId,
+        view: ViewId,
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let plan = self.enter_view_change(journal, view, BTreeSet::new(), at, kind)?;
+        match self.progress.accepted().next() {
+            // The fetch rides the same transition: one serialized interval
+            // both fences and asks for the missing range.
+            Some(next) => {
+                let (effect, fetch) = self.fetch(view, from, next);
+                Ok(plan.with_fetch(effect, fetch))
+            }
+            // The slot space is spent: fence only.
+            None => Ok(plan),
+        }
+    }
+
+    /// The fetch half of a gap ruling (§10, §13.1 step 5): a `GetState`
+    /// for `from` onward under `view`, addressed to `to`, and the volatile
+    /// cursor the answering `NewState` chunks install against. The header
+    /// slot is the requester's accepted frontier — the slot the fetch
+    /// resumes after (the per-tag table's Frontier role).
+    fn fetch(&self, view: ViewId, to: NodeId, from: Slot) -> (Effect, TransferVolatile) {
+        let message = Message {
+            header: Header {
+                tag: Tag::GetState,
+                view,
+                slot: from.prev().unwrap_or(Slot::FIRST),
+            },
+            body: Body::GetState { from },
+        };
+        let effect = Effect::Send {
+            to,
+            era: view.era,
+            message,
+        };
+        let fetch = TransferVolatile {
+            view,
+            to,
+            next: from,
+        };
+        (effect, fetch)
     }
 
     /// Runs the attempt forward after its volatile state changed: fence
@@ -1543,19 +1687,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The node's own evidence for the attempt at `target` (§9.1): the
-    /// retained provenance, both frontiers, the bounded suffix (§13.1), the
-    /// client table (§9.2 — charged against the suffix budget,
-    /// never truncated), ordinary kind — and the era proof, attached only
-    /// when the evidence is sent (§8.7.8).
+    /// retained provenance, both frontiers, the bounded suffix (§13.1),
+    /// ordinary kind — and the era proof, attached only when the evidence
+    /// is sent (§8.7.8).
     fn own_evidence(&self, journal: &J::View) -> Evidence {
-        let client_table = wire_table(&self.clients);
-        let reserve = wire_table_packed_len(&client_table);
         Evidence {
             retained: self.progress.retained(),
             accepted: self.progress.accepted(),
             committed: self.progress.committed(),
-            suffix: self.bounded_suffix(journal, self.progress.accepted(), &[], reserve),
-            client_table,
+            suffix: self.bounded_suffix(journal, self.progress.accepted(), &[]),
         }
     }
 
@@ -1589,7 +1729,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     accepted: own.accepted,
                     committed: own.committed,
                     suffix: own.suffix.clone(),
-                    client_table: own.client_table.clone(),
                     evidence: EvidenceKind::Ordinary,
                     era_proof: self.era_proof(journal, target.era)?,
                 },
@@ -1598,25 +1737,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The era proof for `era` (§8.7.8): the establishing operation and the
-    /// slot it committed at, read from the node's own records — the
-    /// recipient checks the claim against its configuration history.
-    fn era_proof(&self, journal: &J::View, era: Era) -> Result<EraProof, PlanRejection> {
+    /// slot it committed at, read from the node's bounded era records — the
+    /// recipient checks the claim against its configuration history. The
+    /// journal may already have reclaimed the establishing entry (S1).
+    fn era_proof(&self, _journal: &J::View, era: Era) -> Result<EraProof, PlanRejection> {
         let record = self
             .progress
             .config()
             .record(era)
             .ok_or(PlanRejection::Progress(ProgressError::EraSlotDiscipline))?;
-        let entry =
-            journal
-                .get(record.established_by)
-                .ok_or(PlanRejection::JournalEntryUnavailable {
-                    slot: record.established_by,
-                })?;
-        let Payload::System(op) = &entry.payload else {
-            return Err(PlanRejection::Progress(ProgressError::EraSlotDiscipline));
-        };
         Ok(EraProof {
-            op: op.clone(),
+            op: record.establishing_operation.clone(),
             committed_at: record.established_by,
         })
     }
@@ -1626,21 +1757,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// exceeded, encoded ascending. `overlay` supplies entries the journal
     /// does not yet hold (the winner's just-selected suffix); entries below
     /// the overlay come from the journal's physically retained window.
-    /// `reserve` is the packed length of the client table riding in the
-    /// same message (§9.2): the table is charged against the §13.1
-    /// budget FIRST and is never truncated — it is safety evidence — so the
-    /// suffix packs inside what remains, down to empty, which §13.1
-    /// explicitly permits. An entry larger than the remaining budget stops
-    /// the packing immediately. The budget is never exceeded by a byte (W4:
-    /// `Pack::packed_len` is normative).
+    /// An entry larger than the remaining budget stops
+    /// the packing immediately, down to empty, which §13.1 explicitly
+    /// permits. The budget is never exceeded by a byte (W4:
+    /// `Pack::packed_len` is normative), and the emitted suffix is
+    /// always one contiguous ascending run: a packing that broke before
+    /// exhausting the overlay never reaches the journal walk below it.
     fn bounded_suffix(
         &self,
         journal: &J::View,
         frontier: Slot,
         overlay: &[LogEntry],
-        reserve: usize,
     ) -> Vec<LogEntry> {
-        let budget = self.knobs.view_change_budget.saturating_sub(reserve);
+        let budget = self.knobs.view_change_budget;
         let mut picked: Vec<LogEntry> = Vec::new();
         let mut bytes = 0usize;
         for entry in overlay.iter().rev() {
@@ -1655,9 +1784,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             bytes = total;
         }
         // Below the overlay (or the whole range, without one): the
-        // journal's retained window, newest first.
+        // journal's retained window, newest first — but only when the
+        // overlay packed whole. A packing that broke before exhausting
+        // the overlay stops entirely (§13.1 permits a short suffix,
+        // never a holed one): journal entries below the overlay's base
+        // would sit a hole apart from the unpacked overlay entries
+        // above, and a non-contiguous offer fails §13.1's shape rule at
+        // every backup.
         let mut slot = match overlay.first() {
-            Some(first) => first.slot.prev(),
+            Some(first) if picked.len() == overlay.len() => first.slot.prev(),
+            Some(_) => None,
             None => Some(frontier),
         };
         let (first, last) = journal.retained();
@@ -1683,108 +1819,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         picked
     }
 
-    /// The slot of `(client, request)`'s entry in the installed history,
-    /// found greatest-slot-first (a duplicate would be the bug the §9.2
-    /// structural tests hunt; the newest is the one the protocol believes).
-    /// `None` means the entry is not in the history this node holds — the
-    /// genuinely-new case of the retry rules.
-    fn find_client_entry(
-        &self,
-        journal: &J::View,
-        client: ClientId,
-        request: RequestNumber,
-    ) -> Option<Slot> {
-        let (first, last) = journal.retained();
-        let mut slot = Some(last);
-        while let Some(cursor) = slot {
-            if cursor < first {
-                break;
-            }
-            if let Some(entry) = journal.get(cursor)
-                && let Payload::Client {
-                    client: entry_client,
-                    request: entry_request,
-                    ..
-                } = &entry.payload
-                && *entry_client == client
-                && *entry_request == request
-            {
-                return Some(cursor);
-            }
-            slot = cursor.prev();
-        }
-        None
-    }
-
-    /// The client-table rows the installed history itself implies
-    /// (§9.2): per client, the greatest request number among its client
-    /// entries, with no result — history carries identity, not outcomes.
-    /// `overlay` supplies the suffix being installed in the same transition
-    /// (the journal does not hold it yet). Merged INTO a view-change table
-    /// with the usual precedence, these rows lose every tie to a cached
-    /// result and every contest with a greater evidence row — they exist so
-    /// a row whose evidence copy died with a restarted sender still knows
-    /// its request.
-    fn history_client_rows(
-        &self,
-        journal: &J::View,
-        overlay: &[LogEntry],
-        accepted: Slot,
-    ) -> Vec<WireRow> {
-        let (first, _last) = journal.retained();
-        let mut rows: BTreeMap<ClientId, RequestNumber> = BTreeMap::new();
-        let mut slot = Some(first);
-        while let Some(cursor) = slot {
-            if cursor > accepted {
-                break;
-            }
-            let entry = match overlay.iter().find(|entry| entry.slot == cursor) {
-                Some(entry) => Some(entry),
-                None => journal.get(cursor),
-            };
-            if let Some(entry) = entry
-                && let Payload::Client {
-                    client, request, ..
-                } = &entry.payload
-            {
-                rows.entry(*client)
-                    .and_modify(|last| *last = (*last).max(*request))
-                    .or_insert(*request);
-            }
-            slot = cursor.next();
-        }
-        rows.into_iter()
-            .map(|(client, request)| WireRow {
-                client,
-                last_request: request,
-                result: None,
-            })
-            .collect()
-    }
-
-    /// The client-table half of a view-change install (§9.2): the merged
-    /// evidence table — the quorum's rows at the winner, the offered table
-    /// at a `StartView` recipient — extended with the rows the installed
-    /// history implies. Canonical wire form; [`local_rows`] converts for
-    /// the bookkeeping. The extension is what lets a row survive when every
-    /// evidence sender that held it restarted (its table wiped) but its
-    /// entry is in the installed history.
-    fn installed_table(
-        &self,
-        journal: &J::View,
-        overlay: &[LogEntry],
-        accepted: Slot,
-        merged: &[WireRow],
-    ) -> Vec<WireRow> {
-        let history = self.history_client_rows(journal, overlay, accepted);
-        merge_client_tables([merged, &history])
-    }
-
-    /// The proposal records for the uncommitted client tail of an installed
-    /// history (§9.2): identity now rides in the entry, so a won view's
-    /// tail keeps its client identity and its commit can be answered with a
-    /// `Reply` when it applies — the normal-operation "no identity, no
-    /// reply" gap is closed.
+    /// The proposal records for the uncommitted tail of an installed
+    /// history (§9.1): an installed slot carries no `PrepareOk` votes yet,
+    /// and a `PrepareOk` for a HIGHER slot vouches for it (acceptance is
+    /// prefix-contiguous) — without the record, an installed tail could
+    /// never commit.
     fn installed_proposals(
         &self,
         journal: &J::View,
@@ -1803,66 +1842,26 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 None => journal.get(cursor),
             };
             if let Some(entry) = entry
-                && let Payload::Client {
-                    client, request, ..
-                } = &entry.payload
+                && let Payload::Operation { .. } = &entry.payload
             {
-                proposals.push((
-                    cursor,
-                    Proposal {
-                        client: Some(*client),
-                        request: Some(*request),
-                        oks: Vec::new(),
-                    },
-                ));
+                proposals.push((cursor, Proposal { oks: Vec::new() }));
             }
             slot = cursor.next();
         }
         proposals
     }
 
-    /// The primary's client-request handler (§4, §6): the client table
-    /// first, then acceptance.
-    ///
-    /// Client-table semantics (§9.2's two-exchange answer; every branch
-    /// pinned by
-    /// `tests/normal_operation.rs`, the view-change survival of every
-    /// branch by `tests/view_change_client_table.rs`):
-    ///
-    /// - `request == last` with a cached result: re-emit the cached
-    ///   `Effect::Reply`; no new log entry (idempotent retry).
-    /// - `request == last` with no cached result: the row survived a view
-    ///   change but the result did not (the §9.2 unknown-result case).
-    ///   The installed history decides, and the answer is NEVER a silent
-    ///   re-append of a committed entry:
-    ///   - the entry is in history at or below the committed frontier:
-    ///     re-drive `Effect::Apply` for the existing slot (§11 puts
-    ///     idempotence on the host, which recognises the re-drive by the
-    ///     slot being at or below its applied frontier — no schema
-    ///     change); the completion is answered with the `Reply`.
-    ///   - the entry is in history above the committed frontier: it is
-    ///     live in the pipe — drop, exactly as an in-flight duplicate.
-    ///     Re-appending would put two entries for one `(client, request)`
-    ///     in one history, and the tail still commits and replies through
-    ///     the ordinary path.
-    ///   - no entry in history: the entry died uncommitted with the old
-    ///     primary and no client-visible result was ever produced, so the
-    ///     request IS genuinely new — accept it, replacing the row.
-    /// - `request == last + 1`: accept (a new client's `last` is implicitly
-    ///   0, so the client protocol numbers requests from 1).
-    /// - anything else (`< last`, or `> last + 1`): drop silently. The
-    ///   client protocol is one-outstanding monotonic; a gap is a client
-    ///   violation, not a node fault.
+    /// The primary's proposal handler (§4, §6): the proposal is accepted
+    /// and replicated, full stop. There is no deduplication verdict (§11.1,
+    /// B2): the core never inspects the operation's identity, so the same
+    /// identity proposed twice is two operations at two slots.
     ///
     /// Only a `Normal` node with `config.primary(current_view) == own`
     /// accepts; every other node answers [`PlanRejection::NotPrimary`].
-    fn plan_client(
+    fn plan_propose(
         &self,
-        journal: &J::View,
-        client: ClientId,
-        request: RequestNumber,
-        payload: &[u8],
-        at: Tick,
+        _journal: &J::View,
+        operation: &Operation,
     ) -> Result<PlannedTransition, PlanRejection> {
         let current = self.progress.current();
         let record = self
@@ -1873,179 +1872,76 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if !is_primary {
             // Redirection (§13.4's convergence hint): the node names its
             // current view and the primary of that view, so the host can
-            // point the client at the node this cluster would serve from.
+            // point the proposer at the node this cluster would serve from.
             return Err(PlanRejection::NotPrimary {
                 view: current,
                 primary: record.config.primary(current.view),
             });
         }
-        /// The client-table verdict for one request.
-        enum Verdict {
-            /// Re-emit the cached result.
-            Cached(Box<[u8]>),
-            /// Silent drop: in-flight duplicate or out of the window.
-            Drop,
-            /// Re-drive `Apply` for the committed slot the request already
-            /// occupies (the §9.2 unknown-result case).
-            Redrive(Slot),
-            /// Assign the next slot and replicate.
-            Accept,
-        }
-        let verdict = match self.clients.get(&client) {
-            Some(row) if request == row.last => match &row.result {
-                Some(result) => Verdict::Cached(result.clone()),
-                None => match self.find_client_entry(journal, client, request) {
-                    Some(slot) if slot <= self.progress.committed() => Verdict::Redrive(slot),
-                    // In history above the committed frontier: live in the
-                    // pipe. Not in history: died uncommitted — genuinely new.
-                    Some(_) => Verdict::Drop,
-                    None => Verdict::Accept,
-                },
+        let slot = self
+            .progress
+            .accepted()
+            .next()
+            .ok_or(PlanRejection::SlotSpaceExhausted)?;
+        let entry = LogEntry {
+            slot,
+            era: current.era,
+            payload: Payload::Operation {
+                id: operation.id,
+                payload: operation.payload.clone(),
             },
-            Some(row) if Some(request.0) == row.last.0.checked_add(1) => Verdict::Accept,
-            Some(_) => Verdict::Drop,
-            None if request.0 == 1 => Verdict::Accept,
-            None => Verdict::Drop,
         };
-        match verdict {
-            Verdict::Cached(result) => {
-                let candidate = self.identity_candidate()?;
-                let effects = vec![Effect::Reply {
-                    client,
-                    request,
-                    result,
-                }];
-                Ok(self.candidate_plan(
-                    candidate,
-                    JournalMutation::None,
-                    effects,
-                    InputKind::ClientRequest,
-                    false,
-                ))
-            }
-            Verdict::Drop => {
-                let candidate = self.identity_candidate()?;
-                Ok(self.candidate_plan(
-                    candidate,
-                    JournalMutation::None,
-                    Vec::new(),
-                    InputKind::ClientRequest,
-                    false,
-                ))
-            }
-            Verdict::Redrive(slot) => {
-                let entry = journal
-                    .get(slot)
-                    .ok_or(PlanRejection::JournalEntryUnavailable { slot })?;
-                let Payload::Client { payload, .. } = &entry.payload else {
-                    // `find_client_entry` matched a client payload at this
-                    // slot in the same view; unreachable.
-                    return Err(PlanRejection::Progress(ProgressError::EraSlotDiscipline));
-                };
-                let candidate = self.identity_candidate()?;
-                let effects = vec![Effect::Apply {
-                    slot,
-                    payload: payload.clone(),
-                }];
-                Ok(self
-                    .candidate_plan(
-                        candidate,
-                        JournalMutation::None,
-                        effects,
-                        InputKind::ClientRequest,
-                        false,
-                    )
-                    .with_bookkeeping(Bookkeeping {
-                        redrive_begin: vec![slot],
-                        ..Bookkeeping::default()
-                    }))
-            }
-            Verdict::Accept => {
-                let slot = self
-                    .progress
-                    .accepted()
-                    .next()
-                    .ok_or(PlanRejection::SlotSpaceExhausted)?;
-                let entry = LogEntry {
-                    slot,
-                    era: current.era,
-                    payload: Payload::Client {
-                        client,
-                        request,
-                        payload: payload.into(),
-                    },
-                };
-                let candidate = self.candidate_with(
-                    self.progress.status(),
-                    slot,
-                    self.progress.committed(),
-                    self.progress.applied(),
-                )?;
-                let prepare = Message {
-                    header: Header {
-                        tag: Tag::Prepare,
-                        view: current,
-                        slot,
-                    },
-                    body: Body::Prepare {
-                        entry: entry.clone(),
-                        committed: self.progress.committed(),
-                    },
-                };
-                let effects = self
-                    .backups()
-                    .into_iter()
-                    .map(|to| Effect::Send {
-                        to,
-                        era: current.era,
-                        message: prepare.clone(),
-                    })
-                    .collect();
-                let bookkeeping = Bookkeeping {
-                    clients: vec![(
-                        client,
-                        ClientRow {
-                            last: request,
-                            result: None,
-                        },
-                    )],
-                    proposals: vec![(
-                        slot,
-                        Proposal {
-                            client: Some(client),
-                            request: Some(request),
-                            oks: Vec::new(),
-                        },
-                    )],
-                    // The primary's own proposal is proof of its life: the
-                    // suspicion baseline refreshes on exactly the work that
-                    // keeps the view alive (S4).
-                    activity: Some(at),
-                    ..Bookkeeping::default()
-                };
-                Ok(self
-                    .candidate_plan(
-                        candidate,
-                        JournalMutation::Accept(vec![entry]),
-                        effects,
-                        InputKind::ClientRequest,
-                        false,
-                    )
-                    .with_bookkeeping(bookkeeping))
-            }
-        }
+        let candidate = self.candidate_with(
+            self.progress.status(),
+            slot,
+            self.progress.committed(),
+            self.progress.applied(),
+        )?;
+        let prepare = Message {
+            header: Header {
+                tag: Tag::Prepare,
+                view: current,
+                slot,
+            },
+            body: Body::Prepare {
+                entry: entry.clone(),
+                committed: self.progress.committed(),
+            },
+        };
+        let effects = self
+            .backups()
+            .into_iter()
+            .map(|to| Effect::Send {
+                to,
+                era: current.era,
+                message: prepare.clone(),
+            })
+            .collect();
+        let bookkeeping = Bookkeeping {
+            proposals: vec![(slot, Proposal { oks: Vec::new() })],
+            ..Bookkeeping::default()
+        };
+        Ok(self
+            .candidate_plan(
+                candidate,
+                JournalMutation::Accept(vec![entry]),
+                effects,
+                InputKind::ClientRequest,
+                false,
+            )
+            .with_bookkeeping(bookkeeping))
     }
 
-    /// The peer-message dispatch (§4, §9): normal operation and the
-    /// view-change exchange are live; every other tag's handler is future
-    /// work and the refusal is named.
+    /// The peer-message dispatch (§4, §9): normal operation, the
+    /// view-change exchange, recovery, and state transfer are live; the
+    /// remaining tags' handlers are future work and the refusal is named.
     ///
     /// A same-view `Prepare` or `Commit` from the legitimate primary is
     /// proof of primary life: whatever its outcome (accept, gap, named
-    /// drop), it refreshes the suspicion baseline (S4). Higher-view
-    /// normal-operation messages deliberately do NOT refresh — they are
-    /// evidence the node is stale (§10), and the view-change exchange is
-    /// how it catches up.
+    /// drop), it refreshes the suspicion baseline (S4). A higher-view
+    /// `Prepare`/`Commit` from the legitimate primary of the view it names
+    /// is proof the node is stale (§10): the node fences into that view
+    /// and fetches — but the message itself installs nothing (§13.4).
     fn plan_peer(
         &self,
         journal: &J::View,
@@ -2069,15 +1965,20 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     && self.progress.status() == Status::Normal
                     && self.primary_of(current) == Some(self.own)
             }
+            // A same-view transfer chunk from the legitimate primary: the
+            // view it answers a fetch under is alive.
+            Body::NewState { .. } => {
+                header.view == current && self.primary_of(header.view) == Some(from)
+            }
             _ => false,
         };
         let plan = match &message.body {
             Body::Prepare { entry, committed } => {
-                self.plan_prepare(journal, from, message, entry, *committed, kind)
+                self.plan_prepare(journal, from, message, entry, *committed, at, kind)
             }
             Body::PrepareOk {} => self.plan_prepare_ok(journal, from, message, kind),
             Body::Commit { committed } => {
-                self.plan_commit(journal, from, message, *committed, kind)
+                self.plan_commit(journal, from, message, *committed, at, kind)
             }
             Body::StartViewChange {} => {
                 self.plan_start_view_change(journal, from, message, at, kind)
@@ -2087,48 +1988,42 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 accepted,
                 committed,
                 suffix,
-                client_table,
                 evidence,
                 era_proof,
             } => self.plan_do_view_change(
-                journal,
-                from,
-                message,
-                *retained,
-                *accepted,
-                *committed,
-                suffix,
-                client_table,
-                *evidence,
-                era_proof,
-                at,
-                kind,
+                journal, from, message, *retained, *accepted, *committed, suffix, *evidence,
+                era_proof, at, kind,
             ),
             Body::StartView {
                 suffix,
                 accepted,
                 committed,
-                client_table,
                 era_proof,
             } => self.plan_start_view(
-                journal,
-                from,
-                message,
-                suffix,
-                *accepted,
-                *committed,
-                client_table,
-                era_proof,
-                at,
-                kind,
+                journal, from, message, suffix, *accepted, *committed, era_proof, at, kind,
             ),
-            Body::Request { .. }
-            | Body::PlannedViewChange {}
-            | Body::Recovery { .. }
-            | Body::RecoveryResponse { .. }
-            | Body::GetState { .. }
-            | Body::NewState { .. }
-            | Body::Reply { .. } => Err(PlanRejection::Unsupported { input: kind }),
+            Body::Recovery { nonce } => self.plan_recovery_request(from, *nonce, kind),
+            Body::RecoveryResponse {
+                nonce,
+                view,
+                accepted,
+                committed,
+                suffix,
+            } => self.plan_recovery_response(
+                journal, from, *nonce, *view, *accepted, *committed, suffix, at, kind,
+            ),
+            Body::GetState { from: fetch_from } => {
+                self.plan_get_state(journal, from, message, *fetch_from, kind)
+            }
+            Body::NewState {
+                entries,
+                through,
+                committed,
+                more,
+            } => self.plan_new_state(
+                journal, from, message, entries, *through, *committed, *more, kind,
+            ),
+            Body::PlannedViewChange {} => Err(PlanRejection::Unsupported { input: kind }),
         }?;
         Ok(if primary_life {
             plan.with_activity(at)
@@ -2215,7 +2110,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         accepted: Slot,
         committed: Slot,
         suffix: &[LogEntry],
-        client_table: &[WireRow],
         evidence: EvidenceKind,
         era_proof: &EraProof,
         at: Tick,
@@ -2236,7 +2130,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // Shape: the header slot names the reported accepted frontier
         // (rule 7's Frontier role); the frontiers are a legal chain; the
         // suffix is a contiguous ascending run ending at the frontier; the
-        // client table is canonical (strictly ascending clients); the
         // evidence is ordinary (planned evidence belongs to the planned
         // view-change path and never lands here); the era proof matches
         // the configuration history
@@ -2245,7 +2138,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             || committed > accepted
             || evidence != EvidenceKind::Ordinary
             || !suffix_shape_ok(suffix, accepted)
-            || !wire_table_shape_ok(client_table)
             || !self.era_proof_ok(journal, record, era_proof)
         {
             return self.drop_plan(Diagnostic::MalformedViewChange, kind);
@@ -2284,14 +2176,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             accepted,
             committed,
             suffix: suffix.to_vec(),
-            client_table: client_table.to_vec(),
         });
         let candidate = self.identity_candidate()?;
         self.continue_view_change(journal, candidate, view_change, Vec::new(), at, kind)
     }
 
     /// A `StartView` (§9.1, §13.1): the designated new primary installing
-    /// the selected history and the merged client table (§9.2).
+    /// the selected history.
     ///
     /// The adoption rule: any node the change passed by — `Normal` or
     /// `Recovering` in an earlier view, or fencing into this very view —
@@ -2299,17 +2190,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// must reach back to a slot the node can check (its frontier, or a
     /// shared slot whose entry agrees). A suffix that starts past the
     /// node's frontier is a gap — named [`Diagnostic::GapDetected`], kept
-    /// fenced, never faulted; the active fetch belongs to state transfer
-    /// (§13.1 step 5).
+    /// fenced, never faulted; the fetch half of the ruling (§13.1 step 5)
+    /// rides the same transition and the installed chunks repair the
+    /// journal for the next offer.
     /// A suffix that CONFLICTS at a committed local slot is the view-change
     /// path's one deliberate fault-on-peer-input: an honest evidence quorum
     /// can never
     /// produce it, and silently repairing would hide the safety breach, so
     /// the node declares [`Fault::IllegalTransition`].
-    ///
-    /// The offered client table REPLACES the local one: it is the merge of
-    /// a view-change quorum's tables, extended with the rows the installed
-    /// history implies — it dominates anything a single node held.
     #[allow(clippy::too_many_arguments)]
     fn plan_start_view(
         &self,
@@ -2319,7 +2207,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         suffix: &[LogEntry],
         accepted: Slot,
         committed: Slot,
-        client_table: &[WireRow],
         era_proof: &EraProof,
         at: Tick,
         kind: InputKind,
@@ -2345,7 +2232,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if header.slot != accepted
             || committed > accepted
             || !suffix_shape_ok(suffix, accepted)
-            || !wire_table_shape_ok(client_table)
             || !self.era_proof_ok(journal, record, era_proof)
         {
             return self.drop_plan(Diagnostic::MalformedViewChange, kind);
@@ -2379,7 +2265,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let mutation = match self.check_suffix(journal, suffix, accepted, committed) {
             SuffixCheck::Install(mutation) => mutation,
             SuffixCheck::Gap { expected, got } => {
-                return self.drop_plan(Diagnostic::GapDetected { expected, got }, kind);
+                let plan = self.drop_plan(Diagnostic::GapDetected { expected, got }, kind)?;
+                // §13.1 step 5: the recipient cannot construct the offered
+                // history — fetch the missing range from the new primary.
+                // The node stays fenced; the completing evidence re-runs
+                // the ruling once the range has arrived.
+                let (effect, fetch) = self.fetch(header.view, from, expected);
+                return Ok(plan.with_fetch(effect, fetch));
             }
             SuffixCheck::Conflict => {
                 let candidate = self.identity_candidate()?;
@@ -2388,14 +2280,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     .with_fault_declared(Fault::IllegalTransition));
             }
         };
-        let candidate = self.install_candidate(header.view, accepted, committed)?;
+        let applied = self.applied_walk(journal, suffix, self.progress.applied(), committed)?;
+        let candidate = self.install_candidate(header.view, accepted, committed, applied)?;
         let effects =
             self.apply_effects_merged(journal, suffix, self.progress.committed(), committed)?;
-        let table = self.installed_table(journal, suffix, accepted, client_table);
         Ok(self
             .candidate_plan(candidate, mutation, effects, kind, false)
             .with_bookkeeping(Bookkeeping {
-                table_replace: Some(local_rows(&table)),
                 view_change: ViewChangeUpdate::Clear,
                 activity: Some(at),
                 ..Bookkeeping::default()
@@ -2407,17 +2298,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// advances to the greatest frontier the quorum truthfully reported
     /// (each report is a commit quorum's product, and the selected history
     /// contains every committed entry — §9.2's argument), the newly
-    /// committed client slots apply in slot order (§11.1), and `StartView`
+    /// committed operation slots apply in slot order (§11.1), and `StartView`
     /// broadcasts the selection with a freshly packed bounded suffix
-    /// (§13.1).
-    ///
-    /// The client table is evidence (§9.2): the install merges the
-    /// quorum's tables — per client the greatest `last_request`, ties
-    /// toward the cached result — extends the merge with the rows the
-    /// installed history itself implies, installs the result wholesale, and
-    /// ships it in `StartView`. The uncommitted client tail's proposals are
-    /// re-seeded from the entries' own identities, so an installed request
-    /// that commits in the new view is still answered with its `Reply`.
+    /// (§13.1). The uncommitted tail's proposal records are re-seeded from
+    /// the entries, so an installed slot still accumulates the
+    /// `PrepareOk` votes that commit it.
     #[allow(clippy::too_many_arguments)]
     fn plan_win_view(
         &self,
@@ -2465,28 +2350,22 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     return Ok(WinOutcome::Installed(Box::new(plan)));
                 }
             };
-        let candidate = self.install_candidate(target, selected.accepted, committed)?;
+        let applied = self.applied_walk(
+            journal,
+            &selected.suffix,
+            self.progress.applied(),
+            committed,
+        )?;
+        let candidate = self.install_candidate(target, selected.accepted, committed, applied)?;
         effects.extend(self.apply_effects_merged(
             journal,
             &selected.suffix,
             self.progress.committed(),
             committed,
         )?);
-        // The merge over the evidence quorum's tables, extended from the
-        // installed history — a total deterministic function of the
-        // evidence set (§9.2), so every node that installs this view holds
-        // the same table.
-        let merged = merge_client_tables(evidence.values().map(|member| &member.client_table[..]));
-        let wire = self.installed_table(journal, &selected.suffix, selected.accepted, &merged);
-        let table = local_rows(&wire);
         let proposals =
             self.installed_proposals(journal, &selected.suffix, committed, selected.accepted);
-        let suffix = self.bounded_suffix(
-            journal,
-            selected.accepted,
-            &selected.suffix,
-            wire_table_packed_len(&wire),
-        );
+        let suffix = self.bounded_suffix(journal, selected.accepted, &selected.suffix);
         let message = Message {
             header: Header {
                 tag: Tag::StartView,
@@ -2497,7 +2376,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 suffix,
                 accepted: selected.accepted,
                 committed,
-                client_table: wire,
                 era_proof: self.era_proof(journal, target.era)?,
             },
         };
@@ -2509,7 +2387,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let plan = self
             .candidate_plan(candidate, mutation, effects, kind, false)
             .with_bookkeeping(Bookkeeping {
-                table_replace: Some(table),
                 proposals,
                 view_change: ViewChangeUpdate::Clear,
                 // The StartView broadcast is the new primary's
@@ -2532,11 +2409,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// piggybacked committed frontier is taken on every accepted or
     /// re-acknowledged `Prepare` (§13.3).
     ///
-    /// The gap rule is deliberately interim: a `Prepare` past the accepted
+    /// The gap rule (§13.1 step 5): a `Prepare` past the accepted
     /// frontier's successor is dropped and reported as
-    /// [`Diagnostic::GapDetected`]; the primary's retransmit or state
-    /// transfer (§10) closes it — the active fetch belongs to state
-    /// transfer.
+    /// [`Diagnostic::GapDetected`], and the fetch half of the ruling rides
+    /// the same transition — a `GetState` for the missing range goes to
+    /// the primary.
+    #[allow(clippy::too_many_arguments)]
     fn plan_prepare(
         &self,
         journal: &J::View,
@@ -2544,6 +2422,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         message: &Message,
         entry: &LogEntry,
         piggybacked: Slot,
+        at: Tick,
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRejection> {
         let header = message.header;
@@ -2568,10 +2447,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         }
+        // A Prepare from the legitimate primary of a HIGHER view is proof
+        // the node is stale (§10) — never installation evidence (§13.4):
+        // fence into the advertised view and fetch, install only from the
+        // qualified evidence.
+        let current = self.progress.current();
+        if header.view > current {
+            return self.plan_higher_view_signal(journal, from, header.view, at, kind);
+        }
         // The message's view must be the node's current view; a `Recovering`
         // node adopts it (the bootstrap rule above). Anything else is a
         // view change or a recovery, and the message drops.
-        let current = self.progress.current();
         let eligible = header.view == current
             && match self.progress.status() {
                 Status::Normal => true,
@@ -2613,29 +2499,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         } else {
             self.progress.status()
         };
-        // The entry's identity is protocol state (§9.2): accepting or
-        // re-acknowledging it records the client-table row, so a backup's
-        // `DoViewChange` evidence carries the row and §9.2's guarantee
-        // survives the primary the request arrived from. Only an advance
-        // replaces a row — an equal or older request keeps what it has.
-        let table_row = match &entry.payload {
-            Payload::Client {
-                client, request, ..
-            } if self
-                .clients
-                .get(client)
-                .is_none_or(|row| *request > row.last) =>
-            {
-                Some((
-                    *client,
-                    ClientRow {
-                        last: *request,
-                        result: None,
-                    },
-                ))
-            }
-            _ => None,
-        };
         let accepted = self.progress.accepted();
         if entry.slot <= accepted {
             // Idempotent retransmission: never re-append. The held entry
@@ -2648,20 +2511,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             // Re-acknowledge, and take the piggybacked frontier (§13.3).
             let new_committed = self.progress.committed().max(piggybacked.min(accepted));
-            let candidate =
-                self.candidate_with(status, accepted, new_committed, self.progress.applied())?;
+            let candidate = self.candidate_with(
+                status,
+                accepted,
+                new_committed,
+                self.applied_walk(journal, &[], self.progress.applied(), new_committed)?,
+            )?;
             let mut effects = vec![prepare_ok(current, from, entry.slot)];
             effects.extend(self.apply_effects(
                 journal,
                 self.progress.committed(),
                 new_committed,
             )?);
-            return Ok(self
-                .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
-                .with_bookkeeping(Bookkeeping {
-                    clients: table_row.into_iter().collect(),
-                    ..Bookkeeping::default()
-                }));
+            return Ok(self.candidate_plan(candidate, JournalMutation::None, effects, kind, false));
         }
         let Some(next) = accepted.next() else {
             // `entry.slot > accepted == u64::MAX` cannot be offered; the
@@ -2669,32 +2531,35 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             return Err(PlanRejection::SlotSpaceExhausted);
         };
         if entry.slot != next {
-            return self.drop_plan(
+            let plan = self.drop_plan(
                 Diagnostic::GapDetected {
                     expected: next,
                     got: entry.slot,
                 },
                 kind,
-            );
+            )?;
+            // §13.1 step 5: the fetch half of the gap ruling — ask the
+            // primary for the missing range.
+            let (effect, fetch) = self.fetch(current, from, next);
+            return Ok(plan.with_fetch(effect, fetch));
         }
         // Accept, and take the piggybacked frontier (§13.3).
         let new_committed = self.progress.committed().max(piggybacked.min(entry.slot));
-        let candidate =
-            self.candidate_with(status, entry.slot, new_committed, self.progress.applied())?;
+        let candidate = self.candidate_with(
+            status,
+            entry.slot,
+            new_committed,
+            self.applied_walk(journal, &[], self.progress.applied(), new_committed)?,
+        )?;
         let mut effects = vec![prepare_ok(current, from, entry.slot)];
         effects.extend(self.apply_effects(journal, self.progress.committed(), new_committed)?);
-        Ok(self
-            .candidate_plan(
-                candidate,
-                JournalMutation::Accept(vec![entry.clone()]),
-                effects,
-                kind,
-                false,
-            )
-            .with_bookkeeping(Bookkeeping {
-                clients: table_row.into_iter().collect(),
-                ..Bookkeeping::default()
-            }))
+        Ok(self.candidate_plan(
+            candidate,
+            JournalMutation::Accept(vec![entry.clone()]),
+            effects,
+            kind,
+            false,
+        ))
     }
 
     /// The primary's `PrepareOk` handler (§4). Guards: `Normal`, own is the
@@ -2703,8 +2568,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// sender is not already counted. Then the vote is recorded and the
     /// STRATEGY — the only quorum authority (Q1) — is asked; on a quorum
     /// the committed frontier advances over the contiguous accepted tail,
-    /// the newly committed client slots emit `Apply` in slot order (§11.1),
-    /// and the new frontier is announced to every backup (§13.3).
+    /// the newly committed operation slots emit `Apply` in slot order
+    /// (§11.1), and the new frontier is announced to every backup (§13.3).
     fn plan_prepare_ok(
         &self,
         journal: &J::View,
@@ -2751,7 +2616,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // for every lower uncommitted slot (VRR-2012 §4's cumulative
         // acknowledgement): the vote is recorded against every outstanding
         // slot up to the acknowledged one — including slots a view change
-        // installed, whose records carry no client identity.
+        // installed, whose records the new primary re-seeded.
         let mut oks: Vec<(Slot, NodeId)> = Vec::new();
         let mut covered = self.progress.committed();
         while let Some(next) = covered.next() {
@@ -2802,7 +2667,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Status::Normal,
             self.progress.accepted(),
             committed,
-            self.progress.applied(),
+            self.applied_walk(journal, &[], self.progress.applied(), committed)?,
         )?;
         let mut effects = self.apply_effects(journal, self.progress.committed(), committed)?;
         effects.extend(self.broadcast_commit(committed));
@@ -2814,7 +2679,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// Any node's `Commit` handler (§4, §13.3): advance
     /// `committed = min(header.committed, accepted)` — the frontier never
     /// claims what the journal does not record (§5 invariant 2) — and emit
-    /// `Apply` for the newly committed client slots in slot order (§11.1).
+    /// `Apply` for the newly committed operation slots in slot order (§11.1).
     /// A `Recovering` backup adopts the view under the same rule as
     /// `Prepare`.
     fn plan_commit(
@@ -2823,6 +2688,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         from: NodeId,
         message: &Message,
         frontier: Slot,
+        at: Tick,
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRejection> {
         let header = message.header;
@@ -2844,6 +2710,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             );
         }
         let current = self.progress.current();
+        // A Commit from the legitimate primary of a HIGHER view: the same
+        // qualified staleness signal as a higher-view Prepare (§10) —
+        // fence and fetch, never install from the hint (§13.4).
+        if header.view > current {
+            return self.plan_higher_view_signal(journal, from, header.view, at, kind);
+        }
         let eligible = header.view == current
             && match self.progress.status() {
                 Status::Normal => true,
@@ -2882,153 +2754,834 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             status,
             self.progress.accepted(),
             new_committed,
-            self.progress.applied(),
+            self.applied_walk(journal, &[], self.progress.applied(), new_committed)?,
         )?;
         let effects = self.apply_effects(journal, self.progress.committed(), new_committed)?;
         Ok(self.candidate_plan(candidate, JournalMutation::None, effects, kind, false))
     }
 
-    /// The §11.2 completion. Two shapes are accepted:
+    /// The §11.1 acknowledgement: the next applied slot in order advances
+    /// `applied` and resolves the slot's proposal record. A completion for
+    /// any other slot — a duplicate, an out-of-order report, or a slot that
+    /// is not yet committed — is the named
+    /// [`PlanRejection::UnexpectedApplied`], refused without state change.
+    /// Nothing is emitted: the acknowledgement carries no result, and the
+    /// core never answers a proposal (B2).
     ///
-    /// - The next applied slot in order: advances `applied` and emits the
-    ///   `Reply` to the client recorded for the slot (the primary holds the
-    ///   record; a backup replies to no one). Either way the result is
-    ///   cached into the client's row when it is still the client's latest
-    ///   — at any node, so a backup's `DoViewChange` evidence can carry the
-    ///   cached result through a view change (§9.2). The
-    ///   Reply-after-Apply property is structural: a `Reply` is emitted
-    ///   ONLY here and in the cached/re-drive paths of the client-request
-    ///   handler.
-    /// - A slot in the re-drive set (§9.2): the completion of an
-    ///   unknown-result re-drive. The frontier does not move — the slot was
-    ///   applied before — and the `Reply` is produced from the entry's own
-    ///   identity. A completion for a slot nobody re-drove, or a duplicate,
-    ///   or an out-of-order completion, is the named
-    ///   [`PlanRejection::UnexpectedApplied`].
-    ///
-    /// The genesis slots are system payloads (§8.7.2): they commit but are
-    /// never applied, so the first expected applied slot is `INIT_SLOT + 1`.
+    /// The §11 system-slot ruling: `applied` walks every slot. A committed
+    /// system operation is core-internal — it emits no `Apply` upcall and
+    /// expects no acknowledgement — but it advances `applied` the moment
+    /// the contiguous committed prefix allows (see [`Self::applied_walk`]).
+    /// The next slot the host can report is therefore always an operation
+    /// slot; a report naming a system slot is a duplicate — the walk
+    /// already crossed it.
     fn plan_applied(
         &self,
         journal: &J::View,
         slot: Slot,
-        result: &[u8],
     ) -> Result<PlannedTransition, PlanRejection> {
-        let base = self.progress.applied().max(INIT_SLOT);
-        let expected = match base.next() {
-            Some(next) if next <= self.progress.committed() => Some(next),
+        let committed = self.progress.committed();
+        let walked = self.applied_walk(journal, &[], self.progress.applied(), committed)?;
+        let expected = match walked.next() {
+            Some(next) if next <= committed => Some(next),
             Some(_) | None => None,
         };
-        let entry = journal
-            .get(slot)
-            .ok_or(PlanRejection::JournalEntryUnavailable { slot })?;
-        let Payload::Client {
-            client, request, ..
-        } = &entry.payload
-        else {
-            return Err(PlanRejection::AppliedSystemSlot { slot });
-        };
-        let client = *client;
-        let request = *request;
         if expected != Some(slot) {
-            // The re-drive completion: the slot is committed, was applied
-            // before, and its re-drive is outstanding.
-            if !self.redrives.contains(&slot) || slot > self.progress.applied() {
-                return Err(PlanRejection::UnexpectedApplied {
-                    expected,
-                    got: slot,
-                });
-            }
-            let candidate = self.identity_candidate()?;
-            let mut bookkeeping = Bookkeeping {
-                redrive_done: vec![slot],
-                ..Bookkeeping::default()
-            };
-            if self
-                .clients
-                .get(&client)
-                .is_some_and(|row| row.last == request)
-            {
-                bookkeeping.clients.push((
-                    client,
-                    ClientRow {
-                        last: request,
-                        result: Some(result.into()),
-                    },
-                ));
-            }
-            let effects = vec![Effect::Reply {
-                client,
-                request,
-                result: result.into(),
-            }];
-            return Ok(self
-                .candidate_plan(
-                    candidate,
-                    JournalMutation::None,
-                    effects,
-                    InputKind::Applied,
-                    false,
-                )
-                .with_bookkeeping(bookkeeping));
+            return Err(PlanRejection::UnexpectedApplied {
+                expected,
+                got: slot,
+            });
         }
-        let candidate = self.candidate_with(
-            self.progress.status(),
-            self.progress.accepted(),
-            self.progress.committed(),
-            slot,
-        )?;
-        let mut effects = Vec::new();
-        let mut bookkeeping = Bookkeeping {
+        // A `Replaying` node (§6.1, §11.1) flips to `Normal` when the
+        // walked frontier catches up with the committed frontier: the
+        // recovered history is applied, and participation resumes.
+        let applied = self.applied_walk(journal, &[], slot, committed)?;
+        let status = if self.progress.status() == Status::Replaying && applied == committed {
+            Status::Normal
+        } else {
+            self.progress.status()
+        };
+        let candidate =
+            self.candidate_with(status, self.progress.accepted(), committed, applied)?;
+        let bookkeeping = Bookkeeping {
             resolved: vec![slot],
             ..Bookkeeping::default()
         };
-        // A re-driven slot can land here instead of the out-of-order path:
-        // the node's applied frontier lagged its committed frontier, so for
-        // THIS host the re-drive was the first execution. The frontier
-        // advances as usual; the outstanding retry is still answered.
-        let redriven = self.redrives.contains(&slot);
-        if redriven {
-            bookkeeping.redrive_done.push(slot);
+        Ok(self
+            .candidate_plan(
+                candidate,
+                JournalMutation::None,
+                Vec::new(),
+                InputKind::Applied,
+                false,
+            )
+            .with_bookkeeping(bookkeeping))
+    }
+
+    /// The host's checkpoint report (§5's checkpoint frontier, §11):
+    /// accepted only when `through <= applied` — a checkpoint cannot claim
+    /// state the application has not incorporated — and otherwise refused
+    /// as [`PlanRejection::CheckpointExceedsApplied`] without state change.
+    /// A report at or below the published frontier is a duplicate:
+    /// accepted as an identity transition, moving nothing.
+    ///
+    /// The published frontier is the SOLE reclamation authorization (§4,
+    /// S1): what it permits the default journal to drop is applied by
+    /// [`Replica::reclaim_journal`], lazily, on a later append — never by
+    /// this transition itself.
+    fn plan_checkpointed(&self, through: Slot) -> Result<PlannedTransition, PlanRejection> {
+        let applied = self.progress.applied();
+        if through > applied {
+            return Err(PlanRejection::CheckpointExceedsApplied { applied, through });
         }
-        let identity = self
-            .proposals
-            .get(&slot)
-            .and_then(|proposal| proposal.client.zip(proposal.request))
-            .or(redriven.then_some((client, request)));
-        if let Some((client, request)) = identity {
-            effects.push(Effect::Reply {
-                client,
-                request,
-                result: result.into(),
+        let candidate = if through <= self.progress.checkpoint() {
+            self.identity_candidate()?
+        } else {
+            self.progress
+                .with_checkpoint(through)
+                .map_err(PlanRejection::Progress)?
+        };
+        Ok(self.candidate_plan(
+            candidate,
+            JournalMutation::None,
+            Vec::new(),
+            InputKind::Checkpointed,
+            false,
+        ))
+    }
+
+    /// Begin a recovery attempt (§10, §6.1): broadcast the solicitation to
+    /// the rest of the configuration and open the volatile attempt state.
+    ///
+    /// The nonce IS the recovery input's tick (S4) — one value cannot
+    /// disagree with itself, and §6.1's retry-with-a-fresh-nonce rule is a
+    /// retry with a fresh tick. Only a fenced `Recovering` node recovers:
+    /// recovery is how a reopened node re-proves its state, and every other
+    /// status answers [`PlanRejection::NotRecovering`]. A fresh attempt
+    /// replaces an open one wholesale — the old nonce dies with it, which
+    /// is what makes a delayed response to it stale.
+    ///
+    /// The node never counts itself: the `R_g` quorum is other replicas'
+    /// responses (§8.3), so the solicitation goes only to the backups.
+    fn plan_recover(&self, at: Tick) -> Result<PlannedTransition, PlanRejection> {
+        if self.progress.status() != Status::Recovering {
+            return Err(PlanRejection::NotRecovering {
+                status: self.progress.status(),
             });
         }
-        // Cache the result for the idempotent retry — only if this is
-        // still the client's latest request; a superseded row belongs to a
-        // newer slot. At any node, primary or backup: the cached result is
-        // view-change evidence (§9.2).
-        if self
-            .clients
-            .get(&client)
-            .is_some_and(|row| row.last == request)
-        {
-            bookkeeping.clients.push((
-                client,
-                ClientRow {
-                    last: request,
-                    result: Some(result.into()),
-                },
-            ));
-        }
+        let current = self.progress.current();
+        let message = Message {
+            header: Header {
+                tag: Tag::Recovery,
+                view: current,
+                slot: Slot::FIRST,
+            },
+            body: Body::Recovery { nonce: at },
+        };
+        let effects = self
+            .backups()
+            .into_iter()
+            .map(|to| Effect::Send {
+                to,
+                era: current.era,
+                message: message.clone(),
+            })
+            .collect();
+        let candidate = self.identity_candidate()?;
         Ok(self
             .candidate_plan(
                 candidate,
                 JournalMutation::None,
                 effects,
-                InputKind::Applied,
+                InputKind::Recovery,
                 false,
             )
-            .with_bookkeeping(bookkeeping))
+            .with_bookkeeping(Bookkeeping {
+                recovery: RecoveryUpdate::Set(RecoveryVolatile {
+                    nonce: at,
+                    responses: BTreeMap::new(),
+                }),
+                ..Bookkeeping::default()
+            }))
+    }
+
+    /// A `Recovery` solicitation (§10, §6.1): only a `Normal` node answers
+    /// — a node that has not proved its state current cannot vouch for the
+    /// cluster's, so a fenced, recovering or replaying node declines. The
+    /// answer echoes the nonce (a delayed answer to an earlier attempt is
+    /// then stale at the recoverer), reports the responder's current view —
+    /// the fence knowledge the `F_g ⌢ R_g` intersection (§8.3) exists to
+    /// deliver — and carries the bounded history suffix only when the
+    /// responder is the primary of the view it reports: the primary's log
+    /// is the one installation evidence may come from (§6.1).
+    fn plan_recovery_request(
+        &self,
+        from: NodeId,
+        nonce: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let Some(record) = self.current_record() else {
+            return Err(PlanRejection::Progress(ProgressError::EraSlotDiscipline));
+        };
+        if record.config.weight_of(from).is_none() {
+            return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
+        }
+        if self.progress.status() != Status::Normal {
+            return self.drop_plan(Diagnostic::RecoveryWhileNotNormal, kind);
+        }
+        let journal = self.journal.view();
+        let current = self.progress.current();
+        let suffix = if self.primary_of(current) == Some(self.own) {
+            Some(self.bounded_suffix(&journal, self.progress.accepted(), &[]))
+        } else {
+            None
+        };
+        let response = Message {
+            header: Header {
+                tag: Tag::RecoveryResponse,
+                view: current,
+                slot: Slot::FIRST,
+            },
+            body: Body::RecoveryResponse {
+                nonce,
+                view: current,
+                accepted: self.progress.accepted(),
+                committed: self.progress.committed(),
+                suffix,
+            },
+        };
+        let effects = vec![Effect::Send {
+            to: from,
+            era: current.era,
+            message: response,
+        }];
+        let candidate = self.identity_candidate()?;
+        Ok(self.candidate_plan(candidate, JournalMutation::None, effects, kind, false))
+    }
+
+    /// A `RecoveryResponse` (§6.1, §8.3): one weighted vote toward the open
+    /// attempt's `R_g` quorum — never the node's own — and, once the
+    /// quorum holds, the completion ruling: the latest view the quorum
+    /// reports is the latest fenced view the attempt can know (`F_g ⌢
+    /// R_g`), and only that view's primary's response is installation
+    /// evidence.
+    #[allow(clippy::too_many_arguments)]
+    fn plan_recovery_response(
+        &self,
+        journal: &J::View,
+        from: NodeId,
+        nonce: Tick,
+        view: ViewId,
+        accepted: Slot,
+        committed: Slot,
+        suffix: &Option<Vec<LogEntry>>,
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        // The nonce names the attempt: a response to an earlier attempt —
+        // or to none — is stale and counts toward nothing (§6.1).
+        let Some(attempt) = self.recovery.clone() else {
+            return self.drop_plan(
+                Diagnostic::StaleRecoveryResponse {
+                    nonce,
+                    attempt: None,
+                },
+                kind,
+            );
+        };
+        if nonce != attempt.nonce {
+            return self.drop_plan(
+                Diagnostic::StaleRecoveryResponse {
+                    nonce,
+                    attempt: Some(attempt.nonce),
+                },
+                kind,
+            );
+        }
+        // A node never counts itself: `R_g` is other replicas' evidence.
+        if from == self.own {
+            return self.drop_plan(Diagnostic::RecoveryResponseFromSelf, kind);
+        }
+        let Some(record) = self.current_record() else {
+            return Err(PlanRejection::Progress(ProgressError::EraSlotDiscipline));
+        };
+        if record.config.weight_of(from).is_none() {
+            return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
+        }
+        if self.progress.config().record(view.era).is_none() {
+            return self.drop_plan(Diagnostic::UnevaluableEra { era: view.era }, kind);
+        }
+        // Shape: the frontiers are a legal chain, and an offered suffix is
+        // a contiguous ascending run ending at the accepted frontier (§13.1).
+        if committed > accepted
+            || suffix
+                .as_ref()
+                .is_some_and(|s| !suffix_shape_ok(s, accepted))
+        {
+            return self.drop_plan(Diagnostic::MalformedRecovery, kind);
+        }
+        // Only the primary of the reported view may carry history (§6.1).
+        if suffix.is_some() && self.primary_of(view) != Some(from) {
+            return self.drop_plan(
+                Diagnostic::RecoveryHistoryNotFromPrimary { sender: from, view },
+                kind,
+            );
+        }
+        // Evidence claiming less than the node durably committed is shaped
+        // like knowledge the node already holds: stale, never believed.
+        if committed < self.progress.committed() {
+            return self.drop_plan(
+                Diagnostic::StaleEvidence {
+                    got: view,
+                    current: self.progress.current(),
+                },
+                kind,
+            );
+        }
+        let mut attempt = attempt;
+        attempt.responses.insert(
+            from,
+            RecoveryEvidence {
+                view,
+                accepted,
+                committed,
+                suffix: suffix.clone(),
+            },
+        );
+        // The completion ruling becomes evaluable only when the weighted
+        // `R_g` quorum holds (the strategy decides — Q1). Until it does,
+        // the attempt just records the response and waits for more.
+        let record_attempt = |attempt: RecoveryVolatile, diagnostic| {
+            let candidate = self.identity_candidate()?;
+            Ok(self
+                .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                .with_bookkeeping(Bookkeeping {
+                    recovery: RecoveryUpdate::Set(attempt),
+                    ..Bookkeeping::default()
+                })
+                .with_diagnostic(diagnostic))
+        };
+        let responders: Vec<NodeId> = attempt.responses.keys().copied().collect();
+        if !self
+            .strategy
+            .is_quorum(Role::Recovery, &record.config, &responders)
+        {
+            return record_attempt(attempt, Diagnostic::None);
+        }
+        let Some(latest) = attempt
+            .responses
+            .values()
+            .map(|evidence| evidence.view)
+            .max()
+        else {
+            unreachable!("a quorum of responses is never empty");
+        };
+        if latest < self.progress.current() {
+            // Every responder is behind the view this node already fenced:
+            // its own fence is the newest knowledge the quorum holds
+            // (V_g ⌢ V_g, §8.3) and no installable history is on offer.
+            // The attempt stays open for a fresher round.
+            return record_attempt(
+                attempt,
+                Diagnostic::StaleEvidence {
+                    got: latest,
+                    current: self.progress.current(),
+                },
+            );
+        }
+        let install = attempt
+            .responses
+            .iter()
+            .find(|(_, evidence)| evidence.view == latest && evidence.suffix.is_some())
+            .map(|(source, evidence)| (*source, evidence.clone()));
+        let Some((source, evidence)) = install else {
+            // The quorum holds but the latest fenced view's primary has not
+            // answered with history: keep collecting; nothing installs from
+            // non-primary evidence (§6.1).
+            return record_attempt(attempt, Diagnostic::None);
+        };
+        self.plan_recovery_completion(journal, attempt, source, latest, evidence, at, kind)
+    }
+
+    /// The completing ruling of an open recovery attempt, when it is
+    /// evaluable AND constructible: the weighted `R_g` quorum holds (Q1),
+    /// the latest fenced view is not behind the node's own fence, that
+    /// view's primary has answered with history — and the offered suffix
+    /// installs against the local journal. The last clause is what a
+    /// finished state-transfer fetch flips (§13.1 step 5); the tick
+    /// re-drive asks here.
+    fn recovery_completion_ready(
+        &self,
+        journal: &J::View,
+        attempt: &RecoveryVolatile,
+    ) -> Option<(NodeId, ViewId, RecoveryEvidence)> {
+        let record = self.current_record()?;
+        let responders: Vec<NodeId> = attempt.responses.keys().copied().collect();
+        if !self
+            .strategy
+            .is_quorum(Role::Recovery, &record.config, &responders)
+        {
+            return None;
+        }
+        let latest = attempt
+            .responses
+            .values()
+            .map(|evidence| evidence.view)
+            .max()?;
+        if latest < self.progress.current() {
+            return None;
+        }
+        let (source, evidence) = attempt
+            .responses
+            .iter()
+            .find(|(_, evidence)| evidence.view == latest && evidence.suffix.is_some())?;
+        let suffix = evidence
+            .suffix
+            .as_ref()
+            .expect("the find clause required a suffix");
+        match self.check_suffix(journal, suffix, evidence.accepted, evidence.committed) {
+            SuffixCheck::Install(_) => Some((*source, latest, evidence.clone())),
+            SuffixCheck::Gap { .. } | SuffixCheck::Conflict => None,
+        }
+    }
+
+    /// The completing ruling of a recovery attempt (§6.1, §10): install the
+    /// latest fenced view's history from its primary's response — protocol
+    /// evidence only — and re-emit the committed-but-unapplied suffix as
+    /// ordered `Apply` upcalls (§11.1, B2: the core re-emits the upcall,
+    /// never a reply — no reply was ever emitted at this node). Completion
+    /// below `committed` leaves the node `Replaying` until `applied ==
+    /// committed`; a retained base above the base the recovery must read
+    /// from surfaces [`Effect::RequestApplicationState`] (§4, §11), never
+    /// a fault.
+    #[allow(clippy::too_many_arguments)]
+    fn plan_recovery_completion(
+        &self,
+        journal: &J::View,
+        attempt: RecoveryVolatile,
+        source: NodeId,
+        latest: ViewId,
+        evidence: RecoveryEvidence,
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let Some(suffix) = evidence.suffix.as_ref() else {
+            unreachable!("installation evidence carries a suffix");
+        };
+        let shortfall = |attempt: RecoveryVolatile, required: Slot, retained: Slot| {
+            // The journal physically let the required prefix go (S1): §4's
+            // answer is the host's application-state transfer facility, not
+            // a fault and not a protocol fetch.
+            let candidate = self.identity_candidate()?;
+            Ok(self
+                .candidate_plan(
+                    candidate,
+                    JournalMutation::None,
+                    vec![Effect::RequestApplicationState {
+                        through: evidence.committed,
+                    }],
+                    kind,
+                    false,
+                )
+                .with_bookkeeping(Bookkeeping {
+                    recovery: RecoveryUpdate::Set(attempt),
+                    ..Bookkeeping::default()
+                })
+                .with_diagnostic(Diagnostic::ApplicationStateShortfall { required, retained }))
+        };
+        let mutation =
+            match self.check_suffix(journal, suffix, evidence.accepted, evidence.committed) {
+                SuffixCheck::Install(mutation) => mutation,
+                SuffixCheck::Gap { expected, got } => {
+                    let (retained_base, _) = journal.retained();
+                    if expected < retained_base {
+                        return shortfall(attempt, expected, retained_base);
+                    }
+                    // The offer does not reach back far enough to verify —
+                    // the budget-truncation case (§13.1, W5): fetch the
+                    // missing range from the responder (§13.1 step 5)
+                    // instead of waiting for a fuller offer. The attempt
+                    // stays open; completion re-runs on a tick once the
+                    // range has arrived.
+                    let (effect, fetch) = self.fetch(latest, source, expected);
+                    let candidate = self.identity_candidate()?;
+                    return Ok(self
+                        .candidate_plan(candidate, JournalMutation::None, vec![effect], kind, false)
+                        .with_bookkeeping(Bookkeeping {
+                            recovery: RecoveryUpdate::Set(attempt),
+                            transfer: TransferUpdate::Set(fetch),
+                            ..Bookkeeping::default()
+                        })
+                        .with_diagnostic(Diagnostic::GapDetected { expected, got }));
+                }
+                SuffixCheck::Conflict => {
+                    // An honest recovery quorum can never contradict a slot
+                    // this node durably committed (§8.3, §9.2): declare the
+                    // breach.
+                    let candidate = self.identity_candidate()?;
+                    return Ok(self
+                        .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                        .with_fault_declared(Fault::IllegalTransition));
+                }
+            };
+        // The replay ruling (§11.1): everything committed-but-unapplied —
+        // by the installed history's `committed` — is re-emitted as
+        // ordered `Apply` upcalls. The replay reads from the node's
+        // applied seed, so what the node durably applied is never
+        // re-applied; and the §11 system-slot ruling folds every committed
+        // system slot the walk crosses into `applied` without an upcall or
+        // an acknowledgement.
+        let replay_base = self.progress.applied();
+        let applies =
+            match self.apply_effects_merged(journal, suffix, replay_base, evidence.committed) {
+                Ok(applies) => applies,
+                Err(PlanRejection::JournalEntryUnavailable { slot }) => {
+                    let (retained_base, _) = journal.retained();
+                    return shortfall(attempt, slot, retained_base);
+                }
+                Err(rejection) => return Err(rejection),
+            };
+        let applied = match self.applied_walk(journal, suffix, replay_base, evidence.committed) {
+            Ok(applied) => applied,
+            Err(PlanRejection::JournalEntryUnavailable { slot }) => {
+                let (retained_base, _) = journal.retained();
+                return shortfall(attempt, slot, retained_base);
+            }
+            Err(rejection) => return Err(rejection),
+        };
+        // Normal once the walked frontier reached the committed one;
+        // Replaying — fenced from participation — while host
+        // acknowledgements are still owed.
+        let status = if applied == evidence.committed {
+            Status::Normal
+        } else {
+            Status::Replaying
+        };
+        let candidate = self.recovery_candidate(
+            latest,
+            status,
+            evidence.accepted,
+            evidence.committed,
+            applied,
+        )?;
+        // The recovery install supersedes any view change the node was
+        // fencing (the attempt cleared below), and if the node is the
+        // primary of the view it recovered into it picks the reassembled
+        // history's uncommitted tail up and starts driving it (§8.1).
+        let proposals = if self.primary_of(latest) == Some(self.own) {
+            self.installed_proposals(journal, suffix, evidence.committed, evidence.accepted)
+        } else {
+            Vec::new()
+        };
+        Ok(self
+            .candidate_plan(candidate, mutation, applies, kind, false)
+            .with_bookkeeping(Bookkeeping {
+                proposals,
+                view_change: ViewChangeUpdate::Clear,
+                recovery: RecoveryUpdate::Clear,
+                // The recovered view's primary just proved itself alive:
+                // the timeout baseline refreshes (S4).
+                activity: Some(at),
+                ..Bookkeeping::default()
+            }))
+    }
+
+    /// A `GetState` (§10, §13.1 step 5): stream the requested range back
+    /// in budget-bounded chunks (W5). Only a `Normal` node in the
+    /// requested view serves — the same rule as the §10 recovery
+    /// solicitation: a fenced or recovering node's history is not yet
+    /// proved current. The chunk is a contiguous ascending run from
+    /// `from`, never a byte past the host's transport budget (W4); `more`
+    /// tells the requester the frontier sits past the chunk, so a partial
+    /// answer resumes from the cursor. A request the node cannot serve is
+    /// a named drop, never a fault: the requester's fetch stays open and
+    /// another answer closes the gap.
+    fn plan_get_state(
+        &self,
+        journal: &J::View,
+        from: NodeId,
+        message: &Message,
+        fetch_from: Slot,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let header = message.header;
+        let Some(record) = self.progress.config().record(header.view.era) else {
+            return self.drop_plan(
+                Diagnostic::UnevaluableEra {
+                    era: header.view.era,
+                },
+                kind,
+            );
+        };
+        if record.config.weight_of(from).is_none() {
+            return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
+        }
+        let current = self.progress.current();
+        let frontier = self.progress.accepted();
+        if header.view != current || self.progress.status() != Status::Normal {
+            return self.drop_plan(
+                Diagnostic::TransferNotServed {
+                    sender: from,
+                    view: header.view,
+                },
+                kind,
+            );
+        }
+        // Pack the chunk: contiguous ascending from the requested base,
+        // stopping at the frontier, at a journal hole, or one entry before
+        // the budget would overflow — the suffix never exceeds the budget
+        // by a byte (W4). An empty chunk cannot advance the requester's
+        // cursor (the base is ahead of the frontier, below retention, or
+        // one entry over the budget), so it is not served at all.
+        let mut entries: Vec<LogEntry> = Vec::new();
+        let mut bytes = 0usize;
+        let mut cursor = Some(fetch_from);
+        while let Some(slot) = cursor {
+            if slot > frontier {
+                break;
+            }
+            let Some(entry) = journal.get(slot) else {
+                break;
+            };
+            let Some(total) = bytes.checked_add(entry.packed_len()) else {
+                break;
+            };
+            if total > self.knobs.view_change_budget {
+                break;
+            }
+            entries.push(entry.clone());
+            bytes = total;
+            cursor = slot.next();
+        }
+        let Some(through) = entries.last().map(|entry| entry.slot) else {
+            return self.drop_plan(
+                Diagnostic::TransferNotServed {
+                    sender: from,
+                    view: header.view,
+                },
+                kind,
+            );
+        };
+        let response = Message {
+            header: Header {
+                tag: Tag::NewState,
+                view: current,
+                slot: through,
+            },
+            body: Body::NewState {
+                entries,
+                through,
+                committed: self.progress.committed(),
+                more: through < frontier,
+            },
+        };
+        let effects = vec![Effect::Send {
+            to: from,
+            era: current.era,
+            message: response,
+        }];
+        let candidate = self.identity_candidate()?;
+        Ok(self.candidate_plan(candidate, JournalMutation::None, effects, kind, false))
+    }
+
+    /// A `NewState` chunk (§10, §13.1 step 5): history the node actively
+    /// fetched, installed through the same suffix ruling as the
+    /// view-change and recovery paths — contiguity against the local
+    /// journal, no committed-slot conflict (the one deliberate fault),
+    /// committed frontier monotone. Only a chunk answering the open fetch
+    /// is protocol-qualified evidence at all; anything else — another
+    /// view, another sender, no open fetch, a range the node already
+    /// holds — is a named drop, never a fault. The chunk is HISTORY, not
+    /// the completing ruling: a fenced node's committed frontier waits
+    /// for its own path's qualified evidence (the `StartView`, the
+    /// recovery ruling).
+    #[allow(clippy::too_many_arguments)]
+    fn plan_new_state(
+        &self,
+        journal: &J::View,
+        from: NodeId,
+        message: &Message,
+        entries: &[LogEntry],
+        through: Slot,
+        committed: Slot,
+        more: bool,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let header = message.header;
+        let Some(record) = self.progress.config().record(header.view.era) else {
+            return self.drop_plan(
+                Diagnostic::UnevaluableEra {
+                    era: header.view.era,
+                },
+                kind,
+            );
+        };
+        if record.config.weight_of(from).is_none() {
+            return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
+        }
+        // Shape first (§13.1): the header slot names the covered range's
+        // end; the entries are a contiguous ascending run ending there; an
+        // empty chunk never claims more remains. A FINAL chunk's committed
+        // frontier never exceeds the covered range — an honest responder's
+        // committed never exceeds its frontier, and `more` clear means the
+        // chunk reached it. A partial chunk's committed legitimately runs
+        // past the chunk; the install caps at the covered frontier.
+        if header.slot != through
+            || (!more && committed > through)
+            || !suffix_shape_ok(entries, through)
+            || (entries.is_empty() && more)
+        {
+            return self.drop_plan(Diagnostic::MalformedTransfer, kind);
+        }
+        // Only the open fetch qualifies the chunk (§10): the view and the
+        // responder must be the ones the node asked.
+        let current = self.progress.current();
+        let Some(fetch) = self.transfer else {
+            return self.drop_plan(
+                Diagnostic::StaleTransfer {
+                    sender: from,
+                    view: header.view,
+                },
+                kind,
+            );
+        };
+        if fetch.view != header.view || fetch.to != from {
+            return self.drop_plan(
+                Diagnostic::StaleTransfer {
+                    sender: from,
+                    view: header.view,
+                },
+                kind,
+            );
+        }
+        // A committed frontier behind the node's own durable one is shaped
+        // like knowledge the node already holds: stale, never believed.
+        if committed < self.progress.committed() {
+            return self.drop_plan(
+                Diagnostic::StaleEvidence {
+                    got: header.view,
+                    current,
+                },
+                kind,
+            );
+        }
+        let accepted = self.progress.accepted();
+        // A range the node already holds whole: a duplicate. It closes
+        // the fetch only when the responder has nothing more; a duplicate
+        // that claims more is stale noise.
+        if through <= accepted {
+            if more {
+                return self.drop_plan(
+                    Diagnostic::StaleTransfer {
+                        sender: from,
+                        view: header.view,
+                    },
+                    kind,
+                );
+            }
+            let candidate = self.identity_candidate()?;
+            return Ok(self
+                .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                .with_bookkeeping(Bookkeeping {
+                    transfer: TransferUpdate::Clear,
+                    ..Bookkeeping::default()
+                }));
+        }
+        let mutation = match self.check_suffix(journal, entries, through, committed) {
+            SuffixCheck::Install(mutation) => mutation,
+            // A reordered chunk: it cannot be verified against the local
+            // journal until its prefix arrives. Named, kept waiting — the
+            // fetch stays open and the in-flight chunks close it.
+            SuffixCheck::Gap { expected, got } => {
+                return self.drop_plan(Diagnostic::GapDetected { expected, got }, kind);
+            }
+            // A chunk contradicting a slot this node durably committed is
+            // the same quorum-obligation violation as a conflicting
+            // StartView suffix (§9.2): declare the breach.
+            SuffixCheck::Conflict => {
+                let candidate = self.identity_candidate()?;
+                return Ok(self
+                    .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                    .with_fault_declared(Fault::IllegalTransition));
+            }
+        };
+        // The install moves the accepted frontier only; the committed
+        // frontier moves on the current view's own transfer — while the
+        // node is fenced, the completing ruling owns it.
+        let new_accepted = accepted.max(through);
+        let current_view_transfer =
+            header.view == current && self.progress.status() == Status::Normal;
+        let new_committed = if current_view_transfer {
+            self.progress.committed().max(committed.min(new_accepted))
+        } else {
+            self.progress.committed()
+        };
+        let mut effects = if new_committed > self.progress.committed() {
+            self.apply_effects_merged(journal, entries, self.progress.committed(), new_committed)?
+        } else {
+            Vec::new()
+        };
+        let candidate = self.candidate_with(
+            self.progress.status(),
+            new_accepted,
+            new_committed,
+            self.applied_walk(journal, entries, self.progress.applied(), new_committed)?,
+        )?;
+        // The cursor: a partial answer resumes with a fresh `GetState`
+        // one past the newly installed frontier; the final chunk closes
+        // the fetch.
+        let transfer = if more {
+            match new_accepted.next() {
+                Some(next) => {
+                    let (effect, fetch) = self.fetch(header.view, from, next);
+                    effects.push(effect);
+                    TransferUpdate::Set(fetch)
+                }
+                // The slot space is spent: nothing more can be fetched.
+                None => TransferUpdate::Clear,
+            }
+        } else {
+            TransferUpdate::Clear
+        };
+        Ok(self
+            .candidate_plan(candidate, mutation, effects, kind, false)
+            .with_bookkeeping(Bookkeeping {
+                transfer,
+                ..Bookkeeping::default()
+            }))
+    }
+
+    /// The recovery install candidate: `current` and `retained` join at the
+    /// latest fenced view (§1.3 — the history was re-selected from protocol
+    /// evidence), the frontiers become the installed history's, and the
+    /// status is `Normal` when nothing is left to replay, `Replaying` while
+    /// committed operations await their application upcalls (§11.1).
+    fn recovery_candidate(
+        &self,
+        view: ViewId,
+        status: Status,
+        accepted: Slot,
+        committed: Slot,
+        applied: Slot,
+    ) -> Result<Progress, PlanRejection> {
+        let revision = self
+            .progress
+            .revision()
+            .checked_add(1)
+            .ok_or(PlanRejection::Progress(ProgressError::RevisionExhausted))?;
+        Progress::reconstitute(
+            view,
+            view,
+            status,
+            accepted,
+            committed,
+            applied,
+            self.progress.checkpoint(),
+            revision,
+            Arc::clone(self.progress.config()),
+            None,
+        )
+        .map_err(PlanRejection::Progress)
     }
 
     /// The primary of `view` under its era's configuration, or `None` when
@@ -3089,7 +3642,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The `Apply` effects for the newly committed slots `(from, through]`,
-    /// in slot order (§11.1): client payloads only — system slots commit,
+    /// in slot order (§11.1): operation payloads only — system slots commit,
     /// but the application boundary is not theirs.
     fn apply_effects(
         &self,
@@ -3108,9 +3661,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             let entry = journal
                 .get(slot)
                 .ok_or(PlanRejection::JournalEntryUnavailable { slot })?;
-            if let Payload::Client { payload, .. } = &entry.payload {
+            if let Payload::Operation { id, payload } = &entry.payload {
                 effects.push(Effect::Apply {
                     slot,
+                    operation_id: *id,
                     payload: payload.clone(),
                 });
             }
@@ -3124,8 +3678,43 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         Ok(effects)
     }
 
+    /// The applied frontier after walking every committed system slot the
+    /// contiguous prefix allows (the §11 system-slot ruling): `applied`
+    /// walks EVERY slot — a committed system operation emits no `Apply`
+    /// upcall (it is core-internal, folded into the configuration on
+    /// commit) but it advances `applied` exactly like an acknowledged
+    /// operation slot. `overlay` supplies the entries an in-transition
+    /// install adds to the picture, exactly as in
+    /// [`Self::apply_effects_merged`]: the walk then runs over the history
+    /// the transition is installing.
+    fn applied_walk(
+        &self,
+        journal: &J::View,
+        overlay: &[LogEntry],
+        applied: Slot,
+        committed: Slot,
+    ) -> Result<Slot, PlanRejection> {
+        let mut walked = applied;
+        while let Some(next) = walked.next() {
+            if next > committed {
+                break;
+            }
+            let entry = match overlay.iter().find(|entry| entry.slot == next) {
+                Some(entry) => entry,
+                None => journal
+                    .get(next)
+                    .ok_or(PlanRejection::JournalEntryUnavailable { slot: next })?,
+            };
+            if !matches!(entry.payload, Payload::System(_)) {
+                break;
+            }
+            walked = next;
+        }
+        Ok(walked)
+    }
+
     /// An identity candidate: only the revision moves. The published half
-    /// of every drop and every silent client-table refusal.
+    /// of every drop.
     fn identity_candidate(&self) -> Result<Progress, PlanRejection> {
         self.progress
             .with_status(self.progress.status())
@@ -3167,15 +3756,18 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// Builds the install candidate: `current` and `retained` join at
     /// `view` (§1.3 — the history was selected by this change), status is
-    /// `Normal`, and the frontiers become the installed history's. The
-    /// accepted frontier may regress across the re-selection (gate rule 1
-    /// admits it exactly then); the committed frontier never does — the
-    /// callers guard it before this candidate is ever built.
+    /// `Normal`, and the frontiers become the installed history's, with
+    /// `applied` the §11 walk over that history (system slots committed by
+    /// the install advance it without an upcall). The accepted frontier
+    /// may regress across the re-selection (gate rule 1 admits it exactly
+    /// then); the committed frontier never does — the callers guard it
+    /// before this candidate is ever built.
     fn install_candidate(
         &self,
         view: ViewId,
         accepted: Slot,
         committed: Slot,
+        applied: Slot,
     ) -> Result<Progress, PlanRejection> {
         let revision = self
             .progress
@@ -3189,7 +3781,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Status::Normal,
             accepted,
             committed,
-            self.progress.applied(),
+            applied,
             self.progress.checkpoint(),
             revision,
             Arc::clone(self.progress.config()),
@@ -3257,6 +3849,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     break;
                 }
                 // Physically let go (S1): unverifiable, reported honestly.
+                // The offer reached back PAST the slot the node cannot
+                // verify, so `got` — the offer's base, per the
+                // diagnostic's doc — sits at or below `expected` here.
                 None => {
                     return SuffixCheck::Gap {
                         expected: entry.slot,
@@ -3311,9 +3906,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     .get(slot)
                     .ok_or(PlanRejection::JournalEntryUnavailable { slot })?,
             };
-            if let Payload::Client { payload, .. } = &entry.payload {
+            if let Payload::Operation { id, payload } = &entry.payload {
                 effects.push(Effect::Apply {
                     slot,
+                    operation_id: *id,
                     payload: payload.clone(),
                 });
             }
@@ -3329,13 +3925,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// Whether an era proof matches the node's own records (§8.7.8): the
     /// claimed committed slot IS the era's establishing slot, and the
-    /// journal entry there holds the claimed operation.
-    fn era_proof_ok(&self, journal: &J::View, record: &EraRecord, proof: &EraProof) -> bool {
-        proof.committed_at == record.established_by
-            && matches!(
-                journal.get(proof.committed_at),
-                Some(entry) if matches!(&entry.payload, Payload::System(op) if op == &proof.op)
-            )
+    /// retained era record holds the claimed operation.
+    fn era_proof_ok(&self, _journal: &J::View, record: &EraRecord, proof: &EraProof) -> bool {
+        proof.committed_at == record.established_by && proof.op == record.establishing_operation
     }
 
     /// A drop: publish an identity transition carrying the named
@@ -3570,18 +4162,21 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             ViewChangeUpdate::Unchanged => {}
             ViewChangeUpdate::Set(view_change) => self.view_change = Some(view_change),
             // The attempt is over; the primary's proposal records died with
-            // the view it proposed in (the client table survives — its rows
-            // answer retries with results this node durably produced, §9.2).
+            // the view it proposed in.
             ViewChangeUpdate::Clear => {
                 self.view_change = None;
                 self.proposals.clear();
             }
         }
-        if let Some(rows) = bookkeeping.table_replace {
-            self.clients = rows.into_iter().collect();
+        match bookkeeping.recovery {
+            RecoveryUpdate::Unchanged => {}
+            RecoveryUpdate::Set(attempt) => self.recovery = Some(attempt),
+            RecoveryUpdate::Clear => self.recovery = None,
         }
-        for (client, row) in bookkeeping.clients {
-            self.clients.insert(client, row);
+        match bookkeeping.transfer {
+            TransferUpdate::Unchanged => {}
+            TransferUpdate::Set(fetch) => self.transfer = Some(fetch),
+            TransferUpdate::Clear => self.transfer = None,
         }
         for (slot, proposal) in bookkeeping.proposals {
             self.proposals.insert(slot, proposal);
@@ -3595,12 +4190,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         for slot in bookkeeping.resolved {
             self.proposals.remove(&slot);
-        }
-        for slot in bookkeeping.redrive_begin {
-            self.redrives.insert(slot);
-        }
-        for slot in bookkeeping.redrive_done {
-            self.redrives.remove(&slot);
         }
         if let Some(at) = bookkeeping.activity {
             self.primary_activity = at;
@@ -3681,6 +4270,30 @@ fn prepare_ok(view: ViewId, to: NodeId, slot: Slot) -> Effect {
             },
             body: Body::PrepareOk {},
         },
+    }
+}
+
+/// The lazy reclamation wiring over the default journal — inherent to the
+/// concrete type, because the portable `Journal` contract deliberately
+/// does not name reclamation (S1, and `tests/journal_contract.rs` enforces
+/// the omission mechanically).
+impl Replica<SegmentedLog, crate::quorum::WeightedMajority> {
+    /// Offers the published checkpoint frontier to the journal as the
+    /// reclamation authorization (§4, S1): whole slabs whose final slot
+    /// the frontier covers are dropped — never the tail, never a slot past
+    /// it. The host calls this opportunistically (the lazy moment is the
+    /// next append after a checkpoint publishes); with no checkpoint
+    /// published it is a no-op however old the history, because the
+    /// checkpoint is the SOLE authorization. The slot space is a protocol
+    /// fact (§4): reclamation never moves the published frontiers, and the
+    /// failure domains it enables (state shortfall, recovery evidence, the
+    /// §13.1 transfer) are surfaced by the ordinary paths.
+    pub fn reclaim_journal(&mut self) {
+        let checkpoint = self.progress.checkpoint();
+        if checkpoint == Slot::FIRST {
+            return;
+        }
+        self.journal.reclaim_through(checkpoint);
     }
 }
 

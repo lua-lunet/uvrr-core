@@ -35,7 +35,7 @@ use std::sync::Arc;
 use proptest::prelude::*;
 
 use vrr::configuration::{SystemOperation, VOID_SLOT};
-use vrr::ids::{ClientId, Era, NodeId, RequestNumber, Slot};
+use vrr::ids::{Era, NodeId, OperationId, Slot};
 use vrr::journal::{
     Journal, JournalError, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog,
 };
@@ -45,16 +45,18 @@ use vrr::wire::{Malformed, Pack, Unpack, UnpackError};
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/// A client-payload entry at `slot`, in the initial era, carrying one byte derived
+/// An operation-payload entry at `slot`, in the initial era, carrying one byte derived
 /// from the slot so entries are distinguishable after copies.
 fn client(slot: Slot) -> LogEntry {
     let byte = u8::try_from(slot.0 % 251).expect("mod 251 fits a u8");
     LogEntry {
         slot,
         era: Era::INITIAL,
-        payload: Payload::Client {
-            client: ClientId(1),
-            request: RequestNumber(slot.0),
+        payload: Payload::Operation {
+            id: OperationId {
+                msb: 0,
+                lsb: slot.0,
+            },
             payload: Box::new([byte; 4]),
         },
     }
@@ -336,9 +338,8 @@ fn install_suffix_replaces_the_divergent_tail_copy_on_write() {
         suffix.push(LogEntry {
             slot: Slot(slot),
             era: Era::INITIAL,
-            payload: Payload::Client {
-                client: ClientId(2),
-                request: RequestNumber(slot),
+            payload: Payload::Operation {
+                id: OperationId { msb: 0, lsb: slot },
                 payload: Box::new([0xEE; 2]),
             },
         });
@@ -419,9 +420,8 @@ fn install_suffix_replaces_the_divergent_tail_copy_on_write() {
         LogEntry {
             slot: Slot(2),
             era: Era::INITIAL,
-            payload: Payload::Client {
-                client: ClientId(3),
-                request: RequestNumber(1),
+            payload: Payload::Operation {
+                id: OperationId { msb: 0, lsb: 3 },
                 payload: Box::new([0x11; 1]),
             },
         },
@@ -701,9 +701,11 @@ proptest! {
                         .map(|i| LogEntry {
                             slot: Slot(from + i),
                             era: Era::INITIAL,
-                            payload: Payload::Client {
-                                client: ClientId(4),
-                                request: RequestNumber(from + i),
+                            payload: Payload::Operation {
+                                id: OperationId {
+                                    msb: 0,
+                                    lsb: from + i,
+                                },
                                 payload: Box::new([0xAB, u8::try_from(i).expect("len <= 4")]),
                             },
                         })
@@ -836,6 +838,16 @@ fn genesis_begins_at_slot_one_and_is_explicit() {
     );
 }
 
+#[test]
+fn install_suffix_refuses_the_end_of_slot_space_without_mutation() {
+    let mut log = SegmentedLog::new();
+    assert_eq!(
+        log.install_suffix(Slot(u64::MAX), &[client(Slot(u64::MAX))]),
+        Err(JournalError::SlotExhausted)
+    );
+    assert_eq!(log.view().accepted(), None, "the refusal is atomic");
+}
+
 // ---------------------------------------------------------------------------
 // 10. Wire round trip
 // ---------------------------------------------------------------------------
@@ -846,9 +858,8 @@ fn entry_cases() -> Vec<LogEntry> {
         LogEntry {
             slot: Slot::FIRST,
             era: Era::INITIAL,
-            payload: Payload::Client {
-                client: ClientId(5),
-                request: RequestNumber(1),
+            payload: Payload::Operation {
+                id: OperationId { msb: 0, lsb: 5 },
                 payload: Box::new([]),
             },
         },
@@ -856,9 +867,8 @@ fn entry_cases() -> Vec<LogEntry> {
         LogEntry {
             slot: Slot(u64::MAX),
             era: Era(u32::MAX),
-            payload: Payload::Client {
-                client: ClientId(6),
-                request: RequestNumber(9),
+            payload: Payload::Operation {
+                id: OperationId { msb: 0, lsb: 6 },
                 payload: vec![0xCD; 300].into_boxed_slice(),
             },
         },
@@ -936,15 +946,15 @@ fn wire_refuses_reserved_and_unknown_discriminants() {
         }
     }
 
-    // A client payload length prefix far beyond the input is Incomplete, and the
+    // An operation payload length prefix far beyond the input is Incomplete, and the
     // decode must not pre-allocate from the untrusted prefix (the `Init`
     // decode decision, mirrored): this buffer is 41 bytes and claims a 4 GiB payload.
     let mut buf = Vec::new();
     buf.extend_from_slice(&0u64.to_be_bytes()); // slot
     buf.extend_from_slice(&0u32.to_be_bytes()); // era
-    buf.push(1); // Payload::Client
-    buf.extend_from_slice(&0u128.to_be_bytes()); // client
-    buf.extend_from_slice(&0u64.to_be_bytes()); // request
+    buf.push(1); // Payload::Operation
+    buf.extend_from_slice(&0u64.to_be_bytes()); // operation id, most significant word
+    buf.extend_from_slice(&0u64.to_be_bytes()); // operation id, least significant word
     buf.extend_from_slice(&u32::MAX.to_be_bytes()); // declared payload length
     match LogEntry::unpack_from(&buf) {
         Err(UnpackError::Incomplete { .. }) => {}
@@ -964,26 +974,25 @@ fn wire_refuses_reserved_and_unknown_discriminants() {
 }
 
 proptest! {
-    /// Round trip over arbitrary entries: slots and eras anywhere in range, client
+    /// Round trip over arbitrary entries: slots and eras anywhere in range, operation
     /// payloads of arbitrary length up to a host-plausible size, and both payload
     /// variants.
     #[test]
     fn wire_round_trip_proptest(
         slot in any::<u64>(),
         era in any::<u32>(),
-        client in any::<u128>(),
-        request in any::<u64>(),
-        client_payload in proptest::collection::vec(any::<u8>(), 0..512),
+        msb in any::<u64>(),
+        lsb in any::<u64>(),
+        operation_payload in proptest::collection::vec(any::<u8>(), 0..512),
         is_system in any::<bool>(),
         node in any::<u32>(),
     ) {
         let payload = if is_system {
             Payload::System(SystemOperation::Increment(NodeId(node)))
         } else {
-            Payload::Client {
-                client: ClientId(client),
-                request: RequestNumber(request),
-                payload: client_payload.into_boxed_slice(),
+            Payload::Operation {
+                id: OperationId { msb, lsb },
+                payload: operation_payload.into_boxed_slice(),
             }
         };
         let entry = LogEntry { slot: Slot(slot), era: Era(era), payload };

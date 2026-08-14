@@ -750,6 +750,11 @@ pub struct EraRecord {
     pub total: u64,
     /// The log slot of the operation that established this era.
     pub established_by: Slot,
+    /// The operation that established this era.
+    ///
+    /// Retained with the bounded era window because the journal may reclaim
+    /// the physical entry while peers still need an era proof (§8.7.8, S1).
+    pub establishing_operation: SystemOperation,
 }
 
 /// The derived, log-independent record of configuration history.
@@ -800,6 +805,7 @@ impl EraTable {
                 config: Arc::new(Configuration::void()),
                 total: 0,
                 established_by: Slot::FIRST,
+                establishing_operation: SystemOperation::Void,
             }],
         }
     }
@@ -843,6 +849,7 @@ impl EraTable {
             total,
             config: Arc::new(config),
             established_by: at,
+            establishing_operation: op.clone(),
         });
         // Evict everything older than `current - 1`. `saturating_sub` rather than a
         // guard: at era 0 the cutoff is era 0 and nothing is evicted.

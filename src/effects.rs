@@ -27,7 +27,7 @@
 //! is that the barrier completed before the dependent effect became
 //! observable.
 
-use crate::ids::{ClientId, Era, NodeId, RequestNumber, Slot};
+use crate::ids::{Era, NodeId, OperationId, Slot};
 use crate::message::Message;
 
 /// What a published transition asks the host to do. The core performs none of
@@ -45,30 +45,35 @@ pub enum Effect {
         /// The datagram to send.
         message: Message,
     },
-    /// Apply the committed payload at `slot` to the host application, in slot
-    /// order (§11). Reissued after a crash; exactly-once side effects are the
-    /// application's affair (§11.2), not the core's.
+    /// Apply the committed operation at `slot` to the host application, in
+    /// slot order (§11.1). The operation's identity rides along exactly as
+    /// the proposing host assigned it: the core never inspects it and never
+    /// deduplicates on it, so the same identity may arrive at any number of
+    /// slots. Answering the proposer — and any exactly-once policy — is the
+    /// host's affair above the boundary (B2), never the core's.
     Apply {
         /// The committed slot to apply.
         slot: Slot,
-        /// The operation's opaque payload (§11).
+        /// The operation's identity, carried opaque from the proposal.
+        operation_id: OperationId,
+        /// The operation's opaque payload (§11.1).
         payload: Box<[u8]>,
-    },
-    /// Reply to a client. Emitted only after the corresponding
-    /// [`Effect::Apply`] completed (§11.2): a reply is proof of application,
-    /// not merely of commitment.
-    Reply {
-        /// The client being answered.
-        client: ClientId,
-        /// The request being answered.
-        request: RequestNumber,
-        /// The application's result bytes.
-        result: Box<[u8]>,
     },
     /// What must be stable before this transition may publish (S2/S3). The one
     /// effect an external-stability mode releases at `publish`; everything
     /// else waits for the host's [`StabilityResult`].
     Persist(PersistenceIntent),
+    /// The journal's retained base sits above the history a recovery must
+    /// replay from, so the application state cannot be reconstructed from
+    /// local evidence: the host must restore it through its own
+    /// application-state transfer facility (§4, §11), covering everything
+    /// through `through` (the recovered committed frontier). Surfaced, never
+    /// faulted — the shortfall is a host retention fact (S1), not a
+    /// protocol breach.
+    RequestApplicationState {
+        /// The committed frontier the transferred application state must cover.
+        through: Slot,
+    },
 }
 
 /// Which part of the durable [`crate::progress::Progress`] record a transition

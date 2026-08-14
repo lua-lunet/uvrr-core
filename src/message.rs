@@ -1,9 +1,9 @@
 //! The message vocabulary: [`Header`] plus the protocol bodies.
 //!
 //! Spec §4 (state transfer), §6 (normal operation), §9 (view change), §10
-//! (recovery), §11 (client boundary), §13.3 (piggybacked commit frontier), and
-//! decisions W1 (era in every header), W3 (normative exact lengths), W4
-//! (fixed-width big-endian), S4 (the recovery nonce is the tick).
+//! (recovery), §11.1 (the application boundary), §13.3 (piggybacked commit
+//! frontier), and decisions W1 (era in every header), W3 (normative exact
+//! lengths), W4 (fixed-width big-endian), S4 (the recovery nonce is the tick).
 //!
 //! A [`Message`] is the 20-byte [`Header`] followed by a one-byte body
 //! discriminant and the body fields. The kind travels twice — once as the
@@ -23,11 +23,9 @@
 //! [`wire::Tag`]: crate::wire::Tag
 
 use crate::configuration::SystemOperation;
-use crate::ids::{ClientId, RequestNumber, Slot, Tick, ViewId};
+use crate::ids::{Slot, Tick, ViewId};
 use crate::journal::LogEntry;
-use crate::wire::{
-    Header, Malformed, Pack, PackWriter, Tag, Unpack, UnpackCursor, UnpackError, opaque_packed_len,
-};
+use crate::wire::{Header, Malformed, Pack, PackWriter, Tag, Unpack, UnpackCursor, UnpackError};
 
 /// One protocol datagram: the fixed header and the body it authorises.
 ///
@@ -56,16 +54,6 @@ pub struct Message {
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Body {
-    /// Client operation submitted to the primary (§6). The payload is opaque:
-    /// the core stores and carries it and never inspects it (§11).
-    Request {
-        /// The client identity, for the duplicate-suppression table.
-        client: ClientId,
-        /// The client's monotonic request number.
-        request: RequestNumber,
-        /// Opaque application bytes.
-        payload: Box<[u8]>,
-    },
     /// The primary's proposal of `entry` at its slot (§6), with the sender's
     /// commit frontier piggybacked so a backup learns of commits without a
     /// separate round (§13.3).
@@ -89,10 +77,7 @@ pub enum Body {
     StartViewChange {},
     /// A replica's state evidence for the designated new primary (§9.1): the
     /// retained history's provenance, its frontiers, the suffix the new primary
-    /// lacks, the sender's volatile client table (§9.2 — the table is protocol
-    /// evidence: without it a retry of a committed request whose result died
-    /// with the old primary would be accepted as new and appended twice), and
-    /// the proof that the sender may speak for its era (§8.7.8).
+    /// lacks, and the proof that the sender may speak for its era (§8.7.8).
     DoViewChange {
         /// The view at which the reported history was selected (§1.3, §9.1's
         /// ranking rule).
@@ -103,12 +88,6 @@ pub enum Body {
         committed: Slot,
         /// The uncommitted tail the new primary may need, bounded under §13.1.
         suffix: Vec<LogEntry>,
-        /// The sender's client table, sorted by client with no duplicate
-        /// clients. Counts against the §13.1 budget together with the suffix;
-        /// the table is charged first and is never truncated (it is safety
-        /// evidence; the suffix is reconstructible via the §13.1 step-5
-        /// fetch).
-        client_table: Vec<ClientRow>,
         /// Whether this evidence is ordinary or planned (§8.7.7); planned
         /// evidence is not a fence.
         evidence: EvidenceKind,
@@ -123,12 +102,6 @@ pub enum Body {
         accepted: Slot,
         /// The installed history's committed frontier.
         committed: Slot,
-        /// The merged client table of the evidence quorum (§9.2): per client
-        /// the row with the greatest `last_request`, ties broken toward the
-        /// row WITH a cached result. Recipients install it in place of their
-        /// own — the merged table dominates because it saw a view-change
-        /// quorum's rows.
-        client_table: Vec<ClientRow>,
         /// The sender's entitlement to speak for its era (§8.7.8).
         era_proof: EraProof,
     },
@@ -146,41 +119,44 @@ pub enum Body {
     },
     /// A reply to [`Body::Recovery`], echoing the nonce so a delayed response
     /// from an earlier attempt is never counted in the current one (§6.1).
+    /// The responder's current view rides along: the fence knowledge the
+    /// `F_g ⌢ R_g` intersection (§8.3) exists to deliver, and the input to
+    /// the recovering node's latest-fenced-view ruling.
     RecoveryResponse {
         /// The nonce of the attempt being answered.
         nonce: Tick,
-        /// The responder's accepted frontier; also the header slot.
+        /// The responder's current view.
+        view: ViewId,
+        /// The responder's accepted frontier.
         accepted: Slot,
         /// The responder's committed frontier.
         committed: Slot,
-        /// The history suffix — present only from the primary of the view,
-        /// whose log is the authoritative one for the attempt (§10).
+        /// The history suffix — present only from the primary of the reported
+        /// view, whose log is the authoritative one for the attempt (§10).
         suffix: Option<Vec<LogEntry>>,
     },
-    /// A request for the history range the requester lacks (§4, §13.1).
+    /// A request for the history range the requester lacks (§4, §13.1
+    /// step 5). The header slot is the requester's accepted frontier —
+    /// the slot the fetch resumes after. The responder streams the range
+    /// back in budget-bounded chunks (W5).
     GetState {
         /// The first slot the requester needs: one past its accepted frontier.
         from: Slot,
     },
-    /// A history range in reply to [`Body::GetState`] (§4). Sizing is the
-    /// host's packetization decision (W5).
+    /// One chunk of the history stream answering [`Body::GetState`] (§4,
+    /// §13.1 step 5). Sizing is the host's packetization decision (W5):
+    /// a partial answer is well-formed, and `more` is the cursor that
+    /// resumes it.
     NewState {
         /// The transferred entries, contiguous and slot-ordered.
         entries: Vec<LogEntry>,
-        /// The last slot the range covers; also the header slot.
+        /// The last slot the chunk covers; also the header slot.
         through: Slot,
         /// The sender's committed frontier at send time.
         committed: Slot,
-    },
-    /// The primary's reply to a client (§6, §11.2): emitted only after the
-    /// corresponding application effect completed.
-    Reply {
-        /// The client being answered.
-        client: ClientId,
-        /// The request being answered.
-        request: RequestNumber,
-        /// The application's result bytes, opaque to the core (§11).
-        result: Box<[u8]>,
+        /// Whether the sender's accepted frontier sits past `through` —
+        /// the requester resumes with a fresh `GetState` from the cursor.
+        more: bool,
     },
 }
 
@@ -224,7 +200,6 @@ impl Body {
     #[must_use]
     pub fn tag(&self) -> Tag {
         match self {
-            Body::Request { .. } => Tag::Request,
             Body::Prepare { .. } => Tag::Prepare,
             Body::PrepareOk {} => Tag::PrepareOk,
             Body::Commit { .. } => Tag::Commit,
@@ -236,18 +211,17 @@ impl Body {
             Body::RecoveryResponse { .. } => Tag::RecoveryResponse,
             Body::GetState { .. } => Tag::GetState,
             Body::NewState { .. } => Tag::NewState,
-            Body::Reply { .. } => Tag::Reply,
         }
     }
 
     /// The wire discriminant: the tag's numbering narrowed to one byte.
     ///
     /// The `expect` is unreachable by construction: [`Tag::as_u32`] yields
-    /// 1..=13, and the conversion is a `try_from` rather than a cast because
+    /// 2..=12, and the conversion is a `try_from` rather than a cast because
     /// the crate forbids `as` between integer widths — a tag added past 255
     /// fails loudly here instead of truncating onto the wire.
     fn discriminant(&self) -> u8 {
-        u8::try_from(self.tag().as_u32()).expect("tag discriminants are 1..=13")
+        u8::try_from(self.tag().as_u32()).expect("tag discriminants are 2..=12")
     }
 }
 
@@ -327,115 +301,12 @@ impl Unpack for EvidenceKind {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Client-table rows
-// ---------------------------------------------------------------------------
-
-/// One client-table row as the view-change evidence carries it (§9.2): the
-/// greatest request accepted from this client, and the cached reply if the
-/// volatile result is still at hand.
-///
-/// The table is protocol evidence (§9.2), riding `DoViewChange` and
-/// `StartView`: without it the new primary's table would be empty, and a
-/// retry of a committed request whose result died with the old primary
-/// would be accepted as new — a second log entry for one logical request.
-/// The result is best-effort: a row without one is the unknown-result case,
-/// which the new primary answers by re-driving `Effect::Apply` for the
-/// committed slot (§11 puts idempotence on the host).
-#[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ClientRow {
-    /// The client this row belongs to.
-    pub client: ClientId,
-    /// The greatest request number accepted from this client.
-    pub last_request: RequestNumber,
-    /// The cached reply, if the volatile result is still at hand.
-    pub result: Option<Box<[u8]>>,
-}
-
-impl Pack for ClientRow {
-    fn packed_len(&self) -> usize {
-        let result = match &self.result {
-            Some(bytes) => opaque_packed_len(bytes),
-            None => 0,
-        };
-        self.client.packed_len() + self.last_request.packed_len() + 1 + result
-    }
-
-    fn pack(&self, w: &mut PackWriter<'_>) {
-        self.client.pack(w);
-        self.last_request.pack(w);
-        match &self.result {
-            Some(bytes) => {
-                w.u8(1);
-                w.opaque(bytes);
-            }
-            None => w.u8(0),
-        }
-    }
-}
-
-impl Unpack for ClientRow {
-    fn unpack(c: &mut UnpackCursor<'_>) -> Result<Self, UnpackError> {
-        let client = ClientId::unpack(c)?;
-        let last_request = RequestNumber::unpack(c)?;
-        let result = match c.u8()? {
-            0 => None,
-            1 => Some(c.opaque()?.to_vec().into_boxed_slice()),
-            _ => return Err(UnpackError::Malformed(Malformed::OutOfDomain)),
-        };
-        Ok(ClientRow {
-            client,
-            last_request,
-            result,
-        })
-    }
-}
-
-/// Packs a client table as `u32` count then each row in order. The producer
-/// emits rows sorted by client with no duplicates; decoding validates that
-/// (strictly ascending ids), so a malformed or out-of-order table is
-/// rejected at the boundary rather than trusted into a merge.
-fn pack_client_table(table: &[ClientRow], w: &mut PackWriter<'_>) {
-    w.u32(u32::try_from(table.len()).expect("a client table fits in u32"));
-    for row in table {
-        row.pack(w);
-    }
-}
-
-/// The packed length of the codec form of [`pack_client_table`].
-fn client_table_packed_len(table: &[ClientRow]) -> usize {
-    4 + table.iter().map(Pack::packed_len).sum::<usize>()
-}
-
-/// Decodes a client table, requiring strictly ascending client ids (hence
-/// no duplicates) — the producer's canonical form, checked at the boundary.
-fn unpack_client_table(c: &mut UnpackCursor<'_>) -> Result<Vec<ClientRow>, UnpackError> {
-    let count = c.u32()?;
-    let mut table = Vec::with_capacity(usize::try_from(count).expect("u32 fits in usize"));
-    let mut previous: Option<ClientId> = None;
-    for _ in 0..count {
-        let row = ClientRow::unpack(c)?;
-        if previous.is_some_and(|id| row.client <= id) {
-            return Err(UnpackError::Malformed(Malformed::OutOfDomain));
-        }
-        previous = Some(row.client);
-        table.push(row);
-    }
-    Ok(table)
-}
-
 impl Pack for Body {
     fn packed_len(&self) -> usize {
         // One byte of discriminant, then fixed-width fields (W4). Every length
         // is an exact sum, per the normative W3 contract the §13.1 suffix
         // budget relies on.
         let fields = match self {
-            Body::Request {
-                client,
-                request,
-                payload,
-            } => client.packed_len() + request.packed_len() + opaque_packed_len(payload),
             Body::Prepare { entry, committed } => entry.packed_len() + committed.packed_len(),
             Body::PrepareOk {} | Body::StartViewChange {} | Body::PlannedViewChange {} => 0,
             Body::Commit { committed } => committed.packed_len(),
@@ -444,7 +315,6 @@ impl Pack for Body {
                 accepted,
                 committed,
                 suffix,
-                client_table,
                 evidence,
                 era_proof,
             } => {
@@ -452,7 +322,6 @@ impl Pack for Body {
                     + accepted.packed_len()
                     + committed.packed_len()
                     + entries_packed_len(suffix)
-                    + client_table_packed_len(client_table)
                     + evidence.packed_len()
                     + era_proof.packed_len()
             }
@@ -460,23 +329,23 @@ impl Pack for Body {
                 suffix,
                 accepted,
                 committed,
-                client_table,
                 era_proof,
             } => {
                 entries_packed_len(suffix)
                     + accepted.packed_len()
                     + committed.packed_len()
-                    + client_table_packed_len(client_table)
                     + era_proof.packed_len()
             }
             Body::Recovery { nonce } => nonce.packed_len(),
             Body::RecoveryResponse {
                 nonce,
+                view,
                 accepted,
                 committed,
                 suffix,
             } => {
                 nonce.packed_len()
+                    + view.packed_len()
                     + accepted.packed_len()
                     + committed.packed_len()
                     + 1
@@ -490,12 +359,8 @@ impl Pack for Body {
                 entries,
                 through,
                 committed,
-            } => entries_packed_len(entries) + through.packed_len() + committed.packed_len(),
-            Body::Reply {
-                client,
-                request,
-                result,
-            } => client.packed_len() + request.packed_len() + opaque_packed_len(result),
+                more: _,
+            } => entries_packed_len(entries) + through.packed_len() + committed.packed_len() + 1,
         };
         1 + fields
     }
@@ -503,15 +368,6 @@ impl Pack for Body {
     fn pack(&self, w: &mut PackWriter<'_>) {
         w.u8(self.discriminant());
         match self {
-            Body::Request {
-                client,
-                request,
-                payload,
-            } => {
-                client.pack(w);
-                request.pack(w);
-                w.opaque(payload);
-            }
             Body::Prepare { entry, committed } => {
                 entry.pack(w);
                 committed.pack(w);
@@ -523,7 +379,6 @@ impl Pack for Body {
                 accepted,
                 committed,
                 suffix,
-                client_table,
                 evidence,
                 era_proof,
             } => {
@@ -531,7 +386,6 @@ impl Pack for Body {
                 accepted.pack(w);
                 committed.pack(w);
                 pack_entries(suffix, w);
-                pack_client_table(client_table, w);
                 evidence.pack(w);
                 era_proof.pack(w);
             }
@@ -539,23 +393,23 @@ impl Pack for Body {
                 suffix,
                 accepted,
                 committed,
-                client_table,
                 era_proof,
             } => {
                 pack_entries(suffix, w);
                 accepted.pack(w);
                 committed.pack(w);
-                pack_client_table(client_table, w);
                 era_proof.pack(w);
             }
             Body::Recovery { nonce } => nonce.pack(w),
             Body::RecoveryResponse {
                 nonce,
+                view,
                 accepted,
                 committed,
                 suffix,
             } => {
                 nonce.pack(w);
+                view.pack(w);
                 accepted.pack(w);
                 committed.pack(w);
                 match suffix {
@@ -571,19 +425,12 @@ impl Pack for Body {
                 entries,
                 through,
                 committed,
+                more,
             } => {
                 pack_entries(entries, w);
                 through.pack(w);
                 committed.pack(w);
-            }
-            Body::Reply {
-                client,
-                request,
-                result,
-            } => {
-                client.pack(w);
-                request.pack(w);
-                w.opaque(result);
+                w.bool(*more);
             }
         }
     }
@@ -596,7 +443,6 @@ impl Unpack for Body {
         // both are `OutOfDomain`, not `UnknownTag`, because that variant
         // carries the header's `u32` tag and this discriminant is a `u8`.
         let tag = match c.u8()? {
-            1 => Tag::Request,
             2 => Tag::Prepare,
             3 => Tag::PrepareOk,
             4 => Tag::Commit,
@@ -608,17 +454,9 @@ impl Unpack for Body {
             10 => Tag::RecoveryResponse,
             11 => Tag::GetState,
             12 => Tag::NewState,
-            13 => Tag::Reply,
             _ => return Err(UnpackError::Malformed(Malformed::OutOfDomain)),
         };
         let body = match tag {
-            Tag::Request => Body::Request {
-                client: ClientId::unpack(c)?,
-                request: RequestNumber::unpack(c)?,
-                // Borrowed from the cursor and copied only here, at the
-                // boundary where the message takes ownership (§11).
-                payload: c.opaque()?.to_vec().into_boxed_slice(),
-            },
             Tag::Prepare => Body::Prepare {
                 entry: LogEntry::unpack(c)?,
                 committed: Slot::unpack(c)?,
@@ -633,7 +471,6 @@ impl Unpack for Body {
                 accepted: Slot::unpack(c)?,
                 committed: Slot::unpack(c)?,
                 suffix: unpack_entries(c)?,
-                client_table: unpack_client_table(c)?,
                 evidence: EvidenceKind::unpack(c)?,
                 era_proof: EraProof::unpack(c)?,
             },
@@ -641,7 +478,6 @@ impl Unpack for Body {
                 suffix: unpack_entries(c)?,
                 accepted: Slot::unpack(c)?,
                 committed: Slot::unpack(c)?,
-                client_table: unpack_client_table(c)?,
                 era_proof: EraProof::unpack(c)?,
             },
             Tag::PlannedViewChange => Body::PlannedViewChange {},
@@ -650,6 +486,7 @@ impl Unpack for Body {
             },
             Tag::RecoveryResponse => Body::RecoveryResponse {
                 nonce: Tick::unpack(c)?,
+                view: ViewId::unpack(c)?,
                 accepted: Slot::unpack(c)?,
                 committed: Slot::unpack(c)?,
                 suffix: match c.bool()? {
@@ -664,11 +501,7 @@ impl Unpack for Body {
                 entries: unpack_entries(c)?,
                 through: Slot::unpack(c)?,
                 committed: Slot::unpack(c)?,
-            },
-            Tag::Reply => Body::Reply {
-                client: ClientId::unpack(c)?,
-                request: RequestNumber::unpack(c)?,
-                result: c.opaque()?.to_vec().into_boxed_slice(),
+                more: c.bool()?,
             },
         };
         Ok(body)
