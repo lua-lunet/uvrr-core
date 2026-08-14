@@ -981,14 +981,31 @@ fn an_illegal_candidate_is_discarded_and_faults_the_node() {
 // 9. SANS-I/O, mechanically enforced
 // ---------------------------------------------------------------------------
 
-/// The three modules of the pipeline — `replica`, `effects`, `message` —
-/// contain no clock read, no network, no
-/// filesystem and no thread spawn. This is a gate, not a smoke test: a future
-/// edit that reaches for the wall clock or a socket fails the build here.
+/// The `replica` submodules, plus `effects` and `message`, contain no clock
+/// read, no network, no filesystem and no thread spawn. This is a gate, not a
+/// smoke test: a future edit that reaches for the wall clock or a socket fails
+/// the build here.
 #[test]
 fn the_pipeline_reads_no_clock_and_performs_no_io() {
-    let sources: [(&str, &str); 3] = [
-        ("replica", include_str!("../src/replica.rs")),
+    let sources: [(&str, &str); 8] = [
+        ("replica/mod", include_str!("../src/replica/mod.rs")),
+        ("replica/normal", include_str!("../src/replica/normal.rs")),
+        (
+            "replica/view_change",
+            include_str!("../src/replica/view_change.rs"),
+        ),
+        (
+            "replica/recovery",
+            include_str!("../src/replica/recovery.rs"),
+        ),
+        (
+            "replica/transfer",
+            include_str!("../src/replica/transfer.rs"),
+        ),
+        (
+            "replica/reconfiguration",
+            include_str!("../src/replica/reconfiguration.rs"),
+        ),
         ("effects", include_str!("../src/effects.rs")),
         ("message", include_str!("../src/message.rs")),
     ];

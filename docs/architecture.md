@@ -61,9 +61,13 @@ nonce (§6.1, S4).
 | `invariant` | the closed transition-legality checker | §5, §8.7.3, §15 |
 | `configuration` | era, membership, weights, reconfiguration operations | §8.7.1–§8.7.8 |
 | `quorum` | quorum families by role; the `QuorumStrategy` extension point and the closed `validate_era`/`validate_transition` gate | §8.1–§8.7.5 |
-| `replica` | normal operation, view change, recovery; the transition | §6, §9, §10 |
+| `replica` | types, lifecycle, and the plan/publish/confirm pipeline | §6, §7, §12 |
+| `replica::normal` | `Prepare`/`PrepareOk`/`Commit`; proposal admission | §4, §11.1, §13.3 |
+| `replica::view_change` | `StartViewChange`/`DoViewChange`/`StartView`; the win; admin force | §9, §13.1, §14.2 |
+| `replica::recovery` | `Recovery`/`RecoveryResponse`; completion and re-drive | §10, §6.1 |
+| `replica::transfer` | state transfer sequencing; sizing is the host's | §4, §13.1, W5 |
+| `replica::reconfiguration` | membership and weight change; not yet implemented | §8.7.1–§8.7.8 |
 | `effects` | the output half of the transition, as inert data | §6, §7 |
-| `transfer` | state transfer sequencing; sizing is the host's | §4, §13.1, W5 |
 
 ## Module dependency graph
 
@@ -86,11 +90,6 @@ graph TD
     invariant --> replica
     configuration --> replica
     quorum --> replica
-
-    ids --> transfer
-    journal --> transfer
-    wire --> transfer
-    transfer --> replica
 
     replica --> effects
     progress --> observe

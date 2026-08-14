@@ -29,7 +29,10 @@
 //! `invariant` (the closed transition-legality checker), `quorum` (the strategy and the
 //! closed intersection gate), `message` (the protocol bodies), `effects` (the host
 //! effect vocabulary) and `replica` (the plan/publish/confirm pipeline and lifecycle)
-//! are real modules with contract tests. `transfer` remains a documented stub.
+//! are real modules with contract tests. `replica` is split into `normal` (§4
+//! `Prepare`/`PrepareOk`/`Commit`), `view_change` (§9), `recovery` (§10, §6.1),
+//! `transfer` (state transfer, §13.1 step 5) and `reconfiguration` (§8.7.1–§8.7.8),
+//! whose path is not yet implemented.
 
 // `deny`, not `forbid`: `observe` publishes a POD snapshot through a seqlock and the
 // future `ffi` module crosses the C ABI. Each will carry one scoped
@@ -51,5 +54,4 @@ pub mod observe;
 pub mod progress;
 pub mod quorum;
 pub mod replica;
-pub mod transfer;
 pub mod wire;
