@@ -1779,3 +1779,48 @@ fn completion_evidence_below_fast_forwarded_frontier_does_not_regress() {
     assert_eq!(h.fault_of(n(4)), None);
     h.assert_safety();
 }
+
+// Observation-2 reproduction: a completion arriving before the host
+// acknowledges the fast-forwarded upcalls. Exactly-once across the
+// boundary would re-emit nothing; the suspected behavior is a second
+// `Apply` for the same slots.
+#[test]
+fn completion_before_acknowledgement_does_not_reemit_fast_forwarded_upcalls() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    stage_accepted_tail(&mut h, n(2), &[n(1)], &[(1, b"a"), (2, b"b"), (3, b"c")]);
+    crash_and_reopen(&mut h, n(2));
+
+    h.recover(n(2));
+    let nonce = h.now();
+    let outcome = h.inject(
+        n(1),
+        n(2),
+        recovery_response(nonce, view(0), Slot(5), Slot(5), None),
+    );
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the accepted response publishes: {outcome:?}");
+    };
+    assert_eq!(effects.len(), 3, "the fast-forward emits slots 3 through 5");
+
+    // The host does NOT acknowledge the fast-forwarded upcalls before the
+    // completion lands.
+    let completing = h.inject(
+        n(0),
+        n(2),
+        recovery_response(
+            nonce,
+            view(0),
+            Slot(5),
+            Slot(5),
+            Some(h.journal_entries(n(0))),
+        ),
+    );
+    let StepOutcome::Published { effects, .. } = completing else {
+        panic!("the completing response publishes: {completing:?}");
+    };
+    assert!(
+        effects.is_empty(),
+        "exactly-once: no second Apply for an unacknowledged fast-forwarded slot: {effects:?}",
+    );
+}

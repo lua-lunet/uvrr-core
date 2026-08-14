@@ -36,6 +36,11 @@ The demo kv replication passing Maelstrom testing is not evidence of zero bugs. 
 
 `make e2e` does a docker build to run the end-to-end Maelstrom test suite.
 
+`make tla` builds a self-contained TLC image and exhaustively checks the
+finite [TLA+ correspondence model](formal/README.md) for normal operation,
+view change, and fenced crash recovery. The image embeds the model: this path
+uses classic Docker commands and requires neither BuildKit nor a volume mount.
+
 `cargo test` runs 90 tests: unit and matrix tests per protocol path, targeted
 regressions, a deterministic seeded multi-replica cluster harness (K=3..7,
 loss / reorder / duplication / partition / crash-with-amnesia, safety asserted

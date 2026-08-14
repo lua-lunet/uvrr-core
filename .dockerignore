@@ -13,6 +13,7 @@ LICENSE
 .*.toml
 *.md
 !Dockerfile.maelstrom
+!Dockerfile.tla
 !docker-entrypoint.sh
 !Makefile
 !maelstrom/

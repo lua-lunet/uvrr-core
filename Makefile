@@ -21,7 +21,7 @@ RATE       ?= 20
 INTERVAL   ?= 10
 WORKLOAD   ?= lin-kv
 
-.PHONY: help build check test clean-state test-clean test-partition test-kill test-all serve e2e docker-build docker-run
+.PHONY: help build check test clean-state test-clean test-partition test-kill test-all serve e2e docker-build docker-run tla tla-build tla-run tla-local
 
 help:
 	@echo "make test            - the Rust test suite"
@@ -33,6 +33,8 @@ help:
 	@echo "make test-all        - lin-kv under partition + kill + pause"
 	@echo "make serve           - browse past results at http://localhost:8080"
 	@echo "make e2e             - Docker: build image and run all Maelstrom tests"
+	@echo "make tla             - Docker: model-check the TLA+ safety models"
+	@echo "make tla-local       - model-check with TLA2TOOLS_JAR and local Java"
 	@echo "make docker-build    - build the Docker image"
 	@echo "make docker-run      - run tests in the built Docker image"
 	@echo
@@ -97,3 +99,28 @@ docker-run:
 
 # End-to-end: build Docker image and run all Maelstrom tests
 e2e: docker-build docker-run
+
+# TLA+ command-line model checking. The image contains the models, so the run
+# path works with Colima/classic Docker and deliberately uses no volume mount.
+TLA_IMAGE     ?= vrr-core-tla
+TLA_FILE      ?= Dockerfile.tla
+TLA_PLATFORM  ?= linux/arm64
+TLA_ARCH      ?= arm64
+TLA_WORKERS   ?= 2
+TLA2TOOLS_JAR ?=
+
+tla-build:
+	docker build --platform $(TLA_PLATFORM) --build-arg TLA_DEB_ARCH=$(TLA_ARCH) -f $(TLA_FILE) -t $(TLA_IMAGE) .
+	test "$$(docker image inspect $(TLA_IMAGE) --format '{{.Architecture}}')" = "$(TLA_ARCH)"
+
+tla-run:
+	test "$$(docker image inspect $(TLA_IMAGE) --format '{{.Architecture}}')" = "$(TLA_ARCH)"
+	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCore.cfg VrrCore.tla
+	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreRecovery.cfg VrrCore.tla
+
+tla: tla-build tla-run
+
+tla-local:
+	test -n "$(TLA2TOOLS_JAR)"
+	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCore.cfg VrrCore.tla
+	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCoreRecovery.cfg VrrCore.tla
