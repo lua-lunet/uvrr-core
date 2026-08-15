@@ -271,7 +271,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // duplicate or overlapping response claims nothing new and the
         // fast-forward is the identity.
         let record_attempt = |attempt: RecoveryVolatile, diagnostic| {
-            let plan = match self.plan_committed_fast_forward(journal, committed)? {
+            let plan = match self.plan_committed_fast_forward(journal, committed, suffix)? {
                 FastForward::Advanced(candidate, effects) => {
                     self.candidate_plan(candidate, JournalMutation::None, effects, kind, false)
                 }
@@ -380,28 +380,49 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The committed fast-forward of an accepted `RecoveryResponse`
     /// (§6.1, §10, §11.1): evidence whose `committed` exceeds the local
     /// frontier advances it over the sequentially-adjacent, locally
-    /// journal-present slots — takeWhile: the walk stops at the first
-    /// slot the journal does not physically hold — emitting the ordered
-    /// `Apply` upcalls (B2) the node would have emitted had it never
-    /// crashed. The applied frontier moves only by the §11 system-slot
-    /// walk: the operation slots await the host's `Input::Applied`
-    /// acknowledgements through the ordinary path, exactly as in normal
-    /// operation, and the node stays fenced `Recovering`. Returns
-    /// [`FastForward::Identity`] when the evidence claims nothing beyond
-    /// the local frontier — a duplicate or overlapping response is an
-    /// identity transition: slots at or below the frontier are skipped.
+    /// journal-present slots that AGREE with the responder's reported
+    /// history — takeWhile: the walk stops at the first slot the journal
+    /// does not physically hold, or whose local entry is not the entry
+    /// the response carries there — emitting the ordered `Apply` upcalls
+    /// (B2) the node would have emitted had it never crashed. A slot the
+    /// response's suffix carries must match the local entry exactly: a
+    /// mismatch is a dead view's never-committed proposal, and advancing
+    /// past it would apply a value no quorum committed. A slot the suffix
+    /// does not carry is vouched for by the reported committed frontier
+    /// alone, and local presence decides. The applied frontier moves only
+    /// by the §11 system-slot walk: the operation slots await the host's
+    /// `Input::Applied` acknowledgements through the ordinary path,
+    /// exactly as in normal operation, and the node stays fenced
+    /// `Recovering`. Returns [`FastForward::Identity`] when the evidence
+    /// claims nothing beyond the local frontier — a duplicate or
+    /// overlapping response is an identity transition: slots at or below
+    /// the frontier are skipped.
     fn plan_committed_fast_forward(
         &self,
         journal: &J::View,
         claimed: Slot,
+        suffix: &Option<Vec<LogEntry>>,
     ) -> Result<FastForward, PlanRejection> {
         let committed = self.progress.committed();
         // takeWhile over sequentially-adjacent, locally journal-present
-        // slots: the frontier the evidence vouches for, capped at the
-        // first slot the journal does not physically hold.
+        // slots that agree with the responder's reported history: the
+        // frontier the evidence vouches for, capped at the first slot
+        // the journal does not physically hold or whose local entry
+        // contradicts the entry the response carries there.
         let mut target = committed;
         while let Some(next) = target.next() {
-            if next > claimed || journal.get(next).is_none() {
+            if next > claimed {
+                break;
+            }
+            let local = journal.get(next);
+            let agreed = match suffix
+                .as_ref()
+                .and_then(|s| s.iter().find(|entry| entry.slot == next))
+            {
+                Some(reported) => local == Some(reported),
+                None => local.is_some(),
+            };
+            if !agreed {
                 break;
             }
             target = next;

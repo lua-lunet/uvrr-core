@@ -1920,3 +1920,142 @@ fn crash_before_acknowledgement_reemits_fast_forwarded_upcalls() {
     assert_eq!(status_of(&h, n(2)), Status::Normal);
     h.assert_safety();
 }
+
+// The committed fast-forward must never apply a value no quorum
+//     committed. n2 — the genuine primary of view 2 — proposes X at slot
+//     3; both Prepares are dropped, so X lives ONLY in n2's journal,
+//     uncommitted. Isolated, n2 misses the view-3 change in which n0 and
+//     n1 (who never saw X) install a history without it and commit Y at
+//     the same slot. n2 crashes and reopens with X durable at slot 3 and
+//     committed below it, then recovers: the first accepted
+//     `RecoveryResponse` reports committed = 3. A presence-only
+//     fast-forward walk finds slot 3 locally present (X) and emits
+//     `Apply(X)` — an upcall for a value no quorum ever accepted. The
+//     agreeing-history rule instead installs the reported view's
+//     primary's suffix at completion, replacing X with Y before any
+//     upcall. Assert no `Apply` upcall ever carries X, and — the
+//     positive half — that Y is eventually applied at slot 3.
+#[test]
+fn fast_forward_never_applies_a_never_committed_local_entry() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+
+    // n2 becomes the genuine primary: view 1 (n1), then view 2 (n2).
+    drive_view_change(&mut h, n(1), view(1));
+    drive_view_change(&mut h, n(2), view(2));
+
+    // X at slot 3: n2 accepts its own proposal; both Prepares drop.
+    let proposed = h.propose(n(2), op_id(1), b"x");
+    assert!(
+        matches!(proposed, StepOutcome::Published { .. }),
+        "the primary accepts its own proposal: {proposed:?}"
+    );
+    h.drop_queued(n(0));
+    h.drop_queued(n(1));
+    assert_eq!(snap(&h, n(2)).accepted, 3);
+    assert_eq!(snap(&h, n(2)).committed, 2);
+
+    // Isolate n2; n0 and n1 change view without it (view 3, primary n0).
+    h.partition(vec![n(2)], vec![n(0), n(1)]);
+    tick_into_view_change(&mut h, n(0), view(3));
+    h.deliver_tag(n(1), Tag::StartViewChange)
+        .expect("n0's fence vote reaches n1");
+    h.deliver_tag(n(0), Tag::StartViewChange)
+        .expect("n1's fence vote reaches n0");
+    h.deliver_tag(n(0), Tag::DoViewChange)
+        .expect("n1's evidence reaches the view-3 primary");
+    h.deliver_tag(n(1), Tag::StartView)
+        .expect("n1 installs view 3");
+    for id in [n(0), n(1)] {
+        assert_eq!(status_of(&h, id), Status::Normal, "{id:?} installs view 3");
+        assert_eq!(current_view(&h, id), view(3));
+    }
+
+    // Y commits at slot 3 on the view-3 quorum; n2 hears none of it.
+    let proposed = h.propose(n(0), op_id(2), b"y");
+    assert!(matches!(proposed, StepOutcome::Published { .. }));
+    h.deliver_to(n(1)).expect("the Prepare reaches n1");
+    h.deliver_to(n(0))
+        .expect("n1's PrepareOk reaches the primary");
+    h.deliver_to(n(1)).expect("the Commit reaches n1");
+    h.execute_apply_effects(n(0));
+    h.execute_apply_effects(n(1));
+    assert_eq!(snap(&h, n(0)).committed, 3);
+    assert_eq!(snap(&h, n(1)).committed, 3);
+
+    // n2 crashes and reopens: X is durable at slot 3, committed is 2.
+    crash_and_reopen(&mut h, n(2));
+    let reopened = snap(&h, n(2));
+    assert_eq!(reopened.committed, 2);
+    assert_eq!(reopened.accepted, 3);
+    assert_eq!(
+        h.journal_entry(n(2), Slot(3)),
+        Some(operation_entry(3, 1, b"x")),
+        "the durable journal still holds the never-committed X",
+    );
+    h.drop_held();
+    h.heal();
+
+    // Recovery: n0 (the view-3 primary, with history) answers first.
+    h.recover(n(2));
+    h.deliver_to(n(0)).expect("the solicitation reaches n0");
+    h.deliver_to(n(1)).expect("the solicitation reaches n1");
+    let first = h.deliver_to(n(2)).expect("n0's response reaches n2");
+    let StepOutcome::Published { effects, .. } = &first.outcome else {
+        panic!("the accepted response publishes: {:?}", first.outcome);
+    };
+
+    // The negative half, decided HERE: the accepted response reports
+    // committed = 3, and slot 3 is locally present — a presence-only
+    // fast-forward emits `Apply(X)` for a value no quorum committed.
+    assert!(
+        effects.iter().all(|effect| {
+            !matches!(
+                effect,
+                Effect::Apply { payload, .. } if payload.as_ref() == b"x"
+            )
+        }),
+        "no Apply upcall may carry the never-committed X: {effects:?}",
+    );
+    for outcome in h.execute_apply_effects(n(2)) {
+        assert_ne!(
+            outcome.payload.as_ref(),
+            b"x",
+            "the application never executes X",
+        );
+    }
+
+    // The completing response: the quorum holds and the view-3 primary's
+    // history installs, replacing the never-committed tail.
+    let completing = h.deliver_to(n(2)).expect("n1's response reaches n2");
+    assert!(
+        matches!(completing.outcome, StepOutcome::Published { .. }),
+        "the completion publishes: {:?}",
+        completing.outcome,
+    );
+    for outcome in h.execute_apply_effects(n(2)) {
+        assert_ne!(
+            outcome.payload.as_ref(),
+            b"x",
+            "the completion never applies X",
+        );
+    }
+
+    // The positive half: the completion installs the view-3 history and
+    // Y is applied at slot 3.
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(current_view(&h, n(2)), view(3));
+    assert_eq!(
+        h.journal_entry(n(2), Slot(3)),
+        Some(operation_entry(3, 2, b"y")),
+        "the installed history carries Y at slot 3",
+    );
+    assert!(
+        h.applied(n(2))
+            .iter()
+            .any(|(slot, payload)| *slot == Slot(3) && payload.as_ref() == b"y"),
+        "Y is eventually applied at slot 3: {:?}",
+        h.applied(n(2)),
+    );
+    h.assert_safety();
+}
