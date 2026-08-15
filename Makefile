@@ -21,7 +21,7 @@ RATE       ?= 20
 INTERVAL   ?= 10
 WORKLOAD   ?= lin-kv
 
-.PHONY: help build check test clean-state test-clean test-partition test-kill test-all serve e2e docker-build docker-run tla tla-build tla-run tla-local
+.PHONY: help build check test clean-state test-clean test-partition test-kill test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local
 
 help:
 	@echo "make test            - the Rust test suite"
@@ -34,6 +34,9 @@ help:
 	@echo "make serve           - browse past results at http://localhost:8080"
 	@echo "make e2e             - Docker: build image and run all Maelstrom tests"
 	@echo "make tla             - Docker: model-check the TLA+ safety models"
+	@echo "make tla-even        - Docker: reproduce the refused even-split transition"
+	@echo "make tla-deep        - Docker: fixed-seed crash/overlap simulations"
+	@echo "make tla-mutations   - Docker: require every defect regression to fail"
 	@echo "make tla-local       - model-check with TLA2TOOLS_JAR and local Java"
 	@echo "make docker-build    - build the Docker image"
 	@echo "make docker-run      - run tests in the built Docker image"
@@ -117,10 +120,65 @@ tla-run:
 	test "$$(docker image inspect $(TLA_IMAGE) --format '{{.Architecture}}')" = "$(TLA_ARCH)"
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCore.cfg VrrCore.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreRecovery.cfg VrrCore.tla
+	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreEras.cfg VrrCoreEras.tla
+	@expect_failure() { \
+		cfg="$$1"; needle="$$2"; output="$$(mktemp -t vrr-tla.XXXXXX)"; \
+		if docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config "$$cfg" VrrCoreEras.tla >"$$output" 2>&1; then \
+			cat "$$output"; rm -f "$$output"; echo "expected $$cfg to fail"; exit 1; \
+		fi; \
+		if ! grep -F "$$needle" "$$output"; then cat "$$output"; rm -f "$$output"; exit 1; fi; \
+		rm -f "$$output"; \
+	}; \
+	expect_failure VrrCoreErasWitnessNonStop.cfg "Invariant WNonStop is violated"; \
+	expect_failure VrrCoreErasWitnessOverlap.cfg "Invariant WOverlapStreams is violated"
 
 tla: tla-build tla-run
+
+# The currently proposed even-split increment is not normative: the closed
+# reverse cross-era gate rejects it before Init. Keep its exact witness runnable
+# while the quorum-family ruling is resolved.
+tla-even: tla-build
+	@output="$$(mktemp -t vrr-tla-even.XXXXXX)"; \
+	if docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers 1 -config VrrCoreErasEven.cfg VrrCoreEras.tla >"$$output" 2>&1; then \
+		cat "$$output"; rm -f "$$output"; echo "expected even-split gate refusal"; exit 1; \
+	fi; \
+	if ! grep -F "Error: Assumption" "$$output"; then cat "$$output"; rm -f "$$output"; exit 1; fi; \
+	rm -f "$$output"
+
+tla-deep: tla-build
+	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=10000 -depth 40 -seed 1 -config VrrCoreErasCrash.cfg VrrCoreEras.tla
+	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=100000 -depth 60 -seed 1 -config VrrCoreErasDeep.cfg VrrCoreEras.tla
+
+tla-mutations: tla-build
+	@expect_failure() { \
+		cfg="$$1"; needle="$$2"; shift 2; output="$$(mktemp -t vrr-tla-mutation.XXXXXX)"; \
+		if docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) "$$@" -config "$$cfg" VrrCoreEras.tla >"$$output" 2>&1; then \
+			cat "$$output"; rm -f "$$output"; echo "expected $$cfg to fail"; exit 1; \
+		fi; \
+		if ! grep -F "$$needle" "$$output"; then cat "$$output"; rm -f "$$output"; exit 1; fi; \
+		rm -f "$$output"; \
+	}; \
+	expect_failure VrrCoreErasM1.cfg "Invariant CommittedEntrySurvives is violated"; \
+	expect_failure VrrCoreErasM2.cfg "Invariant CommittedLogsAgree is violated"; \
+	expect_failure VrrCoreErasM3.cfg "Invariant CommittedLogsAgree is violated" -simulate num=10000 -depth 60 -seed 1; \
+	expect_failure VrrCoreErasM4.cfg "Invariant CommittedEntrySurvives is violated"; \
+	expect_failure VrrCoreErasM5.cfg "Invariant CommittedLogsAgree is violated"; \
+	expect_failure VrrCoreErasM6.cfg "Invariant CommittedLogsAgree is violated"; \
+	expect_failure VrrCoreErasM7.cfg "Error: Assumption"
 
 tla-local:
 	test -n "$(TLA2TOOLS_JAR)"
 	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCore.cfg VrrCore.tla
 	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCoreRecovery.cfg VrrCore.tla
+	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCoreEras.cfg VrrCoreEras.tla
+	@cd formal && \
+	expect_failure() { \
+		cfg="$$1"; needle="$$2"; output="$$(mktemp -t vrr-tla-local.XXXXXX)"; \
+		if java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config "$$cfg" VrrCoreEras.tla >"$$output" 2>&1; then \
+			cat "$$output"; rm -f "$$output"; echo "expected $$cfg to fail"; exit 1; \
+		fi; \
+		if ! grep -F "$$needle" "$$output"; then cat "$$output"; rm -f "$$output"; exit 1; fi; \
+		rm -f "$$output"; \
+	}; \
+	expect_failure VrrCoreErasWitnessNonStop.cfg "Invariant WNonStop is violated"; \
+	expect_failure VrrCoreErasWitnessOverlap.cfg "Invariant WOverlapStreams is violated"

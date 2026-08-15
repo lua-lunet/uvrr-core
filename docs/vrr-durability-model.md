@@ -872,11 +872,11 @@ The FFI clone-and-stage implementation provides process-local failure atomicity.
 2. Brian Masao Oki, [*Viewstamped Replication for Highly Available Distributed Systems*](https://publications.csail.mit.edu/lcs/pubs/pdf/MIT-LCS-TR-423.pdf), dissertation supervised by Professor Barbara H. Liskov and submitted to MIT on 20 May 1988; issued as MIT/LCS/TR-423, August 1988. This is the fuller supporting treatment and reference [11] in VRR-2012.
 3. Barbara Liskov and James Cowling, [*Viewstamped Replication Revisited*](https://dspace.mit.edu/entities/publication/80846d94-fcd3-40e6-87fb-8d91fe99a5d1), MIT-CSAIL-TR-2012-021, 2012. The disk-free recovery argument and the `StartViewChange` versus stable-view-record alternative are in §§4.3 and 8.2.
 4. Heidi Howard, Dahlia Malkhi, and Alexander Spiegelman, [*Flexible quorum intersection revisited*](https://arxiv.org/pdf/1608.06696), 2016.
-5. David Turner, [*Unbounded pipelining in dynamically reconfigurable clusters*](http://tessanddave.com/paxos-reconf-902f8b7.pdf), Tracsis technical report, 2016.
-6. Simon Birch, [“Unbounded reconfigurations”](https://simbo1905.wordpress.com/2016/12/16/upaxos-unbounded-paxos-reconfigurations/), 2016.
-7. Simon Birch, [“Voting weights”](https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/), 2017.
-8. Simon Birch, [“The even-nodes optimisation”](https://simbo1905.wordpress.com/2016/09/30/the-fpaxos-even-nodes-optimisation/), 2016.
-9. Simon Birch, [“One more frown please! (quorum overlaps)”](https://simbo1905.wordpress.com/2020/05/23/one-more-frown-please-upaxos-quorum-overlaps/), 2020.
+5. David Turner, *Unbounded pipelining in dynamically reconfigurable clusters*, Tracsis technical report, 2016.
+6. Simon Birch, “Unbounded reconfigurations”, 2016.
+7. Simon Birch, “Voting weights”, 2017.
+8. Simon Birch, “The even-nodes optimisation”, 2016.
+9. Simon Birch, “One more frown please! (quorum overlaps)”, 2020.
 10. Allen Ling and Simon Birch, [unbounded-reconfiguration progress discussion](https://gist.github.com/allenling/99bf0e965fa7e0b208f461446fcc97e1), GitHub Gist, 2020.
 
 ## Amendment A1 — §8.7.3 view-number construction is superseded

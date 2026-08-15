@@ -27,7 +27,8 @@ the already-selected history constructible; it cannot select a different
 history. The `plan`/`publish`/confirmation handshake is likewise one atomic
 TLA+ step: the Rust publication gate is responsible for refining that step so
 no effect becomes visible before its supporting state. Reconfiguration is not
-modelled because `Input::Reconfigure` is currently a named unsupported path.
+part of `VrrCore.tla`; it has a separate design model below because era-qualified
+views change the type and meaning of almost every protocol variable.
 
 The model does not claim liveness, correctness of suffix chunk assembly,
 durability-barrier ordering, or exactly-once emission of an `Effect::Apply`
@@ -64,3 +65,122 @@ The principal checked theorem is prefix agreement: any two replicas agree at
 every slot both consider committed. The other invariants enforce the frontier
 order, application-prefix agreement, the current/retained view distinction,
 recovery fencing, and survival of every locally committed entry.
+
+## Era-transition design model
+
+`VrrCoreEras.tla` verifies the intended one-transition uVRR design. It is not a
+description of unfinished Rust. The implementation is expected to converge on
+the proved transition system; disagreement is a design or implementation
+finding, not a reason to weaken the model.
+
+The model uses explicit `[era |-> e, idx |-> v]` view identifiers with
+lexicographic order. Configuration is selected by the `Scenario` constant, and
+the startup `ASSUME` exhaustively enumerates subset pairs for the following
+obligations before `Init` can produce a state:
+
+- same-era view/commit intersection in both eras;
+- both directions of cross-era view/commit intersection;
+- view-family self-intersection in both eras; and
+- fence/recovery intersection in both eras.
+
+The action correspondence is deliberately to the design statement:
+
+| Action | Status | Design obligation |
+|---|---|---|
+| `ProposeCommand`, `ReceivePrepare`, `CommitNext`, `ReceiveCommit` | base, era-generalized | normal replication; slot routing by `EraOfSlot` |
+| `EnterViewChange` through `ReceiveStartView` | base, era-generalized | view fencing, retained-history provenance, establishing-entry certification |
+| `Crash` through `CompleteRecovery` | base, era-generalized | amnesiac recovery; recovering identities excluded from every quorum |
+| `ProposeReconfig` | new | one establishing operation and one consecutive era boundary |
+| `SendPlannedViewChange`, `AnswerPlannedViewChange` | new | planned evidence that does not fence its sender |
+| `CastPlannedVote` | new | the leader remains `Normal`, installs its own retained log, and changes `currentView` and `retainedView` atomically |
+
+The abstract `PlannedOk` message is a projection of planned view-change
+evidence: it retains provenance, history, and frontier fields, but the casting
+transition consumes only voter identity. Keeping a separate evidence kind is
+load-bearing; the M4 mutation deliberately erases that distinction.
+
+### Abstraction boundary
+
+The eras model makes seven state-space cuts:
+
+1. Exactly one consecutive transition, from era 0 to era 1. All checked quorum
+   obligations are pairwise over that boundary.
+2. One fixed membership and succession order. Only weights differ by era; zero-
+   weight membership changes and order changes remain future work.
+3. Quorum families are scenario constants checked at startup. Dynamic folding
+   and closure over the operation alphabet belong to the exhaustive gate.
+4. Full histories replace chunked suffix transfer after history selection.
+5. The planned request is broadcast. This over-approximates routing to the
+   selected old-era view quorum by permitting more replies, never fewer.
+6. Application and replay state are omitted because they feed no quorum. A
+   recovered node becomes eligible at the earliest safe transition, which is
+   the adversarial direction for quorum safety.
+7. Messages are never removed. Loss, delay, duplication, and reordering are
+   choices to ignore or repeatedly consume an old message.
+
+Recovery is operational, not havoced. The response family is selected from the
+era of the maximal reported view. A replica in `Recovering` may send only a
+recovery request; current status and view are rechecked when acknowledgements
+or planned votes are counted. An action property checks the send-side rule at
+the transition where a message is added.
+
+The model also made one previously implicit proof obligation explicit. A
+follower may join an era-1 fence without locally knowing the establishing entry
+committed, but a primary may not install that view until the maximum committed
+frontier in its selected ordinary reports covers the establishing slot. Merely
+preserving the entry is insufficient to prove that every `Normal` era-1 replica
+knows the configuration is established.
+
+### Configurations and measured runs
+
+| Configuration | Method | Result |
+|---|---|---|
+| `VrrCoreEras.cfg` | exhaustive, 3 nodes, no crash | green: 837,204 distinct / 3,358,487 generated, depth 32, 3m24s |
+| `VrrCoreErasWitnessNonStop.cfg` | expected failure | `WNonStop` reached in 207 distinct states |
+| `VrrCoreErasWitnessOverlap.cfg` | expected failure | `WOverlapStreams` reached in 125 distinct states |
+| `VrrCoreErasCrash.cfg` | fixed simulation preflight | green: 10,000 depth-40 traces, 900,119 checked states, 45s |
+| `VrrCoreErasEven.cfg` | startup gate | refused: next-era `{n0,n1}` is disjoint from old-era `{n2,n3}` under reverse cross-era intersection |
+| `VrrCoreErasDeep.cfg` | fixed simulation | green: 100,000 depth-60 traces, seed 1, 26,793,084 checked states, 1h56m |
+
+The even-split refusal is a design result, not a tool failure. Era 0 admits
+commit weight 2 and view weight 3. After incrementing `n0`, the next-era view set
+`{n0,n1}` has weight 3 while the disjoint old-era commit set `{n2,n3}` has weight
+2. The current closed gate checks this reverse direction. A normative E3 run
+therefore requires an owner ruling: refuse the transition, select a safer
+next-era family, or withdraw that gate direction.
+
+The two witness invariants are intentionally false. Their counterexample traces
+are existence proofs that the casting transition is reachable without any
+stop-the-world view change and that an era-1 slot can commit while the primary
+still occupies an era-0 view.
+
+### Defect regression
+
+`Defect` is `"none"` in every normative model. Each mutation configuration
+enables exactly one weakened perimeter or evidence interpretation and must exit
+nonzero on the named check:
+
+| Config | Mutation | Expected result |
+|---|---|---|
+| M1 | truncate installed transfer history | `CommittedEntrySurvives` |
+| M2 | adopt a higher view without installing its selected history | `CommittedLogsAgree` |
+| M3 | let a recovering identity receive and vote | `CommittedLogsAgree` |
+| M4 | interpret planned evidence as ordinary fence/report provenance | `CommittedEntrySurvives` |
+| M5 | let the cast install a responder history instead of the leader's retained log | `CommittedLogsAgree` |
+| M6 | complete recovery from one response | `CommittedLogsAgree` |
+| M7 | six-node increment with disjoint old-view/new-commit sets | startup `ASSUME` failure, zero states |
+
+M3 uses fixed-seed simulation because its plain breadth-first graph is much
+larger than its short counterexample trace. M6 uses an exhaustive transition
+projection containing only unchanged normal, view-change, crash, and recovery
+actions; it reaches quorum amnesia in 4,857 distinct states at depth 20. The
+other five are breadth-first. Removing only the pivot-existence guard is kept as
+the separate `VrrCoreErasNoPivot.cfg` experiment: it is expected to remain green
+because the pivot is a pipelining availability condition, not a safety axiom.
+That experiment completed exhaustively with 837,204 distinct states, depth 32,
+in 3m29s and found no safety violation.
+
+All Docker runs remain volume-free and BuildKit-free. The image, daemon, kernel,
+Debian package architecture, and JVM `os.arch` are checked as ARM64/aarch64; TLC
+1.7.4's banner incorrectly prints an x86_64 JVM label even when the JVM itself
+reports `aarch64`. Worker count remains capped at two for thermal control.
