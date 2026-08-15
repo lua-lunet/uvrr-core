@@ -1481,11 +1481,12 @@ impl Harness {
     fn scan_faults(&mut self) {
         let mut newly_faulted: Vec<(usize, Fault)> = Vec::new();
         for (index, slot) in self.nodes.iter().enumerate() {
-            if let Some(node) = slot
-                && !self.faulted_known[index]
-                && let Some(fault) = node.replica.progress().fault()
-            {
-                newly_faulted.push((index, fault));
+            if let Some(node) = slot {
+                if !self.faulted_known[index] {
+                    if let Some(fault) = node.replica.progress().fault() {
+                        newly_faulted.push((index, fault));
+                    }
+                }
             }
         }
         for (index, fault) in newly_faulted {

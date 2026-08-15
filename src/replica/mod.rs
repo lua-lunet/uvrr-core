@@ -1460,20 +1460,22 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // unconstructible suffix falls through to the no-op below.
         // Completion remains a recovery install (§6.1): the tick only
         // schedules the re-drive after transfer supplied the missing range.
-        if self.progress.status() == Status::Recovering
-            && let Some(attempt) = self.recovery.clone()
-            && let Some((source, latest, evidence)) =
-                self.recovery_completion_ready(journal, &attempt)
-        {
-            return self.plan_recovery_completion(
-                journal,
-                attempt,
-                source,
-                latest,
-                evidence,
-                at,
-                InputKind::Recovery,
-            );
+        if self.progress.status() == Status::Recovering {
+            if let Some(attempt) = self.recovery.clone() {
+                if let Some((source, latest, evidence)) =
+                    self.recovery_completion_ready(journal, &attempt)
+                {
+                    return self.plan_recovery_completion(
+                        journal,
+                        attempt,
+                        source,
+                        latest,
+                        evidence,
+                        at,
+                        InputKind::Recovery,
+                    );
+                }
+            }
         }
         // The smallest honest transition: no protocol state
         // moves, and the interval machinery is genuinely exercised.
@@ -2022,10 +2024,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             self.proposals.insert(slot, proposal);
         }
         for (slot, node) in bookkeeping.oks {
-            if let Some(proposal) = self.proposals.get_mut(&slot)
-                && !proposal.oks.contains(&node)
-            {
-                proposal.oks.push(node);
+            if let Some(proposal) = self.proposals.get_mut(&slot) {
+                if !proposal.oks.contains(&node) {
+                    proposal.oks.push(node);
+                }
             }
         }
         for slot in bookkeeping.resolved {
@@ -2412,10 +2414,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 Some(entry) => Some(entry),
                 None => journal.get(cursor),
             };
-            if let Some(entry) = entry
-                && let Payload::Operation { .. } = &entry.payload
-            {
-                proposals.push((cursor, Proposal { oks: Vec::new() }));
+            if let Some(entry) = entry {
+                if let Payload::Operation { .. } = &entry.payload {
+                    proposals.push((cursor, Proposal { oks: Vec::new() }));
+                }
             }
             slot = cursor.next();
         }

@@ -118,14 +118,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The fence: once a `Role::Fence` quorum holds, the node records
         // its own evidence and reports it to the designated new primary
         // (§9.1). A node that IS the new primary keeps its evidence local.
-        if !view_change.evidence.contains_key(&self.own) {
+        if let std::collections::btree_map::Entry::Vacant(slot) =
+            view_change.evidence.entry(self.own)
+        {
             let fences: Vec<NodeId> = view_change.fences.iter().copied().collect();
             if self
                 .strategy
                 .is_quorum(Role::Fence, &record.config, &fences)
             {
                 let own = self.own_evidence(journal);
-                view_change.evidence.insert(self.own, own);
+                slot.insert(own);
                 if self.primary_of(target) != Some(self.own) {
                     effects.push(self.do_view_change_effect(journal, &view_change, target)?);
                 }
