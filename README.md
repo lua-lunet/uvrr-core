@@ -18,35 +18,28 @@ To build and test without running the crash testing and network partitioning sim
 cargo test
 ```
 
-This repo includes an example binary that conforms to a trivial key-value store protocol so that the Kyle Kingsbury Maelstrom test harness may simulate network partitions, crashes and other error conditions. The Makefile is there to install and run the Kyle Kingsbury Maelstrom test harness as either a git submodule run run locally else in docker. See below. 
+This repo includes an example binary that conforms to a trivial key-value store protocol so that the Kyle Kingsbury Maelstrom test harness may simulate network partitions, crashes and other error conditions. The Makefile can install and run the Kyle Kingsbury Maelstrom test harness as either a git submodule run run locally else in docker. See below. 
 
 ## Why this exists
 
-As at August 2026 there are not many, or possibly any, creates published covers the hard half of VRR such as view change, recovery and reconfiguration. Not many, or any, crate exposes a C ABI, and the async ones are the wrong shape for FFI. 
+This create simply offers the strong consistency during non-stop cluster reconfigurations without disk flushes. This is achieved by porting to Viewstemped Replication Revisited the leader casting vote technique from David Turner's technical report on unbounded pipelining in dynamically reconfigurable clusters (Tracsis, 2016, tessanddave.com).
 
-This crate is extracted from my own system where a lightweight and embeddable strong consistency model over a small amount is more cost effective than running something like Zookeeper or etcd. Strong consistency over which of three data centres is the primary embed that into an openresty process can be a very powerful capability.
+This Rust crate exposes a C ABI for FFI. It scales down to offer a lightweight and embeddable strong consistency model. With a small amount of data, such as leader leases or advisory locks, it removes the need to run something like Zookeeper or etcd. 
 
-This crate implements the parts of Viewstamped Replication Revisited that often get skipped:
+In my experience the concept of external strong consistency service is one that has very sharp edges. It splits responsibility for quality, legitimacy, and performance across two product teams. Every client connected to the core is part of the full distributed system and must experience consistency. When there are silos of responsibility on the critical path then often no-ones hold themselves accountable the removal of every single source of outages. 
 
-| | |
-|---|---|
-| Normal operation | PREPARE / PREPARE_OK / COMMIT, quorum `Q = floor(K/2)+1` |
-| Epoch change | START_EPOCH_CHANGE / DO_EPOCH_CHANGE / START_EPOCH |
-| Recovery | RECOVERY / RECOVERY_RESPONSE, with restart amnesia handled |
-| State transfer | whole-log, with monotonicity rules on adoption |
-| C ABI | `cdylib` + `staticlib` + [`include/vrr.h`](include/vrr.h) |
-
-Liskov and Cowling's paper has known defects in the recovery and state-transfer
-sections — the recovery algorithm can leave the system inconsistent and state
-transfer can lose data. This core does not implement those sections literally;
-the adoption rules are monotonic in epoch, then in slot/commit/log-prefix, and
-`tests/recovery_evidence_monotonicity_matrix.rs` pins that.
+If you are curious to see if embedding strong consistency directly into your application reduces the complexity, costs and latencies of your system then try this crate. 
 
 ## Evidence
 
-The demo passing Maelstrom testing is not evidence of zero bugs. Yet it is a demonstration of an absence of shallow bugs and that the library has some resilience to network partitions, crashes, or combinations of both. If you build a system on top of this library the bugs may be in the combination of all the code. You should consider writing custom Maelstrom logic to validate your entire system. 
+The demo kv replication passing Maelstrom testing is not evidence of zero bugs. Yet it is a demonstration of an absence of shallow bugs and that the library has some resilience to network partitions, crashes, or combinations of both. If you build a system on top of this library the bugs may be any  combination of all the code. You should consider writing custom Maelstrom logic to validate your entire system. 
 
 `make e2e` does a docker build to run the end-to-end Maelstrom test suite.
+
+`make tla` builds a self-contained TLC image and exhaustively checks the
+finite [TLA+ correspondence model](formal/README.md) for normal operation,
+view change, and fenced crash recovery. The image embeds the model: this path
+uses classic Docker commands and requires neither BuildKit nor a volume mount.
 
 `cargo test` runs 90 tests: unit and matrix tests per protocol path, targeted
 regressions, a deterministic seeded multi-replica cluster harness (K=3..7,
@@ -109,42 +102,13 @@ the verdict.
 recovering replica tolerates zero further failures. At K=5, `Q=3` of 4 others,
 leaving one spare. Rolling restarts only make progress from K=5 up.
 
-## Multi-datagram state transfer
-
-`MAX_DATAGRAM` is 65,507 bytes — one UDP payload. A state transfer
-(`DO_EPOCH_CHANGE` / `START_EPOCH` / `RECOVERY_RESPONSE`) whose whole-log
-encoding fits one datagram is sent whole, exactly as a small-log cluster
-always has. Past that boundary the core splits the one logical message into an
-ordered run of `STATE_CHUNK` datagrams (tag `0x40`), each at most
-`MAX_DATAGRAM`, carrying a fresh transfer uuid, the chunk's entry range, and
-the invariant fields of the logical message.
-
-The receiver reassembles per `(sender, message kind)`: chunks land in any
-order, duplicate ranges are idempotent, and conflicting overlaps, conflicting
-invariant fields, or a fresh transfer uuid (the retry path — whole-transfer
-restart, no ARQ) free the buffer. Completion of contiguous coverage re-enters
-the ordinary receive arm, so chunked delivery is observationally identical to
-single-datagram delivery and no partial state is ever adopted. Reassembly
-memory is bounded by declared caps (`MAX_CHUNK_TRANSFER_TOTAL`,
-`MAX_CHUNK_BUFFER_BYTES`, `MAX_CHUNK_REASSEMBLY_BYTES`) and grows only with
-received chunks, never with a peer's claimed total; stalled transfers expire
-after `CHUNK_TRANSFER_IDLE_LIMIT` idle ticks. Admission reserves the
-one-entry chunk framing inside `request_datagram_size`, so any admitted
-request is guaranteed to be chunk-representable.
-
-`tests/datagram_boundary_matrix.rs` pins both arms of the boundary end-to-end
-through the FFI, and `tests/state_chunk_transfer.rs` covers the reassembly
-semantics and the oversize epoch-change and recovery drives. The `ffi.rs`
-datagram cap remains as an unreachable backstop for state transfer.
-
-Note the cap lives in `ffi.rs`, not in `Replica`. Using the crate as a Rust
-library bypasses it entirely — which is why `maelstrom-lin-kv` links the library
-directly and its evidence says nothing about this limit.
-
 ## Status
 
-Pre-alpha. The protocol is covered by the tests above and by Maelstrom; the API
-is not stable and there has been no production use.
+Pre-alpha. The protocol is covered by the tests above and by Maelstrom; the API is not stable. It is intended to be open to extension yet closed to modifications of the invalidate the invariants of the algorithm. This means that it is only like to change if new extension points are needed or if a bug is found. 
+
+The codebase is intented to stay small and has advasorial tests. An absence of new feature being pushed is an absence of bugs and regressions. 
+
+Due to the Yeti nature of the superior but little advertised technology we are unlikely to see a ton of users leading to a 1.0.0 release. Yet I am more than open for to the idea. 
 
 ## Attribution
 

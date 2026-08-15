@@ -43,8 +43,9 @@ pub mod error {
 }
 
 /// The lin-kv operation, as replicated. `client_id` and `request_num` are
-/// carried inside the payload so a `Output::Reply` — which is only bytes —
-/// can be correlated back to the Maelstrom client that is waiting.
+/// carried inside the payload as well as in the operation identity, so the
+/// application can cross-check the replication envelope it is handed at
+/// `Effect::Apply` against the payload it is asked to execute.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum KvRequest {
@@ -115,29 +116,6 @@ pub enum KvResponse {
 }
 
 impl KvResponse {
-    pub fn ids(&self) -> (u64, u64) {
-        match self {
-            Self::ReadOk {
-                client_id,
-                request_num,
-                ..
-            }
-            | Self::WriteOk {
-                client_id,
-                request_num,
-            }
-            | Self::CasOk {
-                client_id,
-                request_num,
-            }
-            | Self::Failed {
-                client_id,
-                request_num,
-                ..
-            } => (*client_id, *request_num),
-        }
-    }
-
     /// Projects the replicated result onto the Maelstrom reply body.
     pub fn body(&self) -> Value {
         match self {
@@ -154,8 +132,8 @@ impl KvResponse {
 }
 
 /// Hex, so a VRR datagram survives Maelstrom's JSON transport while still
-/// going through the real `Message::encode`/`decode` codec — including the
-/// 16-byte binary header. Avoids adding a base64 dependency to the harness.
+/// going through the real `Pack`/`Unpack` codec — including the 20-byte
+/// binary header. Avoids adding a base64 dependency to the harness.
 pub fn to_hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);

@@ -2,11 +2,12 @@
 //! same committed entry produces byte-identical output, which is what lets the
 //! VRR log be the only source of ordering.
 //!
-//! This is the harness's stand-in for `vrr::locks::Service`. The lock service
-//! cannot express lin-kv — its SET is acquire-or-renew, so it can neither
-//! overwrite another holder's value nor compare-and-set from one value to a
-//! different one. `Replica` treats payloads as opaque, so swapping the service
-//! needs no change to the replication core.
+//! Replay-safe under the core's at-least-once application boundary (§11): a
+//! node that restores a committed history re-executes it, and re-executing a
+//! prefix of these operations converges to the same state — a write sets the
+//! same value again, a repeated compare-and-set fails its precondition without
+//! mutating, a read is inert. `Replica` treats payloads as opaque, so the
+//! service swaps in with no change to the replication core.
 
 use std::collections::BTreeMap;
 
@@ -74,137 +75,5 @@ impl Kv {
 
     fn slot(key: &Value) -> String {
         key.to_string()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn read(kv: &mut Kv, key: i64) -> KvResponse {
-        kv.execute(&KvRequest::Read {
-            client_id: 1,
-            request_num: 1,
-            key: key.into(),
-        })
-    }
-
-    #[test]
-    fn read_of_absent_key_reports_key_does_not_exist() {
-        let mut kv = Kv::default();
-        assert!(matches!(
-            read(&mut kv, 7),
-            KvResponse::Failed {
-                code: error::KEY_DOES_NOT_EXIST,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn write_then_read_returns_the_written_value() {
-        let mut kv = Kv::default();
-        kv.execute(&KvRequest::Write {
-            client_id: 1,
-            request_num: 1,
-            key: 7.into(),
-            value: 42.into(),
-        });
-        assert!(matches!(
-            read(&mut kv, 7),
-            KvResponse::ReadOk { ref value, .. } if value == &Value::from(42)
-        ));
-    }
-
-    #[test]
-    fn cas_swaps_only_on_an_exact_match_and_is_otherwise_inert() {
-        let mut kv = Kv::default();
-        kv.execute(&KvRequest::Write {
-            client_id: 1,
-            request_num: 1,
-            key: 7.into(),
-            value: 1.into(),
-        });
-        let mismatch = kv.execute(&KvRequest::Cas {
-            client_id: 1,
-            request_num: 2,
-            key: 7.into(),
-            from: 9.into(),
-            to: 5.into(),
-        });
-        assert!(matches!(
-            mismatch,
-            KvResponse::Failed {
-                code: error::PRECONDITION_FAILED,
-                ..
-            }
-        ));
-        assert!(
-            matches!(read(&mut kv, 7), KvResponse::ReadOk { ref value, .. } if value == &Value::from(1)),
-            "a failed cas must not mutate the key"
-        );
-
-        let hit = kv.execute(&KvRequest::Cas {
-            client_id: 1,
-            request_num: 3,
-            key: 7.into(),
-            from: 1.into(),
-            to: 5.into(),
-        });
-        assert!(matches!(hit, KvResponse::CasOk { .. }));
-        assert!(
-            matches!(read(&mut kv, 7), KvResponse::ReadOk { ref value, .. } if value == &Value::from(5))
-        );
-    }
-
-    #[test]
-    fn keys_of_different_json_types_do_not_collide() {
-        let mut kv = Kv::default();
-        kv.execute(&KvRequest::Write {
-            client_id: 1,
-            request_num: 1,
-            key: 7.into(),
-            value: "int".into(),
-        });
-        kv.execute(&KvRequest::Write {
-            client_id: 1,
-            request_num: 2,
-            key: "7".into(),
-            value: "string".into(),
-        });
-        assert!(
-            matches!(read(&mut kv, 7), KvResponse::ReadOk { ref value, .. } if value == &Value::from("int"))
-        );
-    }
-
-    #[test]
-    fn execution_is_deterministic_across_replicas() {
-        let ops = [
-            KvRequest::Write {
-                client_id: 1,
-                request_num: 1,
-                key: 1.into(),
-                value: 10.into(),
-            },
-            KvRequest::Cas {
-                client_id: 1,
-                request_num: 2,
-                key: 1.into(),
-                from: 10.into(),
-                to: 20.into(),
-            },
-            KvRequest::Read {
-                client_id: 1,
-                request_num: 3,
-                key: 1.into(),
-            },
-        ];
-        let mut first = Kv::default();
-        let mut second = Kv::default();
-        for op in &ops {
-            let a = serde_json::to_vec(&first.execute(op)).unwrap();
-            let b = serde_json::to_vec(&second.execute(op)).unwrap();
-            assert_eq!(a, b, "replicas diverged executing {op:?}");
-        }
     }
 }

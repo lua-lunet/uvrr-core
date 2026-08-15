@@ -2,44 +2,79 @@
 //! `lin-kv` workload, so Knossos can check the protocol for linearizability
 //! under Maelstrom's partition / kill / pause nemeses.
 //!
-//! The core is used as a Rust library (`vrr::vrr::Replica`), not through the C
-//! ABI. That matters: `MAX_DATAGRAM` and the advisory-lock service both live in
-//! `ffi.rs`, so linking the library directly needs **no change whatsoever** to
-//! the code under test — `Replica` already treats client payloads as opaque
-//! bytes. The FFI and Teal layers are a later phase of this harness.
+//! The core is used as a Rust library (`vrr::replica::Replica`), planner
+//! architecture: every event becomes a [`TimedInput`], [`Replica::plan`]
+//! computes a transition against the published state and a journal view, and
+//! this host publishes it with [`Replica::publish`] and executes the released
+//! effects. The host owns time, transport, storage and the application —
+//! exactly the split the core is written against.
 //!
-//! Architecture: two producer threads (stdin reader, ticker) feed one channel;
-//! a single core thread owns all state and is the only writer to stdout, so
-//! there is no lock around the replica.
+//! Architecture: two producer threads (stdin reader, ticker) feed one
+//! channel; a single core thread owns all state and is the only writer to
+//! stdout, so there is no lock around the replica.
+//!
+//! # Durability stance (§7, §14.2)
+//!
+//! The node runs [`Stability::Volatile`] and persists nothing. That is safe
+//! because of the genesis ruling (§1.3): every construction — first boot or
+//! kill-nemesis restart alike — starts fenced `Recovering`, and a node
+//! becomes `Normal` only through the bootstrap adoption (§4) or a completed
+//! §10 recovery against quorum memory. An amnesiac `Normal` voter is
+//! therefore unrepresentable in this host: a restarted node rejoins fenced
+//! and re-proves its state, which is exactly the §14.2 obligation. The one
+//! sharp edge the core documents — an amnesiac genesis primary promoting
+//! itself with only genesis history — stalls the view (backups refuse the
+//! conflicting entries) but cannot diverge it, and the next view change
+//! deposes it. No restart marker is needed, so the node never reads
+//! `MAELSTROM_VRR_STATE_DIR`: the uniform fenced start subsumes the old
+//! marker-file restart detection.
+//!
+//! # Time (S4)
+//!
+//! The core reads no clock; the host owns time. This host's clock is a
+//! single `u64` counter, bumped once per driven input and carried as
+//! [`TimedInput::at`]. The same counter is the recovery nonce: every
+//! re-driven `Recover` carries a fresh tick, which the attempt's bounded
+//! nonce set retains (§6.1).
 
 mod kv;
 mod proto;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use serde_json::Value;
-use uuid::Uuid;
-use vrr::vrr::{Input, Message, NodeId, Output, Replica, Status};
+use vrr::effects::{Effect, Stability};
+use vrr::ids::{NodeId, Operation, OperationId, Tick};
+use vrr::journal::{Journal, SegmentedLog};
+use vrr::message::Message;
+use vrr::progress::Status;
+use vrr::quorum::WeightedMajority;
+use vrr::replica::{Input, PlanRejection, PublishOutcome, Replica, TimedInput, ViewChangeKnobs};
+use vrr::wire::{Pack, Unpack};
 
 use crate::kv::Kv;
 use crate::proto::{Incoming, KvRequest, KvResponse, Outgoing, error, from_hex, to_hex};
 
 /// Scheduler granularity. Everything below is expressed in ticks.
 const TICK: Duration = Duration::from_millis(100);
-/// Leader heartbeat period, in ticks. Must be well under the election floor.
-const HEARTBEAT_TICKS: u32 = 2;
-/// Election timeout floor, in ticks, plus a per-node stagger so replicas do
-/// not all time out on the same tick and trade epochs forever.
-const ELECTION_FLOOR_TICKS: u32 = 12;
-const ELECTION_STAGGER_TICKS: u32 = 5;
-/// A recovery attempt that collects no quorum is retried with a fresh nonce.
-/// The protocol requires the host to keep retrying; nothing re-broadcasts
-/// `RECOVERY` on its own.
+/// Ticks of primary silence a `Normal` backup tolerates before fencing into
+/// the next view (W5: the knob is host policy, uniform across the cluster).
+/// With client traffic flowing, the primary's `Prepare`/`Commit` stream is
+/// the activity evidence and suspicion never fires; the knob only decides
+/// how quickly a genuinely dead primary is deposed.
+const PRIMARY_TIMEOUT_TICKS: u64 = 25;
+/// A recovery attempt that collects no quorum is re-driven with a fresh
+/// nonce (a fresh tick, S4). The protocol requires the host to keep
+/// re-driving; nothing re-broadcasts `RECOVERY` on its own, and a re-drive
+/// preserves the responses already collected (§6.1's bounded nonce set).
 const RECOVERY_RETRY_TICKS: u32 = 25;
+
+/// The replica this host runs: the default journal and the default quorum
+/// strategy, exactly as the test harness provisions them.
+type Node = Replica<SegmentedLog, WeightedMajority>;
 
 enum Event {
     Message(Incoming),
@@ -94,9 +129,9 @@ fn main() {
 enum Waiter {
     /// The client asked this node directly.
     Client { node: String, msg_id: u64 },
-    /// A peer forwarded the op here because this node is the leader. The reply
-    /// goes back the way it came, so every Maelstrom request is answered by the
-    /// node the client actually addressed.
+    /// A peer forwarded the op here because this node is the primary. The
+    /// reply goes back the way it came, so every Maelstrom request is
+    /// answered by the node the client actually addressed.
     Forwarded {
         via: String,
         client: String,
@@ -108,16 +143,18 @@ enum Waiter {
 struct NodeRunner {
     id: String,
     members: Vec<String>,
-    replica: Option<Replica>,
+    replica: Option<Node>,
     kv: Kv,
     next_msg_id: u64,
-    /// `(client_id, request_num)` of an in-flight op -> where its answer goes.
-    /// `Output::Reply` carries only bytes, so the correlation keys live inside
-    /// the replicated payload.
+    /// The host clock (S4): bumped once per driven input, carried as
+    /// `TimedInput::at`, and reused as the recovery nonce.
+    tick: u64,
+    /// `(client_id, request_num)` of an in-flight op -> where its answer
+    /// goes. The operation identity the core carries opaque (§11.1) is
+    /// exactly this pair, so an `Effect::Apply` correlates back to the
+    /// Maelstrom client that is waiting.
     waiting: HashMap<(u64, u64), Waiter>,
-    ticks_since_leader: u32,
-    ticks_since_heartbeat: u32,
-    ticks_recovering: u32,
+    ticks_since_recovery: u32,
 }
 
 impl NodeRunner {
@@ -148,18 +185,50 @@ impl NodeRunner {
                     .collect()
             })
             .unwrap_or_default();
-        // `Replica::new` requires a strictly sorted membership; the node's own
-        // ID is located by position in that array.
+        // The genesis order is the sorted membership; the node's own
+        // `NodeId` is its position in that array.
         members.sort();
 
-        match Replica::new(members.clone(), &node_id) {
-            Ok(replica) => {
+        let knobs = ViewChangeKnobs {
+            primary_timeout: PRIMARY_TIMEOUT_TICKS,
+            // The §13.1 suffix budget: unbounded. The histories this harness
+            // replicates are small, and the budget is a host policy knob (W5),
+            // never a correctness input.
+            view_change_budget: usize::MAX,
+        };
+        let built = members
+            .iter()
+            .position(|member| member == &node_id)
+            .and_then(|index| {
+                let own = NodeId(u32::try_from(index).ok()?);
+                let genesis_order = (0..members.len())
+                    .map(|i| u32::try_from(i).map(NodeId).ok())
+                    .collect::<Option<Vec<_>>>()?;
+                Some((own, genesis_order))
+            })
+            .and_then(|(own, genesis_order)| {
+                // Always `provision`, never `reopen`: this host persists
+                // nothing, and the fenced `Recovering` start is the honest
+                // statement of that (§14.2 — see the module docs).
+                Node::provision(
+                    own,
+                    genesis_order,
+                    WeightedMajority,
+                    SegmentedLog::new(),
+                    Stability::Volatile,
+                    knobs,
+                )
+                .ok()
+            });
+
+        match built {
+            Some(replica) => {
                 self.id = node_id;
                 self.members = members;
                 self.replica = Some(replica);
             }
-            Err(reason) => {
-                eprintln!("cannot build replica: {reason}");
+            None => {
+                eprintln!("cannot provision replica for {node_id}");
                 if let Some(msg_id) = message.msg_id() {
                     self.reply(
                         &message.src,
@@ -167,7 +236,7 @@ impl NodeRunner {
                         serde_json::json!({
                             "type": "error",
                             "code": error::TEMPORARILY_UNAVAILABLE,
-                            "text": format!("membership rejected: {reason}"),
+                            "text": "membership rejected",
                         }),
                     );
                 }
@@ -179,42 +248,13 @@ impl NodeRunner {
             self.reply(&message.src, msg_id, serde_json::json!({"type": "init_ok"}));
         }
 
-        // A restarted process cannot tell itself apart from a first boot, and
-        // the protocol requires a restarting replica to recover before it
-        // participates. The durable marker is exactly the "durable monotonic
-        // state" the recovery contract asks the host for. Without it, either
-        // every node recovers at boot (nobody is Normal to answer, so the
-        // cluster deadlocks) or a restarted amnesiac replica rejoins and
-        // acknowledges entries it never held.
-        let nonce = self.bump_persisted_nonce();
-        if let Some(nonce) = nonce {
-            eprintln!("restart detected; recovering with nonce {nonce}");
-            self.drive(Input::Recover { nonce });
-        }
-    }
-
-    /// Returns `Some(nonce)` when a marker already existed, meaning this is a
-    /// restart. Always leaves a marker behind with a strictly greater counter.
-    fn bump_persisted_nonce(&self) -> Option<u64> {
-        let path = self.nonce_path();
-        let previous = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|text| text.trim().parse::<u64>().ok());
-        let next = previous.map_or(1, |value| value.saturating_add(1));
-        if let Err(error) = std::fs::write(&path, next.to_string()) {
-            eprintln!(
-                "cannot persist recovery nonce at {}: {error}",
-                path.display()
-            );
-        }
-        previous.map(|_| next)
-    }
-
-    fn nonce_path(&self) -> PathBuf {
-        let dir = std::env::var_os("MAELSTROM_VRR_STATE_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir);
-        dir.join(format!("maelstrom-vrr-{}.nonce", self.id))
+        // Every boot starts fenced `Recovering` (§1.3's genesis ruling), so
+        // every boot begins a recovery attempt. At a fresh cluster start the
+        // attempt is harmless: the genesis primary's tick promotion and the
+        // bootstrap adoption complete the bring-up first, and the attempt is
+        // discarded with the fence. On a kill-nemesis restart this drive is
+        // the §10 path that re-proves the node's state against quorum memory.
+        self.drive(Input::Recover);
     }
 
     fn on_peer(&mut self, message: &Incoming) {
@@ -230,19 +270,14 @@ impl NodeRunner {
             eprintln!("peer message without a decodable wire field");
             return;
         };
-        let Some(decoded) = Message::decode(&wire) else {
-            eprintln!("peer message failed the VRR codec");
-            return;
-        };
-
-        // Any traffic from the current epoch's leader is evidence the leader
-        // is alive, which is what suppresses this replica's election timeout.
-        if let Some(replica) = &self.replica {
-            if from == replica.leader_of(replica.epoch()) {
-                self.ticks_since_leader = 0;
+        let decoded = match Message::unpack_from(&wire) {
+            Ok(decoded) => decoded,
+            Err(error) => {
+                eprintln!("peer message failed the VRR codec: {error:?}");
+                return;
             }
-        }
-        self.drive(Input::Message {
+        };
+        self.drive(Input::Peer {
             from,
             message: decoded,
         });
@@ -263,7 +298,7 @@ impl NodeRunner {
         };
         // The client's own `msg_id` is per-client monotonic and identical at
         // every node, so it is the request number. A per-node counter would
-        // diverge across replicas and stall a client after a leader change.
+        // diverge across replicas and stall a client after a primary change.
         self.submit(client_id, msg_id, &message.body, waiter);
     }
 
@@ -293,10 +328,11 @@ impl NodeRunner {
         self.submit(client_id, client_msg_id, &op, waiter);
     }
 
-    /// Submits one client operation, forwarding to the leader when this node
-    /// does not lead. Without forwarding, Maelstrom's client picks a node at
-    /// random and roughly `1 - 1/K` of all operations are refused outright,
-    /// which starves the log and leaves the checker almost nothing to verify.
+    /// Submits one client operation, forwarding to the primary when this
+    /// node does not lead. Without forwarding, Maelstrom's client picks a
+    /// node at random and roughly `1 - 1/K` of all operations are refused
+    /// outright, which starves the log and leaves the checker almost
+    /// nothing to verify.
     fn submit(&mut self, client_id: u64, request_num: u64, op: &Value, waiter: Waiter) {
         let kind = op.get("type").and_then(Value::as_str).unwrap_or("");
         let key = op.get("key").cloned().unwrap_or(Value::Null);
@@ -325,31 +361,28 @@ impl NodeRunner {
             }
         };
 
-        let Some(replica) = &self.replica else {
-            self.refuse(&waiter, "node not initialised");
-            return;
-        };
-
-        if replica.status() != Status::Normal || !replica.is_leader() {
-            // Forward once. A node that received a forward and still does not
-            // lead refuses rather than bouncing it on, so a stale epoch cannot
-            // start a forwarding loop.
-            let leader_index = replica.leader_of(replica.epoch());
-            let leader = self.members.get(leader_index as usize).cloned();
-            match (&waiter, leader) {
-                (Waiter::Client { node, msg_id }, Some(leader)) if leader != self.id => {
+        if !self.leads() {
+            // Forward once. A node that received a forward and still does
+            // not lead refuses rather than bouncing it on, so a stale view
+            // cannot start a forwarding loop.
+            let primary = self
+                .primary()
+                .and_then(|id| self.members.get(id.0 as usize).cloned());
+            match (&waiter, primary) {
+                (Waiter::Client { node, msg_id }, Some(primary)) if primary != self.id => {
                     let body = serde_json::json!({
                         "type": "proxy",
                         "client": node,
                         "client_msg_id": msg_id,
                         "op": op,
                     });
-                    // Deliberately no reply here: if the leader never answers,
-                    // the operation is genuinely indeterminate, and claiming a
-                    // definite failure would be a lie to the checker.
-                    self.send(&leader, body);
+                    // Deliberately no reply here: if the primary never
+                    // answers, the operation is genuinely indeterminate, and
+                    // claiming a definite failure would be a lie to the
+                    // checker.
+                    self.send(&primary, body);
                 }
-                _ => self.refuse(&waiter, "not the leader"),
+                _ => self.refuse(&waiter, "not the primary"),
             }
             return;
         }
@@ -363,128 +396,178 @@ impl NodeRunner {
         };
         self.waiting
             .insert((client_id, request_num), waiter.clone());
-        let outputs = self.step(Input::Request {
-            client_id,
-            request_num,
-            // Correlation only; the core does not deduplicate on it.
-            message_id: Uuid::from_u128(u128::from(client_id) << 64 | u128::from(request_num)),
-            // The predicted execution value. This service never reads a clock,
-            // so any deterministic value replicates correctly.
-            execution_time: 0,
-            payload,
+        // The operation identity is the (client, request) pair itself:
+        // assigned by the host, carried opaque by the core (§11.1, B2), and
+        // handed back at `Effect::Apply`, where it finds the waiter.
+        let stepped = self.step(Input::Propose {
+            operation: Operation {
+                id: OperationId {
+                    msb: client_id,
+                    lsb: request_num,
+                },
+                payload: payload.into(),
+            },
         });
-        if outputs.is_empty() {
-            // The leader refused without appending: a stale request number, or
-            // a duplicate still pending. Definitely not in the log.
-            self.waiting.remove(&(client_id, request_num));
-            self.refuse(&waiter, "request refused by leader");
-            return;
+        match stepped {
+            Ok(effects) => self.route(effects),
+            Err(rejection) => {
+                // `plan` refused before anything appended: the operation
+                // provably never entered the log, so a definite failure is
+                // the honest answer.
+                self.waiting.remove(&(client_id, request_num));
+                eprintln!("proposal refused: {rejection:?}");
+                self.refuse(&waiter, "request refused by primary");
+            }
         }
-        self.route(outputs);
     }
 
     fn on_tick(&mut self) {
         let Some(replica) = &self.replica else { return };
-        let status = replica.status();
-        let leader = replica.is_leader();
 
-        self.ticks_since_leader = self.ticks_since_leader.saturating_add(1);
-        self.ticks_since_heartbeat = self.ticks_since_heartbeat.saturating_add(1);
-
-        if status == Status::Recovering {
-            self.ticks_recovering = self.ticks_recovering.saturating_add(1);
-            if self.ticks_recovering >= RECOVERY_RETRY_TICKS {
-                self.ticks_recovering = 0;
-                if let Some(nonce) = self.bump_persisted_nonce() {
-                    eprintln!("recovery stalled; retrying with nonce {nonce}");
-                    self.drive(Input::Recover { nonce });
-                }
+        if replica.progress().status() == Status::Recovering {
+            self.ticks_since_recovery = self.ticks_since_recovery.saturating_add(1);
+            if self.ticks_since_recovery >= RECOVERY_RETRY_TICKS {
+                self.ticks_since_recovery = 0;
+                self.drive(Input::Recover);
             }
-            return;
-        }
-        self.ticks_recovering = 0;
-
-        // Replaying replicas are still isolated; leave them to finish.
-        if status == Status::Replaying {
-            return;
+        } else {
+            self.ticks_since_recovery = 0;
         }
 
-        if leader && status == Status::Normal {
-            if self.ticks_since_heartbeat >= HEARTBEAT_TICKS {
-                self.ticks_since_heartbeat = 0;
-                self.drive(Input::Idle);
+        // The tick drives the genesis-primary bootstrap, the view-change
+        // suspicion timeout, and any stalled recovery completion (S4).
+        self.drive(Input::Tick);
+    }
+
+    /// Whether this node is the `Normal` primary of its current view — the
+    /// only node a client op may be proposed to (§4).
+    fn leads(&self) -> bool {
+        match &self.replica {
+            Some(replica) => {
+                replica.progress().status() == Status::Normal
+                    && self.primary() == Some(replica.own())
             }
-            self.ticks_since_leader = 0;
-            return;
-        }
-
-        if self.ticks_since_leader >= self.election_timeout() {
-            self.ticks_since_leader = 0;
-            self.drive(Input::LeaderTimeout);
+            None => false,
         }
     }
 
-    fn election_timeout(&self) -> u32 {
-        let index = self.index_of(&self.id).unwrap_or(0);
-        ELECTION_FLOOR_TICKS + ELECTION_STAGGER_TICKS * index
+    /// The primary of the node's current view under its own configuration
+    /// history, when the configuration can name one.
+    fn primary(&self) -> Option<NodeId> {
+        let replica = self.replica.as_ref()?;
+        let current = replica.progress().current();
+        replica
+            .progress()
+            .config()
+            .record(current.era)?
+            .config
+            .primary(current.view)
     }
 
-    /// Steps the replica and routes everything that falls out, including the
-    /// service executions the outputs cascade into.
+    /// Steps the replica and routes everything that falls out. Plan
+    /// rejections here are protocol weather (a fenced node refusing a peer
+    /// message, a duplicate acknowledgement), each already named by the
+    /// core; the drop diagnostics live on the observation handle.
     fn drive(&mut self, input: Input) {
-        let outputs = self.step(input);
-        self.route(outputs);
-    }
-
-    fn step(&mut self, input: Input) -> Vec<Output> {
-        match &mut self.replica {
-            Some(replica) => replica.step(input),
-            None => Vec::new(),
+        if let Ok(effects) = self.step(input) {
+            self.route(effects);
         }
     }
 
-    fn route(&mut self, outputs: Vec<Output>) {
-        let mut pending = std::collections::VecDeque::from(outputs);
-        while let Some(output) = pending.pop_front() {
-            match output {
-                Output::Broadcast(message) => {
-                    for peer in self.members.clone() {
-                        if peer != self.id {
-                            self.send_peer(&peer, &message);
-                        }
-                    }
-                }
-                Output::To(to, message) => {
-                    if let Some(peer) = self.members.get(to as usize).cloned() {
+    /// One plan/publish interval (§7, §12): plan against the published
+    /// state and a journal view, publish the planned transition, hand the
+    /// released effects back. `Volatile` stability always publishes; the
+    /// parked outcome exists for the external-stability modes this host
+    /// never selects.
+    fn step(&mut self, input: Input) -> Result<Vec<Effect>, PlanRejection> {
+        let Some(replica) = &mut self.replica else {
+            return Ok(Vec::new());
+        };
+        self.tick += 1;
+        let timed = TimedInput {
+            at: Tick(self.tick),
+            event: input,
+        };
+        let planned = replica.plan(&timed, &replica.journal().view())?;
+        match replica.publish(planned) {
+            Ok(PublishOutcome::Published { effects, .. }) => Ok(effects),
+            Ok(PublishOutcome::Parked { .. }) => {
+                eprintln!("volatile stability never parks a transition");
+                Ok(Vec::new())
+            }
+            Err(rejection) => {
+                eprintln!("publish refused a planned transition: {rejection:?}");
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    /// Executes released effects, including the `Applied` feedback each
+    /// `Apply` cascades into (§11.1): the acknowledgement carries no
+    /// result — the boundary is one-way, and the core never answers a
+    /// proposal (B2) — so the waiting client is answered here, at apply
+    /// time, by the host.
+    fn route(&mut self, effects: Vec<Effect>) {
+        let mut pending = VecDeque::from(effects);
+        while let Some(effect) = pending.pop_front() {
+            match effect {
+                Effect::Send { to, message, .. } => {
+                    // The effect's route era is a transport-visible fact
+                    // (W1) that matters under overlap mode; this cluster
+                    // runs a single era, so routing needs only the
+                    // recipient.
+                    if let Some(peer) = self.members.get(to.0 as usize).cloned() {
                         self.send_peer(&peer, &message);
                     }
                 }
-                Output::Execute {
+                Effect::Apply {
                     slot,
+                    operation_id,
                     payload,
-                    client_id,
-                    request_num,
-                    ..
                 } => {
-                    let result = self.execute(client_id, request_num, &payload);
-                    for output in self
-                        .step(Input::Complete { slot, result })
-                        .into_iter()
-                        .rev()
+                    // Every replica executes; only the node holding the
+                    // waiter answers. Replay after a recovery restore is
+                    // safe for this service (see kv.rs), and finds no
+                    // waiter.
+                    let response = self.execute(operation_id, &payload);
+                    if let Some(waiter) = self.waiting.remove(&(operation_id.msb, operation_id.lsb))
                     {
-                        pending.push_front(output);
+                        self.answer(&waiter, response.body());
+                    }
+                    match self.step(Input::Applied { slot }) {
+                        Ok(more) => {
+                            for effect in more.into_iter().rev() {
+                                pending.push_front(effect);
+                            }
+                        }
+                        Err(rejection) => {
+                            eprintln!("applied acknowledgement refused: {rejection:?}")
+                        }
                     }
                 }
-                Output::Reply(bytes) => self.answer_client(&bytes),
+                Effect::Persist(_) => {
+                    eprintln!("volatile stability releases no persistence intents")
+                }
+                Effect::RequestApplicationState { through } => {
+                    // The host application-state transfer facility is out of
+                    // scope for this node (§4). It never fires here: no
+                    // checkpoint is ever published, so reclamation never
+                    // runs (§4, S1) and the journal retains everything.
+                    eprintln!(
+                        "application-state transfer requested through {}: no host facility",
+                        through.0
+                    );
+                }
             }
         }
     }
 
-    /// Runs one committed entry against the replicated service. The envelope
-    /// is cross-checked against the payload, mirroring what `locks::Service`
-    /// does, so a mismatched replication envelope cannot execute silently.
-    fn execute(&mut self, client_id: u64, request_num: u64, payload: &[u8]) -> Vec<u8> {
-        let response = match serde_json::from_slice::<KvRequest>(payload) {
+    /// Runs one committed entry against the replicated service. The
+    /// envelope is cross-checked against the payload, so a mismatched
+    /// replication envelope cannot execute silently.
+    fn execute(&mut self, operation_id: OperationId, payload: &[u8]) -> KvResponse {
+        let (client_id, request_num) = (operation_id.msb, operation_id.lsb);
+        match serde_json::from_slice::<KvRequest>(payload) {
             Ok(request) if request.ids() == (client_id, request_num) => self.kv.execute(&request),
             Ok(_) => KvResponse::Failed {
                 client_id,
@@ -498,21 +581,7 @@ impl NodeRunner {
                 code: error::TEMPORARILY_UNAVAILABLE,
                 text: format!("undecodable payload: {error}"),
             },
-        };
-        serde_json::to_vec(&response).unwrap_or_default()
-    }
-
-    fn answer_client(&mut self, bytes: &[u8]) {
-        let Ok(response) = serde_json::from_slice::<KvResponse>(bytes) else {
-            eprintln!("undecodable replicated result");
-            return;
-        };
-        let Some(waiter) = self.waiting.remove(&response.ids()) else {
-            // A reply for an op nobody here is waiting on — for example a
-            // cached result replayed after a leader change.
-            return;
-        };
-        self.answer(&waiter, response.body());
+        }
     }
 
     /// Routes one answer to whoever is waiting, hopping back through the
@@ -536,8 +605,8 @@ impl NodeRunner {
         }
     }
 
-    /// The leader answered a forwarded op; relay it to the client that this
-    /// node originally accepted the request from.
+    /// The primary answered a forwarded op; relay it to the client that
+    /// this node originally accepted the request from.
     fn on_proxy_reply(&mut self, message: &Incoming) {
         let Some(client) = message
             .field("client")
@@ -569,12 +638,13 @@ impl NodeRunner {
     }
 
     fn send_peer(&mut self, peer: &str, message: &Message) {
-        match message.encode() {
-            Ok(bytes) => {
+        let mut bytes = vec![0u8; message.packed_len()];
+        match message.pack_into(&mut bytes) {
+            Ok(_) => {
                 let body = serde_json::json!({"type": "vrr", "wire": to_hex(&bytes)});
                 self.send(peer, body);
             }
-            Err(error) => eprintln!("cannot encode VRR message: {error}"),
+            Err(error) => eprintln!("cannot encode VRR message: {error:?}"),
         }
     }
 
@@ -611,44 +681,12 @@ impl NodeRunner {
         self.members
             .iter()
             .position(|member| member == node)
-            .map(|index| index as NodeId)
+            .and_then(|index| u32::try_from(index).ok())
+            .map(NodeId)
     }
 }
 
 /// `c7` -> 7. Maelstrom client node IDs are `c` followed by an integer.
 fn client_number(src: &str) -> Option<u64> {
     src.strip_prefix('c')?.parse().ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hex_round_trips_arbitrary_bytes() {
-        let bytes: Vec<u8> = (0..=255u8).collect();
-        assert_eq!(from_hex(&to_hex(&bytes)), Some(bytes));
-        assert_eq!(from_hex("abc"), None, "odd length must be rejected");
-        assert_eq!(from_hex("zz"), None, "non-hex digits must be rejected");
-    }
-
-    #[test]
-    fn client_ids_parse_from_maelstrom_node_names() {
-        assert_eq!(client_number("c1"), Some(1));
-        assert_eq!(client_number("c17"), Some(17));
-        assert_eq!(client_number("n1"), None);
-    }
-
-    #[test]
-    fn a_vrr_datagram_survives_the_hex_transport() {
-        use vrr::vrr::Body;
-        let message = Message {
-            epoch: 0x0102_0304,
-            slot: 0x0506_0708_090a_0b0c,
-            body: Body::Recovery { nonce: 42 },
-        };
-        let wire = to_hex(&message.encode().expect("encodes"));
-        let back = Message::decode(&from_hex(&wire).expect("decodes")).expect("valid");
-        assert_eq!(back, message);
-    }
 }

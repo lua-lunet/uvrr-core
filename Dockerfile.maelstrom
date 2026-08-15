@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy and build the Rust project
 WORKDIR /usr/src/vrr-core
 COPY . .
-RUN cargo build --release --bin maelstrom-lin-kv
+RUN cargo build --release --features maelstrom --bin maelstrom-lin-kv
 
 # Runtime stage: minimal image with Java and Leiningen
 FROM eclipse-temurin:25-jdk-jammy

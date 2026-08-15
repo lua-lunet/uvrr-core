@@ -1,0 +1,603 @@
+//! The view change (§9): `StartViewChange` / `DoViewChange` / `StartView`,
+//! the new primary's win, and the host-forced change.
+//!
+//! VRR-2012 §5: tick-driven timeout detection (S4), the `StartViewChange`
+//! fence (`Role::Fence` through the strategy, Q1), `DoViewChange` evidence
+//! (`Role::ViewChange`), and `StartView` installation. History selection
+//! ranks by `retained` view first, then `accepted` frontier (§1.3) — the
+//! §9.2 counterexample is the load-bearing test of the rule. Suffixes are
+//! bounded newest-first under [`ViewChangeKnobs::view_change_budget`] and
+//! encoded ascending (§13.1; W4). A `StartView` suffix that conflicts with a
+//! committed local slot is this path's one deliberate fault-on-peer-input:
+//! silent repair would hide a safety breach, so the node declares
+//! [`Fault::IllegalTransition`]. A suffix the recipient cannot construct
+//! history from is a named gap — [`Diagnostic::GapDetected`], never a fault
+//! — whose fetch half (§10, §13.1 step 5) rides the same transition.
+
+use super::*;
+
+impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
+    /// Enters the view change for `target` (VRR-2012 §5, spec §9.1): the
+    /// durable view advances and fences (`Progress` keeps `retained` — the
+    /// history is not re-selected by entering), the fence vote set starts
+    /// at the node's own plus any already-heard `StartViewChange` senders,
+    /// and the node's own `StartViewChange` broadcasts to every other
+    /// member. The fence quorum (`Role::Fence`, Q1) may complete at entry —
+    /// the joining `StartViewChange` can be the one that closes it.
+    pub(in crate::replica) fn enter_view_change(
+        &self,
+        journal: &J::View,
+        target: ViewId,
+        heard: BTreeSet<NodeId>,
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let candidate = self
+            .progress
+            .with_view_change(target)
+            .map_err(PlanRejection::Progress)?;
+        let mut fences = heard;
+        fences.insert(self.own);
+        let message = Message {
+            header: Header {
+                tag: Tag::StartViewChange,
+                view: target,
+                slot: Slot::NONE,
+            },
+            body: Body::StartViewChange {},
+        };
+        let effects = self
+            .backups()
+            .into_iter()
+            .map(|to| Effect::Send {
+                to,
+                era: target.era,
+                message: message.clone(),
+            })
+            .collect();
+        let view_change = ViewChangeVolatile {
+            target,
+            fences,
+            evidence: BTreeMap::new(),
+            selected: None,
+        };
+        self.continue_view_change(journal, candidate, view_change, effects, at, kind)
+    }
+
+    /// The host-forced view change (§14.2): drive the ORDINARY
+    /// fence/evidence/install pipeline into `target`, whose primary is
+    /// the member `primary(target)` names under the current membership
+    /// order — no state is installed from the host's say-so. The target
+    /// must strictly advance the view within the current era: a
+    /// non-advancing target is bad input, an era other than the current
+    /// one names a membership order the replica cannot map the target
+    /// under (its establishing operation was never committed here, or the
+    /// era is superseded), and the last representable view has no
+    /// successor (§8.7.3 forbids wraparound, so a fence there could never
+    /// be superseded).
+    pub(in crate::replica) fn plan_admin_force_view(
+        &self,
+        journal: &J::View,
+        target: ViewId,
+        at: Tick,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let current = self.progress.current();
+        if target.view <= current.view {
+            return Err(PlanRejection::AdminTargetNotAhead { current, target });
+        }
+        if target.era != current.era {
+            return Err(PlanRejection::AdminEraNotCurrent {
+                current: current.era,
+                got: target.era,
+            });
+        }
+        if target.next_in_era().is_none() {
+            return Err(PlanRejection::AdminViewExhausted { target });
+        }
+        self.enter_view_change(journal, target, BTreeSet::new(), at, InputKind::Admin)
+    }
+
+    /// Runs the attempt forward after its volatile state changed: fence
+    /// quorum first (§9.1's ordering — evidence follows the fence), then,
+    /// at the designated new primary, the evidence quorum (`Role::View
+    /// Change`, Q1) and the install. Every quorum question goes to the
+    /// strategy; no count is computed here.
+    fn continue_view_change(
+        &self,
+        journal: &J::View,
+        candidate: Progress,
+        mut view_change: ViewChangeVolatile,
+        mut effects: Vec<Effect>,
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let target = view_change.target;
+        let Some(record) = self.progress.config().record(target.era) else {
+            return self.drop_plan(Diagnostic::UnevaluableEra { era: target.era }, kind);
+        };
+        // The fence: once a `Role::Fence` quorum holds, the node records
+        // its own evidence and reports it to the designated new primary
+        // (§9.1). A node that IS the new primary keeps its evidence local.
+        if let std::collections::btree_map::Entry::Vacant(slot) =
+            view_change.evidence.entry(self.own)
+        {
+            let fences: Vec<NodeId> = view_change.fences.iter().copied().collect();
+            if self
+                .strategy
+                .is_quorum(Role::Fence, &record.config, &fences)
+            {
+                let own = self.own_evidence(journal);
+                slot.insert(own);
+                if self.primary_of(target) != Some(self.own) {
+                    effects.push(self.do_view_change_effect(journal, &view_change, target)?);
+                }
+            }
+        }
+        // The evidence quorum, at the designated new primary only.
+        if self.primary_of(target) == Some(self.own) && view_change.evidence.contains_key(&self.own)
+        {
+            if view_change.selected.is_none() {
+                let reporters: Vec<NodeId> = view_change.evidence.keys().copied().collect();
+                if self
+                    .strategy
+                    .is_quorum(Role::ViewChange, &record.config, &reporters)
+                {
+                    view_change.selected = Some(select_history(&view_change.evidence));
+                }
+            }
+            if let Some(selected) = view_change.selected.clone() {
+                match self.plan_win_view(
+                    journal,
+                    target,
+                    &selected,
+                    &view_change.evidence,
+                    effects,
+                    at,
+                    kind,
+                )? {
+                    WinOutcome::Installed(plan) => return Ok(*plan),
+                    // §13.1 step 5: the selected history cannot be
+                    // constructed from the collected evidence — the missing
+                    // range must be fetched by state transfer (§10) before
+                    // `StartView`.
+                    // The attempt and its selection are kept; the drop is
+                    // named, never a fault.
+                    WinOutcome::Insufficient {
+                        expected,
+                        got,
+                        effects,
+                    } => {
+                        return Ok(self
+                            .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
+                            .with_bookkeeping(Bookkeeping {
+                                view_change: ViewChangeUpdate::Set(view_change),
+                                ..Bookkeeping::default()
+                            })
+                            .with_diagnostic(Diagnostic::GapDetected { expected, got }));
+                    }
+                }
+            }
+        }
+        Ok(self
+            .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
+            .with_bookkeeping(Bookkeeping {
+                view_change: ViewChangeUpdate::Set(view_change),
+                ..Bookkeeping::default()
+            }))
+    }
+
+    /// The node's own evidence for the attempt at `target` (§9.1): the
+    /// retained provenance, both frontiers, the bounded suffix (§13.1),
+    /// ordinary kind — and the era proof, attached only when the evidence
+    /// is sent (§8.7.8).
+    fn own_evidence(&self, journal: &J::View) -> Evidence {
+        Evidence {
+            retained: self.progress.retained(),
+            accepted: self.progress.accepted(),
+            committed: self.progress.committed(),
+            suffix: self.bounded_suffix(journal, self.progress.accepted(), &[]),
+        }
+    }
+
+    /// The `DoViewChange` datagram carrying the node's own evidence to the
+    /// designated new primary (§9.1): the header slot is the accepted
+    /// frontier of the reported history (rule 7's Frontier role).
+    fn do_view_change_effect(
+        &self,
+        journal: &J::View,
+        view_change: &ViewChangeVolatile,
+        target: ViewId,
+    ) -> Result<Effect, PlanRejection> {
+        let own = view_change
+            .evidence
+            .get(&self.own)
+            .expect("own evidence is recorded before it is sent");
+        let to = self
+            .primary_of(target)
+            .ok_or(PlanRejection::Progress(ProgressError::EraSlotDiscipline))?;
+        Ok(Effect::Send {
+            to,
+            era: target.era,
+            message: Message {
+                header: Header {
+                    tag: Tag::DoViewChange,
+                    view: target,
+                    slot: own.accepted,
+                },
+                body: Body::DoViewChange {
+                    retained: own.retained,
+                    accepted: own.accepted,
+                    committed: own.committed,
+                    suffix: own.suffix.clone(),
+                    evidence: EvidenceKind::Ordinary,
+                    era_proof: self.era_proof(journal, target.era)?,
+                },
+            },
+        })
+    }
+
+    /// A `StartViewChange` (§9.1): a fence vote for the view it names.
+    ///
+    /// - Behind or at the fence target: [`Diagnostic::StaleViewChange`] —
+    ///   the change it fences is done or superseded, and a fence vote never
+    ///   counts twice (V_g ⌢ V_g, §8.3).
+    /// - Ahead: the node joins — the durable view advances (fencing every
+    ///   earlier view), the vote set starts at `{own, sender}`, and the
+    ///   node's own `StartViewChange` re-broadcasts. An in-progress attempt
+    ///   at a lower target is superseded whole.
+    /// - At the target of the in-progress attempt: a vote. When the votes
+    ///   form a `Role::Fence` quorum (Q1 — the strategy answers, no count
+    ///   is computed here), the node records its own evidence and reports
+    ///   it to the designated new primary.
+    pub(in crate::replica) fn plan_start_view_change(
+        &self,
+        journal: &J::View,
+        from: NodeId,
+        message: &Message,
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let header = message.header;
+        let Some(record) = self.progress.config().record(header.view.era) else {
+            return self.drop_plan(
+                Diagnostic::UnevaluableEra {
+                    era: header.view.era,
+                },
+                kind,
+            );
+        };
+        if record.config.weight_of(from).is_none() {
+            return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
+        }
+        let target = self
+            .view_change
+            .as_ref()
+            .map(|view_change| view_change.target)
+            .unwrap_or_else(|| self.progress.current());
+        if header.view < target || (header.view == target && self.view_change.is_none()) {
+            return self.drop_plan(
+                Diagnostic::StaleViewChange {
+                    got: header.view,
+                    current: target,
+                },
+                kind,
+            );
+        }
+        if header.view > target {
+            let mut heard = BTreeSet::new();
+            heard.insert(from);
+            return self.enter_view_change(journal, header.view, heard, at, kind);
+        }
+        // A vote for the in-progress attempt.
+        let mut view_change = self
+            .view_change
+            .clone()
+            .expect("the target came from the attempt");
+        view_change.fences.insert(from);
+        let candidate = self.identity_candidate()?;
+        self.continue_view_change(journal, candidate, view_change, Vec::new(), at, kind)
+    }
+
+    /// A `DoViewChange` (§9.1): state evidence for the designated new
+    /// primary. Guards are total and named; collection happens only at the
+    /// primary of the in-progress attempt's target. The evidence quorum is
+    /// the strategy's `Role::ViewChange` decision (Q1); when it completes,
+    /// the ranking rule (§1.3: `retained` first, then `accepted`) selects
+    /// the history and the winner installs it.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::replica) fn plan_do_view_change(
+        &self,
+        journal: &J::View,
+        from: NodeId,
+        message: &Message,
+        retained: ViewId,
+        accepted: Slot,
+        committed: Slot,
+        suffix: &[LogEntry],
+        evidence: EvidenceKind,
+        era_proof: &EraProof,
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let header = message.header;
+        let Some(record) = self.progress.config().record(header.view.era) else {
+            return self.drop_plan(
+                Diagnostic::UnevaluableEra {
+                    era: header.view.era,
+                },
+                kind,
+            );
+        };
+        if record.config.weight_of(from).is_none() {
+            return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
+        }
+        // Shape: the header slot names the reported accepted frontier
+        // (rule 7's Frontier role); the frontiers are a legal chain; the
+        // suffix is a contiguous ascending run ending at the frontier; the
+        // evidence is ordinary (planned evidence belongs to the planned
+        // view-change path and never lands here); the era proof matches
+        // the configuration history
+        // (§8.7.8).
+        if header.slot != accepted
+            || committed > accepted
+            || evidence != EvidenceKind::Ordinary
+            || !suffix_shape_ok(suffix, accepted)
+            || !self.era_proof_ok(journal, record, era_proof)
+        {
+            return self.drop_plan(Diagnostic::MalformedViewChange, kind);
+        }
+        let Some(view_change) = self.view_change.clone() else {
+            return self.drop_plan(
+                Diagnostic::StaleEvidence {
+                    got: header.view,
+                    current: self.progress.current(),
+                },
+                kind,
+            );
+        };
+        if header.view < view_change.target {
+            return self.drop_plan(
+                Diagnostic::StaleEvidence {
+                    got: header.view,
+                    current: view_change.target,
+                },
+                kind,
+            );
+        }
+        if header.view > view_change.target || self.primary_of(view_change.target) != Some(self.own)
+        {
+            return self.drop_plan(
+                Diagnostic::EvidenceNotCollected {
+                    sender: from,
+                    view: header.view,
+                },
+                kind,
+            );
+        }
+        let mut view_change = view_change;
+        view_change.evidence.entry(from).or_insert(Evidence {
+            retained,
+            accepted,
+            committed,
+            suffix: suffix.to_vec(),
+        });
+        let candidate = self.identity_candidate()?;
+        self.continue_view_change(journal, candidate, view_change, Vec::new(), at, kind)
+    }
+
+    /// A `StartView` (§9.1, §13.1): the designated new primary installing
+    /// the selected history.
+    ///
+    /// The adoption rule: any node the change passed by — `Normal` or
+    /// `Recovering` in an earlier view, or fencing into this very view —
+    /// installs the offered history, provided it can VERIFY it: the suffix
+    /// must reach back to a slot the node can check (its frontier, or a
+    /// shared slot whose entry agrees). A suffix that starts past the
+    /// node's frontier is a gap — named [`Diagnostic::GapDetected`], kept
+    /// fenced, never faulted; the fetch half of the ruling (§13.1 step 5)
+    /// rides the same transition and the installed chunks repair the
+    /// journal for the next offer.
+    /// A suffix that CONFLICTS at a committed local slot is the view-change
+    /// path's one deliberate fault-on-peer-input: an honest evidence quorum
+    /// can never
+    /// produce it, and silently repairing would hide the safety breach, so
+    /// the node declares [`Fault::IllegalTransition`].
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::replica) fn plan_start_view(
+        &self,
+        journal: &J::View,
+        from: NodeId,
+        message: &Message,
+        suffix: &[LogEntry],
+        accepted: Slot,
+        committed: Slot,
+        era_proof: &EraProof,
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let header = message.header;
+        let Some(record) = self.progress.config().record(header.view.era) else {
+            return self.drop_plan(
+                Diagnostic::UnevaluableEra {
+                    era: header.view.era,
+                },
+                kind,
+            );
+        };
+        if self.primary_of(header.view) != Some(from) {
+            return self.drop_plan(
+                Diagnostic::StartViewNotFromPrimary {
+                    sender: from,
+                    view: header.view,
+                },
+                kind,
+            );
+        }
+        if header.slot != accepted
+            || committed > accepted
+            || !suffix_shape_ok(suffix, accepted)
+            || !self.era_proof_ok(journal, record, era_proof)
+        {
+            return self.drop_plan(Diagnostic::MalformedViewChange, kind);
+        }
+        let current = self.progress.current();
+        let adoptable = header.view > current
+            || (header.view == current && self.progress.status() == Status::ViewChange);
+        if !adoptable {
+            return self.drop_plan(
+                Diagnostic::StartViewFromStaleView {
+                    got: header.view,
+                    current,
+                },
+                kind,
+            );
+        }
+        // An honest selection covers everything the node durably committed:
+        // the commit quorum intersects the evidence quorum, and the ranking
+        // rule keeps the committed prefix (§9.2). An offer that claims less
+        // is evidence shaped like knowledge the node already holds — stale,
+        // never believed, never fatal.
+        if committed < self.progress.committed() || accepted < self.progress.committed() {
+            return self.drop_plan(
+                Diagnostic::StaleEvidence {
+                    got: header.view,
+                    current,
+                },
+                kind,
+            );
+        }
+        let mutation = match self.check_suffix(journal, suffix, accepted, committed) {
+            SuffixCheck::Install(mutation) => mutation,
+            SuffixCheck::Gap { expected, got } => {
+                let plan = self.drop_plan(Diagnostic::GapDetected { expected, got }, kind)?;
+                // §13.1 step 5: the recipient cannot construct the offered
+                // history — fetch the missing range from the new primary.
+                // The node stays fenced; the completing evidence re-runs
+                // the ruling once the range has arrived.
+                let (effect, fetch) = self.fetch(header.view, from, expected);
+                return Ok(plan.with_fetch(effect, fetch));
+            }
+            SuffixCheck::Conflict => {
+                let candidate = self.identity_candidate()?;
+                return Ok(self
+                    .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                    .with_fault_declared(Fault::IllegalTransition));
+            }
+        };
+        let applied = self.applied_walk(journal, suffix, self.progress.applied(), committed)?;
+        let candidate = self.install_candidate(header.view, accepted, committed, applied)?;
+        let effects =
+            self.apply_effects_merged(journal, suffix, self.progress.committed(), committed)?;
+        Ok(self
+            .candidate_plan(candidate, mutation, effects, kind, false)
+            .with_bookkeeping(Bookkeeping {
+                view_change: ViewChangeUpdate::Clear,
+                activity: Some(at),
+                ..Bookkeeping::default()
+            }))
+    }
+
+    /// The designated new primary's install, once the evidence quorum holds
+    /// (§9.1): the selected history becomes the node's own, `committed`
+    /// advances to the greatest frontier the quorum truthfully reported
+    /// (each report is a commit quorum's product, and the selected history
+    /// contains every committed entry — §9.2's argument), the newly
+    /// committed operation slots apply in slot order (§11.1), and `StartView`
+    /// broadcasts the selection with a freshly packed bounded suffix
+    /// (§13.1). The uncommitted tail's proposal records are re-seeded from
+    /// the entries, so an installed slot still accumulates the
+    /// `PrepareOk` votes that commit it.
+    #[allow(clippy::too_many_arguments)]
+    fn plan_win_view(
+        &self,
+        journal: &J::View,
+        target: ViewId,
+        selected: &Evidence,
+        evidence: &BTreeMap<NodeId, Evidence>,
+        mut effects: Vec<Effect>,
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<WinOutcome, PlanRejection> {
+        let committed = evidence
+            .values()
+            .map(|member| member.committed)
+            .max()
+            .unwrap_or(self.progress.committed())
+            .max(self.progress.committed());
+        if committed > selected.accepted {
+            // A reporter claimed a commit the selected history does not
+            // cover: jointly impossible for honest evidence (§9.2). Do not
+            // install a chain-breaking frontier; name the gap and stay
+            // fenced.
+            let expected = selected.accepted.next().unwrap_or(selected.accepted);
+            return Ok(WinOutcome::Insufficient {
+                expected,
+                got: committed,
+                effects,
+            });
+        }
+        let mutation =
+            match self.check_suffix(journal, &selected.suffix, selected.accepted, committed) {
+                SuffixCheck::Install(mutation) => mutation,
+                SuffixCheck::Gap { expected, got } => {
+                    return Ok(WinOutcome::Insufficient {
+                        expected,
+                        got,
+                        effects,
+                    });
+                }
+                SuffixCheck::Conflict => {
+                    let candidate = self.identity_candidate()?;
+                    let plan = self
+                        .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                        .with_fault_declared(Fault::IllegalTransition);
+                    return Ok(WinOutcome::Installed(Box::new(plan)));
+                }
+            };
+        let applied = self.applied_walk(
+            journal,
+            &selected.suffix,
+            self.progress.applied(),
+            committed,
+        )?;
+        let candidate = self.install_candidate(target, selected.accepted, committed, applied)?;
+        effects.extend(self.apply_effects_merged(
+            journal,
+            &selected.suffix,
+            self.progress.committed(),
+            committed,
+        )?);
+        let proposals =
+            self.installed_proposals(journal, &selected.suffix, committed, selected.accepted);
+        let suffix = self.bounded_suffix(journal, selected.accepted, &selected.suffix);
+        let message = Message {
+            header: Header {
+                tag: Tag::StartView,
+                view: target,
+                slot: selected.accepted,
+            },
+            body: Body::StartView {
+                suffix,
+                accepted: selected.accepted,
+                committed,
+                era_proof: self.era_proof(journal, target.era)?,
+            },
+        };
+        effects.extend(self.backups().into_iter().map(|to| Effect::Send {
+            to,
+            era: target.era,
+            message: message.clone(),
+        }));
+        let plan = self
+            .candidate_plan(candidate, mutation, effects, kind, false)
+            .with_bookkeeping(Bookkeeping {
+                proposals,
+                view_change: ViewChangeUpdate::Clear,
+                // The StartView broadcast is the new primary's
+                // announcement of the view: proof of its life (S4).
+                activity: Some(at),
+                ..Bookkeeping::default()
+            });
+        Ok(WinOutcome::Installed(Box::new(plan)))
+    }
+}
