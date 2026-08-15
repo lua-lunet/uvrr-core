@@ -872,6 +872,7 @@ fn a_faulted_replica_refuses_every_input_variant() {
         },
         Input::Applied { slot: Slot(2) },
         Input::Checkpointed { through: Slot(2) },
+        Input::ApplicationStateInstalled { through: Slot(2) },
         Input::Reconfigure {
             op: SystemOperation::Double,
             pivot: None,
@@ -897,6 +898,7 @@ fn a_faulted_replica_refuses_every_input_variant() {
             Input::StabilityConfirmation { .. } => InputKind::StabilityConfirmed,
             Input::Applied { .. } => InputKind::Applied,
             Input::Checkpointed { .. } => InputKind::Checkpointed,
+            Input::ApplicationStateInstalled { .. } => InputKind::ApplicationStateInstalled,
             Input::Reconfigure { .. } => InputKind::Reconfiguration,
             Input::AdminForceView { .. } => InputKind::Admin,
         };

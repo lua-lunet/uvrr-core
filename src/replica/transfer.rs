@@ -284,7 +284,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     ..Bookkeeping::default()
                 }));
         }
-        let mutation = match self.check_suffix(journal, entries, through, committed) {
+        let mutation = match self.check_suffix(journal, entries, through, committed, Slot::NONE) {
             SuffixCheck::Install(mutation) => mutation,
             // A reordered chunk: it cannot be verified against the local
             // journal until its prefix arrives. Named, kept waiting — the

@@ -82,6 +82,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 // durable frontier; a re-drive preserves it through the
                 // clone above, and completion clears it with the attempt.
                 open_committed: self.progress.committed(),
+                state_request: None,
             },
         };
         let candidate = self.identity_candidate()?;
@@ -305,7 +306,48 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // non-primary evidence (§6.1).
             return record_attempt(attempt, Diagnostic::None);
         };
-        self.plan_recovery_completion(journal, attempt, source, latest, evidence, at, kind)
+        self.plan_recovery_completion(journal, attempt, source, latest, evidence, at, kind, None)
+    }
+
+    /// The host's answer to an outstanding
+    /// [`Effect::RequestApplicationState`] (§4, §11): the install input
+    /// completes the recovery the reclaimed journal could not serve. The
+    /// preconditions are the shortfall state itself — an open attempt with
+    /// a request outstanding — and the `through` naming that request back
+    /// exactly; anything else is a named refusal, no state change. On
+    /// acceptance the completing ruling runs with the captured evidence:
+    /// the restored state stands in for the replay at or below `through`,
+    /// and the suffix verification treats the reclaimed slots the install
+    /// covers as agreed.
+    pub(in crate::replica) fn plan_application_state_installed(
+        &self,
+        journal: &J::View,
+        through: Slot,
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRejection> {
+        let Some(attempt) = self.recovery.clone() else {
+            return Err(PlanRejection::ApplicationStateNotRequested);
+        };
+        let Some(request) = attempt.state_request.clone() else {
+            return Err(PlanRejection::ApplicationStateNotRequested);
+        };
+        if through != request.through {
+            return Err(PlanRejection::ApplicationStateMismatch {
+                expected: request.through,
+                got: through,
+            });
+        }
+        self.plan_recovery_completion(
+            journal,
+            attempt,
+            request.source,
+            request.latest,
+            request.evidence,
+            at,
+            kind,
+            Some(through),
+        )
     }
 
     /// The committed fast-forward of an accepted `RecoveryResponse`
@@ -390,7 +432,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .suffix
             .as_ref()
             .expect("the find clause required a suffix");
-        match self.check_suffix(journal, suffix, evidence.accepted, evidence.committed) {
+        match self.check_suffix(
+            journal,
+            suffix,
+            evidence.accepted,
+            evidence.committed,
+            Slot::NONE,
+        ) {
             SuffixCheck::Install(_) => Some((*source, latest, evidence.clone())),
             SuffixCheck::Gap { .. } | SuffixCheck::Conflict => None,
         }
@@ -415,6 +463,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// node's replay re-emits from the durable `applied` unchanged
     /// (§11.1's at-least-once boundary is the crash, not the lagging
     /// acknowledgement).
+    ///
+    /// `installed` is the host's answer to the shortfall (§4, §11):
+    /// [`Some`] when this completion is driven by
+    /// [`Input::ApplicationStateInstalled`], naming the frontier the host
+    /// restored application state through. The restored state stands in
+    /// for the replay at or below it: no upcall re-emits for those slots,
+    /// `applied` walks from the installed frontier, and the suffix
+    /// verification treats the reclaimed slots the install covers as
+    /// agreed (see [`Self::check_suffix`]).
     #[allow(clippy::too_many_arguments)]
     pub(in crate::replica) fn plan_recovery_completion(
         &self,
@@ -425,6 +482,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         evidence: RecoveryEvidence,
         at: Tick,
         kind: InputKind,
+        installed: Option<Slot>,
     ) -> Result<PlannedTransition, PlanRejection> {
         let Some(suffix) = evidence.suffix.as_ref() else {
             unreachable!("installation evidence carries a suffix");
@@ -434,10 +492,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // committed fast-forward earlier in the attempt advanced it, and
         // no completion moves it backward (§1.3).
         let committed = evidence.committed.max(self.progress.committed());
-        let shortfall = |attempt: RecoveryVolatile, required: Slot, retained: Slot| {
+        let shortfall = |mut attempt: RecoveryVolatile, required: Slot, retained: Slot| {
             // The journal physically let the required prefix go (S1): §4's
             // answer is the host's application-state transfer facility, not
-            // a fault and not a protocol fetch.
+            // a fault and not a protocol fetch. The request is recorded
+            // against the attempt: the host's install input must name its
+            // `through` back, and the captured evidence is the ruling the
+            // acceptance completes.
+            attempt.state_request = Some(StateRequest {
+                through: committed,
+                source,
+                latest,
+                evidence: evidence.clone(),
+            });
             let candidate = self.identity_candidate()?;
             Ok(self
                 .candidate_plan(
@@ -453,41 +520,46 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 })
                 .with_diagnostic(Diagnostic::ApplicationStateShortfall { required, retained }))
         };
-        let mutation =
-            match self.check_suffix(journal, suffix, evidence.accepted, evidence.committed) {
-                SuffixCheck::Install(mutation) => mutation,
-                SuffixCheck::Gap { expected, got } => {
-                    let (retained_base, _) = journal.retained();
-                    if expected < retained_base {
-                        return shortfall(attempt, expected, retained_base);
-                    }
-                    // The offer does not reach back far enough to verify —
-                    // the budget-truncation case (§13.1, W5): fetch the
-                    // missing range from the responder (§13.1 step 5)
-                    // instead of waiting for a fuller offer. The attempt
-                    // stays open; completion re-runs on a tick once the
-                    // range has arrived.
-                    let (effect, fetch) = self.fetch(latest, source, expected);
-                    let candidate = self.identity_candidate()?;
-                    return Ok(self
-                        .candidate_plan(candidate, JournalMutation::None, vec![effect], kind, false)
-                        .with_bookkeeping(Bookkeeping {
-                            recovery: RecoveryUpdate::Set(attempt),
-                            transfer: TransferUpdate::Set(fetch),
-                            ..Bookkeeping::default()
-                        })
-                        .with_diagnostic(Diagnostic::GapDetected { expected, got }));
+        let mutation = match self.check_suffix(
+            journal,
+            suffix,
+            evidence.accepted,
+            evidence.committed,
+            installed.unwrap_or(Slot::NONE),
+        ) {
+            SuffixCheck::Install(mutation) => mutation,
+            SuffixCheck::Gap { expected, got } => {
+                let (retained_base, _) = journal.retained();
+                if expected < retained_base {
+                    return shortfall(attempt, expected, retained_base);
                 }
-                SuffixCheck::Conflict => {
-                    // An honest recovery quorum can never contradict a slot
-                    // this node durably committed (§8.3, §9.2): declare the
-                    // breach.
-                    let candidate = self.identity_candidate()?;
-                    return Ok(self
-                        .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
-                        .with_fault_declared(Fault::IllegalTransition));
-                }
-            };
+                // The offer does not reach back far enough to verify —
+                // the budget-truncation case (§13.1, W5): fetch the
+                // missing range from the responder (§13.1 step 5)
+                // instead of waiting for a fuller offer. The attempt
+                // stays open; completion re-runs on a tick once the
+                // range has arrived.
+                let (effect, fetch) = self.fetch(latest, source, expected);
+                let candidate = self.identity_candidate()?;
+                return Ok(self
+                    .candidate_plan(candidate, JournalMutation::None, vec![effect], kind, false)
+                    .with_bookkeeping(Bookkeeping {
+                        recovery: RecoveryUpdate::Set(attempt),
+                        transfer: TransferUpdate::Set(fetch),
+                        ..Bookkeeping::default()
+                    })
+                    .with_diagnostic(Diagnostic::GapDetected { expected, got }));
+            }
+            SuffixCheck::Conflict => {
+                // An honest recovery quorum can never contradict a slot
+                // this node durably committed (§8.3, §9.2): declare the
+                // breach.
+                let candidate = self.identity_candidate()?;
+                return Ok(self
+                    .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                    .with_fault_declared(Fault::IllegalTransition));
+            }
+        };
         // The replay ruling (§11.1): the committed-but-unapplied suffix
         // re-emits as ordered `Apply` upcalls, as the union of two ranges
         // in slot order — the durable debt (applied, open_committed],
@@ -499,8 +571,22 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // from the node's applied seed as ever, and the §11 system-slot
         // ruling folds every committed system slot the walk crosses into
         // `applied` without an upcall or an acknowledgement.
-        let replay_base = self.progress.applied();
+        //
+        // Under a host install (§4, §11) the restored state stands in for
+        // the replay at or below its frontier: the bases rise to it, both
+        // ranges above empty out — the debt at or below the installed
+        // frontier is discharged, and a committed fast-forward past it
+        // already emitted its upcalls this life — and the journal reads
+        // that made the plain completion shortfall never happen.
+        let replay_base = match installed {
+            Some(through) => self.progress.applied().max(through),
+            None => self.progress.applied(),
+        };
         let local_committed = self.progress.committed();
+        let install_base = match installed {
+            Some(through) => local_committed.max(through),
+            None => local_committed,
+        };
         let mut applies =
             match self.apply_effects_merged(journal, suffix, replay_base, attempt.open_committed) {
                 Ok(applies) => applies,
@@ -510,8 +596,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 }
                 Err(rejection) => return Err(rejection),
             };
-        match self.apply_effects_merged(journal, suffix, local_committed, committed) {
-            Ok(installed) => applies.extend(installed),
+        match self.apply_effects_merged(journal, suffix, install_base, committed) {
+            Ok(newly) => applies.extend(newly),
             Err(PlanRejection::JournalEntryUnavailable { slot }) => {
                 let (retained_base, _) = journal.retained();
                 return shortfall(attempt, slot, retained_base);

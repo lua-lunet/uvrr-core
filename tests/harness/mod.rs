@@ -995,6 +995,45 @@ impl Harness {
         )
     }
 
+    /// The host's answer to an outstanding `Effect::RequestApplicationState`
+    /// (§4, §11): `Input::ApplicationStateInstalled` through the ordinary
+    /// step machinery — the refusal or the completing install is the
+    /// script's to assert. On a published install the harness mirrors what
+    /// the host's transfer facility did: the node's apply record is
+    /// backfilled through `through` from the donor's record, because the
+    /// restored application state incorporates those executions — the
+    /// safety checker's contiguity rule (rule 4) rules on what the
+    /// application holds, however it came to hold it.
+    pub fn install_application_state(
+        &mut self,
+        id: NodeId,
+        donor: NodeId,
+        through: Slot,
+    ) -> StepOutcome {
+        let outcome = self.drive(
+            id,
+            format!("n={} app-state installed s{}", id.0, through.0),
+            Input::ApplicationStateInstalled { through },
+        );
+        if matches!(outcome, StepOutcome::Published { .. }) {
+            let index = self.index_of(id);
+            let donor = self.index_of(donor);
+            let mut restored: BTreeMap<Slot, Box<[u8]>> =
+                self.applied[index].iter().cloned().collect();
+            for (slot, payload) in &self.applied[donor] {
+                if *slot <= through {
+                    restored.entry(*slot).or_insert_with(|| payload.clone());
+                }
+            }
+            self.applied[index] = restored.into_iter().collect();
+            self.record(format!(
+                "n={} apply record restored through s{} from n={donor}",
+                id.0, through.0
+            ));
+        }
+        outcome
+    }
+
     /// Confirms the node's one outstanding `Persist` intent — the external-
     /// stability host contract (S2/S3). Panics if no intent is outstanding:
     /// a confirmation of nothing is a script bug, not an event.

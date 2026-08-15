@@ -66,6 +66,11 @@ pub enum InputKind {
     Applied,
     /// The host checkpointed application state.
     Checkpointed,
+    /// The host installed application state answering the outstanding
+    /// application-state request (§4, §11): the completing half of a
+    /// recovery the reclaimed journal could not serve, so it re-selects
+    /// history exactly like the recovery completion it discharges.
+    ApplicationStateInstalled,
     /// A reconfiguration operation committed (§8.7.2).
     Reconfiguration,
     /// The host acted on the node directly (§12's host-declared fault, shutdown,
@@ -241,7 +246,9 @@ fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {
 
 /// Rule 3 — `retained` identifies the provenance of the retained history (§1.3),
 /// so it changes only when that history was re-selected. The re-selection inputs:
-/// recovery (§10 installs a coherent state), and the peer messages that install a
+/// recovery (§10 installs a coherent state) — the application-state install
+/// included, as the completing half of a recovery the journal alone could not
+/// serve (§4, §11) — and the peer messages that install a
 /// history — `DoViewChange`, the one that completes the new primary's quorum
 /// (§9.1), `StartView`, `NewState` (state transfer, §4), and `RecoveryResponse`,
 /// the one that completes a recovery attempt with the latest fenced view's
@@ -252,7 +259,7 @@ fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) ->
         return false;
     }
     let reselects = match input {
-        InputKind::Recovery => true,
+        InputKind::Recovery | InputKind::ApplicationStateInstalled => true,
         InputKind::PeerMessage { tag, .. } => match tag {
             Tag::DoViewChange | Tag::StartView | Tag::NewState | Tag::RecoveryResponse => true,
             Tag::Prepare
@@ -299,6 +306,7 @@ fn rule7_header_slot_violated(input: &InputKind) -> bool {
         | InputKind::StabilityConfirmed
         | InputKind::Applied
         | InputKind::Checkpointed
+        | InputKind::ApplicationStateInstalled
         | InputKind::Reconfiguration
         | InputKind::Admin => false,
     }

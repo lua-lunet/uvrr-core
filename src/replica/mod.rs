@@ -201,6 +201,19 @@ pub enum Input {
         /// The greatest slot the host can now restore through.
         through: Slot,
     },
+    /// The host's answer to an outstanding
+    /// [`Effect::RequestApplicationState`] (§4, §11): application state
+    /// through `through` has been restored through the host's own
+    /// transfer facility. Accepted only in the shortfall state that
+    /// emitted the request — an open recovery attempt with that request
+    /// outstanding — and only when `through` names it back exactly; the
+    /// acceptance completes the recovery against a base the journal no
+    /// longer holds, the restored state standing in for the replay.
+    ApplicationStateInstalled {
+        /// The frontier the host restored through; must equal the
+        /// outstanding request's.
+        through: Slot,
+    },
     /// A reconfiguration operation proposed for commitment (§8.7.2).
     Reconfigure {
         /// The operation to replicate.
@@ -251,6 +264,7 @@ impl Input {
             Input::StabilityConfirmation { .. } => InputKind::StabilityConfirmed,
             Input::Applied { .. } => InputKind::Applied,
             Input::Checkpointed { .. } => InputKind::Checkpointed,
+            Input::ApplicationStateInstalled { .. } => InputKind::ApplicationStateInstalled,
             Input::Reconfigure { .. } => InputKind::Reconfiguration,
             Input::AdminForceView { .. } => InputKind::Admin,
         }
@@ -343,6 +357,21 @@ pub enum PlanRejection {
         applied: Slot,
         /// The frontier the host claimed.
         through: Slot,
+    },
+    /// An [`Input::ApplicationStateInstalled`] with no application-state
+    /// request outstanding (§4, §11): the node never shortfell, or the
+    /// completing install already consumed the request — a duplicate names
+    /// nothing, exactly like an install a node never asked for.
+    ApplicationStateNotRequested,
+    /// An [`Input::ApplicationStateInstalled`] whose `through` does not
+    /// name the outstanding request (§4, §11): the host answered a
+    /// different question than the shortfall asked. Refused without state
+    /// change; the request stays outstanding.
+    ApplicationStateMismatch {
+        /// The frontier the outstanding request named.
+        expected: Slot,
+        /// The frontier the host reported.
+        got: Slot,
     },
     /// A slot the published record says is accepted is absent from the
     /// journal view offered for planning: the two durable records disagree
@@ -697,6 +726,28 @@ struct RecoveryEvidence {
 /// evicted nonce is stale exactly like one to an attempt that never ran.
 pub(crate) const MAX_RECOVERY_NONCES: usize = 8;
 
+/// The outstanding application-state request of a recovery completion
+/// that surfaced the shortfall (§4, §11): the frontier the emitted
+/// [`Effect::RequestApplicationState`] named — which the host's
+/// [`Input::ApplicationStateInstalled`] must name back — and the
+/// completing evidence the request was computed from. The evidence is
+/// captured, not re-derived at install time: the install completes the
+/// ruling the request described, whatever fresher responses arrived
+/// meanwhile. Volatile like the rest of the attempt: a crash discards it,
+/// and the reopened node's fresh attempt re-derives the shortfall.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct StateRequest {
+    /// The frontier the request named: the completion's committed
+    /// frontier at shortfall time.
+    through: Slot,
+    /// The responder whose response carried the installation evidence.
+    source: NodeId,
+    /// The latest fenced view the completing quorum reported (§6.1).
+    latest: ViewId,
+    /// The completing evidence (the reported view's primary's suffix).
+    evidence: RecoveryEvidence,
+}
+
 /// The volatile recovery-attempt state (§10, §6.1): the nonce set — each
 /// element the tick of one of the episode's recovery inputs (S4) — and
 /// the distinct responders counted toward the `R_g` quorum. The node
@@ -724,6 +775,14 @@ struct RecoveryVolatile {
     /// attempt: a crash discards it, and the reopened node's replay
     /// re-emits from the durable `applied` as ever.
     open_committed: Slot,
+    /// The outstanding application-state request, when the completing
+    /// ruling surfaced the shortfall (§4, §11): the attempt stays open
+    /// behind it, and
+    /// the host's [`Input::ApplicationStateInstalled`] naming its
+    /// `through` completes the recovery the journal alone could not
+    /// serve. A re-shortfall on fresher evidence replaces it — the
+    /// outstanding request is the latest emission.
+    state_request: Option<StateRequest>,
 }
 
 /// The volatile view-change attempt state (VRR-2012 §5): the fence target,
@@ -1404,6 +1463,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 self.refuse_if_parked()?;
                 self.plan_checkpointed(*through)
             }
+            Input::ApplicationStateInstalled { through } => {
+                self.refuse_if_parked()?;
+                self.plan_application_state_installed(
+                    journal,
+                    *through,
+                    input.at,
+                    input.event.kind(),
+                )
+            }
             Input::Reconfigure { .. } => {
                 // The outstanding check precedes dispatch, so even an
                 // otherwise unsupported input reports the real reason (§12).
@@ -1515,6 +1583,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                         evidence,
                         at,
                         InputKind::Recovery,
+                        None,
                     );
                 }
             }
@@ -1539,7 +1608,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 } = &offer.message.body
                 {
                     if matches!(
-                        self.check_suffix(journal, suffix, *accepted, *committed),
+                        self.check_suffix(journal, suffix, *accepted, *committed, Slot::NONE),
                         SuffixCheck::Install(_)
                     ) {
                         return self.plan_start_view(
@@ -2323,12 +2392,24 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// that cannot prove the installed history is already held, is
     /// [`SuffixCheck::Gap`]: the node stays fenced and waits for the
     /// missing range (state transfer, §10).
+    ///
+    /// `discharged` is the frontier the host's installed application state
+    /// vouches for (§4, §11), [`Slot::NONE`] on every path but the
+    /// install-completed recovery: an offered slot the journal physically
+    /// let go (S1) is unverifiable — ordinarily a [`SuffixCheck::Gap`] —
+    /// but reclamation only ever drops slots at or below the published
+    /// checkpoint, and the checkpoint never exceeds the committed frontier
+    /// the install covers, so every slot the journal let go is one the
+    /// restored state incorporates. Such a slot is treated as agreed:
+    /// what the offer claims about it is exactly what the host's install
+    /// stands in for.
     fn check_suffix(
         &self,
         journal: &J::View,
         suffix: &[LogEntry],
         accepted: Slot,
         committed: Slot,
+        discharged: Slot,
     ) -> SuffixCheck {
         let local_accepted = self.progress.accepted();
         let Some(base) = suffix.first().map(|entry| entry.slot) else {
@@ -2371,6 +2452,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 // The offer reached back PAST the slot the node cannot
                 // verify, so `got` — the offer's base, per the
                 // diagnostic's doc — sits at or below `expected` here.
+                // A slot at or below `discharged` is vouched for by the
+                // host's installed application state: treated as agreed.
+                None if entry.slot <= discharged => {}
                 None => {
                     return SuffixCheck::Gap {
                         expected: entry.slot,

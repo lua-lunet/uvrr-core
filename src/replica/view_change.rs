@@ -466,7 +466,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         }
-        let mutation = match self.check_suffix(journal, suffix, accepted, committed) {
+        let mutation = match self.check_suffix(journal, suffix, accepted, committed, Slot::NONE) {
             SuffixCheck::Install(mutation) => mutation,
             SuffixCheck::Gap { expected, got } => {
                 let plan = self.drop_plan(Diagnostic::GapDetected { expected, got }, kind)?;
@@ -542,24 +542,29 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 effects,
             });
         }
-        let mutation =
-            match self.check_suffix(journal, &selected.suffix, selected.accepted, committed) {
-                SuffixCheck::Install(mutation) => mutation,
-                SuffixCheck::Gap { expected, got } => {
-                    return Ok(WinOutcome::Insufficient {
-                        expected,
-                        got,
-                        effects,
-                    });
-                }
-                SuffixCheck::Conflict => {
-                    let candidate = self.identity_candidate()?;
-                    let plan = self
-                        .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
-                        .with_fault_declared(Fault::IllegalTransition);
-                    return Ok(WinOutcome::Installed(Box::new(plan)));
-                }
-            };
+        let mutation = match self.check_suffix(
+            journal,
+            &selected.suffix,
+            selected.accepted,
+            committed,
+            Slot::NONE,
+        ) {
+            SuffixCheck::Install(mutation) => mutation,
+            SuffixCheck::Gap { expected, got } => {
+                return Ok(WinOutcome::Insufficient {
+                    expected,
+                    got,
+                    effects,
+                });
+            }
+            SuffixCheck::Conflict => {
+                let candidate = self.identity_candidate()?;
+                let plan = self
+                    .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                    .with_fault_declared(Fault::IllegalTransition);
+                return Ok(WinOutcome::Installed(Box::new(plan)));
+            }
+        };
         let applied = self.applied_walk(
             journal,
             &selected.suffix,

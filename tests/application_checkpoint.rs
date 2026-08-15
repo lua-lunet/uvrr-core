@@ -27,9 +27,11 @@ mod harness;
 use harness::{Harness, StepOutcome};
 use vrr::effects::Effect;
 use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
 use vrr::replica::PlanRejection;
+use vrr::wire::{Header, Tag};
 
 /// Node id shorthand (the harness's own pattern).
 fn n(id: u32) -> NodeId {
@@ -481,6 +483,241 @@ fn system_slots_advance_applied_without_upcalls() {
     for id in [n(0), n(1), n(2)] {
         h.execute_apply_effects(id);
     }
+    h.assert_safety();
+}
+
+/// Drives n2 into the retained-base shortfall of test 7: the completing
+/// `RecoveryResponse` has surfaced `RequestApplicationState { through:
+/// Slot(6) }`, and n2 sits fenced `Recovering` with that request
+/// outstanding. The script up to the shortfall is the same one test 7
+/// asserts; the install tests continue from it.
+fn shortfall_cluster() -> Harness {
+    let mut h = Harness::with_journal_capacity(3, 2);
+    bootstrap(&mut h);
+    for lsb in 1..=3u64 {
+        commit_unapplied(&mut h, lsb, &[lsb as u8]);
+        h.execute_apply_effects(n(0));
+        h.execute_apply_effects(n(1));
+    }
+    let outcome = h.checkpoint(n(2), Slot(2));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    commit_unapplied(&mut h, 4, b"d");
+    h.execute_apply_effects(n(0));
+    h.execute_apply_effects(n(1));
+    assert_eq!(h.retained(n(2)), Some((Slot(3), Slot(6))));
+
+    h.crash(n(2));
+    h.restart_with(n(2)).expect("the disk record reopens");
+    h.recover(n(2));
+    h.deliver_to(n(0)).expect("the solicitation reaches n0");
+    h.deliver_to(n(1)).expect("the solicitation reaches n1");
+    h.deliver_to(n(2)).expect("n0's response reaches n2");
+    let completing = h.deliver_to(n(2)).expect("n1's response reaches n2");
+    let StepOutcome::Published { effects, .. } = completing.outcome else {
+        panic!(
+            "the completing response publishes: {:?}",
+            completing.outcome
+        );
+    };
+    assert_eq!(
+        effects,
+        vec![Effect::RequestApplicationState { through: Slot(6) }],
+        "the shortfall asks the host's transfer facility, covering committed"
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+    h
+}
+
+// 10. The install input closes the loop: the host's restored state through
+//     the requested frontier discharges the replay debt the reclaimed
+//     journal could not serve, and the recovery completes against a base
+//     the journal no longer holds (§4, §11).
+#[test]
+fn installed_application_state_completes_recovery() {
+    let mut h = shortfall_cluster();
+
+    let outcome = h.install_application_state(n(2), n(0), Slot(6));
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the matching install publishes: {outcome:?}");
+    };
+    assert!(
+        effects.is_empty(),
+        "the restored state discharges the replay debt: no upcall is re-emitted: {effects:?}"
+    );
+    let snapshot = snap(&h, n(2));
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(snapshot.applied, 6, "the install IS the replay through 6");
+    assert_eq!(snapshot.committed, 6);
+    assert_eq!(snapshot.accepted, 6);
+
+    // Participation resumes: n2 backs the next proposal and applies it.
+    commit_one(&mut h, 5, b"e");
+    assert_eq!(snap(&h, n(2)).applied, 7);
+    h.assert_safety();
+}
+
+// 11. A `through` that does not name the outstanding request is the named
+//     rejection, no state change — and the request stays outstanding: the
+//     correct install still completes afterwards.
+#[test]
+fn mismatched_install_is_rejected_without_state_change() {
+    let mut h = shortfall_cluster();
+
+    let before = snap(&h, n(2));
+    let outcome = h.install_application_state(n(2), n(0), Slot(5));
+    assert_eq!(
+        outcome,
+        StepOutcome::PlanRefused(PlanRejection::ApplicationStateMismatch {
+            expected: Slot(6),
+            got: Slot(5),
+        }),
+    );
+    assert_eq!(
+        snap(&h, n(2)),
+        before,
+        "a rejected install changes nothing, revision included"
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+
+    let outcome = h.install_application_state(n(2), n(0), Slot(6));
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the request survived the mismatch: the matching install completes: {outcome:?}"
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    h.assert_safety();
+}
+
+// 12. A second install after the completing one names no outstanding
+//     request: the completion cleared the attempt, and the duplicate is
+//     the named rejection.
+#[test]
+fn duplicate_install_is_rejected() {
+    let mut h = shortfall_cluster();
+
+    let outcome = h.install_application_state(n(2), n(0), Slot(6));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+
+    let before = snap(&h, n(2));
+    let outcome = h.install_application_state(n(2), n(0), Slot(6));
+    assert_eq!(
+        outcome,
+        StepOutcome::PlanRefused(PlanRejection::ApplicationStateNotRequested),
+        "the request the duplicate names is gone with the completed attempt"
+    );
+    assert_eq!(
+        snap(&h, n(2)),
+        before,
+        "a rejected install changes nothing, revision included"
+    );
+    h.assert_safety();
+}
+
+// 13. Install with no request outstanding — a `Normal` node that never
+//     shortfell, and a `Recovering` node whose attempt is open but whole —
+//     is the named rejection, no state change.
+#[test]
+fn install_without_outstanding_request_is_rejected() {
+    let mut h = Harness::with_journal_capacity(3, 2);
+    bootstrap(&mut h);
+    commit_one(&mut h, 1, b"a");
+
+    let before = snap(&h, n(1));
+    let outcome = h.install_application_state(n(1), n(0), Slot(3));
+    assert_eq!(
+        outcome,
+        StepOutcome::PlanRefused(PlanRejection::ApplicationStateNotRequested),
+        "a Normal node asked for nothing"
+    );
+    assert_eq!(snap(&h, n(1)), before);
+
+    // An open attempt whose journal is whole shortfalls nowhere: the
+    // request was never emitted, so the install names nothing.
+    h.crash(n(2));
+    h.restart_with(n(2)).expect("the disk record reopens");
+    h.recover(n(2));
+    let before = snap(&h, n(2));
+    let outcome = h.install_application_state(n(2), n(0), Slot(3));
+    assert_eq!(
+        outcome,
+        StepOutcome::PlanRefused(PlanRejection::ApplicationStateNotRequested),
+        "an open attempt with no shortfall asked for nothing"
+    );
+    assert_eq!(snap(&h, n(2)), before);
+
+    // The undisturbed attempt still completes from local evidence.
+    h.deliver_to(n(0)).expect("the solicitation reaches n0");
+    h.deliver_to(n(1)).expect("the solicitation reaches n1");
+    h.deliver_to(n(2)).expect("n0's response reaches n2");
+    h.deliver_to(n(2)).expect("n1's response reaches n2");
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    h.assert_safety();
+}
+
+// 14. A `GetState` whose range starts below the responder's retained base:
+//    the reclaimed prefix is physically gone (S1), so the answer is the
+//    named refusal — never a fault, never a fabricated chunk (§4, §10,
+//    §13.1 step 5). Reproduction-first: this asserts the current behavior
+//    on unchanged code.
+#[test]
+fn get_state_below_retained_base_is_refused() {
+    // Tail capacity 2 places the slab boundaries deterministically: slabs
+    // [1,2] and [3,4] seal as slots 3 and 5 are accepted.
+    let mut h = Harness::with_journal_capacity(3, 2);
+    bootstrap(&mut h);
+    for lsb in 1..=3u64 {
+        commit_one(&mut h, lsb, &[lsb as u8]);
+    }
+    let outcome = h.checkpoint(n(0), Slot(4));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    commit_one(&mut h, 4, b"d");
+    assert_eq!(
+        h.retained(n(0)),
+        Some((Slot(5), Slot(6))),
+        "the checkpoint-authorized drop fired: slots 1..=4 are physically gone"
+    );
+
+    // A lagging peer asks for the range from slot 1 — below the retained
+    // base. The header slot is the requester's accepted frontier (the
+    // per-tag table's Frontier role).
+    let view = ViewId {
+        era: Era(1),
+        view: View(0),
+    };
+    let request = Message {
+        header: Header {
+            tag: Tag::GetState,
+            view,
+            slot: Slot(4),
+        },
+        body: Body::GetState { from: Slot(1) },
+    };
+    let before = snap(&h, n(0));
+    let outcome = h.inject(n(1), n(0), request);
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the refusal publishes an identity transition: {outcome:?}");
+    };
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Send { .. })),
+        "nothing is served from a range the journal let go: {effects:?}"
+    );
+    assert!(
+        h.peek_queued(n(1), Tag::NewState).is_none(),
+        "no chunk was fabricated"
+    );
+    assert_eq!(
+        h.diagnostic(n(0)),
+        Some(Diagnostic::TransferNotServed { sender: n(1), view }),
+        "the named refusal, on the observation"
+    );
+    let after = snap(&h, n(0));
+    assert_eq!(after.accepted, before.accepted);
+    assert_eq!(after.committed, before.committed);
+    assert_eq!(after.applied, before.applied);
+    assert_eq!(h.fault_of(n(0)), None, "a refusal, never a fault");
     h.assert_safety();
 }
 
