@@ -43,11 +43,13 @@ Two finite models are checked:
   commands, and views 0 and 1.
 - `VrrCoreRecovery.cfg`: normal operation, view change, and one fenced
   crash/recovery event with three replicas and two commands. The crash
-  target is nondeterministic, so primary and backup loss are both explored,
-  and the crash itself nondeterministically forgets or retains the durable
-  records (the volatile and persisted profiles of the durability model).
-  Two commands keep divergent slot-3 histories expressible, so prefix
-  agreement is checked rather than masked by value collision.
+  target is nondeterministic, so primary and backup loss are both explored.
+  The crash profile is fixed per configuration by the `CrashRetainsDurable`
+  constant: this exhaustive configuration pins the volatile profile, which
+  forgets the journal and the committed frontier, and the durable profile is
+  exercised by the `VrrCoreRecoveryDeep.cfg` fixed-seed simulation under
+  `make tla-deep`. Two commands keep divergent slot-3 histories expressible,
+  so prefix agreement is checked rather than masked by value collision.
 
 Run both with the repository's no-volume Docker path:
 
@@ -132,11 +134,13 @@ The eras model makes seven state-space cuts:
    the adversarial direction for quorum safety.
 7. Messages are never removed. Loss, delay, duplication, and reordering are
    choices to ignore or repeatedly consume an old message.
-8. A crash always fences and forgets the volatile protocol state, then
-   nondeterministically forgets or retains the durable records (journal and
-   committed frontier). The volatile profile covers the in-memory journal
-   strategies; the persisted profile covers the durable Progress record, and
-   it is what makes mid-recovery committed fast-forward reachable.
+8. A crash always fences and forgets the volatile protocol state. Whether the
+   durable records (journal and committed frontier) also survive is fixed per
+   configuration by the `CrashRetainsDurable` constant rather than explored
+   nondeterministically: exhaustive configurations pin the volatile profile,
+   the adversarial direction for quorum safety, while the durable profile —
+   the one that makes mid-recovery committed fast-forward reachable — runs in
+   the deep fixed-seed simulations.
 9. Recovery re-drive is modeled as a bounded set of remembered nonces
    (`MaxNonce = 1` gives two nonces per attempt, the minimum that exercises
    cross-nonce combining). The set models every solicitation of the attempt
@@ -193,25 +197,27 @@ still occupies an era-0 view.
 ### Defect regression
 
 `Defect` is `"none"` in every normative model. Each mutation configuration
-enables exactly one weakened perimeter or evidence interpretation and must exit
-nonzero on the named check:
+enables exactly one weakened perimeter, one falsified evidence transfer, or
+one illegal scenario, and must exit nonzero on the named check:
 
 | Config | Mutation | Expected result |
 |---|---|---|
-| M1 | truncate installed transfer history | `CommittedEntrySurvives` |
+| M1 | drop the transferred tail entry while reporting its committed frontier | `FrontiersOrdered` |
 | M2 | adopt a higher view without installing its selected history | `CommittedLogsAgree` |
 | M3 | let a recovering identity receive and vote | `CommittedLogsAgree` |
-| M4 | interpret planned evidence as ordinary fence/report provenance | `CommittedEntrySurvives` |
+| M4 | interpret planned evidence as ordinary fence/report provenance | `CommittedLogsAgree` |
 | M5 | let the cast install a responder history instead of the leader's retained log | `CommittedLogsAgree` |
 | M6 | complete recovery from one response | `CommittedLogsAgree` |
-| M7 | six-node increment with disjoint old-view/new-commit sets | startup `ASSUME` failure, zero states |
+| M7 | six-node increment with disjoint old-view/new-commit sets | startup gate `gate: r1-era1`, zero states |
+| M8 | era-0 and era-1 view pivots disjoint across the fence/recovery families | startup gate `gate: fr-cross-fence0-recovery1`, zero states |
 
 M3 uses fixed-seed simulation because its plain breadth-first graph is much
 larger than its short counterexample trace. M6 uses an exhaustive transition
 projection containing only unchanged normal, view-change, crash, and recovery
-actions; it reaches quorum amnesia in 4,857 distinct states at depth 20. The
-other five are breadth-first. Removing only the pivot-existence guard is kept as
-the separate `VrrCoreErasNoPivot.cfg` experiment: it is expected to remain green
+actions; it reaches quorum amnesia in 4,857 distinct states at depth 20. M1,
+M2, M4, and M5 are breadth-first. M7 and M8 are refused by the named startup
+gate assertions before any state is explored. Removing only the pivot-existence
+guard is kept as the separate `VrrCoreErasNoPivot.cfg` experiment: it is expected to remain green
 because the pivot is a pipelining availability condition, not a safety axiom.
 That experiment completed exhaustively with 837,204 distinct states, depth 32,
 in 3m29s and found no safety violation.
