@@ -225,7 +225,9 @@ A strictly increasing clock across recovery attempts is the simplest implementat
 
 If recovery is retried, every retry is a new recovery event and must receive a fresh tick, which joins the attempt's nonce set; the collected responses are preserved across the retry. A host may persist the last nonce, but that is an optional nonce-generation strategy rather than a VRR-2012 requirement to force storage before recovery traffic is sent.
 
-While the attempt runs, an accepted response whose `committed` exceeds the local committed frontier advances that frontier toward the evidence's — over the sequentially-adjacent slots the local journal holds, stopping at the first slot the journal does not hold — and emits the ordered application upcalls for the newly committed slots (§11.1). The `committed` and `applied` frontiers are monotone across this fast-forward and the completion that ends the attempt: neither moves backward.
+While the attempt runs, an accepted response whose `committed` exceeds the local committed frontier advances that frontier toward the evidence's — over the sequentially-adjacent slots the local journal holds, stopping at the first slot the journal does not hold — and emits the ordered application upcalls for the newly committed slots (§11.1). The `committed` and `applied` frontiers are monotone across this fast-forward and the completion that ends the attempt: neither moves backward. Within one process life, the completion does not re-emit an upcall the fast-forward already emitted; after a crash the volatile emission memory is gone and the completion replays from the durable `applied` frontier (§11.1's boundary).
+
+Of the collected responses, only the suffix reported by the latest fenced view's primary is installation evidence; a suffix from any other responder counts toward the quorum but is never installed.
 
 ## 7. Transition publication and durability
 
@@ -831,24 +833,18 @@ The current code contains:
 - a `DoViewChange` quorum and selected-state installation at the new primary;
 - separate accepted, committed, and executed frontiers;
 - explicit `Recovering` and `Replaying` statuses;
-- clone-and-stage execution in the FFI wrapper;
-- panic poisoning.
+- host strategies for the journal (`Journal`/`JournalView`, with the segmented in-memory implementation) and an explicit stability-completion boundary (`Stability`) gating dependent effects;
+- the provisioning/reopen lifecycle: `provision` establishes the genesis configuration, `reopen` restarts after possible state loss, and both start fenced `Recovering`;
+- the host-supplied `u64` event tick on every input, with recovery nonces derived from it (§6.1);
+- the higher-view normal-message state-transfer behaviour specified by VRR-2012.
 
 ### 14.2 Missing contracts
 
 The current code does not provide:
 
-- host strategies for progress and logical accepted history;
-- an explicit stability-completion boundary before dependent effects;
-- a durable reopen path;
-- a distinction between initial provisioning and restart after state loss;
-- a normative C ABI transition-ownership contract;
-- a host-supplied `u64` event value on every input and recovery-nonce derivation from that value;
-- the higher-view normal-message state-transfer behaviour specified by VRR-2012.
+- a normative C ABI transition-ownership contract — no FFI module exists at present; the C ABI is planned work.
 
-`Replica::new` creates an empty normal replica in view zero. Using this path after loss of volatile state and processing normal input before recovery admits an amnesiac voter and violates the failure model. The public lifecycle must distinguish initial provisioning from reopening after possible state loss. The latter starts fenced and becomes normal only after local restoration or quorum recovery establishes adequate state.
-
-The FFI clone-and-stage implementation provides process-local failure atomicity. It does not provide crash durability.
+The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` and `reopen` both start fenced `Recovering` and become normal only after local restoration or quorum recovery establishes adequate state, so the amnesiac-voter path is unrepresentable.
 
 ## 15. Minimal proposal
 
