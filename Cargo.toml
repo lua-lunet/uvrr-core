@@ -27,6 +27,16 @@ exclude = ["maelstrom/", "store/", ".state/", "mise.toml", ".gitmodules"]
 name = "vrr"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
+# The Maelstrom node. A binary, not a second crate: it needs the library and
+# nothing needs it, so it stays out of the published artifact's dependency
+# graph while still being built and tested by `cargo test --all-targets`.
+# Its dependencies (serde, serde_json) are the optional `maelstrom` feature's,
+# so a default-features consumer never builds it.
+[[bin]]
+name = "maelstrom-lin-kv"
+path = "src/bin/maelstrom-lin-kv/main.rs"
+required-features = ["maelstrom"]
+
 # Every entry is optional, so a consumer's non-optional dependency set is empty
 # and `default-features = false` pulls in zero transitive crates. Enforced by
 # tests/manifest_contract.rs, which is a gate rather than a smoke test.

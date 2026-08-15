@@ -44,7 +44,7 @@ help:
 	@echo "Vars: NODES=$(NODES) TIME_LIMIT=$(TIME_LIMIT) RATE=$(RATE) INTERVAL=$(INTERVAL)"
 
 build:
-	cargo build --release --all-targets
+	cargo build --release --all-targets --features maelstrom
 
 test:
 	cargo test
