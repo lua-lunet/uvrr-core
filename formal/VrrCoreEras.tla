@@ -15,7 +15,9 @@
 EXTENDS FiniteSets, Naturals, Sequences, TLC
 
 CONSTANTS N0, N1, N2, N3, N4, N5,
-          Scenario, Commands, MaxViewIndex, MaxLogLength, MaxEpoch, Defect
+          Scenario, Commands, MaxViewIndex, MaxLogLength, MaxEpoch, MaxNonce,
+          CrashRetainsDurable,
+          Defect
 
 NoDefect                 == "none"
 TruncateOnTransfer       == "truncate-on-transfer"
@@ -35,13 +37,15 @@ Even4    == "even4"
 Even4Static == "even4-static"
 Maj5     == "maj5"
 GateDemo == "gate-demo"
-Scenarios == {Inc3, Even4, Even4Static, Maj5, GateDemo}
+SplitPivot4 == "split-pivot4"
+Scenarios == {Inc3, Even4, Even4Static, Maj5, GateDemo, SplitPivot4}
 
 Nodes == CASE Scenario = Inc3     -> {N0, N1, N2}
            [] Scenario = Even4    -> {N0, N1, N2, N3}
            [] Scenario = Even4Static -> {N0, N1, N2, N3}
            [] Scenario = Maj5     -> {N0, N1, N2, N3, N4}
            [] Scenario = GateDemo -> {N0, N1, N2, N3, N4, N5}
+           [] Scenario = SplitPivot4 -> {N0, N1, N2, N3}
            [] OTHER               -> {}
 
 Order0 == CASE Scenario = Inc3     -> <<N0, N1, N2>>
@@ -49,6 +53,7 @@ Order0 == CASE Scenario = Inc3     -> <<N0, N1, N2>>
             [] Scenario = Even4Static -> <<N0, N1, N2, N3>>
             [] Scenario = Maj5     -> <<N0, N1, N2, N3, N4>>
             [] Scenario = GateDemo -> <<N0, N1, N2, N3, N4, N5>>
+            [] Scenario = SplitPivot4 -> <<N0, N1, N2, N3>>
             [] OTHER               -> <<>>
 
 (* Membership and succession order are fixed for this one transition. *)
@@ -56,6 +61,8 @@ Order(e) == Order0
 
 Weight(e, r) ==
     CASE Scenario = Even4Static -> 1
+      [] Scenario = SplitPivot4 /\ e = 0 /\ r = N0 -> 3
+      [] Scenario = SplitPivot4 /\ e = 1 /\ r = N2 -> 3
       [] e = 0 -> 1
       [] e = 1 /\ r = N0 -> 2
       [] OTHER -> 1
@@ -72,13 +79,26 @@ CommitThreshold(e) ==
     CASE Scenario \in {Even4, Even4Static} /\ e = 0 -> 2
       [] Scenario = Even4Static -> 2
       [] Scenario = GateDemo       -> 3
+      [] Scenario = SplitPivot4    -> 6
       [] OTHER -> (SumW(e, Nodes) \div 2) + 1
+
+(******************************************************************************
+ * Even-split view-quorum threshold for era 1.  Era-1 weights give
+ * SumW(1, Nodes) = 5 with Weight(1, N0) = 2.  The complement of the era-0
+ * commit quorum {N0, N1} is {N2, N3}, whose era-1 weight is 2, so any
+ * era-1 view quorum disjoint from {N0, N1} carries weight at most 2;
+ * threshold 4 is the least value that cannot be met inside {N2, N3} union
+ * N1 alone: the maximal era-1 view quorum avoiding N0 is {N1, N2, N3} of
+ * weight 3.  See the per-scenario derivation in the README.
+ *****************************************************************************)
+Even4EraOneViewThreshold == 4
 
 ViewThreshold(e) ==
     CASE Scenario \in {Even4, Even4Static} /\ e = 0 -> 3
-      [] Scenario = Even4 /\ e = 1 -> 4
+      [] Scenario = Even4 /\ e = 1 -> Even4EraOneViewThreshold
       [] Scenario = Even4Static -> 3
       [] Scenario = GateDemo       -> 4
+      [] Scenario = SplitPivot4    -> 4
       [] OTHER -> (SumW(e, Nodes) \div 2) + 1
 
 IsCommitQuorum(e, members) ==
@@ -114,13 +134,32 @@ VV(e) == Intersects([s \in SUBSET Nodes |-> IsViewQuorum(e, s)],
 FR(e) == Intersects([s \in SUBSET Nodes |-> IsFenceQuorum(e, s)],
                     [s \in SUBSET Nodes |-> IsRecoveryQuorum(e, s)])
 
+FRCross01 ==
+    Intersects([s \in SUBSET Nodes |-> IsFenceQuorum(0, s)],
+               [s \in SUBSET Nodes |-> IsRecoveryQuorum(1, s)])
+
+FRCross10 ==
+    Intersects([s \in SUBSET Nodes |-> IsFenceQuorum(1, s)],
+               [s \in SUBSET Nodes |-> IsRecoveryQuorum(0, s)])
+
 GateOK == /\ R1(0) /\ R1(1)
           /\ R2Forward /\ R2Reverse
           /\ VV(0) /\ VV(1)
           /\ FR(0) /\ FR(1)
+          \* Cross-era fence/recovery, both directions: a recovery quorum
+          \* gathered in one era must meet the other era's fence family,
+          \* or a recovering replica can complete while an unfenced
+          \* identity of the other era still casts view votes (the
+          \* exclusion obligation of section 8.3).
+          /\ FRCross01 /\ FRCross10
 
 SeqToSet(s) == {s[i] : i \in 1..Len(s)}
 
+(****************************************************************************
+ * Constant well-formedness stays an ASSUME.  The quorum obligations are
+ * per-obligation startup Asserts in Init so a gate mutation can require
+ * the exact rejected obligation rather than any assumption failure.
+ ***************************************************************************)
 ASSUME /\ Scenario \in Scenarios
        /\ Defect \in Defects
        /\ Commands # {}
@@ -128,11 +167,12 @@ ASSUME /\ Scenario \in Scenarios
        /\ MaxViewIndex \in Nat
        /\ MaxLogLength >= 2
        /\ MaxEpoch \in Nat
+       /\ MaxNonce \in Nat
+       /\ CrashRetainsDurable \in BOOLEAN
        /\ Len(Order0) = Cardinality(Nodes)
        /\ SeqToSet(Order0) = Nodes
        /\ Cardinality(Nodes) >= 3
        /\ Cardinality({N0, N1, N2, N3, N4, N5}) = 6
-       /\ GateOK
 
 (***************************************************************************
  * View identifiers and log algebra.
@@ -183,6 +223,7 @@ Genesis               == <<GenesisEntry>>
 
 Min(a, b) == IF a <= b THEN a ELSE b
 Max(a, b) == IF a >= b THEN a ELSE b
+SetMax(s) == CHOOSE x \in s : \A y \in s : y <= x
 
 PrefixEqual(a, b, through) ==
     /\ through <= Len(a)
@@ -218,10 +259,6 @@ ViewChange == "view-change"
 Recovering == "recovering"
 Statuses   == {Normal, ViewChange, Recovering}
 
-OrdinaryEvidence == "ordinary"
-PlannedEvidence  == "planned"
-EvidenceKinds    == {OrdinaryEvidence, PlannedEvidence}
-
 PrepareMsg          == "prepare"
 PrepareOkMsg        == "prepare-ok"
 CommitMsg           == "commit"
@@ -239,7 +276,7 @@ MessageKinds == {PrepareMsg, PrepareOkMsg, CommitMsg,
                  RecoveryMsg, RecoveryResponseMsg}
 
 Message(kind_, from_, to_, view_, priorView_, routeEra_, slot_, entry_,
-        history_, retained_, accepted_, committed_, nonce_, evidence_) ==
+        history_, retained_, accepted_, committed_, nonce_) ==
     [type      |-> kind_,
      from      |-> from_,
      to        |-> to_,
@@ -252,53 +289,51 @@ Message(kind_, from_, to_, view_, priorView_, routeEra_, slot_, entry_,
      retained  |-> retained_,
      accepted  |-> accepted_,
      committed |-> committed_,
-     nonce     |-> nonce_,
-     evidence  |-> evidence_]
+     nonce     |-> nonce_]
 
 NeutralEntry == GenesisEntry
 
 Prepare(p, r, v, n, entry_, k, routeEra_) ==
     Message(PrepareMsg, p, r, v, v, routeEra_, n, entry_, <<>>,
-            v, 0, k, 0, OrdinaryEvidence)
+            v, 0, k, 0)
 
 PrepareOk(r, p, v, n, routeEra_) ==
     Message(PrepareOkMsg, r, p, v, v, routeEra_, n, NeutralEntry, <<>>,
-            v, 0, 0, 0, OrdinaryEvidence)
+            v, 0, 0, 0)
 
 Commit(p, r, v, n, routeEra_) ==
     Message(CommitMsg, p, r, v, v, routeEra_, n, NeutralEntry, <<>>,
-            v, 0, n, 0, OrdinaryEvidence)
+            v, 0, n, 0)
 
 StartViewChangeVote(r, to, v) ==
     Message(StartViewChangeMsg, r, to, v, v, v.era, 0, NeutralEntry, <<>>,
-            v, 0, 0, 0, OrdinaryEvidence)
+            v, 0, 0, 0)
 
 DoViewChange(r, p, v, retained_, history_, committed_) ==
     Message(DoViewChangeMsg, r, p, v, v, v.era, Len(history_), NeutralEntry,
-            history_, retained_, Len(history_), committed_, 0, OrdinaryEvidence)
+            history_, retained_, Len(history_), committed_, 0)
 
 StartView(p, r, v, history_, committed_) ==
     Message(StartViewMsg, p, r, v, v, v.era, Len(history_), NeutralEntry,
-            history_, v, Len(history_), committed_, 0, OrdinaryEvidence)
+            history_, v, Len(history_), committed_, 0)
 
 PlannedViewChange(leader, r, prior_, target_) ==
     Message(PlannedViewChangeMsg, leader, r, target_, prior_, 0, 0,
-            NeutralEntry, <<>>, prior_, 0, 0, 0, PlannedEvidence)
+            NeutralEntry, <<>>, prior_, 0, 0, 0)
 
 (* Abstract projection of a planned DoViewChange reply.  History is retained so
  * the evidence-kind mutation can exercise the dangerous conflation. *)
 PlannedOk(r, leader, prior_, target_, retained_, history_, committed_) ==
     Message(PlannedOkMsg, r, leader, target_, prior_, 0, Len(history_),
-            NeutralEntry, history_, retained_, Len(history_), committed_, 0,
-            PlannedEvidence)
+            NeutralEntry, history_, retained_, Len(history_), committed_, 0)
 
 RecoveryRequest(r, to, nonce_) ==
     Message(RecoveryMsg, r, to, InitialView, InitialView, 0, 0, NeutralEntry,
-            <<>>, InitialView, 0, 0, nonce_, OrdinaryEvidence)
+            <<>>, InitialView, 0, 0, nonce_)
 
 RecoveryResponse(r, to, nonce_, v, history_, accepted_, committed_) ==
     Message(RecoveryResponseMsg, r, to, v, v, v.era, 0, NeutralEntry,
-            history_, v, accepted_, committed_, nonce_, OrdinaryEvidence)
+            history_, v, accepted_, committed_, nonce_)
 
 VARIABLES status,
           currentView,
@@ -308,13 +343,15 @@ VARIABLES status,
           messages,
           epochs,
           recoveryEvidence,
+          recoveryNonces,
+          historicalCommitted,
           everEnteredViewChange,
           castOccurred,
           overlapStreamed
 
 vars == <<status, currentView, retainedView, logs, committed, messages,
-          epochs, recoveryEvidence, everEnteredViewChange, castOccurred,
-          overlapStreamed>>
+          epochs, recoveryEvidence, recoveryNonces, historicalCommitted,
+          everEnteredViewChange, castOccurred, overlapStreamed>>
 
 Init ==
     /\ status       = [r \in Nodes |-> Normal]
@@ -325,9 +362,22 @@ Init ==
     /\ messages     = {}
     /\ epochs       = [r \in Nodes |-> 0]
     /\ recoveryEvidence = {}
+    /\ recoveryNonces   = [r \in Nodes |-> {}]
+    /\ historicalCommitted =
+           {[slot |-> i, entry |-> Genesis[i]] : i \in 1..Len(Genesis)}
     /\ everEnteredViewChange = FALSE
     /\ castOccurred = FALSE
     /\ overlapStreamed = FALSE
+    /\ Assert(R1(0), "gate: r1-era0")
+    /\ Assert(R1(1), "gate: r1-era1")
+    /\ Assert(R2Forward, "gate: r2-forward")
+    /\ Assert(R2Reverse, "gate: r2-reverse")
+    /\ Assert(VV(0), "gate: vv-era0")
+    /\ Assert(VV(1), "gate: vv-era1")
+    /\ Assert(FR(0), "gate: fr-era0")
+    /\ Assert(FR(1), "gate: fr-era1")
+    /\ Assert(FRCross01, "gate: fr-cross-fence0-recovery1")
+    /\ Assert(FRCross10, "gate: fr-cross-fence1-recovery0")
 
 CanVote(r) == status[r] # Recovering \/ Defect = RecoveringParticipates
 
@@ -349,7 +399,8 @@ ProposeCommand(p, command) ==
           /\ messages' = messages \cup
                  BroadcastPrepare(p, currentView[p], n, entry_, committed[p], era)
     /\ UNCHANGED <<status, currentView, retainedView, committed, epochs,
-                   recoveryEvidence, everEnteredViewChange, castOccurred,
+                   recoveryEvidence, recoveryNonces, everEnteredViewChange,
+                   castOccurred,
                    overlapStreamed>>
 
 ProposeReconfig(p) ==
@@ -364,7 +415,8 @@ ProposeReconfig(p) ==
                  BroadcastPrepare(p, currentView[p], n,
                                   ReconfigurationEntry, committed[p], 0)
     /\ UNCHANGED <<status, currentView, retainedView, committed, epochs,
-                   recoveryEvidence, everEnteredViewChange, castOccurred,
+                   recoveryEvidence, recoveryNonces, everEnteredViewChange,
+                   castOccurred,
                    overlapStreamed>>
 
 ReceivePrepare(r, m) ==
@@ -385,7 +437,8 @@ ReceivePrepare(r, m) ==
           /\ messages' = messages \cup
                  {PrepareOk(r, m.from, m.view, m.slot, m.routeEra)}
     /\ UNCHANGED <<status, currentView, retainedView, epochs,
-                   recoveryEvidence, everEnteredViewChange, castOccurred,
+                   recoveryEvidence, recoveryNonces, everEnteredViewChange,
+                   castOccurred,
                    overlapStreamed>>
 
 AckSenders(p, v, n, era) ==
@@ -394,10 +447,7 @@ AckSenders(p, v, n, era) ==
               /\ candidate.to = p
               /\ candidate.view = v
               /\ candidate.slot >= n
-              /\ candidate.routeEra = era
-              /\ CanVote(candidate.from)
-              /\ (currentView[candidate.from] = v
-                  \/ Defect = EagerViewAdoption)}}
+              /\ candidate.routeEra = era}}
 
 CommitNext(p) ==
     /\ status[p] = Normal
@@ -414,7 +464,8 @@ CommitNext(p) ==
           /\ overlapStreamed' =
                  (overlapStreamed \/ (era = 1 /\ currentView[p].era = 0))
     /\ UNCHANGED <<status, currentView, retainedView, logs, epochs,
-                   recoveryEvidence, everEnteredViewChange, castOccurred>>
+                   recoveryEvidence, recoveryNonces, everEnteredViewChange,
+                   castOccurred>>
 
 ReceiveCommit(r, m) ==
     /\ m \in messages
@@ -428,7 +479,8 @@ ReceiveCommit(r, m) ==
        IN /\ learned > committed[r]
           /\ committed' = [committed EXCEPT ![r] = learned]
     /\ UNCHANGED <<status, currentView, retainedView, logs, messages, epochs,
-                   recoveryEvidence, everEnteredViewChange, castOccurred,
+                   recoveryEvidence, recoveryNonces, everEnteredViewChange,
+                   castOccurred,
                    overlapStreamed>>
 
 (***************************************************************************
@@ -449,7 +501,8 @@ EnterViewChange(r, target) ==
     /\ messages' = messages \cup ViewChangeBroadcast(r, target)
     /\ everEnteredViewChange' = TRUE
     /\ UNCHANGED <<retainedView, logs, committed, epochs,
-                   recoveryEvidence, castOccurred, overlapStreamed>>
+                   recoveryEvidence, recoveryNonces, castOccurred,
+                   overlapStreamed>>
 
 FollowHigherViewChange(r, m) ==
     /\ m \in messages
@@ -463,7 +516,8 @@ FollowHigherViewChange(r, m) ==
     /\ messages' = messages \cup ViewChangeBroadcast(r, m.view)
     /\ everEnteredViewChange' = TRUE
     /\ UNCHANGED <<retainedView, logs, committed, epochs,
-                   recoveryEvidence, castOccurred, overlapStreamed>>
+                   recoveryEvidence, recoveryNonces, castOccurred,
+                   overlapStreamed>>
 
 FenceKinds == IF Defect = PlannedCountsAsFence
               THEN {StartViewChangeMsg, PlannedOkMsg}
@@ -473,8 +527,7 @@ FenceSenders(r, v) ==
     {m.from : m \in {candidate \in messages :
               /\ candidate.type \in FenceKinds
               /\ candidate.to = r
-              /\ candidate.view = v
-              /\ CanVote(candidate.from)}}
+              /\ candidate.view = v}}
 
 ReportAlreadySent(r, v) ==
     \E m \in messages :
@@ -492,7 +545,8 @@ SendDoViewChange(r) ==
            {DoViewChange(r, Primary(currentView[r]), currentView[r],
                          retainedView[r], logs[r], committed[r])}
     /\ UNCHANGED <<status, currentView, retainedView, logs, committed, epochs,
-                   recoveryEvidence, everEnteredViewChange, castOccurred,
+                   recoveryEvidence, recoveryNonces, everEnteredViewChange,
+                   castOccurred,
                    overlapStreamed>>
 
 ReportKinds == IF Defect = PlannedCountsAsFence
@@ -503,8 +557,7 @@ Reports(p, v) ==
     {m \in messages :
         /\ m.type \in ReportKinds
         /\ m.to = p
-        /\ m.view = v
-        /\ CanVote(m.from)}
+        /\ m.view = v}
 
 ReportSenders(p, v) == {m.from : m \in Reports(p, v)}
 
@@ -541,7 +594,7 @@ InstallView(p, chosen) ==
                  {StartView(p, r, currentView[p], chosen.history,
                             Max(committed[p], maxCommitted)) :
                     r \in Nodes \ {p}}
-    /\ UNCHANGED <<currentView, epochs, recoveryEvidence,
+    /\ UNCHANGED <<currentView, epochs, recoveryEvidence, recoveryNonces,
                    everEnteredViewChange, castOccurred, overlapStreamed>>
 
 ReceiveStartView(r, m) ==
@@ -552,22 +605,28 @@ ReceiveStartView(r, m) ==
     /\ m.from = Primary(m.view)
     /\ m.accepted = Len(m.history)
     /\ m.committed <= m.accepted
-    /\ (Defect # TruncateOnTransfer
-        \/ m.committed > Len(Genesis))
     /\ \/ ViewGt(m.view, currentView[r])
        \/ /\ m.view = currentView[r]
           /\ status[r] = ViewChange
     /\ m.committed >= committed[r]
     /\ (PrefixEqual(m.history, logs[r], committed[r])
         \/ Defect = TruncateOnTransfer)
+    \* The defect drops the newest entry on receipt but reports the
+    \* transferred committed frontier verbatim: the receiver's frontier
+    \* claims entries its installed history no longer holds.  The normative
+    \* path lowers the frontier consistently with the installed history.
+    \* (A pure DropLast with a consistently lowered frontier is ABSORBED by
+    \* the protocol's guard net: a truncated replica never leads again and
+    \* Prepare never overwrites, so no committed fact is ever contradicted.)
     /\ LET installed == IF Defect = TruncateOnTransfer
                          THEN DropLast(m.history)
                          ELSE m.history
            learned == IF Defect = TruncateOnTransfer
                       THEN m.committed
-                      ELSE m.committed
+                      ELSE Min(m.committed, Len(installed))
            ack == IF Len(installed) > learned
-                  THEN {PrepareOk(r, m.from, m.view, Len(installed), m.view.era)}
+                  THEN {PrepareOk(r, m.from, m.view, Len(installed),
+                                  EraOfSlot(installed, Len(installed)))}
                   ELSE {}
        IN /\ messages' = messages \cup ack
           /\ logs' = [logs EXCEPT ![r] = installed]
@@ -576,8 +635,8 @@ ReceiveStartView(r, m) ==
     /\ currentView' = [currentView EXCEPT ![r] = m.view]
     /\ retainedView' = [retainedView EXCEPT ![r] = m.view]
     /\ recoveryEvidence' = {e \in recoveryEvidence : e.to # r}
-    /\ UNCHANGED <<epochs, everEnteredViewChange, castOccurred,
-                   overlapStreamed>>
+    /\ UNCHANGED <<epochs, recoveryNonces, everEnteredViewChange,
+                   castOccurred, overlapStreamed>>
 
 (* The eager-adoption mutation changes the view fence without installing the
  * selected history.  It is unreachable in the normative model. *)
@@ -592,7 +651,8 @@ EagerAdopt(r, m) ==
     /\ currentView' = [currentView EXCEPT ![r] = m.view]
     /\ retainedView' = [retainedView EXCEPT ![r] = m.view]
     /\ UNCHANGED <<logs, committed, messages, epochs, recoveryEvidence,
-                   everEnteredViewChange, castOccurred, overlapStreamed>>
+                   recoveryNonces, everEnteredViewChange, castOccurred,
+                   overlapStreamed>>
 
 (***************************************************************************
  * Planned view change and the leader's casting vote.
@@ -616,7 +676,8 @@ SendPlannedViewChange(leader) ==
                  {PlannedViewChange(leader, r, currentView[leader], target) :
                     r \in Nodes \ {leader}}
     /\ UNCHANGED <<status, currentView, retainedView, logs, committed, epochs,
-                   recoveryEvidence, everEnteredViewChange, castOccurred,
+                   recoveryEvidence, recoveryNonces, everEnteredViewChange,
+                   castOccurred,
                    overlapStreamed>>
 
 AnswerPlannedViewChange(r, m) ==
@@ -629,36 +690,64 @@ AnswerPlannedViewChange(r, m) ==
            {PlannedOk(r, m.from, m.priorView, m.view,
                       retainedView[r], logs[r], committed[r])}
     /\ UNCHANGED <<status, currentView, retainedView, logs, committed, epochs,
-                   recoveryEvidence, everEnteredViewChange, castOccurred,
+                   recoveryEvidence, recoveryNonces, everEnteredViewChange,
+                   castOccurred,
                    overlapStreamed>>
 
 PlannedResponders(leader, target) ==
     {m.from : m \in {candidate \in messages :
               /\ candidate.type = PlannedOkMsg
               /\ candidate.to = leader
-              /\ candidate.view = target
-              /\ CanVote(candidate.from)
-              /\ currentView[candidate.from] = candidate.priorView
-              /\ status[candidate.from] = Normal}}
+              /\ candidate.view = target}}
 
+(****************************************************************************
+ * The casting vote needs one old-era view quorum confined to the
+ * responders plus the leader, meeting the planned (both-era) commit
+ * quorum in the leader alone.  View quorums are weight-upward-closed, so
+ * for each candidate shared commit quorum qII it suffices to test the
+ * MAXIMAL legal old-view set: the responders outside qII, plus the
+ * leader.  One powerset quantification instead of two.
+ ***************************************************************************)
 PivotExists(leader, responders) ==
-    \E qI \in SUBSET Nodes, qII \in SUBSET Nodes :
-        /\ IsViewQuorum(0, qI)
+    \E qII \in SUBSET Nodes :
         /\ IsCommitQuorum(0, qII)
         /\ IsCommitQuorum(1, qII)
-        /\ leader \in qI
         /\ leader \in qII
-        /\ qI \cap qII = {leader}
-        /\ qI \subseteq responders \cup {leader}
+        /\ IsViewQuorum(0, (responders \ qII) \cup {leader})
 
 PlannedReports(leader, target) ==
     {m \in messages :
         /\ m.type = PlannedOkMsg
         /\ m.to = leader
-        /\ m.view = target
-        /\ CanVote(m.from)}
+        /\ m.view = target}
 
-CastPlannedVote(leader, chosen) ==
+(****************************************************************************
+ * The normative cast installs the leader's own log; the chosen PlannedOk
+ * is quantified only by the unserialized-cast defect action, so the
+ * normative transition does not generate one identical successor per
+ * irrelevant message.
+ ***************************************************************************)
+CastPlannedVote(leader) ==
+    /\ Defect # UnserializedCast
+    /\ status[leader] = Normal
+    /\ currentView[leader].era = 0
+    /\ leader = Primary(currentView[leader])
+    /\ HasCommittedReconfig(logs[leader], committed[leader])
+    /\ LET target == PlannedView(leader)
+           responders == PlannedResponders(leader, target)
+       IN /\ (PivotExists(leader, responders) \/ Defect = NoPivotGuard)
+          /\ currentView' = [currentView EXCEPT ![leader] = target]
+          /\ retainedView' = [retainedView EXCEPT ![leader] = target]
+          /\ messages' = messages \cup
+                 {StartView(leader, r, target, logs[leader],
+                            committed[leader]) :
+                    r \in Nodes \ {leader}}
+    /\ castOccurred' = TRUE
+    /\ UNCHANGED <<status, logs, committed, epochs, recoveryEvidence,
+                   recoveryNonces, everEnteredViewChange, overlapStreamed>>
+
+CastPlannedVoteFromEvidence(leader, chosen) ==
+    /\ Defect = UnserializedCast
     /\ status[leader] = Normal
     /\ currentView[leader].era = 0
     /\ leader = Primary(currentView[leader])
@@ -666,33 +755,32 @@ CastPlannedVote(leader, chosen) ==
     /\ LET target == PlannedView(leader)
            responders == PlannedResponders(leader, target)
            evidence == PlannedReports(leader, target)
-           installed == IF Defect = UnserializedCast
-                        THEN chosen.history
-                        ELSE logs[leader]
-           learned == committed[leader]
-       IN /\ (PivotExists(leader, responders) \/ Defect = NoPivotGuard)
-          /\ IF Defect = UnserializedCast
-             THEN chosen \in evidence
-             ELSE chosen \in evidence \cup {PlannedOk(leader, leader,
-                                      currentView[leader], target,
-                                      retainedView[leader], logs[leader],
-                                      committed[leader])}
-          /\ status' = status
+       IN /\ PivotExists(leader, responders)
+          /\ chosen \in evidence
           /\ currentView' = [currentView EXCEPT ![leader] = target]
           /\ retainedView' = [retainedView EXCEPT ![leader] = target]
-          /\ logs' = [logs EXCEPT ![leader] = installed]
-          /\ committed' = [committed EXCEPT ![leader] = learned]
+          /\ logs' = [logs EXCEPT ![leader] = chosen.history]
           /\ messages' = messages \cup
-                 {StartView(leader, r, target, installed, learned) :
+                 {StartView(leader, r, target, chosen.history,
+                            committed[leader]) :
                     r \in Nodes \ {leader}}
     /\ castOccurred' = TRUE
-    /\ UNCHANGED <<epochs, recoveryEvidence, everEnteredViewChange,
-                   overlapStreamed>>
+    /\ UNCHANGED <<status, committed, epochs, recoveryEvidence,
+                   recoveryNonces, everEnteredViewChange, overlapStreamed>>
 
 (***************************************************************************
- * Amnesiac crash and operational recovery.  A recovering identity sends only
- * recovery requests.  Quorum guards discard evidence from identities that are
- * currently recovering, even when an old message remains in the network.
+ * Crash and operational recovery: two durability profiles.  Crash fences
+ * the identity and forgets the volatile protocol state (status, views,
+ * evidence, recovery attempt); it then either forgets the durable records
+ * as well (volatile deployment: in-memory journal strategy) or retains
+ * them (the persisted Progress record and journal).  A recovering identity
+ * sends only recovery requests.  An attempt is a bounded set of nonces,
+ * one per solicitation, so a delayed response to a remembered nonce still
+ * counts and responses across in-set nonces combine by sender.  An
+ * accepted response whose committed exceeds the local frontier
+ * fast-forwards it over the locally held contiguous prefix that agrees
+ * with the response history.  Quorum guards count the recorded evidence
+ * itself; a replica's live status gates only what it may SEND.
  *************************************************************************)
 
 Crash(r) ==
@@ -703,24 +791,34 @@ Crash(r) ==
     /\ status' = [status EXCEPT ![r] = Recovering]
     /\ currentView' = [currentView EXCEPT ![r] = InitialView]
     /\ retainedView' = [retainedView EXCEPT ![r] = InitialView]
-    /\ logs' = [logs EXCEPT ![r] = Genesis]
-    /\ committed' = [committed EXCEPT ![r] = Len(Genesis)]
     /\ epochs' = [epochs EXCEPT ![r] = @ + 1]
     /\ recoveryEvidence' = {e \in recoveryEvidence : e.to # r}
+    /\ recoveryNonces' = [recoveryNonces EXCEPT ![r] = {}]
+    /\ \/ /\ logs' = [logs EXCEPT ![r] = Genesis]
+          /\ committed' = [committed EXCEPT ![r] = Len(Genesis)]
+       \/ /\ CrashRetainsDurable
+          /\ UNCHANGED <<logs, committed>>
     /\ UNCHANGED <<messages, everEnteredViewChange, castOccurred,
                    overlapStreamed>>
 
-RecoveryStarted(r) ==
-    \E m \in messages :
-        /\ m.type = RecoveryMsg
-        /\ m.from = r
-        /\ m.nonce = epochs[r]
-
 BeginRecovery(r) ==
     /\ status[r] = Recovering
-    /\ ~RecoveryStarted(r)
+    /\ recoveryNonces[r] = {}
+    /\ recoveryNonces' = [recoveryNonces EXCEPT ![r] = {0}]
     /\ messages' = messages \cup
-           {RecoveryRequest(r, to, epochs[r]) : to \in Nodes \ {r}}
+           {RecoveryRequest(r, to, 0) : to \in Nodes \ {r}}
+    /\ UNCHANGED <<status, currentView, retainedView, logs, committed, epochs,
+                   recoveryEvidence, everEnteredViewChange, castOccurred,
+                   overlapStreamed>>
+
+RedriveRecovery(r) ==
+    /\ status[r] = Recovering
+    /\ recoveryNonces[r] # {}
+    /\ \E fresh \in (0..MaxNonce) \ recoveryNonces[r] :
+        /\ \A older \in (0..MaxNonce) \ recoveryNonces[r] : fresh <= older
+        /\ recoveryNonces' = [recoveryNonces EXCEPT ![r] = @ \cup {fresh}]
+        /\ messages' = messages \cup
+               {RecoveryRequest(r, to, fresh) : to \in Nodes \ {r}}
     /\ UNCHANGED <<status, currentView, retainedView, logs, committed, epochs,
                    recoveryEvidence, everEnteredViewChange, castOccurred,
                    overlapStreamed>>
@@ -736,35 +834,57 @@ RespondToRecovery(r, request) ==
                                 currentView[r], history,
                                 Len(logs[r]), committed[r])}
     /\ UNCHANGED <<status, currentView, retainedView, logs, committed, epochs,
-                   recoveryEvidence, everEnteredViewChange, castOccurred,
+                   recoveryEvidence, recoveryNonces, everEnteredViewChange,
+                   castOccurred,
                    overlapStreamed>>
 
 RecoveryResponses(r) ==
     {m \in recoveryEvidence :
         /\ m.type = RecoveryResponseMsg
         /\ m.to = r
-        /\ m.nonce = epochs[r]
-        /\ m.from # r
-        /\ CanVote(m.from)}
+        /\ m.nonce \in recoveryNonces[r]
+        /\ m.from # r}
 
 RecoveryResponders(r) == {m.from : m \in RecoveryResponses(r)}
 
 RecordRecoveryResponse(r, response) ==
     /\ status[r] = Recovering
-    /\ RecoveryStarted(r)
     /\ response \in messages
     /\ response.type = RecoveryResponseMsg
     /\ response.to = r
     /\ response.from # r
-    /\ response.nonce = epochs[r]
+    /\ response.nonce \in recoveryNonces[r]
+    /\ response.committed >= committed[r]
+    \* Combining is monotone in the nonce, as in
+    \* combine_cross_nonce_responses: only a strictly newer response from
+    \* this sender is recorded.  Recording an older one would oscillate the
+    \* evidence set without changing any quorum outcome.
+    /\ ~\E e \in recoveryEvidence :
+           /\ e.to = r
+           /\ e.from = response.from
+           /\ e.nonce >= response.nonce
+    \* Fast-forward over the contiguous locally held prefix that AGREES with
+    \* the response history: the takeWhile walk of the recovery design.
+    \* Advancing past a local entry the quorum never committed would commit
+    \* a divergent value.
     /\ LET prior == {e \in recoveryEvidence :
                         e.to = r /\ e.from = response.from}
            replacement == (recoveryEvidence \ prior) \cup {response}
-       IN /\ replacement # recoveryEvidence
+           limit == Min(response.committed,
+                        Min(Len(logs[r]), Len(response.history)))
+           matching == {l \in committed[r]..limit :
+                           \A k \in (committed[r] + 1)..l :
+                               logs[r][k] = response.history[k]}
+           fastForward == IF limit >= committed[r]
+                          THEN SetMax(matching)
+                          ELSE committed[r]
+       IN /\ \/ replacement # recoveryEvidence
+             \/ fastForward > committed[r]
           /\ recoveryEvidence' = replacement
-    /\ UNCHANGED <<status, currentView, retainedView, logs, committed,
-                   messages, epochs, everEnteredViewChange, castOccurred,
-                   overlapStreamed>>
+          /\ committed' = [committed EXCEPT ![r] = fastForward]
+    /\ UNCHANGED <<status, currentView, retainedView, logs,
+                   messages, epochs, recoveryNonces, everEnteredViewChange,
+                   castOccurred, overlapStreamed>>
 
 LatestRecoveryView(responses) ==
     IF responses = {}
@@ -794,31 +914,42 @@ CompleteRecovery(r, chosen) ==
           /\ currentView' = [currentView EXCEPT ![r] = latest]
           /\ retainedView' = [retainedView EXCEPT ![r] = latest]
           /\ logs' = [logs EXCEPT ![r] = chosen.history]
-          /\ committed' = [committed EXCEPT ![r] = chosen.committed]
+          /\ committed' = [committed EXCEPT
+                              ![r] = Max(committed[r], chosen.committed)]
           /\ recoveryEvidence' = {e \in recoveryEvidence : e.to # r}
+          /\ recoveryNonces' = [recoveryNonces EXCEPT ![r] = {}]
     /\ UNCHANGED <<messages, epochs, everEnteredViewChange, castOccurred,
                    overlapStreamed>>
 
 Next ==
-    \/ \E p \in Nodes, command \in Commands : ProposeCommand(p, command)
-    \/ \E p \in Nodes : ProposeReconfig(p)
-    \/ \E r \in Nodes, m \in messages : ReceivePrepare(r, m)
-    \/ \E p \in Nodes : CommitNext(p)
-    \/ \E r \in Nodes, m \in messages : ReceiveCommit(r, m)
-    \/ \E r \in Nodes, target \in Views : EnterViewChange(r, target)
-    \/ \E r \in Nodes, m \in messages : FollowHigherViewChange(r, m)
-    \/ \E r \in Nodes : SendDoViewChange(r)
-    \/ \E p \in Nodes, chosen \in messages : InstallView(p, chosen)
-    \/ \E r \in Nodes, m \in messages : ReceiveStartView(r, m)
-    \/ \E r \in Nodes, m \in messages : EagerAdopt(r, m)
-    \/ \E leader \in Nodes : SendPlannedViewChange(leader)
-    \/ \E r \in Nodes, m \in messages : AnswerPlannedViewChange(r, m)
-    \/ \E leader \in Nodes, chosen \in messages : CastPlannedVote(leader, chosen)
-    \/ \E r \in Nodes : Crash(r)
-    \/ \E r \in Nodes : BeginRecovery(r)
-    \/ \E r \in Nodes, m \in messages : RespondToRecovery(r, m)
-    \/ \E r \in Nodes, m \in messages : RecordRecoveryResponse(r, m)
-    \/ \E r \in Nodes, chosen \in messages : CompleteRecovery(r, chosen)
+    /\ \/ \E p \in Nodes, command \in Commands : ProposeCommand(p, command)
+       \/ \E p \in Nodes : ProposeReconfig(p)
+       \/ \E r \in Nodes, m \in messages : ReceivePrepare(r, m)
+       \/ \E p \in Nodes : CommitNext(p)
+       \/ \E r \in Nodes, m \in messages : ReceiveCommit(r, m)
+       \/ \E r \in Nodes, target \in Views : EnterViewChange(r, target)
+       \/ \E r \in Nodes, m \in messages : FollowHigherViewChange(r, m)
+       \/ \E r \in Nodes : SendDoViewChange(r)
+       \/ \E p \in Nodes, chosen \in messages : InstallView(p, chosen)
+       \/ \E r \in Nodes, m \in messages : ReceiveStartView(r, m)
+       \/ \E r \in Nodes, m \in messages : EagerAdopt(r, m)
+       \/ \E leader \in Nodes : SendPlannedViewChange(leader)
+       \/ \E r \in Nodes, m \in messages : AnswerPlannedViewChange(r, m)
+       \/ \E leader \in Nodes : CastPlannedVote(leader)
+       \/ \E leader \in Nodes, chosen \in messages :
+              CastPlannedVoteFromEvidence(leader, chosen)
+       \/ \E r \in Nodes : Crash(r)
+       \/ \E r \in Nodes : BeginRecovery(r)
+       \/ \E r \in Nodes : RedriveRecovery(r)
+       \/ \E r \in Nodes, m \in messages : RespondToRecovery(r, m)
+       \/ \E r \in Nodes, m \in messages : RecordRecoveryResponse(r, m)
+       \/ \E r \in Nodes, chosen \in messages : CompleteRecovery(r, chosen)
+    \* Monotone ghost record of every (slot, entry) fact any transition
+    \* commits, computed centrally from post-state logs and frontiers.
+    /\ historicalCommitted' = historicalCommitted \cup
+           UNION {{[slot |-> i, entry |-> logs'[r][i]] :
+                      i \in (committed[r] + 1)..committed'[r]} :
+                     r \in Nodes}
 
 Spec == Init /\ [][Next]_vars
 
@@ -826,19 +957,24 @@ Spec == Init /\ [][Next]_vars
  * reconfiguration and planned actions is a search-space projection, not a
  * protocol mutation: every M6Next step is an unchanged Next step. *)
 M6Next ==
-    \/ \E p \in {N0, N1}, command \in Commands : ProposeCommand(p, command)
-    \/ \E r \in {N2, N3}, m \in messages : ReceivePrepare(r, m)
-    \/ \E p \in {N0, N1} : CommitNext(p)
-    \/ \E r \in {N1, N2, N3} : EnterViewChange(r, View(0, 1))
-    \/ \E r \in {N1, N2, N3}, m \in messages : FollowHigherViewChange(r, m)
-    \/ \E r \in {N1, N2, N3} : SendDoViewChange(r)
-    \/ \E chosen \in messages : InstallView(N1, chosen)
-    \/ \E m \in messages : ReceiveStartView(N2, m)
-    \/ Crash(N3)
-    \/ BeginRecovery(N3)
-    \/ \E m \in messages : RespondToRecovery(N0, m)
-    \/ \E m \in messages : RecordRecoveryResponse(N3, m)
-    \/ \E chosen \in messages : CompleteRecovery(N3, chosen)
+    /\ \/ \E p \in {N0, N1}, command \in Commands : ProposeCommand(p, command)
+       \/ \E r \in {N2, N3}, m \in messages : ReceivePrepare(r, m)
+       \/ \E p \in {N0, N1} : CommitNext(p)
+       \/ \E r \in {N1, N2, N3} : EnterViewChange(r, View(0, 1))
+       \/ \E r \in {N1, N2, N3}, m \in messages : FollowHigherViewChange(r, m)
+       \/ \E r \in {N1, N2, N3} : SendDoViewChange(r)
+       \/ \E chosen \in messages : InstallView(N1, chosen)
+       \/ \E m \in messages : ReceiveStartView(N2, m)
+       \/ Crash(N3)
+       \/ BeginRecovery(N3)
+       \/ RedriveRecovery(N3)
+       \/ \E m \in messages : RespondToRecovery(N0, m)
+       \/ \E m \in messages : RecordRecoveryResponse(N3, m)
+       \/ \E chosen \in messages : CompleteRecovery(N3, chosen)
+    /\ historicalCommitted' = historicalCommitted \cup
+           UNION {{[slot |-> i, entry |-> logs'[r][i]] :
+                      i \in (committed[r] + 1)..committed'[r]} :
+                     r \in Nodes}
 
 M6Spec == Init /\ [][M6Next]_vars
 
@@ -860,8 +996,7 @@ MessageTypeOK(m) ==
     /\ m.retained \in Views
     /\ m.accepted \in 0..MaxLogLength
     /\ m.committed \in 0..MaxLogLength
-    /\ m.nonce \in 0..MaxEpoch
-    /\ m.evidence \in EvidenceKinds
+    /\ m.nonce \in 0..MaxNonce
 
 TypeOK ==
     /\ status \in [Nodes -> Statuses]
@@ -879,13 +1014,15 @@ TypeOK ==
                              retained : Views,
                              accepted : 0..MaxLogLength,
                              committed : 0..MaxLogLength,
-                             nonce : 0..MaxEpoch,
-                             evidence : EvidenceKinds]
+                             nonce : 0..MaxNonce]
     /\ \A r \in Nodes : Len(logs[r]) <= MaxLogLength
     /\ \A m \in messages : MessageTypeOK(m)
     /\ epochs \in [Nodes -> 0..MaxEpoch]
     /\ recoveryEvidence \subseteq messages
     /\ \A m \in recoveryEvidence : m.type = RecoveryResponseMsg
+    /\ recoveryNonces \in [Nodes -> SUBSET (0..MaxNonce)]
+    /\ historicalCommitted \subseteq [slot : 1..MaxLogLength,
+                                      entry : Entries]
     /\ everEnteredViewChange \in BOOLEAN
     /\ castOccurred \in BOOLEAN
     /\ overlapStreamed \in BOOLEAN
@@ -904,13 +1041,19 @@ CommittedLogsAgree ==
     \A r \in Nodes, s \in Nodes :
         PrefixEqual(logs[r], logs[s], Min(committed[r], committed[s]))
 
-CommittedEntrySurvives ==
-    \A r \in Nodes :
-        \A i \in 1..committed[r] :
-            IF i > Len(logs[r])
-            THEN FALSE
-            ELSE \E s \in Nodes :
-                     i <= Len(logs[s]) /\ logs[s][i] = logs[r][i]
+(****************************************************************************
+ * Historical committed facts: no committed slot is ever repopulated with a
+ * different entry, and every entry once committed remains present in at
+ * least one current replica history.  These replace the retired
+ * self-witnessing survival predicate (its existential admitted s = r).
+ ***************************************************************************)
+CommittedHistoryUnique ==
+    \A f \in historicalCommitted, g \in historicalCommitted :
+        f.slot = g.slot => f.entry = g.entry
+
+CommittedHistoryPresent ==
+    \A f \in historicalCommitted :
+        \E s \in Nodes : f.slot <= Len(logs[s]) /\ logs[s][f.slot] = f.entry
 
 EntryEraWindow ==
     /\ \A r \in Nodes :

@@ -12,9 +12,10 @@ The correspondence is:
 | `logs` and `Len(logs[r])` | `Journal` and `Progress::accepted()` |
 | `Propose`, `ReceivePrepare`, `CommitNext`, `ReceiveCommit` | `replica/normal.rs` |
 | `EnterViewChange` through `ReceiveStartView` | `replica/view_change.rs` |
-| `Crash` through `CompleteRecovery` | `Replica::reopen` and `replica/recovery.rs` |
+| `Crash` through `CompleteRecovery`, `recoveryNonces` | `Replica::reopen` and `replica/recovery.rs` |
 | `ApplyNext` | `Input::Applied` |
 | `messages` | published `Effect::Send` values plus adversarial transport |
+| `historicalCommitted` | none — a verification ghost recording every committed (slot, entry) fact |
 
 The model makes loss, reordering, delay, and duplication implicit: messages
 remain in a set forever, and a receive action is never required to occur. A
@@ -41,8 +42,12 @@ Two finite models are checked:
 - `VrrCore.cfg`: normal operation and view change with three replicas, two
   commands, and views 0 and 1.
 - `VrrCoreRecovery.cfg`: normal operation, view change, and one fenced
-  amnesiac crash/recovery event with three replicas and one command. The crash
-  target is nondeterministic, so primary and backup loss are both explored.
+  crash/recovery event with three replicas and two commands. The crash
+  target is nondeterministic, so primary and backup loss are both explored,
+  and the crash itself nondeterministically forgets or retains the durable
+  records (the volatile and persisted profiles of the durability model).
+  Two commands keep divergent slot-3 histories expressible, so prefix
+  agreement is checked rather than masked by value collision.
 
 Run both with the repository's no-volume Docker path:
 
@@ -64,7 +69,9 @@ make tla-local TLA2TOOLS_JAR=/absolute/path/to/tla2tools.jar
 The principal checked theorem is prefix agreement: any two replicas agree at
 every slot both consider committed. The other invariants enforce the frontier
 order, application-prefix agreement, the current/retained view distinction,
-recovery fencing, and survival of every locally committed entry.
+recovery fencing, and the two historical obligations over the ghost set: no
+committed slot is ever repopulated with a different entry, and every entry
+once committed remains present in at least one current replica history.
 
 ## Era-transition design model
 
@@ -75,13 +82,16 @@ finding, not a reason to weaken the model.
 
 The model uses explicit `[era |-> e, idx |-> v]` view identifiers with
 lexicographic order. Configuration is selected by the `Scenario` constant, and
-the startup `ASSUME` exhaustively enumerates subset pairs for the following
-obligations before `Init` can produce a state:
+the startup gate exhaustively enumerates subset pairs for the following
+obligations, each as its own named `Assert` in `Init`, so a refused scenario
+reports the exact obligation it violated:
 
 - same-era view/commit intersection in both eras;
 - both directions of cross-era view/commit intersection;
-- view-family self-intersection in both eras; and
-- fence/recovery intersection in both eras.
+- view-family self-intersection in both eras;
+- fence/recovery intersection in both eras; and
+- both directions of cross-era fence/recovery intersection (a recovery
+  quorum gathered in one era must meet the other era's fence family).
 
 The action correspondence is deliberately to the design statement:
 
@@ -89,15 +99,20 @@ The action correspondence is deliberately to the design statement:
 |---|---|---|
 | `ProposeCommand`, `ReceivePrepare`, `CommitNext`, `ReceiveCommit` | base, era-generalized | normal replication; slot routing by `EraOfSlot` |
 | `EnterViewChange` through `ReceiveStartView` | base, era-generalized | view fencing, retained-history provenance, establishing-entry certification |
-| `Crash` through `CompleteRecovery` | base, era-generalized | amnesiac recovery; recovering identities excluded from every quorum |
+| `Crash` through `CompleteRecovery` | base, era-generalized | two durability profiles; recovery under a bounded nonce set with re-drive; recovering identities send only recovery messages |
 | `ProposeReconfig` | new | one establishing operation and one consecutive era boundary |
 | `SendPlannedViewChange`, `AnswerPlannedViewChange` | new | planned evidence that does not fence its sender |
 | `CastPlannedVote` | new | the leader remains `Normal`, installs its own retained log, and changes `currentView` and `retainedView` atomically |
 
 The abstract `PlannedOk` message is a projection of planned view-change
 evidence: it retains provenance, history, and frontier fields, but the casting
-transition consumes only voter identity. Keeping a separate evidence kind is
-load-bearing; the M4 mutation deliberately erases that distinction.
+transition consumes only voter identity. The planned/ordinary distinction is
+carried by the message type itself; the M4 mutation deliberately erases that
+distinction. The normative cast (`CastPlannedVote`) installs the leader's own
+log and quantifies over no message evidence, so it does not generate one
+identical successor per irrelevant `PlannedOk`; the unserialized-cast defect
+has its own action (`CastPlannedVoteFromEvidence`) quantified over a chosen
+planned report.
 
 ### Abstraction boundary
 
@@ -117,12 +132,35 @@ The eras model makes seven state-space cuts:
    the adversarial direction for quorum safety.
 7. Messages are never removed. Loss, delay, duplication, and reordering are
    choices to ignore or repeatedly consume an old message.
+8. A crash always fences and forgets the volatile protocol state, then
+   nondeterministically forgets or retains the durable records (journal and
+   committed frontier). The volatile profile covers the in-memory journal
+   strategies; the persisted profile covers the durable Progress record, and
+   it is what makes mid-recovery committed fast-forward reachable.
+9. Recovery re-drive is modeled as a bounded set of remembered nonces
+   (`MaxNonce = 1` gives two nonces per attempt, the minimum that exercises
+   cross-nonce combining). The set models every solicitation of the attempt
+   loop: delayed responses to any remembered nonce still count, and
+   responses across nonces combine by sender. The committed fast-forward
+   advances over the contiguous locally held prefix that agrees with the
+   response history — the takeWhile walk — so an uncommitted dead-view entry
+   is never fast-forwarded past a disagreement.
 
 Recovery is operational, not havoced. The response family is selected from the
 era of the maximal reported view. A replica in `Recovering` may send only a
-recovery request; current status and view are rechecked when acknowledgements
-or planned votes are counted. An action property checks the send-side rule at
-the transition where a message is added.
+recovery request; an action property checks the send-side rule at the
+transition where a message is added. Quorum counting is over the recorded
+evidence itself: a message sent while the sender was entitled to send it
+remains valid under arbitrary delay, loss, reorder, and duplication, so the
+model does not recheck a responder's current status or view when
+acknowledgements, planned votes, or recovery responses are counted. The
+same-transition committed fast-forward and the completion floor
+(`committed` never decreases at completion) implement the fast-forward
+design over the contiguous locally held prefix. Application-effect
+suppression across a fast-forward — exactly-once `Apply` for a slot the
+replica already applied pre-crash — remains a Rust test obligation in
+`src/replica/recovery.rs`; it feeds no quorum and so stays outside the
+quorum-safety abstraction.
 
 The model also made one previously implicit proof obligation explicit. A
 follower may join an era-1 fence without locally knowing the establishing entry

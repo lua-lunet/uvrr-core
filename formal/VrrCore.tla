@@ -17,7 +17,8 @@
 
 EXTENDS FiniteSets, Naturals, Sequences
 
-CONSTANTS R0, R1, R2, Commands, MaxView, MaxLogLength, MaxEpoch
+CONSTANTS R0, R1, R2, Commands, MaxView, MaxLogLength, MaxEpoch, MaxNonce,
+          CrashRetainsDurable
 
 ReplicaOrder == <<R0, R1, R2>>
 Replicas == {R0, R1, R2}
@@ -50,6 +51,8 @@ ToSet(s) == {s[i] : i \in 1..Len(s)}
 
 ASSUME /\ Cardinality(Replicas) = 3
        /\ MaxLogLength >= Len(Genesis)
+       /\ MaxNonce \in Nat
+       /\ CrashRetainsDurable \in BOOLEAN
 
 Primary(v) == ReplicaOrder[(v % Len(ReplicaOrder)) + 1]
 
@@ -120,10 +123,13 @@ VARIABLES status,
           applied,
           messages,
           epochs,
-          recoveryEvidence
+          recoveryEvidence,
+          recoveryNonces,
+          historicalCommitted
 
 vars == <<status, currentView, retainedView, logs, committed, applied,
-          messages, epochs, recoveryEvidence>>
+          messages, epochs, recoveryEvidence, recoveryNonces,
+          historicalCommitted>>
 
 Init ==
     /\ status       = [r \in Replicas |-> Normal]
@@ -135,6 +141,9 @@ Init ==
     /\ messages     = {}
     /\ epochs       = [r \in Replicas |-> 0]
     /\ recoveryEvidence = {}
+    /\ recoveryNonces   = [r \in Replicas |-> {}]
+    /\ historicalCommitted =
+           {[slot |-> i, entry |-> Genesis[i]] : i \in 1..Len(Genesis)}
 
 (******************************************************************************
  * Normal operation: Propose -> Prepare -> PrepareOk -> Commit.  PrepareOk is
@@ -152,7 +161,7 @@ Propose(p, command) ==
        IN /\ logs' = [logs EXCEPT ![p] = Append(@, command)]
           /\ messages' = messages \cup outbound
     /\ UNCHANGED <<status, currentView, retainedView, committed, applied,
-                   epochs, recoveryEvidence>>
+                   epochs, recoveryEvidence, recoveryNonces>>
 
 ReceivePrepare(r, m) ==
     /\ m \in messages
@@ -169,7 +178,7 @@ ReceivePrepare(r, m) ==
           /\ committed' = [committed EXCEPT ![r] = learned]
           /\ messages' = messages \cup {PrepareOk(r, m.from, m.view, m.slot)}
     /\ UNCHANGED <<status, currentView, retainedView, applied, epochs,
-                   recoveryEvidence>>
+                   recoveryEvidence, recoveryNonces>>
 
 AckSenders(p, v, n) ==
     {m.from : m \in {candidate \in messages :
@@ -190,7 +199,7 @@ CommitNext(p) ==
           /\ committed' = [committed EXCEPT ![p] = n]
           /\ messages' = messages \cup outbound
     /\ UNCHANGED <<status, currentView, retainedView, logs, applied, epochs,
-                   recoveryEvidence>>
+                   recoveryEvidence, recoveryNonces>>
 
 ReceiveCommit(r, m) ==
     /\ m \in messages
@@ -203,7 +212,7 @@ ReceiveCommit(r, m) ==
        IN /\ learned > committed[r]
           /\ committed' = [committed EXCEPT ![r] = learned]
     /\ UNCHANGED <<status, currentView, retainedView, logs, applied,
-                   messages, epochs, recoveryEvidence>>
+                   messages, epochs, recoveryEvidence, recoveryNonces>>
 
 (******************************************************************************
  * View change: currentView is the fence; retainedView is history provenance.
@@ -216,13 +225,14 @@ ViewChangeBroadcast(r, v) ==
     {StartViewChangeVote(r, to, v) : to \in Replicas}
 
 EnterViewChange(r, target) ==
+    /\ status[r] \in {Normal, ViewChange}
     /\ target \in 0..MaxView
     /\ target > currentView[r]
     /\ status' = [status EXCEPT ![r] = ViewChange]
     /\ currentView' = [currentView EXCEPT ![r] = target]
     /\ messages' = messages \cup ViewChangeBroadcast(r, target)
     /\ UNCHANGED <<retainedView, logs, committed, applied, epochs,
-                   recoveryEvidence>>
+                   recoveryEvidence, recoveryNonces>>
 
 FollowHigherViewChange(r, m) ==
     /\ m \in messages
@@ -230,11 +240,12 @@ FollowHigherViewChange(r, m) ==
     /\ m.to = r
     /\ m.view <= MaxView
     /\ m.view > currentView[r]
+    /\ status[r] \in {Normal, ViewChange}
     /\ status' = [status EXCEPT ![r] = ViewChange]
     /\ currentView' = [currentView EXCEPT ![r] = m.view]
     /\ messages' = messages \cup ViewChangeBroadcast(r, m.view)
     /\ UNCHANGED <<retainedView, logs, committed, applied, epochs,
-                   recoveryEvidence>>
+                   recoveryEvidence, recoveryNonces>>
 
 FenceSenders(r, v) ==
     {m.from : m \in {candidate \in messages :
@@ -260,7 +271,7 @@ SendDoViewChange(r) ==
                                   committed[r])
        IN messages' = messages \cup {report}
     /\ UNCHANGED <<status, currentView, retainedView, logs, committed,
-                   applied, epochs, recoveryEvidence>>
+                   applied, epochs, recoveryEvidence, recoveryNonces>>
 
 Reports(p, v) ==
     {m \in messages :
@@ -290,12 +301,14 @@ InstallView(p, chosen) ==
                  {StartView(p, r, currentView[p], chosen.history,
                             Max(committed[p], maxCommitted)) :
                     r \in Replicas \ {p}}
-    /\ UNCHANGED <<currentView, applied, epochs, recoveryEvidence>>
+    /\ UNCHANGED <<currentView, applied, epochs, recoveryEvidence,
+                   recoveryNonces>>
 
 ReceiveStartView(r, m) ==
     /\ m \in messages
     /\ m.type = StartViewMsg
     /\ m.to = r
+    /\ status[r] \in {Normal, ViewChange}
     /\ m.from = Primary(m.view)
     /\ m.accepted = Len(m.history)
     /\ m.committed <= m.accepted
@@ -314,14 +327,22 @@ ReceiveStartView(r, m) ==
     /\ logs' = [logs EXCEPT ![r] = m.history]
     /\ committed' = [committed EXCEPT ![r] = m.committed]
     /\ recoveryEvidence' = {e \in recoveryEvidence : e.to # r}
-    /\ UNCHANGED <<applied, epochs>>
+    /\ UNCHANGED <<applied, epochs, recoveryNonces>>
 
 (******************************************************************************
- * Crash and recovery: Crash is the volatile/amnesiac durability profile.  A
- * crashed identity is fenced before its log and frontiers are forgotten.
- * Recovery excludes the recovering replica from its quorum, chooses the
- * greatest reported currentView, and installs history only from that view's
- * primary.  This is src/replica/recovery.rs at full-history abstraction.
+ * Crash and recovery: two durability profiles.  Crash always fences the
+ * identity and forgets the volatile protocol state (status, views, quorum
+ * evidence, recovery attempt); it then either forgets the durable records
+ * as well (volatile deployment: in-memory journal strategy) or retains
+ * them (the persisted Progress record and journal of §5).  Recovery
+ * excludes the recovering replica from its quorum, chooses the greatest
+ * reported currentView, and installs history only from that view's
+ * primary.  An attempt is a bounded set of nonces, one per solicitation,
+ * so a delayed response to a remembered nonce still counts and responses
+ * across in-set nonces combine by sender.  An accepted response whose
+ * committed exceeds the local frontier fast-forwards it over the locally
+ * held contiguous prefix.  This is src/replica/recovery.rs at
+ * full-history abstraction.
  *****************************************************************************)
 Unready == {r \in Replicas : status[r] \in {Recovering, Replaying}}
 
@@ -334,24 +355,33 @@ Crash(r) ==
     /\ status' = [status EXCEPT ![r] = Recovering]
     /\ currentView' = [currentView EXCEPT ![r] = 0]
     /\ retainedView' = [retainedView EXCEPT ![r] = 0]
-    /\ logs' = [logs EXCEPT ![r] = Genesis]
-    /\ committed' = [committed EXCEPT ![r] = Len(Genesis)]
-    /\ applied' = [applied EXCEPT ![r] = Len(Genesis)]
     /\ epochs' = [epochs EXCEPT ![r] = @ + 1]
     /\ recoveryEvidence' = {e \in recoveryEvidence : e.to # r}
+    /\ recoveryNonces' = [recoveryNonces EXCEPT ![r] = {}]
+    /\ \/ /\ logs' = [logs EXCEPT ![r] = Genesis]
+          /\ committed' = [committed EXCEPT ![r] = Len(Genesis)]
+          /\ applied' = [applied EXCEPT ![r] = Len(Genesis)]
+       \/ /\ CrashRetainsDurable
+          /\ UNCHANGED <<logs, committed, applied>>
     /\ UNCHANGED messages
-
-RecoveryStarted(r) ==
-    \E m \in messages :
-        /\ m.type = RecoveryMsg
-        /\ m.from = r
-        /\ m.nonce = epochs[r]
 
 BeginRecovery(r) ==
     /\ status[r] = Recovering
-    /\ ~RecoveryStarted(r)
+    /\ recoveryNonces[r] = {}
+    /\ recoveryNonces' = [recoveryNonces EXCEPT ![r] = {0}]
     /\ messages' = messages \cup
-           {RecoveryRequest(r, to, epochs[r]) : to \in Replicas \ {r}}
+           {RecoveryRequest(r, to, 0) : to \in Replicas \ {r}}
+    /\ UNCHANGED <<status, currentView, retainedView, logs, committed,
+                   applied, epochs, recoveryEvidence>>
+
+RedriveRecovery(r) ==
+    /\ status[r] = Recovering
+    /\ recoveryNonces[r] # {}
+    /\ \E fresh \in (0..MaxNonce) \ recoveryNonces[r] :
+        /\ \A older \in (0..MaxNonce) \ recoveryNonces[r] : fresh <= older
+        /\ recoveryNonces' = [recoveryNonces EXCEPT ![r] = @ \cup {fresh}]
+        /\ messages' = messages \cup
+               {RecoveryRequest(r, to, fresh) : to \in Replicas \ {r}}
     /\ UNCHANGED <<status, currentView, retainedView, logs, committed,
                    applied, epochs, recoveryEvidence>>
 
@@ -366,33 +396,56 @@ RespondToRecovery(r, request) ==
                                         Len(logs[r]), committed[r])
        IN messages' = messages \cup {response}
     /\ UNCHANGED <<status, currentView, retainedView, logs, committed,
-                   applied, epochs, recoveryEvidence>>
+                   applied, epochs, recoveryEvidence, recoveryNonces>>
 
 RecoveryResponses(r) ==
     {m \in recoveryEvidence :
         /\ m.type = RecoveryResponseMsg
         /\ m.to = r
-        /\ m.nonce = epochs[r]
+        /\ m.nonce \in recoveryNonces[r]
         /\ m.from # r}
 
 RecoveryResponders(r) == {m.from : m \in RecoveryResponses(r)}
 
 RecordRecoveryResponse(r, response) ==
     /\ status[r] = Recovering
-    /\ RecoveryStarted(r)
     /\ response \in messages
     /\ response.type = RecoveryResponseMsg
     /\ response.to = r
     /\ response.from # r
-    /\ response.nonce = epochs[r]
+    /\ response.nonce \in recoveryNonces[r]
     /\ response.committed >= committed[r]
+    \* Combining is monotone in the nonce, as in
+    \* combine_cross_nonce_responses: only a strictly newer response from
+    \* this sender is recorded.  Recording an older one would oscillate the
+    \* evidence set without changing any quorum outcome.
+    /\ ~\E e \in recoveryEvidence :
+           /\ e.to = r
+           /\ e.from = response.from
+           /\ e.nonce >= response.nonce
+    \* Fast-forward over the contiguous locally held prefix that AGREES with
+    \* the response history: the takeWhile walk of §6.6.  Advancing past a
+    \* local entry the quorum never committed (a dead view's uninstalled
+    \* proposal) would commit a divergent value.
     /\ LET prior == {e \in recoveryEvidence :
                         e.to = r /\ e.from = response.from}
            replacement == (recoveryEvidence \ prior) \cup {response}
-       IN /\ replacement # recoveryEvidence
+           limit == Min(response.committed,
+                        Min(Len(logs[r]), Len(response.history)))
+           matching == {l \in committed[r]..limit :
+                           \A k \in (committed[r] + 1)..l :
+                               logs[r][k] = response.history[k]}
+           \* Total even when the response carries a frontier beyond its
+           \* history: no matching level exists, so no fast-forward gain.
+           fastForward == IF limit >= committed[r]
+                          THEN SetMax(matching)
+                          ELSE committed[r]
+       IN /\ \/ replacement # recoveryEvidence
+             \/ fastForward > committed[r]
           /\ recoveryEvidence' = replacement
-    /\ UNCHANGED <<status, currentView, retainedView, logs, committed,
-                   applied, messages, epochs>>
+          /\ committed' = [committed EXCEPT ![r] = fastForward]
+    /\ UNCHANGED <<status, currentView, retainedView, logs, applied,
+                   messages, epochs, recoveryNonces>>
 
 CompleteRecovery(r, chosen) ==
     /\ status[r] = Recovering
@@ -404,16 +457,17 @@ CompleteRecovery(r, chosen) ==
           /\ chosen.from = Primary(latest)
           /\ chosen.accepted = Len(chosen.history)
           /\ chosen.committed <= chosen.accepted
-          /\ chosen.committed >= committed[r]
           /\ PrefixEqual(chosen.history, logs[r], committed[r])
-          /\ status' = [status EXCEPT
-                 ![r] = IF applied[r] = chosen.committed
-                         THEN Normal ELSE Replaying]
-          /\ currentView' = [currentView EXCEPT ![r] = latest]
-          /\ retainedView' = [retainedView EXCEPT ![r] = latest]
-          /\ logs' = [logs EXCEPT ![r] = chosen.history]
-          /\ committed' = [committed EXCEPT ![r] = chosen.committed]
-          /\ recoveryEvidence' = {e \in recoveryEvidence : e.to # r}
+          /\ LET installed == Max(committed[r], chosen.committed)
+             IN /\ status' = [status EXCEPT
+                       ![r] = IF applied[r] = installed
+                               THEN Normal ELSE Replaying]
+                /\ currentView' = [currentView EXCEPT ![r] = latest]
+                /\ retainedView' = [retainedView EXCEPT ![r] = latest]
+                /\ logs' = [logs EXCEPT ![r] = chosen.history]
+                /\ committed' = [committed EXCEPT ![r] = installed]
+                /\ recoveryEvidence' = {e \in recoveryEvidence : e.to # r}
+                /\ recoveryNonces' = [recoveryNonces EXCEPT ![r] = {}]
     /\ UNCHANGED <<applied, messages, epochs>>
 
 (******************************************************************************
@@ -430,24 +484,31 @@ ApplyNext(r) ==
                  ![r] = IF status[r] = Replaying /\ next = committed[r]
                          THEN Normal ELSE @]
     /\ UNCHANGED <<currentView, retainedView, logs, committed,
-                   messages, epochs, recoveryEvidence>>
+                   messages, epochs, recoveryEvidence, recoveryNonces>>
 
 Next ==
-    \/ \E p \in Replicas, command \in Commands : Propose(p, command)
-    \/ \E r \in Replicas, m \in messages : ReceivePrepare(r, m)
-    \/ \E p \in Replicas : CommitNext(p)
-    \/ \E r \in Replicas, m \in messages : ReceiveCommit(r, m)
-    \/ \E r \in Replicas, target \in 0..MaxView : EnterViewChange(r, target)
-    \/ \E r \in Replicas, m \in messages : FollowHigherViewChange(r, m)
-    \/ \E r \in Replicas : SendDoViewChange(r)
-    \/ \E p \in Replicas, chosen \in messages : InstallView(p, chosen)
-    \/ \E r \in Replicas, m \in messages : ReceiveStartView(r, m)
-    \/ \E r \in Replicas : Crash(r)
-    \/ \E r \in Replicas : BeginRecovery(r)
-    \/ \E r \in Replicas, m \in messages : RespondToRecovery(r, m)
-    \/ \E r \in Replicas, m \in messages : RecordRecoveryResponse(r, m)
-    \/ \E r \in Replicas, chosen \in messages : CompleteRecovery(r, chosen)
-    \/ \E r \in Replicas : ApplyNext(r)
+    /\ \/ \E p \in Replicas, command \in Commands : Propose(p, command)
+       \/ \E r \in Replicas, m \in messages : ReceivePrepare(r, m)
+       \/ \E p \in Replicas : CommitNext(p)
+       \/ \E r \in Replicas, m \in messages : ReceiveCommit(r, m)
+       \/ \E r \in Replicas, target \in 0..MaxView : EnterViewChange(r, target)
+       \/ \E r \in Replicas, m \in messages : FollowHigherViewChange(r, m)
+       \/ \E r \in Replicas : SendDoViewChange(r)
+       \/ \E p \in Replicas, chosen \in messages : InstallView(p, chosen)
+       \/ \E r \in Replicas, m \in messages : ReceiveStartView(r, m)
+       \/ \E r \in Replicas : Crash(r)
+       \/ \E r \in Replicas : BeginRecovery(r)
+       \/ \E r \in Replicas : RedriveRecovery(r)
+       \/ \E r \in Replicas, m \in messages : RespondToRecovery(r, m)
+       \/ \E r \in Replicas, m \in messages : RecordRecoveryResponse(r, m)
+       \/ \E r \in Replicas, chosen \in messages : CompleteRecovery(r, chosen)
+       \/ \E r \in Replicas : ApplyNext(r)
+    \* Monotone ghost record of every (slot, entry) fact any transition
+    \* commits, computed centrally from post-state logs and frontiers.
+    /\ historicalCommitted' = historicalCommitted \cup
+           UNION {{[slot |-> i, entry |-> logs'[r][i]] :
+                      i \in (committed[r] + 1)..committed'[r]} :
+                     r \in Replicas}
 
 Spec == Init /\ [][Next]_vars
 
@@ -466,7 +527,7 @@ MessageTypeOK(m) ==
     /\ m.retained \in 0..MaxView
     /\ m.accepted \in 0..MaxLogLength
     /\ m.committed \in 0..MaxLogLength
-    /\ m.nonce \in 0..MaxEpoch
+    /\ m.nonce \in 0..MaxNonce
 
 TypeOK ==
     /\ status \in [Replicas -> Statuses]
@@ -480,6 +541,9 @@ TypeOK ==
     /\ \A m \in messages : MessageTypeOK(m)
     /\ recoveryEvidence \subseteq messages
     /\ \A m \in recoveryEvidence : m.type = RecoveryResponseMsg
+    /\ recoveryNonces \in [Replicas -> SUBSET (0..MaxNonce)]
+    /\ historicalCommitted \subseteq [slot : 1..MaxLogLength,
+                                      entry : LogValues]
 
 FrontiersOrdered ==
     \A r \in Replicas : applied[r] <= committed[r] /\ committed[r] <= Len(logs[r])
@@ -498,10 +562,19 @@ AppliedLogsAgree ==
     \A r \in Replicas, s \in Replicas :
         PrefixEqual(logs[r], logs[s], Min(applied[r], applied[s]))
 
-CommittedEntrySurvives ==
-    \A r \in Replicas :
-        \A i \in 1..committed[r] :
-            \E s \in Replicas : i <= Len(logs[s]) /\ logs[s][i] = logs[r][i]
+(******************************************************************************
+ * Historical committed facts: no committed slot is ever repopulated with a
+ * different entry, and every entry once committed remains present in at
+ * least one current replica history.  These replace the retired
+ * self-witnessing survival predicate (its existential admitted s = r).
+ *****************************************************************************)
+CommittedHistoryUnique ==
+    \A f \in historicalCommitted, g \in historicalCommitted :
+        f.slot = g.slot => f.entry = g.entry
+
+CommittedHistoryPresent ==
+    \A f \in historicalCommitted :
+        \E s \in Replicas : f.slot <= Len(logs[s]) /\ logs[s][f.slot] = f.entry
 
 ReplayingIsFenced ==
     \A r \in Replicas : status[r] = Replaying => applied[r] < committed[r]

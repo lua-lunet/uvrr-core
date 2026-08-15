@@ -116,48 +116,55 @@ tla-build:
 	docker build --platform $(TLA_PLATFORM) --build-arg TLA_DEB_ARCH=$(TLA_ARCH) -f $(TLA_FILE) -t $(TLA_IMAGE) .
 	test "$$(docker image inspect $(TLA_IMAGE) --format '{{.Architecture}}')" = "$(TLA_ARCH)"
 
+# Shell prelude for the TLA+ Docker lanes: expect_failure <cfg> <needle>
+# [extra tlc args...] requires the run to fail AND the output to contain
+# the exact needle (grep -F), so a typo'd configuration or a differently
+# failing obligation cannot masquerade as the expected defect.
+define TLA_EXPECT_FAILURE_DOCKER
+expect_failure() { \
+	cfg="$$1"; needle="$$2"; shift 2; output="$$(mktemp -t vrr-tla.XXXXXX)"; \
+	if docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) "$$@" -config "$$cfg" VrrCoreEras.tla >"$$output" 2>&1; then \
+		cat "$$output"; rm -f "$$output"; echo "expected $$cfg to fail"; exit 1; \
+	fi; \
+	if ! grep -F "$$needle" "$$output"; then cat "$$output"; rm -f "$$output"; exit 1; fi; \
+	rm -f "$$output"; \
+}
+endef
+
 tla-run:
 	test "$$(docker image inspect $(TLA_IMAGE) --format '{{.Architecture}}')" = "$(TLA_ARCH)"
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCore.cfg VrrCore.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreRecovery.cfg VrrCore.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreEras.cfg VrrCoreEras.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreErasEven.cfg VrrCoreEras.tla
-	@expect_failure() { \
-		cfg="$$1"; needle="$$2"; output="$$(mktemp -t vrr-tla.XXXXXX)"; \
-		if docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config "$$cfg" VrrCoreEras.tla >"$$output" 2>&1; then \
-			cat "$$output"; rm -f "$$output"; echo "expected $$cfg to fail"; exit 1; \
-		fi; \
-		if ! grep -F "$$needle" "$$output"; then cat "$$output"; rm -f "$$output"; exit 1; fi; \
-		rm -f "$$output"; \
-	}; \
+	@$(TLA_EXPECT_FAILURE_DOCKER); \
 	expect_failure VrrCoreErasWitnessNonStop.cfg "Invariant WNonStop is violated"; \
-	expect_failure VrrCoreErasWitnessOverlap.cfg "Invariant WOverlapStreams is violated"
+	expect_failure VrrCoreErasWitnessOverlap.cfg "Invariant WOverlapStreams is violated"; \
+	expect_failure VrrCoreErasEvenOverlap.cfg "Invariant WOverlapStreams is violated"
 
 tla: tla-build tla-run
 
 tla-even: tla-build
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreErasEven.cfg VrrCoreEras.tla
+	@$(TLA_EXPECT_FAILURE_DOCKER); \
+	expect_failure VrrCoreErasEvenOverlap.cfg "Invariant WOverlapStreams is violated"
 
 tla-deep: tla-build
+	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=30000 -depth 40 -seed 1 -config VrrCoreRecoveryDeep.cfg VrrCore.tla
+	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=10000 -depth 40 -seed 1 -config VrrCoreErasEvenDeep.cfg VrrCoreEras.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=10000 -depth 40 -seed 1 -config VrrCoreErasCrash.cfg VrrCoreEras.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=100000 -depth 60 -seed 1 -config VrrCoreErasDeep.cfg VrrCoreEras.tla
 
 tla-mutations: tla-build
-	@expect_failure() { \
-		cfg="$$1"; needle="$$2"; shift 2; output="$$(mktemp -t vrr-tla-mutation.XXXXXX)"; \
-		if docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) "$$@" -config "$$cfg" VrrCoreEras.tla >"$$output" 2>&1; then \
-			cat "$$output"; rm -f "$$output"; echo "expected $$cfg to fail"; exit 1; \
-		fi; \
-		if ! grep -F "$$needle" "$$output"; then cat "$$output"; rm -f "$$output"; exit 1; fi; \
-		rm -f "$$output"; \
-	}; \
-	expect_failure VrrCoreErasM1.cfg "Invariant CommittedEntrySurvives is violated"; \
+	@$(TLA_EXPECT_FAILURE_DOCKER); \
+	expect_failure VrrCoreErasM1.cfg "Invariant FrontiersOrdered is violated"; \
 	expect_failure VrrCoreErasM2.cfg "Invariant CommittedLogsAgree is violated"; \
 	expect_failure VrrCoreErasM3.cfg "Invariant CommittedLogsAgree is violated" -simulate num=10000 -depth 60 -seed 1; \
-	expect_failure VrrCoreErasM4.cfg "Invariant CommittedEntrySurvives is violated"; \
+	expect_failure VrrCoreErasM4.cfg "Invariant CommittedLogsAgree is violated"; \
 	expect_failure VrrCoreErasM5.cfg "Invariant CommittedLogsAgree is violated"; \
 	expect_failure VrrCoreErasM6.cfg "Invariant CommittedLogsAgree is violated"; \
-	expect_failure VrrCoreErasM7.cfg "Error: Assumption"
+	expect_failure VrrCoreErasM7.cfg "gate: r1-era1"; \
+	expect_failure VrrCoreErasM8.cfg "gate: fr-cross-fence0-recovery1"
 
 tla-local:
 	test -n "$(TLA2TOOLS_JAR)"
@@ -175,4 +182,5 @@ tla-local:
 		rm -f "$$output"; \
 	}; \
 	expect_failure VrrCoreErasWitnessNonStop.cfg "Invariant WNonStop is violated"; \
-	expect_failure VrrCoreErasWitnessOverlap.cfg "Invariant WOverlapStreams is violated"
+	expect_failure VrrCoreErasWitnessOverlap.cfg "Invariant WOverlapStreams is violated"; \
+	expect_failure VrrCoreErasEvenOverlap.cfg "Invariant WOverlapStreams is violated"
