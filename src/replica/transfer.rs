@@ -19,6 +19,7 @@
 //! become adequately current here before a later committed `INCREMENT` grants it voting
 //! authority.
 
+use super::reconfiguration::CommitFold;
 use super::*;
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
@@ -318,11 +319,24 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         } else {
             Vec::new()
         };
+        // §8.7.1: the committed frontier moved — fold the system
+        // operations the advance newly covers. A fold refusal here is a
+        // chunk that contradicts committed history the configuration
+        // cannot hold: the same breach as the conflict arm above (§9.2).
+        let config =
+            match self.fold_committed(journal, entries, self.progress.committed(), new_committed) {
+                Ok(config) => config,
+                Err(CommitFold::Unavailable(slot)) => {
+                    return Err(PlanRejection::JournalEntryUnavailable { slot });
+                }
+                Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+            };
         let candidate = self.candidate_with(
             self.progress.status(),
             new_accepted,
             new_committed,
             self.applied_walk(journal, entries, self.progress.applied(), new_committed)?,
+            config,
         )?;
         // The cursor: a partial answer resumes with a fresh `GetState`
         // one past the newly installed frontier; the final chunk closes

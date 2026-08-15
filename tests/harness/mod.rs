@@ -42,8 +42,9 @@
 //!
 //! # What is not here
 //!
-//! The reconfiguration input is still refused with the named
-//! `PlanRejection::Unsupported`. Normal operation is live:
+//! The non-stop-the-world reconfiguration pivot (§8.7.6–§8.7.7) is still
+//! refused with the named `PlanRejection::Unsupported`. Normal operation
+//! is live:
 //! `Prepare`/`PrepareOk`/`Commit`, the Propose/Apply/Applied boundary
 //! (§11.1), the bootstrap from the fenced `Recovering` genesis state, view
 //! change, recovery (§6.1), state transfer (§10, §13.1 step 5), the
@@ -67,7 +68,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
-use vrr::configuration::{EraTable, INIT_SLOT, VOID_SLOT};
+use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, Stability, StabilityResult};
 use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::{Journal, JournalView, LogEntry, RangeOutcome, SegmentedLog};
@@ -76,7 +77,7 @@ use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
 use vrr::quorum::WeightedMajority;
 use vrr::replica::{
-    Input, LifecycleError, Observer, PersistedProgress, PlanRejection, PublishOutcome,
+    Input, LifecycleError, Observer, PersistedProgress, Pivot, PlanRejection, PublishOutcome,
     PublishRejection, Replica, TimedInput, ViewChangeKnobs,
 };
 use vrr::wire::Tag;
@@ -501,6 +502,19 @@ impl Harness {
         )
     }
 
+    /// [`Harness::with_journal_capacity`] with explicit view-change knobs:
+    /// a reclamation script that also drives view changes needs both —
+    /// slab boundaries decide what reclamation can drop, the timeout
+    /// decides when suspicion fires.
+    #[must_use]
+    pub fn with_knobs_and_journal_capacity(
+        n: usize,
+        knobs: ViewChangeKnobs,
+        tail_capacity: usize,
+    ) -> Harness {
+        Self::assemble(n, Stability::Volatile, knobs, Some(tail_capacity))
+    }
+
     /// The knob setting that makes the view-change machinery inert: no
     /// suspicion ever fires, and suffixes are never truncated.
     fn no_view_change_knobs() -> ViewChangeKnobs {
@@ -885,6 +899,17 @@ impl Harness {
             .and_then(|node| node.replica.journal().view().get(slot).cloned())
     }
 
+    /// The node's configuration history (§8.7.1) — the record
+    /// reconfiguration scripts assert over (the era, the establishing
+    /// slot, the member weights). `None` if the node is down.
+    #[must_use]
+    pub fn era_table(&self, id: NodeId) -> Option<Arc<EraTable>> {
+        self.nodes
+            .get(usize::try_from(id.0).expect("node ids are small"))
+            .and_then(Option::as_ref)
+            .map(|node| Arc::clone(node.replica.progress().config()))
+    }
+
     /// The node's sticky fault, if declared — the identity, not just the
     /// `faulted` word the observation carries (the `expect_fault`
     /// scripts assert WHICH fault the breach declared).
@@ -968,6 +993,24 @@ impl Harness {
     pub fn recover(&mut self, id: NodeId) -> StepOutcome {
         self.advance_clock();
         self.drive(id, format!("n={} recover", id.0), Input::Recover)
+    }
+
+    /// A reconfiguration proposal (§8.7.2): `Input::Reconfigure` through
+    /// the ordinary step machinery — the named refusal or the proposal's
+    /// publication is the script's to assert. The pivot is `None` on the
+    /// stop-the-world path (§8.7.4); a `Some` pivot is refused as
+    /// unsupported future work (§8.7.6).
+    pub fn reconfigure(
+        &mut self,
+        id: NodeId,
+        op: SystemOperation,
+        pivot: Option<Pivot>,
+    ) -> StepOutcome {
+        self.drive(
+            id,
+            format!("n={} reconfigure {op:?}", id.0),
+            Input::Reconfigure { op, pivot },
+        )
     }
 
     /// Feeds an `Input::Applied` the harness's own apply execution did not

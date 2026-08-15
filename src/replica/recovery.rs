@@ -20,7 +20,23 @@
 //! the tick once state transfer has supplied the missing range (§13.1
 //! step 5).
 
+use super::reconfiguration::CommitFold;
 use super::*;
+
+/// What a committed fast-forward found in the range it covered.
+enum FastForward {
+    /// The evidence claimed nothing beyond the local frontier — a
+    /// duplicate or overlapping response is an identity transition.
+    Identity,
+    /// The frontier advances: the candidate (with the §8.7.1 fold
+    /// carried) and the ordered `Apply` upcalls over the newly committed
+    /// range.
+    Advanced(Progress, Vec<Effect>),
+    /// A committed system operation in the range would not fold
+    /// (§8.7.2): the journal and the configuration history disagree
+    /// about a COMMITTED slot — the caller declares the breach.
+    Breach,
+}
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// Begin (or re-drive) a recovery attempt (§10, §6.1): broadcast the
@@ -255,12 +271,23 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // duplicate or overlapping response claims nothing new and the
         // fast-forward is the identity.
         let record_attempt = |attempt: RecoveryVolatile, diagnostic| {
-            let (candidate, effects) = match self.plan_committed_fast_forward(journal, committed)? {
-                Some((candidate, effects)) => (candidate, effects),
-                None => (self.identity_candidate()?, Vec::new()),
+            let plan = match self.plan_committed_fast_forward(journal, committed)? {
+                FastForward::Advanced(candidate, effects) => {
+                    self.candidate_plan(candidate, JournalMutation::None, effects, kind, false)
+                }
+                FastForward::Identity => self.candidate_plan(
+                    self.identity_candidate()?,
+                    JournalMutation::None,
+                    Vec::new(),
+                    kind,
+                    false,
+                ),
+                // A fold refusal in the fast-forwarded COMMITTED range is
+                // the same breach as a committed-slot conflict (§9.1):
+                // declare it.
+                FastForward::Breach => return self.breach_plan(kind),
             };
-            Ok(self
-                .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
+            Ok(plan
                 .with_bookkeeping(Bookkeeping {
                     recovery: RecoveryUpdate::Set(attempt),
                     ..Bookkeeping::default()
@@ -359,15 +386,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// crashed. The applied frontier moves only by the §11 system-slot
     /// walk: the operation slots await the host's `Input::Applied`
     /// acknowledgements through the ordinary path, exactly as in normal
-    /// operation, and the node stays fenced `Recovering`. Returns `None`
-    /// when the evidence claims nothing beyond the local frontier — a
-    /// duplicate or overlapping response is an identity transition:
-    /// slots at or below the frontier are skipped.
+    /// operation, and the node stays fenced `Recovering`. Returns
+    /// [`FastForward::Identity`] when the evidence claims nothing beyond
+    /// the local frontier — a duplicate or overlapping response is an
+    /// identity transition: slots at or below the frontier are skipped.
     fn plan_committed_fast_forward(
         &self,
         journal: &J::View,
         claimed: Slot,
-    ) -> Result<Option<(Progress, Vec<Effect>)>, PlanRejection> {
+    ) -> Result<FastForward, PlanRejection> {
         let committed = self.progress.committed();
         // takeWhile over sequentially-adjacent, locally journal-present
         // slots: the frontier the evidence vouches for, capped at the
@@ -380,20 +407,29 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             target = next;
         }
         if target == committed {
-            return Ok(None);
+            return Ok(FastForward::Identity);
         }
         // The same shape the recovery completion's replay takes (§11.1):
         // the ordered `Apply` upcalls over the newly committed range, and
-        // the §11 system-slot walk over the same range for `applied`.
+        // the §11 system-slot walk over the same range for `applied` —
+        // and the §8.7.1 fold over the same range for the era table.
         let applies = self.apply_effects_merged(journal, &[], committed, target)?;
         let applied = self.applied_walk(journal, &[], self.progress.applied(), target)?;
+        let config = match self.fold_committed(journal, &[], committed, target) {
+            Ok(config) => config,
+            Err(CommitFold::Unavailable(slot)) => {
+                return Err(PlanRejection::JournalEntryUnavailable { slot });
+            }
+            Err(CommitFold::Breach { .. }) => return Ok(FastForward::Breach),
+        };
         let candidate = self.candidate_with(
             self.progress.status(),
             self.progress.accepted(),
             target,
             applied,
+            config,
         )?;
-        Ok(Some((candidate, applies)))
+        Ok(FastForward::Advanced(candidate, applies))
     }
 
     /// The completing ruling of an open recovery attempt, when it is
@@ -620,8 +656,29 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         } else {
             Status::Replaying
         };
-        let candidate =
-            self.recovery_candidate(latest, status, evidence.accepted, committed, applied)?;
+        // §8.7.1: the recovered history's committed frontier may cover
+        // system operations this node never folded — the era advances
+        // with the install, exactly as if the commits had arrived in
+        // order. An unavailable slot is the same shortfall the replay
+        // ruling names; a fold refusal in the recovered COMMITTED
+        // history is the same breach as a committed-slot conflict (§8.3,
+        // §9.2): declare it, never guess a repair.
+        let config = match self.fold_committed(journal, suffix, local_committed, committed) {
+            Ok(config) => config,
+            Err(CommitFold::Unavailable(slot)) => {
+                let (retained_base, _) = journal.retained();
+                return shortfall(attempt, slot, retained_base);
+            }
+            Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+        };
+        let candidate = self.recovery_candidate(
+            latest,
+            status,
+            evidence.accepted,
+            committed,
+            applied,
+            config,
+        )?;
         // The recovery install supersedes any view change the node was
         // fencing (the attempt cleared below), and if the node is the
         // primary of the view it recovered into it picks the reassembled
@@ -660,6 +717,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         accepted: Slot,
         committed: Slot,
         applied: Slot,
+        config: Arc<EraTable>,
     ) -> Result<Progress, PlanRejection> {
         let committed = committed.max(self.progress.committed());
         let applied = applied.max(self.progress.applied());
@@ -677,7 +735,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             applied,
             self.progress.checkpoint(),
             revision,
-            Arc::clone(self.progress.config()),
+            config,
             None,
         )
         .map_err(PlanRejection::Progress)

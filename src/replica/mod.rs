@@ -276,7 +276,7 @@ impl Input {
 /// One variant per cause, so a test asserting a refusal asserts *which*
 /// precondition failed. The fault and outstanding checks precede dispatch, so
 /// even an otherwise unsupported input reports the real reason.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PlanRejection {
     /// The node is faulted; every input is refused, ticks and confirmations
     /// included (§5 invariant 5). Carries the sticky fault.
@@ -385,6 +385,35 @@ pub enum PlanRejection {
     /// slot can be assigned (§8.7.3 forbids wraparound, so acceptance stops
     /// rather than reuses a position).
     SlotSpaceExhausted,
+    /// An [`Input::Reconfigure`] the §8.7.2 preconditions refuse: the fold
+    /// of the operation onto the current configuration at the next slot
+    /// produced the carried witness error. The refusal runs BEFORE the
+    /// proposal; the operation never entered the log.
+    Reconfigure(ConfigError),
+    /// An [`Input::Reconfigure`] the closed intersection gate refuses
+    /// (§8.7.4, Q1): R2 across the era boundary, or R1 / self-intersection
+    /// / fence-recovery within the resulting era. Carries the witness —
+    /// the disjoint vote sets that cannot both be legal. The refusal runs
+    /// BEFORE the proposal; the operation never entered the log.
+    ReconfigureQuorum(QuorumError),
+    /// An [`Input::Reconfigure`] while the era table is already one era
+    /// past the current view: the committed operation establishing that
+    /// era awaits the ordinary view change into it (§8.7.8), and a second
+    /// advance would put the accepted frontier outside §8.7.3's relation.
+    EraTransitionOutstanding {
+        /// The current view's era.
+        view: Era,
+        /// The era the committed configuration history has established.
+        established: Era,
+    },
+    /// An [`Input::Reconfigure`] while an earlier system operation sits
+    /// accepted but uncommitted: the stop-the-world path (§8.7.4)
+    /// serializes establishing operations one at a time, so the fold that
+    /// runs at commit is the fold the pre-proposal gate validated.
+    ReconfigureOutstanding {
+        /// The slot of the uncommitted system operation.
+        slot: Slot,
+    },
     /// An [`Input::AdminForceView`] whose target does not strictly advance
     /// the view (§14.2): forcing a change backwards or sideways is bad
     /// input, not a fence.
@@ -1472,13 +1501,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     input.event.kind(),
                 )
             }
-            Input::Reconfigure { .. } => {
-                // The outstanding check precedes dispatch, so even an
-                // otherwise unsupported input reports the real reason (§12).
+            Input::Reconfigure { op, pivot } => {
                 self.refuse_if_parked()?;
-                Err(PlanRejection::Unsupported {
-                    input: input.event.kind(),
-                })
+                self.plan_reconfigure(journal, op, pivot)
             }
         }
     }
@@ -1558,8 +1583,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .checked_add(self.knobs.primary_timeout)
                 .is_some_and(|deadline| at.0 > deadline);
         if suspects {
-            let target = current
-                .next_in_era()
+            let target = self
+                .view_change_target()
                 .ok_or(PlanRejection::Progress(ProgressError::ViewSuccessor))?;
             return self.enter_view_change(journal, target, BTreeSet::new(), at, InputKind::Tick);
         }
@@ -1706,8 +1731,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         } else {
             self.progress.status()
         };
-        let candidate =
-            self.candidate_with(status, self.progress.accepted(), committed, applied)?;
+        let candidate = self.candidate_with(
+            status,
+            self.progress.accepted(),
+            committed,
+            applied,
+            Arc::clone(self.progress.config()),
+        )?;
         let bookkeeping = Bookkeeping {
             resolved: vec![slot],
             ..Bookkeeping::default()
@@ -1877,7 +1907,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// Builds a candidate over the published record, changing exactly the
-    /// named fields, with the revision advanced by one (§12).
+    /// named fields, with the revision advanced by one (§12). The caller
+    /// supplies the configuration history the candidate carries: the
+    /// published table, or — when the transition moves the commit
+    /// frontier — the table folded over the system operations the advance
+    /// newly covers (§8.7.1, see `reconfiguration::fold_committed`).
     /// `Progress::reconstitute` validates the full invariant set on the
     /// result, and the publish gate re-checks the pair — the two checks are
     /// the belt and the braces.
@@ -1887,6 +1921,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         accepted: Slot,
         committed: Slot,
         applied: Slot,
+        config: Arc<EraTable>,
     ) -> Result<Progress, PlanRejection> {
         let revision = self
             .progress
@@ -1903,7 +1938,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             applied,
             self.progress.checkpoint(),
             revision,
-            Arc::clone(self.progress.config()),
+            config,
             None,
         )
         .map_err(PlanRejection::Progress)
@@ -1913,7 +1948,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `view` (§1.3 — the history was selected by this change), status is
     /// `Normal`, and the frontiers become the installed history's, with
     /// `applied` the §11 walk over that history (system slots committed by
-    /// the install advance it without an upcall). The accepted frontier
+    /// the install advance it without an upcall) and `config` the
+    /// configuration history folded over the system operations the
+    /// installed committed frontier covers (§8.7.1). The accepted frontier
     /// may regress across the re-selection (gate rule 1 admits it exactly
     /// then); the committed frontier never does — the callers guard it
     /// before this candidate is ever built.
@@ -1923,6 +1960,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         accepted: Slot,
         committed: Slot,
         applied: Slot,
+        config: Arc<EraTable>,
     ) -> Result<Progress, PlanRejection> {
         let revision = self
             .progress
@@ -1939,7 +1977,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             applied,
             self.progress.checkpoint(),
             revision,
-            Arc::clone(self.progress.config()),
+            config,
             None,
         )
         .map_err(PlanRejection::Progress)
@@ -1985,6 +2023,37 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         Ok(self
             .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
             .with_diagnostic(diagnostic))
+    }
+
+    /// A breach: the journal and the configuration history disagree about
+    /// a COMMITTED slot (a fold refusal the commit frontier covers — see
+    /// `reconfiguration::fold_committed`). That is the same class of
+    /// breach as a committed-slot conflict (§9.1): the transition declares
+    /// [`Fault::IllegalTransition`], never guesses a repair.
+    fn breach_plan(&self, kind: InputKind) -> Result<PlannedTransition, PlanRejection> {
+        let candidate = self.identity_candidate()?;
+        Ok(self
+            .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+            .with_fault_declared(Fault::IllegalTransition))
+    }
+
+    /// The fence target of the next view change (§9.1, §8.7.8): the next
+    /// view in the CURRENT era, or — when the committed history has
+    /// established the successor era — the next view in THAT era. A
+    /// replica may propose a view only in an era whose establishing
+    /// operation its accepted history holds (§8.7.3); the table's newest
+    /// era is established by a COMMITTED operation, which every legal
+    /// accepted history holds, so the condition is dischargeable by
+    /// construction. Fencing a new view in a superseded era would strand
+    /// the cluster one era behind its committed configuration history.
+    fn view_change_target(&self) -> Option<ViewId> {
+        let current = self.progress.current();
+        let established = self.progress.config().current().era;
+        if Some(established) == current.era.next() {
+            current.next_in_next_era()
+        } else {
+            current.next_in_era()
+        }
     }
 
     /// §12: while a confirmation is pending, no second transition is planned.
@@ -2452,8 +2521,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 // The offer reached back PAST the slot the node cannot
                 // verify, so `got` — the offer's base, per the
                 // diagnostic's doc — sits at or below `expected` here.
-                // A slot at or below `discharged` is vouched for by the
-                // host's installed application state: treated as agreed.
+                // A slot at or below `discharged` is vouched for —
+                // by the host's installed application state on the
+                // recovery path, or by the node's own published
+                // checkpoint on the view-change path (§4): the caller
+                // names the frontier whose word discharges the check.
                 None if entry.slot <= discharged => {}
                 None => {
                     return SuffixCheck::Gap {

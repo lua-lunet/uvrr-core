@@ -24,6 +24,7 @@ use core::hint::spin_loop;
 use core::ptr;
 use core::sync::atomic::{AtomicU64, Ordering, fence};
 
+use crate::configuration::ConfigError;
 use crate::ids::{Era, NodeId, Slot, Tick, ViewId};
 
 /// Why a published transition dropped its peer input — or `None`, when it
@@ -81,6 +82,17 @@ pub enum Diagnostic {
         header: Slot,
         /// The entry's slot.
         entry: Slot,
+    },
+    /// A `Prepare` carrying a system operation the configuration fold
+    /// refuses (§8.7.2's preconditions, run at accept — the peer's entry,
+    /// never the node's committed history, is what fails here, so the
+    /// entry is dropped and nothing installs; a refusal in COMMITTED
+    /// history is the fold breach that faults instead).
+    InvalidSystemOperation {
+        /// The slot the operation claimed.
+        slot: Slot,
+        /// The fold's refusal.
+        error: ConfigError,
     },
     /// A re-`Prepare` for an accepted slot whose held entry differs; a slot
     /// is assigned once in a legitimate history (§1.3).

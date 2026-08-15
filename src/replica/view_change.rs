@@ -14,6 +14,7 @@
 //! history from is a named gap — [`Diagnostic::GapDetected`], never a fault
 //! — whose fetch half (§10, §13.1 step 5) rides the same transition.
 
+use super::reconfiguration::CommitFold;
 use super::*;
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
@@ -466,7 +467,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         }
-        let mutation = match self.check_suffix(journal, suffix, accepted, committed, Slot::NONE) {
+        // The node's own published checkpoint discharges the reclaimed prefix
+        // (§4): every reclaimed slot is at or below it, hence at or below
+        // the committed frontier, so §9.2's quorum-identity argument fixes
+        // the entry — a legal offer carries it, and the install writes
+        // nothing there. Without the discharge no reclaimed node could
+        // ever verify an offer that reaches past its retained base.
+        let mutation = match self.check_suffix(
+            journal,
+            suffix,
+            accepted,
+            committed,
+            self.progress.checkpoint(),
+        ) {
             SuffixCheck::Install(mutation) => mutation,
             SuffixCheck::Gap { expected, got } => {
                 let plan = self.drop_plan(Diagnostic::GapDetected { expected, got }, kind)?;
@@ -487,7 +500,22 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
         };
         let applied = self.applied_walk(journal, suffix, self.progress.applied(), committed)?;
-        let candidate = self.install_candidate(header.view, accepted, committed, applied)?;
+        // §8.7.1: the installed history's committed frontier may cover
+        // system operations this node never folded — the era advances
+        // with the install, exactly as if the commit had arrived in
+        // order. A fold refusal in the installed COMMITTED history is
+        // the same breach as a committed-slot conflict (§9.1): declare
+        // it, never guess a repair.
+        let config =
+            match self.fold_committed(journal, suffix, self.progress.committed(), committed) {
+                Ok(config) => config,
+                Err(CommitFold::Unavailable(slot)) => {
+                    return Err(PlanRejection::JournalEntryUnavailable { slot });
+                }
+                Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+            };
+        let candidate =
+            self.install_candidate(header.view, accepted, committed, applied, config)?;
         let effects =
             self.apply_effects_merged(journal, suffix, self.progress.committed(), committed)?;
         Ok(self
@@ -542,12 +570,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 effects,
             });
         }
+        // The same checkpoint discharge as the `StartView` install above.
         let mutation = match self.check_suffix(
             journal,
             &selected.suffix,
             selected.accepted,
             committed,
-            Slot::NONE,
+            self.progress.checkpoint(),
         ) {
             SuffixCheck::Install(mutation) => mutation,
             SuffixCheck::Gap { expected, got } => {
@@ -571,7 +600,27 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             self.progress.applied(),
             committed,
         )?;
-        let candidate = self.install_candidate(target, selected.accepted, committed, applied)?;
+        // §8.7.1: the selected history's committed frontier may cover
+        // system operations this node never folded — the era advances
+        // with the install. A fold refusal in the selected COMMITTED
+        // history is the same breach as a committed-slot conflict (§9.1):
+        // declare it, never guess a repair.
+        let config = match self.fold_committed(
+            journal,
+            &selected.suffix,
+            self.progress.committed(),
+            committed,
+        ) {
+            Ok(config) => config,
+            Err(CommitFold::Unavailable(slot)) => {
+                return Err(PlanRejection::JournalEntryUnavailable { slot });
+            }
+            Err(CommitFold::Breach { .. }) => {
+                return Ok(WinOutcome::Installed(Box::new(self.breach_plan(kind)?)));
+            }
+        };
+        let candidate =
+            self.install_candidate(target, selected.accepted, committed, applied, config)?;
         effects.extend(self.apply_effects_merged(
             journal,
             &selected.suffix,
