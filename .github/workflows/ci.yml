@@ -1,0 +1,137 @@
+name: CI
+
+# Lane split modeled on the sibling lua-lunet/lunet-locks CI (itself modeled
+# on upstream lua-lunet/lunet): regular builds (pull requests, pushes to the
+# working branches) run the fast Linux lane; tagged builds (v*) add macOS,
+# package per-platform release archives of the C ABI library, and
+# publish-release creates the GitHub release.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, uVRR]
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # publish-release creates GitHub releases on v* tags
+
+# Cancel previous runs when a new commit is pushed to the same PR/branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup-matrix:
+    name: Setup build matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          # Regular lane: Linux amd64 + arm64 only (the fast stuff).
+          LINUX='{"include":[{"os":"ubuntu-24.04","target_key":"linux-amd64"},{"os":"blacksmith-4vcpu-ubuntu-2404-arm","target_key":"linux-arm64"}]}'
+          # Tagged lane: everything, adding macOS.
+          ALL='{"include":[{"os":"ubuntu-24.04","target_key":"linux-amd64"},{"os":"blacksmith-4vcpu-ubuntu-2404-arm","target_key":"linux-arm64"},{"os":"macos-latest","target_key":"macos"}]}'
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "matrix=$ALL" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=$LINUX" >> "$GITHUB_OUTPUT"
+          fi
+
+  gate:
+    name: ${{ matrix.target_key }}
+    needs: setup-matrix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned to the crate's declared floor (rust-version = "1.85"), so every
+      # lane doubles as the MSRV check; the default toolchain profile omits
+      # rustfmt and clippy, which the gate requires.
+      - uses: dtolnay/rust-toolchain@1.85
+        with:
+          components: rustfmt, clippy
+      - name: Ensure ripgrep
+        shell: bash
+        run: |
+          if ! command -v rg >/dev/null; then
+            if [ "${{ runner.os }}" = "Linux" ]; then
+              sudo apt-get update && sudo apt-get install --yes ripgrep
+            else
+              brew install ripgrep
+            fi
+          fi
+      # The repository verification gate, run exactly as it is run locally.
+      - name: Verification gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --all-features --all-targets
+          ! rg -n '#\[cfg\(test\)\]|mod tests' src
+          ! rg -in 'paxos' src/ tests/
+          ! (git ls-files | rg -v '^maelstrom' | xargs rg -n 'item[0-9]')
+      # Tagged builds only: package the C ABI library (cdylib + staticlib)
+      # from the tree that just passed the gate, for publish-release.
+      - name: Package release archive
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --all-features
+          stage="vrr-core-${{ matrix.target_key }}"
+          mkdir -p "$stage"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cp target/release/libvrr.dylib target/release/libvrr.a "$stage/"
+          else
+            cp target/release/libvrr.so target/release/libvrr.a "$stage/"
+          fi
+          tar czf "vrr-core-${{ matrix.target_key }}.tar.gz" -C "$stage" .
+      - name: Upload release archive
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target_key }}
+          path: vrr-core-${{ matrix.target_key }}.tar.gz
+          retention-days: 5
+
+  # Tagged builds only, modeled on the sibling's publish-release: runs after
+  # every gate lane passed and creates the GitHub release with all platform
+  # archives attached.
+  publish-release:
+    name: Publish release
+    if: github.ref_type == 'tag'
+    needs: [gate]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download release archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-assets
+      - name: Verify expected archives
+        run: |
+          set -euo pipefail
+          ls -la release-assets
+          for target in linux-amd64 linux-arm64 macos; do
+            test -f "release-assets/vrr-core-$target.tar.gz" || {
+              echo "missing release asset: vrr-core-$target.tar.gz" >&2
+              exit 1
+            }
+          done
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release-assets/vrr-core-linux-amd64.tar.gz
+            release-assets/vrr-core-linux-arm64.tar.gz
+            release-assets/vrr-core-macos.tar.gz
