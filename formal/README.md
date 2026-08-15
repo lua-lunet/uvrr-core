@@ -139,15 +139,13 @@ knows the configuration is established.
 | `VrrCoreErasWitnessNonStop.cfg` | expected failure | `WNonStop` reached in 207 distinct states |
 | `VrrCoreErasWitnessOverlap.cfg` | expected failure | `WOverlapStreams` reached in 125 distinct states |
 | `VrrCoreErasCrash.cfg` | fixed simulation preflight | green: 10,000 depth-40 traces, 900,119 checked states, 45s |
-| `VrrCoreErasEven.cfg` | startup gate | refused: next-era `{n0,n1}` is disjoint from old-era `{n2,n3}` under reverse cross-era intersection |
+| `VrrCoreErasEven.cfg` | exhaustive, 4 nodes, no crash | green: 290,474 distinct / 1,571,856 generated, depth 30, 1m51s |
 | `VrrCoreErasDeep.cfg` | fixed simulation | green: 100,000 depth-60 traces, seed 1, 26,793,084 checked states, 1h56m |
 
-The even-split refusal is a design result, not a tool failure. Era 0 admits
-commit weight 2 and view weight 3. After incrementing `n0`, the next-era view set
-`{n0,n1}` has weight 3 while the disjoint old-era commit set `{n2,n3}` has weight
-2. The current closed gate checks this reverse direction. A normative E3 run
-therefore requires an owner ruling: refuse the transition, select a safer
-next-era family, or withdraw that gate direction.
+The even-split scenario uses commit/view thresholds 2/3 in era 0 and 3/4 after
+incrementing `n0`. The next-era view threshold excludes `{n0,n1}`: its weight 3
+cannot form a view quorum disjoint from the legal old-era commit set `{n2,n3}`.
+The startup gate checks both cross-era directions before E3 explores states.
 
 The two witness invariants are intentionally false. Their counterexample traces
 are existence proofs that the casting transition is reachable without any

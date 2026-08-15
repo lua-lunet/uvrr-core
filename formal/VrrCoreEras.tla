@@ -76,6 +76,7 @@ CommitThreshold(e) ==
 
 ViewThreshold(e) ==
     CASE Scenario \in {Even4, Even4Static} /\ e = 0 -> 3
+      [] Scenario = Even4 /\ e = 1 -> 4
       [] Scenario = Even4Static -> 3
       [] Scenario = GateDemo       -> 4
       [] OTHER -> (SumW(e, Nodes) \div 2) + 1

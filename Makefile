@@ -34,7 +34,7 @@ help:
 	@echo "make serve           - browse past results at http://localhost:8080"
 	@echo "make e2e             - Docker: build image and run all Maelstrom tests"
 	@echo "make tla             - Docker: model-check the TLA+ safety models"
-	@echo "make tla-even        - Docker: reproduce the refused even-split transition"
+	@echo "make tla-even        - Docker: exhaustively check the even-split transition"
 	@echo "make tla-deep        - Docker: fixed-seed crash/overlap simulations"
 	@echo "make tla-mutations   - Docker: require every defect regression to fail"
 	@echo "make tla-local       - model-check with TLA2TOOLS_JAR and local Java"
@@ -121,6 +121,7 @@ tla-run:
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCore.cfg VrrCore.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreRecovery.cfg VrrCore.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreEras.cfg VrrCoreEras.tla
+	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreErasEven.cfg VrrCoreEras.tla
 	@expect_failure() { \
 		cfg="$$1"; needle="$$2"; output="$$(mktemp -t vrr-tla.XXXXXX)"; \
 		if docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config "$$cfg" VrrCoreEras.tla >"$$output" 2>&1; then \
@@ -134,16 +135,8 @@ tla-run:
 
 tla: tla-build tla-run
 
-# The currently proposed even-split increment is not normative: the closed
-# reverse cross-era gate rejects it before Init. Keep its exact witness runnable
-# while the quorum-family ruling is resolved.
 tla-even: tla-build
-	@output="$$(mktemp -t vrr-tla-even.XXXXXX)"; \
-	if docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers 1 -config VrrCoreErasEven.cfg VrrCoreEras.tla >"$$output" 2>&1; then \
-		cat "$$output"; rm -f "$$output"; echo "expected even-split gate refusal"; exit 1; \
-	fi; \
-	if ! grep -F "Error: Assumption" "$$output"; then cat "$$output"; rm -f "$$output"; exit 1; fi; \
-	rm -f "$$output"
+	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreErasEven.cfg VrrCoreEras.tla
 
 tla-deep: tla-build
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=10000 -depth 40 -seed 1 -config VrrCoreErasCrash.cfg VrrCoreEras.tla
@@ -171,6 +164,7 @@ tla-local:
 	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCore.cfg VrrCore.tla
 	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCoreRecovery.cfg VrrCore.tla
 	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCoreEras.cfg VrrCoreEras.tla
+	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCoreErasEven.cfg VrrCoreEras.tla
 	@cd formal && \
 	expect_failure() { \
 		cfg="$$1"; needle="$$2"; output="$$(mktemp -t vrr-tla-local.XXXXXX)"; \
