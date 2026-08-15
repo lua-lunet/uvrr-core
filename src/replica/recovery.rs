@@ -382,14 +382,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// frontier advances it over the sequentially-adjacent, locally
     /// journal-present slots that AGREE with the responder's reported
     /// history — takeWhile: the walk stops at the first slot the journal
-    /// does not physically hold, or whose local entry is not the entry
-    /// the response carries there — emitting the ordered `Apply` upcalls
+    /// does not physically hold, the response does not carry, or whose
+    /// local entry is not the entry the response carries there — emitting
+    /// the ordered `Apply` upcalls
     /// (B2) the node would have emitted had it never crashed. A slot the
     /// response's suffix carries must match the local entry exactly: a
     /// mismatch is a dead view's never-committed proposal, and advancing
-    /// past it would apply a value no quorum committed. A slot the suffix
-    /// does not carry is vouched for by the reported committed frontier
-    /// alone, and local presence decides. The applied frontier moves only
+    /// past it would apply a value no quorum committed. A reported
+    /// committed frontier alone does not identify the committed value, so
+    /// a slot the suffix does not carry stops the walk. The applied
+    /// frontier moves only
     /// by the §11 system-slot walk: the operation slots await the host's
     /// `Input::Applied` acknowledgements through the ordinary path,
     /// exactly as in normal operation, and the node stays fenced
@@ -407,20 +409,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // takeWhile over sequentially-adjacent, locally journal-present
         // slots that agree with the responder's reported history: the
         // frontier the evidence vouches for, capped at the first slot
-        // the journal does not physically hold or whose local entry
-        // contradicts the entry the response carries there.
+        // the journal does not physically hold, the response does not
+        // carry, or whose local entry contradicts the reported entry.
         let mut target = committed;
         while let Some(next) = target.next() {
             if next > claimed {
                 break;
             }
-            let local = journal.get(next);
             let agreed = match suffix
                 .as_ref()
                 .and_then(|s| s.iter().find(|entry| entry.slot == next))
             {
-                Some(reported) => local == Some(reported),
-                None => local.is_some(),
+                Some(reported) => journal.get(next) == Some(reported),
+                None => false,
             };
             if !agreed {
                 break;
