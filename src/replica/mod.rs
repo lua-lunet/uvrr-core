@@ -812,6 +812,34 @@ enum TransferUpdate {
     Clear,
 }
 
+/// A gap-ruled `StartView` offer awaiting its fetch (§13.1 step 5): the
+/// completing ruling could not be constructed when the offer arrived, so
+/// the offer is retained whole and the ruling re-runs on an ordinary tick
+/// once state transfer has supplied the missing range — the same re-drive
+/// the recovery completion gets. Volatile, exactly like the fetch cursor:
+/// a crash discards the offer and the reopened node re-fetches under a
+/// fresh ruling; a fresh gap ruling replaces an older offer wholesale.
+#[derive(Clone, Debug)]
+struct StalledStartView {
+    /// The primary that offered the history.
+    from: NodeId,
+    /// The offer, retained whole: the re-drive replans it as delivered.
+    message: Message,
+}
+
+/// The stalled-offer half of [`Bookkeeping`]: what a transition does to
+/// the retained gap-ruled `StartView`.
+#[derive(Clone, Debug, Default)]
+enum StalledUpdate {
+    /// The retained offer is untouched.
+    #[default]
+    Unchanged,
+    /// Retain (or replace) the gap-ruled offer.
+    Set(StalledStartView),
+    /// The ruling completed: nothing awaits a re-drive.
+    Clear,
+}
+
 /// What the new primary's completion attempt produced.
 enum WinOutcome {
     /// The transition to publish (the install, or the declared fault).
@@ -872,6 +900,8 @@ struct Bookkeeping {
     recovery: RecoveryUpdate,
     /// The state-transfer cursor update.
     transfer: TransferUpdate,
+    /// The stalled-offer update.
+    stalled: StalledUpdate,
     /// Refresh of the primary-activity baseline (S4): the tick of a
     /// same-view `Prepare`/`Commit` from the legitimate primary, or of a
     /// `StartView` adoption — the new primary has just proved itself alive.
@@ -928,6 +958,14 @@ impl PlannedTransition {
     fn with_fetch(mut self, effect: Effect, fetch: TransferVolatile) -> PlannedTransition {
         self.effects.push(effect);
         self.bookkeeping.transfer = TransferUpdate::Set(fetch);
+        self
+    }
+
+    /// Retains a gap-ruled `StartView` offer for the tick re-drive
+    /// (§13.1 step 5): the ruling re-runs once state transfer has
+    /// supplied the missing range.
+    fn with_stalled_offer(mut self, from: NodeId, message: Message) -> PlannedTransition {
+        self.bookkeeping.stalled = StalledUpdate::Set(StalledStartView { from, message });
         self
     }
 }
@@ -1031,6 +1069,9 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// Volatile — a crash discards it; the reopened node re-fetches under
     /// a fresh ruling.
     transfer: Option<TransferVolatile>,
+    /// The gap-ruled `StartView` offer awaiting its fetch, if any
+    /// (§13.1 step 5). Volatile, exactly like the cursor.
+    stalled: Option<StalledStartView>,
 }
 
 // Manual, non-exhaustive: `Observation` is a seqlock with no `Debug` of its
@@ -1241,6 +1282,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             view_change: None,
             recovery: None,
             transfer: None,
+            stalled: None,
         }
     }
 
@@ -1476,6 +1518,68 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     );
                 }
             }
+        }
+        // §13.1 step 5: a gap-ruled `StartView` re-runs its ruling on an
+        // ordinary tick once state transfer has supplied the missing
+        // range — the retained offer is replanned exactly as delivered,
+        // so the install keeps its peer-message kind and every guard of
+        // the delivery path re-fires. A still-unconstructible suffix
+        // falls through: the fetch is still open, and the retry below
+        // keeps it moving.
+        if let Some(offer) = self.stalled.clone() {
+            let adoptable = offer.message.header.view > current
+                || (offer.message.header.view == current
+                    && self.progress.status() == Status::ViewChange);
+            if adoptable {
+                if let Body::StartView {
+                    suffix,
+                    accepted,
+                    committed,
+                    era_proof,
+                } = &offer.message.body
+                {
+                    if matches!(
+                        self.check_suffix(journal, suffix, *accepted, *committed),
+                        SuffixCheck::Install(_)
+                    ) {
+                        return self.plan_start_view(
+                            journal,
+                            offer.from,
+                            &offer.message,
+                            suffix,
+                            *accepted,
+                            *committed,
+                            era_proof,
+                            at,
+                            InputKind::PeerMessage {
+                                tag: Tag::StartView,
+                                slot: offer.message.header.slot,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        // §10: an open fetch re-issues its `GetState` on an ordinary tick
+        // — a lost request or a lost chunk otherwise leaves the cursor
+        // open with nothing asking, and the fetch stalls silently. The
+        // re-issue resumes from the cursor; the answering chunks are the
+        // duplicates and reorderings the install path already tolerates.
+        if let Some(fetch) = self.transfer {
+            let (effect, cursor) = self.fetch(fetch.view, fetch.to, fetch.next);
+            let candidate = self.identity_candidate()?;
+            return Ok(self
+                .candidate_plan(
+                    candidate,
+                    JournalMutation::None,
+                    vec![effect],
+                    InputKind::Tick,
+                    false,
+                )
+                .with_bookkeeping(Bookkeeping {
+                    transfer: TransferUpdate::Set(cursor),
+                    ..Bookkeeping::default()
+                }));
         }
         // The smallest honest transition: no protocol state
         // moves, and the interval machinery is genuinely exercised.
@@ -2019,6 +2123,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             TransferUpdate::Unchanged => {}
             TransferUpdate::Set(fetch) => self.transfer = Some(fetch),
             TransferUpdate::Clear => self.transfer = None,
+        }
+        match bookkeeping.stalled {
+            StalledUpdate::Unchanged => {}
+            StalledUpdate::Set(offer) => self.stalled = Some(offer),
+            StalledUpdate::Clear => self.stalled = None,
         }
         for (slot, proposal) in bookkeeping.proposals {
             self.proposals.insert(slot, proposal);

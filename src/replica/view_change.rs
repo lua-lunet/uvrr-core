@@ -472,10 +472,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 let plan = self.drop_plan(Diagnostic::GapDetected { expected, got }, kind)?;
                 // §13.1 step 5: the recipient cannot construct the offered
                 // history — fetch the missing range from the new primary.
-                // The node stays fenced; the completing evidence re-runs
-                // the ruling once the range has arrived.
+                // The node stays fenced; the retained offer re-runs the
+                // ruling on an ordinary tick once the range has arrived.
                 let (effect, fetch) = self.fetch(header.view, from, expected);
-                return Ok(plan.with_fetch(effect, fetch));
+                return Ok(plan
+                    .with_fetch(effect, fetch)
+                    .with_stalled_offer(from, message.clone()));
             }
             SuffixCheck::Conflict => {
                 let candidate = self.identity_candidate()?;
@@ -492,6 +494,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .candidate_plan(candidate, mutation, effects, kind, false)
             .with_bookkeeping(Bookkeeping {
                 view_change: ViewChangeUpdate::Clear,
+                // The install answers any offer the node held open: a
+                // stalled gap ruling for this view is the one now
+                // completing, and an older view's is dead state.
+                stalled: StalledUpdate::Clear,
                 activity: Some(at),
                 ..Bookkeeping::default()
             }))
