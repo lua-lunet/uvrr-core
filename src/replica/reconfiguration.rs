@@ -40,7 +40,7 @@ use crate::ids::Slot;
 use crate::journal::{JournalView, LogEntry, Payload};
 use crate::message::{Body, Message};
 use crate::progress::Status;
-use crate::quorum::{validate_era, validate_transition};
+use crate::quorum::{validate_era, validate_pivot, validate_transition};
 use crate::wire::{Header, Tag};
 
 use super::{
@@ -106,8 +106,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// proposes the system operation through the ordinary pipeline. The
     /// gates, in order:
     ///
-    /// 1. the pivot is `None` — `Some` names §8.7.6's future path
-    ///    ([`PlanRejection::Unsupported`]);
+    /// 1. the pivot, when `Some`, satisfies the §8.7.6 pivot condition
+    ///    ([`PlanRejection::ReconfigurePivot`]);
     /// 2. the node is the `Normal` primary of its current view
     ///    ([`PlanRejection::NotPrimary`], as for any proposal);
     /// 3. the era table has NOT advanced past the current view — the
@@ -125,20 +125,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///    witness — then R1, self-intersection and fence-recovery within
     ///    the resulting era ([`PlanRejection::ReconfigureQuorum`]).
     ///
-    /// A refusal at any gate never enters the log.
+    /// A refusal at any gate never enters the log. The pivot never
+    /// substitutes for the family-level `validate_transition` gate: an
+    /// operation the gate refuses is refused with or without a pivot.
     pub(in crate::replica) fn plan_reconfigure(
         &self,
         journal: &J::View,
         op: &SystemOperation,
         pivot: &Option<Pivot>,
     ) -> Result<PlannedTransition, PlanRejection> {
-        // Gate 1: the non-stop-the-world pivot is a later milestone's
-        // path (§8.7.6–§8.7.7); named and total, never silently dropped.
-        if pivot.is_some() {
-            return Err(PlanRejection::Unsupported {
-                input: InputKind::Reconfiguration,
-            });
-        }
         let current = self.progress.current();
         let record = self
             .current_record()
@@ -191,9 +186,24 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .config()
             .extend(op, slot)
             .map_err(PlanRejection::Reconfigure)?;
+        // Gate 1 (deferred): the pivot, when `Some`, satisfies the
+        // §8.7.6 pivot condition. The check runs after the fold so the
+        // next configuration is available for the qII-under-both leg.
+        if let Some(pivot) = pivot {
+            validate_pivot(
+                &self.strategy,
+                &record.config,
+                &next_table.current().config,
+                self.own,
+                pivot,
+            )
+            .map_err(PlanRejection::ReconfigurePivot)?;
+        }
         // Gate 6: the closed intersection obligations (§8.7.4, Q1). R2
         // across the boundary runs first so a cross-era refusal names the
-        // cross-era witness; the within-era obligations follow.
+        // cross-era witness; the within-era obligations follow. The pivot
+        // never substitutes for this gate: an operation the gate refuses
+        // is refused with or without a pivot.
         validate_transition(&self.strategy, &record.config, &next_table.current().config)
             .map_err(PlanRejection::ReconfigureQuorum)?;
         validate_era(&self.strategy, &next_table.current().config)

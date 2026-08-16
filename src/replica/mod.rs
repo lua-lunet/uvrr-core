@@ -117,6 +117,8 @@ use crate::progress::{Progress, ProgressError, ProgressSnapshot, Status};
 use crate::quorum::{QuorumError, QuorumStrategy, Role, validate_era};
 use crate::wire::{Header, Pack, Tag};
 
+pub use crate::quorum::{PivotError, construct_pivot, validate_pivot};
+
 mod normal;
 mod reconfiguration;
 mod recovery;
@@ -396,6 +398,12 @@ pub enum PlanRejection {
     /// the disjoint vote sets that cannot both be legal. The refusal runs
     /// BEFORE the proposal; the operation never entered the log.
     ReconfigureQuorum(QuorumError),
+    /// An [`Input::Reconfigure`] whose host-supplied pivot fails the
+    /// §8.7.6 pivot condition: duplicate members, an intersection past
+    /// the leader, the leader absent, or a set that is not a legal quorum
+    /// under its named configuration. Bad input, never a fault — the
+    /// operation never entered the log.
+    ReconfigurePivot(PivotError),
     /// An [`Input::Reconfigure`] while the era table is already one era
     /// past the current view: the committed operation establishing that
     /// era awaits the ordinary view change into it (§8.7.8), and a second

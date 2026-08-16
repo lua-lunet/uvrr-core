@@ -393,6 +393,149 @@ pub fn validate_transition(
     Ok(())
 }
 
+/// Why a host-supplied pivot was refused (§8.7.6).
+///
+/// One variant per precondition of the pivot condition, so a refusal names
+/// exactly which leg failed. A refusal is bad input, never a fault: the
+/// reconfigure request is rejected before the operation enters the log.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum PivotError {
+    /// A member appears twice in `qI`, twice in `qII`, or once in each
+    /// beyond the shared leader. The pivot condition requires `qI ∩ qII =
+    /// {L}` exactly — no duplicates within a set, no second shared member.
+    DuplicateMember(NodeId),
+    /// The intersection of `qI` and `qII` is not exactly the leader.
+    IntersectionNotLeader,
+    /// The leader is absent from `qI` or `qII`.
+    LeaderAbsent,
+    /// `qI` is not a view-change quorum under `config(e)`.
+    QiNotLegal,
+    /// `qII` is not a commit quorum under `config(e)`.
+    QiiNotLegalCurrent,
+    /// `qII` is not a commit quorum under `config(e+1)`.
+    QiiNotLegalNext,
+}
+
+/// Constructs the concrete pivot for a non-stop reconfiguration (§8.7.6).
+///
+/// From `config(e)` and `config(e+1)`, finds `qI`, `qII` with `qI ∩ qII =
+/// {L}`, `qI` a view-change quorum under `config(e)`, `qII` a commit
+/// quorum under both configs, and `|qI| + |qII| = N + 1` (the unweighted
+/// cardinality rule, which forces `qI ∪ qII` to cover the membership).
+///
+/// The algorithm enumerates subsets of the union of both memberships in
+/// increasing bitmask order, returning the first `qII` that satisfies
+/// every leg. It **terminates** because the powerset of a membership
+/// capped at [`MAX_MEMBERS`] is finite (`2^16` subsets at most). It is
+/// **deterministic** because the enumeration order is fixed and the first
+/// match is returned — same inputs, same pivot, every time.
+///
+/// A leader that finds no split (non-pivotal, low-weight) gets `None`:
+/// the fallback to stop-the-world is a latency outcome, not an error.
+pub fn construct_pivot(
+    strategy: &dyn QuorumStrategy,
+    current: &Configuration,
+    next: &Configuration,
+    leader: NodeId,
+) -> Option<crate::replica::Pivot> {
+    let mut universe: Vec<NodeId> = current
+        .order()
+        .iter()
+        .chain(next.order().iter())
+        .map(|member| member.node)
+        .collect();
+    universe.sort();
+    universe.dedup();
+    let n = width_of(&universe);
+    if n > MAX_MEMBERS {
+        return None;
+    }
+    let full = (1u32 << n) - 1;
+    // Enumerate subsets in increasing bitmask order: deterministic.
+    for mask in 0..=full {
+        let q_ii = members_of(&universe, mask);
+        if !q_ii.contains(&leader) {
+            continue;
+        }
+        if !strategy.is_quorum(Role::Commit, current, &q_ii) {
+            continue;
+        }
+        if !strategy.is_quorum(Role::Commit, next, &q_ii) {
+            continue;
+        }
+        // qI = (universe \ qII) ∪ {leader}
+        let mut q_i: Vec<NodeId> = universe
+            .iter()
+            .filter(|node| !q_ii.contains(node))
+            .copied()
+            .collect();
+        q_i.push(leader);
+        q_i.sort();
+        q_i.dedup();
+        if !strategy.is_quorum(Role::ViewChange, current, &q_i) {
+            continue;
+        }
+        // Cardinality: |qI| + |qII| = N + 1
+        if q_i.len() + q_ii.len() != universe.len() + 1 {
+            continue;
+        }
+        return Some(crate::replica::Pivot { q_i, q_ii });
+    }
+    None
+}
+
+/// Validates a host-supplied pivot against the pivot condition (§8.7.6).
+///
+/// Every leg is checked independently and the first failure is named.
+/// A refusal is bad input, never a fault: the reconfigure request is
+/// rejected before the operation enters the log.
+pub fn validate_pivot(
+    strategy: &dyn QuorumStrategy,
+    current: &Configuration,
+    next: &Configuration,
+    leader: NodeId,
+    pivot: &crate::replica::Pivot,
+) -> Result<(), PivotError> {
+    // Unique members within each set.
+    for (index, node) in pivot.q_i.iter().enumerate() {
+        if pivot.q_i[..index].contains(node) {
+            return Err(PivotError::DuplicateMember(*node));
+        }
+    }
+    for (index, node) in pivot.q_ii.iter().enumerate() {
+        if pivot.q_ii[..index].contains(node) {
+            return Err(PivotError::DuplicateMember(*node));
+        }
+    }
+    // Leader present in both.
+    if !pivot.q_i.contains(&leader) || !pivot.q_ii.contains(&leader) {
+        return Err(PivotError::LeaderAbsent);
+    }
+    // Intersection exactly {leader}.
+    let shared: Vec<NodeId> = pivot
+        .q_i
+        .iter()
+        .filter(|node| pivot.q_ii.contains(node))
+        .copied()
+        .collect();
+    if shared != [leader] {
+        return Err(PivotError::IntersectionNotLeader);
+    }
+    // qI legal under config(e).
+    if !strategy.is_quorum(Role::ViewChange, current, &pivot.q_i) {
+        return Err(PivotError::QiNotLegal);
+    }
+    // qII legal under config(e).
+    if !strategy.is_quorum(Role::Commit, current, &pivot.q_ii) {
+        return Err(PivotError::QiiNotLegalCurrent);
+    }
+    // qII legal under config(e+1).
+    if !strategy.is_quorum(Role::Commit, next, &pivot.q_ii) {
+        return Err(PivotError::QiiNotLegalNext);
+    }
+    Ok(())
+}
+
 /// The shipped default: strict weighted majority, `floor(T/2) + 1`, for every role
 /// (§8.4). All four roles coincide — the match is exhaustive rather than a wildcard
 /// so that a fifth role is a compile error here, not a silently defaulted case.

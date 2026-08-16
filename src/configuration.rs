@@ -737,9 +737,11 @@ impl Unpack for SystemOperation {
 /// without locking, and precomputes `total` so a quorum evaluator never walks the
 /// membership to rediscover it.
 ///
-/// A `pivot: Option<Pivot>` field recording the concrete `qI`/`qII` vote
-/// sets that carried a non-stop transition (§8.7.6–§8.7.7) is deliberately not
-/// pre-declared here.
+/// The `pivot` field records the concrete `qI`/`qII` vote sets that carried a
+/// non-stop transition (§8.7.6–§8.7.7), when one was used. `None` on the
+/// stop-the-world path (§8.7.4). The `RecordedQuorums` discipline requires the
+/// record to name the vote sets that carried the transition, so a later era
+/// proof can show exactly which members' votes established it.
 #[derive(Clone, Debug)]
 pub struct EraRecord {
     /// The era this configuration establishes.
@@ -755,6 +757,9 @@ pub struct EraRecord {
     /// Retained with the bounded era window because the journal may reclaim
     /// the physical entry while peers still need an era proof (§8.7.8, S1).
     pub establishing_operation: SystemOperation,
+    /// The concrete pivot vote sets that carried this transition, when the
+    /// non-stop path was used (§8.7.6). `None` on the stop-the-world path.
+    pub pivot: Option<crate::replica::Pivot>,
 }
 
 /// The derived, log-independent record of configuration history.
@@ -806,6 +811,7 @@ impl EraTable {
                 total: 0,
                 established_by: Slot::NONE,
                 establishing_operation: SystemOperation::Void,
+                pivot: None,
             }],
         }
     }
@@ -850,6 +856,7 @@ impl EraTable {
             config: Arc::new(config),
             established_by: at,
             establishing_operation: op.clone(),
+            pivot: None,
         });
         // Evict everything older than `current - 1`. `saturating_sub` rather than a
         // guard: at era 0 the cutoff is era 0 and nothing is evicted.
