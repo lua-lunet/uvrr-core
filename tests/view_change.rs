@@ -1112,3 +1112,91 @@ fn current_primary(h: &Harness) -> Option<NodeId> {
         && current_view(h, candidate) == view)
         .then_some(candidate)
 }
+
+// ---------------------------------------------------------------------------
+// 10. A forged suffix-carried system entry in the uncommitted tail: the
+//     install accepts it without re-validation, and the commit-fold faults
+//     when the frontier later advances to cover it.
+// ---------------------------------------------------------------------------
+#[test]
+fn forged_suffix_system_entry_faults_at_commit_fold() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    h.propose(n(0), op_id(1), b"x");
+    h.deliver_all();
+    apply_all(&mut h, [0, 1, 2]);
+    assert_eq!(snap(&h, n(2)).committed, 3);
+
+    // Fabricate a StartView from the legitimate primary of view 1 whose
+    // suffix carries a forged system entry (Void outside genesis) at
+    // slot 4 — above the committed frontier, so the install does not
+    // fold it. Slot 3 matches the local entry, so no conflict.
+    let forged = Message {
+        header: Header {
+            tag: Tag::StartView,
+            view: view(1),
+            slot: Slot(4),
+        },
+        body: Body::StartView {
+            suffix: vec![
+                LogEntry {
+                    slot: Slot(3),
+                    era: Era(1),
+                    payload: Payload::Operation {
+                        id: op_id(1),
+                        payload: b"x".to_vec().into_boxed_slice(),
+                    },
+                },
+                LogEntry {
+                    slot: Slot(4),
+                    era: Era(1),
+                    payload: Payload::System(SystemOperation::Void),
+                },
+            ],
+            accepted: Slot(4),
+            committed: Slot(3),
+            era_proof: era_proof(),
+        },
+    };
+    let outcome = h.inject(n(1), n(2), forged);
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the forged suffix installs without re-validation: {outcome:?}"
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(current_view(&h, n(2)), view(1));
+    assert_eq!(snap(&h, n(2)).accepted, 4);
+    assert_eq!(snap(&h, n(2)).committed, 3);
+    // The forged entry sits in the journal, unvalidated.
+    let entry = h
+        .journal_entry(n(2), Slot(4))
+        .expect("the forged entry is journaled");
+    assert_eq!(
+        entry.payload,
+        Payload::System(SystemOperation::Void),
+        "the forged system entry was installed without validation"
+    );
+    assert!(
+        !snap(&h, n(2)).faulted,
+        "no fault yet — the fold has not run"
+    );
+
+    // The commit frontier advances to cover the forged slot: a Commit
+    // from the primary of view 1 with committed=4. The fold of slot 4
+    // (Void outside genesis) is a breach in committed history.
+    h.expect_fault(n(2));
+    let commit = Message {
+        header: Header {
+            tag: Tag::Commit,
+            view: view(1),
+            slot: Slot::NONE,
+        },
+        body: Body::Commit { committed: Slot(4) },
+    };
+    let outcome = h.inject(n(1), n(2), commit);
+    assert!(
+        matches!(outcome, StepOutcome::PublishRefused(_)),
+        "the commit-fold faults on the forged system entry: {outcome:?}"
+    );
+    assert!(snap(&h, n(2)).faulted);
+}

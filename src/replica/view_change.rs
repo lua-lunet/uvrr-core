@@ -69,13 +69,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// fence/evidence/install pipeline into `target`, whose primary is
     /// the member `primary(target)` names under the current membership
     /// order — no state is installed from the host's say-so. The target
-    /// must strictly advance the view within the current era: a
-    /// non-advancing target is bad input, an era other than the current
-    /// one names a membership order the replica cannot map the target
-    /// under (its establishing operation was never committed here, or the
-    /// era is superseded), and the last representable view has no
-    /// successor (§8.7.3 forbids wraparound, so a fence there could never
-    /// be superseded).
+    /// must strictly advance the view within the current era or the
+    /// established-but-unentered era: a non-advancing target is bad
+    /// input, an era the committed configuration history has not
+    /// established names a membership order the replica cannot map the
+    /// target under (its establishing operation was never committed
+    /// here, or the era is superseded), and the last representable view
+    /// has no successor (§8.7.3 forbids wraparound, so a fence there
+    /// could never be superseded).
     pub(in crate::replica) fn plan_admin_force_view(
         &self,
         journal: &J::View,
@@ -86,7 +87,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if target.view <= current.view {
             return Err(PlanRejection::AdminTargetNotAhead { current, target });
         }
-        if target.era != current.era {
+        // The target era must be one the committed configuration history
+        // has established: either the current view's own era, or the
+        // established-but-unentered era the table has already folded to
+        // (§8.7.1). An era beyond that was never decided here.
+        let established = self.progress.config().current().era;
+        if target.era != current.era && target.era != established {
             return Err(PlanRejection::AdminEraNotCurrent {
                 current: current.era,
                 got: target.era,
