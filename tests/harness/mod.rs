@@ -515,6 +515,25 @@ impl Harness {
         Self::assemble(n, Stability::Volatile, knobs, Some(tail_capacity))
     }
 
+    /// [`Harness::with_stability`] with an explicit journal tail capacity:
+    /// a shortfall script under an external-stability mode needs both —
+    /// the stability level parks every transition behind its persistence
+    /// intent (S2), and the pinned slab boundaries decide what
+    /// checkpoint-authorized reclamation can drop (§4).
+    #[must_use]
+    pub fn with_stability_and_journal_capacity(
+        n: usize,
+        stability: Stability,
+        tail_capacity: usize,
+    ) -> Harness {
+        Self::assemble(
+            n,
+            stability,
+            Harness::no_view_change_knobs(),
+            Some(tail_capacity),
+        )
+    }
+
     /// The knob setting that makes the view-change machinery inert: no
     /// suspicion ever fires, and suffixes are never truncated.
     fn no_view_change_knobs() -> ViewChangeKnobs {

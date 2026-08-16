@@ -25,7 +25,7 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::effects::Effect;
+use vrr::effects::{Effect, Stability, StabilityResult};
 use vrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::LogEntry;
 use vrr::message::{Body, Message};
@@ -779,6 +779,146 @@ fn stale_install_after_reshortfall_reemits_on_tick() {
         matches!(outcome, StepOutcome::Published { .. }),
         "the matching install completes: {outcome:?}"
     );
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    h.assert_safety();
+}
+
+/// The external-stability host step (S2/S3): a parked transition is
+/// confirmed `Stable`; anything else passes through.
+fn settle(h: &mut Harness, id: NodeId, outcome: StepOutcome) -> StepOutcome {
+    match outcome {
+        StepOutcome::Parked { .. } => h.confirm(
+            id,
+            StabilityResult::Stable {
+                receipt: b"ok"[..].into(),
+            },
+        ),
+        other => other,
+    }
+}
+
+/// Executes a node's pending `Apply` effects, confirming the park each
+/// acknowledgement raises under an external-stability mode (§11.1, S2).
+fn apply_settled(h: &mut Harness, id: NodeId) {
+    for applied in h.execute_apply_effects(id) {
+        settle(h, id, applied.outcome);
+    }
+}
+
+// 13b. An install arriving while the shortfall transition is PARKED for
+//      external stability is refused `TransitionOutstanding` (§12): the
+//      completing `RecoveryResponse` parked behind its persistence intent
+//      holds the `RequestApplicationState` effect unreleased, so the host
+//      cannot have answered a request it never saw — and any input but the
+//      confirmation is refused while the interval is open. No fault, and
+//      the safety invariants hold throughout.
+#[test]
+fn install_while_shortfall_parked_is_refused_transition_outstanding() {
+    let mut h = Harness::with_stability_and_journal_capacity(3, Stability::ExternalTransaction, 2);
+    for (id, outcome) in h.tick_all() {
+        settle(&mut h, id, outcome);
+    }
+    while let Some(delivery) = h.deliver_next() {
+        settle(&mut h, delivery.to, delivery.outcome);
+    }
+
+    // The shortfall script of test 7, every step settled: slots 3, 4, 5
+    // commit everywhere; n2 never performs the upcalls, so its applied
+    // frontier stays at the genesis system slots.
+    for lsb in 1..=3u64 {
+        let proposed = h.propose(n(0), op_id(lsb), &[lsb as u8]);
+        settle(&mut h, n(0), proposed);
+        while let Some(delivery) = h.deliver_next() {
+            settle(&mut h, delivery.to, delivery.outcome);
+        }
+        apply_settled(&mut h, n(0));
+        apply_settled(&mut h, n(1));
+    }
+    assert_eq!(snap(&h, n(2)).committed, 5);
+    assert_eq!(snap(&h, n(2)).applied, 2);
+
+    // n2 checkpoints through everything it applied; the next append (slot
+    // 6's accept) drops the slab holding slots 1..=2.
+    let outcome = h.checkpoint(n(2), Slot(2));
+    settle(&mut h, n(2), outcome);
+    let proposed = h.propose(n(0), op_id(4), b"d");
+    settle(&mut h, n(0), proposed);
+    while let Some(delivery) = h.deliver_next() {
+        settle(&mut h, delivery.to, delivery.outcome);
+    }
+    apply_settled(&mut h, n(0));
+    apply_settled(&mut h, n(1));
+    assert_eq!(
+        h.retained(n(2)),
+        Some((Slot(3), Slot(6))),
+        "the checkpoint-authorized drop fired on the append"
+    );
+
+    // Crash and reopen: the replay base (applied == 2) precedes the
+    // retained base. The solicitation and the responses each park and
+    // settle; the COMPLETING response is left parked — the shortfall
+    // transition holds its `RequestApplicationState` unreleased.
+    h.crash(n(2));
+    h.restart_with(n(2)).expect("the disk record reopens");
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+
+    let solicitation = h.recover(n(2));
+    settle(&mut h, n(2), solicitation);
+    let delivery = h.deliver_to(n(0)).expect("the solicitation reaches n0");
+    settle(&mut h, n(0), delivery.outcome);
+    let delivery = h.deliver_to(n(2)).expect("n0's response reaches n2");
+    settle(&mut h, n(2), delivery.outcome);
+    let delivery = h.deliver_to(n(1)).expect("the solicitation reaches n1");
+    settle(&mut h, n(1), delivery.outcome);
+    let completing = h.deliver_to(n(2)).expect("n1's response reaches n2");
+    assert!(
+        matches!(completing.outcome, StepOutcome::Parked { .. }),
+        "the completing response parks the shortfall transition: {:?}",
+        completing.outcome
+    );
+    assert!(
+        h.application_state_requests().is_empty(),
+        "the request is unreleased while the transition is parked"
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+
+    // The host's install — even naming the frontier the parked transition
+    // WILL request — is refused: §12 admits no second transition while the
+    // confirmation is pending.
+    let before = snap(&h, n(2));
+    let outcome = h.install_application_state(n(2), n(0), Slot(6));
+    assert_eq!(
+        outcome,
+        StepOutcome::PlanRefused(PlanRejection::TransitionOutstanding),
+        "an install while parked is the §12 refusal"
+    );
+    assert_eq!(
+        snap(&h, n(2)),
+        before,
+        "a refused install changes nothing, revision included"
+    );
+    assert_eq!(h.fault_of(n(2)), None, "a refusal, never a fault");
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+    h.assert_safety();
+
+    // The parked transition still completes on confirmation: the request
+    // releases, and the matching install then completes the recovery.
+    let published = h.confirm(
+        n(2),
+        StabilityResult::Stable {
+            receipt: b"ok"[..].into(),
+        },
+    );
+    let StepOutcome::Published { effects, .. } = published else {
+        panic!("the confirmed shortfall publishes: {published:?}");
+    };
+    assert_eq!(
+        effects,
+        vec![Effect::RequestApplicationState { through: Slot(6) }],
+        "the confirmation releases the parked shortfall's request"
+    );
+    let outcome = h.install_application_state(n(2), n(0), Slot(6));
+    settle(&mut h, n(2), outcome);
     assert_eq!(status_of(&h, n(2)), Status::Normal);
     h.assert_safety();
 }
