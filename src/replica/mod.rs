@@ -834,8 +834,10 @@ struct ViewChangeVolatile {
     /// quorum completes (§9.1's ordering: evidence follows the fence).
     evidence: BTreeMap<NodeId, Evidence>,
     /// The selected history, once an evidence quorum holds and the ranking
-    /// rule (§1.3) has run.
-    selected: Option<Evidence>,
+    /// rule (§1.3) has run — and the reporter whose history was selected,
+    /// which an unconstructible selection fetches the missing range from
+    /// (§13.1 step 5).
+    selected: Option<(NodeId, Evidence)>,
 }
 
 /// The view-change half of [`Bookkeeping`]: what a transition does to the
@@ -1648,6 +1650,59 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                             InputKind::PeerMessage {
                                 tag: Tag::StartView,
                                 slot: offer.message.header.slot,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        // §13.1 step 5: the new primary's stalled WIN re-runs on an
+        // ordinary tick once state transfer has supplied the missing
+        // range — the kept attempt's selection is re-driven through the
+        // ordinary pipeline, so a now-constructible history installs and
+        // broadcasts `StartView`. The precheck keeps an ordinary tick
+        // honest: no attempt, no completed selection, or a still-
+        // unconstructible suffix falls through to the fetch retry below,
+        // which re-issues the `GetState` from the cursor.
+        if self.progress.status() == Status::ViewChange {
+            if let Some(view_change) = self.view_change.clone() {
+                if let Some((_, selected)) = &view_change.selected {
+                    let committed = view_change
+                        .evidence
+                        .values()
+                        .map(|member| member.committed)
+                        .max()
+                        .unwrap_or(self.progress.committed())
+                        .max(self.progress.committed());
+                    if committed <= selected.accepted
+                        && matches!(
+                            self.check_suffix(
+                                journal,
+                                &selected.suffix,
+                                selected.accepted,
+                                committed,
+                                self.progress.checkpoint(),
+                            ),
+                            SuffixCheck::Install(_)
+                        )
+                    {
+                        let selected_accepted = selected.accepted;
+                        let candidate = self.identity_candidate()?;
+                        // The re-drive keeps the win's peer-message kind:
+                        // the install re-selects `retained`, a transition
+                        // the legality gate admits only for the evidence
+                        // that drove the win (§9.1) — never for a bare
+                        // tick. The header slot is the selected history's
+                        // accepted frontier (rule 7's Frontier role).
+                        return self.continue_view_change(
+                            journal,
+                            candidate,
+                            view_change,
+                            Vec::new(),
+                            at,
+                            InputKind::PeerMessage {
+                                tag: Tag::DoViewChange,
+                                slot: selected_accepted,
                             },
                         );
                     }
@@ -2696,20 +2751,24 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 /// a longer history retained from an EARLIER view can miss entries
 /// committed under a later one. Ties take the lowest sender id, so every
 /// honest new primary computes the same selection from the same evidence.
-fn select_history(evidence: &BTreeMap<NodeId, Evidence>) -> Evidence {
-    let mut best: Option<&Evidence> = None;
-    for member in evidence.values() {
+/// The winning sender rides along: an unconstructible selection fetches
+/// the missing range from the reporter whose history was selected
+/// (§13.1 step 5).
+fn select_history(evidence: &BTreeMap<NodeId, Evidence>) -> (NodeId, Evidence) {
+    let mut best: Option<(NodeId, &Evidence)> = None;
+    for (&sender, member) in evidence {
         let better = match best {
             None => true,
-            Some(incumbent) => {
+            Some((_, incumbent)) => {
                 (member.retained, member.accepted) > (incumbent.retained, incumbent.accepted)
             }
         };
         if better {
-            best = Some(member);
+            best = Some((sender, member));
         }
     }
-    best.expect("an evidence quorum is never empty").clone()
+    let (sender, member) = best.expect("an evidence quorum is never empty");
+    (sender, member.clone())
 }
 
 /// The structural shape of a view-change suffix (§13.1): a contiguous

@@ -103,7 +103,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// at the designated new primary, the evidence quorum (`Role::View
     /// Change`, Q1) and the install. Every quorum question goes to the
     /// strategy; no count is computed here.
-    fn continue_view_change(
+    pub(in crate::replica) fn continue_view_change(
         &self,
         journal: &J::View,
         candidate: Progress,
@@ -146,7 +146,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     view_change.selected = Some(select_history(&view_change.evidence));
                 }
             }
-            if let Some(selected) = view_change.selected.clone() {
+            if let Some((reporter, selected)) = view_change.selected.clone() {
                 match self.plan_win_view(
                     journal,
                     target,
@@ -158,23 +158,36 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 )? {
                     WinOutcome::Installed(plan) => return Ok(*plan),
                     // §13.1 step 5: the selected history cannot be
-                    // constructed from the collected evidence — the missing
-                    // range must be fetched by state transfer (§10) before
-                    // `StartView`.
-                    // The attempt and its selection are kept; the drop is
-                    // named, never a fault.
+                    // constructed from the collected evidence — fetch the
+                    // missing range from the reporter whose history was
+                    // selected, stamped with the TARGET view from the gap
+                    // base. The attempt and its selection are kept; the
+                    // drop is named, never a fault, and an ordinary tick
+                    // re-runs the win once the range has arrived.
                     WinOutcome::Insufficient {
                         expected,
                         got,
                         effects,
                     } => {
-                        return Ok(self
+                        let plan = self
                             .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
                             .with_bookkeeping(Bookkeeping {
                                 view_change: ViewChangeUpdate::Set(view_change),
                                 ..Bookkeeping::default()
                             })
-                            .with_diagnostic(Diagnostic::GapDetected { expected, got }));
+                            .with_diagnostic(Diagnostic::GapDetected { expected, got });
+                        // Open the fetch once: the gap ruling's first
+                        // insufficient outcome asks the selected reporter
+                        // for the missing range. A later insufficient
+                        // outcome — a duplicate evidence delivery, or the
+                        // tick re-drive before the range has arrived —
+                        // leaves the open fetch alone: its chunks and the
+                        // tick's cursor retry own the repair.
+                        if self.transfer.is_none() {
+                            let (effect, fetch) = self.fetch(target, reporter, expected);
+                            return Ok(plan.with_fetch(effect, fetch));
+                        }
+                        return Ok(plan);
                     }
                 }
             }

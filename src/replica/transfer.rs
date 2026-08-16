@@ -85,15 +85,26 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// A `GetState` (§10, §13.1 step 5): stream the requested range back
-    /// in budget-bounded chunks (W5). Only a `Normal` node in the
-    /// requested view serves — the same rule as the §10 recovery
-    /// solicitation: a fenced or recovering node's history is not yet
-    /// proved current. The chunk is a contiguous ascending run from
-    /// `from`, never a byte past the host's transport budget (W4); `more`
-    /// tells the requester the frontier sits past the chunk, so a partial
-    /// answer resumes from the cursor. A request the node cannot serve is
-    /// a named drop, never a fault: the requester's fetch stays open and
-    /// another answer closes the gap.
+    /// in budget-bounded chunks (W5). Serving is read-only retransmission
+    /// of durable journal content: it never mutates the responder and
+    /// cannot alter committed state, so a node is never fenced with
+    /// respect to SERVING — fencing governs participation, not serving.
+    /// The serving gate is therefore the cluster-legality gate alone (the
+    /// era is known, the sender is a member) plus the two statuses whose
+    /// journal is not servable: `Recovering` (the standing ruling — a
+    /// recovering node's history is not yet proved current) and
+    /// `Replaying` (the journal is mid-install, structurally
+    /// inconsistent). A fenced `ViewChange` node serves exactly like a
+    /// `Normal` one, and the request's view is a correlation token (like
+    /// the recovery nonce), not a serving condition: the response header
+    /// echoes it so the recipient's open-fetch qualification — the real
+    /// gate — can match the answer to the fetch it opened. The chunk is a
+    /// contiguous ascending run from `from`, never a byte past the host's
+    /// transport budget (W4); `more` tells the requester the frontier
+    /// sits past the chunk, so a partial answer resumes from the cursor.
+    /// A request the node cannot serve is a named drop, never a fault:
+    /// the requester's fetch stays open and another answer closes the
+    /// gap.
     pub(in crate::replica) fn plan_get_state(
         &self,
         journal: &J::View,
@@ -114,9 +125,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if record.config.weight_of(from).is_none() {
             return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
         }
-        let current = self.progress.current();
         let frontier = self.progress.accepted();
-        if header.view != current || self.progress.status() != Status::Normal {
+        if matches!(
+            self.progress.status(),
+            Status::Recovering | Status::Replaying
+        ) {
             return self.drop_plan(
                 Diagnostic::TransferNotServed {
                     sender: from,
@@ -160,10 +173,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         };
+        // The response header echoes the REQUEST's view: a correlation
+        // token (like the recovery nonce), never the responder's current
+        // view — the recipient's open-fetch qualification matches the
+        // answer against the fetch it opened, and the send routes in the
+        // request's era so it reaches the requester under the same
+        // membership the request arrived under.
         let response = Message {
             header: Header {
                 tag: Tag::NewState,
-                view: current,
+                view: header.view,
                 slot: through,
             },
             body: Body::NewState {
@@ -175,7 +194,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         };
         let effects = vec![Effect::Send {
             to: from,
-            era: current.era,
+            era: header.view.era,
             message: response,
         }];
         let candidate = self.identity_candidate()?;

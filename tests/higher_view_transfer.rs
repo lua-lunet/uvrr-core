@@ -33,7 +33,12 @@
 //!     cursor on an ordinary tick — the fetch never stalls silently;
 //! 8.  a chunk answering a fetch whose range a `StartView` has since
 //!     installed is a named drop or a harmless close, never a
-//!     mis-install.
+//!     mis-install;
+//! 9.  the new primary that cannot construct the selected history from
+//!     budget-truncated evidence fetches the missing range from the
+//!     selected reporter — a fenced view is no bar to SERVING, which is
+//!     read-only retransmission — and the stalled win completes on an
+//!     ordinary tick.
 
 #[path = "harness/mod.rs"]
 mod harness;
@@ -1065,5 +1070,270 @@ fn superseded_fetch_chunk_is_a_named_drop() {
     assert_eq!(snap(&h, n(2)).committed, 4);
     h.deliver_all();
     apply_all(&mut h, [0, 1, 2]);
+    h.assert_safety();
+}
+
+// ---------------------------------------------------------------------------
+// 9. The new primary cannot construct the selected history from
+//    budget-truncated evidence: the win names the gap, fetches the missing
+//    range from the selected reporter — serving is read-only
+//    retransmission, so a Normal responder answers the fenced-view request
+//    — and the stalled win completes on an ordinary tick (§13.1 step 5).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn primary_side_construction_gap_fetches_and_completes() {
+    let per_entry = operation_entry(3, 1, b"c").packed_len();
+    let mut h = Harness::with_knobs(
+        3,
+        ViewChangeKnobs {
+            // Suspicion stays out of the way: the script's ticks ask about
+            // the stalled win, never about a primary's life.
+            primary_timeout: 100,
+            view_change_budget: per_entry,
+        },
+    );
+    bootstrap(&mut h);
+    // n0 (the old primary) and n2 advance; n1 — view 1's designated
+    // primary — is partitioned away and stays at the genesis frontier.
+    h.partition(vec![n(0), n(2)], vec![n(1)]);
+    for lsb in 1..=3u64 {
+        h.propose(n(0), op_id(lsb), b"c");
+        h.deliver_all();
+    }
+    apply_all(&mut h, [0, 2]);
+    assert_eq!(snap(&h, n(0)).committed, 5);
+    assert_eq!(snap(&h, n(1)).accepted, 2);
+    h.heal();
+    h.drop_queued(n(1)); // the view-0 traffic for n1 is spent
+
+    // The change to view 1: n1 is the designated primary and a laggard
+    // (accepted 2). n0 and n2 join the fence and report; the budget admits
+    // ONE entry, so their suffixes carry slot 5 alone. The selection ranks
+    // an advanced history first (longer accepted): n0 and n2 tie at
+    // (view 0, accepted 5), and the lowest sender id wins — n0. The
+    // selected suffix starts at slot 5, past n1's own frontier, so the
+    // selected history cannot be constructed from the truncated evidence.
+    for _ in 0..=100u64 {
+        h.tick(n(1));
+    }
+    assert_eq!(status_of(&h, n(1)), Status::ViewChange);
+    assert_eq!(current_view(&h, n(1)), view(1));
+    h.deliver_tag(n(0), Tag::StartViewChange); // n0 joins and reports
+    h.deliver_tag(n(2), Tag::StartViewChange); // n2 joins and reports
+    h.deliver_tag(n(1), Tag::StartViewChange); // a vote completes n1's fence
+    h.deliver_tag(n(1), Tag::DoViewChange); // evidence: the quorum holds
+    h.deliver_tag(n(1), Tag::DoViewChange); // the second reporter's evidence
+    assert_eq!(
+        h.diagnostic(n(1)),
+        Some(Diagnostic::GapDetected {
+            expected: Slot(3),
+            got: Slot(5),
+        }),
+        "the selected history is not constructible from the truncated evidence"
+    );
+    assert_eq!(
+        status_of(&h, n(1)),
+        Status::ViewChange,
+        "the win has not installed"
+    );
+
+    // The gap ruling opens the fetch to the selected reporter (§13.1
+    // step 5): one past n1's frontier, stamped with the TARGET view.
+    let request = h
+        .peek_queued(n(0), Tag::GetState)
+        .expect("the construction gap fetches from the selected reporter");
+    let Body::GetState { from } = &request.body else {
+        panic!("expected GetState");
+    };
+    assert_eq!(*from, Slot(3));
+    assert_eq!(request.header.view, view(1));
+
+    // n0 is Normal in view 0 — serving is read-only retransmission, so
+    // the fenced-view request is served exactly like a current-view one:
+    // the chunks fill the range, each `more` re-issuing the fetch from
+    // the cursor to the same responder, and the committed frontier waits
+    // for the completing ruling while the node is fenced.
+    for slot in 3..=5u64 {
+        h.deliver_tag(n(0), Tag::GetState);
+        let chunk = h.peek_queued(n(1), Tag::NewState).unwrap_or_else(|| {
+            panic!(
+                "n0 serves the chunk for slot {slot}: n0 diag={:?} n0 status={:?}",
+                h.diagnostic(n(0)),
+                status_of(&h, n(0)),
+            )
+        });
+        let Body::NewState {
+            through,
+            more: flag,
+            ..
+        } = &chunk.body
+        else {
+            panic!("expected NewState");
+        };
+        assert_eq!(*through, Slot(slot));
+        assert_eq!(*flag, slot < 5);
+        assert_eq!(
+            chunk.header.view,
+            view(1),
+            "the answer echoes the request's view: a correlation token"
+        );
+        h.deliver_tag(n(1), Tag::NewState);
+        assert_eq!(snap(&h, n(1)).accepted, slot);
+    }
+    assert_eq!(
+        snap(&h, n(1)).committed,
+        2,
+        "a fenced node's committed frontier waits for the completing ruling"
+    );
+    assert_eq!(status_of(&h, n(1)), Status::ViewChange);
+
+    // The completing ruling re-runs on an ordinary tick now that the
+    // range has arrived: the same selection, now constructible — the win
+    // installs and broadcasts StartView.
+    h.tick(n(1));
+    assert_eq!(
+        status_of(&h, n(1)),
+        Status::Normal,
+        "the stalled win completes on the tick"
+    );
+    assert_eq!(current_view(&h, n(1)), view(1));
+    assert_eq!(snap(&h, n(1)).accepted, 5);
+    assert_eq!(snap(&h, n(1)).committed, 5);
+    assert!(
+        h.peek_queued(n(0), Tag::StartView).is_some()
+            && h.peek_queued(n(2), Tag::StartView).is_some(),
+        "the completed win broadcasts StartView"
+    );
+    h.execute_apply_effects(n(1));
+    assert_eq!(snap(&h, n(1)).applied, 5);
+
+    // The fenced evidence member installs from the broadcast: n2 joins
+    // the view it reported evidence for.
+    h.deliver_tag(n(2), Tag::StartView);
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    assert_eq!(current_view(&h, n(2)), view(1));
+    h.execute_apply_effects(n(2));
+    assert_eq!(snap(&h, n(2)).committed, 5);
+    assert_eq!(
+        h.journal_entries(n(2)),
+        h.journal_entries(n(1)),
+        "the evidence member holds the selected history"
+    );
+    h.deliver_all();
+    apply_all(&mut h, [0, 1, 2]);
+    h.assert_safety();
+}
+
+// ---------------------------------------------------------------------------
+// 10. The category ruling: a fenced (ViewChange) node SERVES a GetState
+//     stamped with a DIFFERENT view than its current — serving is read-only
+//     retransmission of durable journal content, never a participation act,
+//     so no view equality condition gates it. The response echoes the
+//     request's view (the correlation token).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fenced_node_serves_a_different_view_get_state() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    commit_one(&mut h, n(0), 1, b"a"); // slot 3 everywhere
+    commit_one(&mut h, n(0), 2, b"b"); // slot 4 everywhere
+
+    // Fence n2 into view 1: a StartViewChange from view 1's primary
+    // advances its durable view and fences every earlier view. n2 holds
+    // the era-1 history through slot 4 — servable content.
+    tick_into_view_change(&mut h, n(2), view(1));
+    assert_eq!(status_of(&h, n(2)), Status::ViewChange);
+    assert_eq!(current_view(&h, n(2)), view(1));
+
+    // A GetState stamped with view 0 — a DIFFERENT view than n2's
+    // current — from a cluster member, asking for a range n2 holds. The
+    // fenced node serves it: the request's view is a correlation token,
+    // not a serving condition.
+    let request = Message {
+        header: Header {
+            tag: Tag::GetState,
+            view: view(0),
+            slot: Slot(2),
+        },
+        body: Body::GetState { from: Slot(3) },
+    };
+    let outcome = h.inject(n(0), n(2), request);
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the fenced node serves: {outcome:?}"
+    );
+    let chunk = h
+        .peek_queued(n(0), Tag::NewState)
+        .expect("a fenced node retransmits its durable history");
+    let Body::NewState {
+        entries,
+        through,
+        more,
+        ..
+    } = &chunk.body
+    else {
+        panic!("expected NewState");
+    };
+    assert_eq!(entries.first().map(|entry| entry.slot), Some(Slot(3)));
+    assert_eq!(*through, Slot(4));
+    assert!(!more, "the chunk reaches the responder's frontier");
+    assert_eq!(
+        chunk.header.view,
+        view(0),
+        "the answer echoes the request's view: the correlation token"
+    );
+    assert_eq!(
+        status_of(&h, n(2)),
+        Status::ViewChange,
+        "serving never mutated the responder"
+    );
+    assert!(!snap(&h, n(2)).faulted);
+    h.assert_safety();
+}
+
+// ---------------------------------------------------------------------------
+// 11. The standing refusal: a Recovering node refuses a GetState — its
+//     history is not yet proved current, so the named drop
+//     TransferNotServed stands and nothing is served.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn recovering_node_refuses_get_state() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    commit_one(&mut h, n(0), 1, b"a");
+    h.crash(n(2));
+    h.restart_with(n(2)).expect("the journal survived");
+    h.recover(n(2));
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+
+    let request = Message {
+        header: Header {
+            tag: Tag::GetState,
+            view: view(0),
+            slot: Slot(2),
+        },
+        body: Body::GetState { from: Slot(3) },
+    };
+    let outcome = h.inject(n(0), n(2), request);
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the refusal publishes an identity transition: {outcome:?}"
+    );
+    assert!(
+        h.peek_queued(n(0), Tag::NewState).is_none(),
+        "a recovering node serves nothing"
+    );
+    assert_eq!(
+        h.diagnostic(n(2)),
+        Some(Diagnostic::TransferNotServed {
+            sender: n(0),
+            view: view(0),
+        }),
+        "the named refusal, on the observation"
+    );
+    assert!(!snap(&h, n(2)).faulted, "a refusal, never a fault");
     h.assert_safety();
 }
