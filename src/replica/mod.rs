@@ -1613,6 +1613,30 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                         None,
                     );
                 }
+                // §4, §11: an outstanding application-state request
+                // re-emits on an ordinary tick — a lost request or a
+                // stale install otherwise leaves the node waiting
+                // silently for a transfer the host does not know it
+                // still owes. The re-emission is the same effect the
+                // shortfall surfaced; the host's install input must
+                // still name the outstanding `through` back.
+                if let Some(request) = &attempt.state_request {
+                    let candidate = self.identity_candidate()?;
+                    return Ok(self
+                        .candidate_plan(
+                            candidate,
+                            JournalMutation::None,
+                            vec![Effect::RequestApplicationState {
+                                through: request.through,
+                            }],
+                            InputKind::Tick,
+                            false,
+                        )
+                        .with_bookkeeping(Bookkeeping {
+                            recovery: RecoveryUpdate::Set(attempt.clone()),
+                            ..Bookkeeping::default()
+                        }));
+                }
             }
         }
         // §13.1 step 5: a gap-ruled `StartView` re-runs its ruling on an

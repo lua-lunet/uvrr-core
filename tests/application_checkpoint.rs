@@ -26,7 +26,8 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::effects::Effect;
-use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
+use vrr::journal::LogEntry;
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
@@ -89,6 +90,39 @@ fn commit_unapplied(h: &mut Harness, lsb: u64, payload: &[u8]) {
         "the primary accepts its own proposal: {outcome:?}"
     );
     h.deliver_all();
+}
+
+/// A view in era 1 — every scenario here is same-era (W1).
+fn view(number: u32) -> ViewId {
+    ViewId {
+        era: Era(1),
+        view: View(number),
+    }
+}
+
+/// A fabricated `RecoveryResponse` envelope (the header slot is the Absent
+/// sentinel; the frontiers ride in the body).
+fn recovery_response(
+    nonce: Tick,
+    view: ViewId,
+    accepted: Slot,
+    committed: Slot,
+    suffix: Option<Vec<LogEntry>>,
+) -> Message {
+    Message {
+        header: Header {
+            tag: Tag::RecoveryResponse,
+            view,
+            slot: Slot::NONE,
+        },
+        body: Body::RecoveryResponse {
+            nonce,
+            view,
+            accepted,
+            committed,
+            suffix,
+        },
+    }
 }
 
 // 1. Ordered apply: applies arrive in strict slot order, `applied` tracks
@@ -651,6 +685,100 @@ fn install_without_outstanding_request_is_rejected() {
     h.deliver_to(n(1)).expect("the solicitation reaches n1");
     h.deliver_to(n(2)).expect("n0's response reaches n2");
     h.deliver_to(n(2)).expect("n1's response reaches n2");
+    assert_eq!(status_of(&h, n(2)), Status::Normal);
+    h.assert_safety();
+}
+
+// 13a. A stale install after a re-shortfall is the named mismatch, and the
+//      outstanding request re-emits on a later tick: the host's transfer
+//      facility may have lost the first emission or answered a superseded
+//      one, and the node must not wait silently (§4, §11).
+#[test]
+fn stale_install_after_reshortfall_reemits_on_tick() {
+    let mut h = shortfall_cluster();
+    // The first shortfall surfaced `RequestApplicationState { through: 6 }`.
+    assert_eq!(
+        h.application_state_requests(),
+        &[(n(2), Slot(6))],
+        "the first shortfall's request is outstanding"
+    );
+
+    // Fresher evidence arrives: slot 7 commits at n0/n1 while n2 is fenced
+    // Recovering. The commit must NOT reach n2 — a Prepare for its current
+    // view would bootstrap it into Normal (§4's bootstrap rule).
+    let outcome = h.propose(n(0), op_id(5), b"e");
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the primary accepts its own proposal: {outcome:?}"
+    );
+    h.deliver_to(n(1)).expect("the Prepare reaches n1");
+    h.deliver_to(n(0)).expect("n1's PrepareOk reaches n0");
+    h.deliver_to(n(1)).expect("the Commit reaches n1");
+    h.drop_queued(n(2));
+    h.execute_apply_effects(n(0));
+    h.execute_apply_effects(n(1));
+    let nonce = h.now();
+    // The suffix is n0's actual journal — it reaches back past n2's
+    // retained base, so the completion re-shortfalls exactly as the first
+    // did, now at the fresher committed frontier.
+    let suffix = h.journal_entries(n(0));
+    let accepted = Slot(7);
+    let committed = Slot(7);
+    let outcome = h.inject(
+        n(0),
+        n(2),
+        recovery_response(nonce, view(0), accepted, committed, Some(suffix)),
+    );
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the fresher evidence publishes: {outcome:?}");
+    };
+    assert_eq!(
+        effects,
+        vec![Effect::RequestApplicationState { through: Slot(7) }],
+        "the re-shortfall names the fresher committed frontier"
+    );
+    assert_eq!(
+        h.application_state_requests(),
+        &[(n(2), Slot(6)), (n(2), Slot(7))],
+        "both requests are recorded in release order"
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+
+    // The host answers the FIRST request — stale under the re-shortfall.
+    let outcome = h.install_application_state(n(2), n(0), Slot(6));
+    assert_eq!(
+        outcome,
+        StepOutcome::PlanRefused(PlanRejection::ApplicationStateMismatch {
+            expected: Slot(7),
+            got: Slot(6),
+        }),
+        "the stale install names the outstanding request"
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+
+    // A later tick re-emits the outstanding request: the host's transfer
+    // facility may have lost the first emission, and the node must not
+    // wait silently.
+    let before = h.application_state_requests().len();
+    h.tick(n(2));
+    assert_eq!(
+        h.application_state_requests().len(),
+        before + 1,
+        "the tick re-emitted the outstanding request"
+    );
+    assert_eq!(
+        h.application_state_requests().last(),
+        Some(&(n(2), Slot(7))),
+        "the re-emission names the outstanding frontier"
+    );
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+
+    // The correct install still completes afterwards.
+    let outcome = h.install_application_state(n(2), n(0), Slot(7));
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the matching install completes: {outcome:?}"
+    );
     assert_eq!(status_of(&h, n(2)), Status::Normal);
     h.assert_safety();
 }
