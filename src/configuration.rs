@@ -839,6 +839,26 @@ impl EraTable {
         self.records.iter().rev().find(|record| record.era == era)
     }
 
+    /// Returns the table with `pivot` recorded on `era`'s record
+    /// (§8.7.6–§8.7.7): the concrete vote sets that carried the non-stop
+    /// transition into that era. Persistent like [`EraTable::extend`].
+    /// `None` when `era` is outside the retention window.
+    ///
+    /// The pivot is leader-local transition evidence: only the leader that
+    /// ran the planned view change knows the sets, and §8.7.7 carries them
+    /// on no message, so a peer that folds the same era records `None`.
+    #[must_use]
+    pub fn with_transition_pivot(
+        &self,
+        era: Era,
+        pivot: crate::replica::Pivot,
+    ) -> Option<EraTable> {
+        let mut records = self.records.clone();
+        let record = records.iter_mut().rev().find(|record| record.era == era)?;
+        record.pivot = Some(pivot);
+        Some(EraTable { records })
+    }
+
     /// Folds `op` at slot `at` onto the current configuration and returns the
     /// resulting table.
     ///

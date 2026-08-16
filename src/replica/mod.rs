@@ -449,6 +449,17 @@ pub enum PlanRejection {
         /// The refused target.
         target: ViewId,
     },
+    /// An [`Input::Reconfigure`] with a pivot whose transition view `v'`
+    /// is not representable (§8.7.7 step 5 names `v'` as the least view
+    /// past the current one selecting the leader under the new order, and
+    /// §8.7.3 forbids wraparound): the non-stop transition cannot be
+    /// planned. The refusal runs BEFORE the proposal; the operation never
+    /// entered the log. The host may retry without a pivot — the
+    /// stop-the-world path names no `v'`.
+    ReconfigureViewExhausted {
+        /// The current view, at the exhausted end of the view space.
+        current: ViewId,
+    },
 }
 
 /// Why `publish` refused a planned transition.
@@ -938,6 +949,60 @@ enum StalledUpdate {
     Clear,
 }
 
+/// The volatile state of a non-stop overlap transition (§8.7.7), live only at
+/// the pivot leader: the establishing operation's slot, the validated pivot
+/// (§8.7.6), the transition view `v'` named at proposal time, whether the
+/// `PlannedViewChange` solicitation went out (it does when the establishing
+/// operation commits and the era folds), and the planned evidence gathered so
+/// far, by sender.
+///
+/// The evidence is TRANSIENT: it completes the planned quorum and nothing
+/// else. It is never a fence vote — `PlannedViewChange` fences no one — and
+/// it is never counted toward a `Role::Fence` or ordinary
+/// `Role::ViewChange` quorum; the two kinds are distinguishable on the wire
+/// by [`EvidenceKind`] and routed by it. Volatile like the ordinary attempt:
+/// a crash discards the machine, and the reopened node's path is the
+/// ordinary view change that carries the era with the history.
+#[derive(Clone, Debug)]
+struct PlannedOverlap {
+    /// The slot of the establishing operation the pivot was validated for.
+    establishing: Slot,
+    /// The validated pivot: `qI` the view-change vote set under config(e),
+    /// `qII` the commit vote set under both configs, intersecting in
+    /// exactly this node.
+    pivot: Pivot,
+    /// The transition view `v'` (§8.7.7 step 5): the least view past the
+    /// current one selecting this node under the NEW order, named when the
+    /// operation was proposed — an unrepresentable `v'` refused the
+    /// proposal, so the machine always holds a legal target.
+    target: ViewId,
+    /// Whether the `PlannedViewChange` solicitation went out: it rides the
+    /// commit transition that folds the establishing operation (§8.7.7
+    /// step 1's evidence round runs while the era-(e+1) stream continues).
+    solicited: bool,
+    /// The planned evidence gathered so far, by sender — votes only. The
+    /// leader's own history is authoritative (every committed entry of the
+    /// era sits at the primary that proposed it or in the history it
+    /// installed), so no selection runs over these suffixes.
+    evidence: BTreeMap<NodeId, Evidence>,
+}
+
+/// The planned-overlap half of [`Bookkeeping`]: what a transition does to
+/// the non-stop transition machine.
+#[derive(Clone, Debug, Default)]
+enum PlannedOverlapUpdate {
+    /// The machine is untouched.
+    #[default]
+    Unchanged,
+    /// Install machine state (armed at proposal, solicited at the fold, a
+    /// counted evidence answer).
+    Set(PlannedOverlap),
+    /// The machine is over — the transition published — or superseded: any
+    /// fence or ordinary view-change install abandons it (the ordinary
+    /// path then carries the era with the history).
+    Clear,
+}
+
 /// What the new primary's completion attempt produced.
 enum WinOutcome {
     /// The transition to publish (the install, or the declared fault).
@@ -1000,6 +1065,8 @@ struct Bookkeeping {
     transfer: TransferUpdate,
     /// The stalled-offer update.
     stalled: StalledUpdate,
+    /// The planned-overlap update.
+    planned: PlannedOverlapUpdate,
     /// Refresh of the primary-activity baseline (S4): the tick of a
     /// same-view `Prepare`/`Commit` from the legitimate primary, or of a
     /// `StartView` adoption — the new primary has just proved itself alive.
@@ -1170,6 +1237,10 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// The gap-ruled `StartView` offer awaiting its fetch, if any
     /// (§13.1 step 5). Volatile, exactly like the cursor.
     stalled: Option<StalledStartView>,
+    /// The non-stop overlap transition in flight, if any (§8.7.7) — live
+    /// only at the pivot leader. Volatile: a crash discards the machine
+    /// and the reopened node's path is the ordinary view change.
+    planned: Option<PlannedOverlap>,
 }
 
 // Manual, non-exhaustive: `Observation` is a seqlock with no `Debug` of its
@@ -1381,6 +1452,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             recovery: None,
             transfer: None,
             stalled: None,
+            planned: None,
         }
     }
 
@@ -2354,6 +2426,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             StalledUpdate::Set(offer) => self.stalled = Some(offer),
             StalledUpdate::Clear => self.stalled = None,
         }
+        match bookkeeping.planned {
+            PlannedOverlapUpdate::Unchanged => {}
+            PlannedOverlapUpdate::Set(machine) => self.planned = Some(machine),
+            PlannedOverlapUpdate::Clear => self.planned = None,
+        }
         for (slot, proposal) in bookkeeping.proposals {
             self.proposals.insert(slot, proposal);
         }
@@ -2644,9 +2721,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         })
     }
 
-    /// The peer-message dispatch (§4, §9): normal operation, the
-    /// view-change exchange, recovery, and state transfer are live; the
-    /// remaining tags' handlers are future work and the refusal is named.
+    /// The peer-message dispatch (§4, §9): normal operation, the ordinary
+    /// view-change exchange, the non-stop overlap exchange (§8.7.7),
+    /// recovery, and state transfer are live.
     ///
     /// A same-view `Prepare` or `Commit` from the legitimate primary is
     /// proof of primary life: whatever its outcome (accept, gap, named
@@ -2735,7 +2812,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             } => self.plan_new_state(
                 journal, from, message, entries, *through, *committed, *more, kind,
             ),
-            Body::PlannedViewChange {} => Err(PlanRejection::Unsupported { input: kind }),
+            Body::PlannedViewChange {} => {
+                self.plan_planned_view_change(journal, from, message, kind)
+            }
         }?;
         Ok(if primary_life {
             plan.with_activity(at)

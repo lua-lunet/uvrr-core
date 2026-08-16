@@ -1017,8 +1017,8 @@ impl Harness {
     /// A reconfiguration proposal (§8.7.2): `Input::Reconfigure` through
     /// the ordinary step machinery — the named refusal or the proposal's
     /// publication is the script's to assert. The pivot is `None` on the
-    /// stop-the-world path (§8.7.4); a `Some` pivot is refused as
-    /// unsupported future work (§8.7.6).
+    /// stop-the-world path (§8.7.4); a `Some` pivot runs the non-stop
+    /// overlap transition (§8.7.6–§8.7.7).
     pub fn reconfigure(
         &mut self,
         id: NodeId,

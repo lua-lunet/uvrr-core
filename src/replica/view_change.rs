@@ -179,6 +179,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                             .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
                             .with_bookkeeping(Bookkeeping {
                                 view_change: ViewChangeUpdate::Set(view_change),
+                                // The ordinary attempt owns the era now:
+                                // a planned overlap machine is abandoned
+                                // by any fence it joins.
+                                planned: PlannedOverlapUpdate::Clear,
                                 ..Bookkeeping::default()
                             })
                             .with_diagnostic(Diagnostic::GapDetected { expected, got });
@@ -202,6 +206,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
             .with_bookkeeping(Bookkeeping {
                 view_change: ViewChangeUpdate::Set(view_change),
+                // The ordinary attempt owns the era now: a planned
+                // overlap machine is abandoned by any fence it joins.
+                planned: PlannedOverlapUpdate::Clear,
                 ..Bookkeeping::default()
             }))
     }
@@ -340,6 +347,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRejection> {
         let header = message.header;
+        // Planned evidence belongs to the non-stop overlap path
+        // (§8.7.7): it is routed by its kind — distinguishable on the
+        // wire — and never lands in the ordinary attempt, where it would
+        // count toward a quorum it is not a vote in.
+        if evidence == EvidenceKind::Planned {
+            return self.plan_planned_evidence(
+                journal, from, message, retained, accepted, committed, suffix, era_proof, at, kind,
+            );
+        }
         let Some(record) = self.progress.config().record(header.view.era) else {
             return self.drop_plan(
                 Diagnostic::UnevaluableEra {
@@ -354,13 +370,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // Shape: the header slot names the reported accepted frontier
         // (rule 7's Frontier role); the frontiers are a legal chain; the
         // suffix is a contiguous ascending run ending at the frontier; the
-        // evidence is ordinary (planned evidence belongs to the planned
-        // view-change path and never lands here); the era proof matches
-        // the configuration history
+        // era proof matches the configuration history
         // (§8.7.8).
         if header.slot != accepted
             || committed > accepted
-            || evidence != EvidenceKind::Ordinary
             || !suffix_shape_ok(suffix, accepted)
             || !self.era_proof_ok(journal, record, era_proof)
         {
@@ -436,13 +449,33 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRejection> {
         let header = message.header;
+        let current = self.progress.current();
         let Some(record) = self.progress.config().record(header.view.era) else {
-            return self.drop_plan(
+            // A `StartView` one era past the current is the overlap
+            // transition's offer arriving before the establishing
+            // operation did (§8.7.7, a reordering): the ruling is the
+            // gap ruling's (§13.1 step 5) — retain the offer, fetch the
+            // missing range from the new primary under the CURRENT view,
+            // and re-run the ruling on an ordinary tick once the range
+            // has folded the era that makes the offer evaluable. Any
+            // further-out era is merely unevaluable.
+            let plan = self.drop_plan(
                 Diagnostic::UnevaluableEra {
                     era: header.view.era,
                 },
                 kind,
-            );
+            )?;
+            if Some(header.view.era) == current.era.next() {
+                let mut plan = plan.with_stalled_offer(from, message.clone());
+                if self.transfer.is_none() {
+                    if let Some(next) = self.progress.accepted().next() {
+                        let (effect, fetch) = self.fetch(current, from, next);
+                        plan = plan.with_fetch(effect, fetch);
+                    }
+                }
+                return Ok(plan);
+            }
+            return Ok(plan);
         };
         if self.primary_of(header.view) != Some(from) {
             return self.drop_plan(
@@ -545,6 +578,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 // stalled gap ruling for this view is the one now
                 // completing, and an older view's is dead state.
                 stalled: StalledUpdate::Clear,
+                // An adopted view supersedes any planned overlap
+                // machine: the era now moves with the ordinary change.
+                planned: PlannedOverlapUpdate::Clear,
                 activity: Some(at),
                 ..Bookkeeping::default()
             }))
@@ -672,6 +708,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .with_bookkeeping(Bookkeeping {
                 proposals,
                 view_change: ViewChangeUpdate::Clear,
+                // The won change supersedes any planned overlap machine:
+                // the era now moves with the ordinary change.
+                planned: PlannedOverlapUpdate::Clear,
                 // The StartView broadcast is the new primary's
                 // announcement of the view: proof of its life (S4).
                 activity: Some(at),

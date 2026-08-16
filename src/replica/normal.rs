@@ -456,6 +456,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
         };
+        // §8.7.7 steps 1 and 4: an armed non-stop machine whose
+        // establishing operation this advance committed records its pivot
+        // on the new era's record and solicits the planned evidence of
+        // `qI − {L}` — the solicitation rides THIS published transition,
+        // while the era-(e+1) client stream continues uninterrupted.
+        let (config, solicitation, planned_update) = self.overlap_solicitation(config, committed);
         let candidate = self.candidate_with(
             Status::Normal,
             self.progress.accepted(),
@@ -465,9 +471,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         )?;
         let mut effects = self.apply_effects(journal, self.progress.committed(), committed)?;
         effects.extend(self.broadcast_commit(committed));
+        effects.extend(solicitation);
         Ok(self
             .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
-            .with_bookkeeping(bookkeeping))
+            .with_bookkeeping(Bookkeeping {
+                planned: planned_update,
+                ..bookkeeping
+            }))
     }
 
     /// Any node's `Commit` handler (§4, §13.3): advance
