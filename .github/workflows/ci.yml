@@ -74,6 +74,7 @@ jobs:
           cargo fmt --check
           cargo clippy --all-targets --all-features -- -D warnings
           cargo test --all-features --all-targets
+          cargo test --doc
           ! rg -n '#\[cfg\(test\)\]|mod tests' src
           ! rg -in 'paxos' src/ tests/
           ! (git ls-files | rg -v '^maelstrom' | xargs rg -n 'item[0-9]')

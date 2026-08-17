@@ -14,7 +14,7 @@ use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
 
 use vrr::message::{Body, Message};
 use vrr::progress::Status;
-use vrr::replica::{Pivot, PlanRejection, ViewChangeKnobs};
+use vrr::replica::{Pivot, PlanRefusal, ViewChangeKnobs};
 use vrr::wire::Tag;
 
 fn n(id: u32) -> NodeId {
@@ -598,7 +598,7 @@ fn transition_view_exhaustion_refuses_the_proposal_before_the_log() {
     );
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::ReconfigureViewExhausted { current: last })
+        StepOutcome::PlanRefused(PlanRefusal::ReconfigureViewExhausted { current: last })
     );
     assert!(
         h.peek_queued(n(1), Tag::Prepare).is_none(),

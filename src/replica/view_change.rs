@@ -32,11 +32,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         heard: BTreeSet<NodeId>,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let candidate = self
             .progress
             .with_view_change(target)
-            .map_err(PlanRejection::Progress)?;
+            .map_err(PlanRefusal::Progress)?;
         let mut fences = heard;
         fences.insert(self.own);
         let message = Message {
@@ -82,10 +82,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         journal: &J::View,
         target: ViewId,
         at: Tick,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
         if target.view <= current.view {
-            return Err(PlanRejection::AdminTargetNotAhead { current, target });
+            return Err(PlanRefusal::AdminTargetNotAhead { current, target });
         }
         // The target era must be one the committed configuration history
         // has established: either the current view's own era, or the
@@ -93,13 +93,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // (§8.7.1). An era beyond that was never decided here.
         let established = self.progress.config().current().era;
         if target.era != current.era && target.era != established {
-            return Err(PlanRejection::AdminEraNotCurrent {
+            return Err(PlanRefusal::AdminEraNotCurrent {
                 current: current.era,
                 got: target.era,
             });
         }
         if target.next_in_era().is_none() {
-            return Err(PlanRejection::AdminViewExhausted { target });
+            return Err(PlanRefusal::AdminViewExhausted { target });
         }
         self.enter_view_change(journal, target, BTreeSet::new(), at, InputKind::Admin)
     }
@@ -117,7 +117,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         mut effects: Vec<Effect>,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let target = view_change.target;
         let Some(record) = self.progress.config().record(target.era) else {
             return self.drop_plan(Diagnostic::UnevaluableEra { era: target.era }, kind);
@@ -234,14 +234,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         journal: &J::View,
         view_change: &ViewChangeVolatile,
         target: ViewId,
-    ) -> Result<Effect, PlanRejection> {
+    ) -> Result<Effect, PlanRefusal> {
         let own = view_change
             .evidence
             .get(&self.own)
             .expect("own evidence is recorded before it is sent");
         let to = self
             .primary_of(target)
-            .ok_or(PlanRejection::Progress(ProgressError::EraSlotDiscipline))?;
+            .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
         Ok(Effect::Send {
             to,
             era: target.era,
@@ -283,7 +283,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         message: &Message,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         let Some(record) = self.progress.config().record(header.view.era) else {
             return self.drop_plan(
@@ -345,7 +345,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         era_proof: &EraProof,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         // Planned evidence belongs to the non-stop overlap path
         // (§8.7.7): it is routed by its kind — distinguishable on the
@@ -447,7 +447,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         era_proof: &EraProof,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         let current = self.progress.current();
         let Some(record) = self.progress.config().record(header.view.era) else {
@@ -562,7 +562,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             match self.fold_committed(journal, suffix, self.progress.committed(), committed) {
                 Ok(config) => config,
                 Err(CommitFold::Unavailable(slot)) => {
-                    return Err(PlanRejection::JournalEntryUnavailable { slot });
+                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
                 Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
             };
@@ -606,7 +606,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         mut effects: Vec<Effect>,
         at: Tick,
         kind: InputKind,
-    ) -> Result<WinOutcome, PlanRejection> {
+    ) -> Result<WinOutcome, PlanRefusal> {
         let committed = evidence
             .values()
             .map(|member| member.committed)
@@ -668,7 +668,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         ) {
             Ok(config) => config,
             Err(CommitFold::Unavailable(slot)) => {
-                return Err(PlanRejection::JournalEntryUnavailable { slot });
+                return Err(PlanRefusal::JournalEntryUnavailable { slot });
             }
             Err(CommitFold::Breach { .. }) => {
                 return Ok(WinOutcome::Installed(Box::new(self.breach_plan(kind)?)));

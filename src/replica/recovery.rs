@@ -47,7 +47,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// disagree with itself, and §6.1's retry-with-a-fresh-nonce rule is a
     /// retry with a fresh tick. Only a fenced `Recovering` node recovers:
     /// recovery is how a reopened node re-proves its state, and every other
-    /// status answers [`PlanRejection::NotRecovering`]. A re-drive inserts
+    /// status answers [`PlanRefusal::NotRecovering`]. A re-drive inserts
     /// the fresh tick into the open attempt's bounded nonce set — the
     /// oldest evicted on overflow — and PRESERVES the collected responses:
     /// a delayed answer to a remembered nonce is still this episode's. A
@@ -58,9 +58,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     pub(in crate::replica) fn plan_recover(
         &self,
         at: Tick,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         if self.progress.status() != Status::Recovering {
-            return Err(PlanRejection::NotRecovering {
+            return Err(PlanRefusal::NotRecovering {
                 status: self.progress.status(),
             });
         }
@@ -130,9 +130,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         from: NodeId,
         nonce: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let Some(record) = self.current_record() else {
-            return Err(PlanRejection::Progress(ProgressError::EraSlotDiscipline));
+            return Err(PlanRefusal::Progress(ProgressError::EraSlotDiscipline));
         };
         if record.config.weight_of(from).is_none() {
             return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
@@ -190,7 +190,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         suffix: &Option<Vec<LogEntry>>,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         // The nonce names the episode: a response whose echoed nonce no
         // remembered solicitation carries — to an earlier episode, an
         // evicted nonce, or none — is stale and counts toward nothing
@@ -218,7 +218,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             return self.drop_plan(Diagnostic::RecoveryResponseFromSelf, kind);
         }
         let Some(record) = self.current_record() else {
-            return Err(PlanRejection::Progress(ProgressError::EraSlotDiscipline));
+            return Err(PlanRefusal::Progress(ProgressError::EraSlotDiscipline));
         };
         if record.config.weight_of(from).is_none() {
             return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
@@ -352,15 +352,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         through: Slot,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let Some(attempt) = self.recovery.clone() else {
-            return Err(PlanRejection::ApplicationStateNotRequested);
+            return Err(PlanRefusal::ApplicationStateNotRequested);
         };
         let Some(request) = attempt.state_request.clone() else {
-            return Err(PlanRejection::ApplicationStateNotRequested);
+            return Err(PlanRefusal::ApplicationStateNotRequested);
         };
         if through != request.through {
-            return Err(PlanRejection::ApplicationStateMismatch {
+            return Err(PlanRefusal::ApplicationStateMismatch {
                 expected: request.through,
                 got: through,
             });
@@ -404,7 +404,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         journal: &J::View,
         claimed: Slot,
         suffix: &Option<Vec<LogEntry>>,
-    ) -> Result<FastForward, PlanRejection> {
+    ) -> Result<FastForward, PlanRefusal> {
         let committed = self.progress.committed();
         // takeWhile over sequentially-adjacent, locally journal-present
         // slots that agree with the responder's reported history: the
@@ -440,7 +440,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let config = match self.fold_committed(journal, &[], committed, target) {
             Ok(config) => config,
             Err(CommitFold::Unavailable(slot)) => {
-                return Err(PlanRejection::JournalEntryUnavailable { slot });
+                return Err(PlanRefusal::JournalEntryUnavailable { slot });
             }
             Err(CommitFold::Breach { .. }) => return Ok(FastForward::Breach),
         };
@@ -541,7 +541,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         at: Tick,
         kind: InputKind,
         installed: Option<Slot>,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let Some(suffix) = evidence.suffix.as_ref() else {
             unreachable!("installation evidence carries a suffix");
         };
@@ -648,7 +648,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let mut applies =
             match self.apply_effects_merged(journal, suffix, replay_base, attempt.open_committed) {
                 Ok(applies) => applies,
-                Err(PlanRejection::JournalEntryUnavailable { slot }) => {
+                Err(PlanRefusal::JournalEntryUnavailable { slot }) => {
                     let (retained_base, _) = journal.retained();
                     return shortfall(attempt, slot, retained_base);
                 }
@@ -656,7 +656,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             };
         match self.apply_effects_merged(journal, suffix, install_base, committed) {
             Ok(newly) => applies.extend(newly),
-            Err(PlanRejection::JournalEntryUnavailable { slot }) => {
+            Err(PlanRefusal::JournalEntryUnavailable { slot }) => {
                 let (retained_base, _) = journal.retained();
                 return shortfall(attempt, slot, retained_base);
             }
@@ -664,7 +664,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         let applied = match self.applied_walk(journal, suffix, replay_base, committed) {
             Ok(applied) => applied,
-            Err(PlanRejection::JournalEntryUnavailable { slot }) => {
+            Err(PlanRefusal::JournalEntryUnavailable { slot }) => {
                 let (retained_base, _) = journal.retained();
                 return shortfall(attempt, slot, retained_base);
             }
@@ -740,14 +740,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         committed: Slot,
         applied: Slot,
         config: Arc<EraTable>,
-    ) -> Result<Progress, PlanRejection> {
+    ) -> Result<Progress, PlanRefusal> {
         let committed = committed.max(self.progress.committed());
         let applied = applied.max(self.progress.applied());
         let revision = self
             .progress
             .revision()
             .checked_add(1)
-            .ok_or(PlanRejection::Progress(ProgressError::RevisionExhausted))?;
+            .ok_or(PlanRefusal::Progress(ProgressError::RevisionExhausted))?;
         Progress::reconstitute(
             view,
             view,
@@ -760,6 +760,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             config,
             None,
         )
-        .map_err(PlanRejection::Progress)
+        .map_err(PlanRefusal::Progress)
     }
 }

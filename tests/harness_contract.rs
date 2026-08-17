@@ -32,7 +32,7 @@ use vrr::ids::{Era, Fault, NodeId, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, Message};
 use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::PlanRejection;
+use vrr::replica::PlanRefusal;
 use vrr::wire::{Header, Tag};
 
 use harness::{Harness, NodeEvidence, SafetyViolation, StepOutcome, check_cluster_safety};
@@ -266,7 +266,7 @@ fn inject_reaches_the_node_exactly_as_a_queued_delivery() {
     let refusal = injected.propose(n(1), OperationId { msb: 0, lsb: 9 }, b"op");
     assert_eq!(
         refusal,
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: ViewId {
                 era: Era(1),
                 view: View(0),
@@ -424,7 +424,7 @@ fn an_undeclared_fault_fails_loudly_and_a_declared_fault_passes() {
     let outcome = declared.tick(n(0));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::Faulted(Fault::IndeterminatePersistence))
+        StepOutcome::PlanRefused(PlanRefusal::Faulted(Fault::IndeterminatePersistence))
     );
 }
 

@@ -8,13 +8,47 @@ and drain the outputs it produced. No sockets, no threads, no async runtime, no
 callbacks. The host owns transport, timers, and durability.
 
 ```rust
-let mut replica = Replica::new(vec!["n0".into(), "n1".into(), "n2".into()], "n0")?;
-let outputs = replica.step(Input::Request { /* ... */ });
+use vrr::effects::Stability;
+use vrr::ids::{NodeId, Operation, OperationId, Tick};
+use vrr::journal::{Journal, SegmentedLog};
+use vrr::quorum::WeightedMajority;
+use vrr::replica::{Input, Replica, TimedInput, ViewChangeKnobs};
+
+let mut replica = Replica::provision(
+    NodeId(0),
+    vec![NodeId(0), NodeId(1), NodeId(2)],
+    WeightedMajority,
+    SegmentedLog::new(),
+    Stability::Volatile,
+    ViewChangeKnobs { primary_timeout: 0, view_change_budget: usize::MAX },
+)
+.expect("provision");
+
+// The genesis primary promotes itself on the first tick.
+let view = replica.journal().view();
+let planned = replica
+    .plan(&TimedInput { at: Tick(1), event: Input::Tick }, &view)
+    .expect("plan tick");
+replica.publish(planned).expect("publish tick");
+
+// Propose a host operation for ordering; the core carries it opaque.
+let proposal = TimedInput {
+    at: Tick(2),
+    event: Input::Propose {
+        operation: Operation {
+            id: OperationId { msb: 0, lsb: 1 },
+            payload: b"hello".to_vec().into_boxed_slice(),
+        },
+    },
+};
+let view = replica.journal().view();
+let planned = replica.plan(&proposal, &view).expect("plan propose");
+let _outcome = replica.publish(planned).expect("publish propose"); // PublishOutcome::Published { revision, effects }
 ```
 
 To build and test without running the crash testing and network partitioning simply:
 
-```
+```text
 cargo test
 ```
 

@@ -52,7 +52,7 @@ use vrr::journal::{Journal, SegmentedLog};
 use vrr::message::Message;
 use vrr::progress::Status;
 use vrr::quorum::WeightedMajority;
-use vrr::replica::{Input, PlanRejection, PublishOutcome, Replica, TimedInput, ViewChangeKnobs};
+use vrr::replica::{Input, PlanRefusal, PublishOutcome, Replica, TimedInput, ViewChangeKnobs};
 use vrr::wire::{Pack, Unpack};
 
 use crate::kv::Kv;
@@ -479,7 +479,7 @@ impl NodeRunner {
     /// released effects back. `Volatile` stability always publishes; the
     /// parked outcome exists for the external-stability modes this host
     /// never selects.
-    fn step(&mut self, input: Input) -> Result<Vec<Effect>, PlanRejection> {
+    fn step(&mut self, input: Input) -> Result<Vec<Effect>, PlanRefusal> {
         let Some(replica) = &mut self.replica else {
             return Ok(Vec::new());
         };

@@ -40,7 +40,7 @@
 //!
 //! Dispatch over inputs is exhaustive `match` with no wildcard arms. An input
 //! whose handler is future work is refused with the named, tested
-//! [`PlanRejection::Unsupported`] — never a silent no-op, never a placeholder
+//! [`PlanRefusal::Unsupported`] — never a silent no-op, never a placeholder
 //! handler.
 //!
 //! # Normal operation
@@ -145,7 +145,7 @@ pub struct TimedInput {
 ///
 /// Every variant is dispatched by an exhaustive match in
 /// [`Replica::plan`]; a variant whose handler is future work is refused
-/// with [`PlanRejection::Unsupported`] today. Adding a variant is a compile
+/// with [`PlanRefusal::Unsupported`] today. Adding a variant is a compile
 /// error at every dispatch site, which is the point: no input is ever
 /// silently absorbed.
 #[derive(Clone, Debug)]
@@ -279,7 +279,7 @@ impl Input {
 /// precondition failed. The fault and outstanding checks precede dispatch, so
 /// even an otherwise unsupported input reports the real reason.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum PlanRejection {
+pub enum PlanRefusal {
     /// The node is faulted; every input is refused, ticks and confirmations
     /// included (§5 invariant 5). Carries the sticky fault.
     Faulted(Fault),
@@ -464,7 +464,7 @@ pub enum PlanRejection {
 
 /// Why `publish` refused a planned transition.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PublishRejection {
+pub enum PublishRefusal {
     /// The node is faulted; nothing publishes (§5 invariant 5). Carries the
     /// sticky fault.
     Faulted(Fault),
@@ -546,7 +546,7 @@ pub struct ViewChangeKnobs {
 
 /// Why construction — provision or reopen — was refused.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum LifecycleError {
+pub enum LifecycleRefusal {
     /// `own` is not in the genesis order. A node cannot provision as a cluster
     /// it does not belong to.
     NotAMember(NodeId),
@@ -1276,15 +1276,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// illegal genesis is refused at construction, not discovered at the
     /// first view change.
     ///
-    /// # Errors
+    /// # Refusals
     ///
-    /// [`LifecycleError::JournalNotEmpty`] if the journal already holds
+    /// [`LifecycleRefusal::JournalNotEmpty`] if the journal already holds
     /// history (overwriting it is the amnesiac voter of §14.2);
-    /// [`LifecycleError::Configuration`] if the genesis fold refuses the
-    /// order; [`LifecycleError::NotAMember`] if `own` is outside it;
-    /// [`LifecycleError::Quorum`] if the Q1 gate refuses the genesis
-    /// configuration; [`LifecycleError::Journal`] or
-    /// [`LifecycleError::Progress`] on a construction that cannot complete.
+    /// [`LifecycleRefusal::Configuration`] if the genesis fold refuses the
+    /// order; [`LifecycleRefusal::NotAMember`] if `own` is outside it;
+    /// [`LifecycleRefusal::Quorum`] if the Q1 gate refuses the genesis
+    /// configuration; [`LifecycleRefusal::Journal`] or
+    /// [`LifecycleRefusal::Progress`] on a construction that cannot complete.
     pub fn provision(
         own: NodeId,
         genesis_order: Vec<NodeId>,
@@ -1292,9 +1292,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         mut journal: J,
         stability: Stability,
         knobs: ViewChangeKnobs,
-    ) -> Result<Self, LifecycleError> {
+    ) -> Result<Self, LifecycleRefusal> {
         if journal.view().accepted().is_some() {
-            return Err(LifecycleError::JournalNotEmpty);
+            return Err(LifecycleRefusal::JournalNotEmpty);
         }
         // The genesis fold: `Void` establishes era 0 at its ordinal, `Init`
         // establishes era 1 at its (§8.7.2). Configuration legality —
@@ -1310,14 +1310,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     INIT_SLOT,
                 )
             })
-            .map_err(LifecycleError::Configuration)?;
+            .map_err(LifecycleRefusal::Configuration)?;
         if !genesis_order.contains(&own) {
-            return Err(LifecycleError::NotAMember(own));
+            return Err(LifecycleRefusal::NotAMember(own));
         }
         // Q1: the gate is a free function the core calls; no strategy value
         // can override, skip or weaken it.
         let era = table.current().era;
-        validate_era(&strategy, &table.current().config).map_err(LifecycleError::Quorum)?;
+        validate_era(&strategy, &table.current().config).map_err(LifecycleRefusal::Quorum)?;
 
         let genesis = [
             LogEntry {
@@ -1335,7 +1335,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         ];
         journal
             .install_suffix(VOID_SLOT, &genesis)
-            .map_err(LifecycleError::Journal)?;
+            .map_err(LifecycleRefusal::Journal)?;
 
         let view = ViewId {
             era,
@@ -1357,7 +1357,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Arc::new(table),
             None,
         )
-        .map_err(LifecycleError::Progress)?;
+        .map_err(LifecycleRefusal::Progress)?;
         Ok(Self::assemble(
             own, strategy, journal, stability, knobs, progress,
         ))
@@ -1379,12 +1379,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// fabricated record, so it makes the host say which it is doing by
     /// choosing the constructor.
     ///
-    /// # Errors
+    /// # Refusals
     ///
-    /// [`LifecycleError::ProgressJournalDivergence`] if the persisted
+    /// [`LifecycleRefusal::ProgressJournalDivergence`] if the persisted
     /// accepted frontier disagrees with the journal's;
-    /// [`LifecycleError::Progress`] if the persisted record fails the
-    /// invariant set; [`LifecycleError::Quorum`] if the Q1 gate refuses the
+    /// [`LifecycleRefusal::Progress`] if the persisted record fails the
+    /// invariant set; [`LifecycleRefusal::Quorum`] if the Q1 gate refuses the
     /// configuration the host reconstructed.
     pub fn reopen(
         own: NodeId,
@@ -1394,13 +1394,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         config: Arc<EraTable>,
         stability: Stability,
         knobs: ViewChangeKnobs,
-    ) -> Result<Self, LifecycleError> {
+    ) -> Result<Self, LifecycleRefusal> {
         // Q1 at construction, exactly as at provision: the gate does not
         // trust that a reconstructed table was gated before it was persisted.
-        validate_era(&strategy, &config.current().config).map_err(LifecycleError::Quorum)?;
+        validate_era(&strategy, &config.current().config).map_err(LifecycleRefusal::Quorum)?;
         let frontier = journal.view().accepted().unwrap_or(Slot::NONE);
         if frontier != persisted.accepted {
-            return Err(LifecycleError::ProgressJournalDivergence {
+            return Err(LifecycleRefusal::ProgressJournalDivergence {
                 progress: persisted.accepted,
                 journal: frontier,
             });
@@ -1417,7 +1417,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             config,
             persisted.fault,
         )
-        .map_err(LifecycleError::Progress)?;
+        .map_err(LifecycleRefusal::Progress)?;
         Ok(Self::assemble(
             own, strategy, journal, stability, knobs, progress,
         ))
@@ -1503,7 +1503,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `journal` must be a view of this replica's journal consistent with the
     /// published state: §12's interval begins with an atomic read of the two,
     /// and a view that disagrees with the published accepted frontier is
-    /// refused as [`PlanRejection::JournalViewDivergence`] rather than
+    /// refused as [`PlanRefusal::JournalViewDivergence`] rather than
     /// planned against.
     ///
     /// Releases nothing: no effect, no observation write, no journal
@@ -1511,33 +1511,33 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// design stands on — nothing externally observable is released before
     /// publication.
     ///
-    /// # Errors
+    /// # Refusals
     ///
-    /// [`PlanRejection::Faulted`] if the node is faulted — every input,
-    /// ticks and confirmations included; [`PlanRejection::TransitionOutstanding`]
+    /// [`PlanRefusal::Faulted`] if the node is faulted — every input,
+    /// ticks and confirmations included; [`PlanRefusal::TransitionOutstanding`]
     /// if a transition is parked awaiting its confirmation;
-    /// [`PlanRejection::NoTransitionOutstanding`] or
-    /// [`PlanRejection::ConfirmationMismatch`] for a confirmation that does
-    /// not match the one outstanding intent; [`PlanRejection::Unsupported`]
+    /// [`PlanRefusal::NoTransitionOutstanding`] or
+    /// [`PlanRefusal::ConfirmationMismatch`] for a confirmation that does
+    /// not match the one outstanding intent; [`PlanRefusal::Unsupported`]
     /// for an input whose handler is future work;
-    /// [`PlanRejection::JournalViewDivergence`] for an incoherent journal
-    /// view; [`PlanRejection::Progress`] if the candidate fails its own
+    /// [`PlanRefusal::JournalViewDivergence`] for an incoherent journal
+    /// view; [`PlanRefusal::Progress`] if the candidate fails its own
     /// invariant set.
     pub fn plan(
         &self,
         input: &TimedInput,
         journal: &J::View,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         // Stickiness precedes everything (§5 invariant 5): a faulted node
         // refuses every input variant, and reports the fault it already holds.
         if let Some(fault) = self.progress.fault() {
-            return Err(PlanRejection::Faulted(fault));
+            return Err(PlanRefusal::Faulted(fault));
         }
         // The §12 envelope: the plan is computed against the published state
         // and a journal view read atomically with it (§5 invariant 1).
         let frontier = journal.accepted().unwrap_or(Slot::NONE);
         if frontier != self.progress.accepted() {
-            return Err(PlanRejection::JournalViewDivergence {
+            return Err(PlanRefusal::JournalViewDivergence {
                 progress: self.progress.accepted(),
                 journal: frontier,
             });
@@ -1623,7 +1623,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the primary of the current view never suspects itself, and a
     /// `Recovering` or already-`ViewChange` node has nothing to suspect —
     /// a stalled attempt is state transfer's repair (§10), not a fresh timeout.
-    fn plan_tick(&self, journal: &J::View, at: Tick) -> Result<PlannedTransition, PlanRejection> {
+    fn plan_tick(&self, journal: &J::View, at: Tick) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
         let promotable = self.progress.status() == Status::Recovering
             && current == self.progress.retained()
@@ -1637,7 +1637,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             let candidate = self
                 .progress
                 .with_status(Status::Normal)
-                .map_err(PlanRejection::Progress)?;
+                .map_err(PlanRefusal::Progress)?;
             let effects = self.broadcast_commit(self.progress.committed());
             // The promotion announces the view to every backup: proof of
             // the new primary's life, its own baseline included (S4).
@@ -1667,7 +1667,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if suspects {
             let target = self
                 .view_change_target()
-                .ok_or(PlanRejection::Progress(ProgressError::ViewSuccessor))?;
+                .ok_or(PlanRefusal::Progress(ProgressError::ViewSuccessor))?;
             return self.enter_view_change(journal, target, BTreeSet::new(), at, InputKind::Tick);
         }
         // §13.1 step 5: a recovery completion that stalled on an
@@ -1839,7 +1839,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let candidate = self
             .progress
             .with_status(self.progress.status())
-            .map_err(PlanRejection::Progress)?;
+            .map_err(PlanRefusal::Progress)?;
         Ok(self.candidate_plan(
             candidate,
             JournalMutation::None,
@@ -1853,7 +1853,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `applied` and resolves the slot's proposal record. A completion for
     /// any other slot — a duplicate, an out-of-order report, or a slot that
     /// is not yet committed — is the named
-    /// [`PlanRejection::UnexpectedApplied`], refused without state change.
+    /// [`PlanRefusal::UnexpectedApplied`], refused without state change.
     /// Nothing is emitted: the acknowledgement carries no result, and the
     /// core never answers a proposal (B2).
     ///
@@ -1868,7 +1868,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         &self,
         journal: &J::View,
         slot: Slot,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let committed = self.progress.committed();
         let walked = self.applied_walk(journal, &[], self.progress.applied(), committed)?;
         let expected = match walked.next() {
@@ -1876,7 +1876,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Some(_) | None => None,
         };
         if expected != Some(slot) {
-            return Err(PlanRejection::UnexpectedApplied {
+            return Err(PlanRefusal::UnexpectedApplied {
                 expected,
                 got: slot,
             });
@@ -1915,7 +1915,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The host's checkpoint report (§5's checkpoint frontier, §11):
     /// accepted only when `through <= applied` — a checkpoint cannot claim
     /// state the application has not incorporated — and otherwise refused
-    /// as [`PlanRejection::CheckpointExceedsApplied`] without state change.
+    /// as [`PlanRefusal::CheckpointExceedsApplied`] without state change.
     /// A report at or below the published frontier is a duplicate:
     /// accepted as an identity transition, moving nothing.
     ///
@@ -1923,17 +1923,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// S1): what it permits the default journal to drop is applied by
     /// [`Replica::reclaim_journal`], lazily, on a later append — never by
     /// this transition itself.
-    fn plan_checkpointed(&self, through: Slot) -> Result<PlannedTransition, PlanRejection> {
+    fn plan_checkpointed(&self, through: Slot) -> Result<PlannedTransition, PlanRefusal> {
         let applied = self.progress.applied();
         if through > applied {
-            return Err(PlanRejection::CheckpointExceedsApplied { applied, through });
+            return Err(PlanRefusal::CheckpointExceedsApplied { applied, through });
         }
         let candidate = if through <= self.progress.checkpoint() {
             self.identity_candidate()?
         } else {
             self.progress
                 .with_checkpoint(through)
-                .map_err(PlanRejection::Progress)?
+                .map_err(PlanRefusal::Progress)?
         };
         Ok(self.candidate_plan(
             candidate,
@@ -1959,7 +1959,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         overlay: &[LogEntry],
         applied: Slot,
         committed: Slot,
-    ) -> Result<Slot, PlanRejection> {
+    ) -> Result<Slot, PlanRefusal> {
         let mut walked = applied;
         while let Some(next) = walked.next() {
             if next > committed {
@@ -1969,7 +1969,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 Some(entry) => entry,
                 None => journal
                     .get(next)
-                    .ok_or(PlanRejection::JournalEntryUnavailable { slot: next })?,
+                    .ok_or(PlanRefusal::JournalEntryUnavailable { slot: next })?,
             };
             if !matches!(entry.payload, Payload::System(_)) {
                 break;
@@ -1987,7 +1987,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         journal: &J::View,
         from: Slot,
         through: Slot,
-    ) -> Result<Vec<Effect>, PlanRejection> {
+    ) -> Result<Vec<Effect>, PlanRefusal> {
         let mut effects = Vec::new();
         if through <= from {
             return Ok(effects);
@@ -1998,7 +1998,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         loop {
             let entry = journal
                 .get(slot)
-                .ok_or(PlanRejection::JournalEntryUnavailable { slot })?;
+                .ok_or(PlanRefusal::JournalEntryUnavailable { slot })?;
             if let Payload::Operation { id, payload } = &entry.payload {
                 effects.push(Effect::Apply {
                     slot,
@@ -2025,7 +2025,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         suffix: &[LogEntry],
         from: Slot,
         through: Slot,
-    ) -> Result<Vec<Effect>, PlanRejection> {
+    ) -> Result<Vec<Effect>, PlanRefusal> {
         let mut effects = Vec::new();
         if through <= from {
             return Ok(effects);
@@ -2038,7 +2038,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 Some(entry) => entry,
                 None => journal
                     .get(slot)
-                    .ok_or(PlanRejection::JournalEntryUnavailable { slot })?,
+                    .ok_or(PlanRefusal::JournalEntryUnavailable { slot })?,
             };
             if let Payload::Operation { id, payload } = &entry.payload {
                 effects.push(Effect::Apply {
@@ -2059,10 +2059,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// An identity candidate: only the revision moves. The published half
     /// of every drop.
-    fn identity_candidate(&self) -> Result<Progress, PlanRejection> {
+    fn identity_candidate(&self) -> Result<Progress, PlanRefusal> {
         self.progress
             .with_status(self.progress.status())
-            .map_err(PlanRejection::Progress)
+            .map_err(PlanRefusal::Progress)
     }
 
     /// Builds a candidate over the published record, changing exactly the
@@ -2081,13 +2081,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         committed: Slot,
         applied: Slot,
         config: Arc<EraTable>,
-    ) -> Result<Progress, PlanRejection> {
+    ) -> Result<Progress, PlanRefusal> {
         let revision = self
             .progress
             .revision()
             .checked_add(1)
             .ok_or(ProgressError::RevisionExhausted)
-            .map_err(PlanRejection::Progress)?;
+            .map_err(PlanRefusal::Progress)?;
         Progress::reconstitute(
             self.progress.current(),
             self.progress.retained(),
@@ -2100,7 +2100,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             config,
             None,
         )
-        .map_err(PlanRejection::Progress)
+        .map_err(PlanRefusal::Progress)
     }
 
     /// Builds the install candidate: `current` and `retained` join at
@@ -2120,13 +2120,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         committed: Slot,
         applied: Slot,
         config: Arc<EraTable>,
-    ) -> Result<Progress, PlanRejection> {
+    ) -> Result<Progress, PlanRefusal> {
         let revision = self
             .progress
             .revision()
             .checked_add(1)
             .ok_or(ProgressError::RevisionExhausted)
-            .map_err(PlanRejection::Progress)?;
+            .map_err(PlanRefusal::Progress)?;
         Progress::reconstitute(
             view,
             view,
@@ -2139,7 +2139,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             config,
             None,
         )
-        .map_err(PlanRejection::Progress)
+        .map_err(PlanRefusal::Progress)
     }
 
     /// Bundles a candidate with its journal mutation, intent, and effects.
@@ -2177,7 +2177,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         &self,
         diagnostic: Diagnostic,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let candidate = self.identity_candidate()?;
         Ok(self
             .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
@@ -2189,7 +2189,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `reconfiguration::fold_committed`). That is the same class of
     /// breach as a committed-slot conflict (§9.1): the transition declares
     /// [`Fault::IllegalTransition`], never guesses a repair.
-    fn breach_plan(&self, kind: InputKind) -> Result<PlannedTransition, PlanRejection> {
+    fn breach_plan(&self, kind: InputKind) -> Result<PlannedTransition, PlanRefusal> {
         let candidate = self.identity_candidate()?;
         Ok(self
             .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
@@ -2216,9 +2216,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// §12: while a confirmation is pending, no second transition is planned.
-    fn refuse_if_parked(&self) -> Result<(), PlanRejection> {
+    fn refuse_if_parked(&self) -> Result<(), PlanRefusal> {
         if self.parked.is_some() {
-            Err(PlanRejection::TransitionOutstanding)
+            Err(PlanRefusal::TransitionOutstanding)
         } else {
             Ok(())
         }
@@ -2237,12 +2237,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         &self,
         revision: u64,
         result: &StabilityResult,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let Some(parked) = &self.parked else {
-            return Err(PlanRejection::NoTransitionOutstanding);
+            return Err(PlanRefusal::NoTransitionOutstanding);
         };
         if revision != parked.base {
-            return Err(PlanRejection::ConfirmationMismatch {
+            return Err(PlanRefusal::ConfirmationMismatch {
                 expected: parked.base,
                 got: revision,
             });
@@ -2262,7 +2262,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 let candidate = self
                     .progress
                     .with_status(self.progress.status())
-                    .map_err(PlanRejection::Progress)?;
+                    .map_err(PlanRefusal::Progress)?;
                 Ok(self.candidate_plan(
                     candidate,
                     JournalMutation::None,
@@ -2275,7 +2275,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 let candidate = self
                     .progress
                     .with_fault(Fault::IndeterminatePersistence)
-                    .map_err(PlanRejection::Progress)?;
+                    .map_err(PlanRefusal::Progress)?;
                 Ok(self.candidate_plan(
                     candidate,
                     JournalMutation::None,
@@ -2302,24 +2302,24 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// [`legal`]: crate::invariant::legal
     ///
-    /// # Errors
+    /// # Refusals
     ///
-    /// [`PublishRejection::Faulted`] if the node is faulted;
-    /// [`PublishRejection::RevisionMismatch`] for a stale or double-published
-    /// plan; [`PublishRejection::IllegalCandidate`] when the gate rejects the
-    /// candidate; [`PublishRejection::TransitionOutstanding`] for a second
-    /// ordinary publish while parked; [`PublishRejection::JournalRefused`] if
+    /// [`PublishRefusal::Faulted`] if the node is faulted;
+    /// [`PublishRefusal::RevisionMismatch`] for a stale or double-published
+    /// plan; [`PublishRefusal::IllegalCandidate`] when the gate rejects the
+    /// candidate; [`PublishRefusal::TransitionOutstanding`] for a second
+    /// ordinary publish while parked; [`PublishRefusal::JournalRefused`] if
     /// the journal refuses the planned mutation.
     pub fn publish(
         &mut self,
         planned: PlannedTransition,
-    ) -> Result<PublishOutcome, PublishRejection> {
+    ) -> Result<PublishOutcome, PublishRefusal> {
         if let Some(fault) = self.progress.fault() {
-            return Err(PublishRejection::Faulted(fault));
+            return Err(PublishRefusal::Faulted(fault));
         }
         let expected = self.progress.revision();
         if planned.base != expected {
-            return Err(PublishRejection::RevisionMismatch {
+            return Err(PublishRefusal::RevisionMismatch {
                 expected,
                 got: planned.base,
             });
@@ -2330,14 +2330,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // candidate, never parks, never installs.
         if let Some(fault) = planned.fault {
             self.fault_node(fault);
-            return Err(PublishRejection::IllegalCandidate(fault));
+            return Err(PublishRefusal::IllegalCandidate(fault));
         }
         // The gate stands between every candidate and publication — not the
         // planner. A violation discards the candidate and faults the node;
         // the previously published state stays visible and observable.
         if let Some(fault) = legal(&self.progress, &planned.candidate, &planned.kind) {
             self.fault_node(fault);
-            return Err(PublishRejection::IllegalCandidate(fault));
+            return Err(PublishRefusal::IllegalCandidate(fault));
         }
         if planned.completion || self.stability == Stability::Volatile {
             self.parked = None;
@@ -2353,7 +2353,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             });
         }
         if self.parked.is_some() {
-            return Err(PublishRejection::TransitionOutstanding);
+            return Err(PublishRefusal::TransitionOutstanding);
         }
         let intent = planned.intent;
         self.parked = Some(ParkedTransition {
@@ -2381,7 +2381,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         candidate: Progress,
         bookkeeping: Bookkeeping,
         diagnostic: Diagnostic,
-    ) -> Result<(), PublishRejection> {
+    ) -> Result<(), PublishRefusal> {
         let applied = match &mutation {
             JournalMutation::None => Ok(()),
             JournalMutation::Accept(entries) => self.journal.accept(entries),
@@ -2393,7 +2393,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // The mutation was computed against a view of this very journal;
             // a refusal means the two durable records disagree about history.
             self.fault_node(Fault::ProgressJournalDivergence);
-            return Err(PublishRejection::JournalRefused(error));
+            return Err(PublishRefusal::JournalRefused(error));
         }
         self.progress = candidate;
         self.observation.write(self.progress.to_snapshot());
@@ -2525,12 +2525,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// slot it committed at, read from the node's bounded era records — the
     /// recipient checks the claim against its configuration history. The
     /// journal may already have reclaimed the establishing entry (S1).
-    fn era_proof(&self, _journal: &J::View, era: Era) -> Result<EraProof, PlanRejection> {
+    fn era_proof(&self, _journal: &J::View, era: Era) -> Result<EraProof, PlanRefusal> {
         let record = self
             .progress
             .config()
             .record(era)
-            .ok_or(PlanRejection::Progress(ProgressError::EraSlotDiscipline))?;
+            .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
         Ok(EraProof {
             op: record.establishing_operation.clone(),
             committed_at: record.established_by,
@@ -2738,7 +2738,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         message: &Message,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         let current = self.progress.current();
         let primary_life = match &message.body {

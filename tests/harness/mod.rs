@@ -43,7 +43,7 @@
 //! # What is not here
 //!
 //! The non-stop-the-world reconfiguration pivot (§8.7.6–§8.7.7) is still
-//! refused with the named `PlanRejection::Unsupported`. Normal operation
+//! refused with the named `PlanRefusal::Unsupported`. Normal operation
 //! is live:
 //! `Prepare`/`PrepareOk`/`Commit`, the Propose/Apply/Applied boundary
 //! (§11.1), the bootstrap from the fenced `Recovering` genesis state, view
@@ -77,8 +77,8 @@ use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
 use vrr::quorum::WeightedMajority;
 use vrr::replica::{
-    Input, LifecycleError, Observer, PersistedProgress, Pivot, PlanRejection, PublishOutcome,
-    PublishRejection, Replica, TimedInput, ViewChangeKnobs,
+    Input, LifecycleRefusal, Observer, PersistedProgress, Pivot, PlanRefusal, PublishOutcome,
+    PublishRefusal, Replica, TimedInput, ViewChangeKnobs,
 };
 use vrr::wire::Tag;
 
@@ -184,9 +184,9 @@ pub enum StepOutcome {
         revision: u64,
     },
     /// `plan` refused the input.
-    PlanRefused(PlanRejection),
+    PlanRefused(PlanRefusal),
     /// `publish` refused the planned transition.
-    PublishRefused(PublishRejection),
+    PublishRefused(PublishRefusal),
     /// The node is down. The input was not delivered.
     NodeDown,
 }
@@ -1255,7 +1255,7 @@ impl Harness {
     /// A new life with no memory: `provision` semantics on a node that was a
     /// member. The amnesiac voter is §14.2's problem, not the harness's —
     /// the name says what this is.
-    pub fn restart_amnesiac(&mut self, id: NodeId) -> Result<(), LifecycleError> {
+    pub fn restart_amnesiac(&mut self, id: NodeId) -> Result<(), LifecycleRefusal> {
         let index = self.index_of(id);
         assert!(
             self.nodes[index].is_none(),
@@ -1293,7 +1293,7 @@ impl Harness {
     /// A later life: `reopen` with whatever the harness's disk recorded at
     /// crash time. A fault persisted in the record reopens faulted — that is
     /// evidence restored, not a new fault, so it does not trip the gate.
-    pub fn restart_with(&mut self, id: NodeId) -> Result<(), LifecycleError> {
+    pub fn restart_with(&mut self, id: NodeId) -> Result<(), LifecycleRefusal> {
         let index = self.index_of(id);
         assert!(
             self.nodes[index].is_none(),

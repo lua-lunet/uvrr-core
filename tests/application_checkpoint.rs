@@ -31,7 +31,7 @@ use vrr::journal::LogEntry;
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::PlanRejection;
+use vrr::replica::PlanRefusal;
 use vrr::wire::{Header, Tag};
 
 /// Node id shorthand (the harness's own pattern).
@@ -184,7 +184,7 @@ fn duplicate_applied_is_rejected_without_state_change() {
     let outcome = h.report_applied(n(1), Slot(3));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::UnexpectedApplied {
+        StepOutcome::PlanRefused(PlanRefusal::UnexpectedApplied {
             expected: None,
             got: Slot(3),
         }),
@@ -215,7 +215,7 @@ fn out_of_order_applied_is_rejected() {
     let skipping = h.report_applied(n(1), Slot(4));
     assert_eq!(
         skipping,
-        StepOutcome::PlanRefused(PlanRejection::UnexpectedApplied {
+        StepOutcome::PlanRefused(PlanRefusal::UnexpectedApplied {
             expected: Some(Slot(3)),
             got: Slot(4),
         }),
@@ -224,7 +224,7 @@ fn out_of_order_applied_is_rejected() {
     let above_committed = h.report_applied(n(1), Slot(9));
     assert_eq!(
         above_committed,
-        StepOutcome::PlanRefused(PlanRejection::UnexpectedApplied {
+        StepOutcome::PlanRefused(PlanRefusal::UnexpectedApplied {
             expected: Some(Slot(3)),
             got: Slot(9),
         }),
@@ -261,7 +261,7 @@ fn checkpoint_beyond_applied_is_rejected() {
     let outcome = h.checkpoint(n(1), Slot(3));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::CheckpointExceedsApplied {
+        StepOutcome::PlanRefused(PlanRefusal::CheckpointExceedsApplied {
             applied: Slot(2),
             through: Slot(3),
         }),
@@ -465,7 +465,7 @@ fn system_slots_advance_applied_without_upcalls() {
     let outcome = h.report_applied(n(0), Slot(2));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::UnexpectedApplied {
+        StepOutcome::PlanRefused(PlanRefusal::UnexpectedApplied {
             expected: None,
             got: Slot(2),
         }),
@@ -477,7 +477,7 @@ fn system_slots_advance_applied_without_upcalls() {
     let outcome = h.checkpoint(n(0), Slot(3));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::CheckpointExceedsApplied {
+        StepOutcome::PlanRefused(PlanRefusal::CheckpointExceedsApplied {
             applied: Slot(2),
             through: Slot(3),
         }),
@@ -601,7 +601,7 @@ fn mismatched_install_is_rejected_without_state_change() {
     let outcome = h.install_application_state(n(2), n(0), Slot(5));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::ApplicationStateMismatch {
+        StepOutcome::PlanRefused(PlanRefusal::ApplicationStateMismatch {
             expected: Slot(6),
             got: Slot(5),
         }),
@@ -637,7 +637,7 @@ fn duplicate_install_is_rejected() {
     let outcome = h.install_application_state(n(2), n(0), Slot(6));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::ApplicationStateNotRequested),
+        StepOutcome::PlanRefused(PlanRefusal::ApplicationStateNotRequested),
         "the request the duplicate names is gone with the completed attempt"
     );
     assert_eq!(
@@ -661,7 +661,7 @@ fn install_without_outstanding_request_is_rejected() {
     let outcome = h.install_application_state(n(1), n(0), Slot(3));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::ApplicationStateNotRequested),
+        StepOutcome::PlanRefused(PlanRefusal::ApplicationStateNotRequested),
         "a Normal node asked for nothing"
     );
     assert_eq!(snap(&h, n(1)), before);
@@ -675,7 +675,7 @@ fn install_without_outstanding_request_is_rejected() {
     let outcome = h.install_application_state(n(2), n(0), Slot(3));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::ApplicationStateNotRequested),
+        StepOutcome::PlanRefused(PlanRefusal::ApplicationStateNotRequested),
         "an open attempt with no shortfall asked for nothing"
     );
     assert_eq!(snap(&h, n(2)), before);
@@ -748,7 +748,7 @@ fn stale_install_after_reshortfall_reemits_on_tick() {
     let outcome = h.install_application_state(n(2), n(0), Slot(6));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::ApplicationStateMismatch {
+        StepOutcome::PlanRefused(PlanRefusal::ApplicationStateMismatch {
             expected: Slot(7),
             got: Slot(6),
         }),
@@ -889,7 +889,7 @@ fn install_while_shortfall_parked_is_refused_transition_outstanding() {
     let outcome = h.install_application_state(n(2), n(0), Slot(6));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::TransitionOutstanding),
+        StepOutcome::PlanRefused(PlanRefusal::TransitionOutstanding),
         "an install while parked is the §12 refusal"
     );
     assert_eq!(

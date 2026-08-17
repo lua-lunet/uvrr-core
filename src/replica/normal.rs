@@ -20,23 +20,23 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// identity proposed twice is two operations at two slots.
     ///
     /// Only a `Normal` node with `config.primary(current_view) == own`
-    /// accepts; every other node answers [`PlanRejection::NotPrimary`].
+    /// accepts; every other node answers [`PlanRefusal::NotPrimary`].
     pub(in crate::replica) fn plan_propose(
         &self,
         _journal: &J::View,
         operation: &Operation,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
         let record = self
             .current_record()
-            .ok_or(PlanRejection::Progress(ProgressError::EraSlotDiscipline))?;
+            .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
         let is_primary = self.progress.status() == Status::Normal
             && record.config.primary(current.view) == Some(self.own);
         if !is_primary {
             // Redirection (§13.4's convergence hint): the node names its
             // current view and the primary of that view, so the host can
             // point the proposer at the node this cluster would serve from.
-            return Err(PlanRejection::NotPrimary {
+            return Err(PlanRefusal::NotPrimary {
                 view: current,
                 primary: record.config.primary(current.view),
             });
@@ -45,7 +45,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .progress
             .accepted()
             .next()
-            .ok_or(PlanRejection::SlotSpaceExhausted)?;
+            .ok_or(PlanRefusal::SlotSpaceExhausted)?;
         // The stamp is the newest COMMITTED configuration's era (§8.7.3):
         // the current view's era when no reconfiguration is in flight, one
         // past it inside the overlap a committed establishing operation
@@ -128,7 +128,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         piggybacked: Slot,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         // The era must be evaluable: outside the retention window the
         // configuration that would judge the message is gone.
@@ -208,7 +208,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // Idempotent retransmission: never re-append. The held entry
             // must BE the proposed one — a slot is assigned once (§1.3).
             let Some(held) = journal.get(entry.slot) else {
-                return Err(PlanRejection::JournalEntryUnavailable { slot: entry.slot });
+                return Err(PlanRefusal::JournalEntryUnavailable { slot: entry.slot });
             };
             if held != entry {
                 return self.drop_plan(Diagnostic::ConflictingEntry { slot: entry.slot }, kind);
@@ -223,7 +223,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
                     Ok(config) => config,
                     Err(CommitFold::Unavailable(slot)) => {
-                        return Err(PlanRejection::JournalEntryUnavailable { slot });
+                        return Err(PlanRefusal::JournalEntryUnavailable { slot });
                     }
                     Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
                 };
@@ -245,7 +245,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let Some(next) = accepted.next() else {
             // `entry.slot > accepted == u64::MAX` cannot be offered; the
             // slot space is spent.
-            return Err(PlanRejection::SlotSpaceExhausted);
+            return Err(PlanRefusal::SlotSpaceExhausted);
         };
         if entry.slot != next {
             let plan = self.drop_plan(
@@ -278,7 +278,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         ) {
             Ok(config) => config,
             Err(CommitFold::Unavailable(slot)) => {
-                return Err(PlanRejection::JournalEntryUnavailable { slot });
+                return Err(PlanRefusal::JournalEntryUnavailable { slot });
             }
             Err(CommitFold::Breach { slot, error }) if slot == entry.slot => {
                 return self.drop_plan(
@@ -353,7 +353,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         from: NodeId,
         message: &Message,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         let slot = header.slot;
         let current = self.progress.current();
@@ -452,7 +452,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let config = match self.fold_committed(journal, &[], self.progress.committed(), committed) {
             Ok(config) => config,
             Err(CommitFold::Unavailable(slot)) => {
-                return Err(PlanRejection::JournalEntryUnavailable { slot });
+                return Err(PlanRefusal::JournalEntryUnavailable { slot });
             }
             Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
         };
@@ -494,7 +494,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         frontier: Slot,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         if self.progress.config().record(header.view.era).is_none() {
             return self.drop_plan(
@@ -563,7 +563,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
                 Ok(config) => config,
                 Err(CommitFold::Unavailable(slot)) => {
-                    return Err(PlanRejection::JournalEntryUnavailable { slot });
+                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
                 Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
             };

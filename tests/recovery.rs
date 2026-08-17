@@ -22,7 +22,7 @@ use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::{PlanRejection, ViewChangeKnobs};
+use vrr::replica::{PlanRefusal, ViewChangeKnobs};
 use vrr::wire::{Header, Pack, Tag};
 
 /// Node id shorthand (the harness's own pattern).
@@ -276,7 +276,7 @@ fn happy_path_recovery_completes_from_weighted_quorum() {
     assert!(
         matches!(
             refused,
-            StepOutcome::PlanRefused(PlanRejection::NotPrimary { .. })
+            StepOutcome::PlanRefused(PlanRefusal::NotPrimary { .. })
         ),
         "a Recovering node refuses proposals: {refused:?}"
     );
@@ -1331,7 +1331,7 @@ fn external_stability_recovery_handshake() {
     );
     assert_eq!(
         duplicate,
-        StepOutcome::PlanRefused(PlanRejection::NoTransitionOutstanding),
+        StepOutcome::PlanRefused(PlanRefusal::NoTransitionOutstanding),
     );
 
     // The completing response's record died with the discarded candidate
@@ -1390,7 +1390,7 @@ fn external_stability_recovery_handshake() {
     );
     assert_eq!(
         duplicate,
-        StepOutcome::PlanRefused(PlanRejection::NoTransitionOutstanding),
+        StepOutcome::PlanRefused(PlanRefusal::NoTransitionOutstanding),
     );
 
     apply_settled(&mut h, n(2));

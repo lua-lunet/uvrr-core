@@ -19,7 +19,7 @@ use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
 use vrr::quorum::{QuorumError, QuorumStrategy, R2Direction, Role};
-use vrr::replica::{Input, PlanRejection, Replica, TimedInput, ViewChangeKnobs};
+use vrr::replica::{Input, PlanRefusal, Replica, TimedInput, ViewChangeKnobs};
 use vrr::wire::{Header, Tag};
 
 fn n(id: u32) -> NodeId {
@@ -189,7 +189,7 @@ fn genesis_is_law() {
         let outcome = h.propose(id, op_id(1), b"x");
         assert!(matches!(
             outcome,
-            StepOutcome::PlanRefused(PlanRejection::NotPrimary { .. })
+            StepOutcome::PlanRefused(PlanRefusal::NotPrimary { .. })
         ));
     }
     // Identical provisioning — three nodes, one genesis: after the
@@ -584,7 +584,7 @@ fn unsafe_transition_is_refused_pre_proposal_with_its_witness() {
         .expect_err("the gate refuses the unsafe transition");
     assert_eq!(
         refusal,
-        PlanRejection::ReconfigureQuorum(QuorumError::R2Violation {
+        PlanRefusal::ReconfigureQuorum(QuorumError::R2Violation {
             direction: R2Direction::Forward,
             view_change: vec![n(1), n(2), n(3), n(4)],
             commit: vec![n(0), n(5)],
@@ -609,7 +609,7 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
     bootstrap(&mut h);
 
     // Every refusal leaves the frontier exactly where it was.
-    let refused = |h: &mut Harness, op: SystemOperation, expected: PlanRejection| {
+    let refused = |h: &mut Harness, op: SystemOperation, expected: PlanRefusal| {
         let before = snap(h, n(0)).accepted;
         let outcome = h.reconfigure(n(0), op, None);
         assert_eq!(outcome, StepOutcome::PlanRefused(expected));
@@ -620,7 +620,7 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
     refused(
         &mut h,
         SystemOperation::Increment(n(9)),
-        PlanRejection::Reconfigure(ConfigError::NotAMember(n(9))),
+        PlanRefusal::Reconfigure(ConfigError::NotAMember(n(9))),
     );
 
     // A legal DECREMENT commits (slot 3, era 2: weights 1, 0, 1)...
@@ -633,7 +633,7 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
     drive_view_change(&mut h, &[n(0), n(1), n(2)], era2_view(1));
     assert_eq!(primary_of(era2_view(1)), n(1));
 
-    let refused = |h: &mut Harness, op: SystemOperation, expected: PlanRejection| {
+    let refused = |h: &mut Harness, op: SystemOperation, expected: PlanRefusal| {
         let before = snap(h, n(1)).accepted;
         let outcome = h.reconfigure(n(1), op, None);
         assert_eq!(outcome, StepOutcome::PlanRefused(expected));
@@ -644,13 +644,13 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
     refused(
         &mut h,
         SystemOperation::Decrement(n(1)),
-        PlanRejection::Reconfigure(ConfigError::WeightUnderflow(n(1))),
+        PlanRefusal::Reconfigure(ConfigError::WeightUnderflow(n(1))),
     );
     // HALVE with an odd weight in the membership.
     refused(
         &mut h,
         SystemOperation::Halve,
-        PlanRejection::Reconfigure(ConfigError::OddWeight(n(0))),
+        PlanRefusal::Reconfigure(ConfigError::OddWeight(n(0))),
     );
     // ADD of an existing member.
     refused(
@@ -659,13 +659,13 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
             node: n(0),
             position: 0,
         },
-        PlanRejection::Reconfigure(ConfigError::DuplicateNode(n(0))),
+        PlanRefusal::Reconfigure(ConfigError::DuplicateNode(n(0))),
     );
     // REMOVE with weight still on the member.
     refused(
         &mut h,
         SystemOperation::Remove(n(0)),
-        PlanRejection::Reconfigure(ConfigError::NonZeroWeight(n(0))),
+        PlanRefusal::Reconfigure(ConfigError::NonZeroWeight(n(0))),
     );
 
     // A legal ADD commits: the added member is a LEARNER — the fold
@@ -701,7 +701,7 @@ fn void_and_init_outside_genesis_are_refused() {
     let outcome = h.reconfigure(n(0), SystemOperation::Void, None);
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::Reconfigure(ConfigError::AlreadyInitialised))
+        StepOutcome::PlanRefused(PlanRefusal::Reconfigure(ConfigError::AlreadyInitialised))
     );
     // INIT after genesis — a duplicate — same refusal.
     let outcome = h.reconfigure(
@@ -713,7 +713,7 @@ fn void_and_init_outside_genesis_are_refused() {
     );
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::Reconfigure(ConfigError::AlreadyInitialised))
+        StepOutcome::PlanRefused(PlanRefusal::Reconfigure(ConfigError::AlreadyInitialised))
     );
     assert_eq!(snap(&h, n(0)).accepted, 2, "the log is untouched");
 

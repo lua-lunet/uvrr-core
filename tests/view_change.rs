@@ -16,7 +16,7 @@ use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, EraProof, EvidenceKind, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::{PlanRejection, ViewChangeKnobs};
+use vrr::replica::{PlanRefusal, ViewChangeKnobs};
 use vrr::wire::{Header, Pack, Tag};
 
 /// Node id shorthand (the harness's own pattern).
@@ -481,7 +481,7 @@ fn the_fence_is_real() {
     // §13.4 convergence hint: current view and the primary of that view).
     assert_eq!(
         h.propose(n(1), op_id(9), b"w"),
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
         })
@@ -783,7 +783,7 @@ fn retried_proposal_across_the_change() {
     tick_into_view_change(&mut h, n(1), view(1));
     assert_eq!(
         h.propose(n(1), op_id(1), b"x"),
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
         })

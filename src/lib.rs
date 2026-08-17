@@ -44,6 +44,17 @@
 // outlives the code that currently implements it.
 #![deny(missing_docs)]
 
+// The README's Rust code blocks are doctests: `cargo test --doc` compiles and
+// runs them. `#[cfg(doctest)]` keeps this module out of every non-doctest build
+// (including normal `cargo test`), and the inner `#![doc = include_str!]` makes
+// rustdoc extract the fenced blocks as tests without bloating the crate's
+// published API docs. This is the only place README code is exercised, so the
+// README stays illustrative and a single source of truth stays compiling.
+#[cfg(doctest)]
+mod readme_doctests {
+    #![doc = include_str!("../README.md")]
+}
+
 pub mod configuration;
 pub mod effects;
 pub mod ids;

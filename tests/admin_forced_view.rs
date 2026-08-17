@@ -27,7 +27,7 @@ use harness::{Harness, StepOutcome};
 use vrr::configuration::SystemOperation;
 use vrr::ids::{Era, NodeId, OperationId, View, ViewId};
 use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::{PlanRejection, ViewChangeKnobs};
+use vrr::replica::{PlanRefusal, ViewChangeKnobs};
 use vrr::wire::Tag;
 
 // ---------------------------------------------------------------------------
@@ -136,7 +136,7 @@ fn admin_forced_view_installs_the_chosen_primary_through_the_ordinary_pipeline()
     let refused = h.propose(n(0), op_id(9), b"z");
     assert_eq!(
         refused,
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
         }),
@@ -155,7 +155,7 @@ fn admin_forced_view_installs_the_chosen_primary_through_the_ordinary_pipeline()
     let refused = h.propose(n(0), op_id(10), b"y");
     assert_eq!(
         refused,
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
         })
@@ -181,7 +181,7 @@ fn admin_force_view_rejects_non_advancing_uncommitted_era_and_exhausted_targets(
     let outcome = h.force_view(n(0), view(0));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::AdminTargetNotAhead {
+        StepOutcome::PlanRefused(PlanRefusal::AdminTargetNotAhead {
             current,
             target: view(0),
         })
@@ -196,7 +196,7 @@ fn admin_force_view_rejects_non_advancing_uncommitted_era_and_exhausted_targets(
     let outcome = h.force_view(n(0), uncommitted_era);
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::AdminEraNotCurrent {
+        StepOutcome::PlanRefused(PlanRefusal::AdminEraNotCurrent {
             current: Era(1),
             got: Era(2),
         })
@@ -212,7 +212,7 @@ fn admin_force_view_rejects_non_advancing_uncommitted_era_and_exhausted_targets(
     let outcome = h.force_view(n(0), exhausted);
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::AdminViewExhausted { target: exhausted })
+        StepOutcome::PlanRefused(PlanRefusal::AdminViewExhausted { target: exhausted })
     );
 
     // Nothing moved: no fence, no traffic, no fault.
@@ -241,7 +241,7 @@ fn client_stream_survives_a_forced_view_change() {
     let refused = h.propose(n(0), op_id(2), b"b");
     assert_eq!(
         refused,
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
         }),
@@ -318,7 +318,7 @@ fn admin_force_view_into_the_established_era() {
     let refused = h.propose(n(0), op_id(10), b"z");
     assert_eq!(
         refused,
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: target,
             primary: Some(n(1)),
         }),

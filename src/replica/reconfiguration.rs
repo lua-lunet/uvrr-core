@@ -61,9 +61,9 @@ use crate::quorum::{validate_era, validate_pivot, validate_transition};
 use crate::wire::{Header, Tag};
 
 use super::{
-    Bookkeeping, Evidence, InputKind, Journal, JournalMutation, Pivot, PlanRejection,
-    PlannedOverlap, PlannedOverlapUpdate, PlannedTransition, ProgressError, Proposal,
-    QuorumStrategy, Replica, SystemOperation, suffix_shape_ok,
+    Bookkeeping, Evidence, InputKind, Journal, JournalMutation, Pivot, PlanRefusal, PlannedOverlap,
+    PlannedOverlapUpdate, PlannedTransition, ProgressError, Proposal, QuorumStrategy, Replica,
+    SystemOperation, suffix_shape_ok,
 };
 
 /// Why the fold of the committed prefix refused.
@@ -125,23 +125,23 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// gates, in order:
     ///
     /// 1. the pivot, when `Some`, satisfies the §8.7.6 pivot condition
-    ///    ([`PlanRejection::ReconfigurePivot`]);
+    ///    ([`PlanRefusal::ReconfigurePivot`]);
     /// 2. the node is the `Normal` primary of its current view
-    ///    ([`PlanRejection::NotPrimary`], as for any proposal);
+    ///    ([`PlanRefusal::NotPrimary`], as for any proposal);
     /// 3. the era table has NOT advanced past the current view — the
     ///    committed operation establishing the next era awaits the
     ///    ordinary view change into it (§8.7.8), and a second advance
     ///    would put the accepted frontier outside §8.7.3's relation
-    ///    ([`PlanRejection::EraTransitionOutstanding`]);
+    ///    ([`PlanRefusal::EraTransitionOutstanding`]);
     /// 4. no earlier system operation sits accepted-but-uncommitted —
     ///    the fold that runs at commit must be the fold the pre-proposal
-    ///    gate validated ([`PlanRejection::ReconfigureOutstanding`]);
+    ///    gate validated ([`PlanRefusal::ReconfigureOutstanding`]);
     /// 5. the §8.7.2 preconditions of the fold itself
-    ///    ([`PlanRejection::Reconfigure`]);
+    ///    ([`PlanRefusal::Reconfigure`]);
     /// 6. the closed intersection obligations (Q1): R2 across the
     ///    boundary FIRST — so a cross-era refusal names the cross-era
     ///    witness — then R1, self-intersection and fence-recovery within
-    ///    the resulting era ([`PlanRejection::ReconfigureQuorum`]).
+    ///    the resulting era ([`PlanRefusal::ReconfigureQuorum`]).
     ///
     /// A refusal at any gate never enters the log. The pivot never
     /// substitutes for the family-level `validate_transition` gate: an
@@ -151,17 +151,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         journal: &J::View,
         op: &SystemOperation,
         pivot: &Option<Pivot>,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
         let record = self
             .current_record()
-            .ok_or(PlanRejection::Progress(ProgressError::EraSlotDiscipline))?;
+            .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
         // Gate 2: the proposer is the view's primary — the same ruling as
         // an ordinary proposal's.
         let is_primary = self.progress.status() == Status::Normal
             && record.config.primary(current.view) == Some(self.own);
         if !is_primary {
-            return Err(PlanRejection::NotPrimary {
+            return Err(PlanRefusal::NotPrimary {
                 view: current,
                 primary: record.config.primary(current.view),
             });
@@ -172,7 +172,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // only state in which a new operation may be gated.
         let established = self.progress.config().current().era;
         if established != current.era {
-            return Err(PlanRejection::EraTransitionOutstanding {
+            return Err(PlanRefusal::EraTransitionOutstanding {
                 view: current.era,
                 established,
             });
@@ -185,9 +185,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             let entry = journal
                 .get(next)
-                .ok_or(PlanRejection::JournalEntryUnavailable { slot: next })?;
+                .ok_or(PlanRefusal::JournalEntryUnavailable { slot: next })?;
             if matches!(entry.payload, Payload::System(_)) {
-                return Err(PlanRejection::ReconfigureOutstanding { slot: next });
+                return Err(PlanRefusal::ReconfigureOutstanding { slot: next });
             }
             tail = next;
         }
@@ -195,7 +195,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .progress
             .accepted()
             .next()
-            .ok_or(PlanRejection::SlotSpaceExhausted)?;
+            .ok_or(PlanRefusal::SlotSpaceExhausted)?;
         // Gate 5: the fold's preconditions (§8.7.2) — the operation is
         // tried against the current configuration at the slot it would
         // occupy.
@@ -203,7 +203,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .progress
             .config()
             .extend(op, slot)
-            .map_err(PlanRejection::Reconfigure)?;
+            .map_err(PlanRefusal::Reconfigure)?;
         // Gate 1 (deferred): the pivot, when `Some`, satisfies the
         // §8.7.6 pivot condition. The check runs after the fold so the
         // next configuration is available for the qII-under-both leg.
@@ -215,7 +215,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 self.own,
                 pivot,
             )
-            .map_err(PlanRejection::ReconfigurePivot)?;
+            .map_err(PlanRefusal::ReconfigurePivot)?;
         }
         // Gate 6: the closed intersection obligations (§8.7.4, Q1). R2
         // across the boundary runs first so a cross-era refusal names the
@@ -223,9 +223,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // never substitutes for this gate: an operation the gate refuses
         // is refused with or without a pivot.
         validate_transition(&self.strategy, &record.config, &next_table.current().config)
-            .map_err(PlanRejection::ReconfigureQuorum)?;
+            .map_err(PlanRefusal::ReconfigureQuorum)?;
         validate_era(&self.strategy, &next_table.current().config)
-            .map_err(PlanRejection::ReconfigureQuorum)?;
+            .map_err(PlanRefusal::ReconfigureQuorum)?;
         // The recipients and the overlap machine (§8.7.6–§8.7.7). Without
         // a pivot the establishing Prepare goes to every backup and the
         // era awaits the ordinary view change. With a pivot it goes only
@@ -249,7 +249,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             let index =
                 u32::try_from(index).expect("the membership order fits the view arithmetic");
             let view = next_view_selecting(current.view, index, members)
-                .ok_or(PlanRejection::ReconfigureViewExhausted { current })?;
+                .ok_or(PlanRefusal::ReconfigureViewExhausted { current })?;
             let target = ViewId {
                 era: next_record.era,
                 view,
@@ -415,7 +415,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         from: NodeId,
         message: &Message,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         let current = self.progress.current();
         // The solicitation names the SUCCESSOR era. Anything else is
@@ -525,7 +525,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         era_proof: &EraProof,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         let current = self.progress.current();
         // Evidence answers a solicited machine naming this very view;
@@ -567,7 +567,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // CURRENT era's record — the era the responder still speaks from.
         let record = self
             .current_record()
-            .ok_or(PlanRejection::Progress(ProgressError::EraSlotDiscipline))?;
+            .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
         if header.slot != accepted
             || committed > accepted
             || !suffix_shape_ok(suffix, accepted)

@@ -70,7 +70,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         view: ViewId,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let plan = self.enter_view_change(journal, view, BTreeSet::new(), at, kind)?;
         match self.progress.accepted().next() {
             // The fetch rides the same transition: one serialized interval
@@ -112,7 +112,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         message: &Message,
         fetch_from: Slot,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         let Some(record) = self.progress.config().record(header.view.era) else {
             return self.drop_plan(
@@ -223,7 +223,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         committed: Slot,
         more: bool,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         let Some(record) = self.progress.config().record(header.view.era) else {
             return self.drop_plan(
@@ -346,7 +346,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             match self.fold_committed(journal, entries, self.progress.committed(), new_committed) {
                 Ok(config) => config,
                 Err(CommitFold::Unavailable(slot)) => {
-                    return Err(PlanRejection::JournalEntryUnavailable { slot });
+                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
                 Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
             };

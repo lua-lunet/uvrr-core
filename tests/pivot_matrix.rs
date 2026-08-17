@@ -22,7 +22,7 @@ use vrr::effects::Stability;
 use vrr::ids::{Era, NodeId, View, ViewId};
 use vrr::journal::{Journal, SegmentedLog};
 use vrr::quorum::{QuorumStrategy, Role, WeightedMajority};
-use vrr::replica::{Input, Pivot, PlanRejection, Replica, ViewChangeKnobs};
+use vrr::replica::{Input, Pivot, PlanRefusal, Replica, ViewChangeKnobs};
 
 fn n(id: u32) -> NodeId {
     NodeId(id)
@@ -416,7 +416,7 @@ fn valid_pivot_does_not_bypass_transition_gate() {
         )
         .expect_err("the transition gate refuses, pivot or no pivot");
     assert!(
-        matches!(refusal, PlanRejection::ReconfigureQuorum(_)),
+        matches!(refusal, PlanRefusal::ReconfigureQuorum(_)),
         "the refusal is the transition gate's, not the pivot's: {refusal:?}"
     );
 }
