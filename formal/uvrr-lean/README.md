@@ -1,5 +1,13 @@
 # uvrr-lean — Lean 4 proofs for uVRR cluster reconfiguration safety
 
+## Unresolved repeated-recovery counterexample
+
+The current implementation reproduces committed divergence under serial
+amnesiac recoveries and authentic delayed messages, with fresh recovery ticks.
+See the [counterexample and replay instructions](evidence/delayed-fence/README.md).
+This prevents an end-to-end diskless-safety claim. The checked component
+results below retain their stated scope; no repair is claimed yet.
+
 ## Verified research checkpoint — 6 September 2026
 
 The current [LaTeX manuscript](paper/paper.tex) and [rendered paper](paper/paper.pdf)
@@ -31,6 +39,7 @@ draft, rather than a proved theorem. The current ladder is:
 | 15 | `ViewFence.lean` | Multi-view local history derives voter-report bounds; strong induction preserves committed prefixes in later activated views under explicit global provenance conditions |
 | 16 | `LogProvenance.lean` | Shared multi-view transition induction proves committed-log compatibility for a fixed configuration without crashes; concrete trace and cross-view delivery control |
 | 17 | `RecoveryFence.lean` | A supporting quorum retains a known fence through arbitrary crash/recovery sequences using fresh episode replies; stale-quorum fault control |
+| 18 | Public Rust path and directed TLC trace | Reproduced unresolved committed divergence after serial recoveries; an expected Red witness, not a safety theorem |
 
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"

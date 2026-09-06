@@ -539,3 +539,58 @@ Rust formatting, all-target/all-feature Clippy/tests, doctests and source
 placement pass. The inherited vendor text-gate exception is unchanged. No
 baseline proof re-audit, TLC rerun, model-service call or manuscript render was
 needed for this increment. Evidence hashes are under evidence/recovery-fence/.
+
+## 2026-09-06 L — public-path repeated-recovery counterexample (Red)
+
+The preceding turn was **progress**, committed as `0b8e89b`. Trying to discharge
+the asynchronous first-round checkpoint obligation produced a concrete failure.
+On unchanged production code, the public harness reports CommittedDivergence
+between nodes 0 and 1 at slot 3. Node 0 committed operation x; node 1 subsequently
+committed y at that slot. Three amnesiac recoveries occur serially (node 1 once,
+node 2 twice), with at most one recovering node at a time. Every replayed packet
+was first emitted by the live core; recovery ticks are fresh. The script first
+used host-forced view changes, then reproduced the same failure with ordinary
+backup timeouts. Both raw Red traces and source are saved under
+`evidence/delayed-fence/`. No production fix or root-cause claim is made here.
+
+A separate directed TLC execution also violates CommittedLogsAgree after 34
+protocol actions (35 states). It uses an explicit research copy of VrrCoreEras:
+replace the original at-most-one-crash-overall guard with at-most-one-recovering,
+and use the incremented recovery epoch as that node's fresh recovery nonce.
+No protocol safety guard is removed. TypeOK and OneRecovering precede the
+agreement invariant in the configuration and hold throughout the trace.
+The original TLA source is unchanged. The executable schedule, research copy,
+configuration and complete Red log are preserved alongside the Rust evidence.
+
+This contradicts end-to-end safety of the current implementation under this
+repeated-amnesia schedule; it does not invalidate the checked crash-free
+LogProvenance theorem or RecoveryFence's explicit online-quorum checkpoint
+premise. That premise has not been proved for asynchronously collected first-
+round messages. Do not silently promote it to a full recovery theorem, hide the
+Red result, or treat an ordinary green suite as having refuted this witness.
+The reproduction is archived as an explicitly expected negative research
+witness, not installed as a silently skipped passing regression test. A repair
+must face the same public-path schedule and preserve the intended no-forced-
+disk, non-stop service requirements; merely preventing progress is not enough.
+
+Final evidence checks: the ordinary-timeout Rust counterexample replays through
+`check_recovery_counterexample.py` with the exact expected Red diagnostic, and
+new rung 18 replays. The archived TLA schedule was rerun with captured exit code
+12: CommittedLogsAgree fails, 35 distinct states, 0.873 seconds, 512-MiB heap,
+20-second wall cap. Its TypeOK and one-recovering checks remain satisfied.
+The original TLA model is untouched. The production source and harness hashes
+are recorded in provenance.json, including the preserved user Cargo.toml state.
+
+The ordinary Rust format/Clippy/all-target/all-feature tests/doctests and source
+placement checks pass after archiving the research reproduction; this does not
+negate its failure. The Lean build and 264-declaration axiom audit still pass.
+No production code was changed, no failing assertion was weakened, and no
+repair is claimed. No model-service calls were made. The README now leads with
+the unresolved counterexample. Manuscript integration of rungs 17–18 remains
+pending; the current PDF is explicitly the earlier component-proof checkpoint.
+
+Next: investigate a protocol-level resolution and reproduce it against this
+same schedule without imposing forced local storage or quietly sacrificing the
+non-stop goal. Also review the temporal premises of the published recovery
+argument; do not announce a literature novelty claim from this reproduction
+alone. A passing narrow guard test is not sufficient to close the full objective.

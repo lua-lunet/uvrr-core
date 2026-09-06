@@ -1,0 +1,22 @@
+{
+  "recorded_at_utc": "2026-09-06T08:37:44.695554+00:00",
+  "outcome": "unresolved counterexample; no repair",
+  "rust_reproduction": "Red on unchanged production code, exact CommittedDivergence slot 3",
+  "tla_reproduction": "Red, exit 12, CommittedLogsAgree after 34 actions; TypeOK and OneRecovering hold",
+  "rung_18_replay": "pass reproducing expected Red, not a safety pass",
+  "ordinary_rust_gates": "pass; do not cover away archived counterexample",
+  "lean_build": "pass",
+  "axiom_inventory_count": 264,
+  "additional_model_service_calls": 0,
+  "sha256": {
+    "evidence/delayed-fence/reproduction.rs": "5da1e3f56375dbdc53b6a5d6aa3ba8e83b2eb871a3371e03a46577a91c9e4df2",
+    "evidence/delayed-fence/red-timeout.log": "addb08f9e36a4f8e89bfabe9fbec8d899bed8cdcd56483417914f6e931de8dde",
+    "evidence/delayed-fence/red-forced-view.log": "c10a9f3c8f66c6cd073a80f353b630f61e33ee7990e6432b823b020d55f7792f",
+    "evidence/delayed-fence/tla/DelayedFence.tla": "8170261ec7ee361638ece521ed2aec310c7bdabed9a41aeca1c532b3e202b0fb",
+    "evidence/delayed-fence/tla/DelayedFence.cfg": "67af038a3cb9d8b8acb8f6e00f667b08f8486b3f9a8f1ac6de82219d6d5a6767",
+    "evidence/delayed-fence/tla/VrrCoreEras.tla": "db949314aa4c5c2382104651ac0a949840c6192c870c2793225c401e0a6614cb",
+    "evidence/delayed-fence/tla/red.log": "9408851f92b7f063f4533f2ba3276b46a0aa38131e2b7b6773f0620a1ad5240f",
+    "check_recovery_counterexample.py": "dd8ad2c76a489e406c73da9848e7c4072d5706533ec45c66b847e10f357ba784",
+    "ladder/18-delayed-fence-counterexample.md": "31061214f20853c3a4fd0158a8a2ee804fd7e667d568211fab5d633703d31a61"
+  }
+}
