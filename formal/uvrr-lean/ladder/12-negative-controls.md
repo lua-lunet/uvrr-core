@@ -180,6 +180,22 @@ def main():
         ):
             raise RuntimeError("slot-guard mutant was not rejected by the proof:\n" + output)
         print("PASS Lean rejects omitted next-slot guard")
+        fence = (ROOT / "UVRR/ViewFence.lean").read_text()
+        path.write_text(fence)
+        result = lean(path)
+        if result.returncode != 0:
+            raise RuntimeError("unchanged view-fence control failed:\n" + result.stdout + result.stderr)
+        old = "(normal : s.floor = s.retained) : Step s (append s x)"
+        assert fence.count(old) == 1, "normal-mode guard location changed"
+        path.write_text(fence.replace(old, "(normal : True) : Step s (append s x)"))
+        result = lean(path)
+        output = result.stdout + result.stderr
+        if result.returncode == 0 or "error:" not in output or any(
+            marker in output for marker in
+            ("unknown module", "unknown module prefix", "memory", "heartbeats")
+        ):
+            raise RuntimeError("normal-mode mutant was not rejected by the proof:\n" + output)
+        print("PASS Lean rejects append after view-change fence")
         path.write_text("theorem injected_hole : False := by sorry\n#print axioms injected_hole\n")
         result = lean(path)
         if result.returncode != 0 or "sorryAx" not in result.stdout:
@@ -225,5 +241,6 @@ PASS unchanged control compiles
 PASS Lean rejects existential quorum checker
 PASS Lean rejects unsafe four-node decision family
 PASS Lean rejects omitted next-slot guard
+PASS Lean rejects append after view-change fence
 PASS axiom audit detects sorryAx despite compiler exit 0
 ```

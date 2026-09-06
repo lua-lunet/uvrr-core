@@ -11,3 +11,4 @@ import UVRR.NegativeControls
 import UVRR.Acceptor
 import UVRR.ViewSelection
 import UVRR.NormalLog
+import UVRR.ViewFence

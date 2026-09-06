@@ -343,3 +343,62 @@ baseline re-audit was needed.
 Next: connect per-view provenance to view-change fencing and historical voter
 reports in one multi-view transition system, then add fresh-evidence recovery.
 Do not treat the current one-view no-crash projection as that completed model.
+
+## 2026-09-06 I — view fencing and induction over activated views
+
+The preceding turn was **progress**, committed as `2cf0f2e`. This increment
+uses `ViewFence.lean` to derive the voter-history premise that rung 13 had
+assumed. A local replica installs a strictly higher normal view with an arbitrary
+log, appends in normal mode, enters view change by raising its floor, and emits
+a reply only after that fence. The arbitrary installation log avoids embedding
+cross-view agreement in a transition guard. Immutable votes and replies are
+ghost evidence, not a proposed durable-storage requirement.
+
+`report_covers_vote` covers every historical vote below a reply's target,
+including votes occurring later in the trace. The vote's view cannot exceed
+the reported last-normal view; at equality its log is a prefix of the report.
+`voter_history` derives the exact selector interface from local executions and
+commit-quorum votes that extend a committed prefix. `selection_preserves`
+consumes that result. The complete first view-change message round and recovery
+are not represented by this local projection.
+
+`all_later_views_preserve` then closes the strong induction over natural view
+numbers: every later activated view's selected base preserves a quorum-voted
+prefix. The caller no longer assumes later-view preservation. Remaining global
+interfaces are authentic report provenance, same-view comparability, and report
+extension of the base installed in its retained view. The latter records that a
+positive retained view was actually activated. These must be derived jointly
+from one full protocol execution, not treated as already refined from Rust/TLA.
+Configuration changes still require era composition; this theorem fixes one
+quorum family and supplies no recovery or progress result.
+
+A draft required reports for every natural view number, which would not admit a
+finite ghost history. Before banking, the interface was corrected to quantify
+only activated views. `two_view_application` constructs a nonempty reachable
+execution (fence/report, install, append/vote, fence/report) and discharges every
+hypothesis of the general induction. It is an interface-inhabitation control,
+not the extent of the general theorem. The first local induction compiled on
+its first attempt. The fault example initially lacked a decidable record-equality
+instance; using direct list-membership constructors fixed that proof without
+changing its statement.
+
+Fault evidence: after a reply at target 1 reporting the empty view-0 log,
+bypassing normal-mode fencing allows a view-0 append. The immutable reply then
+omits that below-target vote. The constructive witness proves the broken
+historical property; the temporary mutation replaces only the append guard
+with True, and Lean rejects the preservation proof. Unchanged controls compile.
+
+Validation: build passes (17 jobs), all 192 named declarations pass the standard
+axiom allowlist, affected rungs 12 and 15 replay, and mutation checks pass.
+Other rungs and their sources are unchanged from their banked replays. Rust
+formatting, all-target/all-feature Clippy/tests, doctests, and source-placement
+checks pass; the inherited vendor-directory text-gate exception remains.
+No external model-service call, TLC rerun, or baseline re-audit was needed.
+The manuscript remains the rendered rung-14 checkpoint; integrate this rung
+with the next global-provenance result to avoid repeated layout work.
+
+Next: derive the global provenance interfaces jointly from multi-view message
+transitions. In particular connect NormalLog's per-view message chains to
+ViewFence's installs/reports, prove report extension of the installed base,
+and preserve unique activation across recovery. Keep the distinction between
+history-level induction and full operational simulation visible in the paper.
