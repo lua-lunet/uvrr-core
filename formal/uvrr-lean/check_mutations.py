@@ -108,6 +108,22 @@ def main():
         ):
             raise RuntimeError("episode-freshness mutant was not rejected by the proof:\n" + output)
         print("PASS Lean rejects stale recovery episode evidence")
+        vector = (ROOT / "UVRR/CrashVector.lean").read_text()
+        path.write_text(vector)
+        result = lean(path)
+        if result.returncode != 0:
+            raise RuntimeError("unchanged crash-vector control failed:\n" + result.stdout + result.stderr)
+        old = "⟨known, prune known (r :: s.replies)⟩"
+        assert vector.count(old) == 1, "crash-vector filter location changed"
+        path.write_text(vector.replace(old, "⟨known, r :: s.replies⟩"))
+        result = lean(path)
+        output = result.stdout + result.stderr
+        if result.returncode == 0 or "error:" not in output or any(
+            marker in output for marker in
+            ("unknown module", "unknown module prefix", "memory", "heartbeats")
+        ):
+            raise RuntimeError("crash-vector mutant was not rejected by the proof:\n" + output)
+        print("PASS Lean rejects omitted crash-vector filtering")
         path.write_text("theorem injected_hole : False := by sorry\n#print axioms injected_hole\n")
         result = lean(path)
         if result.returncode != 0 or "sorryAx" not in result.stdout:

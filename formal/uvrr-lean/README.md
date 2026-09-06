@@ -8,11 +8,15 @@ See the [counterexample and replay instructions](evidence/delayed-fence/README.m
 This prevents an end-to-end diskless-safety claim. The checked component
 results below retain their stated scope; no repair is claimed yet.
 
+The failure pattern has a published antecedent in Michael et al. (2017),
+Appendix B.1. The [crash-vector research notes](evidence/crash-vector/README.md)
+credit that work and distinguish the checked collector from a complete repair.
+
 ## Verified research checkpoint — 6 September 2026
 
 The current [LaTeX manuscript](paper/paper.tex) and [rendered paper](paper/paper.pdf)
-state the results through rung 16 and the remaining end-to-end proof obligations.
-Rung 17 is banked below; its manuscript integration awaits recovery composition.
+state the results through rung 19 and the remaining end-to-end proof obligations.
+The repeated-recovery counterexample and its published antecedent are included.
 The [laboratory book](LAB-BOOK.md) records commands, failures, bounded Leanstral
 experiments, and commit checkpoints. The original DOCX and rungs 1–8 remain
 audit inputs; the original README is retained in baseline commit `05a4d67`.
@@ -40,6 +44,7 @@ draft, rather than a proved theorem. The current ladder is:
 | 16 | `LogProvenance.lean` | Shared multi-view transition induction proves committed-log compatibility for a fixed configuration without crashes; concrete trace and cross-view delivery control |
 | 17 | `RecoveryFence.lean` | A supporting quorum retains a known fence through arbitrary crash/recovery sequences using fresh episode replies; stale-quorum fault control |
 | 18 | Public Rust path and directed TLC trace | Reproduced unresolved committed divergence after serial recoveries; an expected Red witness, not a safety theorem |
+| 19 | `CrashVector.lean` | Published crash-vector collector: arbitrary reachable reply sets satisfy incarnation consistency; stale-quorum witness and filter-removal control |
 
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"

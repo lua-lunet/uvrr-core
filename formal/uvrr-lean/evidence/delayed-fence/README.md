@@ -71,3 +71,12 @@ starts from an explicitly online supporting quorum; that checkpoint condition
 has not been derived for asynchronous first-round evidence across recoveries.
 The full requested diskless uVRR proof cannot be claimed for the current code
 while this schedule remains admitted. No production repair has been implemented.
+
+## Published antecedent
+
+Michael, Ports, Sharma and Szekeres describe the corresponding delayed
+view-change/recovery failure pattern in Appendix B.1, Figure 1 of their
+[2017 extended report](https://drkp.net/papers/recovery-tr17.pdf). This
+repository reproduction is not a novelty claim for the failure class. See
+[the literature and collector notes](../crash-vector/README.md) for the next
+proof boundary. No production repair has been made.

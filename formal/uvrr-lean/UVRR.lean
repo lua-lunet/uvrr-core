@@ -14,3 +14,4 @@ import UVRR.NormalLog
 import UVRR.ViewFence
 import UVRR.LogProvenance
 import UVRR.RecoveryFence
+import UVRR.CrashVector

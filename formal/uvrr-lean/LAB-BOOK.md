@@ -594,3 +594,64 @@ same schedule without imposing forced local storage or quietly sacrificing the
 non-stop goal. Also review the temporal premises of the published recovery
 argument; do not announce a literature novelty claim from this reproduction
 alone. A passing narrow guard test is not sufficient to close the full objective.
+
+## 2026-09-06 M — published antecedent and crash-vector collector
+
+Continued from `1149eec`. Primary literature resolves the novelty question for
+this failure pattern: Michael, Ports, Sharma and Szekeres describe delayed
+view-change evidence across diskless recoveries in their 2017 extended report,
+Appendix B.1 and Figure 1. Its predecessor is UW-CSE-16-08-02 (2016); the
+updated report is UW-CSE-17-08-01, an extended DISC 2017 paper. Full URLs and
+PDF hashes are banked in evidence/crash-vector/. Downloaded reading copies
+remain in .tmp/uvrr-audit/recovery-literature/. This is a known published
+failure class. Our Rust/TLC witnesses are useful implementation evidence,
+not grounds for claiming a new discovery of that class.
+
+Read Algorithm 1, Definition 6, the quorum-knowledge persistence/acquisition
+arguments, liveness condition, and Appendix B.1. The next mechanism is more
+than attaching incarnation vectors to ordinary recovery replies. A recovering
+process must acquire and propagate its fresh incarnation through a
+crash-consistent quorum; reconstruction and operational exclusion matter.
+The publication explicitly warns that related epoch-vector approaches can
+still fail. Do not substitute a local message filter for its temporal argument.
+
+Rung 19 now checks the collector primitive in core Lean. State is a known
+incarnation vector and a reply list. Receive joins vectors pointwise and
+prunes replies whose sender incarnation is behind the joined frontier.
+Induction derives pairwise crash consistency for every reachable reply set.
+Sender membership is a set predicate; duplicates add no quorum identities.
+A concrete unfiltered two-of-three quorum is inconsistent. Filtering removes
+the stale reply and a current replacement restores quorum size. Removing
+filtering in a temporary source copy makes Lean reject the proof, after the
+unchanged copy compiles. This is proof sensitivity and a concrete witness,
+not universal necessity across all possible algorithms.
+
+The component deliberately leaves request freshness, resending, actual
+recovery acquisition, quorum-knowledge persistence and value reconstruction
+open. The replacement-reply example proves collector progress only; it does
+not assert a network liveness theorem. The published termination premise is
+a suitable stable quorum over the acquisition interval, not just a bound on
+simultaneous recovering nodes. Production code is unchanged; no repair is
+claimed and the banked public-path Red remains the regression target.
+
+The manuscript now includes rungs 17–19, the explicit counterexample, and
+credit to the published antecedent. It renders to eight pages. All pages
+were visually checked; a too-wide vector equation was split and rerendered.
+No overfull boxes remain. The earlier Leanstral methodology remains intact;
+no model-service calls or additional paid proof experiments were made.
+
+Next substantive step: mechanize crash-consistent acquisition and the temporal
+quorum-knowledge argument, then compose recovery with committed-log safety.
+Do not hide that obligation behind a global safety guard or count refusal to
+make progress as successful repair. Preserve the exact public-path schedule
+for testing any production change. Avoid repeating baseline audits or TLC
+explorations already banked.
+
+Validation: Lean build passes (20 jobs), the 290-declaration axiom audit allows
+only standard Lean axioms, and rungs 12/19 replay. All mutation controls pass.
+Rust format, all-target/all-feature Clippy/tests, doctests and source placement
+pass. The inherited vendor text-gate exception is unchanged. The archived
+public-path recovery runner again reproduces the exact slot-3 committed
+divergence; its expected-Red result remains explicit. Evidence hashes and
+check metadata are in evidence/crash-vector/validation.json. No TLC or
+inherited-rung rerun was needed for this component-only increment.
