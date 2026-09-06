@@ -1,4 +1,4 @@
-# Rung 13: Fault injection and assumption independence
+# Rung 12: Fault injection and assumption independence
 
 *2026-09-06T07:32:54Z by Showboat 0.6.1*
 <!-- showboat-id: 1c648562-4fe7-4d7e-b26e-7be5e9f2ec8e -->

@@ -100,8 +100,9 @@ Checkpoint commit: `05a4d67`. This also banks the previously untracked seed
 artifact subtree, without committing the user's other staged changes.
 One additional repository text gate is **not green on the inherited tree**:
 `git ls-files | rg -v '^maelstrom' | xargs rg -n 'item[0-9]'` descends into the
-user-staged `tools/tla2tools` submodule directory and matches `item0` in its
-Java code. No vendor code or unrelated staging was changed to suppress it.
+user-staged `tools/tla2tools` submodule directory and matches an indexed
+constructor parameter in its Java code. No vendor code or unrelated staging
+was changed to suppress it.
 
 ## 2026-09-06 D — general weights and negative controls
 
@@ -172,22 +173,70 @@ not a name mapping to Paxos.
 
 ### Remaining work after checkpoint E
 
-1. Bank baseline evidence and the MultiPromise module with an executable rung.
-2. Add targeted kernel-checked counterexamples and compile-failure mutations;
-   classify independence of assumptions separately from universal necessity.
-3. Prove the general weighted intersection lemma; reuse the prepared tiny
-   Leanstral target only after fixing the scaffold token overhead.
-4. Build an explicit operational state machine and prove its reachable
-   invariants. Do not put agreement itself in transition guards.
-5. Cover VRR normal operation, view-change selection, state transfer, recovery
-   fencing, clients, execution, and reconfiguration with a source-to-theorem
-   coverage matrix. Check omissions against the whole 2012 paper.
-6. Prove the relation between uVRR's era rules and operational VRR. Establish
-   conditional progress separately; latency requires an actual benchmark.
-7. Write and render the LaTeX paper, using exact checked statements and an
-   explicit claim ledger. Keep unpublished obligations visible until closed.
+1. Prove whole-log VRR view selection, including divergent uncommitted suffixes
+   and incomplete prior view changes. Discharge message-history invariants
+   from transitions, without using agreement as a guard.
+2. Prove crash/recovery exclusion, freshness and restoration of prior vote
+   obligations. Address the design model's multi-nonce evidence explicitly.
+3. Compose operational reconfiguration across arbitrarily many eras; justify
+   casting-vote schedules and safe member retirement.
+4. Connect committed log prefixes to client-visible execution, including
+   deduplication, client restart, and nondeterministic inputs.
+5. Establish conditional progress and define the benchmark assumptions for
+   failover latency. No asynchronous safety proof supplies a timing bound.
+6. Extend the manuscript as each obligation closes. Keep its coverage matrix
+   synchronized with checked declarations. Audit the Rust/model refinement
+   rather than assuming it from existing regression tests.
 
 Primary VRR paper successfully downloaded from MIT DSpace to
 `.tmp/uvrr-audit/papers/vr-revisited.pdf` and text-extracted beside it.
 The supplied blog is an aspiration ending in “TBC”, not a complete algorithm.
 The operational specification must therefore be made explicit in this work.
+
+## 2026-09-06 F — manuscript and complete declaration audit
+
+Checkpoint E commit: `a57870e`. `check_axioms.py` queries all 131 named
+theorems/definitions/abbreviations exported by the current source files through
+`import UVRR`; only standard Lean axioms are permitted. It is intentionally
+independent of the report's prose claims. All 12 Showboat documents pass after
+integration, and the unchanged-control / two mutant / axiom-hole checks pass.
+
+The new rungs were renumbered consecutively: suffix promises are now
+`ladder/11-multi-promises.md`, and negative controls are
+`ladder/12-negative-controls.md`. Earlier diary entries describe paths in
+their checkpoint commits; the current README gives current paths.
+
+`paper/paper.tex` is a six-page research manuscript with theorem statements,
+proof arguments, a coverage matrix spanning VRR-2012 Sections 1–9, a trust
+boundary, and the bounded Leanstral methodology. Tectonic builds the PDF.
+Every rendered page was inspected; the overfull transition equation was
+reformatted and the final checked layout has no overfull boxes or unresolved
+references. The manuscript explicitly retains the incomplete end-to-end
+obligation; it is not a claim that the research goal is finished.
+
+The current README no longer repeats superseded baseline claims. The original
+DOCX and baseline commit remain the audit inputs. The full VRR paper was read,
+including recovery, reconfiguration, pragmatics and optional read optimizations.
+In particular the source's backup-read variant has weaker semantics than
+linearizability, so it cannot silently become part of a strong-consistency claim.
+
+Bounded TLC spot audit: `VrrCoreErasM1.cfg` on the unchanged design model
+reproduced `Invariant FrontiersOrdered is violated` (exit 12) in 1.2 seconds,
+with 2,111 distinct states found. This is the intended transfer-fault
+counterexample, not a newly diagnosed defect in the unmutated model. Its
+configuration and source hashes are preserved with the run report.
+
+The unchanged `VrrCoreEras.cfg` breadth-first run completed in 137.67 seconds
+(exit 0): 2,743,933 generated states, 837,204 distinct states, queue empty,
+depth 32, no error found. Bounds are `inc3`, one command, log length 3,
+view index 0, two eras. `MaxEpoch=0` disables crashes; this is not evidence
+for recovery. TLC 2.19 reported an observed-fingerprint collision estimate
+of 2.2e-7. The run used two workers, a 2-GiB Java heap cap, and a 180-second
+wall limit. Both run reports and logs are banked under `evidence/tlc/`.
+
+Final checkpoint checks: all 12 Showboat documents replay; `lake build`
+passes; 131 declarations pass the standard-axiom allowlist; fault controls
+pass. Rust format, all-feature/all-target Clippy/tests, doctests and source
+placement checks pass. The separate vendor-directory text-gate baseline
+failure remains documented above. No Rust implementation or user-staged
+submodule changes have been included in the research commits.

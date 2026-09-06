@@ -1,4 +1,4 @@
-# Rung 12: Suffix promises and the known-instance frontier
+# Rung 11: Suffix promises and the known-instance frontier
 
 *2026-09-06T07:28:19Z by Showboat 0.6.1*
 <!-- showboat-id: 04267799-332c-4eca-9d79-97422173c185 -->
