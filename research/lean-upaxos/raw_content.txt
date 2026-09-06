@@ -1,0 +1,63 @@
+```lean
+abbrev Era := Nat
+def eOf (b : Era × Nat) : Era := b.1
+abbrev Node := Nat
+structure Config where
+  QI : List Node
+  QII : List Node
+def Overlap (Q1 Q2 : List Node) : Prop := Q1.any (fun x => x ∈ Q2) = true
+
+theorem overlap_same (C : Era → Config) (e : Era) (h : ∀ e, Overlap (C e).QI (C e).QII) :
+    Overlap (C e).QI (C e).QII := h e
+theorem overlap_cross (C : Era → Config) (e : Era)
+    (h : ∀ e, Overlap (C (e+1)).QI (C e).QII) :
+    Overlap (C (e+1)).QI (C e).QII := h e
+
+def cfgE : Era → Config
+  | 0 => ⟨[0, 1, 2], [0, 1, 2]⟩
+  | 1 => ⟨[0, 1, 3], [0, 2, 3]⟩
+  | _ => ⟨[0, 1, 3], [0, 1, 3]⟩
+
+theorem same_era_0 : Overlap (cfgE 0).QI (cfgE 0).QII := by
+  unfold cfgE Overlap
+  native_decide
+
+theorem same_era_1 : Overlap (cfgE 1).QI (cfgE 1).QII := by
+  unfold cfgE Overlap
+  native_decide
+
+theorem same_era_2 : Overlap (cfgE 2).QI (cfgE 2).QII := by
+  unfold cfgE Overlap
+  native_decide
+
+theorem cross_01_QI_QII : Overlap (cfgE 0).QI (cfgE 1).QII := by
+  unfold cfgE Overlap
+  native_decide
+
+theorem cross_10_QI_QII : Overlap (cfgE 1).QI (cfgE 0).QII := by
+  unfold cfgE Overlap
+  native_decide
+
+theorem cross_12_QI_QII : Overlap (cfgE 1).QI (cfgE 2).QII := by
+  unfold cfgE Overlap
+  native_decide
+
+theorem cross_21_QI_QII : Overlap (cfgE 2).QI (cfgE 1).QII := by
+  unfold cfgE Overlap
+  native_decide
+
+theorem cross_02_QI_QII : Overlap (cfgE 0).QI (cfgE 2).QII := by
+  unfold cfgE Overlap
+  native_decide
+
+def FixableIn (b : Era × Nat) (s : Era) : Prop := s = b.1 ∨ s = b.1 + 1
+theorem fixable_le (b : Era × Nat) (s : Era) (h : FixableIn b s) : b.1 ≤ s := by
+  rcases h with h | h
+  · exact h ▸ Nat.le_refl b.1
+  · exact h ▸ Nat.le_succ b.1
+
+def bad : Config := ⟨[0], [1]⟩
+theorem bad_no_overlap : ¬ Overlap bad.QI bad.QII := by
+  unfold bad Overlap
+  native_decide
+```

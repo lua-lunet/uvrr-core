@@ -1,0 +1,162 @@
+Reconfiguring a Strongly Consistent Log Without Stopping: Machine-Checked Safety of Overlapping-Quorum Reconfiguration for uVRR
+A Lean 4 proof ladder over David C. Turner’s UPaxos invariants, with a necessity counterexample
+vrr-core project, branch uVRR — 6 September 2026 — artefacts: formal/uvrr-lean/
+Abstract
+We give machine-checked (Lean 4.33.1, core library only) safety results for non-stop cluster reconfiguration of a strongly consistent replicated log, the design target of uVRR (Unbounded Viewstamped Replication Revisited). Following Turner’s UPaxos paper we formalise the Synod invariants S1–S6 and prove agreement (Theorem 8); we then index configurations by era, take Turner’s safety equation QII_e ⌐ QI_e ⌐ QII_{e+1} as the sole assumption on configurations, and prove Lemma 9 and Theorem 10: no instance can choose two values across a reconfiguration. We add a result the paper does not state: a two-node counterexample in which every invariant except the cross-era overlap holds and two different values are chosen, so the cross-era overlap is necessary, not merely sufficient. We formalise the leader’s casting vote as non-interference and phase-I completion lemmas and show agreement needs no further assumption. Concrete schedules (the 3-zone server hot-swap with plain and weighted majorities) are kernel-checked by decision procedures, each with a negative control. Every rung is packaged as an executable markdown document whose commands a reader can extract and re-run. We do not prove liveness and we do not re-prove VRR itself.
+1. Problem and scope
+The uVRR programme asks whether a VRR-2012 style protocol can support non-stop cluster reconfiguration (adding or removing nodes, or changing voting weights) with a proof of correctness. The blog posts that motivate the work reduce the question to quorum overlaps between consecutive configurations plus a leader casting vote that lets the transition to the new era happen without stalling the pipeline. This report is deliberately narrow:
+Safety only. Strong consistency is the product requirement; liveness is explicitly out of scope, and no liveness claim is made anywhere.
+We do not re-prove VRR. We prove that reconfiguration with overlapping quorums works, and we exhibit a counterexample showing it does not work when the quorums do not overlap.
+Baby steps. Each rung is a small, independently compilable Lean module with a matching executable document. Nothing on a higher rung is claimed unless the lower rungs are in the bag.
+Honesty about assumptions. Every hypothesis is an explicit structure field; the axiom footprint of every theorem is printed in the evidence documents.
+2. Prior art taken into account
+Turner, D. C. “Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters” (UPaxos). Source of the invariants S1–S6 (Fig. 1), P1–P7 (Fig. 2), Lemma 6–7, Theorem 8, Lemma 9, Theorem 10, the weighted-majority Lemma 2–4 and the casting-vote construction (§V). Our Lean statements follow the paper’s numbering; the PDF was fetched from tessanddave.com and text-extracted for this work since no copy was on disk.
+Howard, Malkhi, Spiegelman, “Flexible Paxos” (2016). The intra-era result QI ⌐ QII; UPaxos generalises it across eras.
+Liskov, Cowling, “Viewstamped Replication Revisited” (MIT-CSAIL-TR-2012-021). The base protocol; the correspondence to our ballots/instances is given in §5. The earlier fact-check in this project established that VRR-2012 contains no automated verification results.
+Lamport, “Paxos Made Simple” and “Reconfiguring a State Machine”: the classical reconfiguration-as-a-command approach that UPaxos improves on by removing the pipeline stall.
+simbo1905 blog posts: “UPaxos: Unbounded Paxos Reconfigurations” (2016), “Paxos Voting Weights” (2017), “One More Frown Please? (UPaxos Quorum Overlaps)” (2020), “Unbounded Viewstamped Replication Revisited?” (2026). The 2020 post records Turner’s correction that QI_e ⌐ QI_{e+1} is not required for safety; our proof indeed never assumes it. The 2017 post supplies the 3-zone hot-swap tables checked in Rungs 1 and 7.
+TigerBeetle: the only production VRR adopter identified, without dynamic membership (per the 2026 post); this is the gap uVRR targets.
+Tooling survey (this project, 5 Sept 2026): Veil (CAV 2025), LeanLTL (ITP 2025), lean-auto (2025), TLA+/TLC/TLAPS. Kick-the-tires outcomes: TLC hello-world green; Lean 4.33.1 installed; omega/aesop/lean-auto+Duper solve stated theorems from the command line; Veil not exercised (pins Lean 4.32.0 plus Mathlib). This report uses none of those frameworks: the proofs are plain Lean core, which keeps the trusted base at the Lean kernel.
+This repository’s TLA+ models: formal/VrrCore.tla (base protocol) and formal/VrrCoreEras.tla (one era transition, weights differ by era, exhaustive gate over quorum families). The Lean ladder is complementary: TLC explores finite instances of the design; Lean proves the quorum-overlap theorem for all node sets, eras and ballots.
+Earlier scratch baby step (5 Sept 2026, .tmp/lean-upaxos/Upaxos.lean): encoded QI_{e+1} ⌐ QII_e as the third overlap. That is not the paper’s P1 (whose third frown is the intra-era QII_{e+1} ⌐ QI_{e+1}); Rung 1 corrects it.
+3. The mathematical setting
+Nodes A, ballots B, values V are arbitrary types. A node-set is a predicate A → Prop; a quorum system Q is a set of node-sets. Turner’s frown is
+def Frown (Q1 Q2 : QSys A) : Prop :=
+  ∀ q1 q2, Q1 q1 → Q2 q2 → ∃ a, q1 a ∧ q2 a
+
+A ballot carries an era e(b) in its most significant position; an instance (slot) i carries an era e(i). Phase I of ballot b uses a quorum from QI_{e(b)}; phase II of instance i uses a quorum from QII_{e(i)}. Turner’s era rule is e(b) ≤ e(i) ≤ e(b)+1: a ballot may fix an instance in its own era or the next. The only assumption about configurations is P1:
+def P1 : Prop := ∀ e, Frown (P.QII e) (P.QI e) ∧ Frown (P.QI e) (P.QII (e+1))
+
+4. The ladder
+Every rung is a module UVRR/<Name>.lean and an executable document ladder/NN-<name>.md. Table 1 summarises; the subsections state each result precisely.
+Rung
+Module
+Result
+Axioms
+1
+Structure.lean
+frownB ⇔ Frown; 3-zone hot-swap satisfies P1 for all eras; wholesale replacement fails the cross-era frown
+propext, Quot.sound
+2
+LexBallot.lean
+(era, round) lexicographic ballots: well-founded strict total order; respects eras
+std + Classical.choice
+3
+Synod.lean
+S1–S6 ⇒ Lemma 6, Lemma 7, Theorem 8 (agreement)
+none
+4
+Eras.lean
+P1 + era rules ⇒ Lemma 9, Theorem 10 (agreement across reconfiguration)
+propext, Quot.sound
+5
+Counterexample.lean
+cross-era frown dropped, all else holds, two values chosen: necessity
+propext, Quot.sound
+6
+CastingVote.lean
+non-interference, guard preservation, phase-I completion; agreement inherited
+std + Classical.choice
+7
+Weights.lean
+blog’s 7-row weighted schedule satisfies the frowns; +2 on one node breaks it
+propext, Quot.sound
+
+“std” means propext and Quot.sound. Classical.choice enters only through omega and by_cases. No sorry, no native_decide, no custom axioms anywhere.
+4.1 Rung 1 — Decidable overlaps and the 3-zone hot-swap
+For explicitly listed quorums we define a Bool checker and prove it equivalent to the Prop-level frown on the induced quorum systems:
+def frownB (Q1 Q2 : List (List Nat)) : Bool :=
+  Q1.all fun l1 => Q2.all fun l2 => l1.any fun a => decide (a ∈ l2)
+theorem frownB_iff : frownB Q1 Q2 = true ↔ Frown (ofList Q1) (ofList Q2)
+
+The hot-swap schedule is era 0 = majorities of {W,X,Y}, era 1 = majorities of {W,X,Y,Z}, era ≥ 2 = majorities of {W,X,Z}. Theorem hotswap_p1 proves P1 for every era, closed by decide for the two transition eras and by rewriting for the stable tail. The negative control wholesale_cross_fails replaces {0,1,2} by {3,4,5} in one step: both intra-era frowns hold, the cross-era frown fails, P1 is violated.
+4.2 Rung 2 — Era-tagged ballots
+Ballot := Nat × Nat with Prod.Lex order. We prove well-foundedness (from Lean core’s Prod.lex), transitivity, irreflexivity, totality, and bLt_era_mono: b2 ≺ b1 ⇒ e(b2) ≤ e(b1), the property Lemma 9 needs. theorem10_lex specialises Theorem 10 to these ballots so only protocol invariants remain as hypotheses.
+4.3 Rung 3 — Synod consistency (Appendix B)
+The structure Synod A B V records lt, QI, QII, promised(a,b), promised(a,b;b′), proposed(b), accepted(a,b), chosen(b) and v. The invariants are fields of Synod.Inv:
+S1 : ∀ b1 b2, proposed b1 → chosen b2 → lt b2 b1 → Frown (QI b1) (QII b2)
+S2 : ∀ a b b′, promised a b → lt b′ b → ¬ accepted a b′
+S3 : promised(a,b;b′) → b′ ≺ b ∧ accepted a b′ ∧ nothing accepted strictly between
+S4 : proposed b → ∃ q ∈ QI b, every a ∈ q promised (free or with last vote) ∧
+     (some last vote reported → ∃ maximal bm reported, v b = v bm)
+S5 : accepted a b → proposed b
+S6 : chosen b → ∃ q ∈ QII b, ∀ a ∈ q, accepted a b
+
+Lemma 6 (b2 ≺ b1, accepted(a,b2), promised(a,b1;b3) ⇒ b2 ≼ b3) is immediate from S3. Lemma 7 (chosen(b2), proposed(b1), b2 ≺ b1 ⇒ v(b1) = v(b2)) is proved by well-founded induction on b1: S1 yields a node a in both quorums; S2 rules out a free promise from a, so a reported a last vote; the maximal reported vote bm satisfies b2 ≼ bm ≺ b1; either bm = b2 or the induction hypothesis applies to bm. Theorem 8 (agreement) follows by trichotomy, using nonempty phase-II quorums to obtain proposed(b) from chosen(b). Theorem 8 depends on no axioms.
+Encoding decision: the paper’s v(b) = v(max P) is stated as the existence of a maximal element of the reported last votes with v(b) equal to its value. This is what a leader computes from a finite set of responses, and it avoids importing finiteness of quorums into the abstract theorem.
+4.4 Rung 4 — Era-indexed Paxos (Appendix C)
+The structure Paxos A B V adds era : B → Nat, eInst : Nat → Nat, per-era QI/QII and per-instance message predicates. Its invariants are P1, EraMono (order respects eras), EraLe (proposed_i(b) ⇒ e(b) ≤ e(i)), P23, P4, P5 (phase-I quorum from QI_{e(b)}), P6, and P7 (chosen_i(b) ⇒ e(i) ≤ e(b)+1 and a QII_{e(i)} quorum accepted).
+theorem lemma9 (hI : P.Inv) (hpr : P.proposed i b1) (hch : P.chosen i b2) (hlt : P.lt b2 b1) :
+    Frown (P.QI (P.era b1)) (P.QII (P.eInst i))
+theorem theorem10 (hI : P.Inv) (ho : order side conditions) (hne : QII quorums nonempty)
+    (h1 : P.chosen i b1) (h2 : P.chosen i b2) : P.v i b1 = P.v i b2
+
+Lemma 9: from EraLe, e(b1) ≤ e(i); from P7, e(i) ≤ e(b2)+1; from EraMono, e(b2) ≤ e(b1); hence e(i) ∈ {e(b1), e(b1)+1} and the required frown is one of the two halves of P1. Theorem 10 is Theorem 8 applied to the per-instance Synod view toSynod i, whose invariants toSynod_inv are supplied by the Paxos invariants with S1 discharged by Lemma 9. This is the statement that a reconfiguring cluster cannot be corrupted: no slot ever has two chosen values, whatever the sequence of configurations, provided P1 holds.
+4.5 Rung 5 — The cross-era frown is necessary
+Two nodes (false = node 1, true = node 2). Era-0 quorums are {node 1} for both phases; era-1 quorums are {node 2}. Instance 0 is in era 1. Ballots (0,0) and (0,1) are era-0 ballots, legal since e(b) = 0 ≤ e(i) = 1 ≤ e(b)+1. Node 1 grants both phase-I quorums but never accepts, so it reports no last vote and constrains nothing; node 2 grants both phase-II quorums but never promised, so it accepts both. Ballot (0,0) chooses false; ballot (0,1) chooses true.
+theorem cross_frown_necessary :
+    (∀ e, Frown (bad.QII e) (bad.QI e)) ∧ bad.EraMono ∧ bad.EraLe ∧ bad.P23 ∧ bad.P4 ∧
+    bad.P5 ∧ bad.P6 ∧ bad.P7 ∧ ¬ bad.P1 ∧
+    ∃ i b1 b2, bad.chosen i b1 ∧ bad.chosen i b2 ∧ bad.v i b1 ≠ bad.v i b2
+
+Consequence for uVRR: any reconfiguration scheme that does not preserve QI_e ⌐ QII_{e+1} is unsafe, not merely unproven. Combined with Theorem 10 this pins the cross-era overlap as exactly the condition needed (the intra-era frowns are FPaxos’s standing requirement).
+4.6 Rung 6 — The leader’s casting vote (§V)
+Leader ℓ in era e with ballot b has a casting vote if there are q ∈ QII_e and q′ ∈ QI_{e+1} with q ∩ q′ = {ℓ}. It sends prepare(b′), e(b′) = e+1, only to q′ \ {ℓ}, keeps streaming era-e proposals under b to q, and finally promises b′ to itself. We prove:
+noninterference: no node of q other than ℓ can have promised b′.
+guard_preserved: hence the acceptance guard for b at every node of q \ {ℓ} is unchanged by the new promises — the era-e pipeline is not stalled by phase I of b′. This is the non-stop claim stated as a safety property of the guard.
+completes_phase1: the instant ℓ promises to itself, all of q′ has promised, meeting P5’s quorum obligation for b′.
+Agreement needs no new assumption: the casting-vote mode only chooses who receives prepare(b′) and when ℓ promises; it never relaxes P1–P7, so Theorem 10 applies to every history it can produce. What is not proved: that a casting vote exists for a given pair of configurations, or that messages arrive.
+4.7 Rung 7 — Voting weights
+Weighted majorities M(w) = { q | 2·Σ_{a∈q} w(a) > Σ_a w(a) } over the four servers W,X,Y,Z. The blog’s schedule (1,1,1,0) → (2,2,2,0) → (2,2,2,1) → (2,2,1,1) → (2,2,0,1) → (2,2,0,2) → (1,1,0,1) satisfies the UPaxos frowns at every step (rows_ok, one decide over all 16 subsets per row; rows_p1 unpacks it into six Prop-level frowns). The negative control plus_two_breaks shows (1,1,1,0) → (3,1,1,0) fails: {X,Y} is a majority under the first, {W} alone under the second. This matches the tightness of the paper’s Lemma 3 bound (total scaled change ≤ 1).
+5. Correspondence to uVRR and the repository’s TLA+ model
+UPaxos (this proof)
+VRR-2012 / uVRR
+ballot b with era in the high bits
+view-number with era prefix ([era |-> e, idx |-> v] in VrrCoreEras.tla)
+phase I of b, quorum from QI_{e(b)}
+view change (DoViewChange/StartView); view quorum
+phase II of instance i, quorum from QII_{e(i)}
+Prepare/PrepareOK for op-number i; commit quorum
+promised(a,b;b′) carrying the last vote
+DoViewChange carrying the log
+chosen_i(b)
+commit of op-number i
+P1: QII_e ⌐ QI_e ⌐ QII_{e+1}
+the startup gate’s intersection checks in VrrCoreEras.tla
+
+Observation (inference, not proved here). The TLA+ startup gate requires both directions of cross-era view/commit intersection. Under the UPaxos era rules (e(b) ≤ e(i) ≤ e(b)+1) the Lean proof needs only QI_e ⌐ QII_{e+1}. If the uVRR design lets a new-era view complete old-era slots, i.e. a new-era ballot proposing into an old-era instance, that violates EraLe and the reverse overlap QI_{e+1} ⌐ QII_e becomes necessary too; if old-era slots must be finished under old-era views as in the paper, the extra gate is conservative. Which of these the Rust crate implements is a design decision, and settling it is the natural next rung.
+6. Leanstral and tooling outcomes
+The user’s request was to check the proofs with Lean and to use the Leanstral engine where it helps. Outcomes:
+All seven rungs were written directly and compiled with lake build under Lean 4.33.1; total build time about ten seconds. Rungs 3 and 4 compiled at the first attempt; Rungs 2 and 5 needed one fix round each (a subst on a non-variable equation; decide on a goal containing a free variable).
+Leanstral was used through the user’s vibe fork (vibe -p --agent lean --auto-approve --trust) as a background drafting agent for the one result that is genuinely algebraic and not needed by the ladder: the paper’s general Lemma 2 (weighted majorities overlap when the scaled weights differ by at most one in total). A first launch without --trust blocked for ten minutes on the working-directory trust prompt with no output; relaunched with --trust it streamed immediately.
+Result of the Leanstral drafting experiment (ladder/08-leanstral-lemma2.md): FAILED within a 17-minute timebox. The agent produced a 105-line draft with a sound proof plan — weighted sums distribute over list append, a sublist's weighted sum is bounded by the total, two disjoint sublists of a duplicate-free list together sum to at most the total, and the single node on which the scaled weights differ gives the contradiction — but the file does not compile. It uses the Mathlib keyword lemma and the Mathlib names add_le_add_left and List.sum_append_nat, none of which exist in Lean core, despite the prompt and file header forbidding Mathlib. One of its own Lean checks became a runaway process holding roughly 30 GB of memory and the session had to be stopped.
+Assessment: Leanstral through the vibe lean agent is useful as a planner and a fast route to a first draft, and it is the only Leanstral channel that has produced compiling code in this project; but for Mathlib-free targets it still needs a human (or a stricter harness that rejects Mathlib identifiers before running Lean) to land a proof. The general Lemma 2 therefore remains open; the concrete schedule of Rung 7 stands on its own.
+Earlier in this project the direct Mistral API path (model labs-leanstral-1-5-1) repeatedly imported Mathlib despite instructions and did not compile, whereas the vibe lean agent produced compiling files after one fix round. The pattern held here: the agent path is the productive one.
+7. What is not proved
+Liveness of any kind: no claim that a casting vote exists, that leaders are elected, or that messages arrive.
+Multi-promises promised≥i, i_max, and the paper’s derivation of proposed_i(b) ⇒ e(b) ≤ e(i); we take that consequence as the hypothesis EraLe.
+VRR-specific mechanics: recovery, state transfer, and the log-prefix semantics of view change. The correspondence in §5 is a mapping, not a refinement proof.
+Refinement from an operational state machine (or from the Rust crate) to the invariant sets S1–S6 / P1–P7. The theorems are about any history satisfying the invariants; showing that vrr-core’s transitions preserve them is the next major step.
+The general weighted-majority Lemma 2, unless the Leanstral outcome above reports a compiling proof; the concrete 4-server schedule in Rung 7 does not depend on it.
+8. How to verify
+export PATH=$HOME/.elan/bin:$PATH        # Lean/Lake 4.33.1 via elan
+cd formal/uvrr-lean
+lake build
+printf 'import UVRR\n#print axioms Paxos.theorem10\n#print axioms Counterexample.cross_frown_necessary\n' | lake env lean --stdin
+uv tool install showboat
+for f in ladder/0*.md; do showboat verify "$f" && echo "OK $f"; done
+
+Each ladder document embeds the full module source, the build line, and the axiom printout, so the commands can be extracted (showboat extract) and re-run independently of this report.
+9. Next steps (proposed rungs)
+Rung 8: operational single-instance state machine (promise/accept/propose transitions with guards) and an inductive invariant implying S1–S6, so Theorem 8 becomes a theorem about executions rather than histories.
+Rung 9: multi-promises and i_max, discharging EraLe from P2–P5 as in the paper.
+Rung 10: decide the EraLe question for the uVRR design (§5) and either drop the reverse cross-era gate in VrrCoreEras.tla or prove the strengthened theorem that needs it.
+Rung 11: connect to the Rust crate: extract the quorum-family checker frownB into a property test over vrr-core’s Membership structure so every configuration change the library accepts is one the theorem covers.
+References
+D. C. Turner. Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters. tessanddave.com/paxos-reconf-latest.pdf.
+H. Howard, D. Malkhi, A. Spiegelman. Flexible Paxos: Quorum Intersection Revisited. OPODIS 2016.
+B. Liskov, J. Cowling. Viewstamped Replication Revisited. MIT-CSAIL-TR-2012-021, 2012.
+L. Lamport. Paxos Made Simple, 2001; Reconfiguring a State Machine (with Malkhi, Zhou), SIGACT News 2010.
+simbo1905. UPaxos: Unbounded Paxos Reconfigurations (2016); Paxos Voting Weights (2017); One More Frown Please? (2020); Unbounded Viewstamped Replication Revisited? (2026). simbo1905.wordpress.com.
+G. Pîrlea et al. Veil: A Framework for Automated and Interactive Verification of Transition Systems. CAV 2025.
+vrr-core repository: formal/README.md, formal/VrrCoreEras.tla, formal/lean-leanstral-report.md, formal/uvrr-lean/.

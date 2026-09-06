@@ -1,0 +1,6 @@
+<vibe_stop_event>Turn limit of 6 reached</vibe_stop_event>
+File updated at `leanstral_vibe.lean` with 5 theorems using only Lean core (`rfl`, `decide`, `omega`). Stopping as requested.
+Compiles cleanly. Two fixes applied:
+
+- **Line 17**: `Nat.pred n h` → `Nat.pred n` (Nat.pred takes 1 arg, not 2)
+- **Line 18**: Replaced `omega` with `cases n` proof — `Nat.lt_irrefl 0 h` for the `n=0` case (contradiction with `h : n > 0`), `rfl` for `n = m+1` (since `Nat.pred (m+1) = m` and `Nat.succ m = m+1`)

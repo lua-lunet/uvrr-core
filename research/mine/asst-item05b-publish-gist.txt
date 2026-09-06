@@ -1,0 +1,13 @@
+null
+null
+null
+null
+null
+Staged. Now the safety gate: capture the key silently via awk (never echoing it), scan the staged files for that value, and verify that `MISTRAL_API_KEY` appears only as a variable name.
+null
+null
+The gate is clean—only the variable name and a placeholder appear, no key value. Now I'll create the gist.
+null
+- Gist URL: https://gist.github.com/simbo1905/3a47006d9b6ced163cadc422dfa1a4b6 (secret, no `--public`)
+- File count: 2 (`ocr_run.py`, `README.md`)
+- Safety gate: PASS — no key value in staged files; `MISTRAL_API_KEY` appears only as a name/placeholder

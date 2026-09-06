@@ -1,0 +1,42 @@
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+I've read all 7 papers. Now writing the glossary.
+null
+null
+null
+null
+The count is 121 — over the 40–70 target. Rewriting with consolidated entries.
+null
+null
+null
+81 entries, need ≤70. Consolidating further.
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+Now the theme-5 merges (TLAPS + hierarchical proof + Zenon):
+null
+null
+null
+Done. 70 glossary entries across 5 themes (Lean 4 & ITP machinery; temporal logic; SMT/ATP automation; distributed protocols & VR/VRR; verification tools compared), each grounded in and cited to the corpus. Output: `.tmp/research/glossary.md` (only file written).

@@ -1,0 +1,53 @@
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+Duper pins v4.33.0 and git-requires `auto` — I'll edit the scratch duper clone's lakefile to point `auto` at the repo submodule (path dep). Let me look at regression examples for `auto` hint usage:
+null
+Cloning done. Duper's lakefile git-requires `auto` — I'll rewrite it (scratch copy) to a path dep on the repo submodule. Setting up the project:
+null
+null
+null
+null
+null
+null
+null
+null
+null
+Now the build (deps: lean-auto submodule, Duper, Batteries; downloads zipperposition binary per lean-auto's default target):
+null
+Path off by one level — it's `../../tools/lean-auto`:
+null
+null
+null
+Build ran 2 min; `Auto.Translation` failed. Checking the actual error:
+null
+Two instances of the same package (require names differ). Renaming the root require to match duper's:
+null
+null
+null
+T2 (commutativity) timed out in `whnf` after 88s. T1/T3 seem to have passed. One retry on T2 with higher heartbeats:
+null
+T1, T3 solved. Retrying T2:
+null
+null
+T2 fails after 500s (Duper default timeout) — recording as not solved. Running the negative control:
+null
+Negative control failed cleanly ("Duper saturated", ~1s). Getting per-theorem wall times for the positives:
+null
+null
+All confirmed. Writing results:
+null
+- Build ok: y (deps + T1/T3 green; T2 module fails)
+- Theorems solved: T1 (group left-inverse), T3 (FO relation) — statement-only, `auto [...]`, exit 0
+- T2 commutativity not solved (Duper 500s saturation timeout, recorded)
+- Negative control behaved: y — "Duper saturated", exit 1
+- Toolchain note: submodule/Duper pin v4.33.0, built under v4.33.1; external SMT/TPTP modes exist but unused (Duper only)
+- Results: `.tmp/research/lean-solvers-cli-lean-auto.md`

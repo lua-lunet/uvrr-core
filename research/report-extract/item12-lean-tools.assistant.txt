@@ -1,0 +1,11 @@
+Toolchain missing. One timeboxed elan install attempt:
+Toolchain installed (Lean 4.33.1). Adding submodules (shallow):
+Submodules staged (the `.gitignore`/`Cargo.toml`/`tla2tools` changes belong to the concurrent item11 agent — untouched). Hello world:
+Hello proof compiles. Quick check whether a Veil example would resolve quickly:
+Veil pins v4.32.0 + Mathlib (multi-GB resolve) — skipping the example build per timebox. Appending results:
+Final report:
+- Toolchain: y (installed via elan, Lean 4.33.1 / Lake 5.0.0)
+- Submodules added: tools/veil, tools/LeanLTL, tools/lean-auto (shallow, `git add` only, not committed)
+- Hello proof compiled: y (`lake env lean Hello.lean` in .tmp/lean-hello/)
+- Skipped: Veil example build — pins v4.32.0 (second toolchain download) + Mathlib multi-GB resolve; out of timebox
+- Results appended to .tmp/research/tool-kick-tires.md under "## Lean 4 tools"; concurrent agent's files untouched

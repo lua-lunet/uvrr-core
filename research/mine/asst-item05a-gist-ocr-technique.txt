@@ -1,0 +1,11 @@
+null
+null
+Bundle verified: 15 files. Running the gist creation:
+null
+`gh gist create` has no `--private` flag — gists are secret by default (spec intent: private gist). Running with the flag removed, which yields the identical secret behavior:
+null
+Command failed — cannot complete as specified:
+
+- **No gist created.** `gh gist create` rejects binary files: `failed to upload papers/black-ltl-past-geatti-et-al-2021.pdf: binary file not supported`. All 7 PDFs are binary, so the 15-file bundle can't be uploaded via gist.
+- Two deviations encountered: (1) this gh version has no `--private` flag (gists are secret by default, so intent preserved); (2) binary upload is unsupported — a hard blocker, not a flag issue.
+- Per spec I stopped rather than substitute another mechanism (e.g., a GitHub release). Say the word and I'll re-run with only the 8 text files (README + 7 markdowns), or an alternative publication path.

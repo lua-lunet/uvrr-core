@@ -1,0 +1,8 @@
+A folder `linear-margin-note-methodology` already exists. Checking its current state:
+The skill folder already exists with a raw gist copy — its frontmatter is broken (a title line sits above the `---` block, so it isn't parsed). I'll rewrite it properly. Reading the existing file first:
+Writing the corrected skill — frontmatter moved to line 1 (the author's description is kept verbatim; it is already the canonical third-person "Use when..." form with front-loaded trigger keywords), body preserved with spelling/grammar cleanup only:
+Verifying frontmatter validity and name/folder match:
+- Skill: `linear-margin-note-methodology`
+- Path: `~/.config/opencode/skills/linear-margin-note-methodology/SKILL.md` (replaced a prior raw gist copy whose frontmatter was misplaced below a title line)
+- Description: "Use when distilling a technical paper, specification, algorithm, or codebase into append-only margin notes, a dependency-ordered ontology, a glossary, reviewed design documentation, and code-alignment findings."
+- Quit and restart opencode to load the skill; nothing else outside `.tmp/` was touched.

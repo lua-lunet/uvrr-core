@@ -1,0 +1,20 @@
+null
+null
+null
+null
+null
+null
+null
+Now the remaining three papers. I'll read lean-auto and skim key sections of Multi-Paxos FM'16 and BLACK.
+null
+null
+null
+null
+null
+I have everything I need. Writing the paper now.
+null
+null
+null
+- **Word count:** 2174 (spec range 1500–2500)
+- **Output:** `.tmp/research/position-paper.md`
+- **Thesis:** Lean 4 (Veil + Lean-auto) is the strongest available fit for a safety-first machine-checked proof of VRR — especially reconfiguration safety — but no full VRR verification in Lean exists in the corpus, and liveness/past-time temporal support remain future work everywhere cited.

@@ -1,0 +1,27 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 71 and seed 5158956700111330664 with 2 workers on 10 cores with 1820MB heap and 64MB offheap memory [pid: 8827] (Mac OS X 26.6.2 aarch64, Homebrew 26.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/Shared/lua-lunet/vrr-core/formal/VrrCoreEras.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/FiniteSets.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/Naturals.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/Sequences.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/TLC.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module VrrCoreEras
+Starting... (2026-09-06 08:44:15)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-09-06 08:44:16.
+Progress(14) at 2026-09-06 08:44:19: 101,464 states generated (101,464 s/min), 34,928 distinct states found (34,928 ds/min), 16,869 states left on queue.
+Progress(21) at 2026-09-06 08:45:19: 1,647,811 states generated (1,546,347 s/min), 492,171 distinct states found (457,243 ds/min), 93,932 states left on queue.
+Progress(25) at 2026-09-06 08:46:19: 2,598,884 states generated (951,073 s/min), 785,317 distinct states found (293,146 ds/min), 39,057 states left on queue.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 8.7E-8
+  based on the actual fingerprints:  val = 2.2E-7
+2743933 states generated, 837204 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 32.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 6 and the 95th percentile is 3).
+Finished in 02min 17s at (2026-09-06 08:46:32)
