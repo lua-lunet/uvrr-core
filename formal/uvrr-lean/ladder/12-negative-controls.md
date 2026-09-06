@@ -244,6 +244,22 @@ def main():
         ):
             raise RuntimeError("crash-vector mutant was not rejected by the proof:\n" + output)
         print("PASS Lean rejects omitted crash-vector filtering")
+        acquisition = (ROOT / "UVRR/AcquisitionOrder.lean").read_text()
+        path.write_text(acquisition)
+        result = lean(path)
+        if result.returncode != 0:
+            raise RuntimeError("unchanged acquisition control failed:\n" + result.stdout + result.stderr)
+        old = "(∀ b, responders b → support b → witness b ≤ sent b)"
+        assert acquisition.count(old) == 1, "acquisition ordering location changed"
+        path.write_text(acquisition.replace(old, "(∀ b, responders b → support b → True)"))
+        result = lean(path)
+        output = result.stdout + result.stderr
+        if result.returncode == 0 or "error:" not in output or any(
+            marker in output for marker in
+            ("unknown module", "unknown module prefix", "memory", "heartbeats")
+        ):
+            raise RuntimeError("acquisition-order mutant was not rejected by the proof:\n" + output)
+        print("PASS Lean rejects omitted acquisition response ordering")
         path.write_text("theorem injected_hole : False := by sorry\n#print axioms injected_hole\n")
         result = lean(path)
         if result.returncode != 0 or "sorryAx" not in result.stdout:
@@ -293,5 +309,6 @@ PASS Lean rejects append after view-change fence
 PASS Lean rejects cross-view prepare receipt
 PASS Lean rejects stale recovery episode evidence
 PASS Lean rejects omitted crash-vector filtering
+PASS Lean rejects omitted acquisition response ordering
 PASS axiom audit detects sorryAx despite compiler exit 0
 ```

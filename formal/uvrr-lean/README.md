@@ -12,6 +12,12 @@ The failure pattern has a published antecedent in Michael et al. (2017),
 Appendix B.1. The [crash-vector research notes](evidence/crash-vector/README.md)
 credit that work and distinguish the checked collector from a complete repair.
 
+## Editing the paper
+
+Edit [paper/paper.tex](paper/paper.tex), then run `paper/build.sh`.
+The [standalone build instructions](paper/README.md) require only Tectonic;
+no proof harness or model service is involved.
+
 ## Verified research checkpoint — 6 September 2026
 
 The current [LaTeX manuscript](paper/paper.tex) and [rendered paper](paper/paper.pdf)
@@ -45,6 +51,7 @@ draft, rather than a proved theorem. The current ladder is:
 | 17 | `RecoveryFence.lean` | A supporting quorum retains a known fence through arbitrary crash/recovery sequences using fresh episode replies; stale-quorum fault control |
 | 18 | Public Rust path and directed TLC trace | Reproduced unresolved committed divergence after serial recoveries; an expected Red witness, not a safety theorem |
 | 19 | `CrashVector.lean` | Published crash-vector collector: arbitrary reachable reply sets satisfy incarnation consistency; stale-quorum witness and filter-removal control |
+| 20 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; incarnation-retention premise remains open; backward-response countermodel |
 
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"

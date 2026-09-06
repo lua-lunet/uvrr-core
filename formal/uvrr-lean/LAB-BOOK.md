@@ -655,3 +655,53 @@ public-path recovery runner again reproduces the exact slot-3 committed
 divergence; its expected-Red result remains explicit. Evidence hashes and
 check metadata are in evidence/crash-vector/validation.json. No TLC or
 inherited-rung rerun was needed for this component-only increment.
+
+## 2026-09-06 N — temporal reduction and independent paper editing
+
+The previous turn was progress, banked as `d61be84`. Rung 20 now checks the
+secondary acquisition induction in the published recovery argument. It works
+with asynchronous per-participant witness times and a generic stable property.
+An online participant either retains its witness knowledge or inherits it
+from an earlier response quorum. Quorum intersection and forward ordering of
+those responses relative to witness events discharge strong induction.
+A separate lemma shows how crash-vector consistency forces that ordering
+conditional on recovery participants retaining incarnation knowledge.
+
+This is an explicit reduction: local recovery provenance and the outer
+incarnation-retention induction are still premises to derive from protocol
+transitions. It does not complete Theorem 3 or repair the implementation.
+The countermodel satisfies the entire origin contract except forward
+ordering, and loses the property. The mutation harness removes that ordering
+premise and requires compiler rejection. Initial elaboration failed because
+core Lean uses Nat.strongRecOn rather than a Mathlib induction name and needed
+an explicit reduction of a constant function; both were corrected without
+changing the statement. The final 21-job build and 300-declaration standard-
+axiom audit pass. Rungs 12/20 replay and all mutations pass. Rust code/tests
+are unchanged, so the immediately preceding passing Rust gates are reused;
+no additional recovery/TLC run or model-service call was needed.
+
+The user then requested an independently editable paper, identified himself
+as Simon Massey, supplied simon.massey@stenograher.cloud, and asked to mimic
+David Turner's paper layout. Compared the downloaded primary PDF's first two
+pages, font information and dimensions. Changed the manuscript to IEEEtran,
+US Letter, Times text, centered title/author, first-page contact notes,
+Roman-numbered sections, title/revision header and top-right page numbers.
+No affiliation or license was invented. The email is exactly as supplied.
+PDF metadata also identifies Simon Massey.
+
+paper/paper.tex is the editable source; paper/build.sh runs Tectonic from its
+own directory and paper/README.md documents CLI use and installation. Tested
+Tectonic 0.17.0 normally, then --only-cached from /tmp using the absolute script
+path. No Codex, Lean, Rust or Showboat dependency is needed to rebuild the
+paper. The first build cached the standard IEEE/font packages. Set T1 encoding
+before class loading to avoid IEEEtran's initial font substitution warnings.
+All eight rendered pages were inspected; the single-appendix title was
+corrected for IEEEtran and the affected page checked again. No overfull boxes
+or missing font warnings remain. The paper text stays at the rung-19 checkpoint;
+rung 20 is explicitly a later conditional component awaiting integration.
+
+Next: derive temporal recovery provenance and incarnation retention from the
+actual crash-vector acquisition transitions. Preserve the user's forthcoming
+manuscript edits: inspect the current diff before editing, and never regenerate
+paper.tex from an older snapshot. The full recovery counterexample remains
+unresolved and the end-to-end goal remains active.
