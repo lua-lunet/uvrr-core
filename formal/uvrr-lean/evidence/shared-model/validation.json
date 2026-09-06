@@ -1,0 +1,26 @@
+{
+  "recorded_at_utc": "2026-09-06T08:17:56.152796+00:00",
+  "library_build": "pass, 18 jobs",
+  "axiom_inventory_count": 232,
+  "affected_rung_replays": [
+    "12-negative-controls.md",
+    "16-log-provenance.md"
+  ],
+  "mutation_controls": "pass, including cross-view prepare receipt",
+  "rust_gates": "format, Clippy, all-target/all-feature tests, doctests, source placement pass",
+  "scope": "shared crash-free fixed-configuration committed-log safety; recovery, reconfiguration, client refinement, progress and concrete simulation open",
+  "paper": {
+    "pages": 7,
+    "inspection": "changed pages 5-7 inspected; pages 1-4 unchanged from prior inspected checkpoint",
+    "overfull_boxes": 0,
+    "unresolved_references": 0
+  },
+  "additional_model_service_calls": 0,
+  "sha256": {
+    "UVRR/LogProvenance.lean": "07d99a25dc6c1a2f775a4673d996dafc34e982870c11ac3a34312301fed221d3",
+    "check_mutations.py": "117bb963e6690ac05d81eb4db48a34c802edf72a0af751674f97a0a225ca53bd",
+    "ladder/16-log-provenance.md": "57b9623d0dc25838188314dfe077a97a9a7a6d26c390f09a9514fbeb39888c13",
+    "paper/paper.tex": "6cb29240ff530f0546cae440d24fbc1f25127df7b0fc38f157e5d10bf4c3cb29",
+    "paper/paper.pdf": "9468eb879fa33a0ddf3b7477b545cd6c6fc5021a3deb8952ebd2f6f53c4b839f"
+  }
+}

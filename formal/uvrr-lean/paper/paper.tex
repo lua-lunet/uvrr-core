@@ -388,31 +388,64 @@ results close the selection subproblem while preserving the distinction
 between a checked induction step and a complete reachable-state proof.
 
 \subsection{Normal-log message provenance}
-\texttt{NormalLog} now derives same-view comparability for a fixed-view
-transition projection. The primary starts from an arbitrary base log and
-appends entries. StartView installs that base at a replica once; a normal
-replica accepts an authentic prepare only at its next slot. Reports copy
-replica logs. Messages remain available, so the induction permits delay,
-reordering and duplicate delivery attempts. The base is not assumed to preserve
-an earlier view's commits; that is the selection obligation above.
+\texttt{NormalLog} first checks the fixed-view message argument. The primary
+starts from an arbitrary base and appends. StartView installs that base once;
+normal replicas accept authentic prepares at their next slot and emit reports
+copying their logs. Persistent messages permit delayed, reordered, and duplicate
+delivery attempts. The invariant makes replica logs, sent prepare prefixes,
+and reports prefixes of the primary history. At receipt, the replica and
+pre-send logs are equal-length prefixes of that history, hence equal; appending
+the sent entry preserves the invariant. The pre-send log is ghost evidence,
+not a content check in the handler. \texttt{reports\_comparable} follows from
+prefix comparability, and \texttt{replica\_history} proves retention over finite
+continuations. Bypassing next-slot checking admits an authentic second entry
+at slot one. This component supplies the local argument integrated below;
+its arbitrary initial base alone does not justify cross-view safety.
 
-The strengthened invariant says that the base, replica logs, sent prepare
-prefixes, and report logs are prefixes of the primary's current history.
-At receipt, the replica log and the pre-send log are equal-length prefixes
-of that history, hence equal; appending the sent entry preserves the invariant.
-The pre-send log is ghost evidence, erased to a slot number and entry on the
-wire. The receive guard never compares log contents.
-\texttt{reports\_comparable} follows because prefixes of one list are comparable.
-\texttt{replica\_history} additionally proves prefix retention over any finite
-continuation in this view. A reachable two-entry send history demonstrates
-that bypassing the next-slot guard permits entry two to occupy slot one;
-the source-mutation harness also checks rejection of that altered guard.
+\subsection{Shared multi-view preservation}
+The next integration is now checked. \texttt{ViewFence} models a local replica
+installing higher normal views, appending in normal mode, raising its floor
+before reporting, and retaining immutable vote and reply histories. Its
+\texttt{report\_covers\_vote} theorem bounds every historical vote below a
+report's target by the reported last-normal view; at equality, the voted log
+is a prefix of the report. This remains true of votes later in the trace.
+The selector therefore consumes a derived voter-history property. Strong
+induction discharges the strictly-later-view premise over activated views;
+a concrete two-view execution demonstrates that the interface is inhabited.
 
-This projection assumes a single activation of the designated primary and
-has no crash transition. Proving its simulation by a complete multi-view
-protocol, including returning replicas, remains necessary. In particular,
-fixed-view prefix retention does not establish voter-history survival across
-a crash or across a change of retained view.
+\texttt{LogProvenance} joins the local histories to a shared message model.
+Each view has one immutable installation base and an append-only primary
+history. Activation requires a quorum of authentic reports and uses the
+executable latest-normal-view/length selector. An issued prepare carries a
+view, next slot, and entry; its pre-send log is ghost evidence. Installation
+reads an activated base. Receipt checks normal mode, view equality, and the
+next slot. Fencing and report emission update the local replica state.
+There is no guard testing global committed-prefix agreement.
+
+The invariant establishes that each replica log, historical vote, and report
+extends its retained view's base and is a prefix of that view's primary
+history. Each activated base retains its selection certificate because report
+histories persist. These facts discharge both same-view comparability and
+base-extension provenance in the view induction.
+\texttt{later\_base\_preserves} proves preservation by every later activated
+base. \texttt{committed\_comparable} proves that any two quorum-voted prefixes
+in a reachable state are comparable; \texttt{committed\_equal} specializes
+this to equal-length prefix equality. The model bounds neither log length,
+view numbers, nor activation count, and fixes one self-overlapping quorum
+family. A concrete trace commits a nonempty prefix in two successive views.
+A delayed old-view prepare has the expected next slot after installation;
+bypassing view equality permits an unsupported new-view vote. The constructive
+control and source mutation both check this boundary.
+
+This is a complete safety induction for the stated crash-free shared model,
+not yet the requested uVRR theorem. Unique source activation is enforced by an
+unused-view guard, and source histories may continue issuing prepares after
+replicas have fenced that view. Their eventual acceptance is constrained by
+replica guards. A refinement must justify these abstractions from unique
+primary activation and the concrete wire protocol. Crashes, first-round
+view-change knowledge, arbitrary membership changes, client responses, and
+progress remain outside this model. Ghost histories do not imply durable
+storage at replicas, but they do not prove recovery after volatile-state loss.
 
 \subsection{Casting votes and the design model}
 The inherited casting-vote lemma assumes an old decision quorum $q$, a new
@@ -440,8 +473,8 @@ No general environmental refinement theorem.\\
 commit before execution, request deduplication & Conditional slot agreement; operational acceptor
 promise rules and fixed-view log provenance. Proposer, clients, and execution integration open.\\
 4.2: view changes & Sender status, two message rounds, latest-normal-view/length selection,
-preservation of every committed prefix & Promise fencing and the whole-log selection
-induction step checked. Reachable-state premises and message integration open.\\
+preservation of every committed prefix & Shared crash-free model proves whole-log compatibility across unbounded views.
+Concrete protocol refinement and recovery remain open.\\
 4.3: replica recovery & Exclusion until fresh quorum evidence and current-primary state;
 restored votes consistent with prior activity & Recovery and its interaction with fencing open.\\
 4.4--4.5: applications and clients & Chosen nondeterministic inputs; monotone request identifiers
@@ -485,7 +518,8 @@ establish the missing weighted theorem. Rung 9 supplies that theorem.
 
 The checked additions are numbered 9 (general weights), 10 (operational
 acceptor), 11 (suffix promises), 12 (fault controls), 13 (whole-log
-selection), and 14 (normal-log provenance). The original
+selection), 14 (normal-log provenance), 15 (fenced histories), and 16
+(shared multi-view preservation). The original
 report is retained as an audit input. Its statement that every rung includes
 a successful build and axiom report does not hold for rung 8.
 
@@ -547,9 +581,9 @@ from independently checked artifacts. This permits credit to prior model
 assistance without making model identity part of the trusted proof base.
 
 \section{Next proof boundary and performance claims}
-The next integration theorem must show that the intended VRR view-change
-transition selects a log containing every previously committed entry, despite
-divergent uncommitted suffixes and partially completed prior views. A recovery
+The shared crash-free model now preserves quorum-voted prefixes across
+view changes. The next integration theorem must relate its activation,
+message-history, and local-state abstractions to the concrete VRR protocol. A recovery
 proof must then justify returning a replica to participation using fresh
 evidence, including the fence knowledge created before a crash. Finally,
 reconfiguration must preserve these facts for an arbitrary sequence of

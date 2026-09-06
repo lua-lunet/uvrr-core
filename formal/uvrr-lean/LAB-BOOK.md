@@ -402,3 +402,69 @@ transitions. In particular connect NormalLog's per-view message chains to
 ViewFence's installs/reports, prove report extension of the installed base,
 and preserve unique activation across recovery. Keep the distinction between
 history-level induction and full operational simulation visible in the paper.
+
+## 2026-09-06 J — shared multi-view committed-log safety
+
+The preceding turn was **progress**, committed as `22cd219`. Rung 16 now joins
+the local histories in one shared transition model, `LogProvenance.lean`.
+Sources have immutable installation bases and append-only primary histories.
+Activation is allowed once for a view and requires actual quorum reports plus
+the executable maximum-rank selector. Installation reads that source base;
+receivers require an issued prepare, normal mode, matching view, and next slot.
+Local fence/report transitions are the ones checked in ViewFence. Pre-send
+logs and immutable vote/report histories are ghost proof evidence.
+
+The shared invariant proves both previously open provenance interfaces:
+all replica logs, votes and reports extend their installed base and are
+prefixes of one per-view source history. Source certificates remain authentic
+because local reply histories persist. Local traces satisfy ViewFence's
+reachable-state invariant. `later_base_preserves` supplies the strong view
+induction directly from this invariant. `committed_comparable` proves that
+any two quorum-voted prefixes in a reachable state are comparable;
+`committed_equal` proves equality at equal lengths. No global agreement check
+appears in a transition guard. View numbers, log length, and number of
+activations are unbounded. The configuration and quorum family are fixed.
+
+This is a complete committed-log safety induction for the stated crash-free
+shared model. It is NOT the complete uVRR objective: unique source activation
+is an explicit unused-view guard, source histories can issue prepares after
+replicas have fenced the view, and acceptance is limited by local guards.
+These are abstractions requiring simulation by the concrete primary/wire
+protocol. The model does not yet include crashes, first-round view-change
+knowledge, repeated membership changes, client replies, or progress.
+
+Nonvacuity and fault evidence: Example.reachable constructs a real two-view
+trace with an initial vote, a delayed second prepare, fence/report, certified
+activation, and installation. Example.commits_both_views certifies a nonempty
+prefix in both views. The delayed old-view prepare has exactly the next slot
+at the installed replica; bypassing view equality permits a vote unsupported
+by that view's source history. The constructive wrong_view_breaks_origin
+witness and a temporary source mutation check this boundary. The unchanged
+model compiles; removing only the receive view guard is rejected by Lean.
+
+Local development: the provenance-only draft compiled on its first attempt.
+Activation was then restricted by executable selection certificates, and the
+certificate-preservation invariant was added. A record-layout parse error was
+corrected. The complete shared-model safety proof compiled on its first
+attempt. The concrete example initially needed an explicit Unit type on an
+initial-source projection; adding it resolved elaboration. No Rust production
+change or concrete implementation bug is claimed.
+
+Validation: library build passes (18 jobs), all 232 named declarations pass
+the standard-axiom allowlist, affected rungs 12 and 16 replay, and all mutation
+controls pass. Unchanged rung sources retain their banked replay evidence.
+Rust formatting, all-target/all-feature Clippy/tests, doctests, and source
+placement pass; the inherited vendor text-gate exception remains unchanged.
+Rungs 15 and 16 are integrated into the manuscript. An initial render left
+one reference on a spare page; consolidating the superseded standalone normal-
+log discussion produced seven pages. Final changed pages 5–7 were visually
+inspected; pages 1–4 were unchanged from the inspected previous checkpoint.
+No overfull boxes or unresolved references. No model-service calls or TLC
+reruns were needed.
+
+Next: model crash/recovery without preserving a physical replica's volatile
+floor by assumption. Recovering replicas must be excluded; recovery responses
+need fresh incarnation/nonce evidence and the first view-change round's
+replicated knowledge. Establish the allowed failure/availability model before
+claiming recovery safety. The shared source uniqueness abstraction must also
+survive this extension or be justified by a concrete primary-activation proof.

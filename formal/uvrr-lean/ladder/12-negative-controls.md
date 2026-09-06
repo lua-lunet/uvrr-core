@@ -196,6 +196,22 @@ def main():
         ):
             raise RuntimeError("normal-mode mutant was not rejected by the proof:\n" + output)
         print("PASS Lean rejects append after view-change fence")
+        protocol = (ROOT / "UVRR/LogProvenance.lean").read_text()
+        path.write_text(protocol)
+        result = lean(path)
+        if result.returncode != 0:
+            raise RuntimeError("unchanged shared-model control failed:\n" + result.stdout + result.stderr)
+        old = "(view : m.view = (s.nodes a).retained)\n      (next :"
+        assert protocol.count(old) == 1, "message-view guard location changed"
+        path.write_text(protocol.replace(old, "(view : True)\n      (next :"))
+        result = lean(path)
+        output = result.stdout + result.stderr
+        if result.returncode == 0 or "error:" not in output or any(
+            marker in output for marker in
+            ("unknown module", "unknown module prefix", "memory", "heartbeats")
+        ):
+            raise RuntimeError("message-view mutant was not rejected by the proof:\n" + output)
+        print("PASS Lean rejects cross-view prepare receipt")
         path.write_text("theorem injected_hole : False := by sorry\n#print axioms injected_hole\n")
         result = lean(path)
         if result.returncode != 0 or "sorryAx" not in result.stdout:
@@ -242,5 +258,6 @@ PASS Lean rejects existential quorum checker
 PASS Lean rejects unsafe four-node decision family
 PASS Lean rejects omitted next-slot guard
 PASS Lean rejects append after view-change fence
+PASS Lean rejects cross-view prepare receipt
 PASS axiom audit detects sorryAx despite compiler exit 0
 ```
