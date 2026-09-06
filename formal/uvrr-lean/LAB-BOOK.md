@@ -96,6 +96,57 @@ and features and warnings denied, all-feature/all-target tests, doctests, and
 the searches forbidding inline tests and Paxos references in Rust sources.
 No Rust implementation changes were made.
 
+Checkpoint commit: `05a4d67`. This also banks the previously untracked seed
+artifact subtree, without committing the user's other staged changes.
+One additional repository text gate is **not green on the inherited tree**:
+`git ls-files | rg -v '^maelstrom' | xargs rg -n 'item[0-9]'` descends into the
+user-staged `tools/tla2tools` submodule directory and matches `item0` in its
+Java code. No vendor code or unrelated staging was changed to suppress it.
+
+## 2026-09-06 D — general weights and negative controls
+
+`UVRR/WeightedGeneral.lean` proves the general scaled weighted-majority
+intersection theorem (UPaxos Lemma 2), unit-change and equal-scale corollaries,
+and self-intersection for arbitrary finite node lists. Natural subtraction is
+used symmetrically to represent absolute difference; positive scale factors
+preserve strict majority. A list-induction disjointness bound plus the two
+integer majority margins yields contradiction when distance is at most one.
+A two-node distance-two example has disjoint majorities, proving sharpness of
+the *uniform* distance bound. All compile without Mathlib, holes or custom
+axioms. The first two local compile iterations repaired proof elaboration;
+definitions and the target mathematical statement were retained.
+
+`UVRR/NegativeControls.lean` gives checked histories admitting disagreement
+when respectively S4's value choice, S2's promise fence, or decision-quorum
+nonemptiness is removed, preserving the other listed invariant conditions.
+`check_mutations.py` compiles the unchanged Structure module, then separately
+replaces universal quorum checking by existential checking and installs an
+unsafe quorum in the concrete schedule. Both mutants are rejected by Lean.
+A deliberately injected `sorry` compiles but exposes `sorryAx`, demonstrating
+why axiom inspection is an independent gate. No original source is mutated
+in place. These tests do not prove mutation completeness or every assumption's
+universal necessity.
+
+Leanstral retry: same one-lemma target, 6-turn / USD 0.50 configured cap,
+150,000 cumulative-token cap, 120-second and 2-GiB RSS watchdogs. It ended
+after 76.39 seconds, sampled peak 210,368 KiB, with
+`Token limit exceeded: 166,965 > 150,000`. The final target still contained
+the original hole. No Leanstral-generated proof is credited as accepted.
+Two minimal direct-API routing probes also failed with HTTP errors; the
+advertised `labs-leanstral-2603` route returned HTTP 400. Stop retries on this
+obligation: completing the short induction locally avoids further scaffold
+overhead. Evidence is in `leanstral/attempt-20260906-small/`. A dollar saving
+has not been established; actual billed cost is unavailable. This negative
+methodology result is useful for future budgeting.
+
+The user identifies the preceding work as GLM-5.3-Flash followed by Claude
+Fable 5.1, with rollout artifacts under `.tmp/rollouts/` and the report
+`formal/lean-leanstral-report.md`. This is supplied provenance, not a new audit
+of every historical model invocation. The independently reproducible Lean
+artifacts are the correctness evidence regardless of authorship.
+
+### Remaining work after checkpoint D
+
 1. Bank baseline evidence and the MultiPromise module with an executable rung.
 2. Add targeted kernel-checked counterexamples and compile-failure mutations;
    classify independence of assumptions separately from universal necessity.

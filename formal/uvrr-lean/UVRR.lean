@@ -6,3 +6,5 @@ import UVRR.Structure
 import UVRR.CastingVote
 import UVRR.Weights
 import UVRR.MultiPromise
+import UVRR.WeightedGeneral
+import UVRR.NegativeControls
