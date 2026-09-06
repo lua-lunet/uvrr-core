@@ -140,6 +140,28 @@ def main():
         ):
             raise RuntimeError("acquisition-order mutant was not rejected by the proof:\n" + output)
         print("PASS Lean rejects omitted acquisition response ordering")
+        operational = (ROOT / "UVRR/RecoveryAcquire.lean").read_text()
+        path.write_text(operational)
+        result = lean(path)
+        if result.returncode != 0:
+            raise RuntimeError("unchanged recovery-acquisition control failed:\n" + result.stdout + result.stderr)
+        guards = [
+            ("recovering sender response", "(online : (s.nodes a).online = true) :",
+             "(online : True) :"),
+            ("stale acquisition request", "(sequence : r.value.sequence = (s.nodes a).sequence)",
+             "(sequence : True)"),
+        ]
+        for name, old, new in guards:
+            assert operational.count(old) == 1, f"guard location changed: {name}"
+            path.write_text(operational.replace(old, new))
+            result = lean(path)
+            output = result.stdout + result.stderr
+            if result.returncode == 0 or "error:" not in output or any(
+                marker in output for marker in
+                ("unknown module", "unknown module prefix", "memory", "heartbeats")
+            ):
+                raise RuntimeError(f"operational mutant was not rejected: {name}\n{output}")
+            print(f"PASS Lean rejects {name}")
         path.write_text("theorem injected_hole : False := by sorry\n#print axioms injected_hole\n")
         result = lean(path)
         if result.returncode != 0 or "sorryAx" not in result.stdout:

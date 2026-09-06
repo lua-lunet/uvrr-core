@@ -2,3 +2,15 @@
 	path = maelstrom
 	url = https://github.com/simbo1905/maelstrom.git
 	branch = main
+[submodule "tools/tla2tools"]
+	path = tools/tla2tools
+	url = https://github.com/tlaplus/tlaplus
+[submodule "tools/veil"]
+	path = tools/veil
+	url = https://github.com/verse-lab/veil
+[submodule "tools/LeanLTL"]
+	path = tools/LeanLTL
+	url = https://github.com/UCSCFormalMethods/LeanLTL
+[submodule "tools/lean-auto"]
+	path = tools/lean-auto
+	url = https://github.com/leanprover-community/lean-auto

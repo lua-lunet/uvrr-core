@@ -92,3 +92,10 @@ every assertion through the public interface, which is where the contract actual
 - `.tmp/` is scratch space. Never stage or commit anything under `.tmp/`.
 - Preserve user and concurrent-agent changes. Do not reset, restore, or overwrite broad
   paths to remove a narrow change; edit only the proved hunk after the owner is finished.
+
+## Subagent delegation
+
+- Agents SHOULD delegate major todo items to subagents per the
+  opencode-subagent-delegation skill, wherever doing so does not overwrite any
+  other instruction in this AGENTS.md or the user's prior statements of
+  preference.

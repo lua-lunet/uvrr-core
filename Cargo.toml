@@ -6,7 +6,7 @@ edition = "2024"
 # lints, so a newer API cannot creep in unnoticed.
 rust-version = "1.85"
 description = "Sans-io Viewstamped Replication Revisited core (normal operation, view change, recovery, state transfer) with a C ABI for LuaJIT FFI."
-repository = "https://github.com/simbo1905/vrr-core"
+repository = "https://github.com/lua-lunet/vrr-core"
 license = "MIT"
 readme = "README.md"
 keywords = ["consensus", "replication", "viewstamped", "vsr", "raft"]
