@@ -147,6 +147,31 @@ artifacts are the correctness evidence regardless of authorship.
 
 ### Remaining work after checkpoint D
 
+Checkpoint D commit: `970b743`. All eleven then-existing Showboat documents
+verified after the new modules were added; the whole Lean library built.
+
+## 2026-09-06 E — operational acceptor
+
+`UVRR/Acceptor.lean` proves by induction on arbitrary finite executions that
+the watermark-guarded accept/promise transitions preserve truthful historical
+free and last-vote reports. The exported `free_forbids` and `report_last`
+theorems establish the S2/S3 obligations of the seed theorem for one acceptor
+in a single era. A concrete old-ballot acceptance after a higher promise
+violates the invariant if the watermark guard is bypassed. The unmodified
+transition relation refuses that step. Rung 10 embeds source, build and
+axiom reports. This does not implement the proposer, whole-log selection,
+cross-era acceptors, or recovery; no crash transition is silently identified
+with persistent memory.
+
+The next scientifically important integration work is whole-log view-change
+selection and recovery fencing, not more arithmetic examples. The repository's
+`VrrCoreEras.tla` explicitly identifies itself as a design model, fixes a
+single era transition, and allows multi-nonce recovery evidence; VRR-2012
+Section 4.3 uses one fresh nonce. These need an explicit refinement argument,
+not a name mapping to Paxos.
+
+### Remaining work after checkpoint E
+
 1. Bank baseline evidence and the MultiPromise module with an executable rung.
 2. Add targeted kernel-checked counterexamples and compile-failure mutations;
    classify independence of assumptions separately from universal necessity.

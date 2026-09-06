@@ -8,3 +8,4 @@ import UVRR.Weights
 import UVRR.MultiPromise
 import UVRR.WeightedGeneral
 import UVRR.NegativeControls
+import UVRR.Acceptor
