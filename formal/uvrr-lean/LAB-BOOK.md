@@ -290,3 +290,56 @@ source/PDF hashes are in `evidence/view-selection/validation.json`. No
 additional model-service calls were made. Resume by deriving the selection
 premises from explicit message transitions, starting with same-view log
 provenance; do not re-run the unchanged baseline TLC exploration.
+
+## 2026-09-06 H — normal-log provenance and prefix retention
+
+The preceding turn was **progress**, committed as `376cafd`. This increment
+addresses the same-view premise left by the selector. `NormalLog.lean` defines
+an explicit fixed-view message projection: primary append and send, StartView
+installation once per replica, ordered prepare receipt, and report emission.
+There is no global prefix check in a transition guard. Prepare records retain
+the pre-send log as ghost evidence; the receiver uses only its length (the
+wire slot) and entry. Messages persist, allowing arbitrary delivery delay and
+duplication attempts. Replica identities and entry types are arbitrary.
+
+The inductive invariant derives that every replica, report, and sent prepare
+prefix is a prefix of the current primary log. Equal-length prefixes coincide,
+which justifies an ordered receipt. `reports_comparable` and
+`selection_same_view` discharge same-view comparability in this projection.
+`replica_history` proves that a normal replica retains its prefix across any
+finite continuation in the same view. The installed base is arbitrary, not
+assumed globally safe. Unique primary activation, the erasure/simulation into
+the full protocol, view fencing, and crash recovery are still composition
+obligations. The projection intentionally does not claim cross-view voter
+survival or full operational refinement.
+
+Fault control: an explicitly reachable state has both authentic prepares
+for `[false, true]` pending at an empty replica. Applying the second entry
+without the next-slot guard yields `[true]`, which is not a prefix of the
+primary log. The actual guard rejects that delivery. The mutation harness
+compiles the unchanged normal-log module, then replaces only the receipt's
+slot predicate with True; Lean rejects the altered preservation proof.
+This is evidence about this transition rule, not universal necessity.
+
+Local failures and corrections: the initial file write used the wrong working
+path and wrote nothing; the first proof compile supplied a redundant source
+state in dependent constructor cases. Removing those binder names fixed it.
+A concrete-state record indentation error was corrected. Build then passed.
+No production Rust behavior changed and no protocol bug is claimed. A replay
+correctly detected the changed mutation script embedded in rung 12; its
+captured source and output were refreshed, then replayed successfully. The
+eight original rungs remain unchanged. New rung 14 contains source, compilation,
+and axiom output. No additional external model-service calls were made.
+
+Validation: library build passes (16 jobs); all 14 ladder rungs replay (rungs
+1–11 in the first pass, refreshed 12 and 13–14 in the final pass); all 167 named
+declarations pass the axiom allowlist; mutation controls pass. Rust formatting,
+all-target/all-feature Clippy/tests, doctests and source-placement checks pass.
+The inherited vendor-directory text-gate exception is unchanged. The seven-page
+paper was rendered; changed pages 1–3 and 5–7 were visually inspected, and page
+4 is byte-identical to the previously inspected render. No new TLC run or
+baseline re-audit was needed.
+
+Next: connect per-view provenance to view-change fencing and historical voter
+reports in one multi-view transition system, then add fresh-evidence recovery.
+Do not treat the current one-view no-crash projection as that completed model.

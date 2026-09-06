@@ -32,7 +32,7 @@ imposing a fixed pipeline bound. These requirements cross several distinct
 proof boundaries. We audit an inherited Lean development of Turner's
 era-indexed Paxos agreement argument and extend it with a finite-support
 weighted-majority theorem, a derivation of the proposal-era bound from suffix
-promises, operational acceptor invariants, a whole-log selection induction
+promises, operational acceptor and normal-log invariants, a whole-log selection induction
 step, and fault-injection controls.
 Every positive result is checked by Lean 4.33.1 using its core libraries.
 Executable Showboat documents preserve source, build commands, and theorem
@@ -68,7 +68,7 @@ schedule. It explicitly excluded a proof of VRR itself. Our audit confirms
 the compiled mathematical results while narrowing several statements in the
 associated report.
 
-The checked extensions include four positive results. First, an arbitrary finite-support
+The checked extensions include five positive results. First, an arbitrary finite-support
 version of UPaxos's weighted intersection lemma replaces dependence on a
 four-node example. Second, the omitted suffix-promise and known-instance
 frontier conditions now derive the proposal-era inequality used in the
@@ -76,8 +76,8 @@ agreement reduction. Third, induction over an acceptor transition system
 establishes the historical promise conditions for that component. Fourth, an
 executable whole-log selector is proved maximal, with a quorum-based prefix
 preservation induction step and an exact bounded-rank correspondence to the
-TLA model. Constructive
-negative controls test the role of selected assumptions. The laboratory book
+TLA model. Fifth, a fixed-view message induction derives same-view report
+comparability and replica prefix retention. Constructive negative controls test the role of selected assumptions. The laboratory book
 records intermediate failures, tool outcomes, and restart instructions.
 
 The central unresolved claim is stated explicitly:
@@ -387,6 +387,33 @@ selector chooses the older log and loses the newer committed entry. These
 results close the selection subproblem while preserving the distinction
 between a checked induction step and a complete reachable-state proof.
 
+\subsection{Normal-log message provenance}
+\texttt{NormalLog} now derives same-view comparability for a fixed-view
+transition projection. The primary starts from an arbitrary base log and
+appends entries. StartView installs that base at a replica once; a normal
+replica accepts an authentic prepare only at its next slot. Reports copy
+replica logs. Messages remain available, so the induction permits delay,
+reordering and duplicate delivery attempts. The base is not assumed to preserve
+an earlier view's commits; that is the selection obligation above.
+
+The strengthened invariant says that the base, replica logs, sent prepare
+prefixes, and report logs are prefixes of the primary's current history.
+At receipt, the replica log and the pre-send log are equal-length prefixes
+of that history, hence equal; appending the sent entry preserves the invariant.
+The pre-send log is ghost evidence, erased to a slot number and entry on the
+wire. The receive guard never compares log contents.
+\texttt{reports\_comparable} follows because prefixes of one list are comparable.
+\texttt{replica\_history} additionally proves prefix retention over any finite
+continuation in this view. A reachable two-entry send history demonstrates
+that bypassing the next-slot guard permits entry two to occupy slot one;
+the source-mutation harness also checks rejection of that altered guard.
+
+This projection assumes a single activation of the designated primary and
+has no crash transition. Proving its simulation by a complete multi-view
+protocol, including returning replicas, remains necessary. In particular,
+fixed-view prefix retention does not establish voter-history survival across
+a crash or across a change of retained view.
+
 \subsection{Casting votes and the design model}
 The inherited casting-vote lemma assumes an old decision quorum $q$, a new
 promise quorum $q'$, and a leader $\ell$ with $q\cap q'=\{\ell\}$. Sending
@@ -411,7 +438,7 @@ deterministic execution, replica thresholds & Explicit assumptions; quorum inter
 No general environmental refinement theorem.\\
 4.1: normal operation & One value per view/slot, ordered preparation, distinct quorum support,
 commit before execution, request deduplication & Conditional slot agreement; operational acceptor
-promise rules. Proposer, clients, and execution integration open.\\
+promise rules and fixed-view log provenance. Proposer, clients, and execution integration open.\\
 4.2: view changes & Sender status, two message rounds, latest-normal-view/length selection,
 preservation of every committed prefix & Promise fencing and the whole-log selection
 induction step checked. Reachable-state premises and message integration open.\\
@@ -457,8 +484,8 @@ failure of a historical Leanstral draft, so its successful replay does not
 establish the missing weighted theorem. Rung 9 supplies that theorem.
 
 The checked additions are numbered 9 (general weights), 10 (operational
-acceptor), 11 (suffix promises), 12 (fault controls), and 13 (whole-log
-selection). The original
+acceptor), 11 (suffix promises), 12 (fault controls), 13 (whole-log
+selection), and 14 (normal-log provenance). The original
 report is retained as an audit input. Its statement that every rung includes
 a successful build and axiom report does not hold for rung 8.
 

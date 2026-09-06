@@ -164,6 +164,22 @@ def main():
                    ("unknown module", "unknown module prefix", "memory", "heartbeats")):
                 raise RuntimeError(f"infrastructure failure: {name}\n{output}")
             print(f"PASS Lean rejects {name}")
+        normal = (ROOT / "UVRR/NormalLog.lean").read_text()
+        path.write_text(normal)
+        result = lean(path)
+        if result.returncode != 0:
+            raise RuntimeError("unchanged normal-log control failed:\n" + result.stdout + result.stderr)
+        old = "(next : m.slot = log.length + 1) :\n      Step base s"
+        assert normal.count(old) == 1, "receive-guard location changed"
+        path.write_text(normal.replace(old, "(next : True) :\n      Step base s"))
+        result = lean(path)
+        output = result.stdout + result.stderr
+        if result.returncode == 0 or "error:" not in output or any(
+            marker in output for marker in
+            ("unknown module", "unknown module prefix", "memory", "heartbeats")
+        ):
+            raise RuntimeError("slot-guard mutant was not rejected by the proof:\n" + output)
+        print("PASS Lean rejects omitted next-slot guard")
         path.write_text("theorem injected_hole : False := by sorry\n#print axioms injected_hole\n")
         result = lean(path)
         if result.returncode != 0 or "sorryAx" not in result.stdout:
@@ -208,5 +224,6 @@ python3 check_mutations.py
 PASS unchanged control compiles
 PASS Lean rejects existential quorum checker
 PASS Lean rejects unsafe four-node decision family
+PASS Lean rejects omitted next-slot guard
 PASS axiom audit detects sorryAx despite compiler exit 0
 ```

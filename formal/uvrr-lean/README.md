@@ -26,6 +26,7 @@ draft, rather than a proved theorem. The current ladder is:
 | 11 | `MultiPromise.lean` | Derives `EraLe` from suffix/point promise bounds, monotone instance eras and nonempty phase-I quorums |
 | 12 | `NegativeControls.lean` | Independent value-selection, promise-fencing and empty-decision witnesses; temporary source mutations |
 | 13 | `ViewSelection.lean` | Executable latest-normal-view/length selection and quorum-based prefix preservation under explicit induction premises |
+| 14 | `NormalLog.lean` | Fixed-view message induction derives report comparability and replica prefix retention; out-of-order delivery fault control |
 
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"
