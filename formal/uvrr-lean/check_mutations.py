@@ -92,6 +92,22 @@ def main():
         ):
             raise RuntimeError("message-view mutant was not rejected by the proof:\n" + output)
         print("PASS Lean rejects cross-view prepare receipt")
+        recovery = (ROOT / "UVRR/RecoveryFence.lean").read_text()
+        path.write_text(recovery)
+        result = lean(path)
+        if result.returncode != 0:
+            raise RuntimeError("unchanged recovery control failed:\n" + result.stdout + result.stderr)
+        old = "r.recipient = a ∧ r.generation = s.generation a)\n      (maximum :"
+        assert recovery.count(old) == 1, "episode-freshness guard location changed"
+        path.write_text(recovery.replace(old, "r.recipient = a)\n      (maximum :"))
+        result = lean(path)
+        output = result.stdout + result.stderr
+        if result.returncode == 0 or "error:" not in output or any(
+            marker in output for marker in
+            ("unknown module", "unknown module prefix", "memory", "heartbeats")
+        ):
+            raise RuntimeError("episode-freshness mutant was not rejected by the proof:\n" + output)
+        print("PASS Lean rejects stale recovery episode evidence")
         path.write_text("theorem injected_hole : False := by sorry\n#print axioms injected_hole\n")
         result = lean(path)
         if result.returncode != 0 or "sorryAx" not in result.stdout:

@@ -13,3 +13,4 @@ import UVRR.ViewSelection
 import UVRR.NormalLog
 import UVRR.ViewFence
 import UVRR.LogProvenance
+import UVRR.RecoveryFence

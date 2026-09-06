@@ -468,3 +468,74 @@ need fresh incarnation/nonce evidence and the first view-change round's
 replicated knowledge. Establish the allowed failure/availability model before
 claiming recovery safety. The shared source uniqueness abstraction must also
 survive this extension or be justified by a concrete primary-activation proof.
+
+## 2026-09-06 K — replicated recovery fences and stale episodes
+
+The preceding turn was **progress**, committed as `9aa37d9`. Recovery was
+compared with VRR-2012 Sections 2.2, 4.3 and 8.2 and the existing source model.
+The source explicitly excludes recovering nodes from normal processing and
+view changes, requires distinct fresh responses including the primary of the
+latest reported view, and treats a node as failed until it recovers. The first
+view-change message round replicates fencing knowledge. Nonce uniqueness is an
+environment obligation (a monotone clock or counter), not something an erased
+protocol state can magically remember.
+
+The unchanged TLA Crash action permits only one crash overall: it requires all
+recorded epochs to be zero before incrementing one. Its earlier MaxEpoch=0
+baseline run already excluded all crashes. Neither is evidence of repeated
+recovery. This is a scope observation, not an implementation bug. Rust's Tick
+documentation in src/ids.rs explicitly assigns nonce non-reuse while old
+messages may arrive to the host clock strategy. src/replica/recovery.rs retains
+multiple solicitation nonces within one volatile episode, discards them on
+crash, and combines current-episode evidence by sender. A refinement must map
+that set to the new proof's episode freshness abstraction.
+
+`RecoveryFence.lean` models online bound knowledge as Option Nat. A crash sets
+it to None, so the bound is actually erased. An excluded node cannot generate
+responses. Generation is ghost environment metadata identifying a fresh
+recovery episode, not a durable local field or an implementation claim.
+Response causality bounds an echoed episode by the recipient's current episode;
+this abstracts authenticated request/response causality. Completion requires a
+quorum of distinct senders, authentic historical responses to this recipient
+and episode, and a maximum reported bound. Current sender status is not used
+to invalidate already sent evidence.
+
+Starting from a checkpoint where a fixed support quorum is online above a
+known fence, `replicated_fence` proves that every online member of that support
+continues to know at least that fence after any finite crash/recovery sequence.
+There is no bound on crash count and no assumption that volatile floors survive.
+The result protects the supporting quorum; it does not yet prove every arbitrary
+recovering node restores its full pre-crash log or floor. Its checkpoint premise
+must be established by the first-round message protocol, including timing and
+recovery interactions. No liveness follows if fresh quorum evidence cannot be
+obtained; no new physical failure-independence guarantee is inferred.
+
+The concrete history first emits two low-bound replies, raises a two-of-three
+support quorum to bound one, crashes a support member, and obtains fresh
+responses from the other two nodes. `recovery_run` and
+`recovery_preserves_fence` check the successful recovery. The two older replies
+still have distinct senders and the right recipient; without freshness they
+would form a quorum restoring zero. `stale_quorum_breaks_fence` proves the
+failure, and the source-mutation harness checks rejection when only episode
+equality is removed. This tests a reachable stale-message pattern, not an
+invented unreachable state.
+
+Local compile corrections: `protected` is a reserved Lean keyword, so the
+invariant field was named `retained`. One arithmetic proof needed recipient
+equality rewritten into its hypothesis. Two example goals needed explicit
+unfolding of the checkpoint generation. Statements and transition rules were
+not weakened to solve these elaboration issues. The final build has no warnings.
+
+Next: compose the checkpoint premise with the first view-change message round,
+and recover log contents from a fresh latest-view primary response. Preserve
+historical votes/replies as ghost events while allowing actual local state to
+be erased. Do not replace the missing composition with a guard asserting the
+very safety property being proved. Rung 17 manuscript integration is deferred
+to that recovery checkpoint; the current rendered paper covers through rung 16.
+
+Validation: build passes (19 jobs), all 264 named declarations pass the axiom
+allowlist, affected rungs 12 and 17 replay, and all mutation controls pass.
+Rust formatting, all-target/all-feature Clippy/tests, doctests and source
+placement pass. The inherited vendor text-gate exception is unchanged. No
+baseline proof re-audit, TLC rerun, model-service call or manuscript render was
+needed for this increment. Evidence hashes are under evidence/recovery-fence/.

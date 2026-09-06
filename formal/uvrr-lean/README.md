@@ -3,7 +3,8 @@
 ## Verified research checkpoint — 6 September 2026
 
 The current [LaTeX manuscript](paper/paper.tex) and [rendered paper](paper/paper.pdf)
-state the checked results and the remaining end-to-end proof obligations.
+state the results through rung 16 and the remaining end-to-end proof obligations.
+Rung 17 is banked below; its manuscript integration awaits recovery composition.
 The [laboratory book](LAB-BOOK.md) records commands, failures, bounded Leanstral
 experiments, and commit checkpoints. The original DOCX and rungs 1–8 remain
 audit inputs; the original README is retained in baseline commit `05a4d67`.
@@ -29,6 +30,7 @@ draft, rather than a proved theorem. The current ladder is:
 | 14 | `NormalLog.lean` | Fixed-view message induction derives report comparability and replica prefix retention; out-of-order delivery fault control |
 | 15 | `ViewFence.lean` | Multi-view local history derives voter-report bounds; strong induction preserves committed prefixes in later activated views under explicit global provenance conditions |
 | 16 | `LogProvenance.lean` | Shared multi-view transition induction proves committed-log compatibility for a fixed configuration without crashes; concrete trace and cross-view delivery control |
+| 17 | `RecoveryFence.lean` | A supporting quorum retains a known fence through arbitrary crash/recovery sequences using fresh episode replies; stale-quorum fault control |
 
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"
