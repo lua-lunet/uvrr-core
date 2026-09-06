@@ -32,7 +32,8 @@ imposing a fixed pipeline bound. These requirements cross several distinct
 proof boundaries. We audit an inherited Lean development of Turner's
 era-indexed Paxos agreement argument and extend it with a finite-support
 weighted-majority theorem, a derivation of the proposal-era bound from suffix
-promises, operational acceptor invariants, and fault-injection controls.
+promises, operational acceptor invariants, a whole-log selection induction
+step, and fault-injection controls.
 Every positive result is checked by Lean 4.33.1 using its core libraries.
 Executable Showboat documents preserve source, build commands, and theorem
 axiom reports. All eight inherited transcripts reproduce, although the eighth
@@ -67,12 +68,15 @@ schedule. It explicitly excluded a proof of VRR itself. Our audit confirms
 the compiled mathematical results while narrowing several statements in the
 associated report.
 
-This checkpoint adds three positive results. First, an arbitrary finite-support
+The checked extensions include four positive results. First, an arbitrary finite-support
 version of UPaxos's weighted intersection lemma replaces dependence on a
 four-node example. Second, the omitted suffix-promise and known-instance
 frontier conditions now derive the proposal-era inequality used in the
 agreement reduction. Third, induction over an acceptor transition system
-establishes the historical promise conditions for that component. Constructive
+establishes the historical promise conditions for that component. Fourth, an
+executable whole-log selector is proved maximal, with a quorum-based prefix
+preservation induction step and an exact bounded-rank correspondence to the
+TLA model. Constructive
 negative controls test the role of selected assumptions. The laboratory book
 records intermediate failures, tool outcomes, and restart instructions.
 
@@ -354,6 +358,36 @@ to reduce it. The uVRR objective instead calls for progress during the
 transition. Equation~\eqref{eq:p1} and casting-vote scheduling address part
 of that difference, while the interaction with recovery remains to be proved.
 
+\subsection{Checked whole-log selection}
+The executable \code{ViewSelection.select} takes a seed report and a list of
+additional reports, enforcing nonemptiness without a fallback value. It selects
+by last-normal view and then log length. Each report's committed frontier is
+bounded by its length in the report type. The checked results establish that
+the output belongs to the input collection and has maximal rank. For reports
+of length at most $M$, \code{scalar\_rank\_equivalent} proves that the
+model's scalar rank $v(M+1)+n$ has exactly the same ordering. A counterexample
+shows that omitting the length bound can misrank reports.
+
+The prefix-preservation result is the induction step for a single era. Let a
+prefix $P$ have committed in view $v$. Intersect its commit quorum with the
+reporting quorum and obtain a report from a common sender. The explicit
+voter-history premise says that this report has retained view at least $v$
+and, at equality, contains $P$. The induction hypothesis supplies preservation
+for reports from strictly later normal views. If the selected report is later
+than $v$, that hypothesis applies. Otherwise the witness and selected report
+are both from $v$. Same-view log comparability and maximal selected length
+then imply that the witness log, and hence $P$, is a prefix of the selected
+log. \code{ViewSelection.quorum\_preserves} checks this argument.
+
+The selector itself only compares ranks. The surviving-voter and log-origin
+premises still require proofs from message and recovery transitions. A
+two-report fault control admits divergent uncommitted suffixes in different
+views: an older two-entry log loses to a newer one-entry log. A length-only
+selector chooses the older log and loses the newer committed entry. These
+results close the selection subproblem while preserving the distinction
+between a checked induction step and a complete reachable-state proof.
+
+\subsection{Casting votes and the design model}
 The inherited casting-vote lemma assumes an old decision quorum $q$, a new
 promise quorum $q'$, and a leader $\ell$ with $q\cap q'=\{\ell\}$. Sending
 new promises only to $q'\setminus\{\ell\}$ leaves the old acceptance guard
@@ -379,8 +413,8 @@ No general environmental refinement theorem.\\
 commit before execution, request deduplication & Conditional slot agreement; operational acceptor
 promise rules. Proposer, clients, and execution integration open.\\
 4.2: view changes & Sender status, two message rounds, latest-normal-view/length selection,
-preservation of every committed prefix & Promise fencing component checked. Whole-log
-selection and all message transitions open.\\
+preservation of every committed prefix & Promise fencing and the whole-log selection
+induction step checked. Reachable-state premises and message integration open.\\
 4.3: replica recovery & Exclusion until fresh quorum evidence and current-primary state;
 restored votes consistent with prior activity & Recovery and its interaction with fencing open.\\
 4.4--4.5: applications and clients & Chosen nondeterministic inputs; monotone request identifiers
@@ -423,7 +457,8 @@ failure of a historical Leanstral draft, so its successful replay does not
 establish the missing weighted theorem. Rung 9 supplies that theorem.
 
 The checked additions are numbered 9 (general weights), 10 (operational
-acceptor), 11 (suffix promises), and 12 (fault controls). The original
+acceptor), 11 (suffix promises), 12 (fault controls), and 13 (whole-log
+selection). The original
 report is retained as an audit input. Its statement that every rung includes
 a successful build and axiom report does not hold for rung 8.
 

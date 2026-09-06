@@ -9,7 +9,7 @@ experiments, and commit checkpoints. The original DOCX and rungs 1–8 remain
 audit inputs; the original README is retained in baseline commit `05a4d67`.
 
 All eight original Showboat transcripts reproduce. Rung 8 reproduces a failed
-draft, rather than a proved theorem. Four additions now extend the ladder:
+draft, rather than a proved theorem. The current ladder is:
 
 | Rung | Module | Verified result |
 |---|---|---|
@@ -25,6 +25,7 @@ draft, rather than a proved theorem. Four additions now extend the ladder:
 | 10 | `Acceptor.lean` | Reachable single-era promise/acceptance invariants and a guard-bypass counterexample |
 | 11 | `MultiPromise.lean` | Derives `EraLe` from suffix/point promise bounds, monotone instance eras and nonempty phase-I quorums |
 | 12 | `NegativeControls.lean` | Independent value-selection, promise-fencing and empty-decision witnesses; temporary source mutations |
+| 13 | `ViewSelection.lean` | Executable latest-normal-view/length selection and quorum-based prefix preservation under explicit induction premises |
 
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"

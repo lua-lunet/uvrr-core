@@ -1,0 +1,42 @@
+{
+  "recorded_at_utc": "2026-09-06T07:57:51.652027+00:00",
+  "library_build": "pass, 15 jobs",
+  "axiom_inventory_count": 151,
+  "axiom_allowlist": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "showboat_replays": {
+    "01-structure.md": "pass",
+    "02-lex-ballots.md": "pass",
+    "03-synod-agreement.md": "pass",
+    "04-eras-theorem10.md": "pass",
+    "05-counterexample.md": "pass",
+    "06-casting-vote.md": "pass",
+    "07-weights.md": "pass",
+    "08-leanstral-lemma2.md": "pass",
+    "09-weighted-general.md": "pass",
+    "10-acceptor-transitions.md": "pass",
+    "11-multi-promises.md": "pass",
+    "12-negative-controls.md": "pass",
+    "13-view-selection.md": "pass"
+  },
+  "mutation_checks": "unchanged control compiles; existential checker and unsafe quorum rejected; sorryAx exposed",
+  "rust_checks": "format, all-target/all-feature Clippy and tests, doctests, source-placement gates pass",
+  "known_inherited_gate_failure": "repository indexed-item text scan descends into tools/tla2tools Java source",
+  "paper": {
+    "pages": 7,
+    "visually_inspected": "all seven pages",
+    "overfull_boxes": 0,
+    "unresolved_references": 0
+  },
+  "sha256": {
+    "UVRR/ViewSelection.lean": "4495ef46dbcf7ee427ff71efe57607d4b62c465a5cf5e415aa6a256f58b716f3",
+    "ladder/13-view-selection.md": "8d01d27d25e2a1581bcc07192b815709ca632a565a1033d763827300cb5e1650",
+    "paper/paper.tex": "7728e08a2d5c16c73bc98a7f6a44ff1ce52898fdb9ed7b1ec2966b2a2e484ee1",
+    "paper/paper.pdf": "5c0eaf2dec4170b56b283c61e78a0651978a8e08276d9051b6bbb434fa24df17"
+  },
+  "additional_model_service_calls": 0,
+  "end_to_end_uvrr_proof": "incomplete: reachable-state premises and operational composition remain open"
+}

@@ -240,3 +240,53 @@ pass. Rust format, all-feature/all-target Clippy/tests, doctests and source
 placement checks pass. The separate vendor-directory text-gate baseline
 failure remains documented above. No Rust implementation or user-staged
 submodule changes have been included in the research commits.
+
+## 2026-09-06 G — executable whole-log view selection
+
+The preceding goal turn was **progress**: it banked proofs, an axiom audit,
+independent model-checking evidence, and a rendered manuscript. On resumption,
+the current worktree and lab book were inspected; the baseline audit was not
+repeated. User-staged changes remain outside this work.
+
+`UVRR/ViewSelection.lean` implements VRR-2012's single-era report selection:
+lexicographically maximize last-normal view and log length. A seed report
+enforces a nonempty collection, and each report's committed frontier is bounded
+by its log length in its type. The selector uses only rank comparisons. It
+does not check or assume global committed-prefix agreement as an operation.
+
+Checked results: the returned report is a member and dominates every input;
+same-view comparability plus a surviving quorum witness and the strictly
+later-view induction hypothesis imply preservation of a committed prefix.
+`quorum_preserves` obtains that witness by intersecting the committing and
+view-change quorums. Report coverage is by sender identity; duplicates cannot
+create additional quorum identities. An older longer log with a divergent
+uncommitted suffix loses to a newer shorter log. A length-only mutant instead
+loses the later-view committed prefix.
+
+This closes the selection subproblem, not the complete view-change protocol:
+voter-history survival, same-view log comparability and later-view preservation
+must be established from reachable message states. Those premises are explicit
+in the theorem and are not claimed as proved merely because selection is
+correct. Natural view numbers cover a single configuration era; composition
+with uVRR era-tagged views remains on the queue. The first compile found a
+reserved identifier (`prefix`) and a missing equality decision instance; the
+identifier and concrete proof were corrected without changing the algorithm
+or theorem assumptions. The next compile was clean.
+
+The model correspondence is also checked: `scalar_rank_equivalent` proves
+that the TLA `ReportRank` arithmetic `view * (MaxLogLength + 1) + length`
+agrees exactly with the selector's lexicographic order when both lengths obey
+the bound. `scalar_without_bound_misranks` witnesses failure without that
+bound. This is a concrete ranking refinement; it does not establish the
+rest of `InstallView` or the provenance of the reports it receives.
+
+Validation for this increment: all 13 Showboat rungs replay successfully;
+151 named declarations pass the axiom allowlist; library build and mutation
+controls pass. Rust formatting, all-target/all-feature Clippy and tests,
+doctests, and source-placement checks pass. All seven rendered manuscript
+pages were visually inspected; no overfull boxes or unresolved references.
+The inherited vendor text-gate exception remains unchanged. Evidence and
+source/PDF hashes are in `evidence/view-selection/validation.json`. No
+additional model-service calls were made. Resume by deriving the selection
+premises from explicit message transitions, starting with same-view log
+provenance; do not re-run the unchanged baseline TLC exploration.
