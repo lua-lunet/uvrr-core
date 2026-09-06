@@ -99,3 +99,47 @@ every assertion through the public interface, which is where the contract actual
   opencode-subagent-delegation skill, wherever doing so does not overwrite any
   other instruction in this AGENTS.md or the user's prior statements of
   preference.
+
+## Tool inventory and submodule policy
+
+The paper (`formal/uvrr-lean/paper/paper.tex`) and the Lean formalization
+(`formal/uvrr-lean/`) use zero external Lean dependencies. The `lake-manifest.json`
+has `"packages": []`. All Lean imports are internal (`UVRR.*` only). This is by
+design, not accident.
+
+### Tools that contributed to the paper
+
+- **Lean 4.33.1** — kernel-checked proofs. The formalization's sole verification
+  tool. No Mathlib, no external tactics.
+- **TLC 2.19** — model-checked counterexample witnesses (delayed-fence,
+  VrrCoreEras). Ran from a standalone jar, not a submodule. Evidence in
+  `formal/uvrr-lean/evidence/tlc/` and `formal/uvrr-lean/evidence/delayed-fence/`.
+- **Leanstral** (Mistral) — LLM Lean proof generator. Reported in the paper as a
+  failed-attempt tool. No accepted Leanstral-generated proof is attributed.
+- **Showboat** — executable evidence packaging. Cited in the paper bibliography.
+- **Tectonic** — LaTeX build tool for `paper.tex` (via `paper/build.sh`).
+
+### Tools surveyed and abandoned (not submodules)
+
+The following were cloned during the research tool survey (items 12, 14a, 14b)
+but did not contribute to the paper or formalization. Their experiment records
+are committed under `research/`. Do not re-add them as submodules.
+
+- **Veil** — never tire-kicked. Pins v4.32.0 + pulls Mathlib. The formalization
+  uses plain Lean by design. Record: `research/tool-kick-tires.md`,
+  `research/outcomes-paper.md`.
+- **LeanLTL** — never exercised beyond checkout. Past-time operators remain
+  future work. Record: `research/outcomes-paper.md`.
+- **lean-auto / Duper** — exercised (2/3 theorems solved, T2 commutativity
+  timed out at 500s). Not a dependency of the formalization. Record:
+  `research/lean-solvers-cli-lean-auto.md`.
+- **Aesop** — exercised (4/4 propositional theorems solved). Not a dependency.
+  Record: `research/lean-solvers-cli-omega-aesop.md`.
+- **omega** — built into Lean, zero install. Not a dependency. Record: same as
+  Aesop.
+
+### Submodules
+
+- `maelstrom/` — Rust Maelstrom test harness. Retained. Unrelated to the paper.
+- No `tools/` submodules. The four exploratory tool submodules (tla2tools, veil,
+  LeanLTL, lean-auto) were removed after the survey concluded.
