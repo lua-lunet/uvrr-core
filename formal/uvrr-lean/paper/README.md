@@ -7,18 +7,20 @@ run Lean, Rust, Showboat, Codex, or any model service.
 From a terminal:
 
 ```sh
-cd /Users/Shared/lua-lunet/vrr-core/formal/uvrr-lean/paper
+cd formal/uvrr-lean/paper
 ./build.sh
 open paper.pdf
 ```
 
-Or invoke the script by its full path from any working directory:
+Or invoke the script by its path from any working directory:
 
 ```sh
-/Users/Shared/lua-lunet/vrr-core/formal/uvrr-lean/paper/build.sh
+formal/uvrr-lean/paper/build.sh
 ```
 
-Verified with Tectonic 0.17.0.
+Verified with Tectonic 0.17.0. The script fixes `SOURCE_DATE_EPOCH`, so two builds
+with the same Tectonic release and package bundle produce byte-identical PDFs; the
+recorded digest is in `../REPRODUCE.md`.
 
 Install the typesetter once, if needed, with `brew install tectonic`.
 Tectonic obtains and caches the ordinary LaTeX packages on the first build.
@@ -30,7 +32,7 @@ BibTeX step is needed. No credentials or paid API are required.
 
 Edit the title, author/email and `\paperrevision` near the beginning of
 paper.tex; edit the prose, equations and bibliography directly below them.
-The email is written exactly as supplied: simon.massey@stenograher.cloud.
+The email is written exactly as supplied: simon.massey@stenographer.cloud.
 The layout follows David C. Turner's UPaxos paper: US Letter, a two-column
 IEEE journal layout, Times text, a centered title/author, first-page contact
 notes, a title/revision header, top-right page numbers, and Roman-numbered

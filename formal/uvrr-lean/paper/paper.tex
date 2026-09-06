@@ -37,7 +37,7 @@
 \title{An Executable Safety Ladder Toward\\Unbounded Viewstamped Replication}
 \author{Simon Massey%
 \thanks{Research manuscript, 6 September 2026.}%
-\thanks{Simon Massey (email: \href{mailto:simon.massey@stenograher.cloud}{simon.massey@stenograher.cloud}).}}
+\thanks{Simon Massey (email: \href{mailto:simon.massey@stenographer.cloud}{simon.massey@stenographer.cloud}).}}
 \date{}
 
 \begin{document}
@@ -555,6 +555,39 @@ the acquisition interval; arbitrary churn with a bound on simultaneous
 recoveries alone is not a termination theorem. Mechanizing that temporal
 argument and composing it with log safety remain open.
 
+\subsection{Acquisition ordering and operational certificates}
+\texttt{AcquisitionOrder} checks the secondary induction of Theorem 3 in the
+extended report \cite{recovery}. With asynchronous per-participant witness
+times and a generic stable property, an online participant either retains its
+witness knowledge or inherits it from an earlier response quorum. Quorum
+intersection and forward ordering of those responses relative to the witness
+events discharge a strong induction over time, using core Lean's
+\code{Nat.strongRecOn}. A separate lemma derives that forward ordering from
+crash-vector consistency, conditional on recovery participants retaining
+incarnation knowledge. A countermodel satisfies every other origin condition
+except forward ordering and loses the property; a source mutation that
+removes the ordering premise is rejected.
+
+\texttt{RecoveryAcquire} then makes the acquisition operational, following
+Algorithm 1. Crash, start, emit, answer, collect and finish transitions act on
+an immutable authenticated message history. A crash erases all protocol
+knowledge and begins a fresh logical incarnation; request identity is an
+explicit echoed (incarnation, sequence) pair in addition to the response
+vector check. Induction over reachable states proves that every finished
+certificate is a crash-consistent quorum for exactly its request and
+incarnation, and that every historical reply originated at an operational
+sender. A three-node trace completes recovery at incarnation 1. An authentic
+reply from the same incarnation but an older request violates freshness when
+replayed into a new acquisition, which separates sequence freshness from
+incarnation freshness. Mutations that answer from a recovering sender or
+accept a stale request are rejected.
+
+These are acquisition mechanics with one active acquisition per node.
+Quorum-knowledge persistence across the acquisition interval, value
+reconstruction, the read quorum, mapping the echoed identity to the wire
+nonce contract, log integration and liveness remain open. Neither rung
+repairs the banked counterexample.
+
 \subsection{Casting votes and the design model}
 The inherited casting-vote lemma assumes an old decision quorum $q$, a new
 promise quorum $q'$, and a leader $\ell$ with $q\cap q'=\{\ell\}$. Sending
@@ -628,7 +661,8 @@ The checked additions are numbered 9 (general weights), 10 (operational
 acceptor), 11 (suffix promises), 12 (fault controls), 13 (whole-log
 selection), 14 (normal-log provenance), 15 (fenced histories), and 16
 (shared multi-view preservation), 17 (conditional recovery fencing), 18
-(repeated-recovery counterexample), and 19 (crash-vector collection). The original
+(repeated-recovery counterexample), 19 (crash-vector collection), 20
+(acquisition ordering), and 21 (operational acquisition certificates). The original
 report is retained as an audit input. Its statement that every rung includes
 a successful build and axiom report does not hold for rung 8.
 
@@ -651,6 +685,20 @@ fingerprints. This finite exploration is separate from kernel-checked
 unbounded theorems. The \code{VrrCoreErasM1.cfg} transfer mutation produced
 the expected \code{FrontiersOrdered} violation in 1.2 seconds. Source and
 configuration hashes and full logs are retained for both runs.
+
+A single executable document, \code{REPRODUCE.md}, packages the whole
+chain: the exact tool versions (Lean 4.33.1, Lake 5.0.0, Showboat 0.6.1,
+TLC 2.19 from the \code{v1.7.4} release of \code{tla2tools.jar} pinned by
+SHA-256, Tectonic 0.17.0 and the Rust 1.96.0 toolchain), the library build,
+the axiom audit, every rung replay, the mutation controls, the three TLC
+runs, the Rust gates, the expected-Red recovery replay, the paper build and
+SHA-256 digests of every input. \code{showboat verify REPRODUCE.md} reruns
+all of it and diffs the captured output. The paper build fixes
+\code{SOURCE\_DATE\_EPOCH}, so the rendered PDF is byte-identical across
+builds with the same Tectonic release and package bundle, and its digest is
+recorded. The mutated-configuration TLC run is replayed with one worker,
+because a multi-worker search stops at a nondeterministic point after the
+first violation; only the violated invariant is compared.
 
 \subsection{Bounded multi-model proof assistance}
 Leanstral is a Lean-oriented model available through Mistral's tooling. Its
@@ -717,22 +765,20 @@ novelty claims will be evaluated against that completed specification and its
 experimental evidence.
 
 \appendix[Reproduction commands]
-From the repository root, with Lean and Showboat installed:
+From the repository root, with the tools listed in
+\code{formal/uvrr-lean/REPRODUCE.md} installed at the recorded versions:
 \begin{verbatim}
 export PATH="$HOME/.elan/bin:$PATH"
 cd formal/uvrr-lean
-lake build
-for f in ladder/[0-9][0-9]-*.md; do
-  showboat verify "$f" || exit
-done
-python3 check_mutations.py
-python3 check_axioms.py
+showboat verify REPRODUCE.md
 \end{verbatim}
-The broader glob includes new two-digit rungs; \code{0*.md} only selects
-numbers below 10. These checks use the pinned Lean toolchain. Showboat
-transcripts depend on command output as well as exit status; a fresh build is
-run independently of transcript replay. Historical rejected drafts are
-quarantined outside the compiled library.
+That document lists every command with its captured output, and
+\code{showboat extract REPRODUCE.md} emits a shell script that recreates it.
+The document runs the pinned Lean toolchain declared in
+\code{lean-toolchain}. Showboat transcripts compare command output, not only
+exit status, so a fresh library build is recorded independently of transcript
+replay. Historical rejected drafts are quarantined outside the compiled
+library.
 
 \begin{thebibliography}{9}
 \bibitem{diskless} E.~Michael, D.~R.~K. Ports, N.~K. Sharma, and A.~Szekeres,

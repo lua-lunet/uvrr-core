@@ -681,7 +681,7 @@ are unchanged, so the immediately preceding passing Rust gates are reused;
 no additional recovery/TLC run or model-service call was needed.
 
 The user then requested an independently editable paper, identified himself
-as Simon Massey, supplied simon.massey@stenograher.cloud, and asked to mimic
+as Simon Massey, supplied simon.massey@stenographer.cloud, and asked to mimic
 David Turner's paper layout. Compared the downloaded primary PDF's first two
 pages, font information and dimensions. Changed the manuscript to IEEEtran,
 US Letter, Times text, centered title/author, first-page contact notes,
@@ -705,3 +705,29 @@ actual crash-vector acquisition transitions. Preserve the user's forthcoming
 manuscript edits: inspect the current diff before editing, and never regenerate
 paper.tex from an older snapshot. The full recovery counterexample remains
 unresolved and the end-to-end goal remains active.
+
+## 2026-09-06 O — inherited rung 21 verified; rung 12 transcript regenerated
+
+Rung 21 (`UVRR/RecoveryAcquire.lean`, `ladder/21-recovery-acquisition.md`)
+and its mutation controls were authored by the preceding run, which halted on
+exhausted credit before writing a lab book entry; the files arrived in the
+work-in-progress commit `089c151`. This entry records independent
+verification, not authorship. The module makes crash-vector acquisition
+operational with crash, start, emit, answer, collect and finish transitions
+over an immutable message history. Reachability induction proves that every
+finished certificate is a crash-consistent quorum for exactly its request and
+incarnation and that historical replies originate at operational senders. A
+three-node trace completes recovery at incarnation 1, and an authentic
+same-incarnation reply to an older request is rejected as stale. Persistence,
+reconstruction, the read quorum, the wire nonce mapping, log integration,
+liveness and any production repair remain open. The banked public-path Red
+is unchanged.
+
+Verification: `lake build` passes with 22 jobs; the axiom audit accepts 345
+declarations with only standard axioms; all mutation controls pass, including
+the recovering-sender and stale-request rejections; rung 21 replays. Rung 12
+did not replay: its recorded listing of `NegativeControls.lean` and
+`check_mutations.py` predated the mutation additions of rungs 17–21, so
+`showboat verify` diffed on its first block. It was regenerated from its own
+extracted recipe (`showboat extract`), and now replays; no Lean source or
+mutation changed. Manifest: `evidence/recovery-acquire/validation.json`.

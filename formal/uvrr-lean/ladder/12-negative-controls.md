@@ -1,7 +1,7 @@
 # Rung 12: Fault injection and assumption independence
 
-*2026-09-06T07:32:54Z by Showboat 0.6.1*
-<!-- showboat-id: 1c648562-4fe7-4d7e-b26e-7be5e9f2ec8e -->
+*2026-09-06T09:49:38Z by Showboat 0.6.1*
+<!-- showboat-id: 9ae07982-3dbd-4b6d-be61-77cc74124aa0 -->
 
 Claim: wrong value selection, a forgotten prior vote, and empty decision quorums each admit conflicting choices under the other stated abstract invariants. These witnesses establish independence in this history model. Compile-failure mutations additionally test sensitivity of the existing quorum checker and schedule; a sorryAx injection confirms why compiler success alone is insufficient.
 
@@ -260,6 +260,28 @@ def main():
         ):
             raise RuntimeError("acquisition-order mutant was not rejected by the proof:\n" + output)
         print("PASS Lean rejects omitted acquisition response ordering")
+        operational = (ROOT / "UVRR/RecoveryAcquire.lean").read_text()
+        path.write_text(operational)
+        result = lean(path)
+        if result.returncode != 0:
+            raise RuntimeError("unchanged recovery-acquisition control failed:\n" + result.stdout + result.stderr)
+        guards = [
+            ("recovering sender response", "(online : (s.nodes a).online = true) :",
+             "(online : True) :"),
+            ("stale acquisition request", "(sequence : r.value.sequence = (s.nodes a).sequence)",
+             "(sequence : True)"),
+        ]
+        for name, old, new in guards:
+            assert operational.count(old) == 1, f"guard location changed: {name}"
+            path.write_text(operational.replace(old, new))
+            result = lean(path)
+            output = result.stdout + result.stderr
+            if result.returncode == 0 or "error:" not in output or any(
+                marker in output for marker in
+                ("unknown module", "unknown module prefix", "memory", "heartbeats")
+            ):
+                raise RuntimeError(f"operational mutant was not rejected: {name}\n{output}")
+            print(f"PASS Lean rejects {name}")
         path.write_text("theorem injected_hole : False := by sorry\n#print axioms injected_hole\n")
         result = lean(path)
         if result.returncode != 0 or "sorryAx" not in result.stdout:
@@ -310,5 +332,7 @@ PASS Lean rejects cross-view prepare receipt
 PASS Lean rejects stale recovery episode evidence
 PASS Lean rejects omitted crash-vector filtering
 PASS Lean rejects omitted acquisition response ordering
+PASS Lean rejects recovering sender response
+PASS Lean rejects stale acquisition request
 PASS axiom audit detects sorryAx despite compiler exit 0
 ```

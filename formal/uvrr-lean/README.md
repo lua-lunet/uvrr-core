@@ -21,7 +21,7 @@ no proof harness or model service is involved.
 ## Verified research checkpoint — 6 September 2026
 
 The current [LaTeX manuscript](paper/paper.tex) and [rendered paper](paper/paper.pdf)
-state the results through rung 19 and the remaining end-to-end proof obligations.
+state the results through rung 21 and the remaining end-to-end proof obligations.
 The repeated-recovery counterexample and its published antecedent are included.
 The [laboratory book](LAB-BOOK.md) records commands, failures, bounded Leanstral
 experiments, and commit checkpoints. The original DOCX and rungs 1–8 remain
@@ -52,10 +52,22 @@ draft, rather than a proved theorem. The current ladder is:
 | 18 | Public Rust path and directed TLC trace | Reproduced unresolved committed divergence after serial recoveries; an expected Red witness, not a safety theorem |
 | 19 | `CrashVector.lean` | Published crash-vector collector: arbitrary reachable reply sets satisfy incarnation consistency; stale-quorum witness and filter-removal control |
 | 20 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; incarnation-retention premise remains open; backward-response countermodel |
+| 21 | `RecoveryAcquire.lean` | Operational crash/start/emit/answer/collect/finish acquisition; finished certificates are crash-consistent quorums for exactly their request and incarnation; stale-request countermodel |
 
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"
 cd formal/uvrr-lean
+showboat verify REPRODUCE.md
+```
+
+[REPRODUCE.md](REPRODUCE.md) is the single executable reproduction document:
+exact tool versions, the library build, the axiom audit, every rung replay,
+the mutation controls, the three TLC runs from a hash-pinned jar, the Rust
+gates, the expected-Red recovery replay, the paper build and input digests.
+`showboat extract REPRODUCE.md` emits the shell commands that recreate it.
+The individual rungs can still be replayed one at a time:
+
+```sh
 lake build
 python3 check_axioms.py
 for f in ladder/[0-9][0-9]-*.md; do showboat verify "$f" || exit; done
