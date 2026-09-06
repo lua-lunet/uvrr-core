@@ -1,0 +1,40 @@
+'CastingVote.noninterference' does not depend on any axioms
+'CastingVote.guard_preserved' does not depend on any axioms
+'CastingVote.completes_phase1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'CastingVote.example3' depends on axioms: [propext, Quot.sound]
+'Counterexample.intra_ok' does not depend on any axioms
+'Counterexample.cross_fails' does not depend on any axioms
+'Counterexample.not_p1' does not depend on any axioms
+'Counterexample.eraMono' depends on axioms: [propext, Quot.sound]
+'Counterexample.eraLe' does not depend on any axioms
+'Counterexample.p23' does not depend on any axioms
+'Counterexample.p4' does not depend on any axioms
+'Counterexample.p5' does not depend on any axioms
+'Counterexample.p6' does not depend on any axioms
+'Counterexample.p7' does not depend on any axioms
+'Counterexample.two_chosen' does not depend on any axioms
+'Counterexample.cross_frown_necessary' depends on axioms: [propext, Quot.sound]
+'Frown.symm' does not depend on any axioms
+'Paxos.lemma9' depends on axioms: [propext, Quot.sound]
+'Paxos.toSynod_inv' depends on axioms: [propext, Quot.sound]
+'Paxos.theorem10' depends on axioms: [propext, Quot.sound]
+'bLt_iff' does not depend on any axioms
+'bLt_wf' does not depend on any axioms
+'bLt_trans' depends on axioms: [propext, Classical.choice, Quot.sound]
+'bLt_irrefl' depends on axioms: [propext, Quot.sound]
+'bLt_total' depends on axioms: [propext, Classical.choice, Quot.sound]
+'bLt_era_mono' depends on axioms: [propext, Quot.sound]
+'Paxos.theorem10_lex' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Paxos.eraMono_lex' depends on axioms: [propext, Quot.sound]
+'frownB_iff' depends on axioms: [propext, Quot.sound]
+'p1B_sound' depends on axioms: [propext, Quot.sound]
+'hotswap_ge2' does not depend on any axioms
+'hotswap_p1' depends on axioms: [propext, Quot.sound]
+'wholesale_intra' depends on axioms: [propext, Quot.sound]
+'wholesale_cross_fails' depends on axioms: [propext, Quot.sound]
+'Synod.lemma6' does not depend on any axioms
+'Synod.lemma7' does not depend on any axioms
+'Synod.theorem8' does not depend on any axioms
+'rows_ok' depends on axioms: [propext, Quot.sound]
+'rows_p1' depends on axioms: [propext, Quot.sound]
+'plus_two_breaks' depends on axioms: [propext, Quot.sound]
