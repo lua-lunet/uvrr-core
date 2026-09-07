@@ -104,7 +104,10 @@ fn three() -> Configuration {
 /// operations in the alphabet, `Double` is global, and the cap refuses anything higher.
 /// Per-member asymmetry is built afterwards with `Join` (weight 0) and `Increment`.
 fn raise_all(nodes: &[NodeId], target: u32) -> Configuration {
-    assert!((1..=MAX_WEIGHT).contains(&target), "Init starts every member at weight 1, and the domain ends at MAX_WEIGHT");
+    assert!(
+        (1..=MAX_WEIGHT).contains(&target),
+        "Init starts every member at weight 1, and the domain ends at MAX_WEIGHT"
+    );
 
     let mut config = initialised(nodes);
     let mut slot = Slot(3);

@@ -314,7 +314,9 @@ pub fn forced_steps(
         // The subtract-one rule, always era-safe: each solitary `Decrement` era
         // is a unit batch moving exactly one unit of mass (R14).
         for _ in 0..weight.saturating_sub(1) {
-            eras.push(SystemOperation::Batch(vec![SystemOperation::Decrement(old)]));
+            eras.push(SystemOperation::Batch(vec![SystemOperation::Decrement(
+                old,
+            )]));
         }
         if weight >= 1 {
             // The crossing era: old reaches weight 0 and the new identity joins
@@ -350,7 +352,9 @@ pub fn forced_steps(
                     },
                     SystemOperation::Leave(old),
                 ]));
-                eras.push(SystemOperation::Batch(vec![SystemOperation::Increment(new)]));
+                eras.push(SystemOperation::Batch(vec![SystemOperation::Increment(
+                    new,
+                )]));
             }
             Some(0) => {
                 // A recompute mid-sequence: the join already committed, so the
@@ -377,10 +381,14 @@ pub fn forced_steps(
                     node: new,
                     position: append_position,
                 }]));
-                eras.push(SystemOperation::Batch(vec![SystemOperation::Increment(new)]));
+                eras.push(SystemOperation::Batch(vec![SystemOperation::Increment(
+                    new,
+                )]));
             }
             Some(0) => {
-                eras.push(SystemOperation::Batch(vec![SystemOperation::Increment(new)]));
+                eras.push(SystemOperation::Batch(vec![SystemOperation::Increment(
+                    new,
+                )]));
             }
             // The rejoin is complete: the old identity is gone, the new identity
             // votes.

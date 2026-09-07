@@ -518,7 +518,10 @@ impl Configuration {
                         }),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(Configuration { era: self.era, order })
+                Ok(Configuration {
+                    era: self.era,
+                    order,
+                })
             }
             SystemOperation::Halve => {
                 // R10: every weight must be even — refused, never rounded down. The
@@ -539,7 +542,10 @@ impl Configuration {
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(Configuration { era: self.era, order })
+                Ok(Configuration {
+                    era: self.era,
+                    order,
+                })
             }
             SystemOperation::Join { node, position } => {
                 // R11: the join inserts a learner (R2) — there is no operation
@@ -937,9 +943,7 @@ impl Pack for SystemOperation {
             SystemOperation::Increment(_) | SystemOperation::Decrement(_) => 1 + 4,
             SystemOperation::Join { .. } => 1 + 4 + 4,
             SystemOperation::Leave(_) => 1 + 4,
-            SystemOperation::Batch(ops) => {
-                1 + 4 + ops.iter().map(Pack::packed_len).sum::<usize>()
-            }
+            SystemOperation::Batch(ops) => 1 + 4 + ops.iter().map(Pack::packed_len).sum::<usize>(),
         }
     }
 
@@ -1059,7 +1063,10 @@ impl Snapshot {
         // `order` is a list of distinct identifiers, and a duplicate would let one
         // node's weight be counted twice.
         for (index, member) in self.order.iter().enumerate() {
-            if self.order[..index].iter().any(|other| other.node == member.node) {
+            if self.order[..index]
+                .iter()
+                .any(|other| other.node == member.node)
+            {
                 return Err(ConfigError::DuplicateNode(member.node));
             }
         }

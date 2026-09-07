@@ -100,10 +100,7 @@ impl Configuration {
                         config: current.clone(),
                     });
                     batch_start = current.clone();
-                    match batch_start.apply(
-                        &SystemOperation::Batch(vec![op.clone()]),
-                        Slot(0),
-                    ) {
+                    match batch_start.apply(&SystemOperation::Batch(vec![op.clone()]), Slot(0)) {
                         Ok(next) => {
                             taken = vec![op.clone()];
                             current = next;

@@ -16,7 +16,7 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use vrr::configuration::{
-    ConfigError, Configuration, Member, SystemOperation, Weight, INIT_SLOT, MAX_WEIGHT, VOID_SLOT,
+    ConfigError, Configuration, INIT_SLOT, MAX_WEIGHT, Member, SystemOperation, VOID_SLOT, Weight,
 };
 use vrr::ids::{Era, NodeId, Slot};
 use vrr::quorum::{QuorumStrategy, Role, WeightedMajority};
@@ -141,12 +141,7 @@ fn assert_weight_domain(steps: &[Configuration]) {
 #[test]
 fn many_zero_weight_joins_commit_one_era() {
     let genesis = fold_genesis();
-    let joins = vec![
-        join(n(3), 3),
-        join(n(4), 4),
-        join(n(5), 5),
-        join(n(6), 6),
-    ];
+    let joins = vec![join(n(3), 3), join(n(4), 4), join(n(5), 5), join(n(6), 6)];
 
     let batch = SystemOperation::Batch(joins.clone());
     let era = genesis
@@ -213,13 +208,13 @@ fn learners_come_and_go_in_one_era() {
     assert_eq!(weights(&era), vec![1, 1, 1, 0, 0]);
     assert_era_safe(&[genesis, learner.clone(), era]);
 
-    let stream = vec![
-        SystemOperation::Leave(n(3)),
-        join(n(4), 3),
-        join(n(5), 4),
-    ];
+    let stream = vec![SystemOperation::Leave(n(3)), join(n(4), 3), join(n(5), 4)];
     let steps = learner.plan(&stream).expect("the stream plans");
-    assert_eq!(steps.len(), 1, "the mixed zero-mass stream plans to one era");
+    assert_eq!(
+        steps.len(),
+        1,
+        "the mixed zero-mass stream plans to one era"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +308,10 @@ fn resurrection_four_split_into_exactly_two_eras() {
     );
     assert_eq!(
         steps[1].ops,
-        vec![SystemOperation::Increment(n(3)), SystemOperation::Leave(n(2))]
+        vec![
+            SystemOperation::Increment(n(3)),
+            SystemOperation::Leave(n(2))
+        ]
     );
     assert_eq!(weights(&steps[0].config), vec![1, 1, 0, 0]);
     assert_eq!(weights(&steps[1].config), vec![1, 1, 1]);
@@ -417,7 +415,10 @@ fn scaling_ops_are_solitary_in_a_batch() {
     assert_eq!(weights(&doubled), vec![2, 2, 2]);
     assert_eq!(doubled.era(), Era(2));
     let halved = doubled
-        .apply(&SystemOperation::Batch(vec![SystemOperation::Halve]), Slot(4))
+        .apply(
+            &SystemOperation::Batch(vec![SystemOperation::Halve]),
+            Slot(4),
+        )
         .expect("a solitary Halve is its own legal batch");
     assert_eq!(weights(&halved), vec![1, 1, 1]);
 }
@@ -530,7 +531,11 @@ fn leave_refuses_at_positive_weight() {
 /// is still inside {0, 1, 2} (R1): the closure the domain argument rests on.
 #[test]
 fn weights_never_leave_the_domain() {
-    for configs in [grid_one_configs(), grid_two_configs(), resurrection_configs()] {
+    for configs in [
+        grid_one_configs(),
+        grid_two_configs(),
+        resurrection_configs(),
+    ] {
         assert_weight_domain(&configs);
     }
 }
@@ -638,11 +643,17 @@ fn grid_two_is_reproduced_row_by_row() {
     let steps = genesis.plan(&stream).expect("the stream plans");
     assert_eq!(steps.len(), 6, "the doubled grid splits into six eras");
     assert_eq!(steps[0].ops, vec![SystemOperation::Double]);
-    assert_eq!(steps[1].ops, vec![join(z, 3), SystemOperation::Increment(z)]);
+    assert_eq!(
+        steps[1].ops,
+        vec![join(z, 3), SystemOperation::Increment(z)]
+    );
     assert_eq!(steps[2].ops, vec![SystemOperation::Decrement(n(2))]);
     assert_eq!(
         steps[3].ops,
-        vec![SystemOperation::Decrement(n(2)), SystemOperation::Leave(n(2))]
+        vec![
+            SystemOperation::Decrement(n(2)),
+            SystemOperation::Leave(n(2))
+        ]
     );
     assert_eq!(steps[4].ops, vec![SystemOperation::Increment(z)]);
     assert_eq!(steps[5].ops, vec![SystemOperation::Halve]);
@@ -889,8 +900,16 @@ fn snapshot_plus_wal_fold_equals_the_flat_stream() {
     assert_eq!(order(&from_wal), order(&flat));
     assert_eq!(shape(&from_wal), shape(&flat));
     assert_eq!(from_wal.total(), flat.total());
-    assert_eq!(from_wal.era(), Era(7), "six batches + the genesis two = era 7");
-    assert_eq!(flat.era(), Era(9), "eight singles + the genesis two = era 9");
+    assert_eq!(
+        from_wal.era(),
+        Era(7),
+        "six batches + the genesis two = era 7"
+    );
+    assert_eq!(
+        flat.era(),
+        Era(9),
+        "eight singles + the genesis two = era 9"
+    );
 }
 
 // ---------------------------------------------------------------------------
