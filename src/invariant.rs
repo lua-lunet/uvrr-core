@@ -127,6 +127,7 @@ impl HeaderSlotRole {
 /// | `PlannedViewChange` | `Absent` | like `StartViewChange`, and must not fence (§8.7.7) |
 /// | `GetState` | `Frontier` | the requester's accepted frontier; the fetch resumes one past it (§4, §13.1 step 5) |
 /// | `NewState` | `Frontier` | the last slot the chunk covers; `more` on a partial answer resumes from the requester's cursor (§4, §13.1 step 5) |
+/// | `Reincarnation` | `Absent` | names two identities, no history claim (`docs/uvrr-reincarnation.md` §4) |
 ///
 /// A `match` rather than a lookup table, on the codebase's standing reasoning: the
 /// compiler checks that every tag has a rule, and a tag added to `wire` without a
@@ -143,6 +144,7 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
         Tag::PlannedViewChange => HeaderSlotRole::Absent,
         Tag::GetState => HeaderSlotRole::Frontier,
         Tag::NewState => HeaderSlotRole::Frontier,
+        Tag::Reincarnation => HeaderSlotRole::Absent,
     }
 }
 
@@ -251,7 +253,8 @@ fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) ->
             | Tag::Commit
             | Tag::StartViewChange
             | Tag::PlannedViewChange
-            | Tag::GetState => false,
+            | Tag::GetState
+            | Tag::Reincarnation => false,
         },
         InputKind::ClientRequest
         | InputKind::Tick

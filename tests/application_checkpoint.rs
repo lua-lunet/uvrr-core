@@ -89,8 +89,8 @@ fn commit_unapplied(h: &mut Harness, lsb: u64, payload: &[u8]) {
     h.deliver_all();
 }
 
-/// A fabricated `RecoveryResponse` envelope (the header slot is the Absent
-/// sentinel; the frontiers ride in the body).
+/// An ordinary commit cascade (the header slot names the committed slot;
+/// the frontiers ride in the body).
 #[test]
 fn ordered_apply_never_above_committed() {
     let mut h = Harness::provision(3);

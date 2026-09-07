@@ -37,7 +37,8 @@ unsafe extern "C" {
     ) -> c_int;
     fn uvrr_clean_shutdown() -> c_int;
     fn uvrr_dirty_restart() -> c_int;
-    fn uvrr_op(op: c_int, identity_lo: u64, identity_hi: u64, weight: u16, learner: c_int) -> c_int;
+    fn uvrr_op(op: c_int, identity_lo: u64, identity_hi: u64, weight: u16, learner: c_int)
+    -> c_int;
     fn uvrr_checkpoint() -> c_int;
     fn uvrr_sequence() -> u64;
     fn uvrr_incarnation() -> u64;
@@ -77,9 +78,7 @@ fn main() {
 
     println!("== format: 4 superblock copies + ops WAL + one 4KiB checkpoint block (TB direct IO)");
     check(
-        unsafe {
-            uvrr_format(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0, 1)
-        },
+        unsafe { uvrr_format(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0, 1) },
         "format",
     );
     unsafe { uvrr_close() };
@@ -128,7 +127,10 @@ fn main() {
         "open",
     );
     // A crash that left copy 0 recorded unflushed (consistent header, flushed=0).
-    check(unsafe { uvrr_simulate_dirty_copy(0) }, "simulate_dirty_copy");
+    check(
+        unsafe { uvrr_simulate_dirty_copy(0) },
+        "simulate_dirty_copy",
+    );
     unsafe { uvrr_close() };
 
     check(
@@ -148,7 +150,11 @@ fn main() {
     );
     let new_identity = unsafe { uvrr_incarnation() };
     assert_eq!(new_identity, old_identity + 1, "incarnation bumped");
-    assert_eq!(unsafe { uvrr_flushed() }, 0, "bumped copies start unflushed");
+    assert_eq!(
+        unsafe { uvrr_flushed() },
+        0,
+        "bumped copies start unflushed"
+    );
     println!("   REINCARNATION: identity {old_identity} -> {new_identity} (higher identity wins)");
     check(unsafe { uvrr_clean_shutdown() }, "clean_shutdown");
     unsafe { uvrr_close() };
@@ -182,7 +188,10 @@ fn member_remove(identity: u64) {
 }
 
 fn member_double(identity: u64) {
-    check(unsafe { uvrr_op(OP_DOUBLE, identity, 0, 0, 0) }, "op double");
+    check(
+        unsafe { uvrr_op(OP_DOUBLE, identity, 0, 0, 0) },
+        "op double",
+    );
 }
 
 fn member_halve(identity: u64) {

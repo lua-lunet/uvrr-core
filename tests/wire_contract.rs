@@ -41,7 +41,7 @@ use vrr::wire::{Header, Malformed, Pack, PackError, Tag, Unpack, UnpackCursor, U
 /// Every `Tag`, in discriminant order. Used by the round-trip and exhaustiveness
 /// groups. Kept as an explicit list rather than derived from a `Tag::ALL` constant so
 /// that the test agrees with the brief's table independently of the implementation.
-const ALL_TAGS: [Tag; 9] = [
+const ALL_TAGS: [Tag; 10] = [
     Tag::Prepare,
     Tag::PrepareOk,
     Tag::Commit,
@@ -51,6 +51,7 @@ const ALL_TAGS: [Tag; 9] = [
     Tag::PlannedViewChange,
     Tag::GetState,
     Tag::NewState,
+    Tag::Reincarnation,
 ];
 
 /// Encodes `value` into a fresh `Vec` sized by `packed_len()` and asserts the write
@@ -633,6 +634,7 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
             Tag::PlannedViewChange => 8,
             Tag::GetState => 9,
             Tag::NewState => 10,
+            Tag::Reincarnation => 13,
         };
         assert_eq!(
             tag.as_u32(),
@@ -657,11 +659,15 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
         let tag = Tag::from_u32(candidate).expect("2..=10 are all tags");
         assert_eq!(tag.as_u32(), candidate);
     }
+    assert_eq!(
+        Tag::from_u32(13),
+        Some(Tag::Reincarnation),
+        "13 is the reincarnation tag"
+    );
     assert_eq!(Tag::from_u32(0), None, "0 is reserved, not a tag");
     assert_eq!(Tag::from_u32(1), None, "1 is retired, not a tag");
     assert_eq!(Tag::from_u32(11), None, "11 is retired, not a tag");
     assert_eq!(Tag::from_u32(12), None, "12 is retired, not a tag");
-    assert_eq!(Tag::from_u32(13), None, "13 is not yet a tag");
 
     // `PlannedViewChange` is a distinct tag rather than a flag on `StartViewChange`
     // (§8.7.7 step 4). Distinct discriminants are the mechanical expression of that.

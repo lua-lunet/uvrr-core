@@ -641,7 +641,7 @@ impl Harness {
         let mut results = Vec::new();
         for index in 0..self.nodes.len() {
             if self.nodes[index].is_some() {
-                let id = self.genesis_order[index];
+                let id = NodeId(u32::try_from(index).expect("node ids are small"));
                 let outcome = self.drive(id, format!("n={} tick", id.0), Input::Tick);
                 results.push((id, outcome));
             }
@@ -1112,7 +1112,7 @@ impl Harness {
                     };
                     self.applied[index].push((slot, payload.clone()));
                     self.boundary.push(BoundaryEvent::Applied {
-                        node: self.genesis_order[index],
+                        node: NodeId(u32::try_from(index).expect("node ids are small")),
                         slot,
                         operation_id,
                     });
@@ -1237,6 +1237,82 @@ impl Harness {
         }
     }
 
+    /// The reincarnation restart (§2 of `docs/uvrr-reincarnation.md`): the
+    /// dirty path made concrete. The node that ran as `id` lost its
+    /// volatile state and reopened under a NEW identity `new` — same disk,
+    /// same journal, new `own`. The new identity is not a member until the
+    /// forced sequence joins it; addressable from this moment on.
+    ///
+    /// Identity is not reused: the identity that crashed is never resumed
+    /// (same-identity recovery after volatile-state loss is
+    /// unrepresentable), so the script names a fresh `new`.
+    pub fn restart_as(&mut self, id: NodeId, new: NodeId) -> Result<(), LifecycleRefusal> {
+        let old_index = self.index_of(id);
+        assert!(
+            self.nodes[old_index].is_none(),
+            "n={} is up; crash it before reincarnating it",
+            id.0
+        );
+        assert_ne!(id, new, "reincarnation always changes the identity");
+        let (journal, persisted, config) = match self.disks[old_index].as_ref() {
+            Some(disk) => (
+                clone_journal(&disk.journal, self.tail_capacity),
+                disk.persisted,
+                Arc::clone(&disk.config),
+            ),
+            None => panic!("n={} has no recorded disk; crash it first", id.0),
+        };
+        match Replica::reopen(
+            new,
+            WeightedMajority,
+            journal,
+            persisted,
+            config,
+            self.stability,
+            self.knobs,
+        ) {
+            Ok(replica) => {
+                let new_index = self.grow_to(new);
+                self.install(new_index, replica);
+                self.record(format!("n={:?} restart_as(old n={:?})", new, id));
+                Ok(())
+            }
+            Err(error) => {
+                self.record(format!(
+                    "n={new:?} restart_as(old n={id:?}) refused: {error:?}"
+                ));
+                Err(error)
+            }
+        }
+    }
+
+    /// Grows the per-node vectors to cover `id` and returns its index.
+    /// Reincarnated identities live past the genesis order; every slot is
+    /// identity-indexed (`NodeId(i)` is index `i`), genesis members and
+    /// successors alike.
+    fn grow_to(&mut self, id: NodeId) -> usize {
+        let index = usize::try_from(id.0).expect("node ids are small");
+        while self.nodes.len() <= index {
+            self.nodes.push(None);
+            self.applied.push(Vec::new());
+            self.disks.push(None);
+            self.declared_faults.push(false);
+            self.faulted_known.push(false);
+        }
+        index
+    }
+
+    /// Feeds the node's `Input::Reincarnate { old }` (§4 of the doc): the
+    /// bumped node announces its pair to the current configuration's
+    /// members — the leader acts on it, the backups drop it by name.
+    pub fn reincarnate(&mut self, id: NodeId, old: NodeId) -> StepOutcome {
+        self.drive(
+            id,
+            format!("n={} reincarnate (old n={})", id.0, old.0),
+            Input::Reincarnate { old },
+        )
+    }
+
     fn install(&mut self, index: usize, replica: HarnessReplica) {
         // A fault present at construction — a persisted fault at reopen —
         // is seeded as known: the gate trips on transitions, and this fault
@@ -1304,7 +1380,7 @@ impl Harness {
                 }
             }
             evidence.push(NodeEvidence {
-                id: self.genesis_order[index],
+                id: NodeId(u32::try_from(index).expect("node ids are small")),
                 snapshot,
                 config: Arc::clone(node.replica.progress().config()),
                 committed,
@@ -1389,7 +1465,17 @@ impl Harness {
     /// trace line, run the legality gate. Every input a node receives comes
     /// through here, so the gate stands after every step by construction.
     fn drive(&mut self, id: NodeId, summary: String, input: Input) -> StepOutcome {
-        let index = self.index_of(id);
+        // An identity past the cluster is an unprovisioned node: the host
+        // cannot deliver to it, the same verdict as a crashed one. (A
+        // reconfiguration may add a member whose process was never
+        // started — its stream is recorded undeliverable.)
+        let Some(index) = usize::try_from(id.0)
+            .ok()
+            .filter(|&index| index < self.nodes.len())
+        else {
+            self.record(format!("{summary} -> NodeDown"));
+            return StepOutcome::NodeDown;
+        };
         let timed = TimedInput {
             at: self.tick,
             event: input,
@@ -1435,7 +1521,7 @@ impl Harness {
         match effect {
             Effect::Send { to, era, message } => {
                 self.network.route(Envelope {
-                    from: self.genesis_order[from],
+                    from: NodeId(u32::try_from(from).expect("node ids are small")),
                     to,
                     era,
                     message,

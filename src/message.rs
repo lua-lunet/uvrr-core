@@ -23,7 +23,7 @@
 //! [`wire::Tag`]: crate::wire::Tag
 
 use crate::configuration::SystemOperation;
-use crate::ids::{Slot, ViewId};
+use crate::ids::{NodeId, Slot, ViewId};
 use crate::journal::LogEntry;
 use crate::wire::{Header, Malformed, Pack, PackWriter, Tag, Unpack, UnpackCursor, UnpackError};
 
@@ -133,6 +133,19 @@ pub enum Body {
         /// the requester resumes with a fresh `GetState` from the cursor.
         more: bool,
     },
+    /// A reincarnation announcement (`docs/uvrr-reincarnation.md` §4): the
+    /// pair of identities the restarted node carries. Sent by the bumped
+    /// node to the leader; the leader drives the forced weight sequence of
+    /// §5 in reply. The pair is the freshness carrier where it meets the
+    /// `RecoveryFence` machinery (§4 of the doc): it supersedes the
+    /// `generation` ghost as the freshness carrier; that machinery is
+    /// untouched.
+    Reincarnation {
+        /// The identity the node operated under before the volatile loss.
+        old: NodeId,
+        /// The bumped identity the node now operates under.
+        new: NodeId,
+    },
 }
 
 /// Whether view-change evidence is ordinary or planned (§8.7.7).
@@ -184,17 +197,18 @@ impl Body {
             Body::PlannedViewChange {} => Tag::PlannedViewChange,
             Body::GetState { .. } => Tag::GetState,
             Body::NewState { .. } => Tag::NewState,
+            Body::Reincarnation { .. } => Tag::Reincarnation,
         }
     }
 
     /// The wire discriminant: the tag's numbering narrowed to one byte.
     ///
     /// The `expect` is unreachable by construction: [`Tag::as_u32`] yields
-    /// 2..=12, and the conversion is a `try_from` rather than a cast because
+    /// 2..=11, and the conversion is a `try_from` rather than a cast because
     /// the crate forbids `as` between integer widths — a tag added past 255
     /// fails loudly here instead of truncating onto the wire.
     fn discriminant(&self) -> u8 {
-        u8::try_from(self.tag().as_u32()).expect("tag discriminants are 2..=12")
+        u8::try_from(self.tag().as_u32()).expect("tag discriminants are 2..=11")
     }
 }
 
@@ -316,6 +330,7 @@ impl Pack for Body {
                 committed,
                 more: _,
             } => entries_packed_len(entries) + through.packed_len() + committed.packed_len() + 1,
+            Body::Reincarnation { old, new } => old.packed_len() + new.packed_len(),
         };
         1 + fields
     }
@@ -367,6 +382,10 @@ impl Pack for Body {
                 committed.pack(w);
                 w.bool(*more);
             }
+            Body::Reincarnation { old, new } => {
+                old.pack(w);
+                new.pack(w);
+            }
         }
     }
 }
@@ -387,6 +406,7 @@ impl Unpack for Body {
             8 => Tag::PlannedViewChange,
             9 => Tag::GetState,
             10 => Tag::NewState,
+            13 => Tag::Reincarnation,
             _ => return Err(UnpackError::Malformed(Malformed::OutOfDomain)),
         };
         let body = match tag {
@@ -422,6 +442,10 @@ impl Unpack for Body {
                 through: Slot::unpack(c)?,
                 committed: Slot::unpack(c)?,
                 more: c.bool()?,
+            },
+            Tag::Reincarnation => Body::Reincarnation {
+                old: NodeId::unpack(c)?,
+                new: NodeId::unpack(c)?,
             },
         };
         Ok(body)

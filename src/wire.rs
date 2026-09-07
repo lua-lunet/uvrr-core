@@ -708,7 +708,8 @@ impl Unpack for ViewId {
 /// [`Malformed::UnknownTag`] rather than as a valid message. A codec in which the
 /// absence of a message is a message cannot report a framing bug.
 ///
-/// Discriminants `1` and `13` are retired: they belonged to the client-datagram tags,
+/// Discriminants `1`, `11` and `12` are retired: they belonged to the deleted
+/// classic recovery-exchange tags and the client-datagram tags,
 /// which left the wire when the client boundary became a host concern (§11.1, B2).
 /// They stay reserved — reassigning them would collide with any deployment still
 /// carrying the old numbering on a wire.
@@ -760,6 +761,14 @@ pub enum Tag {
     GetState = 9,
     /// A history range in reply to `GetState`. Sizing is the host's (W5).
     NewState = 10,
+    /// A reincarnation announcement (`docs/uvrr-reincarnation.md` §4): the
+    /// bumped identity `(old, new)` pair, sent by the restarted node to the
+    /// leader, which drives the forced weight sequence in reply.
+    ///
+    /// Discriminant 13, not 11: discriminants 11 and 12 belonged to the
+    /// deleted classic recovery-exchange tags (the amnesia protocol this
+    /// protocol exists to have eliminated) and stay retired.
+    Reincarnation = 13,
 }
 
 impl Tag {
@@ -780,6 +789,7 @@ impl Tag {
             Tag::PlannedViewChange => 8,
             Tag::GetState => 9,
             Tag::NewState => 10,
+            Tag::Reincarnation => 13,
         }
     }
 
@@ -802,6 +812,7 @@ impl Tag {
             8 => Some(Tag::PlannedViewChange),
             9 => Some(Tag::GetState),
             10 => Some(Tag::NewState),
+            13 => Some(Tag::Reincarnation),
             _ => None,
         }
     }

@@ -897,6 +897,7 @@ fn a_faulted_replica_refuses_every_input_variant() {
             Input::Checkpointed { .. } => InputKind::Checkpointed,
             Input::Reconfigure { .. } => InputKind::Reconfiguration,
             Input::AdminForceView { .. } => InputKind::Admin,
+            Input::Reincarnate { .. } => InputKind::Admin,
         };
         assert_eq!(
             replica

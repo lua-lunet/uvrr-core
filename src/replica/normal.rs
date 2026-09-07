@@ -378,8 +378,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // proposed (§8.7.4) — is what makes the pair safe. Membership and
         // the strategy's decision both come from that record (Q1).
         let record = self.progress.config().current();
-        if record.config.weight_of(from).is_none() {
-            return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
+        // The §6 membership-discard rule (`docs/uvrr-reincarnation.md`):
+        // a sender outside the configuration is unknown; a sender whose
+        // weight is 0 is a learner — it receives history but contributes
+        // nothing to any quorum, so its vote is dropped before it is ever
+        // counted.
+        match record.config.weight_of(from) {
+            None => return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind),
+            Some(weight) if weight.0 == 0 => {
+                return self.drop_plan(Diagnostic::LearnerSender { sender: from }, kind);
+            }
+            Some(_) => {}
         }
         let proposal = if slot <= self.progress.committed() {
             None

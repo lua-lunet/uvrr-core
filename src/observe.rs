@@ -172,6 +172,26 @@ pub enum Diagnostic {
         /// The transport-attributed sender.
         sender: NodeId,
     },
+    /// A `PrepareOk` from a member whose weight is 0 — a learner (§8.4).
+    /// The learner receives history but contributes nothing to any quorum
+    /// (`docs/uvrr-reincarnation.md` §6: its messages are discarded on
+    /// ingress), so its acknowledgement is dropped before it is ever
+    /// counted.
+    LearnerSender {
+        /// The transport-attributed sender.
+        sender: NodeId,
+    },
+    /// A `Reincarnation` announcement (§4 of the doc) that the recipient
+    /// cannot act on: the recipient is not the leader of its current view,
+    /// or the message's sender is not the new identity it names. Dropped,
+    /// never faulted — the bumped node re-sends until a stable leader
+    /// exists (§8 of the doc).
+    ReincarnationRefused {
+        /// The transport-attributed sender.
+        sender: NodeId,
+        /// The recipient's current view.
+        view: ViewId,
+    },
     /// A `StartViewChange` for a view at or behind the node's fence target
     /// (§9.1). The change it fences has already happened — or a later one is
     /// already under way — so the vote cannot count twice (V_g ⌢ V_g, §8.3).

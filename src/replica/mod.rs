@@ -118,8 +118,13 @@ pub use crate::quorum::{PivotError, construct_pivot, validate_pivot};
 
 mod normal;
 mod reconfiguration;
+mod reincarnation;
 mod transfer;
 mod view_change;
+
+pub use reincarnation::{
+    CopyState, Incarnation, Marker, RestartClass, RestartDecision, SuperblockCopies, forced_steps,
+};
 
 /// One host event with the host tick attached (§6, S4).
 ///
@@ -212,6 +217,17 @@ pub enum Input {
         /// `target.era` the current era.
         target: ViewId,
     },
+    /// The host reports that this node bumped its identity (the dirty
+    /// path of `docs/uvrr-reincarnation.md` §2): the node was running as
+    /// `old`, its volatile state was lost, and it reopened under a new
+    /// identity — its `own`. The node answers the wire phase (§4) with a
+    /// `Reincarnation(old, own)` announcement to the current primary: the
+    /// one message a non-member is entitled to send (§6). A node that is
+    /// already a voting member announces nothing — a clean life continues.
+    Reincarnate {
+        /// The identity the node operated under before the loss.
+        old: NodeId,
+    },
 }
 
 /// The concrete vote sets of a non-stop reconfiguration (§8.7.6–§8.7.7).
@@ -243,6 +259,7 @@ impl Input {
             Input::Checkpointed { .. } => InputKind::Checkpointed,
             Input::Reconfigure { .. } => InputKind::Reconfiguration,
             Input::AdminForceView { .. } => InputKind::Admin,
+            Input::Reincarnate { .. } => InputKind::Admin,
         }
     }
 }
@@ -858,6 +875,19 @@ enum PlannedOverlapUpdate {
     Clear,
 }
 
+/// The reincarnation half of [`Bookkeeping`]: what a transition does to
+/// the leader's forced-sequence machine (§5 of `docs/uvrr-reincarnation.md`).
+#[derive(Clone, Debug, Default)]
+enum ReincarnationUpdate {
+    /// The machine is untouched.
+    #[default]
+    Unchanged,
+    /// Arm (or re-arm) the machine with an announced `(old, new)` pair.
+    Set(reincarnation::ForcedSequence),
+    /// The sequence is complete: the machine clears, never rewinds.
+    Clear,
+}
+
 /// What the new primary's completion attempt produced.
 enum WinOutcome {
     /// The transition to publish (the install, or the declared fault).
@@ -920,6 +950,8 @@ struct Bookkeeping {
     stalled: StalledUpdate,
     /// The planned-overlap update.
     planned: PlannedOverlapUpdate,
+    /// The reincarnation-machine update (§5 of the doc).
+    reincarnation: ReincarnationUpdate,
     /// Refresh of the primary-activity baseline (S4): the tick of a
     /// same-view `Prepare`/`Commit` from the legitimate primary, or of a
     /// `StartView` adoption — the new primary has just proved itself alive.
@@ -976,6 +1008,14 @@ impl PlannedTransition {
     fn with_fetch(mut self, effect: Effect, fetch: TransferVolatile) -> PlannedTransition {
         self.effects.push(effect);
         self.bookkeeping.transfer = TransferUpdate::Set(fetch);
+        self
+    }
+
+    /// Sets the reincarnation-machine update without disturbing the rest
+    /// of the transition's bookkeeping (the reconfiguration planner's
+    /// proposal records and overlap machine must survive).
+    fn with_reincarnation(mut self, update: ReincarnationUpdate) -> PlannedTransition {
+        self.bookkeeping.reincarnation = update;
         self
     }
 
@@ -1090,6 +1130,11 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// only at the pivot leader. Volatile: a crash discards the machine
     /// and the reopened node's path is the ordinary view change.
     planned: Option<PlannedOverlap>,
+    /// The leader's armed reincarnation machine (§5 of
+    /// `docs/uvrr-reincarnation.md`): the announced `(old, new)` pair.
+    /// Volatile like the other attempt state: a leader crash discards it,
+    /// and the bumped node re-announces to the stable leader (§8).
+    reincarnation: Option<reincarnation::ForcedSequence>,
 }
 
 // Manual, non-exhaustive: `Observation` is a seqlock with no `Debug` of its
@@ -1299,6 +1344,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             transfer: None,
             stalled: None,
             planned: None,
+            reincarnation: None,
         }
     }
 
@@ -1419,6 +1465,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Input::Reconfigure { op, pivot } => {
                 self.refuse_if_parked()?;
                 self.plan_reconfigure(journal, op, pivot)
+            }
+            Input::Reincarnate { old } => {
+                self.refuse_if_parked()?;
+                self.plan_reincarnate(journal, *old, input.event.kind())
             }
         }
     }
@@ -1617,6 +1667,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     transfer: TransferUpdate::Set(cursor),
                     ..Bookkeeping::default()
                 }));
+        }
+        // The reincarnation continuation (§5, §8 of
+        // `docs/uvrr-reincarnation.md`): the armed leader proposes the
+        // next forced step on an ordinary tick. Each committed step
+        // established a new era; the next waits for the view change into
+        // it, which the ordinary suspicion machinery drives.
+        if let Some(plan) = self.plan_forced_continuation(journal) {
+            return plan;
         }
         // The smallest honest transition: no protocol state
         // moves, and the interval machinery is genuinely exercised.
@@ -2210,6 +2268,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             PlannedOverlapUpdate::Set(machine) => self.planned = Some(machine),
             PlannedOverlapUpdate::Clear => self.planned = None,
         }
+        match bookkeeping.reincarnation {
+            ReincarnationUpdate::Unchanged => {}
+            ReincarnationUpdate::Set(machine) => self.reincarnation = Some(machine),
+            ReincarnationUpdate::Clear => self.reincarnation = None,
+        }
         for (slot, proposal) in bookkeeping.proposals {
             self.proposals.insert(slot, proposal);
         }
@@ -2518,6 +2581,24 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         at: Tick,
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRefusal> {
+        // The §6 membership-discard check (`docs/uvrr-reincarnation.md`):
+        // a message FROM a node outside the current committed
+        // configuration — a superseded old identity, or any other
+        // non-member — is discarded. The one exception is the
+        // `Reincarnation` announcement: it is the bumped node's entry
+        // ticket, the message that makes it a member. Messages TO such a
+        // node are unaffected.
+        if message.header.tag != Tag::Reincarnation
+            && self
+                .progress
+                .config()
+                .current()
+                .config
+                .weight_of(from)
+                .is_none()
+        {
+            return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
+        }
         let header = message.header;
         let current = self.progress.current();
         let primary_life = match &message.body {
@@ -2583,6 +2664,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             ),
             Body::PlannedViewChange {} => {
                 self.plan_planned_view_change(journal, from, message, kind)
+            }
+            Body::Reincarnation { old, new } => {
+                self.plan_reincarnation(journal, from, *old, *new, kind)
             }
         }?;
         Ok(if primary_life {
