@@ -1,7 +1,7 @@
 # Reproducing the uVRR safety-ladder evidence
 
-*2026-09-07T00:08:40Z by Showboat 0.6.1*
-<!-- showboat-id: 2275b99b-64db-405b-8460-fcc5de127870 -->
+*2026-09-07T01:35:11Z by Showboat 0.6.1*
+<!-- showboat-id: a560a858-eb8d-41bf-aa5b-28f622e128fd -->
 
 This is an executable laboratory document built with Simon Willison's Showboat. Every
 fenced `bash` block below was run, and the block after it is the output that was captured
@@ -19,7 +19,7 @@ a credential, or a model service.
 
 **What this document does and does not establish.** It shows that the Lean library
 compiles under the pinned toolchain, that every named declaration depends only on the
-three standard Lean axioms, that all 20 rung transcripts replay, that the fault-injection
+three standard Lean axioms, that all 21 rung transcripts replay, that the fault-injection
 mutations are rejected by the compiler, that the two TLC model checks reproduce, that
 the Rust implementation passes its gates, and that the paper builds to a byte-identical
 PDF. It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder
@@ -81,7 +81,7 @@ pdfinfo version 26.07.0
 
 ## 2. The Lean library
 
-`lake build` compiles all 19 modules of the `UVRR` library under the toolchain pinned in
+`lake build` compiles all 20 modules of the `UVRR` library under the toolchain pinned in
 `lean-toolchain`. On a fresh clone the compiler prints one line per module; only the final
 summary line is compared here. The digests that follow tie this transcript to the exact
 sources that were checked.
@@ -92,7 +92,7 @@ cat lean-toolchain; lake build 2>&1 | tail -1
 
 ```output
 leanprover/lean4:v4.33.1
-Build completed successfully (22 jobs).
+Build completed successfully (23 jobs).
 ```
 
 ```bash
@@ -103,7 +103,7 @@ shasum -a 256 lakefile.toml lake-manifest.json lean-toolchain UVRR.lean UVRR/*.l
 3278e7feb5801b189f9bf9861fcf942a0f6741a40c5c19d6ea6501e257fce718  lakefile.toml
 6e47b49409f143d341c4c6e804639227c01096f1628f765a9e75c9cc8b91e767  lake-manifest.json
 3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71  lean-toolchain
-ae004fa4171ea36a02acabf8dbfe84be3bfb4b6afdfa77dc55faff3ad599862e  UVRR.lean
+d7dbedb0785984c1d40e60fe482c7ba2e3a4c063b2af3cd5de60d5acfc503031  UVRR.lean
 447b859643b2b93cfba5504912cb3a6eea63b3b5d618aa3daeb1c8f9f50997e0  UVRR/Acceptor.lean
 4c57bf2b9ac24872ebfa4d748c2640f6ead82f1901ffb3eda46b1b1dc45e75c6  UVRR/AcquisitionOrder.lean
 eb7499f88feea53a0a972634acf5c8d30aaae3f6a75c3f6cde7cd13596ccbc9d  UVRR/CastingVote.lean
@@ -117,6 +117,7 @@ da655d993fccb7074d35e78f53df04d6dbaceaae5d3357f4169718f985c1f44b  UVRR/CrashVect
 3e7340de62ef42558df1e9a687876b1f85d99189f6c977e605f0c9293963a394  UVRR/NormalLog.lean
 8fd7ba97afdacdccca71fc30875fd72da385fea6670e2dd779ab3cf9b1a5e323  UVRR/RecoveryAcquire.lean
 3c6d33205b535dd20427ec65b166694c6527001aaa96648dba59fd25887dc5fe  UVRR/RecoveryFence.lean
+2f1225c59d14b80acf3eb599109c63f40000bd6817b2368be5c75c8a3870cccb  UVRR/Reincarnation.lean
 931d0ba52acbe700050a2444e1cab4f0f530c7c2517edfe962c57c694be33375  UVRR/Structure.lean
 d7c8b1934cde6236b24d8bf64f00f7611d171a194e2486287433cc57391003b9  UVRR/Synod.lean
 0bc8565547700d036d19909bd9a18aecd2bd7f8a785002bfe5c3a5f1a4e941d9  UVRR/ViewFence.lean
@@ -140,7 +141,7 @@ python3 check_axioms.py
 ```
 
 ```output
-PASS 345 declarations: only standard Lean axioms
+PASS 386 declarations: only standard Lean axioms
 ```
 
 ```bash
@@ -182,6 +183,7 @@ builds and diffs every captured output.
 | 18 | `CrashVector.lean` | Published crash-vector collector: reachable reply sets are incarnation-consistent |
 | 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; retention discharged by the durable superblock identity |
 | 20 | `RecoveryAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
+| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: forced-sequence definitions, reincarnation state machine and continuation commitment; unit-weight three-node era-safety instances; general theorems listed as proof obligations |
 
 ```bash
 for f in ladder/[0-9][0-9]-*.md; do
@@ -210,6 +212,7 @@ ok   ladder/17-recovery-fence.md
 ok   ladder/18-crash-vector.md
 ok   ladder/19-acquisition-order.md
 ok   ladder/20-recovery-acquisition.md
+ok   ladder/22-reincarnation.md
 ```
 
 ### 3.1 Compiler-rejected mutations
@@ -323,20 +326,6 @@ if rg -qi paxos src; then echo "FAIL Paxos reference under src/"; exit 1; else e
 ```output
 fmt clean
 clippy clean with -D warnings
-      3 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      2 test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      2 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      2 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      2 test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      2 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 doctests:
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 no inline tests under src/
@@ -358,7 +347,7 @@ printf "overfull boxes: %s\n" "$(grep -c Overfull paper/paper.log || true)"
 ```
 
 ```output
-d989ce84b65e1b9bd72edc31735d6220c8240020e8abca801c111adf79ab09ae  paper/paper.pdf
+26bdd16e02d837bb1b5db743e6c151a85150478a4e9dcdc4a8a39b0271a4bcd3  paper/paper.pdf
 Title:           An Executable Safety Ladder Toward Unbounded Viewstamped Replication
 Author:          Simon Massey
 Pages:           8
@@ -370,7 +359,7 @@ shasum -a 256 paper/paper.tex paper/build.sh
 ```
 
 ```output
-244b21337f090a9703a205ecf1de4798dd22f57b9bfdd7ad1122a64aa9d8534b  paper/paper.tex
+b427ab319ca13b5a8442fb9530ae29fc726333e9cd2527f8ad06b66939dbd9f5  paper/paper.tex
 e3f5d3b629938c30d42840648a9fc6331c78cbbebfb1606c5042705fb2ca5212  paper/build.sh
 ```
 
@@ -404,6 +393,7 @@ f49557de254c33eb55317d1907e83abc84f50c378d3e7571c1acdaa7edbe955b  ladder/15-view
 d08b444567a5b071a30578efde0d160b5ead8b6079bcbdec44fea762efa5e071  ladder/18-crash-vector.md
 2643b179950d597fe9ea2cc98067a2235a9bb83d94abe173a3e97b6422022c18  ladder/19-acquisition-order.md
 cee41077b7268279ad8061261f3d7fdf315d8d2e24bfc5eba5788d4d402316fc  ladder/20-recovery-acquisition.md
+38ceafd20f28be9571a54fd1826b86a8a75ced414ba770ab70a7712dab79db82  ladder/22-reincarnation.md
 a4add3a8c2c0ee28c1f3d75d3e0e2a4f87132f3bd38c48fafaae68357a96c6e8  check_axioms.py
 2617b524ded9fff554c7418054a44dd8095a51212d21284801fc665a54f6ca6f  check_mutations.py
 ```
@@ -412,9 +402,11 @@ a4add3a8c2c0ee28c1f3d75d3e0e2a4f87132f3bd38c48fafaae68357a96c6e8  check_axioms.p
 
 Everything above is either a kernel-checked component theorem, a finite model check, or an
 implementation test. The end-to-end uVRR claim is not yet proved. The obligations recorded
-in `LAB-BOOK.md` and in the paper's closing section are: the four-superblock durable
-identity contract, the reincarnation wire message and forced weight sequence
-(Crash-Stop-Self-Evict), quorum-knowledge persistence and value reconstruction for the
+in `LAB-BOOK.md` and in the paper's closing section are: the four general proof obligations
+of the reincarnation spec rung 22 (bumped-identity non-membership after eviction, quorum
+safety of every intermediate era at arbitrary scale, unreachability of the classic amnesia
+trace, and continuation commitment in general), quorum-knowledge persistence and value
+reconstruction for the
 operational acquisition of rung 20, whole-log preservation across an arbitrary sequence of
 reconfigurations, client-visible linearizability, conditional progress, and an explicit
 refinement between the Rust implementation and the checked models.

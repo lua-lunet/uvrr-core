@@ -154,9 +154,14 @@ eviction of the old identity until a stable leader exists to drive it.
   the existing weighted-era space; each step's safety is the weighted-overlap
   argument.
 
-The formalization rung for reincarnation itself (forced-sequence transition, per-era
-safety, superblock classification) is planned as a later ladder rung and does not
-exist yet.
+The reincarnation formalization is ladder rung 22 (`formal/uvrr-lean/UVRR/Reincarnation.lean`):
+the definitions and state machine above, with kernel-checked structural lemmas and finite
+instances (the unit-scale forced sequence's three consecutive eras are quorum-safe; the
+startup classification is exhaustive; the bumped identity is never a voter again; the
+forced sequence is monotone and cannot abort). The four general theorems — bumped-identity
+non-membership in every view ≥ eviction, quorum safety of every intermediate era at
+arbitrary scale, unreachability of the classic amnesia trace, and continuation commitment
+in general — are that rung's stated proof obligations, for later rungs.
 
 ## 10. Future work
 

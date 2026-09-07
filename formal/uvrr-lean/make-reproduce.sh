@@ -31,7 +31,7 @@ a credential, or a model service.
 
 **What this document does and does not establish.** It shows that the Lean library
 compiles under the pinned toolchain, that every named declaration depends only on the
-three standard Lean axioms, that all 20 rung transcripts replay, that the fault-injection
+three standard Lean axioms, that all 21 rung transcripts replay, that the fault-injection
 mutations are rejected by the compiler, that the two TLC model checks reproduce, that
 the Rust implementation passes its gates, and that the paper builds to a byte-identical
 PDF. It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder
@@ -79,7 +79,7 @@ pdfinfo -v 2>&1 | head -1'
 note <<'EOF'
 ## 2. The Lean library
 
-`lake build` compiles all 19 modules of the `UVRR` library under the toolchain pinned in
+`lake build` compiles all 20 modules of the `UVRR` library under the toolchain pinned in
 `lean-toolchain`. On a fresh clone the compiler prints one line per module; only the final
 summary line is compared here. The digests that follow tie this transcript to the exact
 sources that were checked.
@@ -132,6 +132,7 @@ builds and diffs every captured output.
 | 18 | `CrashVector.lean` | Published crash-vector collector: reachable reply sets are incarnation-consistent |
 | 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; retention discharged by the durable superblock identity |
 | 20 | `RecoveryAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
+| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: forced-sequence definitions, reincarnation state machine and continuation commitment; unit-weight three-node era-safety instances; general theorems listed as proof obligations |
 EOF
 run 'for f in ladder/[0-9][0-9]-*.md; do
   if showboat verify "$f" >/dev/null 2>&1; then echo "ok   $f"; else echo "FAIL $f"; exit 1; fi
@@ -230,9 +231,11 @@ note <<'EOF'
 
 Everything above is either a kernel-checked component theorem, a finite model check, or an
 implementation test. The end-to-end uVRR claim is not yet proved. The obligations recorded
-in `LAB-BOOK.md` and in the paper's closing section are: the four-superblock durable
-identity contract, the reincarnation wire message and forced weight sequence
-(Crash-Stop-Self-Evict), quorum-knowledge persistence and value reconstruction for the
+in `LAB-BOOK.md` and in the paper's closing section are: the four general proof obligations
+of the reincarnation spec rung 22 (bumped-identity non-membership after eviction, quorum
+safety of every intermediate era at arbitrary scale, unreachability of the classic amnesia
+trace, and continuation commitment in general), quorum-knowledge persistence and value
+reconstruction for the
 operational acquisition of rung 20, whole-log preservation across an arbitrary sequence of
 reconfigurations, client-visible linearizability, conditional progress, and an explicit
 refinement between the Rust implementation and the checked models.
