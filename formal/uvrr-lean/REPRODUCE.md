@@ -1,7 +1,7 @@
 # Reproducing the uVRR safety-ladder evidence
 
-*2026-09-07T01:35:11Z by Showboat 0.6.1*
-<!-- showboat-id: a560a858-eb8d-41bf-aa5b-28f622e128fd -->
+*2026-09-07T14:02:01Z by Showboat 0.6.1*
+<!-- showboat-id: 19a97e97-9949-4018-8d12-3779882c491c -->
 
 This is an executable laboratory document built with Simon Willison's Showboat. Every
 fenced `bash` block below was run, and the block after it is the output that was captured
@@ -117,7 +117,7 @@ da655d993fccb7074d35e78f53df04d6dbaceaae5d3357f4169718f985c1f44b  UVRR/CrashVect
 3e7340de62ef42558df1e9a687876b1f85d99189f6c977e605f0c9293963a394  UVRR/NormalLog.lean
 8fd7ba97afdacdccca71fc30875fd72da385fea6670e2dd779ab3cf9b1a5e323  UVRR/RecoveryAcquire.lean
 3c6d33205b535dd20427ec65b166694c6527001aaa96648dba59fd25887dc5fe  UVRR/RecoveryFence.lean
-2f1225c59d14b80acf3eb599109c63f40000bd6817b2368be5c75c8a3870cccb  UVRR/Reincarnation.lean
+f27dc9b2b2c54742d3d06ddda4aa87fb8ebf05cca4bcd93b25d902d747f06113  UVRR/Reincarnation.lean
 931d0ba52acbe700050a2444e1cab4f0f530c7c2517edfe962c57c694be33375  UVRR/Structure.lean
 d7c8b1934cde6236b24d8bf64f00f7611d171a194e2486287433cc57391003b9  UVRR/Synod.lean
 0bc8565547700d036d19909bd9a18aecd2bd7f8a785002bfe5c3a5f1a4e941d9  UVRR/ViewFence.lean
@@ -347,7 +347,7 @@ printf "overfull boxes: %s\n" "$(grep -c Overfull paper/paper.log || true)"
 ```
 
 ```output
-26bdd16e02d837bb1b5db743e6c151a85150478a4e9dcdc4a8a39b0271a4bcd3  paper/paper.pdf
+e9d61268dca1e3fedae0f89d11dff8116b7de6428bd179ddc6bde1ef8ab9e62c  paper/paper.pdf
 Title:           An Executable Safety Ladder Toward Unbounded Viewstamped Replication
 Author:          Simon Massey
 Pages:           8
@@ -359,7 +359,7 @@ shasum -a 256 paper/paper.tex paper/build.sh
 ```
 
 ```output
-b427ab319ca13b5a8442fb9530ae29fc726333e9cd2527f8ad06b66939dbd9f5  paper/paper.tex
+7f537650a7bbad0813dd37c6747929f3e4a26c8bafe32f13c36d176df5532cca  paper/paper.tex
 e3f5d3b629938c30d42840648a9fc6331c78cbbebfb1606c5042705fb2ca5212  paper/build.sh
 ```
 
@@ -380,7 +380,7 @@ f95c9dc7a14809a24177cedef7ed82e0eae4453774a7bf38b2c85445c541880c  ladder/04-eras
 2bfc5a8b82f5d45fe355bdf46282f3a251883cd3afd36e988bd6703de72c8918  ladder/05-counterexample.md
 bf1a958801503eb1f82d8ad9dcb7ad647646d397f5dac3ed2f10fba7c74a9921  ladder/06-casting-vote.md
 0e5dbe8674dd6601b0e2ad16c454b6a4dd0004d7c8c5698641d0bf3bb389eccf  ladder/07-weights.md
-f7cbc44fe61a1511e5761da1c8bc10e1e4ef3183eae6fadac3f37c3ff771e758  ladder/08-leanstral-lemma2.md
+e0e55bff5976e8ba59e1cf61c1b8952d1fafe995a263a02c2b445228e5d5955a  ladder/08-leanstral-lemma2.md
 c4449a0806fe9afd04bb5337c4301c19a486af0694f5f2a0d14229696ec578ef  ladder/09-weighted-general.md
 c010a7e1157616c60554d86ef971a41ade8f1728cae9ff248b0da7aabf21c541  ladder/10-acceptor-transitions.md
 cb9f5e2becc3d7499c017f0c01ef6786ea27a6534649d47f1f3f04efe348c650  ladder/11-multi-promises.md
@@ -393,7 +393,7 @@ f49557de254c33eb55317d1907e83abc84f50c378d3e7571c1acdaa7edbe955b  ladder/15-view
 d08b444567a5b071a30578efde0d160b5ead8b6079bcbdec44fea762efa5e071  ladder/18-crash-vector.md
 2643b179950d597fe9ea2cc98067a2235a9bb83d94abe173a3e97b6422022c18  ladder/19-acquisition-order.md
 cee41077b7268279ad8061261f3d7fdf315d8d2e24bfc5eba5788d4d402316fc  ladder/20-recovery-acquisition.md
-38ceafd20f28be9571a54fd1826b86a8a75ced414ba770ab70a7712dab79db82  ladder/22-reincarnation.md
+a8e64888830d4e1e1b4876db6a8e65ed627b981cf1aa96fe0a52c7955e958d6a  ladder/22-reincarnation.md
 a4add3a8c2c0ee28c1f3d75d3e0e2a4f87132f3bd38c48fafaae68357a96c6e8  check_axioms.py
 2617b524ded9fff554c7418054a44dd8095a51212d21284801fc665a54f6ca6f  check_mutations.py
 ```
