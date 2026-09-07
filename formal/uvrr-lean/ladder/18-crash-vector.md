@@ -1,4 +1,4 @@
-# Rung 19: Crash-vector reply consistency
+# Rung 18: Crash-vector reply consistency
 
 *2026-09-06T08:45:50Z by Showboat 0.6.1*
 <!-- showboat-id: f0d96fb4-38c0-42c2-a6c6-d5e9b09b24b0 -->

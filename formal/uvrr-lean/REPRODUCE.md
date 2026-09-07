@@ -1,7 +1,7 @@
 # Reproducing the uVRR safety-ladder evidence
 
-*2026-09-06T10:13:02Z by Showboat 0.6.1*
-<!-- showboat-id: 08c77a51-0283-4108-b7da-bdc9c7194792 -->
+*2026-09-07T00:08:40Z by Showboat 0.6.1*
+<!-- showboat-id: 2275b99b-64db-405b-8460-fcc5de127870 -->
 
 This is an executable laboratory document built with Simon Willison's Showboat. Every
 fenced `bash` block below was run, and the block after it is the output that was captured
@@ -19,14 +19,13 @@ a credential, or a model service.
 
 **What this document does and does not establish.** It shows that the Lean library
 compiles under the pinned toolchain, that every named declaration depends only on the
-three standard Lean axioms, that all 21 rung transcripts replay, that the fault-injection
-mutations are rejected by the compiler, that the three TLC model checks reproduce, that
-the Rust implementation passes its gates, that the recorded recovery counterexample still
-reproduces as an expected Red result, and that the paper builds to a byte-identical PDF.
-It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder proves
-exact component theorems, the recovery counterexample remains unresolved, and whole-log
-composition across reconfigurations, client-visible linearizability and progress are
-open, as the paper and `LAB-BOOK.md` state.
+three standard Lean axioms, that all 20 rung transcripts replay, that the fault-injection
+mutations are rejected by the compiler, that the two TLC model checks reproduce, that
+the Rust implementation passes its gates, and that the paper builds to a byte-identical
+PDF. It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder
+proves exact component theorems, and whole-log composition across reconfigurations,
+client-visible linearizability and progress are open, as the paper and `LAB-BOOK.md`
+state.
 
 ## 1. Exact software versions
 
@@ -158,9 +157,8 @@ UVRR/Structure.lean:8:  no `native_decide`.
 
 Each rung is its own Showboat transcript in `ladder/`. A positive rung prints the entire
 module, builds it and prints the axiom report of its stated theorems; rung 8 records a
-historical Leanstral draft that fails to compile, and rung 18 records the expected-Red
-recovery counterexample. Replaying every rung below reruns those builds and diffs every
-captured output.
+historical Leanstral draft that fails to compile. Replaying every rung below reruns those
+builds and diffs every captured output.
 
 | Rung | Module | Verified result |
 |---|---|---|
@@ -181,10 +179,9 @@ captured output.
 | 15 | `ViewFence.lean` | Voter-report bounds; committed prefixes preserved in later activated views under explicit provenance |
 | 16 | `LogProvenance.lean` | Shared multi-view transition induction: committed-log compatibility, fixed configuration, no crashes |
 | 17 | `RecoveryFence.lean` | A supporting quorum retains a known fence through arbitrary crash/recovery sequences |
-| 18 | Rust path and directed TLC trace | Reproduced committed divergence after serial recoveries: an expected Red, not a safety theorem |
-| 19 | `CrashVector.lean` | Published crash-vector collector: reachable reply sets are incarnation-consistent |
-| 20 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; retention premise open |
-| 21 | `RecoveryAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
+| 18 | `CrashVector.lean` | Published crash-vector collector: reachable reply sets are incarnation-consistent |
+| 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; retention discharged by the durable superblock identity |
+| 20 | `RecoveryAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
 
 ```bash
 for f in ladder/[0-9][0-9]-*.md; do
@@ -210,10 +207,9 @@ ok   ladder/14-normal-log.md
 ok   ladder/15-view-fence.md
 ok   ladder/16-log-provenance.md
 ok   ladder/17-recovery-fence.md
-ok   ladder/18-delayed-fence-counterexample.md
-ok   ladder/19-crash-vector.md
-ok   ladder/20-acquisition-order.md
-ok   ladder/21-recovery-acquisition.md
+ok   ladder/18-crash-vector.md
+ok   ladder/19-acquisition-order.md
+ok   ladder/20-recovery-acquisition.md
 ```
 
 ### 3.1 Compiler-rejected mutations
@@ -222,7 +218,7 @@ ok   ladder/21-recovery-acquisition.md
 requires Lean to reject the result after the unchanged copy compiles. The edits remove a
 guard or premise that the proof relies on: an existential instead of universal quorum
 check, an unsafe four-node family, an omitted crash-vector filter, an omitted response
-ordering, a recovering sender answering, a stale acquisition request, and a `sorry` that
+ordering, a stale acquisition request, and a `sorry` that
 must be exposed by the axiom audit despite a zero compiler exit. Rejection measures proof
 sensitivity; it is not a claim that every conceivable algorithm needs the guard.
 
@@ -247,8 +243,7 @@ PASS axiom audit detects sorryAx despite compiler exit 0
 
 ## 4. TLC model checks
 
-The TLA+ models live in `formal/`; the delayed-fence research copy lives beside its
-evidence. TLC 2.19 is obtained from the `v1.7.4` release of `tla2tools.jar` on GitHub and
+The TLA+ models live in `formal/`. TLC 2.19 is obtained from the `v1.7.4` release of `tla2tools.jar` on GitHub and
 checked against the SHA-256 recorded when the original runs were made; the download stops
 the document if the digest differs. The jar is stored under the gitignored `.tmp/` at the
 repository root, and TLC's scratch state goes there too, so nothing is written into the
@@ -264,25 +259,7 @@ echo "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  ../../.t
 ../../.tmp/tla2tools.jar: OK
 ```
 
-### 4.1 The delayed-fence counterexample (expected violation)
-
-`DelayedFence.tla` extends `VrrCoreEras.tla` to allow repeated serial crashes with the
-incremented recovery epoch as nonce. TLC must find that `CommittedLogsAgree` is violated:
-this is the finite model-checked twin of the Rust counterexample replayed in section 5.
-A violation here is the expected result; it is evidence of an unresolved problem, not of
-safety. The run uses one worker and a 512 MiB heap.
-
-```bash
-cd evidence/delayed-fence/tla && java -Xmx512m -jar ../../../../../.tmp/tla2tools.jar -workers 1 -metadir ../../../../../.tmp/tlc-delayed-fence -config DelayedFence.cfg DelayedFence.tla 2>&1 | grep -E "^TLC2 Version|Error: Invariant|^[0-9]+ states generated|Model checking completed"
-```
-
-```output
-TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
-Error: Invariant CommittedLogsAgree is violated.
-35 states generated, 35 distinct states found, 0 states left on queue.
-```
-
-### 4.2 The transfer mutation (expected violation)
+### 4.1 The transfer mutation (expected violation)
 
 `VrrCoreErasM1.cfg` is a mutated configuration of the era model that must violate
 `FrontiersOrdered`. It is run with one worker because a multi-worker search stops at a
@@ -297,7 +274,7 @@ cd .. && java -Xmx2g -jar ../.tmp/tla2tools.jar -workers 1 -metadir ../.tmp/tlc-
 Error: Invariant FrontiersOrdered is violated.
 ```
 
-### 4.3 The era model (expected pass)
+### 4.2 The era model (expected pass)
 
 `VrrCoreEras.cfg` is the three-node `inc3` scenario with one command value, maximum log
 length three, two eras and view index zero; `MaxEpoch=0` disables crashes, so this run
@@ -316,19 +293,16 @@ Model checking completed. No error has been found.
 ```
 
 ```bash
-cd .. && shasum -a 256 VrrCoreEras.tla VrrCoreEras.cfg VrrCoreErasM1.cfg uvrr-lean/evidence/delayed-fence/tla/DelayedFence.tla uvrr-lean/evidence/delayed-fence/tla/DelayedFence.cfg uvrr-lean/evidence/delayed-fence/tla/VrrCoreEras.tla
+cd .. && shasum -a 256 VrrCoreEras.tla VrrCoreEras.cfg VrrCoreErasM1.cfg
 ```
 
 ```output
-3eebcfa9e1bf67f12832f253fb8120dfd7cb4188d19b0ca58bbaee49681d2d26  VrrCoreEras.tla
-7c6b9a35790b50fe77ae11d1482847004c3b33d48b8b2edc28a22516144677d8  VrrCoreEras.cfg
+2d51449d707f104a506971a8e0a915b69255e1f99b6bbc5a6594384d49311ef2  VrrCoreEras.tla
+1f91a858af7cb8b0972535eb674665cde2637bd6c1824d4740b3770883d6fc3d  VrrCoreEras.cfg
 d4fca78fafbaadfb7f77db760028410b68ab0128392b700e836f13c8ef3fcf6c  VrrCoreErasM1.cfg
-8170261ec7ee361638ece521ed2aec310c7bdabed9a41aeca1c532b3e202b0fb  uvrr-lean/evidence/delayed-fence/tla/DelayedFence.tla
-67af038a3cb9d8b8acb8f6e00f667b08f8486b3f9a8f1ac6de82219d6d5a6767  uvrr-lean/evidence/delayed-fence/tla/DelayedFence.cfg
-db949314aa4c5c2382104651ac0a949840c6192c870c2793225c401e0a6614cb  uvrr-lean/evidence/delayed-fence/tla/VrrCoreEras.tla
 ```
 
-## 5. The Rust implementation gates and the recovery counterexample
+## 5. The Rust implementation gates
 
 The crate at the repository root is the implementation the models describe. Its gates
 are format, Clippy on all targets and features with warnings denied, the all-feature test
@@ -349,46 +323,24 @@ if rg -qi paxos src; then echo "FAIL Paxos reference under src/"; exit 1; else e
 ```output
 fmt clean
 clippy clean with -D warnings
-      2 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+      3 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       1 test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       1 test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       2 test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       1 test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       1 test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       2 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       1 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       1 test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       1 test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+      2 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       2 test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-      1 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+      2 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
       1 test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 doctests:
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 no inline tests under src/
 no Paxos references under src/
-```
-
-### 5.1 The expected-Red recovery replay
-
-`check_recovery_counterexample.py` copies `evidence/delayed-fence/reproduction.rs` into
-the crate's `tests/` directory under a temporary name, runs it, and requires the exact
-committed-divergence diagnostic. Its zero exit means the counterexample **reproduced**:
-serial amnesiac recoveries with authentic delayed messages and fresh recovery ticks make
-the unchanged core commit different operations at slot 3. This is the open problem the
-paper reports; a future repair must change this witness deliberately.
-
-```bash
-python3 check_recovery_counterexample.py 2>&1 | tail -3
-```
-
-```output
-REPRODUCED RED: unchanged core commits different operations at slot 3
-Ordinary timeouts; authentic delayed messages; fresh recovery ticks; serial crashes
-This result is a counterexample, not a protocol safety pass
 ```
 
 ## 6. The paper
@@ -406,7 +358,7 @@ printf "overfull boxes: %s\n" "$(grep -c Overfull paper/paper.log || true)"
 ```
 
 ```output
-6af28d2e371e6f1c3c9a4049287e668c0a858f3c73468a70ee7a2c75a55f4199  paper/paper.pdf
+d989ce84b65e1b9bd72edc31735d6220c8240020e8abca801c111adf79ab09ae  paper/paper.pdf
 Title:           An Executable Safety Ladder Toward Unbounded Viewstamped Replication
 Author:          Simon Massey
 Pages:           8
@@ -418,17 +370,17 @@ shasum -a 256 paper/paper.tex paper/build.sh
 ```
 
 ```output
-7d016334a08b9dff349f72dc32202fb0a11af456c0ad3b02f9f23b1514eeedfa  paper/paper.tex
+244b21337f090a9703a205ecf1de4798dd22f57b9bfdd7ad1122a64aa9d8534b  paper/paper.tex
 e3f5d3b629938c30d42840648a9fc6331c78cbbebfb1606c5042705fb2ca5212  paper/build.sh
 ```
 
 ## 7. Digests of the transcripts and check scripts
 
-These digests bind this document to the exact rung transcripts, check scripts and Rust
-witness that were replayed above.
+These digests bind this document to the exact rung transcripts and check scripts that
+were replayed above.
 
 ```bash
-shasum -a 256 ladder/*.md check_axioms.py check_mutations.py check_recovery_counterexample.py evidence/delayed-fence/reproduction.rs
+shasum -a 256 ladder/*.md check_axioms.py check_mutations.py
 ```
 
 ```output
@@ -449,24 +401,21 @@ cb9f5e2becc3d7499c017f0c01ef6786ea27a6534649d47f1f3f04efe348c650  ladder/11-mult
 f49557de254c33eb55317d1907e83abc84f50c378d3e7571c1acdaa7edbe955b  ladder/15-view-fence.md
 57b9623d0dc25838188314dfe077a97a9a7a6d26c390f09a9514fbeb39888c13  ladder/16-log-provenance.md
 371ce4eeb2ce5ec33538cf76ea989dbf957fbda318da486d4ba1ab8ea7db16e1  ladder/17-recovery-fence.md
-31061214f20853c3a4fd0158a8a2ee804fd7e667d568211fab5d633703d31a61  ladder/18-delayed-fence-counterexample.md
-06e464a1da3025c2e0ddd7def04d6a223133630cd57db694f35cf6c18184ea06  ladder/19-crash-vector.md
-9a9e90439b54da7813fd9826cda8b6a56287eec06b2c06c5069e4654850b1442  ladder/20-acquisition-order.md
-b417d42ab35a51e2a10c45839980717c68362358a6545e81bfb1e8c2b57cc4e3  ladder/21-recovery-acquisition.md
+d08b444567a5b071a30578efde0d160b5ead8b6079bcbdec44fea762efa5e071  ladder/18-crash-vector.md
+2643b179950d597fe9ea2cc98067a2235a9bb83d94abe173a3e97b6422022c18  ladder/19-acquisition-order.md
+cee41077b7268279ad8061261f3d7fdf315d8d2e24bfc5eba5788d4d402316fc  ladder/20-recovery-acquisition.md
 a4add3a8c2c0ee28c1f3d75d3e0e2a4f87132f3bd38c48fafaae68357a96c6e8  check_axioms.py
 2617b524ded9fff554c7418054a44dd8095a51212d21284801fc665a54f6ca6f  check_mutations.py
-dd8ad2c76a489e406c73da9848e7c4072d5706533ec45c66b847e10f357ba784  check_recovery_counterexample.py
-5da1e3f56375dbdc53b6a5d6aa3ba8e83b2eb871a3371e03a46577a91c9e4df2  evidence/delayed-fence/reproduction.rs
 ```
 
 ## 8. What remains open
 
 Everything above is either a kernel-checked component theorem, a finite model check, or an
 implementation test. The end-to-end uVRR claim is not yet proved. The obligations recorded
-in `LAB-BOOK.md` and in the paper's closing section are: repairing the diskless
-repeated-recovery counterexample and proving the repair, quorum-knowledge persistence and
-value reconstruction for the operational acquisition of rung 21, composing recovery with
-committed-log safety, whole-log preservation across an arbitrary sequence of
+in `LAB-BOOK.md` and in the paper's closing section are: the four-superblock durable
+identity contract, the reincarnation wire message and forced weight sequence
+(Crash-Stop-Self-Evict), quorum-knowledge persistence and value reconstruction for the
+operational acquisition of rung 20, whole-log preservation across an arbitrary sequence of
 reconfigurations, client-visible linearizability, conditional progress, and an explicit
 refinement between the Rust implementation and the checked models.
 

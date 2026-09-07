@@ -25,7 +25,7 @@ use core::ptr;
 use core::sync::atomic::{AtomicU64, Ordering, fence};
 
 use crate::configuration::ConfigError;
-use crate::ids::{Era, NodeId, Slot, Tick, ViewId};
+use crate::ids::{Era, NodeId, Slot, ViewId};
 
 /// Why a published transition dropped its peer input — or `None`, when it
 /// dropped nothing.
@@ -226,50 +226,6 @@ pub enum Diagnostic {
     /// ordinary path (§8.7.7). Dropped whole; the wire cannot say which
     /// field lied.
     MalformedViewChange,
-    /// A `RecoveryResponse` whose echoed nonce names no open recovery
-    /// attempt: a delayed response from an earlier attempt (§6.1's nonce
-    /// freshness rule), or a response to an attempt this node never started.
-    /// Ignored; it counts toward nothing.
-    StaleRecoveryResponse {
-        /// The nonce the response echoed.
-        nonce: Tick,
-        /// The newest nonce in the open attempt's bounded nonce set (§6.1,
-        /// S4), when an attempt is open.
-        attempt: Option<Tick>,
-    },
-    /// A `RecoveryResponse` attributed to this node itself. A recovery
-    /// quorum is other replicas' evidence (§8.3's `R_g`); a node never
-    /// counts itself.
-    RecoveryResponseFromSelf,
-    /// A `Recovery` solicitation at a node that is not `Normal`. Only a
-    /// node that has proved its state current answers for the cluster
-    /// (§10); a fenced, recovering or replaying node declines.
-    RecoveryWhileNotNormal,
-    /// A `RecoveryResponse` carrying a history suffix from a sender that is
-    /// not the primary of the view it reported. Only the latest fenced
-    /// view's primary's log is installation evidence (§6.1); a suffix from
-    /// anywhere else is dropped with the response that carried it.
-    RecoveryHistoryNotFromPrimary {
-        /// The transport-attributed sender.
-        sender: NodeId,
-        /// The view the response reported.
-        view: ViewId,
-    },
-    /// A recovery message whose shape is malformed: the committed frontier
-    /// exceeds the accepted one, or the suffix is not a contiguous ascending
-    /// run ending at the accepted frontier. Dropped whole.
-    MalformedRecovery,
-    /// A recovery could not complete from local evidence: the base the
-    /// recovery must read from sits below the journal's retained base (S1),
-    /// so the missing prefix must come from the host's application-state
-    /// transfer facility (§4, §11). Surfaced with
-    /// [`crate::effects::Effect::RequestApplicationState`]; never a fault.
-    ApplicationStateShortfall {
-        /// The first slot the recovery required and the journal cannot serve.
-        required: Slot,
-        /// The journal's retained base: the first slot physically present.
-        retained: Slot,
-    },
 }
 
 /// A single-writer, multi-reader seqlock over a `Copy` snapshot.

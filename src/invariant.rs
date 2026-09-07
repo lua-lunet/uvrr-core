@@ -58,19 +58,12 @@ pub enum InputKind {
     /// A host timer event (S4; the tick itself is clock metadata, not protocol
     /// state, so the kind carries nothing).
     Tick,
-    /// A recovery attempt or its completion (§10).
-    Recovery,
     /// The host confirmed the stability of a persistence intent (§7, S2).
     StabilityConfirmed,
     /// The application acknowledged an applied slot (§11.1).
     Applied,
     /// The host checkpointed application state.
     Checkpointed,
-    /// The host installed application state answering the outstanding
-    /// application-state request (§4, §11): the completing half of a
-    /// recovery the reclaimed journal could not serve, so it re-selects
-    /// history exactly like the recovery completion it discharges.
-    ApplicationStateInstalled,
     /// A reconfiguration operation committed (§8.7.2).
     Reconfiguration,
     /// The host acted on the node directly (§12's host-declared fault, shutdown,
@@ -132,8 +125,6 @@ impl HeaderSlotRole {
 /// | `DoViewChange` | `Frontier` | the accepted frontier of the reported history (§9.1) |
 /// | `StartView` | `Frontier` | the accepted frontier of the installed history (§9.1) |
 /// | `PlannedViewChange` | `Absent` | like `StartViewChange`, and must not fence (§8.7.7) |
-/// | `Recovery` | `Absent` | the nonce is the tick (S4); no slot is spoken about (§10) |
-/// | `RecoveryResponse` | `Absent` | nonce and frontiers ride in the body; no slot is spoken about (§6.1) |
 /// | `GetState` | `Frontier` | the requester's accepted frontier; the fetch resumes one past it (§4, §13.1 step 5) |
 /// | `NewState` | `Frontier` | the last slot the chunk covers; `more` on a partial answer resumes from the requester's cursor (§4, §13.1 step 5) |
 ///
@@ -150,8 +141,6 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
         Tag::DoViewChange => HeaderSlotRole::Frontier,
         Tag::StartView => HeaderSlotRole::Frontier,
         Tag::PlannedViewChange => HeaderSlotRole::Absent,
-        Tag::Recovery => HeaderSlotRole::Absent,
-        Tag::RecoveryResponse => HeaderSlotRole::Absent,
         Tag::GetState => HeaderSlotRole::Frontier,
         Tag::NewState => HeaderSlotRole::Frontier,
     }
@@ -245,29 +234,23 @@ fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {
 }
 
 /// Rule 3 — `retained` identifies the provenance of the retained history (§1.3),
-/// so it changes only when that history was re-selected. The re-selection inputs:
-/// recovery (§10 installs a coherent state) — the application-state install
-/// included, as the completing half of a recovery the journal alone could not
-/// serve (§4, §11) — and the peer messages that install a
-/// history — `DoViewChange`, the one that completes the new primary's quorum
-/// (§9.1), `StartView`, `NewState` (state transfer, §4), and `RecoveryResponse`,
-/// the one that completes a recovery attempt with the latest fenced view's
-/// primary's history (§6.1). The match is exhaustive so a new tag forces a
+/// so it changes only when that history was re-selected. The re-selection inputs
+/// are the peer messages that install a history — `DoViewChange`, the one that
+/// completes the new primary's quorum (§9.1), `StartView`, and `NewState`
+/// (state transfer, §4). The match is exhaustive so a new tag forces a
 /// ruling here rather than inheriting one.
 fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) -> bool {
     if new.retained() == old.retained() {
         return false;
     }
     let reselects = match input {
-        InputKind::Recovery | InputKind::ApplicationStateInstalled => true,
         InputKind::PeerMessage { tag, .. } => match tag {
-            Tag::DoViewChange | Tag::StartView | Tag::NewState | Tag::RecoveryResponse => true,
+            Tag::DoViewChange | Tag::StartView | Tag::NewState => true,
             Tag::Prepare
             | Tag::PrepareOk
             | Tag::Commit
             | Tag::StartViewChange
             | Tag::PlannedViewChange
-            | Tag::Recovery
             | Tag::GetState => false,
         },
         InputKind::ClientRequest
@@ -302,11 +285,9 @@ fn rule7_header_slot_violated(input: &InputKind) -> bool {
         InputKind::PeerMessage { tag, slot } => !header_slot_role(*tag).admits(*slot),
         InputKind::ClientRequest
         | InputKind::Tick
-        | InputKind::Recovery
         | InputKind::StabilityConfirmed
         | InputKind::Applied
         | InputKind::Checkpointed
-        | InputKind::ApplicationStateInstalled
         | InputKind::Reconfiguration
         | InputKind::Admin => false,
     }

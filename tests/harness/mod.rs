@@ -454,9 +454,6 @@ pub struct Harness {
     trace: VecDeque<String>,
     /// Steps taken, also the trace line number.
     step_seq: u64,
-    /// The application-state transfer requests surfaced so far (§4, §11):
-    /// `(node, through)` in release order.
-    application_state_requests: Vec<(NodeId, Slot)>,
 }
 
 impl Harness {
@@ -592,7 +589,6 @@ impl Harness {
             faulted_known: vec![false; n],
             trace: VecDeque::new(),
             step_seq: 0,
-            application_state_requests: Vec::new(),
         };
         harness.record(format!("provision n={n} stability={stability:?}"));
         harness
@@ -1005,15 +1001,6 @@ impl Harness {
         )
     }
 
-    /// Begins a recovery attempt at the node (§10): the clock advances —
-    /// every attempt carries a fresh tick, so the nonce (the tick, S4) is
-    /// fresh by construction — and `Input::Recover` is driven through the
-    /// ordinary step machinery.
-    pub fn recover(&mut self, id: NodeId) -> StepOutcome {
-        self.advance_clock();
-        self.drive(id, format!("n={} recover", id.0), Input::Recover)
-    }
-
     /// A reconfiguration proposal (§8.7.2): `Input::Reconfigure` through
     /// the ordinary step machinery — the named refusal or the proposal's
     /// publication is the script's to assert. The pivot is `None` on the
@@ -1055,45 +1042,6 @@ impl Harness {
             format!("n={} checkpoint s{}", id.0, through.0),
             Input::Checkpointed { through },
         )
-    }
-
-    /// The host's answer to an outstanding `Effect::RequestApplicationState`
-    /// (§4, §11): `Input::ApplicationStateInstalled` through the ordinary
-    /// step machinery — the refusal or the completing install is the
-    /// script's to assert. On a published install the harness mirrors what
-    /// the host's transfer facility did: the node's apply record is
-    /// backfilled through `through` from the donor's record, because the
-    /// restored application state incorporates those executions — the
-    /// safety checker's contiguity rule (rule 4) rules on what the
-    /// application holds, however it came to hold it.
-    pub fn install_application_state(
-        &mut self,
-        id: NodeId,
-        donor: NodeId,
-        through: Slot,
-    ) -> StepOutcome {
-        let outcome = self.drive(
-            id,
-            format!("n={} app-state installed s{}", id.0, through.0),
-            Input::ApplicationStateInstalled { through },
-        );
-        if matches!(outcome, StepOutcome::Published { .. }) {
-            let index = self.index_of(id);
-            let donor = self.index_of(donor);
-            let mut restored: BTreeMap<Slot, Box<[u8]>> =
-                self.applied[index].iter().cloned().collect();
-            for (slot, payload) in &self.applied[donor] {
-                if *slot <= through {
-                    restored.entry(*slot).or_insert_with(|| payload.clone());
-                }
-            }
-            self.applied[index] = restored.into_iter().collect();
-            self.record(format!(
-                "n={} apply record restored through s{} from n={donor}",
-                id.0, through.0
-            ));
-        }
-        outcome
     }
 
     /// Confirms the node's one outstanding `Persist` intent — the external-
@@ -1179,9 +1127,7 @@ impl Harness {
                         outcome,
                     });
                 }
-                Effect::Send { .. }
-                | Effect::Persist(_)
-                | Effect::RequestApplicationState { .. } => {
+                Effect::Send { .. } | Effect::Persist(_) => {
                     panic!("only Apply effects are routed to a node's pending list")
                 }
             }
@@ -1250,44 +1196,6 @@ impl Harness {
             "n={} crash (disk recorded, retained from s{})",
             id.0, base.0
         ));
-    }
-
-    /// A new life with no memory: `provision` semantics on a node that was a
-    /// member. The amnesiac voter is §14.2's problem, not the harness's —
-    /// the name says what this is.
-    pub fn restart_amnesiac(&mut self, id: NodeId) -> Result<(), LifecycleRefusal> {
-        let index = self.index_of(id);
-        assert!(
-            self.nodes[index].is_none(),
-            "n={} is up; crash it before restarting it",
-            id.0
-        );
-        // The amnesiac life starts from genesis: its applied frontier is
-        // wiped with everything else, so when it adopts a committed history
-        // it RE-APPLIES entries the old life already executed — the spec's
-        // at-least-once replay (§11), whose dedup is the host's problem.
-        // The harness mirrors a host that lost its apply tracking with the
-        // node: the record clears, and rule 4's contiguity claim restarts
-        // with the new life.
-        self.applied[index].clear();
-        match Replica::provision(
-            id,
-            self.genesis_order.clone(),
-            WeightedMajority,
-            make_journal(self.tail_capacity),
-            self.stability,
-            self.knobs,
-        ) {
-            Ok(replica) => {
-                self.install(index, replica);
-                self.record(format!("n={} restart(amnesiac)", id.0));
-                Ok(())
-            }
-            Err(error) => {
-                self.record(format!("n={} restart(amnesiac) refused: {error:?}", id.0));
-                Err(error)
-            }
-        }
     }
 
     /// A later life: `reopen` with whatever the harness's disk recorded at
@@ -1433,13 +1341,6 @@ impl Harness {
         &self.applied[usize::try_from(id.0).expect("node ids are small")]
     }
 
-    /// The application-state transfer requests surfaced so far (§4, §11):
-    /// `(node, through)` in release order.
-    #[must_use]
-    pub fn application_state_requests(&self) -> &[(NodeId, Slot)] {
-        &self.application_state_requests
-    }
-
     /// The node's latest published drop diagnostic: every refused
     /// peer guard has a named outcome, and this is where it is observed.
     /// `None` if the node is down.
@@ -1549,13 +1450,6 @@ impl Harness {
                 if let Some(node) = self.nodes[from].as_mut() {
                     node.outstanding_intent = Some(intent.revision);
                 }
-            }
-            Effect::RequestApplicationState { through } => {
-                // The host's application-state transfer facility is out of
-                // scope (§4); the harness records the request for scripts
-                // to assert.
-                self.application_state_requests
-                    .push((self.genesis_order[from], through));
             }
         }
     }

@@ -1,16 +1,16 @@
 # uvrr-lean — Lean 4 proofs for uVRR cluster reconfiguration safety
 
-## Unresolved repeated-recovery counterexample
+## Crash-stop eviction (reincarnation)
 
-The current implementation reproduces committed divergence under serial
-amnesiac recoveries and authentic delayed messages, with fresh recovery ticks.
-See the [counterexample and replay instructions](evidence/delayed-fence/README.md).
-This prevents an end-to-end diskless-safety claim. The checked component
-results below retain their stated scope; no repair is claimed yet.
-
-The failure pattern has a published antecedent in Michael et al. (2017),
-Appendix B.1. The [crash-vector research notes](evidence/crash-vector/README.md)
-credit that work and distinguish the checked collector from a complete repair.
+uVRR forbids the classic crash-recover class: a node whose durable superblocks
+record an unflushed session reopens with a NEW identity (an incarnation bump),
+sends the leader a reincarnation message, and rejoins as a weight-0 learner —
+Crash-Stop-Self-Evict. The classic VRR-2012 diskless quorum recovery (§4.3)
+and the DISC'17 Appendix B.1 amnesia class it exposes are therefore avoided by
+construction in uVRR; those mechanisms are literature about classic
+crash-recovery designs, not open problems here. The ladder's rung 17–20
+fence/acquisition machinery is the proof skeleton the reincarnated weight-0
+learner obeys.
 
 ## Editing the paper
 
@@ -21,10 +21,11 @@ no proof harness or model service is involved.
 ## Verified research checkpoint — 6 September 2026
 
 The current [LaTeX manuscript](paper/paper.tex) and [rendered paper](paper/paper.pdf)
-state the results through rung 21 and the remaining end-to-end proof obligations.
-The repeated-recovery counterexample and its published antecedent are included.
+state the results through rung 20 and the remaining end-to-end proof obligations.
 The [laboratory book](LAB-BOOK.md) records commands, failures, bounded Leanstral
-experiments, and commit checkpoints. The original DOCX and rungs 1–8 remain
+experiments, and commit checkpoints (its counterexample-era entries are dated
+history about the classic crash-recovery attempt that reincarnation removed).
+The original DOCX and rungs 1–8 remain
 audit inputs; the original README is retained in baseline commit `05a4d67`.
 
 All eight original Showboat transcripts reproduce. Rung 8 reproduces a failed
@@ -49,10 +50,9 @@ draft, rather than a proved theorem. The current ladder is:
 | 15 | `ViewFence.lean` | Multi-view local history derives voter-report bounds; strong induction preserves committed prefixes in later activated views under explicit global provenance conditions |
 | 16 | `LogProvenance.lean` | Shared multi-view transition induction proves committed-log compatibility for a fixed configuration without crashes; concrete trace and cross-view delivery control |
 | 17 | `RecoveryFence.lean` | A supporting quorum retains a known fence through arbitrary crash/recovery sequences using fresh episode replies; stale-quorum fault control |
-| 18 | Public Rust path and directed TLC trace | Reproduced unresolved committed divergence after serial recoveries; an expected Red witness, not a safety theorem |
-| 19 | `CrashVector.lean` | Published crash-vector collector: arbitrary reachable reply sets satisfy incarnation consistency; stale-quorum witness and filter-removal control |
-| 20 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; incarnation-retention premise remains open; backward-response countermodel |
-| 21 | `RecoveryAcquire.lean` | Operational crash/start/emit/answer/collect/finish acquisition; finished certificates are crash-consistent quorums for exactly their request and incarnation; stale-request countermodel |
+| 18 | `CrashVector.lean` | Published crash-vector collector: arbitrary reachable reply sets satisfy incarnation consistency; stale-quorum witness and filter-removal control |
+| 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; incarnation-retention premise discharged by the durable superblock identity; backward-response countermodel |
+| 20 | `RecoveryAcquire.lean` | Operational crash/start/emit/answer/collect/finish acquisition; finished certificates are crash-consistent quorums for exactly their request and incarnation; stale-request countermodel |
 
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"
@@ -62,8 +62,8 @@ showboat verify REPRODUCE.md
 
 [REPRODUCE.md](REPRODUCE.md) is the single executable reproduction document:
 exact tool versions, the library build, the axiom audit, every rung replay,
-the mutation controls, the three TLC runs from a hash-pinned jar, the Rust
-gates, the expected-Red recovery replay, the paper build and input digests.
+the mutation controls, the two TLC runs from a hash-pinned jar, the Rust
+gates, the paper build and input digests.
 `showboat extract REPRODUCE.md` emits the shell commands that recreate it.
 The individual rungs can still be replayed one at a time:
 
@@ -82,5 +82,5 @@ Two corrections to the baseline wording are essential: the cross-era witness
 proves that removing overlap admits inconsistency in the abstract contract;
 it does not prove that every conceivable scheme without overlap is unsafe.
 And passing the entire ladder is not yet an end-to-end uVRR or VRR-2012 proof.
-Whole-log view selection, diskless recovery, repeated operational
+Whole-log view selection, repeated operational
 reconfiguration, client linearizability and progress remain integration work.

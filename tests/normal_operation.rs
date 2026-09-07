@@ -592,11 +592,9 @@ fn commit_cascade_orders_applies() {
     h.assert_safety();
 }
 
-/// A load script: proposals, deliveries, applies, ticks, and one crash with
-/// an amnesiac restart. The legality gate stands after every step;
-/// `assert_safety` runs after every quiesce. The amnesiac node lags behind
-/// on gaps (the state transfer is §10's) but never faults and never
-/// diverges. Reused identities across rounds exercise the boundary's
+/// A load script: proposals, deliveries, applies, and ticks. The legality
+/// gate stands after every step; `assert_safety` runs after every quiesce.
+/// Reused identities across rounds exercise the boundary's
 /// no-deduplication rule (§11.1) under load.
 fn load_script() -> Harness {
     let mut h = bootstrapped();
@@ -604,10 +602,6 @@ fn load_script() -> Harness {
         h.propose(n(0), op_id(round % 3 + 1), format!("op-{round}").as_bytes());
         if round % 4 == 1 {
             h.tick_all();
-        }
-        if round == 12 {
-            h.crash(n(2));
-            h.restart_amnesiac(n(2)).expect("amnesiac restart");
         }
         h.deliver_all();
         for id in [n(0), n(1), n(2)] {

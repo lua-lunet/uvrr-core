@@ -12,7 +12,7 @@ The correspondence is:
 | `logs` and `Len(logs[r])` | `Journal` and `Progress::accepted()` |
 | `Propose`, `ReceivePrepare`, `CommitNext`, `ReceiveCommit` | `replica/normal.rs` |
 | `EnterViewChange` through `ReceiveStartView` | `replica/view_change.rs` |
-| `Crash` through `CompleteRecovery`, `recoveryNonces` | `Replica::reopen` and `replica/recovery.rs` |
+| `Crash` | `Replica::reopen` — the boot rule fences every reopen |
 | `ApplyNext` | `Input::Applied` |
 | `messages` | published `Effect::Send` values plus adversarial transport |
 | `historicalCommitted` | none — a verification ghost recording every committed (slot, entry) fact |
@@ -41,15 +41,6 @@ Two finite models are checked:
 
 - `VrrCore.cfg`: normal operation and view change with three replicas, two
   commands, and views 0 and 1.
-- `VrrCoreRecovery.cfg`: normal operation, view change, and one fenced
-  crash/recovery event with three replicas and two commands. The crash
-  target is nondeterministic, so primary and backup loss are both explored.
-  The crash profile is fixed per configuration by the `CrashRetainsDurable`
-  constant: this exhaustive configuration pins the volatile profile, which
-  forgets the journal and the committed frontier, and the durable profile is
-  exercised by the `VrrCoreRecoveryDeep.cfg` fixed-seed simulation under
-  `make tla-deep`. Two commands keep divergent slot-3 histories expressible,
-  so prefix agreement is checked rather than masked by value collision.
 
 Run both with the repository's no-volume Docker path:
 
@@ -71,7 +62,7 @@ make tla-local TLA2TOOLS_JAR=/absolute/path/to/tla2tools.jar
 The principal checked theorem is prefix agreement: any two replicas agree at
 every slot both consider committed. The other invariants enforce the frontier
 order, application-prefix agreement, the current/retained view distinction,
-recovery fencing, and the two historical obligations over the ghost set: no
+and the two historical obligations over the ghost set: no
 committed slot is ever repopulated with a different entry, and every entry
 once committed remains present in at least one current replica history.
 
@@ -91,9 +82,9 @@ reports the exact obligation it violated:
 - same-era view/commit intersection in both eras;
 - both directions of cross-era view/commit intersection;
 - view-family self-intersection in both eras;
-- fence/recovery intersection in both eras; and
-- both directions of cross-era fence/recovery intersection (a recovery
-  quorum gathered in one era must meet the other era's fence family).
+- fence intersection in both eras; and
+- both directions of cross-era fence intersection (a quorum gathered in one
+  era must meet the other era's fence family).
 
 The action correspondence is deliberately to the design statement:
 
@@ -101,7 +92,7 @@ The action correspondence is deliberately to the design statement:
 |---|---|---|
 | `ProposeCommand`, `ReceivePrepare`, `CommitNext`, `ReceiveCommit` | base, era-generalized | normal replication; slot routing by `EraOfSlot` |
 | `EnterViewChange` through `ReceiveStartView` | base, era-generalized | view fencing, retained-history provenance, establishing-entry certification |
-| `Crash` through `CompleteRecovery` | base, era-generalized | two durability profiles; recovery under a bounded nonce set with re-drive; recovering identities send only recovery messages |
+| `Crash` | base, era-generalized | the crash event fences the identity and forgets the volatile protocol state; the fenced replica sends nothing (uVRR's Crash-Stop-Self-Evict reincarnation replaces the classic recovery exchange) |
 | `ProposeReconfig` | new | one establishing operation and one consecutive era boundary |
 | `SendPlannedViewChange`, `AnswerPlannedViewChange` | new | planned evidence that does not fence its sender |
 | `CastPlannedVote` | new | the leader remains `Normal`, installs its own retained log, and changes `currentView` and `retainedView` atomically |
@@ -137,34 +128,16 @@ The eras model makes seven state-space cuts:
 8. A crash always fences and forgets the volatile protocol state. Whether the
    durable records (journal and committed frontier) also survive is fixed per
    configuration by the `CrashRetainsDurable` constant rather than explored
-   nondeterministically: exhaustive configurations pin the volatile profile,
-   the adversarial direction for quorum safety, while the durable profile —
-   the one that makes mid-recovery committed fast-forward reachable — runs in
-   the deep fixed-seed simulations.
-9. Recovery re-drive is modeled as a bounded set of remembered nonces
-   (`MaxNonce = 1` gives two nonces per attempt, the minimum that exercises
-   cross-nonce combining). The set models every solicitation of the attempt
-   loop: delayed responses to any remembered nonce still count, and
-   responses across nonces combine by sender. The committed fast-forward
-   advances over the contiguous locally held prefix that agrees with the
-   response history — the takeWhile walk — so an uncommitted dead-view entry
-   is never fast-forwarded past a disagreement.
-
-Recovery is operational, not havoced. The response family is selected from the
-era of the maximal reported view. A replica in `Recovering` may send only a
-recovery request; an action property checks the send-side rule at the
-transition where a message is added. Quorum counting is over the recorded
-evidence itself: a message sent while the sender was entitled to send it
-remains valid under arbitrary delay, loss, reorder, and duplication, so the
-model does not recheck a responder's current status or view when
-acknowledgements, planned votes, or recovery responses are counted. The
-same-transition committed fast-forward and the completion floor
-(`committed` never decreases at completion) implement the fast-forward
-design over the contiguous locally held prefix. Application-effect
-suppression across a fast-forward — exactly-once `Apply` for a slot the
-replica already applied pre-crash — remains a Rust test obligation in
-`src/replica/recovery.rs`; it feeds no quorum and so stays outside the
-quorum-safety abstraction.
+   nondeterministically. uVRR replaces the classic quorum-recovery exchange
+   with Crash-Stop-Self-Evict reincarnation (a dirty node reopens under a new
+   incarnation and rejoins as a weight-0 learner), so the model performs no
+   recovery exchange; the fenced replica sends nothing, which the
+   `RecoveringSendsNothing` property checks at the transition where a message
+   is added. Quorum counting is over the recorded evidence itself: a message
+   sent while the sender was entitled to send it remains valid under
+   arbitrary delay, loss, reorder, and duplication, so the model does not
+   recheck a responder's current status or view when acknowledgements,
+   planned votes, or ordinary reports are counted.
 
 The model also made one previously implicit proof obligation explicit. A
 follower may join an era-1 fence without locally knowing the establishing entry
@@ -204,19 +177,13 @@ one illegal scenario, and must exit nonzero on the named check:
 |---|---|---|
 | M1 | drop the transferred tail entry while reporting its committed frontier | `FrontiersOrdered` |
 | M2 | adopt a higher view without installing its selected history | `CommittedLogsAgree` |
-| M3 | let a recovering identity receive and vote | `CommittedLogsAgree` |
 | M4 | interpret planned evidence as ordinary fence/report provenance | `CommittedLogsAgree` |
 | M5 | let the cast install a responder history instead of the leader's retained log | `CommittedLogsAgree` |
-| M6 | complete recovery from one response | `CommittedLogsAgree` |
 | M7 | six-node increment with disjoint old-view/new-commit sets | startup gate `gate: r1-era1`, zero states |
-| M8 | era-0 and era-1 view pivots disjoint across the fence/recovery families | startup gate `gate: fr-cross-fence0-recovery1`, zero states |
+| M8 | era-0 and era-1 view pivots disjoint across the fence families | startup gate `gate: fr-cross-fence0-recovery1`, zero states |
 
-M3 uses fixed-seed simulation because its plain breadth-first graph is much
-larger than its short counterexample trace. M6 uses an exhaustive transition
-projection containing only unchanged normal, view-change, crash, and recovery
-actions; it reaches quorum amnesia in 4,857 distinct states at depth 20. M1,
-M2, M4, and M5 are breadth-first. M7 and M8 are refused by the named startup
-gate assertions before any state is explored. Removing only the pivot-existence
+M1, M2, M4, and M5 are breadth-first. M7 and M8 are refused by the named
+startup gate assertions before any state is explored. Removing only the pivot-existence
 guard is kept as the separate `VrrCoreErasNoPivot.cfg` experiment: it is expected to remain green
 because the pivot is a pipelining availability condition, not a safety axiom.
 That experiment completed exhaustively with 837,204 distinct states, depth 32,

@@ -72,13 +72,13 @@ The demo kv replication passing Maelstrom testing is not evidence of zero bugs. 
 
 `make tla` builds a self-contained TLC image and exhaustively checks the
 finite [TLA+ correspondence model](formal/README.md) for normal operation,
-view change, and fenced crash recovery. The image embeds the model: this path
+view change, and the fenced crash-stop event. The image embeds the model: this path
 uses classic Docker commands and requires neither BuildKit nor a volume mount.
 
-`cargo test` runs 90 tests: unit and matrix tests per protocol path, targeted
-regressions, a deterministic seeded multi-replica cluster harness (K=3..7,
-loss / reorder / duplication / partition / crash-with-amnesia, safety asserted
-after *every* single step), and proptest companions.
+`cargo test` runs the protocol-path tests, targeted
+regressions, and a deterministic seeded multi-replica cluster harness (K=3..7,
+loss / reorder / duplication / partition / crash-restart, safety asserted
+after *every* single step), plus proptest companions.
 
 In order to run the maelstrom targets you need to fetch maelstrom as a submodule with 
 

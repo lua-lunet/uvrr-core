@@ -756,14 +756,10 @@ pub enum Tag {
     /// diverges. With distinct tags the dispatch *is* the check, and a handler cannot
     /// omit it because it never sees the other message.
     PlannedViewChange = 8,
-    /// A restarting replica soliciting state; the nonce is the host tick (§10, S4).
-    Recovery = 9,
-    /// A reply to `Recovery`, echoing the nonce (§10).
-    RecoveryResponse = 10,
     /// A request for a history range the requester lacks (§4, §13.1).
-    GetState = 11,
+    GetState = 9,
     /// A history range in reply to `GetState`. Sizing is the host's (W5).
-    NewState = 12,
+    NewState = 10,
 }
 
 impl Tag {
@@ -782,10 +778,8 @@ impl Tag {
             Tag::DoViewChange => 6,
             Tag::StartView => 7,
             Tag::PlannedViewChange => 8,
-            Tag::Recovery => 9,
-            Tag::RecoveryResponse => 10,
-            Tag::GetState => 11,
-            Tag::NewState => 12,
+            Tag::GetState => 9,
+            Tag::NewState => 10,
         }
     }
 
@@ -806,10 +800,8 @@ impl Tag {
             6 => Some(Tag::DoViewChange),
             7 => Some(Tag::StartView),
             8 => Some(Tag::PlannedViewChange),
-            9 => Some(Tag::Recovery),
-            10 => Some(Tag::RecoveryResponse),
-            11 => Some(Tag::GetState),
-            12 => Some(Tag::NewState),
+            9 => Some(Tag::GetState),
+            10 => Some(Tag::NewState),
             _ => None,
         }
     }

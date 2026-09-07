@@ -865,14 +865,12 @@ fn a_faulted_replica_refuses_every_input_variant() {
             },
         },
         Input::Tick,
-        Input::Recover,
         Input::StabilityConfirmation {
             revision: 0,
             result: stable(),
         },
         Input::Applied { slot: Slot(2) },
         Input::Checkpointed { through: Slot(2) },
-        Input::ApplicationStateInstalled { through: Slot(2) },
         Input::Reconfigure {
             op: SystemOperation::Double,
             pivot: None,
@@ -894,11 +892,9 @@ fn a_faulted_replica_refuses_every_input_variant() {
             },
             Input::Propose { .. } => InputKind::ClientRequest,
             Input::Tick => InputKind::Tick,
-            Input::Recover => InputKind::Recovery,
             Input::StabilityConfirmation { .. } => InputKind::StabilityConfirmed,
             Input::Applied { .. } => InputKind::Applied,
             Input::Checkpointed { .. } => InputKind::Checkpointed,
-            Input::ApplicationStateInstalled { .. } => InputKind::ApplicationStateInstalled,
             Input::Reconfigure { .. } => InputKind::Reconfiguration,
             Input::AdminForceView { .. } => InputKind::Admin,
         };
@@ -989,16 +985,12 @@ fn an_illegal_candidate_is_discarded_and_faults_the_node() {
 /// the build here.
 #[test]
 fn the_pipeline_reads_no_clock_and_performs_no_io() {
-    let sources: [(&str, &str); 8] = [
+    let sources: [(&str, &str); 7] = [
         ("replica/mod", include_str!("../src/replica/mod.rs")),
         ("replica/normal", include_str!("../src/replica/normal.rs")),
         (
             "replica/view_change",
             include_str!("../src/replica/view_change.rs"),
-        ),
-        (
-            "replica/recovery",
-            include_str!("../src/replica/recovery.rs"),
         ),
         (
             "replica/transfer",
@@ -1101,29 +1093,6 @@ fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
             },
         ),
         message(Tag::PlannedViewChange, Slot(0), Body::PlannedViewChange {}),
-        message(Tag::Recovery, Slot(0), Body::Recovery { nonce: Tick(99) }),
-        message(
-            Tag::RecoveryResponse,
-            Slot(0),
-            Body::RecoveryResponse {
-                nonce: Tick(99),
-                view: genesis_view(),
-                accepted: Slot(5),
-                committed: Slot(2),
-                suffix: Some(vec![entry(4), entry(5)]),
-            },
-        ),
-        message(
-            Tag::RecoveryResponse,
-            Slot(0),
-            Body::RecoveryResponse {
-                nonce: Tick(99),
-                view: genesis_view(),
-                accepted: Slot(5),
-                committed: Slot(2),
-                suffix: None,
-            },
-        ),
         message(Tag::GetState, Slot(2), Body::GetState { from: Slot(3) }),
         message(
             Tag::NewState,
@@ -1138,7 +1107,7 @@ fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
     ];
 
     // One case per tag: the coverage is exhaustive by construction.
-    assert_eq!(cases.len(), 12, "11 tags plus the RecoveryResponse option");
+    assert_eq!(cases.len(), 9, "9 tags");
 
     for case in &cases {
         assert_eq!(

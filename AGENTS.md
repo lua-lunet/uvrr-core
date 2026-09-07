@@ -111,9 +111,11 @@ design, not accident.
 
 - **Lean 4.33.1** — kernel-checked proofs. The formalization's sole verification
   tool. No Mathlib, no external tactics.
-- **TLC 2.19** — model-checked counterexample witnesses (delayed-fence,
-  VrrCoreEras). Ran from a standalone jar, not a submodule. Evidence in
-  `formal/uvrr-lean/evidence/tlc/` and `formal/uvrr-lean/evidence/delayed-fence/`.
+- **TLC 2.19** — model-checked the era model and its mutations. Ran from a
+  standalone jar, not a submodule. Evidence in `formal/uvrr-lean/evidence/tlc/`;
+  the delayed-fence counterexample evidence was removed with the classic
+  crash-recover attempt it witnessed (historical copies remain under
+  `research/uvrr-audit/`).
 - **Leanstral** (Mistral) — LLM Lean proof generator. Reported in the paper as a
   failed-attempt tool. No accepted Leanstral-generated proof is attributed.
 - **Showboat** — executable evidence packaging. Cited in the paper bibliography.

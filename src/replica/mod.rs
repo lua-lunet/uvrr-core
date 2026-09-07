@@ -3,9 +3,9 @@
 //!
 //! Spec §5 (progress record), §6 (functional core model), §7 (serialized
 //! transition interval and stability levels), §11 (application boundary), §12
-//! (concurrency contract), §14.2 (the amnesiac voter). Decisions S2
-//! (plan/publish/confirm), S3 (three-way stability), S4 (the recovery nonce is
-//! the tick), B1 (observation on publish only), W1 (era in every header), Q1
+//! (concurrency contract). Decisions S2
+//! (plan/publish/confirm), S3 (three-way stability), S4 (the tick is host
+//! observation metadata), B1 (observation on publish only), W1 (era in every header), Q1
 //! (the quorum gate runs at construction).
 //!
 //! The load-bearing property of the whole design: **nothing externally
@@ -24,9 +24,7 @@
 //! ```
 //!
 //! No clock read occurs anywhere beneath this module. Every input carries the
-//! host tick, and for a recovery input that tick *is* a recovery nonce — the
-//! attempt retains a bounded set of them, one per re-drive (§6.1, decision
-//! S4). `Input::Tick` exists as an ordinary event, not as a
+//! host tick (S4). `Input::Tick` exists as an ordinary event, not as a
 //! timer callback, so a harness can replay sloppy, late, early and reordered
 //! timeouts deterministically — a timeout the core cannot be *told* about is a
 //! timeout no test can reproduce.
@@ -36,7 +34,7 @@
 //! sticky-faults the node. A determinate failure leaves the previously
 //! published state visible and observable, because collapsing "it definitely
 //! did not happen" into "it might have happened" throws away exactly the
-//! information that distinguishes a retry from a recovery.
+//! information that distinguishes a retry from a fresh episode.
 //!
 //! Dispatch over inputs is exhaustive `match` with no wildcard arms. An input
 //! whose handler is future work is refused with the named, tested
@@ -90,8 +88,7 @@
 //! system operation (the genesis `Void`/`Init` of §8.7.2) is core-internal
 //! — it emits no `Apply` upcall and expects no acknowledgement — but it
 //! advances `applied` the moment the contiguous committed prefix allows,
-//! on every path that moves the committed or applied frontier, recovery
-//! replay included. The host's `Input::Checkpointed { through }` is
+//! on every path that moves the committed or applied frontier. The host's `Input::Checkpointed { through }` is
 //! accepted only when `through <= applied`; the published checkpoint
 //! frontier is the sole reclamation authorization (§4, S1), applied to the
 //! default journal by [`Replica::reclaim_journal`] — lazy, whole slabs at
@@ -121,20 +118,16 @@ pub use crate::quorum::{PivotError, construct_pivot, validate_pivot};
 
 mod normal;
 mod reconfiguration;
-mod recovery;
 mod transfer;
 mod view_change;
 
 /// One host event with the host tick attached (§6, S4).
 ///
 /// `at` is host observation metadata sampled when the host began dispatching
-/// the event — never a timestamp received from a peer — and for
-/// [`Input::Recover`] it is also a recovery nonce (§6.1): the attempt
-/// retains a bounded set of them, one per re-drive.
+/// the event — never a timestamp received from a peer.
 #[derive(Clone, Debug)]
 pub struct TimedInput {
-    /// The host tick at dispatch time; a recovery nonce for
-    /// [`Input::Recover`] (S4).
+    /// The host tick at dispatch time (S4).
     pub at: Tick,
     /// The event.
     pub event: Input,
@@ -169,16 +162,12 @@ pub enum Input {
         operation: Operation,
     },
     /// A host timer event (S4). Drives the bootstrap self-promotion of the
-    /// genesis primary (see the `plan_tick` handler); the view-change and
-    /// recovery timeout bookkeeping belongs to those paths. On a node with
+    /// genesis primary (see the `plan_tick` handler); the view-change
+    /// timeout bookkeeping belongs to that path. On a node with
     /// nothing to decide it remains the smallest honest transition: no
     /// protocol state moves, and the interval machinery — revision, gate,
     /// stability handshake — is genuinely exercised by it.
     Tick,
-    /// Begin (or re-drive) a recovery attempt (§10). The nonce is
-    /// [`TimedInput::at`] (S4); a re-drive adds it to the open attempt's
-    /// bounded nonce set and preserves the collected responses.
-    Recover,
     /// The host's report on the one outstanding [`PersistenceIntent`] (S2/S3).
     StabilityConfirmation {
         /// The base revision of the transition being confirmed: the
@@ -201,19 +190,6 @@ pub enum Input {
     /// sole reclamation authorization (§4, S1).
     Checkpointed {
         /// The greatest slot the host can now restore through.
-        through: Slot,
-    },
-    /// The host's answer to an outstanding
-    /// [`Effect::RequestApplicationState`] (§4, §11): application state
-    /// through `through` has been restored through the host's own
-    /// transfer facility. Accepted only in the shortfall state that
-    /// emitted the request — an open recovery attempt with that request
-    /// outstanding — and only when `through` names it back exactly; the
-    /// acceptance completes the recovery against a base the journal no
-    /// longer holds, the restored state standing in for the replay.
-    ApplicationStateInstalled {
-        /// The frontier the host restored through; must equal the
-        /// outstanding request's.
         through: Slot,
     },
     /// A reconfiguration operation proposed for commitment (§8.7.2).
@@ -262,11 +238,9 @@ impl Input {
             },
             Input::Propose { .. } => InputKind::ClientRequest,
             Input::Tick => InputKind::Tick,
-            Input::Recover => InputKind::Recovery,
             Input::StabilityConfirmation { .. } => InputKind::StabilityConfirmed,
             Input::Applied { .. } => InputKind::Applied,
             Input::Checkpointed { .. } => InputKind::Checkpointed,
-            Input::ApplicationStateInstalled { .. } => InputKind::ApplicationStateInstalled,
             Input::Reconfigure { .. } => InputKind::Reconfiguration,
             Input::AdminForceView { .. } => InputKind::Admin,
         }
@@ -333,14 +307,6 @@ pub enum PlanRefusal {
         /// The primary of `view` under its era's configuration.
         primary: Option<NodeId>,
     },
-    /// A recovery input reached a node that is not fenced `Recovering`
-    /// (§10): recovery is how a reopened node re-proves its state, and a
-    /// participating node has nothing to recover. Carries the status the
-    /// node is in.
-    NotRecovering {
-        /// The node's current status.
-        status: Status,
-    },
     /// An [`Input::Applied`] the node could not accept: a duplicate, an
     /// out-of-order completion, or a completion for a slot that is not yet
     /// committed. `expected` is the slot the node could accept an `Applied`
@@ -359,21 +325,6 @@ pub enum PlanRefusal {
         applied: Slot,
         /// The frontier the host claimed.
         through: Slot,
-    },
-    /// An [`Input::ApplicationStateInstalled`] with no application-state
-    /// request outstanding (§4, §11): the node never shortfell, or the
-    /// completing install already consumed the request — a duplicate names
-    /// nothing, exactly like an install a node never asked for.
-    ApplicationStateNotRequested,
-    /// An [`Input::ApplicationStateInstalled`] whose `through` does not
-    /// name the outstanding request (§4, §11): the host answered a
-    /// different question than the shortfall asked. Refused without state
-    /// change; the request stays outstanding.
-    ApplicationStateMismatch {
-        /// The frontier the outstanding request named.
-        expected: Slot,
-        /// The frontier the host reported.
-        got: Slot,
     },
     /// A slot the published record says is accepted is absent from the
     /// journal view offered for planning: the two durable records disagree
@@ -566,9 +517,8 @@ pub enum LifecycleRefusal {
     /// implementation and the constructor stays total.
     Journal(JournalError),
     /// `provision` was offered a journal that already holds history. A
-    /// non-empty journal is evidence of a prior life, and silently
-    /// overwriting it is the amnesiac voter of §14.2: the node would vote
-    /// with no memory of the promises that history carries.
+    /// non-empty journal is evidence of a prior life; provisioning must go
+    /// through [`Replica::reopen`] instead.
     JournalNotEmpty,
     /// The persisted progress and the journal disagree about the accepted
     /// frontier (§5 invariant 1): the two durable records tell different
@@ -752,87 +702,6 @@ struct Evidence {
     suffix: Vec<LogEntry>,
 }
 
-/// One responder's `RecoveryResponse` evidence (§6.1): the view it reported
-/// — the fence knowledge the `F_g ⌢ R_g` intersection (§8.3) exists to
-/// deliver — its frontiers, and the bounded history suffix, which only the
-/// reported view's primary may carry.
-#[derive(Clone, PartialEq, Eq, Debug)]
-struct RecoveryEvidence {
-    /// The responder's current view.
-    view: ViewId,
-    /// The responder's accepted frontier.
-    accepted: Slot,
-    /// The responder's committed frontier.
-    committed: Slot,
-    /// The responder's bounded history suffix (§13.1); only the reported
-    /// view's primary's is installation evidence (§6.1).
-    suffix: Option<Vec<LogEntry>>,
-}
-
-/// The bound on a recovery attempt's nonce memory (§10, §6.1): a re-drive
-/// past the bound evicts the OLDEST nonce, and a response echoing an
-/// evicted nonce is stale exactly like one to an attempt that never ran.
-pub(crate) const MAX_RECOVERY_NONCES: usize = 8;
-
-/// The outstanding application-state request of a recovery completion
-/// that surfaced the shortfall (§4, §11): the frontier the emitted
-/// [`Effect::RequestApplicationState`] named — which the host's
-/// [`Input::ApplicationStateInstalled`] must name back — and the
-/// completing evidence the request was computed from. The evidence is
-/// captured, not re-derived at install time: the install completes the
-/// ruling the request described, whatever fresher responses arrived
-/// meanwhile. Volatile like the rest of the attempt: a crash discards it,
-/// and the reopened node's fresh attempt re-derives the shortfall.
-#[derive(Clone, PartialEq, Eq, Debug)]
-struct StateRequest {
-    /// The frontier the request named: the completion's committed
-    /// frontier at shortfall time.
-    through: Slot,
-    /// The responder whose response carried the installation evidence.
-    source: NodeId,
-    /// The latest fenced view the completing quorum reported (§6.1).
-    latest: ViewId,
-    /// The completing evidence (the reported view's primary's suffix).
-    evidence: RecoveryEvidence,
-}
-
-/// The volatile recovery-attempt state (§10, §6.1): the nonce set — each
-/// element the tick of one of the episode's recovery inputs (S4) — and
-/// the distinct responders counted toward the `R_g` quorum. The node
-/// itself is never among them.
-///
-/// Volatile by design (§8.3's diskless argument: quorum memory, not local
-/// storage, survives a crash): a crash discards the attempt, and the
-/// reopened node starts a fresh one with a fresh tick.
-#[derive(Clone, PartialEq, Eq, Debug)]
-struct RecoveryVolatile {
-    /// The episode's nonce memory: the tick of each of its recovery
-    /// inputs (S4), bounded by [`MAX_RECOVERY_NONCES`] with the oldest
-    /// evicted on overflow. A response is this episode's iff its echoed
-    /// nonce is in the set.
-    nonces: BTreeSet<Tick>,
-    /// The counted responses, by transport-attributed sender. A refreshed
-    /// answer replaces the earlier one: every nonce in the set binds both
-    /// to this episode, and the fresher frontiers are the better evidence.
-    responses: BTreeMap<NodeId, RecoveryEvidence>,
-    /// The `committed` frontier the attempt opened with: this life's
-    /// volatile emission boundary (§11.1). Every slot above it that the
-    /// local frontier reaches this life was emitted by the fast-forward,
-    /// so the completion re-emits only the durable debt at or below it
-    /// plus the range it newly installs. Volatile like the rest of the
-    /// attempt: a crash discards it, and the reopened node's replay
-    /// re-emits from the durable `applied` as ever.
-    open_committed: Slot,
-    /// The outstanding application-state request, when the completing
-    /// ruling surfaced the shortfall (§4, §11): the attempt stays open
-    /// behind it, and
-    /// the host's [`Input::ApplicationStateInstalled`] naming its
-    /// `through` completes the recovery the journal alone could not
-    /// serve. A re-shortfall on fresher evidence replaces it — the
-    /// outstanding request is the latest emission.
-    state_request: Option<StateRequest>,
-}
-
 /// The volatile view-change attempt state (VRR-2012 §5): the fence target,
 /// the distinct `StartViewChange` senders counted toward the `Role::Fence`
 /// quorum, the collected `DoViewChange` evidence for the `Role::ViewChange`
@@ -873,27 +742,13 @@ enum ViewChangeUpdate {
     Clear,
 }
 
-/// The recovery half of [`Bookkeeping`]: what a transition does to the
-/// volatile attempt state.
-#[derive(Clone, Debug, Default)]
-enum RecoveryUpdate {
-    /// The attempt state is untouched.
-    #[default]
-    Unchanged,
-    /// Install this attempt state (attempt start, a counted response).
-    Set(RecoveryVolatile),
-    /// The attempt is over: the recovered history installed.
-    Clear,
-}
-
 /// The volatile state-transfer cursor (§10, §13.1 step 5): the one open
 /// fetch — the view it rides, the responder it asked, and the first slot
 /// it still needs. A `NewState` is protocol-qualified evidence only while
 /// it answers this record; anything else is a named drop, never a fault.
 ///
-/// Volatile by design, exactly like the recovery attempt: a crash
-/// discards the cursor and the reopened node re-fetches under a fresh
-/// ruling. A fresh fetch replaces an older one wholesale — the old
+/// Volatile by design: a crash discards the cursor and the reopened node
+/// re-fetches under a fresh ruling. A fresh fetch replaces an older one wholesale — the old
 /// cursor's answers are then stale.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct TransferVolatile {
@@ -924,8 +779,8 @@ enum TransferUpdate {
 /// A gap-ruled `StartView` offer awaiting its fetch (§13.1 step 5): the
 /// completing ruling could not be constructed when the offer arrived, so
 /// the offer is retained whole and the ruling re-runs on an ordinary tick
-/// once state transfer has supplied the missing range — the same re-drive
-/// the recovery completion gets. Volatile, exactly like the fetch cursor:
+/// once state transfer has supplied the missing range. Volatile, exactly
+/// like the fetch cursor:
 /// a crash discards the offer and the reopened node re-fetches under a
 /// fresh ruling; a fresh gap ruling replaces an older offer wholesale.
 #[derive(Clone, Debug)]
@@ -1059,8 +914,6 @@ struct Bookkeeping {
     resolved: Vec<Slot>,
     /// The view-change attempt update.
     view_change: ViewChangeUpdate,
-    /// The recovery attempt update.
-    recovery: RecoveryUpdate,
     /// The state-transfer cursor update.
     transfer: TransferUpdate,
     /// The stalled-offer update.
@@ -1226,10 +1079,6 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// The in-flight view-change attempt, if any. Volatile — the
     /// VRR-2012 fence exchange is volatile by design (§9.3).
     view_change: Option<ViewChangeVolatile>,
-    /// The in-flight recovery attempt, if any (§6.1). Volatile — a crash
-    /// discards it; the reopened node starts a fresh attempt with a fresh
-    /// tick (S4).
-    recovery: Option<RecoveryVolatile>,
     /// The one open state-transfer fetch, if any (§10, §13.1 step 5).
     /// Volatile — a crash discards it; the reopened node re-fetches under
     /// a fresh ruling.
@@ -1279,7 +1128,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// # Refusals
     ///
     /// [`LifecycleRefusal::JournalNotEmpty`] if the journal already holds
-    /// history (overwriting it is the amnesiac voter of §14.2);
+    /// history;
     /// [`LifecycleRefusal::Configuration`] if the genesis fold refuses the
     /// order; [`LifecycleRefusal::NotAMember`] if `own` is outside it;
     /// [`LifecycleRefusal::Quorum`] if the Q1 gate refuses the genesis
@@ -1368,16 +1217,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The persisted progress is evidence about the past, not authority over
     /// the present: whatever status was last observed before failure, the
     /// node reopens in [`Status::Recovering`] (§5's boot rule) and becomes
-    /// normal only after local restoration or quorum recovery establishes
-    /// adequate state (§14.2). The persisted fault, if any, is preserved —
+    /// normal only after local restoration establishes adequate state. The
+    /// persisted fault, if any, is preserved —
     /// faults survive restart because they are part of progress (§5
     /// invariant 5).
     ///
     /// A host that cannot produce a persisted progress must say so by using
-    /// [`Replica::provision`] instead. Reopening with manufactured state is
-    /// the amnesiac voter §14.2 warns about; the core cannot detect a
-    /// fabricated record, so it makes the host say which it is doing by
-    /// choosing the constructor.
+    /// [`Replica::provision`] instead; the core makes the host say which it
+    /// is doing by choosing the constructor.
     ///
     /// # Refusals
     ///
@@ -1449,7 +1296,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             knobs,
             primary_activity: Tick(0),
             view_change: None,
-            recovery: None,
             transfer: None,
             stalled: None,
             planned: None,
@@ -1562,10 +1408,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 self.refuse_if_parked()?;
                 self.plan_applied(journal, *slot)
             }
-            Input::Recover => {
-                self.refuse_if_parked()?;
-                self.plan_recover(input.at)
-            }
             Input::AdminForceView { target } => {
                 self.refuse_if_parked()?;
                 self.plan_admin_force_view(journal, *target, input.at)
@@ -1573,15 +1415,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Input::Checkpointed { through } => {
                 self.refuse_if_parked()?;
                 self.plan_checkpointed(*through)
-            }
-            Input::ApplicationStateInstalled { through } => {
-                self.refuse_if_parked()?;
-                self.plan_application_state_installed(
-                    journal,
-                    *through,
-                    input.at,
-                    input.event.kind(),
-                )
             }
             Input::Reconfigure { op, pivot } => {
                 self.refuse_if_parked()?;
@@ -1669,55 +1502,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .view_change_target()
                 .ok_or(PlanRefusal::Progress(ProgressError::ViewSuccessor))?;
             return self.enter_view_change(journal, target, BTreeSet::new(), at, InputKind::Tick);
-        }
-        // §13.1 step 5: a recovery completion that stalled on an
-        // unconstructible evidence suffix re-runs once state transfer has
-        // supplied the missing range. The precheck keeps an ordinary tick
-        // honest: no quorum, no primary history, or a still-
-        // unconstructible suffix falls through to the no-op below.
-        // Completion remains a recovery install (§6.1): the tick only
-        // schedules the re-drive after transfer supplied the missing range.
-        if self.progress.status() == Status::Recovering {
-            if let Some(attempt) = self.recovery.clone() {
-                if let Some((source, latest, evidence)) =
-                    self.recovery_completion_ready(journal, &attempt)
-                {
-                    return self.plan_recovery_completion(
-                        journal,
-                        attempt,
-                        source,
-                        latest,
-                        evidence,
-                        at,
-                        InputKind::Recovery,
-                        None,
-                    );
-                }
-                // §4, §11: an outstanding application-state request
-                // re-emits on an ordinary tick — a lost request or a
-                // stale install otherwise leaves the node waiting
-                // silently for a transfer the host does not know it
-                // still owes. The re-emission is the same effect the
-                // shortfall surfaced; the host's install input must
-                // still name the outstanding `through` back.
-                if let Some(request) = &attempt.state_request {
-                    let candidate = self.identity_candidate()?;
-                    return Ok(self
-                        .candidate_plan(
-                            candidate,
-                            JournalMutation::None,
-                            vec![Effect::RequestApplicationState {
-                                through: request.through,
-                            }],
-                            InputKind::Tick,
-                            false,
-                        )
-                        .with_bookkeeping(Bookkeeping {
-                            recovery: RecoveryUpdate::Set(attempt.clone()),
-                            ..Bookkeeping::default()
-                        }));
-                }
-            }
         }
         // §13.1 step 5: a gap-ruled `StartView` re-runs its ruling on an
         // ordinary tick once state transfer has supplied the missing
@@ -2411,11 +2195,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 self.proposals.clear();
             }
         }
-        match bookkeeping.recovery {
-            RecoveryUpdate::Unchanged => {}
-            RecoveryUpdate::Set(attempt) => self.recovery = Some(attempt),
-            RecoveryUpdate::Clear => self.recovery = None,
-        }
         match bookkeeping.transfer {
             TransferUpdate::Unchanged => {}
             TransferUpdate::Set(fetch) => self.transfer = Some(fetch),
@@ -2790,16 +2569,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 era_proof,
             } => self.plan_start_view(
                 journal, from, message, suffix, *accepted, *committed, era_proof, at, kind,
-            ),
-            Body::Recovery { nonce } => self.plan_recovery_request(from, *nonce, kind),
-            Body::RecoveryResponse {
-                nonce,
-                view,
-                accepted,
-                committed,
-                suffix,
-            } => self.plan_recovery_response(
-                journal, from, *nonce, *view, *accepted, *committed, suffix, at, kind,
             ),
             Body::GetState { from: fetch_from } => {
                 self.plan_get_state(journal, from, message, *fetch_from, kind)

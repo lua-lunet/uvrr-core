@@ -1,4 +1,4 @@
-# Rung 21: Operational crash-vector acquisition certificates
+# Rung 20: Operational crash-vector acquisition certificates
 
 *2026-09-06T08:58:58Z by Showboat 0.6.1*
 <!-- showboat-id: 3bb19e31-ba24-49c2-9dfa-06cf7f4462b9 -->

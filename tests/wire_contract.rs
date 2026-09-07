@@ -41,7 +41,7 @@ use vrr::wire::{Header, Malformed, Pack, PackError, Tag, Unpack, UnpackCursor, U
 /// Every `Tag`, in discriminant order. Used by the round-trip and exhaustiveness
 /// groups. Kept as an explicit list rather than derived from a `Tag::ALL` constant so
 /// that the test agrees with the brief's table independently of the implementation.
-const ALL_TAGS: [Tag; 11] = [
+const ALL_TAGS: [Tag; 9] = [
     Tag::Prepare,
     Tag::PrepareOk,
     Tag::Commit,
@@ -49,8 +49,6 @@ const ALL_TAGS: [Tag; 11] = [
     Tag::DoViewChange,
     Tag::StartView,
     Tag::PlannedViewChange,
-    Tag::Recovery,
-    Tag::RecoveryResponse,
     Tag::GetState,
     Tag::NewState,
 ];
@@ -633,10 +631,8 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
             Tag::DoViewChange => 6,
             Tag::StartView => 7,
             Tag::PlannedViewChange => 8,
-            Tag::Recovery => 9,
-            Tag::RecoveryResponse => 10,
-            Tag::GetState => 11,
-            Tag::NewState => 12,
+            Tag::GetState => 9,
+            Tag::NewState => 10,
         };
         assert_eq!(
             tag.as_u32(),
@@ -652,18 +648,20 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
     }
 
     // The whole numbering, including both boundaries of the reserved space.
-    // Discriminants 1 and 13 belonged to the retired client-datagram tags
-    // (B2: client traffic is a host concern, never a core datagram); they
-    // stay reserved — reuse would collide with deployments that still carry
-    // the old numbering on a wire.
-    for candidate in 2u32..=12 {
-        let tag = Tag::from_u32(candidate).expect("2..=12 are all tags");
+    // Discriminants 1, 11 and 12 belonged to the retired recovery-exchange
+    // tags and the retired client-datagram tags (B2: client traffic is a
+    // host concern, never a core datagram); they stay reserved — reuse
+    // would collide with deployments that still carry the old numbering on
+    // a wire.
+    for candidate in 2u32..=10 {
+        let tag = Tag::from_u32(candidate).expect("2..=10 are all tags");
         assert_eq!(tag.as_u32(), candidate);
     }
     assert_eq!(Tag::from_u32(0), None, "0 is reserved, not a tag");
     assert_eq!(Tag::from_u32(1), None, "1 is retired, not a tag");
-    assert_eq!(Tag::from_u32(13), None, "13 is retired, not a tag");
-    assert_eq!(Tag::from_u32(14), None, "14 is not yet a tag");
+    assert_eq!(Tag::from_u32(11), None, "11 is retired, not a tag");
+    assert_eq!(Tag::from_u32(12), None, "12 is retired, not a tag");
+    assert_eq!(Tag::from_u32(13), None, "13 is not yet a tag");
 
     // `PlannedViewChange` is a distinct tag rather than a flag on `StartViewChange`
     // (§8.7.7 step 4). Distinct discriminants are the mechanical expression of that.
@@ -755,7 +753,7 @@ fn serde_round_trip_ids() {
 #[test]
 fn unpack_to_json_renders_a_binary_header() {
     let header = Header {
-        tag: Tag::Recovery,
+        tag: Tag::PlannedViewChange,
         view: ViewId {
             era: Era(2),
             view: View(5),
@@ -765,7 +763,10 @@ fn unpack_to_json_renders_a_binary_header() {
     let bytes = encode(&header);
 
     let rendered = vrr::wire::unpack_to_json::<Header>(&bytes).expect("must render");
-    assert!(rendered.contains("Recovery"), "rendered: {rendered}");
+    assert!(
+        rendered.contains("PlannedViewChange"),
+        "rendered: {rendered}"
+    );
     assert!(rendered.contains("77"), "rendered: {rendered}");
 
     assert!(

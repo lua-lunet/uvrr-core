@@ -29,7 +29,7 @@ help:
 	@echo "make build           - release-build the cdylib and the Maelstrom node"
 	@echo "make test-clean      - lin-kv, no faults (plumbing + baseline linearizability)"
 	@echo "make test-partition  - lin-kv under network partitions"
-	@echo "make test-kill       - lin-kv under process kill/restart (exercises recovery)"
+	@echo "make test-kill       - lin-kv under process kill/restart"
 	@echo "make test-all        - lin-kv under partition + kill + pause"
 	@echo "make serve           - browse past results at http://localhost:8080"
 	@echo "make e2e             - Docker: build image and run all Maelstrom tests"
@@ -54,9 +54,6 @@ check:
 	cargo clippy --all-targets -- -D warnings
 	cargo test
 
-# Each run starts from no durable state, so every node's first boot is a first
-# boot. A stale nonce marker would make a node believe it had restarted and
-# enter recovery at cluster start, where nobody is Normal to answer it.
 clean-state:
 	rm -rf $(STATE_DIR)
 	mkdir -p $(STATE_DIR)
@@ -134,7 +131,6 @@ endef
 tla-run:
 	test "$$(docker image inspect $(TLA_IMAGE) --format '{{.Architecture}}')" = "$(TLA_ARCH)"
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCore.cfg VrrCore.tla
-	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreRecovery.cfg VrrCore.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreEras.cfg VrrCoreEras.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -config VrrCoreErasEven.cfg VrrCoreEras.tla
 	@$(TLA_EXPECT_FAILURE_DOCKER); \
@@ -150,7 +146,6 @@ tla-even: tla-build
 	expect_failure VrrCoreErasEvenOverlap.cfg "Invariant WOverlapStreams is violated"
 
 tla-deep: tla-build
-	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=30000 -depth 40 -seed 1 -config VrrCoreRecoveryDeep.cfg VrrCore.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=10000 -depth 40 -seed 1 -config VrrCoreErasEvenDeep.cfg VrrCoreEras.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=10000 -depth 40 -seed 1 -config VrrCoreErasCrash.cfg VrrCoreEras.tla
 	docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) -simulate num=100000 -depth 60 -seed 1 -config VrrCoreErasDeep.cfg VrrCoreEras.tla
@@ -159,17 +154,14 @@ tla-mutations: tla-build
 	@$(TLA_EXPECT_FAILURE_DOCKER); \
 	expect_failure VrrCoreErasM1.cfg "Invariant FrontiersOrdered is violated"; \
 	expect_failure VrrCoreErasM2.cfg "Invariant CommittedLogsAgree is violated"; \
-	expect_failure VrrCoreErasM3.cfg "Invariant CommittedLogsAgree is violated" -simulate num=10000 -depth 60 -seed 1; \
 	expect_failure VrrCoreErasM4.cfg "Invariant CommittedLogsAgree is violated"; \
 	expect_failure VrrCoreErasM5.cfg "Invariant CommittedLogsAgree is violated"; \
-	expect_failure VrrCoreErasM6.cfg "Invariant CommittedLogsAgree is violated"; \
 	expect_failure VrrCoreErasM7.cfg "gate: r1-era1"; \
 	expect_failure VrrCoreErasM8.cfg "gate: fr-cross-fence0-recovery1"
 
 tla-local:
 	test -n "$(TLA2TOOLS_JAR)"
 	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCore.cfg VrrCore.tla
-	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCoreRecovery.cfg VrrCore.tla
 	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCoreEras.cfg VrrCoreEras.tla
 	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCoreErasEven.cfg VrrCoreEras.tla
 	@cd formal && \

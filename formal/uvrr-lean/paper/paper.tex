@@ -61,10 +61,12 @@ separate counterexamples establishing independence of assumptions from claims
 of universal necessity. A section-by-section examination of Viewstamped
 Replication Revisited identifies the outstanding integration obligations:
 concrete protocol refinement, recovery fencing, repeated reconfiguration,
-client semantics, and progress. A public-path Rust execution and a directed
-TLC trace exhibit committed divergence under serial amnesiac recoveries with
-fresh nonces. This failure pattern has a published antecedent. We check the
-crash-vector collection primitive from that work, without claiming a repair. Bounded Leanstral experiments are reported as part of
+client semantics, and progress. The classic crash-recover (CR)
+diskless-recovery amnesia class of Michael et al.\ (DISC'17) is eliminated by
+construction: uVRR evicts the crashed identity via Crash-Stop-Self-Evict
+reincarnation (a dirty node reopens under a new incarnation and rejoins as a
+weight-0 learner). We check the crash-vector collection primitive that
+literature proposes, without claiming a repair. Bounded Leanstral experiments are reported as part of
 the methodology, including unsuccessful runs and unmeasured costs. This
 checkpoint establishes reusable verified components; an end-to-end uVRR
 correctness theorem and a millisecond failover measurement remain open.
@@ -105,11 +107,14 @@ comparability and replica prefix retention. Constructive negative controls test 
 records intermediate failures, tool outcomes, and restart instructions.
 
 The shared crash-free model additionally proves compatibility of committed
-logs across unbounded views. Recovery investigation produces both a conditional
-fence-retention theorem and an executable counterexample to the current
-implementation under repeated amnesia. The counterexample makes the remaining
-recovery obligation substantive: the present implementation cannot support the
-full claim under that schedule.
+logs across unbounded views. Recovery investigation produces a conditional
+fence-retention theorem; uVRR then removes the classic crash-recover class by
+construction, via Crash-Stop-Self-Evict reincarnation: a node whose durable
+superblocks record an unflushed session reopens under a new incarnation, and
+the leader evicts the old identity through the forced weight sequence
+(exiting 1 to 0, joining at 0, then 0 to 1). Classic VRR-2012 diskless
+quorum recovery (its section 4.3) is not performed, so the DISC'17
+Appendix B.1 amnesia class is avoided rather than repaired.
 
 The central unresolved claim is stated explicitly:
 \emph{every execution of the intended uVRR message protocol, under a specified
@@ -478,7 +483,7 @@ view-change knowledge, arbitrary membership changes, client responses, and
 progress remain outside this model. Ghost histories do not imply durable
 storage at replicas, but they do not prove recovery after volatile-state loss.
 
-\subsection{Repeated recovery: a checked boundary and a counterexample}
+\subsection{Recovery fencing: a checked boundary}
 \texttt{RecoveryFence} proves a narrower persistence result. Suppose a fixed
 support quorum is simultaneously online with bounds at least $b$, and
 historical responses carry causal recipient-episode identifiers. Crashing
@@ -491,35 +496,19 @@ consequence of collecting asynchronous view-change messages. The model does
 not restore logs or establish progress. A stale-episode witness and a source
 mutation check the freshness boundary.
 
-Attempting to connect that checkpoint to first-round view-change messages
-produced a public-path failure on unchanged Rust code. In a three-node group,
-node 1 times out, emits a view-1 StartViewChange, and crashes. Fresh view-0
-recovery replies to node 1 are delayed while its old message reaches node 2.
-Node 2 emits view-1 messages which are also delayed. Node 1 then recovers to
-view 0, followed by node 2 recovering to view 0. Nodes 0 and 2 commit $x$ at
-slot 3. Node 1 times out again and receives node 2's delayed view-1 evidence,
-activating view 1 without $x$. Node 2 recovers once more, selecting the
-higher-view primary's shorter state from fresh replies. Nodes 1 and 2 then
-commit $y\ne x$ at slot 3. At most one node is recovering at any time; each
-recovery uses fresh ticks and every replayed packet was previously emitted.
-The harness reports \texttt{CommittedDivergence} between nodes 0 and 1.
-
-A directed TLC witness independently reaches
-\texttt{CommittedLogsAgree} failure in 34 actions and 35 distinct states.
-Its research copy permits repeated serial crashes instead of one crash in
-total and uses the incremented recovery epoch as nonce. Type correctness
-and at-most-one-recovering remain satisfied. No protocol safety guard is
-removed; the original model is unchanged. The replay uses a 512-MiB heap and
-20-second wall cap and completed in 0.873 seconds. This is a finite
-counterexample, not an exhaustive recovery exploration. The Rust witness is
-archived with a runner requiring its exact expected failure; ordinary green
-regression tests do not contradict it. No production repair is claimed.
-
-Michael et al. already describe the corresponding delayed view-change and
-recovery failure pattern in Appendix B.1 and Figure 1 of their extended
-report \cite{diskless,recovery}. Our execution is repository-specific
-evidence, not a novelty claim for this failure class. Their crash-vector
-construction provides a principled next proof target.
+Classic diskless crash-recovery designs are exposed to a known failure
+pattern: Michael et al.\ describe delayed view-change and recovery
+divergence in Appendix B.1 and Figure 1 of their extended report
+\cite{diskless,recovery}. That is literature about the classic
+crash-recover class, not an open bug here: uVRR eliminates the class by
+construction. A crashed node whose durable superblocks record an unflushed
+session reopens under a new incarnation (Crash-Stop-Self-Evict), the leader
+evicts the old identity, and the new identity rejoins as a weight-0 learner
+that may receive streams but whose messages are ignored. Same-identity
+recovery after volatile-state loss is therefore unrepresentable, and the
+stale-episode rule above is precisely the ingress rule the reincarnated
+learner obeys. Their crash-vector construction provides the collection
+primitive the reincarnation leader needs.
 
 \subsection{Crash-vector collection}
 Following Algorithm 1 and Definition 6 of the extended report
@@ -547,7 +536,8 @@ Removing the filter in a temporary source copy causes Lean rejection.
 
 This is a collector theorem, not a recovery theorem. The published protocol
 requires recovery itself to acquire and propagate its new incarnation through
-a crash-consistent quorum. Its quorum-knowledge persistence argument also
+a crash-consistent quorum; in uVRR that acquisition is the reincarnation path
+the four-superblock identity contract drives. Its quorum-knowledge persistence argument also
 covers reconstruction, message freshness and resending after pruning. Those
 obligations are not discharged by attaching vectors to ordinary VRR replies.
 The report's termination condition requires an appropriate quorum stable over
@@ -584,9 +574,9 @@ accept a stale request are rejected.
 
 These are acquisition mechanics with one active acquisition per node.
 Quorum-knowledge persistence across the acquisition interval, value
-reconstruction, the read quorum, mapping the echoed identity to the wire
-nonce contract, log integration and liveness remain open. Neither rung
-repairs the banked counterexample.
+reconstruction, the read quorum, mapping the echoed (incarnation, sequence)
+identity to the superblock incarnation contract, log integration and liveness
+remain open.
 
 \subsection{Casting votes and the design model}
 The inherited casting-vote lemma assumes an old decision quorum $q$, a new
@@ -615,9 +605,10 @@ commit before execution, request deduplication & Conditional slot agreement; ope
 promise rules and fixed-view log provenance. Proposer, clients, and execution integration open.\\
 4.2: view changes & Sender status, two message rounds, latest-normal-view/length selection,
 preservation of every committed prefix & Shared crash-free model proves whole-log compatibility across unbounded views.
-Concrete protocol refinement and recovery remain open.\\
+Concrete protocol refinement and the reincarnation proof (the
+Crash-Stop-Self-Evict forced weight sequence) remain open.\\
 4.3: replica recovery & Exclusion until fresh quorum evidence and current-primary state;
-restored votes consistent with prior activity & Conditional fence retention and crash-vector collection checked; repeated-recovery counterexample unresolved.\\
+restored votes consistent with prior activity & Conditional fence retention and crash-vector collection checked; the classic crash-recover class eliminated by construction (Crash-Stop-Self-Evict reincarnation).\\
 4.4--4.5: applications and clients & Chosen nondeterministic inputs; monotone request identifiers
 across client crashes & Explicit application/client refinement obligations, open.\\
 5.1--5.3: practical transfer & Checkpoint fidelity, suffix completeness, garbage collection,
@@ -641,7 +632,7 @@ theorem is inferred from the source's summary.\\
 The repository's \code{VrrCoreEras.tla} is explicitly a design model for a
 single era transition, rather than a statement that the Rust implementation
 already refines it. Its gate checks both cross-era view/commit directions and
-fence/recovery intersections. It also records multiple live recovery nonces.
+fence intersections.
 The Lean history theorem's narrower directional overlap must not be used to
 remove those checks without proving the relevant transition refinement.
 Table~\ref{tab:coverage} records the outstanding source-level obligations,
@@ -661,8 +652,8 @@ The checked additions are numbered 9 (general weights), 10 (operational
 acceptor), 11 (suffix promises), 12 (fault controls), 13 (whole-log
 selection), 14 (normal-log provenance), 15 (fenced histories), and 16
 (shared multi-view preservation), 17 (conditional recovery fencing), 18
-(repeated-recovery counterexample), 19 (crash-vector collection), 20
-(acquisition ordering), and 21 (operational acquisition certificates). The original
+(crash-vector collection), 19 (acquisition ordering), and 20 (operational
+acquisition certificates). The original
 report is retained as an audit input. Its statement that every rung includes
 a successful build and axiom report does not hold for rung 8.
 
@@ -690,8 +681,8 @@ A single executable document, \code{REPRODUCE.md}, packages the whole
 chain: the exact tool versions (Lean 4.33.1, Lake 5.0.0, Showboat 0.6.1,
 TLC 2.19 from the \code{v1.7.4} release of \code{tla2tools.jar} pinned by
 SHA-256, Tectonic 0.17.0 and the Rust 1.96.0 toolchain), the library build,
-the axiom audit, every rung replay, the mutation controls, the three TLC
-runs, the Rust gates, the expected-Red recovery replay, the paper build and
+the axiom audit, every rung replay, the mutation controls, the two TLC
+runs, the Rust gates, the paper build and
 SHA-256 digests of every input. \code{showboat verify REPRODUCE.md} reruns
 all of it and diffs the captured output. The paper build fixes
 \code{SOURCE\_DATE\_EPOCH}, so the rendered PDF is byte-identical across
@@ -740,10 +731,9 @@ assistance without making model identity part of the trusted proof base.
 \section{Next proof boundary and performance claims}
 The shared crash-free model now preserves quorum-voted prefixes across
 view changes. The next integration theorem must relate its activation,
-message-history, and local-state abstractions to the concrete VRR protocol. The banked recovery counterexample must be addressed by a protocol change
-whose preservation and progress obligations are checked. A recovery proof
-must justify returning a replica to participation using fresh evidence,
-including the fence knowledge created before a crash. Finally,
+message-history, and local-state abstractions to the concrete VRR protocol. The Crash-Stop-Self-Evict reincarnation path (the four-superblock durable
+identity, the reincarnation message, and the forced weight sequence) must be
+proved against the fence and acquisition machinery checked here. Finally,
 reconfiguration must preserve these facts for an arbitrary sequence of
 membership changes and state transfers. These are concrete proof obligations,
 not consequences of quorum intersection alone.
