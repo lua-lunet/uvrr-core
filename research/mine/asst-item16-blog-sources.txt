@@ -1,0 +1,45 @@
+null
+null
+null
+null
+Posts fetched. No UPaxos PDF in `tools/`; checking `.tmp/papers/` directly, and saving post text now.
+null
+No UPaxos paper PDF on disk (only VRR-2012 and other papers). Saving post texts now.
+null
+null
+null
+Now capturing diagrams. Opening all three pages in the browser:
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+No `<img>` elements in content — diagrams may be other elements. Inspecting the entry HTML:
+null
+null
+Post 2 has no images — the "diagrams" are blockquotes/LaTeX-as-text in the DOM. Checking the other two pages:
+null
+null
+null
+Filling the `[IMAGE]` gaps in the frown post with the actual DOM content:
+null
+null
+null
+null
+null
+All posts are text-only (no `<img>` in content). Verifying the other two pages' full image inventory for completeness:
+null
+null
+null
+Writing SOURCES.md and closing browser pages:
+null
+null
+null
+null
+null
+Posts fetched 3/3 y (tavily + DOM-fill for post 2's math gaps). Images captured: 0 — all three pages are text-only (verified live via chrome-devtools: zero `<img>` in `.entry-content`; quorum math/tables are HTML text), so no OCR was needed or run. UPaxos PDF: n — not on disk (`.tmp/papers/` has VRR-2012, unrelated papers; `tools/` has TLA docs only; noted web URL in SOURCES.md). Output root: `.tmp/blogs/` (3 posts + SOURCES.md, `img/` empty). Nothing written outside `.tmp/`; no git; key untouched.

@@ -888,7 +888,7 @@ fn entry_cases() -> Vec<LogEntry> {
         LogEntry {
             slot: Slot(4),
             era: Era(2),
-            payload: Payload::System(SystemOperation::Add {
+            payload: Payload::System(SystemOperation::Join {
                 node: NodeId(9),
                 position: 3,
             }),

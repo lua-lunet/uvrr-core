@@ -1,0 +1,7 @@
+Now the safety gate, before git init:
+Gate is CLEAN. Now git init and stage:
+- Staged files: 15 (7 PDFs, 7 OCR markdowns, README.md)
+- Bundle size: 11M
+- `git status --short` lines: 15
+- Audit verdict: CLEAN (key grep found no hits, no `.env*` files)
+- Repo initialized on `main`, all files staged, no commit made

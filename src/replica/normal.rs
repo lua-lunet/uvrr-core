@@ -10,6 +10,7 @@
 //!
 //! [`legal`]: crate::invariant::legal
 
+use super::reconfiguration::CommitFold;
 use super::*;
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
@@ -19,23 +20,23 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// identity proposed twice is two operations at two slots.
     ///
     /// Only a `Normal` node with `config.primary(current_view) == own`
-    /// accepts; every other node answers [`PlanRejection::NotPrimary`].
+    /// accepts; every other node answers [`PlanRefusal::NotPrimary`].
     pub(in crate::replica) fn plan_propose(
         &self,
         _journal: &J::View,
         operation: &Operation,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
         let record = self
             .current_record()
-            .ok_or(PlanRejection::Progress(ProgressError::EraSlotDiscipline))?;
+            .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
         let is_primary = self.progress.status() == Status::Normal
             && record.config.primary(current.view) == Some(self.own);
         if !is_primary {
             // Redirection (§13.4's convergence hint): the node names its
             // current view and the primary of that view, so the host can
             // point the proposer at the node this cluster would serve from.
-            return Err(PlanRejection::NotPrimary {
+            return Err(PlanRefusal::NotPrimary {
                 view: current,
                 primary: record.config.primary(current.view),
             });
@@ -44,10 +45,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .progress
             .accepted()
             .next()
-            .ok_or(PlanRejection::SlotSpaceExhausted)?;
+            .ok_or(PlanRefusal::SlotSpaceExhausted)?;
+        // The stamp is the newest COMMITTED configuration's era (§8.7.3):
+        // the current view's era when no reconfiguration is in flight, one
+        // past it inside the overlap a committed establishing operation
+        // opened — the relation's +1 sentence admits exactly that case.
+        let era = self.progress.config().current().era;
         let entry = LogEntry {
             slot,
-            era: current.era,
+            era,
             payload: Payload::Operation {
                 id: operation.id,
                 payload: operation.payload.clone(),
@@ -58,6 +64,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             slot,
             self.progress.committed(),
             self.progress.applied(),
+            Arc::clone(self.progress.config()),
         )?;
         let prepare = Message {
             header: Header {
@@ -75,7 +82,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .into_iter()
             .map(|to| Effect::Send {
                 to,
-                era: current.era,
+                era,
                 message: prepare.clone(),
             })
             .collect();
@@ -121,7 +128,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         piggybacked: Slot,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         // The era must be evaluable: outside the retention window the
         // configuration that would judge the message is gone.
@@ -201,18 +208,31 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // Idempotent retransmission: never re-append. The held entry
             // must BE the proposed one — a slot is assigned once (§1.3).
             let Some(held) = journal.get(entry.slot) else {
-                return Err(PlanRejection::JournalEntryUnavailable { slot: entry.slot });
+                return Err(PlanRefusal::JournalEntryUnavailable { slot: entry.slot });
             };
             if held != entry {
                 return self.drop_plan(Diagnostic::ConflictingEntry { slot: entry.slot }, kind);
             }
             // Re-acknowledge, and take the piggybacked frontier (§13.3).
             let new_committed = self.progress.committed().max(piggybacked.min(accepted));
+            // §8.7.1: the era table folds the system operations the
+            // advance newly covers. Every entry in the range is journaled
+            // here, so a fold refusal is committed history the
+            // configuration cannot hold — the breach faults.
+            let config =
+                match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
+                    Ok(config) => config,
+                    Err(CommitFold::Unavailable(slot)) => {
+                        return Err(PlanRefusal::JournalEntryUnavailable { slot });
+                    }
+                    Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+                };
             let candidate = self.candidate_with(
                 status,
                 accepted,
                 new_committed,
                 self.applied_walk(journal, &[], self.progress.applied(), new_committed)?,
+                config,
             )?;
             let mut effects = vec![prepare_ok(current, from, entry.slot)];
             effects.extend(self.apply_effects(
@@ -225,7 +245,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let Some(next) = accepted.next() else {
             // `entry.slot > accepted == u64::MAX` cannot be offered; the
             // slot space is spent.
-            return Err(PlanRejection::SlotSpaceExhausted);
+            return Err(PlanRefusal::SlotSpaceExhausted);
         };
         if entry.slot != next {
             let plan = self.drop_plan(
@@ -242,11 +262,71 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // Accept, and take the piggybacked frontier (§13.3).
         let new_committed = self.progress.committed().max(piggybacked.min(entry.slot));
+        // §8.7.1: the era table folds exactly what the commit frontier
+        // newly covers; the arriving entry is visible to the fold through
+        // the overlay. A fold refusal AT the arriving slot names the
+        // peer's entry — the operation is invalid against the committed
+        // prefix, so the entry drops and nothing installs; below it, the
+        // refusal names committed history the configuration cannot hold —
+        // the breach faults.
+        let overlay = [entry.clone()];
+        let config = match self.fold_committed(
+            journal,
+            &overlay,
+            self.progress.committed(),
+            new_committed,
+        ) {
+            Ok(config) => config,
+            Err(CommitFold::Unavailable(slot)) => {
+                return Err(PlanRefusal::JournalEntryUnavailable { slot });
+            }
+            Err(CommitFold::Breach { slot, error }) if slot == entry.slot => {
+                return self.drop_plan(
+                    Diagnostic::InvalidSystemOperation {
+                        slot: entry.slot,
+                        error,
+                    },
+                    kind,
+                );
+            }
+            Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+        };
+        if new_committed < entry.slot {
+            // The system-operation perimeter (§8.7.2): an arriving system
+            // entry the piggyback did not commit must fold onto the
+            // post-piggyback table BEFORE it may be accepted — a peer's
+            // invalid operation is dropped by name, never journaled.
+            if let Payload::System(op) = &entry.payload {
+                if let Err(error) = config.extend(op, entry.slot) {
+                    return self.drop_plan(
+                        Diagnostic::InvalidSystemOperation {
+                            slot: entry.slot,
+                            error,
+                        },
+                        kind,
+                    );
+                }
+            }
+            // Era authorization (§8.7.3, §8.7.8): the entry's era must
+            // name an era the committed history has established — the
+            // relation above admitted the +1 window; only the fold can
+            // say whether a committed operation actually opened it.
+            if config.current().era < entry.era {
+                return self.drop_plan(
+                    Diagnostic::EraDiscipline {
+                        entry: entry.era,
+                        view: header.view,
+                    },
+                    kind,
+                );
+            }
+        }
         let candidate = self.candidate_with(
             status,
             entry.slot,
             new_committed,
-            self.applied_walk(journal, &[], self.progress.applied(), new_committed)?,
+            self.applied_walk(journal, &overlay, self.progress.applied(), new_committed)?,
+            config,
         )?;
         let mut effects = vec![prepare_ok(current, from, entry.slot)];
         effects.extend(self.apply_effects(journal, self.progress.committed(), new_committed)?);
@@ -273,7 +353,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         from: NodeId,
         message: &Message,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         let slot = header.slot;
         let current = self.progress.current();
@@ -291,11 +371,24 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         }
-        let record = self
-            .current_record()
-            .ok_or(PlanRejection::Progress(ProgressError::EraSlotDiscipline))?;
-        if record.config.weight_of(from).is_none() {
-            return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
+        // Commit votes are counted under the NEWEST COMMITTED
+        // configuration (§8.7.3's overlap sentence): slots stamped by the
+        // era a committed establishing operation opened are authorized by
+        // that era's QII, and R2 — gated before the operation was ever
+        // proposed (§8.7.4) — is what makes the pair safe. Membership and
+        // the strategy's decision both come from that record (Q1).
+        let record = self.progress.config().current();
+        // The §6 membership-discard rule (`docs/uvrr-reincarnation.md`):
+        // a sender outside the configuration is unknown; a sender whose
+        // weight is 0 is a learner — it receives history but contributes
+        // nothing to any quorum, so its vote is dropped before it is ever
+        // counted.
+        match record.config.weight_of(from) {
+            None => return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind),
+            Some(weight) if weight.0 == 0 => {
+                return self.drop_plan(Diagnostic::LearnerSender { sender: from }, kind);
+            }
+            Some(_) => {}
         }
         let proposal = if slot <= self.progress.committed() {
             None
@@ -360,17 +453,40 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
                 .with_bookkeeping(bookkeeping));
         }
+        // §8.7.1: the commit frontier moved — fold the system operations
+        // the advance newly covers. Every entry in the range is
+        // journaled (the cascade walks the accepted tail), so a fold
+        // refusal is committed history the configuration cannot hold —
+        // the breach faults.
+        let config = match self.fold_committed(journal, &[], self.progress.committed(), committed) {
+            Ok(config) => config,
+            Err(CommitFold::Unavailable(slot)) => {
+                return Err(PlanRefusal::JournalEntryUnavailable { slot });
+            }
+            Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+        };
+        // §8.7.7 steps 1 and 4: an armed non-stop machine whose
+        // establishing operation this advance committed records its pivot
+        // on the new era's record and solicits the planned evidence of
+        // `qI − {L}` — the solicitation rides THIS published transition,
+        // while the era-(e+1) client stream continues uninterrupted.
+        let (config, solicitation, planned_update) = self.overlap_solicitation(config, committed);
         let candidate = self.candidate_with(
             Status::Normal,
             self.progress.accepted(),
             committed,
             self.applied_walk(journal, &[], self.progress.applied(), committed)?,
+            config,
         )?;
         let mut effects = self.apply_effects(journal, self.progress.committed(), committed)?;
         effects.extend(self.broadcast_commit(committed));
+        effects.extend(solicitation);
         Ok(self
             .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
-            .with_bookkeeping(bookkeeping))
+            .with_bookkeeping(Bookkeeping {
+                planned: planned_update,
+                ..bookkeeping
+            }))
     }
 
     /// Any node's `Commit` handler (§4, §13.3): advance
@@ -387,7 +503,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         frontier: Slot,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         if self.progress.config().record(header.view.era).is_none() {
             return self.drop_plan(
@@ -447,11 +563,25 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 false,
             ));
         }
+        // §8.7.1: the commit frontier moved — fold the system operations
+        // the advance newly covers. Every entry in the range is
+        // journaled (the frontier never claims what the journal does not
+        // record), so a fold refusal is committed history the
+        // configuration cannot hold — the breach faults.
+        let config =
+            match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
+                Ok(config) => config,
+                Err(CommitFold::Unavailable(slot)) => {
+                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
+                }
+                Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+            };
         let candidate = self.candidate_with(
             status,
             self.progress.accepted(),
             new_committed,
             self.applied_walk(journal, &[], self.progress.applied(), new_committed)?,
+            config,
         )?;
         let effects = self.apply_effects(journal, self.progress.committed(), new_committed)?;
         Ok(self.candidate_plan(candidate, JournalMutation::None, effects, kind, false))

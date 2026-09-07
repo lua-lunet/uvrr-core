@@ -1,0 +1,112 @@
+I'll fact-check this literature review systematically. Let me verify the key claims — the tools/papers cited, their identifiers, quotes, and terminology.
+Core citations verified. Now let me check the more suspicious claims: the exact Veil authors' quote, the "automated verification" claim about VR Revisited, "LTA+" terminology, and secondary claims.
+I'll use Tavily to locate the primary sources, then download them into `.tmp/papers/`.
+`Benedetti & Cimatti` is paywalled at Springer — let me look for an open copy while starting the downloads.
+All downloads complete. Verifying integrity:
+`file`'s page counts on linearized PDFs are unreliable — verifying actual page counts and first-page titles:
+Two Veil PDFs use compressed object streams so the regex can't count pages — verifying them directly:
+PDFs can't be rendered by this model directly, so I'll verify them by extracting text instead:
+Both Veil files are valid PDFs with sane page counts (15p CAV'25, 7p Dafny workshop). Now cross-checking the review's specific claims against the primary sources I downloaded:
+"developed it out of frustration with existing tools used for modelling and verifying distributed protocols" — confirmed verbatim. The TJ-array text needs joining; extracting full readable text:
+Key quote located — text is glued, so extracting the passage plus the "The former..." continuation:
+The text continues — let me get the "However/Ivy lacks..." part:
+I'll use the Mistral OCR endpoint with the key already in `.env` to extract the text from the downloaded PDFs into `.tmp/papers/ocr/`. Key stays unprinted; script reads it directly.
+OCR worked — all 7 PDFs extracted. Setting up the task list, with the private gist as the final action:
+Understood — bundle repo gets `git init` + `git add` only, no commit (it's scratch). Launching both agents now:
+Pass-through starting: marking everything pending, then re-verifying each item against the ".tmp-only, git-steps-are-noops" guidance.
+Verification: repo is git, `.tmp` properly ignored, nothing of ours outside `.tmp` (the `.gitignore`/`Cargo.toml` modifications are pre-existing, not from this task), no stray bundle, nothing staged in the main repo. Pass-through verdict: items 00–03 match guidance; item04 needs its inapplicable git actions undone and spec updated; item05 spec must be written git-free; item06 stays deferred (outside `.tmp`).
+Good. Pass-through complete:
+
+- **items 00–04 done** — all work verified inside `.tmp/` (gitignored); nothing of ours outside it; the inapplicable `git init`/`add` was undone (`.git` removed from the bundle); secret audit PASS.
+- **item05 (private gist)** — spec written at `.tmp/specs/item05.md`, git-free, ready to delegate as the last step.
+- **item06 (AGENTS.md sync)** — deferred: it's outside `.tmp`, needs your approval.
+- Note: `.gitignore` and `Cargo.toml` show as modified in the repo — pre-existing, not from this task.
+
+Paused for your model check; say the word and I'll delegate item05.
+`gh gist create` rejects binary files — the 7 PDFs can't go into a gist (platform limit; the 8 text files upload fine, and this gh version's gists are secret-by-default which matches "private"). How do you want the PDFs handled?
+Delegating everything. Rewriting the plan: gist = the OCR technique (no key leak), then glossary + position paper from the corpus, skill install LAST.
+Adding the new items (gap-check survey after the position paper; outcomes paper from your gist at the end; item06 stays truly last) and finishing the pending edits.
+Launch the five independent agents now: 08.5 (audit + survey), 09 (skill install), 10 (Mistral lean), 11 (TLA+), 12 (Lean tools). Keep prompts terse, per specs. Note for item08.5 agent: it has Tavily MCP? Subagents have access to the same tools as me presumably (general agent has all tools including tavily MCP). Yes.Delegating all five independent items in parallel now:
+All five agents completed. Now launch item13 (outcomes paper) — it has all its inputs: tool-kick-tires.md, mistral-lean/VERDICT.md, solver-survey.md, position-paper-audit.md. Then item06 (AGENTS.md sync) last — item13 and item06 are independent of each other... but user said item06 runs LAST. item13 is "at the end" too. Launch item13 now; when it returns, launch item06 (truly last).
+
+Update todos first? Do it after launches return. Launch item13 now.All five back: audit all-PASS, skill installed (`linear-margin-note-methodology`), leanstral produced a `native_decide` proof (no local Lean to check it — but item12 installed Lean 4.33.1, so item13's agent can compile-check `candidate.lean` now), TLC hello-world green, Lean submodules + hello proof green. Launching item13 (outcomes paper):
+item13 done. Now item06 (AGENTS.md sync) — the last item. Launch it.Outcomes paper done. Launching item06 — the final item:
+## Objective
+- Fact-check an AI-generated literature review on Lean 4 ATP for Viewstamped Replication (VRR) cluster-reconfiguration verification; gather/OCR primary sources; produce glossary + position paper; then kick-the-tires of candidate formal tools (TLA+, Lean tools, Mistral `labs-leanstral-1-5-1` model) with hello-world smoke tests.
+- All research work lives under `.tmp/` (gitignored). Use the subagent-delegation skill: write specs to `.tmp/specs/itemNN.md`, launch one `task` agent per item, keep main-chat context lean.
+
+## Important Details
+- Repo root: `/Users/Shared/lua-lunet/vrr-core` (git repo, branch uVRR). `.tmp/` IS gitignored (verified via `git check-ignore`).
+- `.env` at repo root contains `MISTRAL_API_KEY` — NEVER echo/print it; agents use silent `awk -F= '/^MISTRAL_API_KEY/{print $2}' .env` + `grep -rlF` gates.
+- Guidance: git add/commit are NOOPS for `.tmp` work; repo-level submodule work (items 11/12) explicitly approved by user with `git add` only, NEVER commit.
+- Fact-check findings (verified so far): LeanLTL real (arXiv:2507.01780, Vin/Miller/Fremont, ITP'25); Veil real (CAV'25, LNCS 15933 pp.26-41, doi:10.1007/978-3-031-98682-6_2); lean-auto real (arXiv:2505.14929, Qian/Clune/Barrett/Avigad); VR Revisited real (MIT-CSAIL-TR-2012-021) BUT the review's quote "We provide a formal specification… automated verification of its safety properties" does NOT match the real abstract — fabricated; the review's Veil quote "The former provides no automation, while the latter lacks a logical foundation" is a DISTORTED paraphrase (actual text: TLA+ "amazing for modelling… TLC", Apalache/TLAPS exist "outside the default path", Ivy "extraordinarily powerful… using SMT"); "LTA+" is not a standard term (LTL+Past/PLTL is); TigerBeetle $20k challenge real; Cimatti/Roveri/Sheridan "Bounded Verification of Past LTL" (FMCAD 2004, doi:10.1007/978-3-540-30494-4_18) is paywalled, NOT in corpus.
+- `gh` authenticated as `simbo1905`; gists are secret-by-default (no `--private` flag in this gh version); gists REJECT binary files (PDFs can't be gisted).
+- User's research notes (must go in "Appendix User Notes" of position paper): liveness proofs NOT interesting (vrr-core is strong-consistency, focus safety); goal is proving additional capabilities around cluster reconfiguration; aim = long-list approach to find techniques/papers/tools directly applicable to VRR (may be provable by another method).
+- Context: repo has existing TLA+ work in `formal/` (VrrCore.tla, VrrCoreEras.tla, many .cfg files) — do NOT touch, mention as context only. Mistral model `labs-leanstral-1-5-1` (30M TPM, 5 RPS) to be tested on a Lean 4 hello-world theorem.
+- Subagents must keep final reports terse (<6 lines), never dump file contents (prior giant outputs caused upstream `json_parse_error` / MessageContent failures).
+- Also pending from earlier skill injection: install a proper version of user's skill gist `https://gist.github.com/simbo1905/c2a0ac48eee089dd176e7f2b7432dac3` (file `skill.md`) to `~/.config/opencode/skills/<name>/SKILL.md` — user approved this outside-.tmp write for item09 ONLY; opencode restart needed after.
+
+## Work State
+### Completed
+- item00: 7 primary-source PDFs downloaded to `.tmp/papers/` (leanltl-vin-miller-fremont-2025.pdf, veil-pirlea-et-al-cav2025.pdf, veil-lessons-auto-active-dafny2026.pdf, lean-auto-qian-et-al-2025.pdf, liskov-cowling-vr-revisited-2012.pdf, black-ltl-past-geatti-et-al-2021.pdf, multi-paxos-chand-liu-stoller-fm2016.pdf).
+- item01: All 7 OCR'd via Mistral OCR → `.tmp/papers/ocr/*.md` (LaTeX math preserved) using `.tmp/ocr_run.py`.
+- item02: OCR fidelity spot-checked (clean LaTeX, key Veil "out of frustration" passage intact at line 64 of veil-lessons OCR).
+- item03: Secret audit PASS (15 files scanned, 0 key matches, no .env copies).
+- item04: Bundle built at `.tmp/lean4-vrr-temporal-verification-primary-sources/` (README.md manifest + `papers/` + `ocr-text/`, 15 files); inert `.git` removed; audit CLEAN.
+- item05: Secret gist of OCR technique created: https://gist.github.com/simbo1905/3a47006d9b6ced163cadc422dfa1a4b6 (ocr_run.py + README.md, safety gate PASS).
+- item07: Glossary done → `.tmp/research/glossary.md` (70 entries, 5 themes, corpus-cited).
+- item08: Position paper done → `.tmp/research/position-paper.md` (2174 words); thesis: Lean 4 (Veil + lean-auto) strongest fit for safety-first VRR reconfiguration proof, but no full VRR Lean verification exists in corpus; liveness/past-time support is future work. NOTE: Appendix User Notes NOT yet appended.
+- Specs written: `.tmp/specs/item06.md`, `item07.md`, `item08.md`, `item09.md`, `item10.md`, `item11.md`, `item12.md`.
+
+### Active
+- item08 appendix: need to append "Appendix User Notes" section to `.tmp/research/position-paper.md` (user's exact notes listed above; must read file fully before edit).
+- item09: spec written but title must be renamed to drop "LAST:" (ordering is numeric, per user).
+
+### Blocked
+- item11 note: `tla2tools` release jar download is the timeboxed path (submodule gives source; building is out of timebox); needs Java 11+.
+- Lean toolchain availability unknown (`command -v lean elan lake` not yet run) — item12 has one timeboxed elan-install attempt allowed.
+- item06 deferred until last (user-approved).
+
+## Next Move
+1. Edit `.tmp/specs/item09.md` title from "# item09 — LAST: install a proper version…" to remove "LAST:".
+2. Read `.tmp/research/position-paper.md` fully, then append at bottom a "## Appendix: User Notes" section with the user's notes (liveness not interesting/safety focus; goal = prove additional capabilities around cluster reconfiguration; aim = long-list approach to find directly applicable techniques/papers/tools for VRR, possibly provable another way). Then mark item08 completed.
+3. Launch 4 parallel `task` agents (subagent_type "general"), each pointed at its spec file, repo root `/Users/Shared/lua-lunet/vrr-core`, with terse-report + no-content-dump constraints: item09 (fetch gist via `gh gist view c2a0ac48eee089dd176e7f2b7432dac3`, create `~/.config/opencode/skills/<name>/SKILL.md` with valid frontmatter, report skill name/path + restart note), item10 (`.tmp/mistral-lean/`: stdlib-only `ask_lean.py` → chat/completions model `labs-leanstral-1-5-1`, extract `candidate.lean`, compile-check if `lean` exists, write VERDICT.md), item11 (timeboxed ~10min: `git submodule add https://github.com/tlaplus/tla2tools tools/tla2tools` + `git add` never commit; hello-world Hello.tla/Hello.cfg in `.tmp/tla-hello/`; release jar via `curl -L https://github.com/tlaplus/tla2tools/releases/latest/download/tla2tools.jar`; run `java -cp … tlc2.TLC`; append to `.tmp/research/tool-kick-tires.md`), item12 (timeboxed ~15min: submodules `tools/veil`, `tools/LeanLTL`, `tools/lean-auto`; hello proof `theorem hello : 1 + 1 = 2 := by rfl` in `.tmp/lean-hello/`; append results to `.tmp/research/tool-kick-tires.md`).
+4. On returns: update todos; then launch item06 agent LAST (append "## Subagent delegation" section to `/Users/Shared/lua-lunet/vrr-core/AGENTS.md`, `git add AGENTS.md` never commit, verify single diff hunk).
+5. Final terse summary to user (gist URLs, kick-the-tires verdicts, skill install + restart reminder).
+
+## Relevant Files
+- `.env` — contains MISTRAL_API_KEY (never print; silent awk only).
+- `.tmp/papers/*.pdf`, `.tmp/papers/ocr/*.md` — 7 primary sources + OCR text (the fact-check corpus).
+- `.tmp/ocr_run.py` — Mistral OCR script (key from `.env` at runtime, data-URI + files-API fallback).
+- `.tmp/lean4-vrr-temporal-verification-primary-sources/` — git-free bundle (README.md, papers/, ocr-text/).
+- `.tmp/research/glossary.md` — 70-entry glossary (done).
+- `.tmp/research/position-paper.md` — 2174-word position paper (appendix pending).
+- `.tmp/research/tool-kick-tires.md` — to be created by item11/12 agents.
+- `.tmp/specs/item06.md`…`item12.md` — delegation specs (item09 needs "LAST:" removed from title).
+- `formal/` — existing TLA+ VRR specs (VrrCore.tla, VrrCoreEras.tla + .cfg files); context only, do not modify.
+- `AGENTS.md` (repo root) — item06 target (append Subagent delegation section, last).
+- `~/.config/opencode/skills/<name>/SKILL.md` — item09 install target (outside .tmp, user-approved).
+- Gists: `https://gist.github.com/simbo1905/3a47006d9b6ced163cadc422dfa1a4b6` (created, OCR technique); `https://gist.github.com/simbo1905/c2a0ac48eee089dd176e7f2b7432dac3` (skill source to install).
+All 10 items done. Wrap-up:
+
+**Research**: 7 primary sources OCR'd; fact-check found the review's VR Revisited "automated verification" quote fabricated and the Veil quote a distorted paraphrase; audit (a)–(e) all PASS. Key docs in `.tmp/research/`: `glossary.md`, `position-paper.md` (+ Appendix User Notes), `position-paper-audit.md`, `solver-survey.md` (11 candidates; Tier-1: **Veil**, **Quint+Apalache**, **TLA+/TLAPS logless-reconfig** — the only published mechanically-checked Raft-family reconfig safety proof), `outcomes-paper.md` (~1,140w, poster-pipeline format per your gist).
+
+**Kick-the-tires outcomes**: TLC hello-world green (<1s); Lean 4.33.1 installed via elan, `1+1=2 by rfl` compiles; `labs-leanstral-1-5-1` produced a proof that now compiles exit 0 — but it's `native_decide` (compiler-trusted, not kernel-checked), so treat the model as prompt-engineerable, not yet trustworthy. Veil example build skipped (pins v4.32.0 + multi-GB Mathlib — noted in outcomes paper as recommended-but-untire-kicked).
+
+**Gists**: OCR technique https://gist.github.com/simbo1905/3a47006d9b6ced163cadc422dfa1a4b6 · skill installed at `~/.config/opencode/skills/linear-margin-note-methodology/` — **restart opencode to load it**.
+
+**Repo state (your call to commit)**: staged only — `AGENTS.md` (+7 lines, Subagent delegation section), submodules `tools/tlaplus` (note: `tlaplus/tla2tools` repo is gone; I substituted the monorepo), `tools/veil`, `tools/LeanLTL`, `tools/lean-auto`. Nothing committed.
+CLI Lean solvers on macOS — delegating two parallel, timeboxed agents: one for the zero-build core solver `omega` + `aesop`, one for the ATP path `lean-auto`/`Duper` (submodule already on disk).
+Three baby steps, delegated in parallel: (1) boot your vibe fork's lean agent and have Leanstral write Lean we can compile-test, (2) pull the blog sources + OCR the diagrams (chrome-devtools screenshots → Mistral OCR), (3) baby-step-1 Lean module: eras/quorums/leader-casting-vote overlap definitions + smallest non-vacuous safety lemma, Leanstral-drafted, compiled against 4.33.1.
+All three baby steps landed:
+
+**item15 — Leanstral works through your vibe fork.** Headless via `vibe -p --agent lean --auto-approve` (tmux isn't installed, so the agent used vibe's built-in programmatic mode). Output compiled exit 0 after one fix round. Contradiction to note: the direct API path (`labs-leanstral-1-5-1`) keeps importing Mathlib and fails — so **your vibe lean agent is the productive channel**, the raw API is not. Report: `.tmp/research/leanstral-vibe-smoke.md`.
+
+**item16 — one flag for you.** All three blog posts fetched to `.tmp/blogs/`, but the pages are text-only (verified live in the browser: zero `<img>` elements; the quorum math/tables are HTML text) — so there were no diagrams to OCR. Also, **the UPaxos paper PDF is not on disk** in this checkout (`.tmp/papers/` has VRR-2012 and unrelated papers only). You said the uPaxos papers were on disk — if they live somewhere else, point me at it, or I'll pull from arXiv next round.
+
+**item17 — baby step 1 compiles.** `.tmp/lean-upaxos/Upaxos.lean`: eras/ballots/⟨Qᴵ,Qᴵᴵ⟩ configs, the three overlap invariants, the **3-zone upgrade instance (add Z, drop C) verified by `decide` for all eras**, the `e⟨s⟩ ≥ e⟨b⟩` fixable-slot micro-fact, and a negative control (disjoint quorums rejected). 6 kernel-checked lemmas, no `sorryAx`/`native_decide`. Honest scope noted in-file: structure + typing only, not agreement. 5 total fix rounds (2 Leanstral, 3 agent).
+
+**Proposed baby step 2** (queued, not launched): the cast-vote safety core — ballot order + "accepted-in quorum" agreement lemma (two values fixed in one slot ⇒ equal, given the overlap invariants), drafted via the vibe lean agent, plus fetching the UPaxos PDF. Say the word and I'll delegate it.
+Mining the session DB. First, list sessions to map IDs:
+Main chat found: `ses_f8ce64441ffeT6WYwmgRyRsf2D`. Checking for any earlier subagent rollouts (item00–02) before the item03 window:
+

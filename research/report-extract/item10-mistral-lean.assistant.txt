@@ -1,0 +1,7 @@
+No Lean toolchain on PATH (sanity-check only). Writing the script:
+API quirk: temperature 0 requires `top_p: 1`. Adjusting:
+Sanity check passes: 4 lines, single theorem, tactic proof (`native_decide`), no prose. Writing verdict:
+- Model: `labs-leanstral-1-5-1` (temp 0, forced `top_p: 1` after API rejected greedy sampling)
+- Lean available: n (no lean/elan/lake on PATH; none installed per timebox)
+- Proof compiled: tbd (sanity check only — 4-line file, `import Init`, single theorem, `by native_decide`, no prose; looks valid but uses `native_decide` rather than a kernel tactic)
+- Output dir: `.tmp/mistral-lean/` (ask_lean.py, response.json, raw_content.txt, candidate.lean, VERDICT.md)

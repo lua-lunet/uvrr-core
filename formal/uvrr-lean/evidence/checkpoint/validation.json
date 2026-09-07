@@ -1,0 +1,44 @@
+{
+  "recorded_at_utc": "2026-09-06T07:49:06.914387+00:00",
+  "lean": "4.33.1",
+  "showboat": "0.6.1",
+  "clean_library_build": "pass",
+  "axiom_inventory_count": 131,
+  "axiom_allowlist": [
+    "propext",
+    "Quot.sound",
+    "Classical.choice"
+  ],
+  "ladder_replays": {
+    "01-structure.md": "pass",
+    "02-lex-ballots.md": "pass",
+    "03-synod-agreement.md": "pass",
+    "04-eras-theorem10.md": "pass",
+    "05-counterexample.md": "pass",
+    "06-casting-vote.md": "pass",
+    "07-weights.md": "pass",
+    "08-leanstral-lemma2.md": "pass",
+    "09-weighted-general.md": "pass",
+    "10-acceptor-transitions.md": "pass",
+    "11-multi-promises.md": "pass",
+    "12-negative-controls.md": "pass"
+  },
+  "original_input_hashes_checked": 17,
+  "original_inputs_changed": 0,
+  "mutation_checks": [
+    "unchanged control compiles",
+    "existential checker rejected",
+    "unsafe quorum rejected",
+    "sorryAx exposed"
+  ],
+  "rust_checks": "format, all-target/all-feature Clippy and tests, doctests, source-placement gates pass",
+  "known_inherited_gate_failure": "repository indexed-item text scan descends into tools/tla2tools Java source",
+  "paper": {
+    "pages": 6,
+    "visually_inspected": "all six; changed pages re-inspected after final render",
+    "overfull_boxes": 0,
+    "unresolved_references": 0
+  },
+  "paper_sha256": "bb38fe97df4d6e8d3f7e9d9d7290ad64685cdc3cb36f6970af3b83d62cef51f5",
+  "end_to_end_uvrr_proof": "incomplete; see LAB-BOOK.md remaining work"
+}

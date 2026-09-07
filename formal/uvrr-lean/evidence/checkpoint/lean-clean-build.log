@@ -1,0 +1,13 @@
+✔ [2/14] Built UVRR.Synod (1.2s)
+✔ [3/14] Built UVRR.Eras (223ms)
+✔ [4/14] Built UVRR.Acceptor (223ms)
+✔ [5/14] Built UVRR.WeightedGeneral (302ms)
+✔ [6/14] Built UVRR.LexBallot (225ms)
+✔ [7/14] Built UVRR.Structure (233ms)
+✔ [8/14] Built UVRR.CastingVote (205ms)
+✔ [9/14] Built UVRR.Counterexample (190ms)
+✔ [10/14] Built UVRR.MultiPromise (206ms)
+✔ [11/14] Built UVRR.Weights (258ms)
+✔ [12/14] Built UVRR.NegativeControls (165ms)
+✔ [13/14] Built UVRR (131ms)
+Build completed successfully (14 jobs).

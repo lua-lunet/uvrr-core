@@ -210,7 +210,7 @@ fn q1_counterexample_is_refused_with_its_witness() {
 /// configuration and its successor. This is the domain over which §8.7.5's closure
 /// lemmas are re-verified computationally.
 ///
-/// `Add` inserts at position 0 only, and always the same fresh id per depth: the
+/// `Join` inserts at position 0 only, and always the same fresh id per depth: the
 /// succession position and the identity of a zero-weight learner change no quorum
 /// family (§8.4: weight 0 grants no voting authority), so enumerating positions and
 /// fresh ids would multiply the work without enlarging the set of *families* under
@@ -245,7 +245,7 @@ fn reachable() -> (Vec<Configuration>, Vec<(Configuration, Configuration)>) {
             let mut alphabet: Vec<SystemOperation> = vec![
                 SystemOperation::Double,
                 SystemOperation::Halve,
-                SystemOperation::Add {
+                SystemOperation::Join {
                     node: fresh,
                     position: 0,
                 },
@@ -253,7 +253,7 @@ fn reachable() -> (Vec<Configuration>, Vec<(Configuration, Configuration)>) {
             for member in config.order() {
                 alphabet.push(SystemOperation::Increment(member.node));
                 alphabet.push(SystemOperation::Decrement(member.node));
-                alphabet.push(SystemOperation::Remove(member.node));
+                alphabet.push(SystemOperation::Leave(member.node));
             }
             for op in &alphabet {
                 // Any non-genesis slot: the fold consults `at` only for the two
@@ -538,7 +538,7 @@ fn weighted_majority_threshold_matches_enumerated_minimum() {
 // ---------------------------------------------------------------------------
 
 /// The membership cap is a validation-cost bound, not a protocol limit: 17-member
-/// `Init` and `Add` past 16 are refused by the fold with a named cap, so no
+/// `Init` and `Join` past 16 are refused by the fold with a named cap, so no
 /// over-cap `Configuration` can ever reach the gate. At the cap itself, the gate's
 /// `2^16` enumeration is expected to be routine — validated here, once, on the
 /// boundary.
@@ -577,7 +577,7 @@ fn membership_cap_is_enforced_by_the_fold_and_the_gate_runs_at_the_cap() {
 
     assert_eq!(
         at_cap.apply(
-            &SystemOperation::Add {
+            &SystemOperation::Join {
                 node: NodeId(1000),
                 position: 0,
             },

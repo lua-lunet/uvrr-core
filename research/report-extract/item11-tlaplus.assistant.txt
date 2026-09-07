@@ -1,0 +1,12 @@
+Java 26 is available. Adding the submodule now:
+The clone failed — repository not found. Checking whether the repo moved, and cleaning up any partial state:
+`tlaplus/tla2tools` no longer exists on GitHub (it was folded into the `tlaplus/tlaplus` monorepo, which is alive). No partial state was left behind. I'll add the monorepo at the prescribed path (shallow, to stay in timebox) and record the substitution:
+Submodule added and staged (no commit). Now the hello world — creating spec files and downloading the TLC jar:
+The jar download returned a 9-byte "Not Found" text (the tla2tools repo's release page died with the repo). Trying the monorepo's release URL:
+Valid jar obtained from the monorepo release. Running TLC:
+Missing `Naturals` for the `-` operator — fixing and re-running:
+TLC ran clean. Appending results to the research log:
+Report:
+- Submodule: y — `tools/tla2tools`, staged, not committed. URL substituted: `tlaplus/tla2tools` repo is gone ("Repository not found"); added `tlaplus/tlaplus` monorepo (shallow) at that path instead.
+- TLC: y — ran hello world in `.tmp/tla-hello/` (jar from `tlaplus/tlaplus` releases, TLC2 2.19); model checking completed, no errors, invariant holds (3 states, 2 distinct).
+- Skips: none; only deviations were the two dead-URL substitutions (submodule repo, release jar), both recorded in `.tmp/research/tool-kick-tires.md` under `## TLA+`.

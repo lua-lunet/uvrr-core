@@ -1,0 +1,847 @@
+% Set the text encoding before IEEEtran measures its Times fonts.
+\RequirePackage[T1]{fontenc}
+\documentclass[10pt,journal,letterpaper]{IEEEtran}
+\usepackage{amsmath,amssymb,amsthm,booktabs,array}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\hypersetup{pdftitle={An Executable Safety Ladder Toward Unbounded Viewstamped Replication},
+  pdfauthor={Simon Massey}}
+% Turner-style running furniture: title/revision on page 1, page numbers at
+% top right throughout, and no bottom page number. Edit the revision here.
+\newcommand{\paperrevision}{RESEARCH CHECKPOINT --- 6 SEPTEMBER 2026}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{\normalfont\footnotesize\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\fancypagestyle{uvrrfirst}{%
+  \fancyhf{}
+  \fancyhead[L]{\normalfont\scriptsize UVRR SAFETY LADDER --- \paperrevision}
+  \fancyhead[R]{\normalfont\footnotesize\thepage}
+  \renewcommand{\headrulewidth}{0pt}}
+
+\setlength{\emergencystretch}{1em}
+\raggedbottom
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newcommand{\QI}{\mathcal Q^{\mathrm I}}
+\newcommand{\QII}{\mathcal Q^{\mathrm {II}}}
+\newcommand{\inter}{\mathrel{\frown}}
+\newcommand{\era}{\operatorname{era}}
+\newcommand{\chosen}{\operatorname{chosen}}
+\newcommand{\proposed}{\operatorname{proposed}}
+\newcommand{\accepted}{\operatorname{accepted}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\title{An Executable Safety Ladder Toward\\Unbounded Viewstamped Replication}
+\author{Simon Massey%
+\thanks{Research manuscript, 6 September 2026.}%
+\thanks{Simon Massey (email: \href{mailto:simon.massey@stenographer.cloud}{simon.massey@stenographer.cloud}).}}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{uvrrfirst}
+\begin{abstract}
+Unbounded Viewstamped Replication Revisited (uVRR) seeks to combine replicated
+volatile state, low-delay primary replacement, and reconfiguration without
+imposing a fixed pipeline bound. These requirements cross several distinct
+proof boundaries. We audit an inherited Lean development of Turner's
+era-indexed Paxos agreement argument and extend it with a finite-support
+weighted-majority theorem, a derivation of the proposal-era bound from suffix
+promises, operational acceptor and normal-log invariants, a whole-log selection induction
+step, and fault-injection controls.
+Every positive result is checked by Lean 4.33.1 using its core libraries.
+Executable Showboat documents preserve source, build commands, and theorem
+axiom reports. All eight inherited transcripts reproduce, although the eighth
+records an unsuccessful proof attempt. We distinguish this reproducibility
+result from mathematical correctness and from protocol refinement. We also
+separate counterexamples establishing independence of assumptions from claims
+of universal necessity. A section-by-section examination of Viewstamped
+Replication Revisited identifies the outstanding integration obligations:
+concrete protocol refinement, recovery fencing, repeated reconfiguration,
+client semantics, and progress. The classic crash-recover (CR)
+diskless-recovery amnesia class of Michael et al.\ (DISC'17) is eliminated by
+construction: uVRR evicts the crashed identity via Crash-Stop-Self-Evict
+reincarnation (a dirty node reopens under a new incarnation and rejoins as a
+weight-0 learner). We check the crash-vector collection primitive that
+literature proposes, without claiming a repair. Bounded Leanstral experiments are reported as part of
+the methodology, including unsuccessful runs and unmeasured costs. This
+checkpoint establishes reusable verified components; an end-to-end uVRR
+correctness theorem and a millisecond failover measurement remain open.
+\end{abstract}
+\begin{IEEEkeywords}
+Distributed algorithms, replication, reconfiguration, crash recovery, formal verification.
+\end{IEEEkeywords}
+
+\section{Problem and contribution}
+\IEEEPARstart{T}{he} motivating uVRR proposal asks whether a strongly consistent replicated
+service can replace failed members while continuing to process requests,
+without forcing its log to disk on the normal agreement path
+\cite{uvrr}. A precise answer requires more than an intersection calculation.
+The membership used by a vote must be agreed; a replacement primary must
+preserve committed operations; a crashed replica must not cast votes using
+forgotten state; and a reply must correspond to an operation with the promised
+client semantics. Progress and elapsed time impose additional assumptions.
+
+Turner's UPaxos construction permits a sequence of consensus instances to
+remain unbounded during suitable reconfigurations \cite{turner}. Its safety
+argument provides a natural starting point. The inherited development encoded
+the Synod history invariants, reduced an era-indexed history to them, checked
+two finite reconfiguration schedules, and isolated a leader's casting-vote
+schedule. It explicitly excluded a proof of VRR itself. Our audit confirms
+the compiled mathematical results while narrowing several statements in the
+associated report.
+
+The checked extensions begin with five positive results. First, an arbitrary finite-support
+version of UPaxos's weighted intersection lemma replaces dependence on a
+four-node example. Second, the omitted suffix-promise and known-instance
+frontier conditions now derive the proposal-era inequality used in the
+agreement reduction. Third, induction over an acceptor transition system
+establishes the historical promise conditions for that component. Fourth, an
+executable whole-log selector is proved maximal, with a quorum-based prefix
+preservation induction step and an exact bounded-rank correspondence to the
+TLA model. Fifth, a fixed-view message induction derives same-view report
+comparability and replica prefix retention. Constructive negative controls test the role of selected assumptions. The laboratory book
+records intermediate failures, tool outcomes, and restart instructions.
+
+The shared crash-free model additionally proves compatibility of committed
+logs across unbounded views. Recovery investigation produces a conditional
+fence-retention theorem; uVRR then removes the classic crash-recover class by
+construction, via Crash-Stop-Self-Evict reincarnation: a node whose durable
+superblocks record an unflushed session reopens under a new incarnation, and
+the leader evicts the old identity through the forced weight sequence
+(exiting 1 to 0, joining at 0, then 0 to 1). Classic VRR-2012 diskless
+quorum recovery (its section 4.3) is not performed, so the DISC'17
+Appendix B.1 amnesia class is avoided rather than repaired.
+
+The central unresolved claim is stated explicitly:
+\emph{every execution of the intended uVRR message protocol, under a specified
+crash-recovery model, implements a linearizable replicated state machine across
+arbitrarily many reconfigurations}. The results below discharge parts of this
+claim. They do not discharge it by renaming a Paxos ballot a VRR view.
+
+\section{Setting and trust boundary}
+Let $A$, $B$, and $V$ be node, ballot, and value types. A node set is a predicate
+$A\to\mathrm{Prop}$; a quorum family is a predicate on such sets. Define
+\[
+ Q\inter R\quad\Longleftrightarrow\quad
+ \forall q\in Q,\ r\in R,\quad q\cap r\ne\varnothing.
+\]
+This relation is symmetric. It is a property of two families, not a requirement
+that every pair of members within either family intersect. Empty families
+make some such statements vacuous. Consequently nonemptiness conditions in
+the agreement theorem must remain visible.
+
+The history model records messages that have ever been emitted. Its predicates
+include free promises $p(a,b)$, promises carrying a last vote $p(a,b;c)$,
+proposals, acceptances, and choices. A function $v(b)$ gives the unique value
+associated with each ballot. The representation presupposes ballot ownership
+or an equivalent mechanism preventing two values at one ballot; it is not a
+proof that a wire protocol enforces that mechanism.
+
+The ballot order is well founded and strictly total. The era development uses
+$B=\mathbb N\times\mathbb N$ ordered lexicographically, so that unboundedly
+many rounds are available in each era. This is a mathematical domain; a
+fixed-width implementation needs a separate overflow argument.
+
+The executable library imports Lean core and other modules in the same
+development. It has no Mathlib dependency. A proof may use standard Lean
+axioms \code{propext}, \code{Quot.sound}, and \code{Classical.choice}; these
+are distinguished from additional protocol hypotheses appearing in theorem
+types. Printing axioms alone does not expose every protocol assumption: a
+conditional theorem can have an empty axiom footprint and strong hypotheses.
+The central generic Synod theorem has no axiom dependencies. Other results
+use subsets of the three standard axioms.
+
+\section{Conditional agreement and reconfiguration}
+\subsection{The Synod contract}
+The inherited structure \code{Synod.Inv} expresses six conditions:
+\begin{enumerate}
+\item If $b_2<b_1$, $b_1$ is proposed, and $b_2$ is chosen, then
+      $\QI(b_1)\inter\QII(b_2)$.
+\item A free promise at $b$ excludes every acceptance below $b$.
+\item A report $p(a,b;c)$ names an accepted ballot $c<b$ and excludes
+      acceptances strictly between $c$ and $b$.
+\item A proposal has a phase-I quorum of replies. If any report carries a
+      vote, the proposed value equals that of a maximal reported ballot.
+\item Every acceptance has a proposal.
+\item Every choice has a phase-II quorum of acceptances.
+\end{enumerate}
+The maximal reported ballot in condition 4 is supplied existentially. An
+implementation must obtain it from a finite collection and enforce the value
+rule. The history theorem does not construct a leader's message handler.
+
+\begin{theorem}[Synod agreement]
+Assume the six conditions, a well-founded strict total ballot order, and
+nonempty phase-II quorums. If $b$ and $c$ are chosen, then $v(b)=v(c)$.
+\end{theorem}
+\begin{proof}
+For a chosen $c$ and a proposed $b>c$, intersect the decision quorum at $c$
+with the promise quorum at $b$. A common acceptor cannot have supplied a free
+promise at $b$, since it accepted $c$. Its reported vote is at least $c$ by
+condition 3. The greatest reported ballot $m$ therefore satisfies
+$c\le m<b$. If $m=c$, condition 4 gives the conclusion. Otherwise apply
+well-founded induction to the proposal at $m$, which exists by conditions 3
+and 5. Finally, a chosen ballot has a proposal by conditions 5 and 6 and
+decision-quorum nonemptiness. Trichotomy reduces agreement to the preceding
+argument or equality of ballots.
+\end{proof}
+The checked declaration is \code{Synod.theorem8}; its intermediate induction
+lemma is \code{Synod.lemma7}. This proof follows UPaxos Appendix B.
+
+\subsection{Era-indexed families}
+Let $e(b)$ be a ballot's era and $e(i)$ the era of instance $i$. Phase I uses
+$\QI_{e(b)}$ and phase II uses $\QII_{e(i)}$. The configuration condition is
+\begin{equation}\label{eq:p1}
+ \forall e,\qquad \QII_e\inter\QI_e
+ \quad\land\quad \QI_e\inter\QII_{e+1}.
+\end{equation}
+The reduction also requires proposal and choice era bounds:
+\begin{align}
+ \proposed_i(b)&\Longrightarrow e(b)\le e(i),\label{eq:erale}\\
+ \chosen_i(b)&\Longrightarrow e(i)\le e(b)+1.\label{eq:eraup}
+\end{align}
+Ballot order must respect era order. These conditions are separate from
+Equation~\eqref{eq:p1}; the latter alone is not a complete protocol contract.
+
+\begin{lemma}[Relevant intersection]
+If $b_2<b_1$, $b_1$ is proposed at $i$, and $b_2$ is chosen at $i$, then
+$\QI_{e(b_1)}\inter\QII_{e(i)}$.
+\end{lemma}
+\begin{proof}
+The bounds give $e(b_1)\le e(i)\le e(b_2)+1\le e(b_1)+1$.
+Thus $e(i)$ is either $e(b_1)$ or $e(b_1)+1$. The first case uses the
+intra-era half of Equation~\eqref{eq:p1}, by symmetry; the second uses its
+cross-era half.
+\end{proof}
+Instantiating the Synod theorem for every instance yields
+\code{Paxos.theorem10}. Its type also contains the promise, value-selection,
+acceptance, and choice conditions. Agreement holds for every history
+satisfying them, across any number of eras. This quantification does not
+establish that an operational sequence of membership changes preserves them.
+
+\subsection{Deriving the proposal-era bound}
+The inherited \code{EraLe} hypothesis, Equation~\eqref{eq:erale}, bypassed
+part of UPaxos Figure 2. The extension \code{MultiPromise.History} restores a
+known-instance frontier $i_{\max}$ and suffix promises $p_{\ge j}(a,b)$.
+A suffix certificate expands to a free promise at every $i\ge j$.
+
+\begin{theorem}[Suffix-promise reduction]
+Suppose instance eras are nondecreasing. A promise at $j$, including a suffix
+promise, satisfies $e(b)\le e(\min(j,i_{\max}))$. Each proposal at $i$ has a
+nonempty phase-I quorum whose members supply a free promise at $i$, a last-vote
+report at $i$, or a suffix promise starting at some $j\le i$. Then
+$\proposed_i(b)\Rightarrow e(b)\le e(i)$.
+\end{theorem}
+\begin{proof}
+Choose a member of the proposal quorum. For a point promise,
+$\min(i,i_{\max})\le i$. For a suffix promise,
+$\min(j,i_{\max})\le j\le i$. In either case monotonicity of instance eras
+transports the promise's era bound to $e(i)$.
+\end{proof}
+\code{MultiPromise.History.expanded\_inv} additionally transports the full
+promise history to the inherited invariant structure. The resulting
+\code{agreement} theorem retains Figure 2's known-frontier bound for choices.
+The expansion is an invariant reduction; the append-only evolution of
+configuration knowledge and the creation of suffix certificates still need an
+operational proof. A single certificate can denote every slot $j+d$ for
+$d\in\mathbb N$, as checked by \code{suffix\_unbounded}. This proves
+representational unboundedness, not completion of those slots.
+
+\section{General weighted intersection}
+For a finite support list $L$ and natural weights $w$, let
+$W=\sum_{a\in L}w(a)$ and $W_q=\sum_{a\in L\cap q}w(a)$. Define
+$M_L(w)=\{q:2W_q>W\}$. A duplicate-free list gives the usual finite-set
+interpretation; repeated entries instead contribute repeated weight. No bound
+on the cardinality of $L$ is fixed in the theorem.
+
+\begin{lemma}[Disjoint selection bound]\label{lem:disjoint}
+For disjoint $q,r$ and natural weights $x,y$,
+\[
+ 2X_q+2Y_r\le X+Y+\sum_{a\in L}|x(a)-y(a)|.
+\]
+\end{lemma}
+\begin{proof}
+At each node, at most one of the two selections contributes. The required
+pointwise inequality follows from $2x\le x+y+|x-y|$ or its symmetric form;
+if neither selects the node it is immediate. Sum by induction over $L$.
+The Lean encoding uses $(x-y)+(y-x)$ with natural truncated subtraction.
+\end{proof}
+
+\begin{theorem}[Scaled weighted-majority overlap]\label{thm:weights}
+For positive integers $k,l$, if
+\[
+ D=\sum_{a\in L}|k w(a)-l w'(a)|\le1,
+\]
+then $M_L(w)\inter M_L(w')$.
+\end{theorem}
+\begin{proof}
+Positive rescaling preserves strict majority. If two majorities were
+disjoint, their scaled sums would exceed their respective scaled totals by
+at least one each, since all sums are integers. Their combined excess is at
+least two, contradicting Lemma~\ref{lem:disjoint} and $D\le1$.
+\end{proof}
+This is UPaxos Appendix A's Lemma 2, proved here by a pointwise discrepancy
+bound. \code{WeightedGeneral.scaled\_overlap} is the checked declaration.
+The unit-change result, equal-rescaling result, and self-intersection follow
+as corollaries. Zero total weight yields an empty majority family, so
+self-intersection by itself does not assert availability.
+
+The uniform bound is sharp. With two nodes, weights $(1,0)$ and $(0,1)$ have
+distance two and admit disjoint singleton majorities. This is checked by
+\code{distance\_two\_counterexample}. Some distance-two changes nevertheless
+preserve overlap; for example $(2,2,2,0)$ to $(4,2,2,0)$ does. Thus sharpness
+means that a larger universal allowance would admit counterexamples, not that
+all changes beyond the allowance are unsafe.
+
+The inherited four-node weighted schedule remains an independent executable
+example. Its seven rows obey the required overlaps. It is useful for a
+concrete deployment shape; it is no longer the only evidence for the general
+weighted construction.
+
+\section{Operational promises and fault controls}
+\subsection{A checked acceptor transition system}
+An acceptor state is $(f,H,R)$: a promise watermark $f\in\mathbb N$, a
+newest-first vote history $H$, and a reply history $R$. Initially these are
+$(0,[],[])$. Acceptance requires $f\le b$; a promise requires $f<b$.
+The transitions are:
+\begin{align*}
+ \operatorname{accept}_b(f,H,R)&=(b,b::H,R),\\
+ \operatorname{promise}_b(f,H,R)&=(b,H,(b,\operatorname{head?}H)::R).
+\end{align*}
+An empty head produces a free reply; otherwise the reply carries the latest
+accepted ballot. The histories are ghost evidence for the proof. This module
+does not prescribe retaining an unbounded physical list at a replica.
+
+\begin{theorem}[Historical promise safety]
+In every state reachable by a finite execution, a free reply at $b$ excludes
+votes below $b$. A reply carrying $c$ at $b$ establishes $c<b$, an acceptance
+of $c$, and absence of acceptances strictly between $c$ and $b$.
+\end{theorem}
+\begin{proof}
+Strengthen the induction invariant: all votes are at most the watermark;
+the head vote dominates its tail; every emitted reply's ballot is at most the
+watermark; and each reply satisfies the stated historical conditions.
+An acceptance preserves every old reply because its ballot is at least the
+old watermark. A promise reads the maximal vote and raises the watermark
+above it. Neither transition removes prior evidence. Induction on reachable
+states proves the claim.
+\end{proof}
+The declarations are \code{Acceptor.reachable\_inv}, \code{free\_forbids},
+and \code{report\_last}. They discharge S2 and S3 for a single-era acceptor.
+They do not establish the proposal value rule, an entire log's view-change
+selection, or restoration after volatile-state loss. Extending the component
+to era-tagged views also remains an explicit integration task.
+
+\subsection{What the negative controls establish}
+The controls separate two questions: whether the proof notices an altered
+definition, and whether removing an assumption admits an inconsistent history.
+The first is measured by compiler rejection; the second by constructing and
+checking a counterexample with the remaining conditions intact.
+
+\begin{itemize}
+\item \emph{Cross-era overlap.} The inherited two-node history satisfies
+      intra-era overlap and the other encoded era-history conditions, but
+      chooses both Boolean values at one slot when the cross overlap is absent.
+\item \emph{Value selection.} One acceptor reports ballot 0 at ballot 1,
+      yet the two proposals use different values. All listed Synod conditions
+      except S4 hold and both ballots are chosen.
+\item \emph{Promise fencing.} One acceptor supplies free promises at two
+      rounds despite its earlier vote. All listed conditions except S2 hold,
+      and agreement fails.
+\item \emph{Nonempty decisions.} Empty phase-II quorums permit choices with
+      no proposal or acceptance. The six history invariants hold vacuously
+      where appropriate, and the two selected values differ.
+\item \emph{Operational guard.} After a free promise at round 2, accepting
+      round 1 without checking the watermark violates the reachable invariant.
+\end{itemize}
+These examples establish independence within the specified contracts.
+They do not prove a universal necessity theorem over all consensus algorithms,
+nor do they enumerate every combination of omitted assumptions.
+
+Separately, the mutation harness replaces the checker's universal quantifier
+over quorums by an existential one, and replaces a safe concrete quorum family
+by an unsafe family. Lean rejects each altered source while accepting the
+unchanged control. An injected \code{sorry} demonstrates a different failure
+mode: compilation succeeds but \code{\#print axioms} exposes \code{sorryAx}.
+The harness bounds child memory, work and wall time and modifies only temporary
+copies. Infrastructure failures are not counted as killed mutants.
+
+\section{The boundary between UPaxos and VRR}
+VRR-2012 is a replication protocol, with client handling and recovery in
+addition to the agreement mechanism \cite{vrr}. Its normal path requires
+ordered log preparation and a quorum of acknowledgements before execution.
+View change selects the log with the greatest last-normal view, breaking ties
+by length. That whole-log selection rule needs a proof relating logs from
+different views; a per-slot maximal-vote rule is not automatically the same
+operation.
+
+The distinction becomes essential after crashes. A recovering replica is
+excluded from normal processing and view changes. Its recovery exchange
+requires responses from distinct peers, a fresh nonce, and state from the
+primary of the greatest reported view. The preceding round of
+StartViewChange messages provides replicated knowledge of view advancement.
+The paper's Section 8.2 gives a failure scenario when that round is removed.
+Replacing volatile state by an acceptor watermark that never disappears
+would bypass precisely this obligation.
+
+The 2012 reconfiguration protocol stops taking new client requests in the old
+epoch, transfers the committed state, and activates the replacement group.
+Section 7.5 explicitly discusses the resulting delay and prewarming as a way
+to reduce it. The uVRR objective instead calls for progress during the
+transition. Equation~\eqref{eq:p1} and casting-vote scheduling address part
+of that difference, while the interaction with recovery remains to be proved.
+
+\subsection{Checked whole-log selection}
+The executable \code{ViewSelection.select} takes a seed report and a list of
+additional reports, enforcing nonemptiness without a fallback value. It selects
+by last-normal view and then log length. Each report's committed frontier is
+bounded by its length in the report type. The checked results establish that
+the output belongs to the input collection and has maximal rank. For reports
+of length at most $M$, \code{scalar\_rank\_equivalent} proves that the
+model's scalar rank $v(M+1)+n$ has exactly the same ordering. A counterexample
+shows that omitting the length bound can misrank reports.
+
+The prefix-preservation result is the induction step for a single era. Let a
+prefix $P$ have committed in view $v$. Intersect its commit quorum with the
+reporting quorum and obtain a report from a common sender. The explicit
+voter-history premise says that this report has retained view at least $v$
+and, at equality, contains $P$. The induction hypothesis supplies preservation
+for reports from strictly later normal views. If the selected report is later
+than $v$, that hypothesis applies. Otherwise the witness and selected report
+are both from $v$. Same-view log comparability and maximal selected length
+then imply that the witness log, and hence $P$, is a prefix of the selected
+log. \code{ViewSelection.quorum\_preserves} checks this argument.
+
+The selector itself only compares ranks. The surviving-voter and log-origin
+premises still require proofs from message and recovery transitions. A
+two-report fault control admits divergent uncommitted suffixes in different
+views: an older two-entry log loses to a newer one-entry log. A length-only
+selector chooses the older log and loses the newer committed entry. These
+results close the selection subproblem while preserving the distinction
+between a checked induction step and a complete reachable-state proof.
+
+\subsection{Normal-log message provenance}
+\texttt{NormalLog} first checks the fixed-view message argument. The primary
+starts from an arbitrary base and appends. StartView installs that base once;
+normal replicas accept authentic prepares at their next slot and emit reports
+copying their logs. Persistent messages permit delayed, reordered, and duplicate
+delivery attempts. The invariant makes replica logs, sent prepare prefixes,
+and reports prefixes of the primary history. At receipt, the replica and
+pre-send logs are equal-length prefixes of that history, hence equal; appending
+the sent entry preserves the invariant. The pre-send log is ghost evidence,
+not a content check in the handler. \texttt{reports\_comparable} follows from
+prefix comparability, and \texttt{replica\_history} proves retention over finite
+continuations. Bypassing next-slot checking admits an authentic second entry
+at slot one. This component supplies the local argument integrated below;
+its arbitrary initial base alone does not justify cross-view safety.
+
+\subsection{Shared multi-view preservation}
+The next integration is now checked. \texttt{ViewFence} models a local replica
+installing higher normal views, appending in normal mode, raising its floor
+before reporting, and retaining immutable vote and reply histories. Its
+\texttt{report\_covers\_vote} theorem bounds every historical vote below a
+report's target by the reported last-normal view; at equality, the voted log
+is a prefix of the report. This remains true of votes later in the trace.
+The selector therefore consumes a derived voter-history property. Strong
+induction discharges the strictly-later-view premise over activated views;
+a concrete two-view execution demonstrates that the interface is inhabited.
+
+\texttt{LogProvenance} joins the local histories to a shared message model.
+Each view has one immutable installation base and an append-only primary
+history. Activation requires a quorum of authentic reports and uses the
+executable latest-normal-view/length selector. An issued prepare carries a
+view, next slot, and entry; its pre-send log is ghost evidence. Installation
+reads an activated base. Receipt checks normal mode, view equality, and the
+next slot. Fencing and report emission update the local replica state.
+There is no guard testing global committed-prefix agreement.
+
+The invariant establishes that each replica log, historical vote, and report
+extends its retained view's base and is a prefix of that view's primary
+history. Each activated base retains its selection certificate because report
+histories persist. These facts discharge both same-view comparability and
+base-extension provenance in the view induction.
+\texttt{later\_base\_preserves} proves preservation by every later activated
+base. \texttt{committed\_comparable} proves that any two quorum-voted prefixes
+in a reachable state are comparable; \texttt{committed\_equal} specializes
+this to equal-length prefix equality. The model bounds neither log length,
+view numbers, nor activation count, and fixes one self-overlapping quorum
+family. A concrete trace commits a nonempty prefix in two successive views.
+A delayed old-view prepare has the expected next slot after installation;
+bypassing view equality permits an unsupported new-view vote. The constructive
+control and source mutation both check this boundary.
+
+This is a complete safety induction for the stated crash-free shared model,
+not yet the requested uVRR theorem. Unique source activation is enforced by an
+unused-view guard, and source histories may continue issuing prepares after
+replicas have fenced that view. Their eventual acceptance is constrained by
+replica guards. A refinement must justify these abstractions from unique
+primary activation and the concrete wire protocol. Crashes, first-round
+view-change knowledge, arbitrary membership changes, client responses, and
+progress remain outside this model. Ghost histories do not imply durable
+storage at replicas, but they do not prove recovery after volatile-state loss.
+
+\subsection{Recovery fencing: a checked boundary}
+\texttt{RecoveryFence} proves a narrower persistence result. Suppose a fixed
+support quorum is simultaneously online with bounds at least $b$, and
+historical responses carry causal recipient-episode identifiers. Crashing
+erases a local bound and advances the environment's fresh episode identifier;
+recovering nodes cannot answer. Recovery uses distinct current-episode
+responders and chooses a maximal bound. Induction proves that every online
+member of the support retains a bound at least $b$ through arbitrary finite
+crash/recovery continuations. The quorum checkpoint is a premise, not a
+consequence of collecting asynchronous view-change messages. The model does
+not restore logs or establish progress. A stale-episode witness and a source
+mutation check the freshness boundary.
+
+Classic diskless crash-recovery designs are exposed to a known failure
+pattern: Michael et al.\ describe delayed view-change and recovery
+divergence in Appendix B.1 and Figure 1 of their extended report
+\cite{diskless,recovery}. That is literature about the classic
+crash-recover class, not an open bug here: uVRR eliminates the class by
+construction. A crashed node whose durable superblocks record an unflushed
+session reopens under a new incarnation (Crash-Stop-Self-Evict), the leader
+evicts the old identity, and the new identity rejoins as a weight-0 learner
+that may receive streams but whose messages are ignored. Same-identity
+recovery after volatile-state loss is therefore unrepresentable, and the
+stale-episode rule above is precisely the ingress rule the reincarnated
+learner obeys. Their crash-vector construction provides the collection
+primitive the reincarnation leader needs.
+
+\subsection{Crash-vector collection}
+Following Algorithm 1 and Definition 6 of the extended report
+\cite{recovery}, let a reply $r$ contain sender $s_r$, vector
+$v_r:A\to\mathbb N$, and a payload. The collector stores a known vector $k$
+and replies $R$. Upon receiving $r$, it computes
+\[
+\begin{aligned}
+ k'(a)&=\max(k(a),v_r(a)),\\
+ R'&=\{q\in r::R\mid k'(s_q)\le v_q(s_q)\}.
+\end{aligned}
+\]
+The implementation uses a list; quorum membership is the set of sender
+identities. Thus duplicates do not create additional identities. Induction
+proves every retained vector is pointwise bounded by $k$. The filter gives
+the converse inequality at each retained reply's own sender. Consequently,
+\[
+ \forall r,q\in R,\qquad v_r(s_q)\le v_q(s_q),
+\]
+the published crash-consistency condition. A known-stale reply remains
+ineligible as the frontier grows. A concrete three-node example shows that
+an unfiltered two-sender quorum violates this condition; filtering removes
+the stale reply and a current replacement restores collector quorum size.
+Removing the filter in a temporary source copy causes Lean rejection.
+
+This is a collector theorem, not a recovery theorem. The published protocol
+requires recovery itself to acquire and propagate its new incarnation through
+a crash-consistent quorum; in uVRR that acquisition is the reincarnation path
+the four-superblock identity contract drives. Its quorum-knowledge persistence argument also
+covers reconstruction, message freshness and resending after pruning. Those
+obligations are not discharged by attaching vectors to ordinary VRR replies.
+The report's termination condition requires an appropriate quorum stable over
+the acquisition interval; arbitrary churn with a bound on simultaneous
+recoveries alone is not a termination theorem. Mechanizing that temporal
+argument and composing it with log safety remain open.
+
+\subsection{Acquisition ordering and operational certificates}
+\texttt{AcquisitionOrder} checks the secondary induction of Theorem 3 in the
+extended report \cite{recovery}. With asynchronous per-participant witness
+times and a generic stable property, an online participant either retains its
+witness knowledge or inherits it from an earlier response quorum. Quorum
+intersection and forward ordering of those responses relative to the witness
+events discharge a strong induction over time, using core Lean's
+\code{Nat.strongRecOn}. A separate lemma derives that forward ordering from
+crash-vector consistency, conditional on recovery participants retaining
+incarnation knowledge. A countermodel satisfies every other origin condition
+except forward ordering and loses the property; a source mutation that
+removes the ordering premise is rejected.
+
+\texttt{RecoveryAcquire} then makes the acquisition operational, following
+Algorithm 1. Crash, start, emit, answer, collect and finish transitions act on
+an immutable authenticated message history. A crash erases all protocol
+knowledge and begins a fresh logical incarnation; request identity is an
+explicit echoed (incarnation, sequence) pair in addition to the response
+vector check. Induction over reachable states proves that every finished
+certificate is a crash-consistent quorum for exactly its request and
+incarnation, and that every historical reply originated at an operational
+sender. A three-node trace completes recovery at incarnation 1. An authentic
+reply from the same incarnation but an older request violates freshness when
+replayed into a new acquisition, which separates sequence freshness from
+incarnation freshness. Mutations that answer from a recovering sender or
+accept a stale request are rejected.
+
+These are acquisition mechanics with one active acquisition per node.
+Quorum-knowledge persistence across the acquisition interval, value
+reconstruction, the read quorum, mapping the echoed (incarnation, sequence)
+identity to the superblock incarnation contract, log integration and liveness
+remain open.
+
+\subsection{Unbounded VRR reincarnation}
+uVRR does not implement crash-recovery. It enforces Crash-Stop-Self-Evict, called
+\emph{reincarnation}: a node whose volatile state was lost reopens as a different
+node. Durable state is four TigerBeetle-style superblocks. A restart that reads all
+four as \code{flushed} marks them \code{unflushed} and continues normally; a restart
+that reads any \code{unflushed} block is dirty, bumps its incarnation, and rewrites
+all four blocks as the new identity marked \code{flushed}. Any read that observes a
+higher identity adopts it. Once the eviction is initiated it must continue. A
+\emph{reincarnation} message carries the identity pair (old, new) to the leader; the
+durable incarnation supersedes the fence machinery's ghost generation as the
+freshness carrier where the two meet, while the fence and acquisition theorems above
+remain in force with the carrier re-instantiated.
+
+The leader stays live for client requests and drives a forced weight sequence from
+the voting-weights rules \cite{votingweights}: the exiting node's weight goes
+$1\to0$, the new identity joins at $0$, and the new identity goes $0\to1$. Each step
+is a unit-weight change, so the strict majorities of consecutive configurations
+overlap by Theorem~\ref{thm:weights}'s corollaries and every intermediate era is
+quorum-safe on its own; a leader dying mid-sequence leaves only safe eras that a new
+leader can continue. If the sequence runs in the doubled scale of a weight-doubling
+plan, the return halve is integral only when all weights are even, so the corner
+sequence inserts one extra unit increment on the new identity before the halve. The
+leader streams the first reconfiguration, then client traffic, and preemptively
+streams to the reincarnated node as a weight-0 learner; messages to it are fine and
+messages from it are discarded by the standard membership check, which is the same
+rule the crash-vector collector's stale-reply filter realizes. If the leader crashes,
+the cluster must reach a stable leader before the reincarnated node forces its old
+identity's eviction.
+
+The economics defer disk flushes: nano-state fits in memory, so disk flushes can
+be deferred, and the network round trips of reincarnation are cheaper than fsyncs
+because ``the network is faster than the disk'' \cite{netdisk}; the four-superblock
+mark is one fsync amortized over the whole epoch.
+Same-identity recovery after volatile-state loss is thereby unrepresentable rather
+than repaired: classic VRR-2012 diskless quorum recovery is not performed, so the
+DISC'17 Appendix B.1 amnesia class is avoided by construction, and a zero-weight
+learner may speculatively recover its log non-votingly as future work. The
+formalization of the superblock contract and the forced sequence against the fence
+and acquisition machinery is a concrete proof obligation, planned as a later ladder
+rung.
+
+\subsection{Casting votes and the design model}
+The inherited casting-vote lemma assumes an old decision quorum $q$, a new
+promise quorum $q'$, and a leader $\ell$ with $q\cap q'=\{\ell\}$. Sending
+new promises only to $q'\setminus\{\ell\}$ leaves the old acceptance guard
+unaffected at the other members of $q$. Once $\ell$ promises, the new quorum
+is complete. This is a schedule-dependent noninterference argument.
+Availability of those quorums, continued processing by the leader, successful
+message delivery, and the ability to repeat the procedure require additional
+proofs. The lemma includes no clock or duration.
+
+\begin{table*}[t]
+\centering\small
+\caption{Coverage of the whole VRR-2012 paper at this checkpoint. ``Open''
+means no end-to-end Lean result is claimed for that obligation.}
+\label{tab:coverage}
+\begin{tabular}{>{\raggedright\arraybackslash}p{25mm}>{\raggedright\arraybackslash}p{69mm}>{\raggedright\arraybackslash}p{65mm}}
+\toprule
+Source section & Required obligation & Checked evidence and present boundary\\
+\midrule
+1--3: model and architecture & Crash-only failures, authenticated identities, network model,
+deterministic execution, replica thresholds & Explicit assumptions; quorum intersection is checked.
+No general environmental refinement theorem.\\
+4.1: normal operation & One value per view/slot, ordered preparation, distinct quorum support,
+commit before execution, request deduplication & Conditional slot agreement; operational acceptor
+promise rules and fixed-view log provenance. Proposer, clients, and execution integration open.\\
+4.2: view changes & Sender status, two message rounds, latest-normal-view/length selection,
+preservation of every committed prefix & Shared crash-free model proves whole-log compatibility across unbounded views.
+Concrete protocol refinement and the reincarnation proof (the
+Crash-Stop-Self-Evict forced weight sequence) remain open.\\
+4.3: replica recovery & Exclusion until fresh quorum evidence and current-primary state;
+restored votes consistent with prior activity & Conditional fence retention and crash-vector collection checked; the classic crash-recover class eliminated by construction (Crash-Stop-Self-Evict reincarnation).\\
+4.4--4.5: applications and clients & Chosen nondeterministic inputs; monotone request identifiers
+across client crashes & Explicit application/client refinement obligations, open.\\
+5.1--5.3: practical transfer & Checkpoint fidelity, suffix completeness, garbage collection,
+view-sensitive truncation, short view-change messages & Open; source paper's full-log
+argument does not validate optimized transfer automatically.\\
+6.1--6.2: witnesses and batching & Witness participation roles; batch semantics and operation order
+& Optional refinements open. No correctness claim inherited merely from batching.\\
+6.3: fast reads & Lease exclusion and clock assumptions, or the weaker semantics of backup reads
+& Open; the backup-read variant is not claimed linearizable by the source.\\
+7.1--7.5: reconfiguration & Epoch establishment, transfer completion, safe retirement,
+duplicate messages, client routing & Era-history reduction and quorum calculations checked;
+operational repeated uVRR reconfiguration open.\\
+8.1--8.3: correctness arguments & Compose normal operation, recovery and reconfiguration;
+state progress assumptions & Component safety results checked. Composition and liveness open.\\
+9: conclusion & Relate the completed results to the replication service & No additional
+theorem is inferred from the source's summary.\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The repository's \code{VrrCoreEras.tla} is explicitly a design model for a
+single era transition, rather than a statement that the Rust implementation
+already refines it. Its gate checks both cross-era view/commit directions and
+fence intersections.
+The Lean history theorem's narrower directional overlap must not be used to
+remove those checks without proving the relevant transition refinement.
+Table~\ref{tab:coverage} records the outstanding source-level obligations,
+including optional VRR optimizations whose semantics differ from the base
+protocol.
+
+\section{Reproducibility and research methodology}
+\subsection{Executable evidence}
+Each positive rung contains the entire module text, a build invocation, and
+axiom reports for its stated results. \code{showboat verify} reruns the
+commands and compares their captured output \cite{showboat}. All eight
+inherited documents pass this check. The eighth contains the expected compiler
+failure of a historical Leanstral draft, so its successful replay does not
+establish the missing weighted theorem. Rung 9 supplies that theorem.
+
+The checked additions are numbered 9 (general weights), 10 (operational
+acceptor), 11 (suffix promises), 12 (fault controls), 13 (whole-log
+selection), 14 (normal-log provenance), 15 (fenced histories), and 16
+(shared multi-view preservation), 17 (conditional recovery fencing), 18
+(crash-vector collection), 19 (acquisition ordering), and 20 (operational
+acquisition certificates). The classic crash-recover attempt's delayed-fence
+counterexample rung was deleted with that attempt, and the ladder's recovery rungs
+are numbered 17--20 after renumbering. The original
+report is retained as an audit input. Its statement that every rung includes
+a successful build and axiom report does not hold for rung 8.
+
+The independent baseline audit ran the unmodified library build and every
+original transcript, inspected theorem types and axiom reports, and preserved
+input hashes. Subsequent changes were checked in small increments. The
+library build and transcript checks complement the Rust format, lint, test
+and documentation gates. Passing the Rust suite does not establish a formal
+refinement to Lean. A vendor-directory match in an inherited repository text
+gate is documented rather than suppressed by modifying unrelated code.
+
+An independent TLC 2.19 breadth-first run of \code{VrrCoreEras.cfg} completed
+in 137.67 seconds, generating 2,743,933 states and finding 837,204 distinct
+states, with no error reported and an empty remaining queue. Its scope is
+the three-node \code{inc3} scenario, one command value, maximum log length
+three, two eras, and view index zero. \code{MaxEpoch=0} disables crashes;
+this run supplies no crash-recovery coverage. TLC reported a fingerprint
+collision probability estimate of $2.2\times10^{-7}$ from the observed
+fingerprints. This finite exploration is separate from kernel-checked
+unbounded theorems. The \code{VrrCoreErasM1.cfg} transfer mutation produced
+the expected \code{FrontiersOrdered} violation in 1.2 seconds. Source and
+configuration hashes and full logs are retained for both runs.
+
+A single executable document, \code{REPRODUCE.md}, packages the whole
+chain: the exact tool versions (Lean 4.33.1, Lake 5.0.0, Showboat 0.6.1,
+TLC 2.19 from the \code{v1.7.4} release of \code{tla2tools.jar} pinned by
+SHA-256, Tectonic 0.17.0 and the Rust 1.96.0 toolchain), the library build,
+the axiom audit, every rung replay, the mutation controls, the two TLC
+runs, the Rust gates, the paper build and
+SHA-256 digests of every input. \code{showboat verify REPRODUCE.md} reruns
+all of it and diffs the captured output. The paper build fixes
+\code{SOURCE\_DATE\_EPOCH}, so the rendered PDF is byte-identical across
+builds with the same Tectonic release and package bundle, and its digest is
+recorded. The mutated-configuration TLC run is replayed with one worker,
+because a multi-worker search stops at a nondeterministic point after the
+first violation; only the violated invariant is compared.
+
+\subsection{Bounded multi-model proof assistance}
+Leanstral is a Lean-oriented model available through Mistral's tooling. Its
+release article reports benchmarks and case studies \cite{leanstral}; those
+results do not establish cost effectiveness for this core-only development.
+Here the model is a source of candidate proof text. The local Lean kernel,
+the theorem type, and an explicit axiom policy determine acceptance.
+
+The inherited record reports a failed attempt on the general weighted lemma,
+including a large Lean process. We preserved that record and replayed the
+draft's compiler failure. We did not independently reproduce its historical
+peak memory or elapsed time.
+
+The new experiment isolated a single list-induction obligation with unchanged
+definitions and statement. The first Vibe run had a 12-turn, 28,000-token,
+180-second and 2-GiB sampled process-tree memory limit, with a configured
+USD~2 cap. It stopped after 8.19 seconds when scaffold usage exceeded the
+token limit, before a proof edit. The second used 6 turns, 150,000 tokens,
+120 seconds and a configured USD~0.50 cap. It stopped after 76.39 seconds on
+the cumulative-token limit, leaving the original proof hole. Peak sampled
+resident memory was about 205 MiB in each run. Neither cap is a measurement
+of actual billing, and sampling is not an operating-system memory guarantee.
+Two direct-API routing probes also failed. The weighted theorem was then
+completed and compiled locally.
+
+No accepted Leanstral-generated proof is attributed to these runs. Their
+methodological result is that scaffold overhead dominated a tiny proof target;
+repeating the same configuration was not justified. Future comparisons should
+record exact prompts, tool context, candidate edits, compiler iterations,
+token usage where available, elapsed time, and invoiced cost. A claim of
+multi-model efficiency needs comparable successful obligations and a baseline
+workflow. This experiment supplies neither a measured dollar saving nor a
+general negative judgment about the model.
+
+The laboratory book distinguishes recorded authorship of earlier work
+from independently checked artifacts. This permits credit to prior model
+assistance without making model identity part of the trusted proof base.
+
+\section{Next proof boundary and performance claims}
+The shared crash-free model now preserves quorum-voted prefixes across
+view changes. The next integration theorem must relate its activation,
+message-history, and local-state abstractions to the concrete VRR protocol. The Crash-Stop-Self-Evict reincarnation path (the four-superblock durable
+identity, the reincarnation message, and the forced weight sequence) must be
+proved against the fence and acquisition machinery checked here. Finally,
+reconfiguration must preserve these facts for an arbitrary sequence of
+membership changes and state transfers. These are concrete proof obligations,
+not consequences of quorum intersection alone.
+
+The term \emph{non-stop} also needs an operational definition. A useful
+conditional progress statement would quantify over an available casting-vote
+schedule and fair delivery while allowing arbitrary pipeline length. It would
+state which classes of requests keep completing while the new phase-I
+exchange is pending. It would not promise service after loss of all necessary
+quorums. Similarly, no fixed failover time follows in an asynchronous model
+allowing unbounded message delay. A single-digit-millisecond result requires
+specified failure detection, network and workload conditions, an implementation,
+and measured latency distributions.
+
+The present results establish exact component theorems with executable
+evidence and targeted counterexamples. Completing the operational composition
+will determine the scope of the final uVRR correctness claim. Performance and
+novelty claims will be evaluated against that completed specification and its
+experimental evidence.
+
+\appendix[Reproduction commands]
+From the repository root, with the tools listed in
+\code{formal/uvrr-lean/REPRODUCE.md} installed at the recorded versions:
+\begin{verbatim}
+export PATH="$HOME/.elan/bin:$PATH"
+cd formal/uvrr-lean
+showboat verify REPRODUCE.md
+\end{verbatim}
+That document lists every command with its captured output, and
+\code{showboat extract REPRODUCE.md} emits a shell script that recreates it.
+The document runs the pinned Lean toolchain declared in
+\code{lean-toolchain}. Showboat transcripts compare command output, not only
+exit status, so a fresh library build is recorded independently of transcript
+replay. Historical rejected drafts are quarantined outside the compiled
+library.
+
+\begin{thebibliography}{9}
+\bibitem{diskless} E.~Michael, D.~R.~K. Ports, N.~K. Sharma, and A.~Szekeres,
+``Providing Stable Storage for the Diskless Crash-Recovery Failure Model,''
+UW-CSE-16-08-02, 25 August 2016.
+\url{https://homes.cs.washington.edu/~drkp/papers/diskless-tr16.pdf}.
+\bibitem{recovery} E.~Michael, D.~R.~K. Ports, N.~K. Sharma, and A.~Szekeres,
+``Recovering Shared Objects Without Stable Storage [Extended Version],''
+UW-CSE-17-08-01, 5 August 2017; extended version of DISC 2017 paper.
+\url{https://drkp.net/papers/recovery-tr17.pdf}.
+\bibitem{turner} D.~C. Turner, ``Unbounded Pipelining in Dynamically
+Reconfigurable Paxos Clusters,'' revision 1A9DBA37, 14 August 2017.
+\url{https://tessanddave.com/paxos-reconf-latest.pdf}.
+\bibitem{vrr} B.~Liskov and J.~Cowling, ``Viewstamped Replication Revisited,''
+MIT-CSAIL-TR-2012-021, 23 July 2012.
+\url{https://hdl.handle.net/1721.1/71763}.
+\bibitem{uvrr} simbo1905, ``Unbounded Viewstamped Replication Revisited?''
+12 August 2026.
+\url{https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/}.
+\bibitem{netdisk} simbo1905, ``The network is faster than the disk,'' 12 April
+2024, accessed 7 September 2026.
+\url{https://simbo1905.wordpress.com/2024/04/12/the-network-is-faster-than-the-disk/}.
+\bibitem{votingweights} simbo1905, ``Paxos Voting Weights,'' 16 March 2017,
+accessed 7 September 2026.
+\url{https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/}.
+\bibitem{showboat} S.~Willison, ``Showboat: Create executable demo documents,''
+software, version 0.6.1 used for the inherited evidence.
+\url{https://github.com/simonw/showboat}.
+\bibitem{leanstral} Mistral AI, ``Leanstral: Open-Source foundation for
+trustworthy vibe-coding,'' 16 March 2026, accessed 6 September 2026.
+\url{https://mistral.ai/news/leanstral/}.
+\end{thebibliography}
+\end{document}

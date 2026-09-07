@@ -1,0 +1,50 @@
+null
+null
+null
+null
+null
+null
+null
+Corpus located (glob missed dotdir). Now verifying the five brief-claims against the corpus and the paper.
+null
+null
+null
+null
+All five claims check out at the quote level. Now verifying the paper's remaining corpus citations and scanning for glossary-consistency issues.
+null
+null
+null
+null
+All corpus cross-checks confirm the paper's citations. Two final quote verifications, then I'll write the audit.
+null
+All verifications complete. Writing the audit file.
+null
+Task A complete. Now Task B — running the Tavily survey searches in parallel.
+null
+null
+null
+null
+Good leads (mypyvy/Scimitar, Bythos, MongoRaftReconfig, etcd raft TLA+). Running the remaining search angles.
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+null
+Candidate pool is solid. Checking maintenance status for the uncertain repos (Ivy, Verdi, Disel).
+null
+null
+null
+Survey complete. Writing the solver survey.
+null
+**Audit (a)–(e): all PASS.** The paper quotes the accurate "out of frustration" passage, treats LeanLTL past operators as future work only, attributes no automated verification to Liskov & Cowling, claims no Lean VR verification, and never uses "LTA+". Two non-blocking omissions noted (IronFleet as effort reference; nuXmv as the corpus's other past-operator tool); no glossary contradictions found.
+
+**Survey:** 11 main candidates (4 Tier-1, 3 Tier-2, 4 Tier-3) + 4 watch-list + 6 excluded-as-stale (Verdi, Disel, PSync, IronFleet, Velisarios et al.). Top-3 by kick-the-tires practicality: **Veil** (verse-lab/veil, active, template repo), **Quint + Apalache** (npm/docker, minutes to hello-world), **TLA+/TLAPS + MongoRaftReconfig logless-reconfig artifact** (only published mechanically-checked Raft-family reconfiguration safety proof).
+
+Outputs: `.tmp/research/position-paper-audit.md`, `.tmp/research/solver-survey.md`.

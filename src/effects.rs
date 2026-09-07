@@ -63,17 +63,6 @@ pub enum Effect {
     /// effect an external-stability mode releases at `publish`; everything
     /// else waits for the host's [`StabilityResult`].
     Persist(PersistenceIntent),
-    /// The journal's retained base sits above the history a recovery must
-    /// replay from, so the application state cannot be reconstructed from
-    /// local evidence: the host must restore it through its own
-    /// application-state transfer facility (§4, §11), covering everything
-    /// through `through` (the recovered committed frontier). Surfaced, never
-    /// faulted — the shortfall is a host retention fact (S1), not a
-    /// protocol breach.
-    RequestApplicationState {
-        /// The committed frontier the transferred application state must cover.
-        through: Slot,
-    },
 }
 
 /// Which part of the durable [`crate::progress::Progress`] record a transition

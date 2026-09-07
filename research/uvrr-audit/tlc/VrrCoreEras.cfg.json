@@ -1,0 +1,14 @@
+{
+  "config": "VrrCoreEras.cfg",
+  "model": "VrrCoreEras.tla",
+  "status": "exited",
+  "exit_code": 0,
+  "elapsed_seconds": 137.67,
+  "wall_limit_seconds": 180,
+  "java_heap_limit": "2g",
+  "workers": 2,
+  "sha256": {
+    "VrrCoreEras.cfg": "7c6b9a35790b50fe77ae11d1482847004c3b33d48b8b2edc28a22516144677d8",
+    "VrrCoreEras.tla": "3eebcfa9e1bf67f12832f253fb8120dfd7cb4188d19b0ca58bbaee49681d2d26"
+  }
+}

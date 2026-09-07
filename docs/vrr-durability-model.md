@@ -105,9 +105,8 @@ The algorithm interacts with the following state classes.
 | Progress | current view, retained view, status, `accepted`, `committed`, `applied` | Fences older views and identifies the provenance of retained protocol history | Candidate for a host-supplied progress strategy |
 | Accepted history | logical slot-to-operation history required for normal operation, view change, recovery, and state transfer | Preserves operations which a later view may have to select | Candidate for a host-supplied journal strategy |
 | Application state | lock/lease state or other replicated service state | Result of applying committed operations | Host-owned application upcall boundary |
-| Quorum evidence | prepare acknowledgements, start-view-change senders, view-change reports, recovery responses | Proves one in-flight protocol transition | Core-local and transient; no storage strategy |
-| Recovery attempt | status, bounded nonce set, collected responses | Correlates responses to the recovery episode across its re-drives; a response counts iff its echoed nonce is in the set | Core-local and volatile; a crash discards it; nonces derived from the host-supplied event clock |
-| Event clock | one `u64` value sampled at the start of every input | Orders host observations and supplies fresh recovery nonces | Host-owned; the core never reads a system clock |
+| Quorum evidence | prepare acknowledgements, start-view-change senders, view-change reports | Proves one in-flight protocol transition | Core-local and transient; no storage strategy |
+| Event clock | one `u64` value sampled at the start of every input | Orders host observations | Host-owned; the core never reads a system clock |
 | Transfer state | source cursor, destination assembly, encoding state | Carries logical history between replicas | Per-transfer state; never shared protocol progress |
 
 No core API determines how much accepted history a host retains. The host may retain exactly the currently required logical history or substantially more. Retention and physical reclamation are outside the protocol interface.
@@ -202,32 +201,11 @@ PersistenceIntent {
 
 The host may record progress, journal changes, and application changes in one wider transaction. That composition does not merge their logical semantics.
 
-### 6.1 Event-clock contract and recovery nonce
+### 6.1 Event-clock contract and the freshness carrier
 
-`TimedInput.at` is an unsigned 64-bit tick supplied by the host. Nanosecond-resolution time is preferred because normal process scheduling makes accidental reuse unlikely. Millisecond time is also valid subject to the explicit restart rule below. The core treats the value as opaque and does not convert units.
+`TimedInput.at` is an unsigned 64-bit tick supplied by the host. Nanosecond-resolution time is preferred because normal process scheduling makes accidental reuse unlikely. The core treats the value as opaque and does not convert units.
 
-For a recovery input, the core uses `TimedInput.at` as a recovery nonce. The attempt retains a bounded set of nonces — one per recovery event, the oldest evicted past the bound — and a `RecoveryResponse` counts iff its echoed nonce is in the set: a delayed response to a remembered solicitation of the same episode still counts, and responses across in-set nonces combine into one `R_g` quorum, while a response to a nonce the attempt never minted or has already evicted is stale. The set is volatile; a crash discards it. No nonce need be forced to disk when the host clock contract supplies a fresh value.
-
-The mandatory invariant is:
-
-```text
-For one replica identity, no recovery attempt may reuse a nonce while a
-message from the earlier attempt can still be delivered.
-```
-
-A strictly increasing clock across recovery attempts is the simplest implementation. The supported host strategies are:
-
-| Host clock strategy | Recovery rule |
-|---|---|
-| Continuous nanosecond `u64` clock | Pass the event-start tick directly, provided the clock does not reset across the relevant process restart. |
-| Continuous millisecond `u64` clock | The process supervisor must ensure at least one complete millisecond elapses between termination of the old process and dispatch of the new process's recovery event. This is required even for a sub-millisecond restart. |
-| Clock which can reset, regress, or repeat across restart | The host must construct a fresh `u64` by another method, such as an external incarnation source or persisted last value. A delay alone is insufficient if the clock domain itself resets. |
-
-If recovery is retried, every retry is a new recovery event and must receive a fresh tick, which joins the attempt's nonce set; the collected responses are preserved across the retry. A host may persist the last nonce, but that is an optional nonce-generation strategy rather than a VRR-2012 requirement to force storage before recovery traffic is sent.
-
-While the attempt runs, an accepted response whose `committed` exceeds the local committed frontier advances that frontier toward the evidence's — over the sequentially-adjacent slots the local journal holds, stopping at the first slot the journal does not hold — and emits the ordered application upcalls for the newly committed slots (§11.1). The `committed` and `applied` frontiers are monotone across this fast-forward and the completion that ends the attempt: neither moves backward. Within one process life, the completion does not re-emit an upcall the fast-forward already emitted; after a crash the volatile emission memory is gone and the completion replays from the durable `applied` frontier (§11.1's boundary).
-
-Of the collected responses, only the suffix reported by the latest fenced view's primary is installation evidence; a suffix from any other responder counts toward the quorum but is never installed.
+Classic VRR-2012 diskless recovery carries freshness in a recovery nonce: the host tick of each recovery event, with a bounded nonce set per attempt and a delayed response counted iff its echoed nonce is still remembered. That carrier exists because a classic diskless restart keeps its identity and has no durable freshness record. uVRR does not perform that exchange: the freshness carrier is the durable four-superblock incarnation — a dirty node bumps its incarnation (Crash-Stop-Self-Evict), so freshness survives the crash as durable identity rather than as a nonce set. The tick remains the host's observation metadata (S4) and the `(incarnation, sequence)` request identity of the acquisition certificates; the classic-VRR nonce rules above are retained here as literature about the classic design they govern.
 
 ## 7. Transition publication and durability
 
@@ -317,7 +295,7 @@ V_g ⌢ V_g
 
 This self-intersection is not implied by `QI ⌢ QII` alone. It is required by this diskless VRR construction because a recovering replica must encounter the volatile evidence that an earlier view was fenced. A quorum policy is therefore not automatically a valid VRR-2012 policy merely because `QI ⌢ QII` holds.
 
-The initial quorum strategy should use one self-intersecting `V_g` family for all three roles. A future strategy may define distinct `F_g`, `V_g`, and `R_g` families, but it must validate their actual pairwise proof obligations explicitly.
+This section describes classic VRR-2012 diskless recovery (its §4.3) as literature, not uVRR: uVRR replaces the diskless recovery overlap with Crash-Stop-Self-Evict reincarnation. A crashed node whose superblocks record an unflushed session reopens under a new incarnation, the leader evicts the old identity through the forced weight sequence (exiting 1 to 0, joining at 0, then 0 to 1), and the new identity rejoins as a weight-0 learner whose messages are ignored — so no recovery quorum meets a fence family, and the obligation above governs the classic design only.
 
 ### 8.4 Weighted quorums
 
@@ -350,7 +328,7 @@ The following transformations have precise quorum effects when each configuratio
 | Multiply every weight by the same positive integer | Leaves the legal quorum family unchanged. |
 | Divide every weight by a common positive divisor | Leaves the legal quorum family unchanged. |
 | Increase or decrease one replica's weight by one | Consecutive weighted-majority families universally intersect. |
-| Add or remove a zero-weight replica | Leaves the voting quorum family unchanged. |
+| Join or leave a zero-weight replica | Leaves the voting quorum family unchanged. |
 
 The one-unit rule is an intersection lemma, not a complete reconfiguration protocol. Promotion still requires state transfer, and removal still requires activation of the new configuration to fence messages authorized only by the old configuration.
 
@@ -370,7 +348,7 @@ Then:
 2(k + 1) > 2k          therefore V_g ⌢ V_g
 ```
 
-The primary counts itself in `C_g`, so a four-replica primary needs one follower acknowledgement to commit in the steady state. A view change still requires three replicas, counting the participating replica itself. A recovering replica cannot count itself, so diskless recovery requires responses from all three other replicas. This improves steady-state latency and availability under some partitions; it does not improve the failure tolerance of electing or recovering a primary.
+The primary counts itself in `C_g`, so a four-replica primary needs one follower acknowledgement to commit in the steady state. A view change still requires three replicas, counting the participating replica itself. This improves steady-state latency and availability under some partitions; it does not improve the failure tolerance of electing a primary.
 
 ### 8.6 Reconfiguration overlap
 
@@ -439,8 +417,8 @@ INCREMENT(node_id)
 DECREMENT(node_id)
 DOUBLE
 HALVE
-ADD(node_id, position)      -- insert with weight 0
-REMOVE(node_id)             -- permitted only at weight 0
+JOIN(node_id, position)      -- insert with weight 0
+LEAVE(node_id)             -- permitted only at weight 0
 ```
 
 The preconditions are:
@@ -453,8 +431,8 @@ The preconditions are:
 | `DECREMENT(n)` | `W(n) >= 1`. |
 | `DOUBLE` | None beyond the common invariants. |
 | `HALVE` | Every `W(n)` is even. |
-| `ADD(n,p)` | `n` is not in `order`; `p` is a valid insertion position. The new weight is zero. |
-| `REMOVE(n)` | `n` is a member and `W(n) = 0`. |
+| `JOIN(n,p)` | `n` is not in `order`; `p` is a valid insertion position. The new weight is zero. |
+| `LEAVE(n)` | `n` is a member and `W(n) = 0`. |
 | Every operation | The result has non-empty `order` and `T(W) >= 1`. |
 
 `VOID` and `INIT` make initial configuration construction part of the replicated history rather than unrecorded ambient state. A newly added zero-weight member has no voting authority. State transfer must make it adequately current before a later committed `INCREMENT` grants authority.
@@ -500,7 +478,7 @@ Together with `R1` instantiated at `e+1`, these are the three consecutive pairwi
 QII_e ⌢ QI_e ⌢ QII_(e+1) ⌢ QI_(e+1)
 ```
 
-The diskless-VRR fence/recovery overlap in §8.3 remains mandatory. `R1` and `R2` do not replace it.
+The classic diskless-VRR fence/recovery overlap in §8.3 governs classic VRR-2012 diskless recovery, which uVRR replaces with Crash-Stop-Self-Evict reincarnation; it does not bind uVRR.
 
 #### 8.7.5 Closure of weighted-majority configurations
 
@@ -544,7 +522,7 @@ iff w(S) >= floor(T/2)+1
 
 The legal quorum family is unchanged. `HALVE` is the inverse when every weight is even.
 
-**`ADD` and `REMOVE` at weight zero.** Total voting weight is unchanged and the affected member contributes zero to every sum. The voting quorum family is unchanged.
+**`JOIN` and `LEAVE` at weight zero.** Total voting weight is unchanged and the affected member contributes zero to every sum. The voting quorum family is unchanged.
 
 These lemmas establish overlap closure. They do not establish that a particular leader has the pivot required for the non-stop path.
 
@@ -844,7 +822,7 @@ The current code does not provide:
 
 - a normative C ABI transition-ownership contract — no FFI module exists at present; the C ABI is planned work.
 
-The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` and `reopen` both start fenced `Recovering` and become normal only after local restoration or quorum recovery establishes adequate state, so the amnesiac-voter path is unrepresentable.
+The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` and `reopen` both start fenced `Recovering` and become normal only after local restoration establishes adequate state, so the amnesiac-voter path is unrepresentable.
 
 ## 15. Minimal proposal
 

@@ -7,3 +7,14 @@ Cargo.lock
 .tmp/
 
 .DS_Store
+.claude
+.tmp/
+.env
+
+# Lean build artifacts (regenerable via lake build)
+.lake/
+# Vendored dependencies (regenerable via lake build)
+research/lean-solve-auto/duper/
+
+# Zig build cache (regenerable via zig/build.sh)
+.zigcache/

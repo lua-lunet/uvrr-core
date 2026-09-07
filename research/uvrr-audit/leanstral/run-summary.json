@@ -1,0 +1,13 @@
+{
+  "agent": "lean",
+  "model_from_builtin_profile": "labs-leanstral-1-5",
+  "max_turns": 12,
+  "max_price_usd": 2.0,
+  "max_total_tokens": 28000,
+  "wall_limit_seconds": 180,
+  "tree_rss_limit_kib": 2097152,
+  "peak_tree_rss_kib": 210176,
+  "termination": "completed",
+  "returncode": 1,
+  "elapsed_seconds": 8.19
+}

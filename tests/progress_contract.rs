@@ -38,8 +38,13 @@ use vrr::wire::Tag;
 // ---------------------------------------------------------------------------
 
 /// A table with every era through `era` established: `Void` at slot 1, `Init` at
-/// slot 2, and one `Increment` per further era, so era `k >= 1` is established at
-/// slot `k + 1`. The retention window keeps only the last two eras.
+/// slot 2, and one establishing operation per further era, so era `k >= 1` is
+/// established at slot `k + 1`. The retention window keeps only the last two eras.
+///
+/// The per-era operations obey the weight domain {0, 1, 2} (rules §1, R1): era 2
+/// promotes the sole member to weight 2, and every later era joins a fresh
+/// weight-0 learner and leaves it — zero-mass eras (R14), so the sequence is
+/// legal however long the fixture runs.
 fn table_upto(era: u32) -> Arc<EraTable> {
     let node = NodeId(0);
     let mut table = EraTable::genesis();
@@ -51,11 +56,25 @@ fn table_upto(era: u32) -> Arc<EraTable> {
             .extend(&SystemOperation::Init { order: vec![node] }, Slot(2))
             .expect("Init at INIT_SLOT");
     }
-    for established in 2..=era {
-        let slot = Slot(u64::from(established) + 1);
+    if era >= 2 {
         table = table
-            .extend(&SystemOperation::Increment(node), slot)
-            .expect("Increment establishes one era per slot");
+            .extend(&SystemOperation::Increment(node), Slot(3))
+            .expect("Increment establishes era 2 at slot 3");
+    }
+    for established in 3..=era {
+        let slot = Slot(u64::from(established) + 1);
+        let learner = NodeId(1000 + established);
+        let op = if established % 2 == 1 {
+            SystemOperation::Join {
+                node: learner,
+                position: 0,
+            }
+        } else {
+            SystemOperation::Leave(learner)
+        };
+        table = table
+            .extend(&op, slot)
+            .expect("the zero-mass era establishes one era per slot");
     }
     Arc::new(table)
 }
@@ -409,9 +428,9 @@ fn rule2_view_succession() {
 }
 
 /// Rule 3 — `retained` identifies the provenance of the retained history (§1.3);
-/// it changes only when that history was re-selected: recovery, or a peer message
+/// it changes only when that history was re-selected by a peer message
 /// that installs one (`DoViewChange` completing the new primary's quorum,
-/// `StartView`, `NewState`, `RecoveryResponse` completing a recovery attempt).
+/// `StartView`, `NewState`).
 #[test]
 fn rule3_retained_changes_only_on_reselection() {
     let table = genesis_table();
@@ -441,12 +460,10 @@ fn rule3_retained_changes_only_on_reselection() {
     );
 
     // Borderline passes: each re-selection input.
-    assert_eq!(legal(&old, &installed, &InputKind::Recovery), None);
     for (tag, slot) in [
         (Tag::DoViewChange, Slot(5)),
         (Tag::StartView, Slot(5)),
         (Tag::NewState, Slot(5)),
-        (Tag::RecoveryResponse, Slot(0)),
     ] {
         assert_eq!(
             legal(&old, &installed, &InputKind::PeerMessage { tag, slot },),
@@ -461,7 +478,7 @@ fn rule3_retained_changes_only_on_reselection() {
 /// transitions below.
 #[test]
 fn rule7_header_slot_table_is_the_documented_one() {
-    let expected: [(Tag, HeaderSlotRole); 11] = [
+    let expected: [(Tag, HeaderSlotRole); 9] = [
         (Tag::Prepare, HeaderSlotRole::Operation),
         (Tag::PrepareOk, HeaderSlotRole::Operation),
         (Tag::Commit, HeaderSlotRole::Frontier),
@@ -469,8 +486,6 @@ fn rule7_header_slot_table_is_the_documented_one() {
         (Tag::DoViewChange, HeaderSlotRole::Frontier),
         (Tag::StartView, HeaderSlotRole::Frontier),
         (Tag::PlannedViewChange, HeaderSlotRole::Absent),
-        (Tag::Recovery, HeaderSlotRole::Absent),
-        (Tag::RecoveryResponse, HeaderSlotRole::Absent),
         (Tag::GetState, HeaderSlotRole::Frontier),
         (Tag::NewState, HeaderSlotRole::Frontier),
     ];
@@ -524,12 +539,7 @@ fn rule7_absent_tags_must_send_the_sentinel() {
     let old = normal(ViewId::INITIAL, 4, 2, 1, 1, 0, &table);
     let candidate = normal(ViewId::INITIAL, 5, 2, 1, 1, 1, &table);
 
-    for tag in [
-        Tag::StartViewChange,
-        Tag::PlannedViewChange,
-        Tag::Recovery,
-        Tag::RecoveryResponse,
-    ] {
+    for tag in [Tag::StartViewChange, Tag::PlannedViewChange] {
         let violating = InputKind::PeerMessage { tag, slot: Slot(1) };
         assert_eq!(
             legal(&old, &candidate, &violating),

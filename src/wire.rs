@@ -708,7 +708,8 @@ impl Unpack for ViewId {
 /// [`Malformed::UnknownTag`] rather than as a valid message. A codec in which the
 /// absence of a message is a message cannot report a framing bug.
 ///
-/// Discriminants `1` and `13` are retired: they belonged to the client-datagram tags,
+/// Discriminants `1`, `11` and `12` are retired: they belonged to the deleted
+/// classic recovery-exchange tags and the client-datagram tags,
 /// which left the wire when the client boundary became a host concern (§11.1, B2).
 /// They stay reserved — reassigning them would collide with any deployment still
 /// carrying the old numbering on a wire.
@@ -756,14 +757,18 @@ pub enum Tag {
     /// diverges. With distinct tags the dispatch *is* the check, and a handler cannot
     /// omit it because it never sees the other message.
     PlannedViewChange = 8,
-    /// A restarting replica soliciting state; the nonce is the host tick (§10, S4).
-    Recovery = 9,
-    /// A reply to `Recovery`, echoing the nonce (§10).
-    RecoveryResponse = 10,
     /// A request for a history range the requester lacks (§4, §13.1).
-    GetState = 11,
+    GetState = 9,
     /// A history range in reply to `GetState`. Sizing is the host's (W5).
-    NewState = 12,
+    NewState = 10,
+    /// A reincarnation announcement (`docs/uvrr-reincarnation.md` §4): the
+    /// bumped identity `(old, new)` pair, sent by the restarted node to the
+    /// leader, which drives the forced weight sequence in reply.
+    ///
+    /// Discriminant 13, not 11: discriminants 11 and 12 belonged to the
+    /// deleted classic recovery-exchange tags (the amnesia protocol this
+    /// protocol exists to have eliminated) and stay retired.
+    Reincarnation = 13,
 }
 
 impl Tag {
@@ -782,10 +787,9 @@ impl Tag {
             Tag::DoViewChange => 6,
             Tag::StartView => 7,
             Tag::PlannedViewChange => 8,
-            Tag::Recovery => 9,
-            Tag::RecoveryResponse => 10,
-            Tag::GetState => 11,
-            Tag::NewState => 12,
+            Tag::GetState => 9,
+            Tag::NewState => 10,
+            Tag::Reincarnation => 13,
         }
     }
 
@@ -806,10 +810,9 @@ impl Tag {
             6 => Some(Tag::DoViewChange),
             7 => Some(Tag::StartView),
             8 => Some(Tag::PlannedViewChange),
-            9 => Some(Tag::Recovery),
-            10 => Some(Tag::RecoveryResponse),
-            11 => Some(Tag::GetState),
-            12 => Some(Tag::NewState),
+            9 => Some(Tag::GetState),
+            10 => Some(Tag::NewState),
+            13 => Some(Tag::Reincarnation),
             _ => None,
         }
     }

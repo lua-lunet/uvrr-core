@@ -1,0 +1,19 @@
+{
+  "recorded_at_utc": "2026-09-06T08:09:12.185357+00:00",
+  "library_build": "pass, 17 jobs",
+  "axiom_inventory_count": 192,
+  "affected_rung_replays": [
+    "12-negative-controls.md",
+    "15-view-fence.md"
+  ],
+  "mutation_checks": "all pass, including normal-mode fence removal",
+  "rust_gates": "pass: format, Clippy, all-feature/all-target tests, doctests, source placement",
+  "scope": "multi-view local history and global history induction; full message refinement and recovery open",
+  "manuscript": "unchanged rendered rung-14 checkpoint; integration of rung 15 pending",
+  "additional_model_service_calls": 0,
+  "sha256": {
+    "UVRR/ViewFence.lean": "0bc8565547700d036d19909bd9a18aecd2bd7f8a785002bfe5c3a5f1a4e941d9",
+    "ladder/15-view-fence.md": "f49557de254c33eb55317d1907e83abc84f50c378d3e7571c1acdaa7edbe955b",
+    "check_mutations.py": "6d868ffe8cfb66ab63ff97a11d7a50ee76de7eb7efd6cc79fe9efee43f67e48a"
+  }
+}

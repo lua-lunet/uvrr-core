@@ -1,0 +1,19 @@
+{
+  "formal/uvrr-lean/uVRR-reconfiguration-safety-lean.docx": "e80f4daf451a5529c27794eaedf015c82e949fc96c9160351ff62c4922161d7a",
+  "formal/uvrr-lean/UVRR/CastingVote.lean": "eb7499f88feea53a0a972634acf5c8d30aaae3f6a75c3f6cde7cd13596ccbc9d",
+  "formal/uvrr-lean/UVRR/Counterexample.lean": "36126e1a2160a491d124f40d1f91872cae43c9af888f7545a70dc898ae198d53",
+  "formal/uvrr-lean/UVRR/Eras.lean": "93ba001b17ad908d03de8319cb0868a863573e680107c3099e28bc6c259a471d",
+  "formal/uvrr-lean/UVRR/LexBallot.lean": "6aeceecc95874a5560abd291d1235c12fb0f2fee58467f790e3650eb40b3a48a",
+  "formal/uvrr-lean/UVRR/Structure.lean": "931d0ba52acbe700050a2444e1cab4f0f530c7c2517edfe962c57c694be33375",
+  "formal/uvrr-lean/UVRR/Synod.lean": "d7c8b1934cde6236b24d8bf64f00f7611d171a194e2486287433cc57391003b9",
+  "formal/uvrr-lean/UVRR/Weights.lean": "2585d9dc65fd74918ba58b633724f09c5195beb19f3b526a2d02a944a4be6cb5",
+  "formal/uvrr-lean/ladder/01-structure.md": "46b0c50675f7172d80332b0d9d04c997a75f162cfcf6e2a9daabe0ef11dc7042",
+  "formal/uvrr-lean/ladder/02-lex-ballots.md": "d9d7081101073de0a349d8394ccc84bccc7e8777ad04e4e1296dc870857542a9",
+  "formal/uvrr-lean/ladder/03-synod-agreement.md": "1e3d3ed80f213ff7876eb32d2756bf422de7e41b13cf2d2bf8c53a1e09cde63c",
+  "formal/uvrr-lean/ladder/04-eras-theorem10.md": "f95c9dc7a14809a24177cedef7ed82e0eae4453774a7bf38b2c85445c541880c",
+  "formal/uvrr-lean/ladder/05-counterexample.md": "2bfc5a8b82f5d45fe355bdf46282f3a251883cd3afd36e988bd6703de72c8918",
+  "formal/uvrr-lean/ladder/06-casting-vote.md": "bf1a958801503eb1f82d8ad9dcb7ad647646d397f5dac3ed2f10fba7c74a9921",
+  "formal/uvrr-lean/ladder/07-weights.md": "0e5dbe8674dd6601b0e2ad16c454b6a4dd0004d7c8c5698641d0bf3bb389eccf",
+  "formal/uvrr-lean/ladder/08-leanstral-lemma2.md": "f7cbc44fe61a1511e5761da1c8bc10e1e4ef3183eae6fadac3f37c3ff771e758",
+  ".tmp/uvrr-ladder/papers/upaxos-turner.pdf": "3f5ffd4ecdf89f4dd8887a74b9f91d52914fcbe27183857cf68c6ff7cfd7f8ff"
+}

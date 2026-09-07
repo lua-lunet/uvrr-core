@@ -14,7 +14,7 @@
 //! 3. partition accounting — datagrams sent across a partition are held,
 //!    counted, and deliverable after `heal`; an explicit drop is recorded;
 //! 4. crash/restart — deliveries to a down node are recorded undeliverable;
-//!    `restart_amnesiac` yields genesis-only `Recovering` state and
+//!    a reopen yields the recorded `Recovering` state and
 //!    `restart_with` restores the recorded disk under the boot rule;
 //! 5. fault declaration discipline — an undeclared fault fails the step with
 //!    the full trace; the same script with `expect_fault` passes;
@@ -32,7 +32,7 @@ use vrr::ids::{Era, Fault, NodeId, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, Message};
 use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::PlanRejection;
+use vrr::replica::PlanRefusal;
 use vrr::wire::{Header, Tag};
 
 use harness::{Harness, NodeEvidence, SafetyViolation, StepOutcome, check_cluster_safety};
@@ -200,7 +200,6 @@ fn run_script() -> Harness {
     h.heal();
     h.deliver_all();
     h.crash(n(1));
-    h.restart_amnesiac(n(1)).expect("amnesiac restart");
     h.tick(n(0));
     h.assert_safety();
     h
@@ -266,7 +265,7 @@ fn inject_reaches_the_node_exactly_as_a_queued_delivery() {
     let refusal = injected.propose(n(1), OperationId { msb: 0, lsb: 9 }, b"op");
     assert_eq!(
         refusal,
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: ViewId {
                 era: Era(1),
                 view: View(0),
@@ -335,9 +334,9 @@ fn partition_holds_counts_and_releases_on_heal() {
 // ---------------------------------------------------------------------------
 
 /// A crashed node's volatile state dies with it: deliveries to it are
-/// recorded undeliverable. `restart_amnesiac` re-provisions to genesis-only
-/// `Recovering`; `restart_with` reopens the recorded disk, preserving the
-/// published record under the boot rule (fenced `Recovering` regardless).
+/// recorded undeliverable. `restart_with` reopens the recorded disk,
+/// preserving the published record under the boot rule (fenced
+/// `Recovering` regardless).
 #[test]
 fn crash_makes_deliveries_undeliverable_and_restart_restores() {
     let mut h = Harness::provision(3);
@@ -355,20 +354,6 @@ fn crash_makes_deliveries_undeliverable_and_restart_restores() {
         "a delivery to a down node is undeliverable, not lost silently"
     );
     assert_eq!(h.undeliverable_count(), 1);
-
-    // Amnesiac: a fresh life with genesis-only state, fenced.
-    h.restart_amnesiac(n(1)).expect("amnesiac restart");
-    let s = h.snapshot(n(1)).expect("node 1 is up");
-    assert_eq!(s.status, Status::Recovering.to_word());
-    assert_eq!(s.accepted, 2);
-    assert_eq!(s.committed, 2);
-    assert_eq!(
-        s.applied, 2,
-        "the §11 system-slot ruling: the genesis slots walk applied by themselves"
-    );
-    assert_eq!(s.checkpoint, 0);
-    assert_eq!(s.revision, 0, "the prior life is gone");
-    assert!(!s.faulted);
 
     // With the recorded disk: the published record survives; the boot rule
     // still fences (§5: evidence about the past, not authority).
@@ -424,7 +409,7 @@ fn an_undeclared_fault_fails_loudly_and_a_declared_fault_passes() {
     let outcome = declared.tick(n(0));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::Faulted(Fault::IndeterminatePersistence))
+        StepOutcome::PlanRefused(PlanRefusal::Faulted(Fault::IndeterminatePersistence))
     );
 }
 

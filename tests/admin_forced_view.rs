@@ -24,9 +24,10 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
+use vrr::configuration::SystemOperation;
 use vrr::ids::{Era, NodeId, OperationId, View, ViewId};
 use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::{PlanRejection, ViewChangeKnobs};
+use vrr::replica::{PlanRefusal, ViewChangeKnobs};
 use vrr::wire::Tag;
 
 // ---------------------------------------------------------------------------
@@ -135,7 +136,7 @@ fn admin_forced_view_installs_the_chosen_primary_through_the_ordinary_pipeline()
     let refused = h.propose(n(0), op_id(9), b"z");
     assert_eq!(
         refused,
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
         }),
@@ -154,7 +155,7 @@ fn admin_forced_view_installs_the_chosen_primary_through_the_ordinary_pipeline()
     let refused = h.propose(n(0), op_id(10), b"y");
     assert_eq!(
         refused,
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
         })
@@ -180,7 +181,7 @@ fn admin_force_view_rejects_non_advancing_uncommitted_era_and_exhausted_targets(
     let outcome = h.force_view(n(0), view(0));
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::AdminTargetNotAhead {
+        StepOutcome::PlanRefused(PlanRefusal::AdminTargetNotAhead {
             current,
             target: view(0),
         })
@@ -195,7 +196,7 @@ fn admin_force_view_rejects_non_advancing_uncommitted_era_and_exhausted_targets(
     let outcome = h.force_view(n(0), uncommitted_era);
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::AdminEraNotCurrent {
+        StepOutcome::PlanRefused(PlanRefusal::AdminEraNotCurrent {
             current: Era(1),
             got: Era(2),
         })
@@ -211,7 +212,7 @@ fn admin_force_view_rejects_non_advancing_uncommitted_era_and_exhausted_targets(
     let outcome = h.force_view(n(0), exhausted);
     assert_eq!(
         outcome,
-        StepOutcome::PlanRefused(PlanRejection::AdminViewExhausted { target: exhausted })
+        StepOutcome::PlanRefused(PlanRefusal::AdminViewExhausted { target: exhausted })
     );
 
     // Nothing moved: no fence, no traffic, no fault.
@@ -240,7 +241,7 @@ fn client_stream_survives_a_forced_view_change() {
     let refused = h.propose(n(0), op_id(2), b"b");
     assert_eq!(
         refused,
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
         }),
@@ -261,5 +262,67 @@ fn client_stream_survives_a_forced_view_change() {
         assert_eq!(status_of(&h, id), Status::Normal);
         assert_eq!(current_view(&h, id), view(1));
     }
+    h.assert_safety();
+}
+
+// ---------------------------------------------------------------------------
+// 9. The forced fence into the established-but-unentered era: a committed
+//    reconfiguration has advanced the era table past the current view's era,
+//    and the operator forces the view change into that established era.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn admin_force_view_into_the_established_era() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+
+    // A committed reconfiguration establishes era 2. The view has NOT
+    // changed — only the era table advanced (§8.7.1). The current view
+    // is still (1, 0) but the committed configuration history names
+    // era 2 as established.
+    let outcome = h.reconfigure(n(0), SystemOperation::Increment(n(2)), None);
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(snap(&h, n(0)).committed, 3);
+    let table = h.era_table(n(0)).expect("the node is live");
+    assert_eq!(table.current().era, Era(2), "era 2 is established");
+    assert_eq!(
+        current_view(&h, n(0)).era,
+        Era(1),
+        "the view has not entered era 2"
+    );
+
+    // The operator forces a view into the established-but-unentered era.
+    // The target names era 2, view 1 — the first view past the current
+    // one, in the new era.
+    let target = ViewId {
+        era: Era(2),
+        view: View(1),
+    };
+    let outcome = h.force_view(n(0), target);
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the forced fence into the established era is accepted: {outcome:?}"
+    );
+    assert_eq!(status_of(&h, n(0)), Status::ViewChange);
+    assert_eq!(current_view(&h, n(0)), target);
+
+    // The ordinary pipeline runs: fence, evidence, win, StartView.
+    h.deliver_all();
+    for id in [n(0), n(1), n(2)] {
+        assert_eq!(status_of(&h, id), Status::Normal, "{id:?} settled");
+        assert_eq!(current_view(&h, id), target, "{id:?} entered era 2");
+    }
+
+    // The era-2 primary serves; the old primary redirects.
+    let refused = h.propose(n(0), op_id(10), b"z");
+    assert_eq!(
+        refused,
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
+            view: target,
+            primary: Some(n(1)),
+        }),
+        "the era-2 primary of view 1 is n1"
+    );
     h.assert_safety();
 }

@@ -1,0 +1,402 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+   Compiling vrr-core v0.1.0 (/Users/Shared/lua-lunet/vrr-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.94s
+     Running unittests src/lib.rs (target/debug/deps/vrr-2a818c5131449700)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/maelstrom-lin-kv/main.rs (target/debug/deps/maelstrom_lin_kv-5168c643ffc65962)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/admin_forced_view.rs (target/debug/deps/admin_forced_view-b162c563682e25b9)
+
+running 4 tests
+test admin_force_view_rejects_non_advancing_uncommitted_era_and_exhausted_targets ... ok
+test admin_force_view_into_the_established_era ... ok
+test admin_forced_view_installs_the_chosen_primary_through_the_ordinary_pipeline ... ok
+test client_stream_survives_a_forced_view_change ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/application_checkpoint.rs (target/debug/deps/application_checkpoint-423228f01187b9f7)
+
+running 16 tests
+test duplicate_applied_is_rejected_without_state_change ... ok
+test checkpoint_beyond_applied_is_rejected ... ok
+test checkpoint_authorizes_lazy_whole_slab_reclaim ... ok
+test duplicate_install_is_rejected ... ok
+test mismatched_install_is_rejected_without_state_change ... ok
+test no_checkpoint_no_reclamation_regardless_of_age ... ok
+test installed_application_state_completes_recovery ... ok
+test install_without_outstanding_request_is_rejected ... ok
+test get_state_below_retained_base_is_refused ... ok
+test install_while_shortfall_parked_is_refused_transition_outstanding ... ok
+test out_of_order_applied_is_rejected ... ok
+test ordered_apply_never_above_committed ... ok
+test system_slots_advance_applied_without_upcalls ... ok
+test recovery_after_reclamation_requests_application_state ... ok
+test view_change_after_reclaiming_the_era_establishing_slab ... ok
+test stale_install_after_reshortfall_reemits_on_tick ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/configuration_contract.rs (target/debug/deps/configuration_contract-e9a87d87264e6842)
+
+running 35 tests
+test decrement_refuses_a_zero_total ... ok
+test double_requires_every_weight_representable ... ok
+test add_requires_absence_and_a_valid_position ... ok
+test decrement_requires_membership_and_positive_weight ... ok
+test add_refuses_the_seventeenth_member ... ok
+test double_refuses_above_half_of_u32_max ... ok
+test era_table_retains_a_three_era_window ... ok
+test add_inserts_at_exactly_the_named_position ... ok
+test departure_is_decrement_then_remove ... ok
+test era_table_shares_retained_arcs ... ok
+test extend_does_not_mutate_the_receiver ... ok
+test halve_never_reaches_a_zero_total ... ok
+test halve_requires_every_weight_even ... ok
+test increment_refuses_weight_overflow ... ok
+test increment_requires_membership ... ok
+test init_accepted_only_at_slot_two_and_sets_unit_weights ... ok
+test init_refused_on_an_initialised_configuration ... ok
+test init_refuses_duplicate_node_ids ... ok
+test init_refuses_empty_order ... ok
+test init_refuses_membership_above_the_cap ... ok
+test len_and_index_of_are_total_at_the_cap ... ok
+test remove_cannot_empty_the_order ... ok
+test remove_requires_membership_and_zero_weight ... ok
+test primary_is_modular_over_the_host_supplied_order ... ok
+test system_operation_rejects_reserved_and_unknown_discriminants ... ok
+test system_operation_round_trips_with_exact_length ... ok
+test void_accepted_only_at_slot_one ... ok
+test void_has_no_primary ... ok
+test halve_is_exact_and_all_even_is_positional ... ok
+test void_is_quorum_impossible ... ok
+test weight_of_set_rejects_unknown_and_duplicate_members ... ok
+test void_refuses_every_operation_but_void_and_init ... ok
+test era_advances_by_exactly_one_per_accepted_operation ... ok
+test init_round_trips_at_every_length ... ok
+test total_is_the_exact_sum ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/harness_contract.rs (target/debug/deps/harness_contract-784988fdbfcc8b39)
+
+running 7 tests
+test the_harness_clock_is_monotone_and_carried_by_every_step ... ok
+test inject_reaches_the_node_exactly_as_a_queued_delivery ... ok
+test crash_makes_deliveries_undeliverable_and_restart_restores ... ok
+test partition_holds_counts_and_releases_on_heal ... ok
+test the_same_script_produces_byte_identical_traces ... ok
+test the_safety_checker_catches_planted_violations ... ok
+test an_undeclared_fault_fails_loudly_and_a_declared_fault_passes ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/higher_view_transfer.rs (target/debug/deps/higher_view_transfer-aa29b59ea0dda275)
+
+running 11 tests
+test bare_higher_view_hint_is_never_installation_evidence ... ok
+test recovery_with_truncated_evidence_fetches_and_completes ... ok
+test higher_view_prepare_pulls_laggard_into_qualified_transfer ... ok
+test chunked_transfer_resumes_from_cursor_and_tolerates_reordering ... ok
+test lost_transfer_chunk_reissues_get_state_on_tick ... ok
+test forged_new_state_is_rejected_and_never_faults ... ok
+test start_view_gap_install_redrives_on_tick ... ok
+test fenced_node_serves_a_different_view_get_state ... ok
+test recovering_node_refuses_get_state ... ok
+test primary_side_construction_gap_fetches_and_completes ... ok
+test superseded_fetch_chunk_is_a_named_drop ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ids_contract.rs (target/debug/deps/ids_contract-799c7496a6b857d2)
+
+running 15 tests
+test legal_successor_rejects_identity_and_regression ... ok
+test layout_matches_primitive ... ok
+test legal_successor_at_era_exhaustion ... ok
+test legal_successor_truth_table ... ok
+test constructors_agree_with_legality ... ok
+test next_view_selecting_does_not_wrap ... ok
+test next_view_selecting_rejects_degenerate_arguments ... ok
+test fault_variants_are_exhaustive_and_sticky ... ok
+test next_view_selecting_survives_huge_membership ... ok
+test slot_distance_is_exact_or_absent ... ok
+test successors_do_not_wrap ... ok
+test view_id_successors_do_not_wrap ... ok
+test next_view_selecting_is_least_and_correct ... ok
+test generated_history_is_legal ... ok
+test orderings_agree_on_legal_pairs ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/journal_contract.rs (target/debug/deps/journal_contract-ea77baeda0621493)
+
+running 20 tests
+test install_suffix_refuses_the_end_of_slot_space_without_mutation ... ok
+test genesis_begins_at_slot_one_and_is_explicit ... ok
+test install_suffix_refusals_are_total_and_named ... ok
+test append_single_and_batch_advance_the_frontier ... ok
+test copy_out_reports_exactly_what_is_physically_present ... ok
+test install_suffix_replaces_the_divergent_tail_copy_on_write ... ok
+test reclaim_drops_whole_covered_slabs_only ... ok
+test noncontiguous_and_regressive_appends_are_refused_atomically ... ok
+test iter_range_is_ordered_and_double_ended_across_slab_boundaries ... ok
+test reclaim_through_a_checkpoint_past_the_tail_is_total ... ok
+test retained_brackets_exactly_the_physically_present_slots ... ok
+test s1_gate_reclaim_is_inherent_not_trait ... ok
+test variable_slab_sizes_lookup_is_exact_across_every_boundary ... ok
+test view_is_a_snapshot_and_sealed_slabs_are_shared_by_arc ... ok
+test wire_refuses_reserved_and_unknown_discriminants ... ok
+test s1_gate_traits_carry_no_reclamation_vocabulary ... ok
+test zero_tail_capacity_is_clamped_not_spinning ... ok
+test wire_round_trip_is_exact_and_packed_len_is_normative ... ok
+test wire_round_trip_proptest ... ok
+test interleaving_preserves_last_writer_per_slot ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/maelstrom_adapter.rs (target/debug/deps/maelstrom_adapter-8ee25585e86101cc)
+
+running 3 tests
+test init_handshake_answers_init_ok ... ok
+test cluster_serves_kv_operations ... ok
+test two_node_cluster_replicates_a_forwarded_write ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running tests/manifest_contract.rs (target/debug/deps/manifest_contract-c7173948f38c6fd0)
+
+running 7 tests
+test crate_root_denies_unsafe_code ... ok
+test dev_dependency_set_is_exactly_the_allowlist ... ok
+test non_optional_dependency_set_is_empty ... ok
+test msrv_is_declared ... ok
+test feature_table_declares_serde_and_maelstrom ... ok
+test license_is_mit ... ok
+test uuid_appears_nowhere ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/nonstop_overlap_protocol.rs (target/debug/deps/nonstop_overlap_protocol-18fdbad9aea6305d)
+
+running 5 tests
+test leader_serves_the_fetch_across_its_own_switch ... ok
+test reordered_start_view_is_retained_and_installed_by_the_tick_redrive ... ok
+test solicitation_duplicate_and_evidence_duplicate_are_idempotent ... ok
+test overlap_transition_runs_the_seven_steps_without_stopping_the_stream ... ok
+test transition_view_exhaustion_refuses_the_proposal_before_the_log ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/normal_operation.rs (target/debug/deps/normal_operation-ab79d09d2d8f28c7)
+
+running 15 tests
+test duplicate_commit_after_host_acknowledgement_does_not_reemit ... ok
+test commit_lands_on_a_weighted_majority_not_unanimity ... ok
+test commit_propagates_by_commit_message_and_by_piggyback ... ok
+test commit_cascade_orders_applies ... ok
+test duplicate_prepare_ok_at_the_primary_commits_once ... ok
+test duplicate_prepare_is_idempotent ... ok
+test duplicate_prepare_reacknowledges_without_reapplying ... ok
+test duplicate_commit_to_a_backup_is_a_silent_no_effect ... ok
+test bootstrap_and_one_request_end_to_end ... ok
+test apply_carries_the_proposals_identity ... ok
+test duplicate_proposal_is_a_distinct_operation ... ok
+test out_of_order_prepare_gap_is_dropped_and_recovered ... ok
+test proposals_to_non_primaries_are_not_primary_refusals ... ok
+test stale_commit_after_frontier_advanced_is_a_no_op ... ok
+test the_legality_gate_stands_under_load ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/pivot_matrix.rs (target/debug/deps/pivot_matrix-85f6c8ff114a059d)
+
+running 12 tests
+test construction_is_deterministic ... ok
+test validation_rejects_leader_absent_from_qii ... ok
+test construction_finds_pivot_in_wxyz_sequence ... ok
+test validation_rejects_intersection_not_exactly_leader ... ok
+test validation_rejects_qi_not_legal_under_current ... ok
+test validation_rejects_duplicate_members ... ok
+test validation_rejects_leader_absent_from_qi ... ok
+test construction_falls_back_without_fault ... ok
+test validation_rejects_qii_not_legal_under_current ... ok
+test validation_rejects_qii_not_legal_under_next ... ok
+test valid_pivot_does_not_bypass_transition_gate ... ok
+test plan_reconfigure_accepts_valid_pivot ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/progress_contract.rs (target/debug/deps/progress_contract-efe3d28787546398)
+
+running 18 tests
+test observation_read_returns_latest_write ... ok
+test genesis_advertises_view_id_initial_fenced ... ok
+test rule1_accepted_may_shorten_only_on_reselection ... ok
+test revision_advances_by_exactly_one ... ok
+test fault_is_sticky_across_every_transition ... ok
+test rule1_frontiers_never_regress ... ok
+test frontier_chain_is_exhaustively_enforced ... ok
+test rule2_view_succession ... ok
+test era_slot_discipline_boundary ... ok
+test rule3_retained_changes_only_on_reselection ... ok
+test rule7_absent_tags_must_send_the_sentinel ... ok
+test rule7_frontier_tags_admit_any_slot ... ok
+test rule7_header_slot_table_is_the_documented_one ... ok
+test rule7_operation_tags_must_name_a_slot ... ok
+test snapshot_is_flat_and_decodes ... ok
+test status_view_relation_is_enforced ... ok
+test transitions_validate_their_results ... ok
+test observation_never_returns_a_torn_read ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/quorum_contract.rs (target/debug/deps/quorum_contract-36ffa87ef4ff39d9)
+
+running 9 tests
+test undersized_commit_family_is_an_r1_violation ... ok
+test disjoint_fence_and_recovery_families_are_named ... ok
+test non_self_intersecting_view_family_is_named ... ok
+test every_refusal_witness_is_genuine_and_minimal ... ok
+test q1_counterexample_is_refused_with_its_witness ... ok
+test forward_safe_reverse_unsafe_transition_is_refused ... ok
+test membership_cap_is_enforced_by_the_fold_and_the_gate_runs_at_the_cap ... ok
+test weighted_majority_threshold_matches_enumerated_minimum ... ok
+test weighted_majority_validates_every_reachable_era_and_transition ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.90s
+
+     Running tests/reconfiguration_stepwise.rs (target/debug/deps/reconfiguration_stepwise-2f1f841a84fa12c4)
+
+running 8 tests
+test void_and_init_outside_genesis_are_refused ... ok
+test genesis_is_law ... ok
+test unsafe_transition_is_refused_pre_proposal_with_its_witness ... ok
+test stop_the_world_reconfigure_advances_the_era ... ok
+test era_slot_relation_is_enforced_at_accept ... ok
+test committed_configuration_survives_reclamation ... ok
+test primary_crash_mid_reconfiguration_never_half_installs ... ok
+test precondition_refusals_are_named_and_leave_the_log_untouched ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/recovery.rs (target/debug/deps/recovery-7e151929cd171acc)
+
+running 26 tests
+test cross_nonce_responses_complete_quorum ... ok
+test completion_after_fast_forward_does_not_reapply ... ok
+test external_stability_recovery_handshake ... ok
+test fast_forward_applies_locally_present_committed_entries ... ok
+test completion_below_committed_replays_until_caught_up ... ok
+test crash_before_acknowledgement_reemits_fast_forwarded_upcalls ... ok
+test evicted_nonce_responses_are_stale ... ok
+test completion_before_acknowledgement_does_not_reemit_fast_forwarded_upcalls ... ok
+test amnesiac_reconstructs_from_responder_history ... ok
+test happy_path_recovery_completes_from_weighted_quorum ... ok
+test completion_evidence_below_fast_forwarded_frontier_does_not_regress ... ok
+test fast_forward_is_idempotent_to_duplicate_responses ... ok
+test history_installs_only_from_the_views_primary ... ok
+test fast_forward_stops_at_the_journal_gap ... ok
+test mixed_nonce_responses_are_accepted ... ok
+test fast_forward_never_applies_a_never_committed_local_entry ... ok
+test recovery_host_redrive_invalidates_inflight_response ... ok
+test recovered_node_does_not_revote_in_fenced_view ... ok
+test recovery_installs_the_latest_fenced_view ... ok
+test recovery_view_fence_respected_across_nonces ... ok
+test retained_base_shortfall_requests_application_state ... ok
+test recovery_completion_leaves_no_stale_view_change_evidence ... ok
+test recovery_tick_redrive_after_view_advance ... ok
+test same_view_recovery_preserves_the_primary_accepted_tail ... ok
+test suffix_less_response_never_fast_forwards_an_unwitnessed_local_entry ... ok
+test redrive_with_fresh_nonce_outlives_dead_primary ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/replica_contract.rs (target/debug/deps/replica_contract-a3616a45a4d903a3)
+
+running 19 tests
+test body_discriminant_zero_is_reserved ... ok
+test every_body_round_trips_with_exact_length_and_a_legal_header_slot ... ok
+test a_body_header_tag_mismatch_is_malformed ... ok
+test provision_constructs_exactly_the_genesis_state ... ok
+test exactly_one_transition_is_outstanding ... ok
+test an_illegal_candidate_is_discarded_and_faults_the_node ... ok
+test provision_refuses_a_non_empty_journal ... ok
+test a_faulted_replica_refuses_every_input_variant ... ok
+test provision_refuses_a_non_member ... ok
+test provision_runs_the_quorum_gate_on_genesis ... ok
+test provision_surfaces_configuration_refusals ... ok
+test external_stability_parks_confirms_and_faults_three_ways ... ok
+test let_go_shared_slot_reports_the_unverifiable_slot_and_offer_base ... ok
+test reopen_refuses_progress_journal_divergence ... ok
+test reopen_preserves_a_persisted_fault ... ok
+test stale_and_double_publishes_are_revision_mismatches ... ok
+test reopen_restores_evidence_and_fences_regardless_of_persisted_status ... ok
+test volatile_publish_releases_exactly_once_and_observes_on_publish_only ... ok
+test the_pipeline_reads_no_clock_and_performs_no_io ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/view_change.rs (target/debug/deps/view_change-5647fb4b8d852127)
+
+running 13 tests
+test forged_suffix_system_entry_faults_at_commit_fold ... ok
+test start_view_change_stale_ignored_and_ahead_joined ... ok
+test retried_proposal_across_the_change ... ok
+test happy_path_view_change_completes_and_serves_operations ... ok
+test bounded_suffix_rules_section_13_1 ... ok
+test bounded_suffix_packing_break_never_emits_a_hole ... ok
+test divergent_uncommitted_tail_is_discarded ... ok
+test retained_view_outranks_accepted_frontier_section_9_2_counterexample ... ok
+test start_view_conflicting_at_a_committed_slot_faults ... ok
+test the_fence_is_real ... ok
+test committed_entries_survive_a_mid_pipeline_crash ... ok
+test two_view_changes_for_one_view_cannot_both_complete ... ok
+test churn_300_steps_requests_partitions_crashes_restarts_ticks ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/wire_contract.rs (target/debug/deps/wire_contract-c6a49ea718f44cdb)
+
+running 20 tests
+test pack_into_makes_no_partial_write ... ok
+test length_prefix_boundary ... ok
+test operation_id_golden_vector_is_big_endian ... ok
+test every_prefix_of_a_header_is_incomplete ... ok
+test non_canonical_bool_is_out_of_domain ... ok
+test header_golden_vector ... ok
+test round_trip_every_tag ... ok
+test every_prefix_of_opaque_bytes_is_incomplete ... ok
+test serde_round_trip_header ... ok
+test serde_round_trip_ids ... ok
+test tag_match_is_exhaustive_and_discriminants_are_pinned ... ok
+test tag_zero_is_reserved ... ok
+test trailing_bytes_are_rejected ... ok
+test unknown_tags_are_rejected ... ok
+test unpack_to_json_renders_a_binary_header ... ok
+test no_source_file_names_a_datagram_size ... ok
+test round_trip_primitives_and_ids ... ok
+test packed_len_is_exact ... ok
+test round_trip_opaque ... ok
+test arbitrary_bytes_never_panic ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+   Compiling vrr-core v0.1.0 (/Users/Shared/lua-lunet/vrr-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.75s
+   Doc-tests vrr
+
+running 1 test
+test src/../README.md - readme_doctests (line 10) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 1.24s; merged doctests compilation took 0.95s

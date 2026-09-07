@@ -17,6 +17,16 @@
 - Code that exposes no useful service has no value. Code that can only be tested in
   production is legacy at the moment it is written.
 
+## Documentation
+
+- Documentation must be the timeless target end state. We practice
+  markdown-driven development (MDD): the markdown states what the system IS.
+- No project plans, task identifiers, orchestration chatter, or historic
+  narrative in documentation or code. Such material is written only when
+  explicitly requested by the User or added manually by the User. Dated
+  evidence artifacts (lab book, audit logs, rung transcripts) are the
+  established exceptions; do not add new narrative classes to documentation.
+
 ## Perimeters
 
 - Enforce shapes at module perimeters: IO, network, storage, and boundaries between logic
@@ -92,3 +102,56 @@ every assertion through the public interface, which is where the contract actual
 - `.tmp/` is scratch space. Never stage or commit anything under `.tmp/`.
 - Preserve user and concurrent-agent changes. Do not reset, restore, or overwrite broad
   paths to remove a narrow change; edit only the proved hunk after the owner is finished.
+
+## Subagent delegation
+
+- Agents SHOULD delegate major todo items to subagents per the
+  opencode-subagent-delegation skill, wherever doing so does not overwrite any
+  other instruction in this AGENTS.md or the user's prior statements of
+  preference.
+
+## Tool inventory and submodule policy
+
+The paper (`formal/uvrr-lean/paper/paper.tex`) and the Lean formalization
+(`formal/uvrr-lean/`) use zero external Lean dependencies. The `lake-manifest.json`
+has `"packages": []`. All Lean imports are internal (`UVRR.*` only). This is by
+design, not accident.
+
+### Tools that contributed to the paper
+
+- **Lean 4.33.1** — kernel-checked proofs. The formalization's sole verification
+  tool. No Mathlib, no external tactics.
+- **TLC 2.19** — model-checked the era model and its mutations. Ran from a
+  standalone jar, not a submodule. Evidence in `formal/uvrr-lean/evidence/tlc/`;
+  the delayed-fence counterexample evidence was removed with the classic
+  crash-recover attempt it witnessed (historical copies remain under
+  `research/uvrr-audit/`).
+- **Leanstral** (Mistral) — LLM Lean proof generator. Reported in the paper as a
+  failed-attempt tool. No accepted Leanstral-generated proof is attributed.
+- **Showboat** — executable evidence packaging. Cited in the paper bibliography.
+- **Tectonic** — LaTeX build tool for `paper.tex` (via `paper/build.sh`).
+
+### Tools surveyed and abandoned (not submodules)
+
+The following were cloned during the research tool survey (items 12, 14a, 14b)
+but did not contribute to the paper or formalization. Their experiment records
+are committed under `research/`. Do not re-add them as submodules.
+
+- **Veil** — never tire-kicked. Pins v4.32.0 + pulls Mathlib. The formalization
+  uses plain Lean by design. Record: `research/tool-kick-tires.md`,
+  `research/outcomes-paper.md`.
+- **LeanLTL** — never exercised beyond checkout. Past-time operators remain
+  future work. Record: `research/outcomes-paper.md`.
+- **lean-auto / Duper** — exercised (2/3 theorems solved, T2 commutativity
+  timed out at 500s). Not a dependency of the formalization. Record:
+  `research/lean-solvers-cli-lean-auto.md`.
+- **Aesop** — exercised (4/4 propositional theorems solved). Not a dependency.
+  Record: `research/lean-solvers-cli-omega-aesop.md`.
+- **omega** — built into Lean, zero install. Not a dependency. Record: same as
+  Aesop.
+
+### Submodules
+
+- `maelstrom/` — Rust Maelstrom test harness. Retained. Unrelated to the paper.
+- No `tools/` submodules. The four exploratory tool submodules (tla2tools, veil,
+  LeanLTL, lean-auto) were removed after the survey concluded.

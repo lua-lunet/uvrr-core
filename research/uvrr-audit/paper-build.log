@@ -1,0 +1,43 @@
+note: Running TeX ...
+warning: paper.tex:51: Underfull \hbox (badness 10000) in paragraph at lines 29--51
+warning: paper.tex:51: Underfull \hbox (badness 1019) in paragraph at lines 29--51
+warning: paper.tex:61: Underfull \hbox (badness 2173) in paragraph at lines 53--61
+warning: paper.tex:216: Underfull \hbox (badness 10000) in paragraph at lines 208--216
+warning: paper.tex:255: Underfull \hbox (badness 10000) in paragraph at lines 250--255
+warning: paper.tex:255: Underfull \hbox (badness 3108) in paragraph at lines 250--255
+warning: paper.tex:268: Underfull \hbox (badness 10000) in paragraph at lines 268--268
+warning: paper.tex:301: Underfull \hbox (badness 10000) in paragraph at lines 296--301
+warning: paper.tex:335: Underfull \hbox (badness 2582) in paragraph at lines 328--335
+warning: paper.tex:389: Underfull \hbox (badness 1102) in paragraph at lines 382--389
+warning: paper.tex:464: Underfull \hbox (badness 3312) in paragraph at lines 459--464
+warning: paper.tex:484: Underfull \hbox (badness 1097) in paragraph at lines 473--484
+warning: paper.tex:571: Underfull \hbox (badness 1221) in paragraph at lines 568--571
+warning: paper.tex:571: Underfull \hbox (badness 2359) in paragraph at lines 568--571
+warning: paper.tex:571: Underfull \hbox (badness 1199) in paragraph at lines 568--571
+warning: paper.tex:577: Underfull \hbox (badness 10000) in paragraph at lines 574--577
+warning: paper.tex:577: Underfull \hbox (badness 8075) in paragraph at lines 574--577
+warning: paper.tex:577: Underfull \hbox (badness 10000) in paragraph at lines 574--577
+note: Rerunning TeX because "paper.aux" changed ...
+warning: paper.tex:51: Underfull \hbox (badness 10000) in paragraph at lines 29--51
+warning: paper.tex:51: Underfull \hbox (badness 1019) in paragraph at lines 29--51
+warning: paper.tex:61: Underfull \hbox (badness 2173) in paragraph at lines 53--61
+warning: paper.tex:216: Underfull \hbox (badness 10000) in paragraph at lines 208--216
+warning: paper.tex:255: Underfull \hbox (badness 10000) in paragraph at lines 250--255
+warning: paper.tex:255: Underfull \hbox (badness 3108) in paragraph at lines 250--255
+warning: paper.tex:268: Underfull \hbox (badness 10000) in paragraph at lines 268--268
+warning: paper.tex:301: Underfull \hbox (badness 10000) in paragraph at lines 296--301
+warning: paper.tex:335: Underfull \hbox (badness 2582) in paragraph at lines 328--335
+warning: paper.tex:389: Underfull \hbox (badness 1102) in paragraph at lines 382--389
+warning: paper.tex:464: Underfull \hbox (badness 3312) in paragraph at lines 459--464
+warning: paper.tex:484: Underfull \hbox (badness 1097) in paragraph at lines 473--484
+warning: paper.tex:571: Underfull \hbox (badness 1221) in paragraph at lines 568--571
+warning: paper.tex:571: Underfull \hbox (badness 2359) in paragraph at lines 568--571
+warning: paper.tex:571: Underfull \hbox (badness 1199) in paragraph at lines 568--571
+warning: paper.tex:577: Underfull \hbox (badness 10000) in paragraph at lines 574--577
+warning: paper.tex:577: Underfull \hbox (badness 8075) in paragraph at lines 574--577
+warning: paper.tex:577: Underfull \hbox (badness 10000) in paragraph at lines 574--577
+warning: warnings were issued by the TeX engine; use --print and/or --keep-logs for details.
+note: Running xdvipdfmx ...
+note: Writing `paper.pdf` (100.0234375 KiB)
+note: Writing `paper.log` (19.861328125 KiB)
+note: Skipped writing 2 intermediate files (use --keep-intermediates to keep them)

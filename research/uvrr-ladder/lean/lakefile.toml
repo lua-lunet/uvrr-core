@@ -1,0 +1,5 @@
+name = "uvrr"
+defaultTargets = ["UVRR"]
+
+[[lean_lib]]
+name = "UVRR"

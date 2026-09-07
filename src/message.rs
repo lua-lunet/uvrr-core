@@ -23,7 +23,7 @@
 //! [`wire::Tag`]: crate::wire::Tag
 
 use crate::configuration::SystemOperation;
-use crate::ids::{Slot, Tick, ViewId};
+use crate::ids::{NodeId, Slot, ViewId};
 use crate::journal::LogEntry;
 use crate::wire::{Header, Malformed, Pack, PackWriter, Tag, Unpack, UnpackCursor, UnpackError};
 
@@ -110,31 +110,6 @@ pub enum Body {
     /// in the current view, which is exactly why this is a distinct tag rather
     /// than a flag on `StartViewChange` — see [`Tag::PlannedViewChange`].
     PlannedViewChange {},
-    /// A restarting replica soliciting state (§10). `nonce` IS the host tick
-    /// of the recovery input (S4): one value cannot disagree with itself, and
-    /// the §6.1 freshness obligation is the host's declared clock strategy.
-    Recovery {
-        /// The attempt's nonce: the `TimedInput.at` of the recovery event.
-        nonce: Tick,
-    },
-    /// A reply to [`Body::Recovery`], echoing the nonce so a delayed response
-    /// from an earlier attempt is never counted in the current one (§6.1).
-    /// The responder's current view rides along: the fence knowledge the
-    /// `F_g ⌢ R_g` intersection (§8.3) exists to deliver, and the input to
-    /// the recovering node's latest-fenced-view ruling.
-    RecoveryResponse {
-        /// The nonce of the attempt being answered.
-        nonce: Tick,
-        /// The responder's current view.
-        view: ViewId,
-        /// The responder's accepted frontier.
-        accepted: Slot,
-        /// The responder's committed frontier.
-        committed: Slot,
-        /// The history suffix — present only from the primary of the reported
-        /// view, whose log is the authoritative one for the attempt (§10).
-        suffix: Option<Vec<LogEntry>>,
-    },
     /// A request for the history range the requester lacks (§4, §13.1
     /// step 5). The header slot is the requester's accepted frontier —
     /// the slot the fetch resumes after. The responder streams the range
@@ -157,6 +132,19 @@ pub enum Body {
         /// Whether the sender's accepted frontier sits past `through` —
         /// the requester resumes with a fresh `GetState` from the cursor.
         more: bool,
+    },
+    /// A reincarnation announcement (`docs/uvrr-reincarnation.md` §4): the
+    /// pair of identities the restarted node carries. Sent by the bumped
+    /// node to the leader; the leader drives the forced weight sequence of
+    /// §5 in reply. The pair is the freshness carrier where it meets the
+    /// `RecoveryFence` machinery (§4 of the doc): it supersedes the
+    /// `generation` ghost as the freshness carrier; that machinery is
+    /// untouched.
+    Reincarnation {
+        /// The identity the node operated under before the volatile loss.
+        old: NodeId,
+        /// The bumped identity the node now operates under.
+        new: NodeId,
     },
 }
 
@@ -207,21 +195,20 @@ impl Body {
             Body::DoViewChange { .. } => Tag::DoViewChange,
             Body::StartView { .. } => Tag::StartView,
             Body::PlannedViewChange {} => Tag::PlannedViewChange,
-            Body::Recovery { .. } => Tag::Recovery,
-            Body::RecoveryResponse { .. } => Tag::RecoveryResponse,
             Body::GetState { .. } => Tag::GetState,
             Body::NewState { .. } => Tag::NewState,
+            Body::Reincarnation { .. } => Tag::Reincarnation,
         }
     }
 
     /// The wire discriminant: the tag's numbering narrowed to one byte.
     ///
     /// The `expect` is unreachable by construction: [`Tag::as_u32`] yields
-    /// 2..=12, and the conversion is a `try_from` rather than a cast because
+    /// 2..=11, and the conversion is a `try_from` rather than a cast because
     /// the crate forbids `as` between integer widths — a tag added past 255
     /// fails loudly here instead of truncating onto the wire.
     fn discriminant(&self) -> u8 {
-        u8::try_from(self.tag().as_u32()).expect("tag discriminants are 2..=12")
+        u8::try_from(self.tag().as_u32()).expect("tag discriminants are 2..=11")
     }
 }
 
@@ -336,24 +323,6 @@ impl Pack for Body {
                     + committed.packed_len()
                     + era_proof.packed_len()
             }
-            Body::Recovery { nonce } => nonce.packed_len(),
-            Body::RecoveryResponse {
-                nonce,
-                view,
-                accepted,
-                committed,
-                suffix,
-            } => {
-                nonce.packed_len()
-                    + view.packed_len()
-                    + accepted.packed_len()
-                    + committed.packed_len()
-                    + 1
-                    + match suffix {
-                        Some(entries) => entries_packed_len(entries),
-                        None => 0,
-                    }
-            }
             Body::GetState { from } => from.packed_len(),
             Body::NewState {
                 entries,
@@ -361,6 +330,7 @@ impl Pack for Body {
                 committed,
                 more: _,
             } => entries_packed_len(entries) + through.packed_len() + committed.packed_len() + 1,
+            Body::Reincarnation { old, new } => old.packed_len() + new.packed_len(),
         };
         1 + fields
     }
@@ -400,26 +370,6 @@ impl Pack for Body {
                 committed.pack(w);
                 era_proof.pack(w);
             }
-            Body::Recovery { nonce } => nonce.pack(w),
-            Body::RecoveryResponse {
-                nonce,
-                view,
-                accepted,
-                committed,
-                suffix,
-            } => {
-                nonce.pack(w);
-                view.pack(w);
-                accepted.pack(w);
-                committed.pack(w);
-                match suffix {
-                    Some(entries) => {
-                        w.bool(true);
-                        pack_entries(entries, w);
-                    }
-                    None => w.bool(false),
-                }
-            }
             Body::GetState { from } => from.pack(w),
             Body::NewState {
                 entries,
@@ -431,6 +381,10 @@ impl Pack for Body {
                 through.pack(w);
                 committed.pack(w);
                 w.bool(*more);
+            }
+            Body::Reincarnation { old, new } => {
+                old.pack(w);
+                new.pack(w);
             }
         }
     }
@@ -450,10 +404,9 @@ impl Unpack for Body {
             6 => Tag::DoViewChange,
             7 => Tag::StartView,
             8 => Tag::PlannedViewChange,
-            9 => Tag::Recovery,
-            10 => Tag::RecoveryResponse,
-            11 => Tag::GetState,
-            12 => Tag::NewState,
+            9 => Tag::GetState,
+            10 => Tag::NewState,
+            13 => Tag::Reincarnation,
             _ => return Err(UnpackError::Malformed(Malformed::OutOfDomain)),
         };
         let body = match tag {
@@ -481,19 +434,6 @@ impl Unpack for Body {
                 era_proof: EraProof::unpack(c)?,
             },
             Tag::PlannedViewChange => Body::PlannedViewChange {},
-            Tag::Recovery => Body::Recovery {
-                nonce: Tick::unpack(c)?,
-            },
-            Tag::RecoveryResponse => Body::RecoveryResponse {
-                nonce: Tick::unpack(c)?,
-                view: ViewId::unpack(c)?,
-                accepted: Slot::unpack(c)?,
-                committed: Slot::unpack(c)?,
-                suffix: match c.bool()? {
-                    true => Some(unpack_entries(c)?),
-                    false => None,
-                },
-            },
             Tag::GetState => Body::GetState {
                 from: Slot::unpack(c)?,
             },
@@ -502,6 +442,10 @@ impl Unpack for Body {
                 through: Slot::unpack(c)?,
                 committed: Slot::unpack(c)?,
                 more: c.bool()?,
+            },
+            Tag::Reincarnation => Body::Reincarnation {
+                old: NodeId::unpack(c)?,
+                new: NodeId::unpack(c)?,
             },
         };
         Ok(body)

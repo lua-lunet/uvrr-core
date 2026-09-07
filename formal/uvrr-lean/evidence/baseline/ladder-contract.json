@@ -1,0 +1,42 @@
+[
+  {
+    "file": "formal/uvrr-lean/ladder/01-structure.md",
+    "lake_build_command": true,
+    "print_axioms_command": true
+  },
+  {
+    "file": "formal/uvrr-lean/ladder/02-lex-ballots.md",
+    "lake_build_command": true,
+    "print_axioms_command": true
+  },
+  {
+    "file": "formal/uvrr-lean/ladder/03-synod-agreement.md",
+    "lake_build_command": true,
+    "print_axioms_command": true
+  },
+  {
+    "file": "formal/uvrr-lean/ladder/04-eras-theorem10.md",
+    "lake_build_command": true,
+    "print_axioms_command": true
+  },
+  {
+    "file": "formal/uvrr-lean/ladder/05-counterexample.md",
+    "lake_build_command": true,
+    "print_axioms_command": true
+  },
+  {
+    "file": "formal/uvrr-lean/ladder/06-casting-vote.md",
+    "lake_build_command": true,
+    "print_axioms_command": true
+  },
+  {
+    "file": "formal/uvrr-lean/ladder/07-weights.md",
+    "lake_build_command": true,
+    "print_axioms_command": true
+  },
+  {
+    "file": "formal/uvrr-lean/ladder/08-leanstral-lemma2.md",
+    "lake_build_command": false,
+    "print_axioms_command": false
+  }
+]

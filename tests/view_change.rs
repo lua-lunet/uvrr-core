@@ -16,7 +16,7 @@ use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, EraProof, EvidenceKind, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::{PlanRejection, ViewChangeKnobs};
+use vrr::replica::{PlanRefusal, ViewChangeKnobs};
 use vrr::wire::{Header, Pack, Tag};
 
 /// Node id shorthand (the harness's own pattern).
@@ -481,7 +481,7 @@ fn the_fence_is_real() {
     // §13.4 convergence hint: current view and the primary of that view).
     assert_eq!(
         h.propose(n(1), op_id(9), b"w"),
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
         })
@@ -783,7 +783,7 @@ fn retried_proposal_across_the_change() {
     tick_into_view_change(&mut h, n(1), view(1));
     assert_eq!(
         h.propose(n(1), op_id(1), b"x"),
-        StepOutcome::PlanRefused(PlanRejection::NotPrimary {
+        StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
             view: view(1),
             primary: Some(n(1)),
         })
@@ -831,134 +831,6 @@ fn retried_proposal_across_the_change() {
             .count();
         assert_eq!(copies, 1, "the entry exists once on {id:?}");
         assert_eq!(journal.len(), 3);
-    }
-    h.assert_safety();
-}
-
-// 11. Churn: proposals, partitions, heals, crashes, amnesiac restarts, and
-//     ticks interleaved over ~300 harness steps. Safety is asserted at every
-//     quiesce; no fault is ever declared, so any gate or journal fault fails
-//     the suite. Includes the bootstrap note: an amnesiac genesis
-//     primary promoting itself into a stale view has its proposals refused
-//     and is deposed by the next view change.
-#[test]
-fn churn_300_steps_requests_partitions_crashes_restarts_ticks() {
-    let mut h = cluster();
-    bootstrap(&mut h);
-    let mut operation = 1u64;
-
-    // 40 rounds of a fixed deterministic mix, ~8 harness steps each.
-    for round in 0..40u64 {
-        match round % 8 {
-            0 => {
-                // A proposal at the current primary, if one is live
-                // and Normal.
-                if let Some(primary) = current_primary(&h) {
-                    operation += 1;
-                    h.propose(primary, op_id(operation), b"c");
-                }
-            }
-            1 => {
-                h.deliver_all();
-                apply_all(&mut h, [0, 1, 2]);
-            }
-            2 => {
-                // Idle ticks: below the timeout while the cluster is
-                // aligned, enough to advance baselines.
-                for id in [n(0), n(1), n(2)] {
-                    if h.is_up(id) {
-                        h.tick(id);
-                    }
-                }
-            }
-            3 => {
-                // Rotate partition shapes, then let the live nodes suspect:
-                // the two-node side completes a view change while the
-                // isolated node is held away. The rotation isolates n0, n1,
-                // n2 in turn, and because views advance each time, the new
-                // primary always lands on the majority side.
-                match (round / 8) % 3 {
-                    0 => h.partition(vec![n(0)], vec![n(1), n(2)]),
-                    1 => h.partition(vec![n(1)], vec![n(0), n(2)]),
-                    _ => h.partition(vec![n(2)], vec![n(0), n(1)]),
-                }
-                for id in [n(0), n(1), n(2)] {
-                    if h.is_up(id) {
-                        for _ in 0..=TIMEOUT {
-                            h.tick(id);
-                        }
-                    }
-                }
-                h.deliver_all();
-            }
-            4 => {
-                h.heal();
-                h.deliver_all();
-            }
-            5 => {
-                // Crash and restore (volatile wipe, disk survives).
-                let id = n(u32::try_from((round / 8) % 3).expect("small"));
-                if h.is_up(id) {
-                    h.crash(id);
-                    h.restart_with(id).expect("the journal survived");
-                }
-            }
-            6 => {
-                // The amnesiac genesis primary episode (rounds 6, 14, ...):
-                // n0 re-provisions from genesis, tick-promotes itself into
-                // the stale view (1,0), and accepts a proposal that
-                // every live peer refuses (ViewMismatch or
-                // ConflictingEntry, depending on the peer's view) — it
-                // never commits, and the next view change deposes n0 and
-                // discards the entry.
-                if h.is_up(n(0)) {
-                    h.crash(n(0));
-                    h.restart_amnesiac(n(0)).expect("genesis re-provisions");
-                    for _ in 0..=TIMEOUT {
-                        h.tick(n(0));
-                    }
-                    assert_eq!(
-                        status_of(&h, n(0)),
-                        Status::Normal,
-                        "the amnesiac genesis primary promotes itself (the boot rule)"
-                    );
-                    assert_eq!(current_view(&h, n(0)), view(0), "...into the stale view 0");
-                    h.propose(n(0), op_id(900 + round), b"amnesiac");
-                    assert_eq!(snap(&h, n(0)).accepted, 3);
-                }
-            }
-            _ => {
-                h.deliver_all();
-                apply_all(&mut h, [0, 1, 2]);
-                h.assert_safety();
-            }
-        }
-    }
-
-    // Final quiesce: heal everything, then tick-and-deliver long enough for
-    // suspicion to fire and for the primary rotation to land on a
-    // completable view (a stalled change advances again after the next
-    // timeout).
-    h.heal();
-    for _ in 0..16 {
-        h.tick_all();
-        h.deliver_all();
-    }
-    apply_all(&mut h, [0, 1, 2]);
-    h.assert_safety();
-
-    // The amnesiac episode resolved: every node is Normal at one view,
-    // holding the selected history (its stale-view proposals were refused
-    // and discarded).
-    let aligned = current_view(&h, n(0));
-    for id in [n(0), n(1), n(2)] {
-        assert_eq!(
-            current_view(&h, id),
-            aligned,
-            "{id:?} is at the cluster view"
-        );
-        assert_eq!(status_of(&h, id), Status::Normal);
-        assert!(!snap(&h, id).faulted);
     }
     h.assert_safety();
 }
@@ -1090,25 +962,4 @@ fn bounded_suffix_packing_break_never_emits_a_hole() {
     assert!(!snap(&h, n(2)).faulted);
     assert_eq!(snap(&h, n(2)).committed, 6);
     h.assert_safety();
-}
-
-/// The primary of the highest view any live node reports, if that node is
-/// itself live and Normal (else `None` — the round skips its request). The
-/// churn stays in era 1, so the genesis order is the primary schedule.
-fn current_primary(h: &Harness) -> Option<NodeId> {
-    let mut highest: Option<ViewId> = None;
-    for id in [n(0), n(1), n(2)] {
-        if h.is_up(id) {
-            let view = current_view(h, id);
-            if highest.is_none_or(|incumbent| view > incumbent) {
-                highest = Some(view);
-            }
-        }
-    }
-    let view = highest?;
-    let candidate = primary_of(view);
-    (h.is_up(candidate)
-        && status_of(h, candidate) == Status::Normal
-        && current_view(h, candidate) == view)
-        .then_some(candidate)
 }

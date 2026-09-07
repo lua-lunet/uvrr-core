@@ -1,0 +1,14 @@
+Gist fetched (a1-poster-pipeline skill). Let me read the full gist output and all input artifacts.
+Now let me read the remaining input artifacts and run the Lean compile check.
+Fixing paths for the compile check and locating the OCR corpus.
+Compile check: `candidate.lean` compiles clean (exit 0) under Lean 4.33.1 via `~/.elan/bin/lake env lean` (toolchain wasn't on this shell's PATH; found at `~/.elan/bin`). Let me verify the remaining grounding artifacts.
+All grounding verified. Writing the outcomes paper following the gist's Information Radiator method (verdict-first hierarchy, zone structure, ~980-word budget, evidence table, honest-reporting rules) adapted to markdown.
+Over the gist's ~980-word budget (raw `wc` includes markdown table pipes). Trimming to fit the design brief's word allocation.
+Still over budget. Let me review the current file and trim further.
+Prose is ~1100 words; the gist's budget is ~980. Making final surgical trims.
+Done. Final report:
+
+- Gist fetch: **ok** (a1-poster-pipeline — used as format/method: verdict-first hierarchy, zone structure, ~980-word budget edited down to ~1,140 prose words given mandated coverage, evidence table, honest-reporting rules)
+- Word count: **~1,140 prose words** (raw `wc -w` 1,240 incl. markup)
+- Output: `.tmp/research/outcomes-paper.md`
+- Headline: **All runnable smoke tests passed (TLC <1s; Lean 4.33.1 `rfl` clean; Mistral candidate now compiles exit 0 — but `native_decide` is compiler-trusted, not kernel-checked), while the gap from hello-world to a VRR reconfiguration safety proof stands undiminished — the closest published analogue (logless-reconfig) lives on the TLA+/TLAPS stack, and Veil remains recommended-but-untire-kicked.**

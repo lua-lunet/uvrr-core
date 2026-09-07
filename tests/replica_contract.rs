@@ -54,7 +54,7 @@ use vrr::message::{Body, EraProof, EvidenceKind, Message};
 use vrr::progress::{Progress, Status};
 use vrr::quorum::{QuorumError, QuorumStrategy, Role, WeightedMajority};
 use vrr::replica::{
-    Input, LifecycleError, PersistedProgress, PlanRejection, PublishOutcome, PublishRejection,
+    Input, LifecycleRefusal, PersistedProgress, PlanRefusal, PublishOutcome, PublishRefusal,
     Replica, TimedInput, ViewChangeKnobs,
 };
 use vrr::wire::{Header, Malformed, Pack, Tag, Unpack, UnpackError};
@@ -315,11 +315,11 @@ fn provision_refuses_a_non_member() {
         Stability::Volatile,
         NO_VIEW_CHANGE,
     );
-    assert_eq!(result.unwrap_err(), LifecycleError::NotAMember(NodeId(9)));
+    assert_eq!(result.unwrap_err(), LifecycleRefusal::NotAMember(NodeId(9)));
 }
 
 /// A duplicate or over-cap genesis order is refused by the configuration fold,
-/// surfacing through `LifecycleError` — genesis legality is decided at
+/// surfacing through `LifecycleRefusal` — genesis legality is decided at
 /// construction, not discovered at the first view change.
 #[test]
 fn provision_surfaces_configuration_refusals() {
@@ -333,7 +333,7 @@ fn provision_surfaces_configuration_refusals() {
     );
     assert_eq!(
         duplicate.unwrap_err(),
-        LifecycleError::Configuration(ConfigError::DuplicateNode(NodeId(1)))
+        LifecycleRefusal::Configuration(ConfigError::DuplicateNode(NodeId(1)))
     );
 
     let over_cap: Vec<NodeId> = (0..=16).map(NodeId).collect();
@@ -347,7 +347,7 @@ fn provision_surfaces_configuration_refusals() {
     );
     assert_eq!(
         too_many.unwrap_err(),
-        LifecycleError::Configuration(ConfigError::MembershipCapExceeded { cap: 16 })
+        LifecycleRefusal::Configuration(ConfigError::MembershipCapExceeded { cap: 16 })
     );
 }
 
@@ -365,7 +365,7 @@ fn provision_runs_the_quorum_gate_on_genesis() {
     );
     assert!(matches!(
         result.unwrap_err(),
-        LifecycleError::Quorum(QuorumError::R1Violation { .. })
+        LifecycleRefusal::Quorum(QuorumError::R1Violation { .. })
     ));
 }
 
@@ -382,7 +382,7 @@ fn provision_refuses_a_non_empty_journal() {
         Stability::Volatile,
         NO_VIEW_CHANGE,
     );
-    assert_eq!(result.unwrap_err(), LifecycleError::JournalNotEmpty);
+    assert_eq!(result.unwrap_err(), LifecycleRefusal::JournalNotEmpty);
 }
 
 // ---------------------------------------------------------------------------
@@ -441,7 +441,7 @@ fn reopen_refuses_progress_journal_divergence() {
     );
     assert_eq!(
         result.unwrap_err(),
-        LifecycleError::ProgressJournalDivergence {
+        LifecycleRefusal::ProgressJournalDivergence {
             progress: Slot(5),
             journal: Slot(2),
         }
@@ -476,14 +476,14 @@ fn reopen_preserves_a_persisted_fault() {
     assert!(reopened.observer().read().faulted);
     assert_eq!(
         reopened.plan(&tick(1), &view_of(&reopened)).unwrap_err(),
-        PlanRejection::Faulted(Fault::IndeterminatePersistence)
+        PlanRefusal::Faulted(Fault::IndeterminatePersistence)
     );
     // A stale pre-fault plan is refused at the publish gate too.
     let stale = provision_volatile();
     let planned = stale.plan(&tick(1), &view_of(&stale)).expect("plan");
     assert_eq!(
         reopened.publish(planned).unwrap_err(),
-        PublishRejection::Faulted(Fault::IndeterminatePersistence)
+        PublishRefusal::Faulted(Fault::IndeterminatePersistence)
     );
 }
 
@@ -597,7 +597,7 @@ fn external_stability_parks_confirms_and_faults_three_ways() {
         replica
             .plan(&confirm(7, stable()), &view_of(&replica))
             .unwrap_err(),
-        PlanRejection::ConfirmationMismatch {
+        PlanRefusal::ConfirmationMismatch {
             expected: 0,
             got: 7
         }
@@ -639,7 +639,7 @@ fn external_stability_parks_confirms_and_faults_three_ways() {
         replica
             .plan(&confirm(0, stable()), &view_of(&replica))
             .unwrap_err(),
-        PlanRejection::NoTransitionOutstanding
+        PlanRefusal::NoTransitionOutstanding
     );
 
     // Failed (determinate, S3): the candidate is discarded, the previously
@@ -683,7 +683,7 @@ fn external_stability_parks_confirms_and_faults_three_ways() {
         volatile
             .plan(&confirm(0, stable()), &view_of(&volatile))
             .unwrap_err(),
-        PlanRejection::NoTransitionOutstanding
+        PlanRefusal::NoTransitionOutstanding
     );
 
     // Indeterminate (S3): the node sticky-faults and the observation says so.
@@ -711,7 +711,7 @@ fn external_stability_parks_confirms_and_faults_three_ways() {
     assert!(observer.read().faulted, "the fault is observable");
     assert_eq!(
         replica.plan(&tick(4), &view_of(&replica)).unwrap_err(),
-        PlanRejection::Faulted(Fault::IndeterminatePersistence)
+        PlanRefusal::Faulted(Fault::IndeterminatePersistence)
     );
 }
 
@@ -737,7 +737,7 @@ fn exactly_one_transition_is_outstanding() {
     // unsupported input reports the real reason.
     assert_eq!(
         replica.plan(&tick(2), &view_of(&replica)).unwrap_err(),
-        PlanRejection::TransitionOutstanding
+        PlanRefusal::TransitionOutstanding
     );
     let peer = TimedInput {
         at: Tick(2),
@@ -755,7 +755,7 @@ fn exactly_one_transition_is_outstanding() {
     };
     assert_eq!(
         replica.plan(&peer, &view_of(&replica)).unwrap_err(),
-        PlanRejection::TransitionOutstanding
+        PlanRefusal::TransitionOutstanding
     );
 
     // The confirmation lands; planning resumes against the new revision.
@@ -785,7 +785,7 @@ fn stale_and_double_publishes_are_revision_mismatches() {
     replica.publish(first).expect("first publish");
     assert_eq!(
         replica.publish(second).unwrap_err(),
-        PublishRejection::RevisionMismatch {
+        PublishRefusal::RevisionMismatch {
             expected: 1,
             got: 0
         },
@@ -793,7 +793,7 @@ fn stale_and_double_publishes_are_revision_mismatches() {
     );
     assert_eq!(
         replica.publish(republished).unwrap_err(),
-        PublishRejection::RevisionMismatch {
+        PublishRefusal::RevisionMismatch {
             expected: 1,
             got: 0
         },
@@ -865,7 +865,6 @@ fn a_faulted_replica_refuses_every_input_variant() {
             },
         },
         Input::Tick,
-        Input::Recover,
         Input::StabilityConfirmation {
             revision: 0,
             result: stable(),
@@ -893,12 +892,12 @@ fn a_faulted_replica_refuses_every_input_variant() {
             },
             Input::Propose { .. } => InputKind::ClientRequest,
             Input::Tick => InputKind::Tick,
-            Input::Recover => InputKind::Recovery,
             Input::StabilityConfirmation { .. } => InputKind::StabilityConfirmed,
             Input::Applied { .. } => InputKind::Applied,
             Input::Checkpointed { .. } => InputKind::Checkpointed,
             Input::Reconfigure { .. } => InputKind::Reconfiguration,
             Input::AdminForceView { .. } => InputKind::Admin,
+            Input::Reincarnate { .. } => InputKind::Admin,
         };
         assert_eq!(
             replica
@@ -910,7 +909,7 @@ fn a_faulted_replica_refuses_every_input_variant() {
                     &view_of(&replica)
                 )
                 .unwrap_err(),
-            PlanRejection::Faulted(Fault::IndeterminatePersistence),
+            PlanRefusal::Faulted(Fault::IndeterminatePersistence),
             "{kind:?} must be refused by a faulted node"
         );
     }
@@ -958,7 +957,7 @@ fn an_illegal_candidate_is_discarded_and_faults_the_node() {
 
     assert_eq!(
         replica.publish(planned).unwrap_err(),
-        PublishRejection::IllegalCandidate(Fault::IllegalTransition)
+        PublishRefusal::IllegalCandidate(Fault::IllegalTransition)
     );
 
     // The candidate was discarded: the published frontiers are the old ones,
@@ -973,7 +972,7 @@ fn an_illegal_candidate_is_discarded_and_faults_the_node() {
     );
     assert_eq!(
         replica.plan(&tick(2), &view_of(&replica)).unwrap_err(),
-        PlanRejection::Faulted(Fault::IllegalTransition)
+        PlanRefusal::Faulted(Fault::IllegalTransition)
     );
 }
 
@@ -987,16 +986,12 @@ fn an_illegal_candidate_is_discarded_and_faults_the_node() {
 /// the build here.
 #[test]
 fn the_pipeline_reads_no_clock_and_performs_no_io() {
-    let sources: [(&str, &str); 8] = [
+    let sources: [(&str, &str); 7] = [
         ("replica/mod", include_str!("../src/replica/mod.rs")),
         ("replica/normal", include_str!("../src/replica/normal.rs")),
         (
             "replica/view_change",
             include_str!("../src/replica/view_change.rs"),
-        ),
-        (
-            "replica/recovery",
-            include_str!("../src/replica/recovery.rs"),
         ),
         (
             "replica/transfer",
@@ -1099,29 +1094,6 @@ fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
             },
         ),
         message(Tag::PlannedViewChange, Slot(0), Body::PlannedViewChange {}),
-        message(Tag::Recovery, Slot(0), Body::Recovery { nonce: Tick(99) }),
-        message(
-            Tag::RecoveryResponse,
-            Slot(0),
-            Body::RecoveryResponse {
-                nonce: Tick(99),
-                view: genesis_view(),
-                accepted: Slot(5),
-                committed: Slot(2),
-                suffix: Some(vec![entry(4), entry(5)]),
-            },
-        ),
-        message(
-            Tag::RecoveryResponse,
-            Slot(0),
-            Body::RecoveryResponse {
-                nonce: Tick(99),
-                view: genesis_view(),
-                accepted: Slot(5),
-                committed: Slot(2),
-                suffix: None,
-            },
-        ),
         message(Tag::GetState, Slot(2), Body::GetState { from: Slot(3) }),
         message(
             Tag::NewState,
@@ -1136,7 +1108,7 @@ fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
     ];
 
     // One case per tag: the coverage is exhaustive by construction.
-    assert_eq!(cases.len(), 12, "11 tags plus the RecoveryResponse option");
+    assert_eq!(cases.len(), 9, "9 tags");
 
     for case in &cases {
         assert_eq!(

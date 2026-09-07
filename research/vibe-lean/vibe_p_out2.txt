@@ -1,0 +1,1 @@
+File updated at `leanstral_vibe.lean` with 5 theorems using only Lean core (`rfl`, `decide`, `omega`). Stopping as requested.

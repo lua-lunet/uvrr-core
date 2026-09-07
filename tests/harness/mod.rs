@@ -42,8 +42,9 @@
 //!
 //! # What is not here
 //!
-//! The reconfiguration input is still refused with the named
-//! `PlanRejection::Unsupported`. Normal operation is live:
+//! The non-stop-the-world reconfiguration pivot (§8.7.6–§8.7.7) is still
+//! refused with the named `PlanRefusal::Unsupported`. Normal operation
+//! is live:
 //! `Prepare`/`PrepareOk`/`Commit`, the Propose/Apply/Applied boundary
 //! (§11.1), the bootstrap from the fenced `Recovering` genesis state, view
 //! change, recovery (§6.1), state transfer (§10, §13.1 step 5), the
@@ -67,7 +68,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
-use vrr::configuration::{EraTable, INIT_SLOT, VOID_SLOT};
+use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, Stability, StabilityResult};
 use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::{Journal, JournalView, LogEntry, RangeOutcome, SegmentedLog};
@@ -76,8 +77,8 @@ use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
 use vrr::quorum::WeightedMajority;
 use vrr::replica::{
-    Input, LifecycleError, Observer, PersistedProgress, PlanRejection, PublishOutcome,
-    PublishRejection, Replica, TimedInput, ViewChangeKnobs,
+    Input, LifecycleRefusal, Observer, PersistedProgress, Pivot, PlanRefusal, PublishOutcome,
+    PublishRefusal, Replica, TimedInput, ViewChangeKnobs,
 };
 use vrr::wire::Tag;
 
@@ -183,9 +184,9 @@ pub enum StepOutcome {
         revision: u64,
     },
     /// `plan` refused the input.
-    PlanRefused(PlanRejection),
+    PlanRefused(PlanRefusal),
     /// `publish` refused the planned transition.
-    PublishRefused(PublishRejection),
+    PublishRefused(PublishRefusal),
     /// The node is down. The input was not delivered.
     NodeDown,
 }
@@ -453,9 +454,6 @@ pub struct Harness {
     trace: VecDeque<String>,
     /// Steps taken, also the trace line number.
     step_seq: u64,
-    /// The application-state transfer requests surfaced so far (§4, §11):
-    /// `(node, through)` in release order.
-    application_state_requests: Vec<(NodeId, Slot)>,
 }
 
 impl Harness {
@@ -496,6 +494,38 @@ impl Harness {
         Self::assemble(
             n,
             Stability::Volatile,
+            Harness::no_view_change_knobs(),
+            Some(tail_capacity),
+        )
+    }
+
+    /// [`Harness::with_journal_capacity`] with explicit view-change knobs:
+    /// a reclamation script that also drives view changes needs both —
+    /// slab boundaries decide what reclamation can drop, the timeout
+    /// decides when suspicion fires.
+    #[must_use]
+    pub fn with_knobs_and_journal_capacity(
+        n: usize,
+        knobs: ViewChangeKnobs,
+        tail_capacity: usize,
+    ) -> Harness {
+        Self::assemble(n, Stability::Volatile, knobs, Some(tail_capacity))
+    }
+
+    /// [`Harness::with_stability`] with an explicit journal tail capacity:
+    /// a shortfall script under an external-stability mode needs both —
+    /// the stability level parks every transition behind its persistence
+    /// intent (S2), and the pinned slab boundaries decide what
+    /// checkpoint-authorized reclamation can drop (§4).
+    #[must_use]
+    pub fn with_stability_and_journal_capacity(
+        n: usize,
+        stability: Stability,
+        tail_capacity: usize,
+    ) -> Harness {
+        Self::assemble(
+            n,
+            stability,
             Harness::no_view_change_knobs(),
             Some(tail_capacity),
         )
@@ -559,7 +589,6 @@ impl Harness {
             faulted_known: vec![false; n],
             trace: VecDeque::new(),
             step_seq: 0,
-            application_state_requests: Vec::new(),
         };
         harness.record(format!("provision n={n} stability={stability:?}"));
         harness
@@ -612,7 +641,7 @@ impl Harness {
         let mut results = Vec::new();
         for index in 0..self.nodes.len() {
             if self.nodes[index].is_some() {
-                let id = self.genesis_order[index];
+                let id = NodeId(u32::try_from(index).expect("node ids are small"));
                 let outcome = self.drive(id, format!("n={} tick", id.0), Input::Tick);
                 results.push((id, outcome));
             }
@@ -885,6 +914,17 @@ impl Harness {
             .and_then(|node| node.replica.journal().view().get(slot).cloned())
     }
 
+    /// The node's configuration history (§8.7.1) — the record
+    /// reconfiguration scripts assert over (the era, the establishing
+    /// slot, the member weights). `None` if the node is down.
+    #[must_use]
+    pub fn era_table(&self, id: NodeId) -> Option<Arc<EraTable>> {
+        self.nodes
+            .get(usize::try_from(id.0).expect("node ids are small"))
+            .and_then(Option::as_ref)
+            .map(|node| Arc::clone(node.replica.progress().config()))
+    }
+
     /// The node's sticky fault, if declared — the identity, not just the
     /// `faulted` word the observation carries (the `expect_fault`
     /// scripts assert WHICH fault the breach declared).
@@ -961,13 +1001,22 @@ impl Harness {
         )
     }
 
-    /// Begins a recovery attempt at the node (§10): the clock advances —
-    /// every attempt carries a fresh tick, so the nonce (the tick, S4) is
-    /// fresh by construction — and `Input::Recover` is driven through the
-    /// ordinary step machinery.
-    pub fn recover(&mut self, id: NodeId) -> StepOutcome {
-        self.advance_clock();
-        self.drive(id, format!("n={} recover", id.0), Input::Recover)
+    /// A reconfiguration proposal (§8.7.2): `Input::Reconfigure` through
+    /// the ordinary step machinery — the named refusal or the proposal's
+    /// publication is the script's to assert. The pivot is `None` on the
+    /// stop-the-world path (§8.7.4); a `Some` pivot runs the non-stop
+    /// overlap transition (§8.7.6–§8.7.7).
+    pub fn reconfigure(
+        &mut self,
+        id: NodeId,
+        op: SystemOperation,
+        pivot: Option<Pivot>,
+    ) -> StepOutcome {
+        self.drive(
+            id,
+            format!("n={} reconfigure {op:?}", id.0),
+            Input::Reconfigure { op, pivot },
+        )
     }
 
     /// Feeds an `Input::Applied` the harness's own apply execution did not
@@ -1063,7 +1112,7 @@ impl Harness {
                     };
                     self.applied[index].push((slot, payload.clone()));
                     self.boundary.push(BoundaryEvent::Applied {
-                        node: self.genesis_order[index],
+                        node: NodeId(u32::try_from(index).expect("node ids are small")),
                         slot,
                         operation_id,
                     });
@@ -1078,9 +1127,7 @@ impl Harness {
                         outcome,
                     });
                 }
-                Effect::Send { .. }
-                | Effect::Persist(_)
-                | Effect::RequestApplicationState { .. } => {
+                Effect::Send { .. } | Effect::Persist(_) => {
                     panic!("only Apply effects are routed to a node's pending list")
                 }
             }
@@ -1151,48 +1198,10 @@ impl Harness {
         ));
     }
 
-    /// A new life with no memory: `provision` semantics on a node that was a
-    /// member. The amnesiac voter is §14.2's problem, not the harness's —
-    /// the name says what this is.
-    pub fn restart_amnesiac(&mut self, id: NodeId) -> Result<(), LifecycleError> {
-        let index = self.index_of(id);
-        assert!(
-            self.nodes[index].is_none(),
-            "n={} is up; crash it before restarting it",
-            id.0
-        );
-        // The amnesiac life starts from genesis: its applied frontier is
-        // wiped with everything else, so when it adopts a committed history
-        // it RE-APPLIES entries the old life already executed — the spec's
-        // at-least-once replay (§11), whose dedup is the host's problem.
-        // The harness mirrors a host that lost its apply tracking with the
-        // node: the record clears, and rule 4's contiguity claim restarts
-        // with the new life.
-        self.applied[index].clear();
-        match Replica::provision(
-            id,
-            self.genesis_order.clone(),
-            WeightedMajority,
-            make_journal(self.tail_capacity),
-            self.stability,
-            self.knobs,
-        ) {
-            Ok(replica) => {
-                self.install(index, replica);
-                self.record(format!("n={} restart(amnesiac)", id.0));
-                Ok(())
-            }
-            Err(error) => {
-                self.record(format!("n={} restart(amnesiac) refused: {error:?}", id.0));
-                Err(error)
-            }
-        }
-    }
-
     /// A later life: `reopen` with whatever the harness's disk recorded at
     /// crash time. A fault persisted in the record reopens faulted — that is
     /// evidence restored, not a new fault, so it does not trip the gate.
-    pub fn restart_with(&mut self, id: NodeId) -> Result<(), LifecycleError> {
+    pub fn restart_with(&mut self, id: NodeId) -> Result<(), LifecycleRefusal> {
         let index = self.index_of(id);
         assert!(
             self.nodes[index].is_none(),
@@ -1226,6 +1235,82 @@ impl Harness {
                 Err(error)
             }
         }
+    }
+
+    /// The reincarnation restart (§2 of `docs/uvrr-reincarnation.md`): the
+    /// dirty path made concrete. The node that ran as `id` lost its
+    /// volatile state and reopened under a NEW identity `new` — same disk,
+    /// same journal, new `own`. The new identity is not a member until the
+    /// forced sequence joins it; addressable from this moment on.
+    ///
+    /// Identity is not reused: the identity that crashed is never resumed
+    /// (same-identity recovery after volatile-state loss is
+    /// unrepresentable), so the script names a fresh `new`.
+    pub fn restart_as(&mut self, id: NodeId, new: NodeId) -> Result<(), LifecycleRefusal> {
+        let old_index = self.index_of(id);
+        assert!(
+            self.nodes[old_index].is_none(),
+            "n={} is up; crash it before reincarnating it",
+            id.0
+        );
+        assert_ne!(id, new, "reincarnation always changes the identity");
+        let (journal, persisted, config) = match self.disks[old_index].as_ref() {
+            Some(disk) => (
+                clone_journal(&disk.journal, self.tail_capacity),
+                disk.persisted,
+                Arc::clone(&disk.config),
+            ),
+            None => panic!("n={} has no recorded disk; crash it first", id.0),
+        };
+        match Replica::reopen(
+            new,
+            WeightedMajority,
+            journal,
+            persisted,
+            config,
+            self.stability,
+            self.knobs,
+        ) {
+            Ok(replica) => {
+                let new_index = self.grow_to(new);
+                self.install(new_index, replica);
+                self.record(format!("n={:?} restart_as(old n={:?})", new, id));
+                Ok(())
+            }
+            Err(error) => {
+                self.record(format!(
+                    "n={new:?} restart_as(old n={id:?}) refused: {error:?}"
+                ));
+                Err(error)
+            }
+        }
+    }
+
+    /// Grows the per-node vectors to cover `id` and returns its index.
+    /// Reincarnated identities live past the genesis order; every slot is
+    /// identity-indexed (`NodeId(i)` is index `i`), genesis members and
+    /// successors alike.
+    fn grow_to(&mut self, id: NodeId) -> usize {
+        let index = usize::try_from(id.0).expect("node ids are small");
+        while self.nodes.len() <= index {
+            self.nodes.push(None);
+            self.applied.push(Vec::new());
+            self.disks.push(None);
+            self.declared_faults.push(false);
+            self.faulted_known.push(false);
+        }
+        index
+    }
+
+    /// Feeds the node's `Input::Reincarnate { old }` (§4 of the doc): the
+    /// bumped node announces its pair to the current configuration's
+    /// members — the leader acts on it, the backups drop it by name.
+    pub fn reincarnate(&mut self, id: NodeId, old: NodeId) -> StepOutcome {
+        self.drive(
+            id,
+            format!("n={} reincarnate (old n={})", id.0, old.0),
+            Input::Reincarnate { old },
+        )
     }
 
     fn install(&mut self, index: usize, replica: HarnessReplica) {
@@ -1295,7 +1380,7 @@ impl Harness {
                 }
             }
             evidence.push(NodeEvidence {
-                id: self.genesis_order[index],
+                id: NodeId(u32::try_from(index).expect("node ids are small")),
                 snapshot,
                 config: Arc::clone(node.replica.progress().config()),
                 committed,
@@ -1330,13 +1415,6 @@ impl Harness {
     #[must_use]
     pub fn applied(&self, id: NodeId) -> &[(Slot, Box<[u8]>)] {
         &self.applied[usize::try_from(id.0).expect("node ids are small")]
-    }
-
-    /// The application-state transfer requests surfaced so far (§4, §11):
-    /// `(node, through)` in release order.
-    #[must_use]
-    pub fn application_state_requests(&self) -> &[(NodeId, Slot)] {
-        &self.application_state_requests
     }
 
     /// The node's latest published drop diagnostic: every refused
@@ -1387,7 +1465,17 @@ impl Harness {
     /// trace line, run the legality gate. Every input a node receives comes
     /// through here, so the gate stands after every step by construction.
     fn drive(&mut self, id: NodeId, summary: String, input: Input) -> StepOutcome {
-        let index = self.index_of(id);
+        // An identity past the cluster is an unprovisioned node: the host
+        // cannot deliver to it, the same verdict as a crashed one. (A
+        // reconfiguration may add a member whose process was never
+        // started — its stream is recorded undeliverable.)
+        let Some(index) = usize::try_from(id.0)
+            .ok()
+            .filter(|&index| index < self.nodes.len())
+        else {
+            self.record(format!("{summary} -> NodeDown"));
+            return StepOutcome::NodeDown;
+        };
         let timed = TimedInput {
             at: self.tick,
             event: input,
@@ -1433,7 +1521,7 @@ impl Harness {
         match effect {
             Effect::Send { to, era, message } => {
                 self.network.route(Envelope {
-                    from: self.genesis_order[from],
+                    from: NodeId(u32::try_from(from).expect("node ids are small")),
                     to,
                     era,
                     message,
@@ -1448,13 +1536,6 @@ impl Harness {
                 if let Some(node) = self.nodes[from].as_mut() {
                     node.outstanding_intent = Some(intent.revision);
                 }
-            }
-            Effect::RequestApplicationState { through } => {
-                // The host's application-state transfer facility is out of
-                // scope (§4); the harness records the request for scripts
-                // to assert.
-                self.application_state_requests
-                    .push((self.genesis_order[from], through));
             }
         }
     }

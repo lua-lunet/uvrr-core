@@ -8,13 +8,47 @@ and drain the outputs it produced. No sockets, no threads, no async runtime, no
 callbacks. The host owns transport, timers, and durability.
 
 ```rust
-let mut replica = Replica::new(vec!["n0".into(), "n1".into(), "n2".into()], "n0")?;
-let outputs = replica.step(Input::Request { /* ... */ });
+use vrr::effects::Stability;
+use vrr::ids::{NodeId, Operation, OperationId, Tick};
+use vrr::journal::{Journal, SegmentedLog};
+use vrr::quorum::WeightedMajority;
+use vrr::replica::{Input, Replica, TimedInput, ViewChangeKnobs};
+
+let mut replica = Replica::provision(
+    NodeId(0),
+    vec![NodeId(0), NodeId(1), NodeId(2)],
+    WeightedMajority,
+    SegmentedLog::new(),
+    Stability::Volatile,
+    ViewChangeKnobs { primary_timeout: 0, view_change_budget: usize::MAX },
+)
+.expect("provision");
+
+// The genesis primary promotes itself on the first tick.
+let view = replica.journal().view();
+let planned = replica
+    .plan(&TimedInput { at: Tick(1), event: Input::Tick }, &view)
+    .expect("plan tick");
+replica.publish(planned).expect("publish tick");
+
+// Propose a host operation for ordering; the core carries it opaque.
+let proposal = TimedInput {
+    at: Tick(2),
+    event: Input::Propose {
+        operation: Operation {
+            id: OperationId { msb: 0, lsb: 1 },
+            payload: b"hello".to_vec().into_boxed_slice(),
+        },
+    },
+};
+let view = replica.journal().view();
+let planned = replica.plan(&proposal, &view).expect("plan propose");
+let _outcome = replica.publish(planned).expect("publish propose"); // PublishOutcome::Published { revision, effects }
 ```
 
 To build and test without running the crash testing and network partitioning simply:
 
-```
+```text
 cargo test
 ```
 
@@ -26,7 +60,7 @@ This create simply offers the strong consistency during non-stop cluster reconfi
 
 This Rust crate exposes a C ABI for FFI. It scales down to offer a lightweight and embeddable strong consistency model. With a small amount of data, such as leader leases or advisory locks, it removes the need to run something like Zookeeper or etcd. 
 
-In my experience the concept of external strong consistency service is one that has very sharp edges. It splits responsibility for quality, legitimacy, and performance across two product teams. Every client connected to the core is part of the full distributed system and must experience consistency. When there are silos of responsibility on the critical path then often no-ones hold themselves accountable the removal of every single source of outages. 
+The concept of an external strong consistency service is one that has very sharp edges. It splits responsibility for quality, legitimacy, and performance across two product teams. Every client connected to the core is part of the full distributed system and must experience consistency. When there are silos of responsibility on the critical path then often no-ones hold themselves accountable the removal of every single source of outages. Crash safety is Crash-Stop-Self-Evict ("reincarnation"): see [docs/uvrr-reincarnation.md](docs/uvrr-reincarnation.md). 
 
 If you are curious to see if embedding strong consistency directly into your application reduces the complexity, costs and latencies of your system then try this crate. 
 
@@ -38,13 +72,13 @@ The demo kv replication passing Maelstrom testing is not evidence of zero bugs. 
 
 `make tla` builds a self-contained TLC image and exhaustively checks the
 finite [TLA+ correspondence model](formal/README.md) for normal operation,
-view change, and fenced crash recovery. The image embeds the model: this path
+view change, and the fenced crash-stop event. The image embeds the model: this path
 uses classic Docker commands and requires neither BuildKit nor a volume mount.
 
-`cargo test` runs 90 tests: unit and matrix tests per protocol path, targeted
-regressions, a deterministic seeded multi-replica cluster harness (K=3..7,
-loss / reorder / duplication / partition / crash-with-amnesia, safety asserted
-after *every* single step), and proptest companions.
+`cargo test` runs the protocol-path tests, targeted
+regressions, and a deterministic seeded multi-replica cluster harness (K=3..7,
+loss / reorder / duplication / partition / crash-restart, safety asserted
+after *every* single step), plus proptest companions.
 
 In order to run the maelstrom targets you need to fetch maelstrom as a submodule with 
 
@@ -108,7 +142,7 @@ Pre-alpha. The protocol is covered by the tests above and by Maelstrom; the API 
 
 The codebase is intented to stay small and has advasorial tests. An absence of new feature being pushed is an absence of bugs and regressions. 
 
-Due to the Yeti nature of the superior but little advertised technology we are unlikely to see a ton of users leading to a 1.0.0 release. Yet I am more than open for to the idea. 
+Due to the Yeti nature of the superior but little advertised technology we are unlikely to see a ton of users leading to a 1.0.0 release.
 
 ## Attribution
 

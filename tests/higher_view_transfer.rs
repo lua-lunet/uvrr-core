@@ -25,7 +25,20 @@
 //!     duplicates and reordering;
 //! 5.  a recovery whose evidence suffix was budget-truncated fetches the
 //!     missing range and completes on an ordinary tick, closing the
-//!     budget-truncation wait.
+//!     budget-truncation wait;
+//! 6.  a `StartView` whose suffix gapped at the fence re-runs its ruling
+//!     on an ordinary tick once the fetched range has arrived — no
+//!     repeated offer from the primary is required;
+//! 7.  a `NewState` chunk lost mid-stream re-issues the fetch from its
+//!     cursor on an ordinary tick — the fetch never stalls silently;
+//! 8.  a chunk answering a fetch whose range a `StartView` has since
+//!     installed is a named drop or a harmless close, never a
+//!     mis-install;
+//! 9.  the new primary that cannot construct the selected history from
+//!     budget-truncated evidence fetches the missing range from the
+//!     selected reporter — a fenced view is no bar to SERVING, which is
+//!     read-only retransmission — and the stalled win completes on an
+//!     ordinary tick.
 
 #[path = "harness/mod.rs"]
 mod harness;
@@ -632,99 +645,45 @@ fn chunked_transfer_resumes_from_cursor_and_tolerates_reordering() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Recovery with budget-truncated evidence fetches and completes on a
-//    tick — the budget-truncation wait is closed.
+// 11. The standing refusal: a Recovering node refuses a GetState — its
+//     history is not yet proved current, so the named drop
+//     TransferNotServed stands and nothing is served.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn recovery_with_truncated_evidence_fetches_and_completes() {
-    let per_entry = operation_entry(3, 1, b"c").packed_len();
-    let mut h = Harness::with_knobs(
-        3,
-        ViewChangeKnobs {
-            primary_timeout: TIMEOUT,
-            view_change_budget: per_entry,
-        },
-    );
+fn recovering_node_refuses_get_state() {
+    let mut h = cluster();
     bootstrap(&mut h);
-    h.partition(vec![n(0), n(1)], vec![n(2)]);
-    for lsb in 1..=3u64 {
-        h.propose(n(0), op_id(lsb), b"c");
-        h.deliver_all();
-    }
-    apply_all(&mut h, [0, 1]);
-    h.heal();
-    h.drop_queued(n(2)); // n2 stays at genesis: slots 3–5 passed it by
-
+    commit_one(&mut h, n(0), 1, b"a");
     h.crash(n(2));
     h.restart_with(n(2)).expect("the journal survived");
-    h.recover(n(2));
-    h.deliver_to(n(0));
-    h.deliver_to(n(1));
-    // n0's evidence suffix packs the newest entry the budget admits;
-    // n1's response completes the quorum and the ruling sees the gap —
-    // which now fetches from the responder instead of stalling.
-    h.deliver_to(n(2));
-    h.deliver_to(n(2));
+    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+
+    let request = Message {
+        header: Header {
+            tag: Tag::GetState,
+            view: view(0),
+            slot: Slot(2),
+        },
+        body: Body::GetState { from: Slot(3) },
+    };
+    let outcome = h.inject(n(0), n(2), request);
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the refusal publishes an identity transition: {outcome:?}"
+    );
+    assert!(
+        h.peek_queued(n(0), Tag::NewState).is_none(),
+        "a recovering node serves nothing"
+    );
     assert_eq!(
         h.diagnostic(n(2)),
-        Some(Diagnostic::GapDetected {
-            expected: Slot(3),
-            got: Slot(5),
-        })
+        Some(Diagnostic::TransferNotServed {
+            sender: n(0),
+            view: view(0),
+        }),
+        "the named refusal, on the observation"
     );
-    assert_eq!(
-        status_of(&h, n(2)),
-        Status::Recovering,
-        "still fenced: the fetch is history, not the completing ruling"
-    );
-    let request = h
-        .peek_queued(n(0), Tag::GetState)
-        .expect("the recovery gap fetches");
-    let Body::GetState { from } = &request.body else {
-        panic!("expected GetState");
-    };
-    assert_eq!(*from, Slot(3));
-    assert_eq!(request.header.view, view(0));
-
-    // The chunks fill the range; the committed frontier does not move
-    // while the node is fenced.
-    for (slot, more) in [(3u64, true), (4, true), (5, false)] {
-        h.deliver_tag(n(0), Tag::GetState);
-        let chunk = h.peek_queued(n(2), Tag::NewState).expect("the chunk");
-        let Body::NewState {
-            through,
-            more: flag,
-            ..
-        } = &chunk.body
-        else {
-            panic!("expected NewState");
-        };
-        assert_eq!(*through, Slot(slot));
-        assert_eq!(*flag, more);
-        h.deliver_tag(n(2), Tag::NewState);
-        assert_eq!(snap(&h, n(2)).accepted, slot);
-    }
-    assert_eq!(
-        snap(&h, n(2)).committed,
-        2,
-        "fetched history never moves the committed frontier of a fenced node"
-    );
-
-    // The stalled completion re-runs on an ordinary tick now that the
-    // range has arrived (§13.1 step 5): the same evidence, the same
-    // ruling — now constructible.
-    h.tick(n(2));
-    assert_eq!(status_of(&h, n(2)), Status::Replaying);
-    assert_eq!(snap(&h, n(2)).committed, 5);
-    h.execute_apply_effects(n(2));
-    assert_eq!(status_of(&h, n(2)), Status::Normal);
-    assert_eq!(
-        h.journal_entries(n(2)),
-        h.journal_entries(n(0)),
-        "the recovered node holds the primary's history"
-    );
-    h.deliver_all();
-    apply_all(&mut h, [0, 1, 2]);
+    assert!(!snap(&h, n(2)).faulted, "a refusal, never a fault");
     h.assert_safety();
 }

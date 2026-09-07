@@ -13,29 +13,21 @@
 //! channel; a single core thread owns all state and is the only writer to
 //! stdout, so there is no lock around the replica.
 //!
-//! # Durability stance (§7, §14.2)
+//! # Durability stance (§7)
 //!
 //! The node runs [`Stability::Volatile`] and persists nothing. That is safe
 //! because of the genesis ruling (§1.3): every construction — first boot or
 //! kill-nemesis restart alike — starts fenced `Recovering`, and a node
-//! becomes `Normal` only through the bootstrap adoption (§4) or a completed
-//! §10 recovery against quorum memory. An amnesiac `Normal` voter is
-//! therefore unrepresentable in this host: a restarted node rejoins fenced
-//! and re-proves its state, which is exactly the §14.2 obligation. The one
-//! sharp edge the core documents — an amnesiac genesis primary promoting
-//! itself with only genesis history — stalls the view (backups refuse the
-//! conflicting entries) but cannot diverge it, and the next view change
-//! deposes it. No restart marker is needed, so the node never reads
-//! `MAELSTROM_VRR_STATE_DIR`: the uniform fenced start subsumes the old
-//! marker-file restart detection.
+//! becomes `Normal` only through the bootstrap adoption (§4). A voter whose
+//! volatile state vanished while retaining authority is unrepresentable in
+//! this host: a restarted node rejoins fenced, and the next view change
+//! deposes any stale primary.
 //!
 //! # Time (S4)
 //!
 //! The core reads no clock; the host owns time. This host's clock is a
 //! single `u64` counter, bumped once per driven input and carried as
-//! [`TimedInput::at`]. The same counter is the recovery nonce: every
-//! re-driven `Recover` carries a fresh tick, which the attempt's bounded
-//! nonce set retains (§6.1).
+//! [`TimedInput::at`].
 
 mod kv;
 mod proto;
@@ -52,7 +44,7 @@ use vrr::journal::{Journal, SegmentedLog};
 use vrr::message::Message;
 use vrr::progress::Status;
 use vrr::quorum::WeightedMajority;
-use vrr::replica::{Input, PlanRejection, PublishOutcome, Replica, TimedInput, ViewChangeKnobs};
+use vrr::replica::{Input, PlanRefusal, PublishOutcome, Replica, TimedInput, ViewChangeKnobs};
 use vrr::wire::{Pack, Unpack};
 
 use crate::kv::Kv;
@@ -66,11 +58,6 @@ const TICK: Duration = Duration::from_millis(100);
 /// the activity evidence and suspicion never fires; the knob only decides
 /// how quickly a genuinely dead primary is deposed.
 const PRIMARY_TIMEOUT_TICKS: u64 = 25;
-/// A recovery attempt that collects no quorum is re-driven with a fresh
-/// nonce (a fresh tick, S4). The protocol requires the host to keep
-/// re-driving; nothing re-broadcasts `RECOVERY` on its own, and a re-drive
-/// preserves the responses already collected (§6.1's bounded nonce set).
-const RECOVERY_RETRY_TICKS: u32 = 25;
 
 /// The replica this host runs: the default journal and the default quorum
 /// strategy, exactly as the test harness provisions them.
@@ -147,14 +134,13 @@ struct NodeRunner {
     kv: Kv,
     next_msg_id: u64,
     /// The host clock (S4): bumped once per driven input, carried as
-    /// `TimedInput::at`, and reused as the recovery nonce.
+    /// `TimedInput::at`.
     tick: u64,
     /// `(client_id, request_num)` of an in-flight op -> where its answer
     /// goes. The operation identity the core carries opaque (§11.1) is
     /// exactly this pair, so an `Effect::Apply` correlates back to the
     /// Maelstrom client that is waiting.
     waiting: HashMap<(u64, u64), Waiter>,
-    ticks_since_recovery: u32,
 }
 
 impl NodeRunner {
@@ -209,7 +195,7 @@ impl NodeRunner {
             .and_then(|(own, genesis_order)| {
                 // Always `provision`, never `reopen`: this host persists
                 // nothing, and the fenced `Recovering` start is the honest
-                // statement of that (§14.2 — see the module docs).
+                // statement of that (see the module docs).
                 Node::provision(
                     own,
                     genesis_order,
@@ -247,14 +233,6 @@ impl NodeRunner {
         if let Some(msg_id) = message.msg_id() {
             self.reply(&message.src, msg_id, serde_json::json!({"type": "init_ok"}));
         }
-
-        // Every boot starts fenced `Recovering` (§1.3's genesis ruling), so
-        // every boot begins a recovery attempt. At a fresh cluster start the
-        // attempt is harmless: the genesis primary's tick promotion and the
-        // bootstrap adoption complete the bring-up first, and the attempt is
-        // discarded with the fence. On a kill-nemesis restart this drive is
-        // the §10 path that re-proves the node's state against quorum memory.
-        self.drive(Input::Recover);
     }
 
     fn on_peer(&mut self, message: &Incoming) {
@@ -422,20 +400,12 @@ impl NodeRunner {
     }
 
     fn on_tick(&mut self) {
-        let Some(replica) = &self.replica else { return };
+        let Some(_replica) = &self.replica else {
+            return;
+        };
 
-        if replica.progress().status() == Status::Recovering {
-            self.ticks_since_recovery = self.ticks_since_recovery.saturating_add(1);
-            if self.ticks_since_recovery >= RECOVERY_RETRY_TICKS {
-                self.ticks_since_recovery = 0;
-                self.drive(Input::Recover);
-            }
-        } else {
-            self.ticks_since_recovery = 0;
-        }
-
-        // The tick drives the genesis-primary bootstrap, the view-change
-        // suspicion timeout, and any stalled recovery completion (S4).
+        // The tick drives the genesis-primary bootstrap and the view-change
+        // suspicion timeout (S4).
         self.drive(Input::Tick);
     }
 
@@ -479,7 +449,7 @@ impl NodeRunner {
     /// released effects back. `Volatile` stability always publishes; the
     /// parked outcome exists for the external-stability modes this host
     /// never selects.
-    fn step(&mut self, input: Input) -> Result<Vec<Effect>, PlanRejection> {
+    fn step(&mut self, input: Input) -> Result<Vec<Effect>, PlanRefusal> {
         let Some(replica) = &mut self.replica else {
             return Ok(Vec::new());
         };
@@ -547,16 +517,6 @@ impl NodeRunner {
                 }
                 Effect::Persist(_) => {
                     eprintln!("volatile stability releases no persistence intents")
-                }
-                Effect::RequestApplicationState { through } => {
-                    // The host application-state transfer facility is out of
-                    // scope for this node (§4). It never fires here: no
-                    // checkpoint is ever published, so reclamation never
-                    // runs (§4, S1) and the journal retains everything.
-                    eprintln!(
-                        "application-state transfer requested through {}: no host facility",
-                        through.0
-                    );
                 }
             }
         }

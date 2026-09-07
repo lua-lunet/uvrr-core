@@ -28,9 +28,11 @@
 //!    accepts `is_err()` passes when the implementation refuses for the wrong reason,
 //!    which is precisely the failure mode a precondition table exists to prevent.
 //! 4. **Nothing saturates and nothing rounds.** `Halve` on an odd weight is refused,
-//!    not floored; `Double` past `u32::MAX` is refused, not clamped; `Decrement` at
-//!    weight 0 is refused, not a no-op. §8.7.5's closure proofs are arithmetic
-//!    identities over exact weights and a rounded weight makes them vacuous.
+//!    not floored; `Increment` and `Double` past [`vrr::configuration::MAX_WEIGHT`]
+//!    are refused, not clamped; `Decrement` at weight 0 is refused, not a no-op.
+//!    §8.7.5's closure proofs are arithmetic identities over exact weights and a
+//!    rounded weight makes them vacuous. The domain is {0, 1, 2} (rules §1, R1), and
+//!    every weight below asserts the boundary at both ends.
 //! 5. **The fold is persistent.** `apply` and `EraTable::extend` return new values and
 //!    share retained `Arc`s. `Arc` identity is asserted by pointer comparison, because
 //!    a table that deep-copied its history would still pass every behavioural test
@@ -48,7 +50,7 @@ use std::sync::Arc;
 
 use proptest::prelude::*;
 use vrr::configuration::{
-    ConfigError, Configuration, EraTable, MAX_MEMBERS, Member, SystemOperation, Weight,
+    ConfigError, Configuration, EraTable, MAX_MEMBERS, MAX_WEIGHT, Member, SystemOperation, Weight,
 };
 use vrr::ids::{Era, NodeId, Slot, View};
 use vrr::wire::{Malformed, Pack, Unpack, UnpackError};
@@ -97,32 +99,26 @@ fn three() -> Configuration {
 /// constructor that can produce an invalid `Configuration`" is itself a property under
 /// test, so a test-only constructor would weaken the thing it was helping to check.
 ///
-/// Bit composition from the top of `target`: double, then add the current bit. Thirty-two
-/// steps reach any `u32`, which is what makes the `u32::MAX` boundary a *reachable*
-/// protocol state and not a hypothetical one. `Double` and `Increment` are the only
-/// weight-raising operations in §8.7.2 and `Double` is global, which is why this raises
-/// uniformly; per-member asymmetry is built afterwards with `Add` (weight 0) and
-/// `Increment`.
+/// The domain is {0, 1, 2} (rules §1, R1), so `target` is 1 (what `Init` supplies) or 2
+/// (`Init` then `Double`) — `Double` and `Increment` are the only weight-raising
+/// operations in the alphabet, `Double` is global, and the cap refuses anything higher.
+/// Per-member asymmetry is built afterwards with `Join` (weight 0) and `Increment`.
 fn raise_all(nodes: &[NodeId], target: u32) -> Configuration {
-    assert!(target >= 1, "Init starts every member at weight 1");
+    assert!(
+        (1..=MAX_WEIGHT).contains(&target),
+        "Init starts every member at weight 1, and the domain ends at MAX_WEIGHT"
+    );
 
     let mut config = initialised(nodes);
     let mut slot = Slot(3);
     let mut apply = |config: Configuration, op: SystemOperation| -> Configuration {
-        let next = config.apply(&op, slot).expect("stays representable");
+        let next = config.apply(&op, slot).expect("stays in the domain");
         slot = slot.next().expect("slot space");
         next
     };
 
-    // `Init` already supplied the leading `1` of `target`.
-    let bits = 32 - target.leading_zeros();
-    for bit in (0..bits.saturating_sub(1)).rev() {
+    if target == 2 {
         config = apply(config, SystemOperation::Double);
-        if (target >> bit) & 1 == 1 {
-            for node in nodes {
-                config = apply(config, SystemOperation::Increment(*node));
-            }
-        }
     }
 
     for node in nodes {
@@ -189,11 +185,11 @@ fn void_refuses_every_operation_but_void_and_init() {
         SystemOperation::Decrement(N0),
         SystemOperation::Double,
         SystemOperation::Halve,
-        SystemOperation::Add {
+        SystemOperation::Join {
             node: N0,
             position: 0,
         },
-        SystemOperation::Remove(N0),
+        SystemOperation::Leave(N0),
     ];
 
     for op in &ops {
@@ -370,16 +366,16 @@ fn init_refuses_membership_above_the_cap() {
     assert_eq!(config.len(), MAX_MEMBERS);
 }
 
-/// `Add` to a 16-member cluster is refused with the same named cap. The check fires
+/// `Join` to a 16-member cluster is refused with the same named cap. The check fires
 /// before the position check: no insertion position can make a seventeenth member
 /// legal.
 #[test]
-fn add_refuses_the_seventeenth_member() {
+fn join_refuses_the_seventeenth_member() {
     let sixteen: Vec<NodeId> = (0..16).map(NodeId).collect();
     let config = initialised(&sixteen);
     assert_eq!(
         config.apply(
-            &SystemOperation::Add {
+            &SystemOperation::Join {
                 node: NodeId(16),
                 position: 16,
             },
@@ -428,40 +424,46 @@ fn increment_requires_membership() {
     assert_eq!(up.era(), Era(2));
 }
 
-/// `Increment` at `u32::MAX` is refused, not saturated. A saturating increment would
-/// make two distinct configurations indistinguishable and quietly break the §8.7.5
-/// `T -> T+1` closure argument, which is stated over the *actual* new total.
+/// `Increment` at the weight cap is refused, not saturated (rules §3, R7). A
+/// saturating increment would make two distinct configurations indistinguishable and
+/// quietly break the §8.7.5 `T -> T+1` closure argument, which is stated over the
+/// *actual* new total.
 ///
-/// `u32::MAX` is reachable by the fold in 32 steps by bit composition (`Double` then
-/// `Increment`), which is why this test does not need an escape hatch to reach the
-/// boundary — the boundary is a reachable state of the protocol, not a fabricated one.
+/// The cap is a *reachable* protocol state — `Init` at 1, `Double` to 2 — which is why
+/// this test needs no escape hatch to reach the boundary.
 #[test]
-fn increment_refuses_weight_overflow() {
-    // Two members at `u32::MAX`, plus a learner added afterwards so the configuration is
+fn increment_refuses_at_the_weight_cap() {
+    // Two members at the cap, plus a learner added afterwards so the configuration is
     // not uniform and the refusal is clearly about the named member's weight.
-    let ceiling = raise_all(&[N0, N1], u32::MAX);
-    assert_eq!(ceiling.weight_of(N0), Some(Weight(u32::MAX)));
-    assert_eq!(ceiling.total(), u64::from(u32::MAX) * 2);
+    let ceiling = raise_all(&[N0, N1], MAX_WEIGHT);
+    assert_eq!(ceiling.weight_of(N0), Some(Weight(MAX_WEIGHT)));
+    assert_eq!(ceiling.total(), u64::from(MAX_WEIGHT) * 2);
 
     assert_eq!(
         ceiling.apply(&SystemOperation::Increment(N0), Slot(10_000)),
-        Err(ConfigError::WeightOverflow)
+        Err(ConfigError::WeightCapExceeded {
+            node: N0,
+            cap: MAX_WEIGHT
+        })
     );
     assert_eq!(
         ceiling.apply(&SystemOperation::Increment(N1), Slot(10_000)),
-        Err(ConfigError::WeightOverflow)
+        Err(ConfigError::WeightCapExceeded {
+            node: N1,
+            cap: MAX_WEIGHT
+        })
     );
 
     let learner = ceiling
         .apply(
-            &SystemOperation::Add {
+            &SystemOperation::Join {
                 node: N2,
                 position: 2,
             },
             Slot(10_000),
         )
-        .expect("Add at weight 0");
-    // A member below the ceiling still increments: the refusal above is about the weight
+        .expect("Join at weight 0");
+    // A member below the cap still increments: the refusal above is about the weight
     // of the named member, not about `Increment` being unavailable in this era.
     let up = learner
         .apply(&SystemOperation::Increment(N2), Slot(10_001))
@@ -469,7 +471,10 @@ fn increment_refuses_weight_overflow() {
     assert_eq!(up.weight_of(N2), Some(Weight(1)));
     assert_eq!(
         up.apply(&SystemOperation::Increment(N0), Slot(10_002)),
-        Err(ConfigError::WeightOverflow)
+        Err(ConfigError::WeightCapExceeded {
+            node: N0,
+            cap: MAX_WEIGHT
+        })
     );
 }
 
@@ -487,13 +492,13 @@ fn decrement_requires_membership_and_positive_weight() {
 
     let learner = config
         .apply(
-            &SystemOperation::Add {
+            &SystemOperation::Join {
                 node: N3,
                 position: 3,
             },
             Slot(3),
         )
-        .expect("Add at weight 0");
+        .expect("Join at weight 0");
     assert_eq!(learner.weight_of(N3), Some(Weight(0)));
     assert_eq!(
         learner.apply(&SystemOperation::Decrement(N3), Slot(4)),
@@ -501,11 +506,11 @@ fn decrement_requires_membership_and_positive_weight() {
     );
 }
 
-/// `Double` requires every `W(n) * 2` representable in `u32`. Refusal is per
-/// configuration, not per member: the operation is atomic, so one unrepresentable member
-/// refuses the whole fold rather than doubling the others.
+/// `Double` requires every `W(n) * 2` inside the domain {0, 1, 2} (rules §3, R9).
+/// Refusal is per configuration, not per member: the operation is atomic, so one
+/// member at the cap refuses the whole fold rather than doubling the others.
 #[test]
-fn double_requires_every_weight_representable() {
+fn double_requires_every_weight_inside_the_domain() {
     let config = three();
     let doubled = config
         .apply(&SystemOperation::Double, Slot(3))
@@ -515,7 +520,7 @@ fn double_requires_every_weight_representable() {
     assert_eq!(doubled.era(), Era(2));
 }
 
-/// `Halve` requires **every** `W(n)` even (§8.7.2). This is the row most likely to be
+/// `Halve` requires **every** `W(n)` even (rules §3, R10). This is the row most likely to be
 /// implemented as a rounding division, and rounding is not refusal: it changes the total
 /// by an amount that depends on how many odd members there were, which is not a quantity
 /// §8.7.5's `T -> floor(T/2)` argument admits.
@@ -529,28 +534,28 @@ fn halve_requires_every_weight_even() {
         .expect("Halve all-even weights");
     assert_eq!(shape(&halved), vec![(N0, 1), (N1, 1), (N2, 1)]);
 
-    // Now make exactly one member odd.
+    // Now make exactly one member odd: 2 -> 1, while its neighbours stay even.
     let odd = doubled
-        .apply(&SystemOperation::Increment(N1), Slot(4))
-        .expect("Increment");
-    assert_eq!(odd.weight_of(N1), Some(Weight(3)));
+        .apply(&SystemOperation::Decrement(N1), Slot(4))
+        .expect("Decrement");
+    assert_eq!(odd.weight_of(N1), Some(Weight(1)));
     assert_eq!(
         odd.apply(&SystemOperation::Halve, Slot(5)),
         Err(ConfigError::OddWeight(N1))
     );
 }
 
-/// `Add { node, position }` requires `node ∉ order` and `position <= len()`, and inserts
-/// at weight 0 (§8.7.2, §8.4). Weight 0 means the new member receives history and votes
-/// in nothing, which is what makes the addition itself overlap-safe: the quorum families
-/// of era `e+1` are identical to those of era `e`.
+/// `Join { node, position }` requires `node ∉ order` and `position <= len()`, and inserts
+/// at weight 0 (§8.7.2, §8.4; rules §2, R2/R11). Weight 0 means the new member receives
+/// history and votes in nothing, which is what makes the join itself overlap-safe: the
+/// quorum families of era `e+1` are identical to those of era `e`.
 #[test]
-fn add_requires_absence_and_a_valid_position() {
+fn join_requires_absence_and_a_valid_position() {
     let config = three();
 
     assert_eq!(
         config.apply(
-            &SystemOperation::Add {
+            &SystemOperation::Join {
                 node: N1,
                 position: 0,
             },
@@ -561,7 +566,7 @@ fn add_requires_absence_and_a_valid_position() {
 
     assert_eq!(
         config.apply(
-            &SystemOperation::Add {
+            &SystemOperation::Join {
                 node: N3,
                 position: 4,
             },
@@ -574,19 +579,19 @@ fn add_requires_absence_and_a_valid_position() {
     );
 }
 
-/// `Remove(n)` requires `n ∈ order` and `W(n) == 0` (§8.7.2). A positive weight refuses
-/// with `NonZeroWeight`, distinct from `NotAMember`: the host's next step differs — one
-/// calls for `Decrement`, the other for a corrected node id.
+/// `Leave(n)` requires `n ∈ order` and `W(n) == 0` (§8.7.2; rules §2, R12). A positive
+/// weight refuses with `NonZeroWeight`, distinct from `NotAMember`: the host's next
+/// step differs — one calls for `Decrement`, the other for a corrected node id.
 #[test]
-fn remove_requires_membership_and_zero_weight() {
+fn leave_requires_membership_and_zero_weight() {
     let config = three();
 
     assert_eq!(
-        config.apply(&SystemOperation::Remove(N3), Slot(3)),
+        config.apply(&SystemOperation::Leave(N3), Slot(3)),
         Err(ConfigError::NotAMember(N3))
     );
     assert_eq!(
-        config.apply(&SystemOperation::Remove(N1), Slot(3)),
+        config.apply(&SystemOperation::Leave(N1), Slot(3)),
         Err(ConfigError::NonZeroWeight(N1))
     );
 }
@@ -618,13 +623,13 @@ fn halve_never_reaches_a_zero_total() {
     let single = initialised(&[N0]);
     let learner = single
         .apply(
-            &SystemOperation::Add {
+            &SystemOperation::Join {
                 node: N1,
                 position: 1,
             },
             Slot(3),
         )
-        .expect("Add learner");
+        .expect("Join learner");
     // Weights are now (1, 0): the voting member is odd, so `Halve` refuses on parity.
     assert_eq!(
         learner.apply(&SystemOperation::Halve, Slot(4)),
@@ -648,28 +653,29 @@ fn halve_never_reaches_a_zero_total() {
 /// The last member cannot be removed, and it is the *weight* precondition that stops it,
 /// not a separate emptiness check.
 ///
-/// This is worth pinning because it explains an absent `ConfigError` variant. `Remove(n)`
-/// requires `W(n) == 0` (§8.7.2), and a sole member at weight 0 has `T(W) == 0`, which
-/// the total floor already forbade at the `Decrement` that would have produced it. So the
-/// state "one member, weight 0" is unreachable, and there is therefore no reachable
-/// `Remove` whose result is an empty `order`: the "non-empty `order`" clause of §8.7.2 is
-/// discharged by the total floor rather than by an independent guard. The refusal a host
-/// actually sees is `NonZeroWeight`, and both halves of that route are asserted here so a
-/// later change cannot add a redundant emptiness variant and change the observable error.
+/// This is worth pinning because it explains an absent `ConfigError` variant. `Leave(n)`
+/// requires `W(n) == 0` (§8.7.2; rules §2, R12), and a sole member at weight 0 has
+/// `T(W) == 0`, which the total floor already forbade at the `Decrement` that would have
+/// produced it. So the state "one member, weight 0" is unreachable, and there is
+/// therefore no reachable `Leave` whose result is an empty `order`: the "non-empty
+/// `order`" clause of §8.7.2 is discharged by the total floor rather than by an
+/// independent guard. The refusal a host actually sees is `NonZeroWeight`, and both
+/// halves of that route are asserted here so a later change cannot add a redundant
+/// emptiness variant and change the observable error.
 #[test]
-fn remove_cannot_empty_the_order() {
+fn leave_cannot_empty_the_order() {
     let pair = initialised(&[N0, N1]);
     let zeroed = pair
         .apply(&SystemOperation::Decrement(N1), Slot(3))
         .expect("Decrement N1 to 0");
     let one_left = zeroed
-        .apply(&SystemOperation::Remove(N1), Slot(4))
-        .expect("Remove the learner");
+        .apply(&SystemOperation::Leave(N1), Slot(4))
+        .expect("Leave the learner");
     assert_eq!(shape(&one_left), vec![(N0, 1)]);
 
-    // The only member is at weight 1, so `Remove` refuses on the weight precondition.
+    // The only member is at weight 1, so `Leave` refuses on the weight precondition.
     assert_eq!(
-        one_left.apply(&SystemOperation::Remove(N0), Slot(5)),
+        one_left.apply(&SystemOperation::Leave(N0), Slot(5)),
         Err(ConfigError::NonZeroWeight(N0))
     );
     // And it cannot be taken to weight 0 first, because that is a zero total.
@@ -681,7 +687,7 @@ fn remove_cannot_empty_the_order() {
     let single = initialised(&[N0]);
     assert_eq!(single.len(), 1);
     assert_eq!(
-        single.apply(&SystemOperation::Remove(N0), Slot(3)),
+        single.apply(&SystemOperation::Leave(N0), Slot(3)),
         Err(ConfigError::NonZeroWeight(N0))
     );
     assert_eq!(
@@ -694,43 +700,42 @@ fn remove_cannot_empty_the_order() {
 // 4. `Halve` is exact over every all-even shape
 // ---------------------------------------------------------------------------
 
-/// Exhaustive over small even shapes: `Halve` divides every weight exactly, and a single
-/// odd member anywhere in `order` refuses. No rounding occurs at any position, which is
-/// the failure mode a spot check at index 0 would miss.
+/// Exhaustive over the in-domain even shapes: `Halve` divides every weight exactly, and
+/// a single odd member anywhere in `order` refuses. No rounding occurs at any position,
+/// which is the failure mode a spot check at index 0 would miss. The domain {0, 1, 2}
+/// makes the all-even positive shapes exactly `(2, 2, 2)` and its weight-0 variants, so
+/// the loop is exhaustive over the odd positions rather than over magnitudes.
 #[test]
 fn halve_is_exact_and_all_even_is_positional() {
     let nodes = [N0, N1, N2];
-    for a in 1..=4u32 {
-        for b in 1..=4u32 {
-            for c in 1..=4u32 {
-                let weights = [a * 2, b * 2, c * 2];
-                let config = with_weights(&nodes, &weights);
-                let halved = config
-                    .apply(&SystemOperation::Halve, Slot(100))
-                    .expect("all-even halves");
-                assert_eq!(shape(&halved), vec![(N0, a), (N1, b), (N2, c)]);
-                assert_eq!(halved.total(), u64::from(a + b + c));
+    let config = with_weights(&nodes, &[2, 2, 2]);
+    let halved = config
+        .apply(&SystemOperation::Halve, Slot(100))
+        .expect("all-2 halves exactly");
+    assert_eq!(shape(&halved), vec![(N0, 1), (N1, 1), (N2, 1)]);
+    assert_eq!(halved.total(), 3);
 
-                // Make each position odd in turn and confirm the refusal names it.
-                for (index, node) in nodes.iter().enumerate() {
-                    let mut odd = weights;
-                    odd[index] += 1;
-                    let config = with_weights(&nodes, &odd);
-                    assert_eq!(
-                        config.apply(&SystemOperation::Halve, Slot(100)),
-                        Err(ConfigError::OddWeight(*node)),
-                        "odd at index {index}"
-                    );
-                }
-            }
-        }
+    // Make each position odd in turn (2 -> 1, its neighbours even) and confirm the
+    // refusal names it.
+    for (index, node) in nodes.iter().enumerate() {
+        let mut weights = [2u32, 2, 2];
+        weights[index] -= 1;
+        let config = with_weights(&nodes, &weights);
+        assert_eq!(
+            config.apply(&SystemOperation::Halve, Slot(100)),
+            Err(ConfigError::OddWeight(*node)),
+            "odd at index {index}"
+        );
     }
 }
 
 /// Builds a configuration with the exact weights given, using only `Init` and
-/// `Increment`, so the result is reachable by the fold rather than fabricated.
+/// `Increment`, so the result is reachable by the fold rather than fabricated. Every
+/// weight must be inside the domain (R1), which is asserted here so a typo cannot
+/// fabricate a state the protocol cannot reach.
 fn with_weights(nodes: &[NodeId], weights: &[u32]) -> Configuration {
     assert_eq!(nodes.len(), weights.len());
+    assert!(weights.iter().all(|w| (1..=MAX_WEIGHT).contains(w)));
     let mut config = initialised(nodes);
     let mut slot = Slot(3);
     for (node, weight) in nodes.iter().zip(weights.iter()) {
@@ -745,56 +750,56 @@ fn with_weights(nodes: &[NodeId], weights: &[u32]) -> Configuration {
 }
 
 // ---------------------------------------------------------------------------
-// 5. `Double` overflow
+// 5. `Double` at the cap
 // ---------------------------------------------------------------------------
 
-/// A weight above `u32::MAX / 2` cannot be doubled and the whole operation is refused.
+/// A member at weight 2 cannot be doubled and the whole operation is refused (R9),
+/// naming the FIRST member in `order` that would pass the cap.
 ///
-/// Both sides of the boundary are pinned: `u32::MAX / 2 = 2^31 - 1` doubles to
-/// `u32::MAX - 1`, and `2^31` does not double at all. Refusal is per configuration, not
-/// per member: a `Double` that raised the representable members and clamped the rest would
-/// change the weight *ratios*, and §8.7.5's `DOUBLE` closure argument (`2w(S) >= T+1`)
-/// depends on every weight scaling by the same factor.
+/// Refusal is per configuration, not per member: a `Double` that raised the members
+/// under the cap and clamped the rest would change the weight *ratios*, and §8.7.5's
+/// `DOUBLE` closure argument (`2w(S) >= T+1`) depends on every weight scaling by the
+/// same factor.
 #[test]
-fn double_refuses_above_half_of_u32_max() {
-    // The largest weight that can still be doubled.
-    let half = raise_all(&[N0, N1], u32::MAX / 2);
-    assert_eq!(half.weight_of(N0), Some(Weight((1 << 31) - 1)));
-    let doubled = half
-        .apply(&SystemOperation::Double, Slot(10_000))
-        .expect("u32::MAX / 2 doubles to u32::MAX - 1");
-    assert_eq!(doubled.weight_of(N0), Some(Weight(u32::MAX - 1)));
+fn double_refuses_a_member_at_the_cap() {
+    // One member at the cap: refused, naming it.
+    let at_cap = with_weights(&[N0, N1, N2], &[1, 2, 1]);
     assert_eq!(
-        doubled.apply(&SystemOperation::Double, Slot(10_001)),
-        Err(ConfigError::WeightOverflow)
+        at_cap.apply(&SystemOperation::Double, Slot(10_000)),
+        Err(ConfigError::WeightCapExceeded {
+            node: N1,
+            cap: MAX_WEIGHT
+        })
     );
 
-    // One above it cannot.
-    let over = raise_all(&[N0, N1], 1 << 31);
+    // The first member that would pass the cap is named, in `order` order.
+    let two_at_cap = with_weights(&[N0, N1, N2], &[2, 2, 1]);
     assert_eq!(
-        over.apply(&SystemOperation::Double, Slot(10_000)),
-        Err(ConfigError::WeightOverflow)
+        two_at_cap.apply(&SystemOperation::Double, Slot(10_000)),
+        Err(ConfigError::WeightCapExceeded {
+            node: N0,
+            cap: MAX_WEIGHT
+        })
     );
 
-    // A single unrepresentable member refuses the whole operation, even when every other
-    // member would have doubled fine.
-    let mixed = raise_all(&[N0], 1 << 31);
-    let mixed = mixed
+    // A single out-of-domain candidate refuses the whole operation, even when every
+    // other member would have doubled fine — and one member at weight 0 (a learner,
+    // R4) is not an obstacle: 0 doubles to 0, inside the domain.
+    let learner = with_weights(&[N0, N1], &[2, 1])
         .apply(
-            &SystemOperation::Add {
-                node: N1,
-                position: 1,
+            &SystemOperation::Join {
+                node: N2,
+                position: 2,
             },
             Slot(10_000),
         )
-        .expect("Add a learner");
-    let mixed = mixed
-        .apply(&SystemOperation::Increment(N1), Slot(10_001))
-        .expect("Increment the learner to 1");
-    assert_eq!(shape(&mixed), vec![(N0, 1 << 31), (N1, 1)]);
+        .expect("Join a learner");
     assert_eq!(
-        mixed.apply(&SystemOperation::Double, Slot(10_002)),
-        Err(ConfigError::WeightOverflow)
+        learner.apply(&SystemOperation::Double, Slot(10_002)),
+        Err(ConfigError::WeightCapExceeded {
+            node: N0,
+            cap: MAX_WEIGHT
+        })
     );
 }
 
@@ -802,24 +807,24 @@ fn double_refuses_above_half_of_u32_max() {
 // 6. The departure sequence
 // ---------------------------------------------------------------------------
 
-/// `Decrement`-to-zero then `Remove` is the only route out of a configuration, and every
+/// `Decrement`-to-zero then `Leave` is the only route out of a configuration, and every
 /// step of it is individually overlap-safe: a weight change of one preserves the §8.7.5
 /// consecutive-era intersection, and a weight-0 removal changes no quorum family at all.
 /// A single "remove a voting member" operation would not have either property.
 #[test]
-fn departure_is_decrement_then_remove() {
-    let config = with_weights(&[N0, N1, N2], &[1, 3, 1]);
-    assert_eq!(config.total(), 5);
+fn departure_is_decrement_then_leave() {
+    let config = with_weights(&[N0, N1, N2], &[1, 2, 1]);
+    assert_eq!(config.total(), 4);
 
-    // `Remove` is refused at every positive weight on the way down.
+    // `Leave` is refused at every positive weight on the way down.
     let mut current = config;
     let mut slot = Slot(50);
-    for expected in [3u32, 2, 1] {
+    for expected in [2u32, 1] {
         assert_eq!(current.weight_of(N1), Some(Weight(expected)));
         assert_eq!(
-            current.apply(&SystemOperation::Remove(N1), slot),
+            current.apply(&SystemOperation::Leave(N1), slot),
             Err(ConfigError::NonZeroWeight(N1)),
-            "Remove at weight {expected}"
+            "Leave at weight {expected}"
         );
         current = current
             .apply(&SystemOperation::Decrement(N1), slot)
@@ -828,22 +833,22 @@ fn departure_is_decrement_then_remove() {
     }
 
     assert_eq!(current.weight_of(N1), Some(Weight(0)));
-    // At weight 0, `Decrement` is refused and `Remove` is the only move left.
+    // At weight 0, `Decrement` is refused and `Leave` is the only move left.
     assert_eq!(
         current.apply(&SystemOperation::Decrement(N1), slot),
         Err(ConfigError::WeightUnderflow(N1))
     );
 
     let departed = current
-        .apply(&SystemOperation::Remove(N1), slot)
-        .expect("Remove at weight 0");
+        .apply(&SystemOperation::Leave(N1), slot)
+        .expect("Leave at weight 0");
     assert_eq!(shape(&departed), vec![(N0, 1), (N2, 1)]);
     assert_eq!(departed.weight_of(N1), None);
     assert_eq!(departed.index_of(N1), None);
 }
 
 // ---------------------------------------------------------------------------
-// 7. `Add` positions
+// 7. `Join` positions
 // ---------------------------------------------------------------------------
 
 /// Every `position ∈ 0..=len()` inserts at exactly that index with weight 0, and
@@ -851,7 +856,7 @@ fn departure_is_decrement_then_remove() {
 /// because `order` *is* the failover succession the host is relying on (§1.2) and an
 /// off-by-one here silently reorders primary selection for the life of the cluster.
 #[test]
-fn add_inserts_at_exactly_the_named_position() {
+fn join_inserts_at_exactly_the_named_position() {
     for len in 1..=5usize {
         let nodes: Vec<NodeId> = (0..len)
             .map(|i| NodeId(100 + u32::try_from(i).unwrap()))
@@ -862,7 +867,7 @@ fn add_inserts_at_exactly_the_named_position() {
         for position in 0..=u32::try_from(len).unwrap() {
             let grown = config
                 .apply(
-                    &SystemOperation::Add {
+                    &SystemOperation::Join {
                         node: new,
                         position,
                     },
@@ -884,7 +889,7 @@ fn add_inserts_at_exactly_the_named_position() {
         for position in [u32::try_from(len).unwrap() + 1, u32::MAX] {
             assert_eq!(
                 config.apply(
-                    &SystemOperation::Add {
+                    &SystemOperation::Join {
                         node: new,
                         position,
                     },
@@ -913,11 +918,11 @@ fn alphabet() -> Vec<SystemOperation> {
         SystemOperation::Decrement(N0),
         SystemOperation::Double,
         SystemOperation::Halve,
-        SystemOperation::Add {
+        SystemOperation::Join {
             node: N3,
             position: 1,
         },
-        SystemOperation::Remove(N3),
+        SystemOperation::Leave(N3),
     ]
 }
 
@@ -1018,16 +1023,7 @@ proptest! {
     #[test]
     fn total_is_the_exact_sum(
         count in 1usize..12,
-        target in prop::sample::select(vec![
-            1u32,
-            2,
-            3,
-            1 << 15,
-            (1 << 31) - 1,
-            1 << 31,
-            u32::MAX - 1,
-            u32::MAX,
-        ]),
+        target in prop::sample::select(vec![1u32, 2, MAX_WEIGHT]),
         learners in 0usize..4,
     ) {
         let nodes: Vec<NodeId> = (0..count)
@@ -1044,8 +1040,8 @@ proptest! {
             let node = NodeId(1_000 + u32::try_from(i).unwrap());
             let position = config.len();
             config = config
-                .apply(&SystemOperation::Add { node, position }, slot)
-                .expect("Add a learner at the end");
+                .apply(&SystemOperation::Join { node, position }, slot)
+                .expect("Join a learner at the end");
             slot = slot.next().expect("slot space");
         }
 
@@ -1077,25 +1073,25 @@ proptest! {
 /// of the rule.
 #[test]
 fn weight_of_set_rejects_unknown_and_duplicate_members() {
-    let config = with_weights(&[N0, N1, N2], &[1, 2, 3]);
+    let config = with_weights(&[N0, N1, N2], &[1, 2, 2]);
     let learner = config
         .apply(
-            &SystemOperation::Add {
+            &SystemOperation::Join {
                 node: N3,
                 position: 3,
             },
             Slot(100),
         )
-        .expect("Add learner");
+        .expect("Join learner");
 
     assert_eq!(learner.weight_of_set(&[]), Some(0));
     assert_eq!(learner.weight_of_set(&[N0]), Some(1));
     assert_eq!(learner.weight_of_set(&[N0, N1]), Some(3));
-    assert_eq!(learner.weight_of_set(&[N0, N1, N2]), Some(6));
+    assert_eq!(learner.weight_of_set(&[N0, N1, N2]), Some(5));
 
     // A learner is in the configuration and adds nothing.
     assert_eq!(learner.weight_of_set(&[N3]), Some(0));
-    assert_eq!(learner.weight_of_set(&[N0, N1, N2, N3]), Some(6));
+    assert_eq!(learner.weight_of_set(&[N0, N1, N2, N3]), Some(5));
 
     // Unknown member.
     assert_eq!(learner.weight_of_set(&[NodeId(777)]), None);
@@ -1153,10 +1149,18 @@ fn era_table_retains_a_three_era_window() {
     assert!(table.record(Era(1)).is_some());
 
     let mut slot = Slot(3);
-    for _ in 0..8 {
+    for round in 0..8 {
+        // The doubling cycle: Double then Halve return to the same shape, so the
+        // walk can run past the one-use-per-cycle rule of R1 without ever leaving
+        // the domain.
+        let op = if round % 2 == 0 {
+            SystemOperation::Double
+        } else {
+            SystemOperation::Halve
+        };
         table = table
-            .extend(&SystemOperation::Double, slot)
-            .expect("Double always applies to a positive-weight cluster");
+            .extend(&op, slot)
+            .expect("the doubling cycle stays in the domain");
         slot = slot.next().expect("slot space");
 
         let current = table.current().era;
@@ -1257,11 +1261,18 @@ fn all_variants() -> Vec<SystemOperation> {
         SystemOperation::Decrement(N1),
         SystemOperation::Double,
         SystemOperation::Halve,
-        SystemOperation::Add {
+        SystemOperation::Join {
             node: N3,
             position: 2,
         },
-        SystemOperation::Remove(N2),
+        SystemOperation::Leave(N2),
+        SystemOperation::Batch(vec![
+            SystemOperation::Increment(N0),
+            SystemOperation::Join {
+                node: N3,
+                position: 3,
+            },
+        ]),
     ]
 }
 
@@ -1301,7 +1312,7 @@ fn system_operation_round_trips_with_exact_length() {
 /// message is a message cannot report a framing bug.
 #[test]
 fn system_operation_rejects_reserved_and_unknown_discriminants() {
-    for raw in [0u8, 9, 10, 127, 128, 255] {
+    for raw in [0u8, 10, 11, 127, 128, 255] {
         let bytes = [raw];
         assert_eq!(
             SystemOperation::unpack_from(&bytes),

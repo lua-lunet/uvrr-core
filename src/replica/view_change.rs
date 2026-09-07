@@ -14,6 +14,7 @@
 //! history from is a named gap — [`Diagnostic::GapDetected`], never a fault
 //! — whose fetch half (§10, §13.1 step 5) rides the same transition.
 
+use super::reconfiguration::CommitFold;
 use super::*;
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
@@ -31,11 +32,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         heard: BTreeSet<NodeId>,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let candidate = self
             .progress
             .with_view_change(target)
-            .map_err(PlanRejection::Progress)?;
+            .map_err(PlanRefusal::Progress)?;
         let mut fences = heard;
         fences.insert(self.own);
         let message = Message {
@@ -68,31 +69,37 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// fence/evidence/install pipeline into `target`, whose primary is
     /// the member `primary(target)` names under the current membership
     /// order — no state is installed from the host's say-so. The target
-    /// must strictly advance the view within the current era: a
-    /// non-advancing target is bad input, an era other than the current
-    /// one names a membership order the replica cannot map the target
-    /// under (its establishing operation was never committed here, or the
-    /// era is superseded), and the last representable view has no
-    /// successor (§8.7.3 forbids wraparound, so a fence there could never
-    /// be superseded).
+    /// must strictly advance the view within the current era or the
+    /// established-but-unentered era: a non-advancing target is bad
+    /// input, an era the committed configuration history has not
+    /// established names a membership order the replica cannot map the
+    /// target under (its establishing operation was never committed
+    /// here, or the era is superseded), and the last representable view
+    /// has no successor (§8.7.3 forbids wraparound, so a fence there
+    /// could never be superseded).
     pub(in crate::replica) fn plan_admin_force_view(
         &self,
         journal: &J::View,
         target: ViewId,
         at: Tick,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
         if target.view <= current.view {
-            return Err(PlanRejection::AdminTargetNotAhead { current, target });
+            return Err(PlanRefusal::AdminTargetNotAhead { current, target });
         }
-        if target.era != current.era {
-            return Err(PlanRejection::AdminEraNotCurrent {
+        // The target era must be one the committed configuration history
+        // has established: either the current view's own era, or the
+        // established-but-unentered era the table has already folded to
+        // (§8.7.1). An era beyond that was never decided here.
+        let established = self.progress.config().current().era;
+        if target.era != current.era && target.era != established {
+            return Err(PlanRefusal::AdminEraNotCurrent {
                 current: current.era,
                 got: target.era,
             });
         }
         if target.next_in_era().is_none() {
-            return Err(PlanRejection::AdminViewExhausted { target });
+            return Err(PlanRefusal::AdminViewExhausted { target });
         }
         self.enter_view_change(journal, target, BTreeSet::new(), at, InputKind::Admin)
     }
@@ -102,7 +109,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// at the designated new primary, the evidence quorum (`Role::View
     /// Change`, Q1) and the install. Every quorum question goes to the
     /// strategy; no count is computed here.
-    fn continue_view_change(
+    pub(in crate::replica) fn continue_view_change(
         &self,
         journal: &J::View,
         candidate: Progress,
@@ -110,7 +117,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         mut effects: Vec<Effect>,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let target = view_change.target;
         let Some(record) = self.progress.config().record(target.era) else {
             return self.drop_plan(Diagnostic::UnevaluableEra { era: target.era }, kind);
@@ -145,7 +152,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     view_change.selected = Some(select_history(&view_change.evidence));
                 }
             }
-            if let Some(selected) = view_change.selected.clone() {
+            if let Some((reporter, selected)) = view_change.selected.clone() {
                 match self.plan_win_view(
                     journal,
                     target,
@@ -157,23 +164,40 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 )? {
                     WinOutcome::Installed(plan) => return Ok(*plan),
                     // §13.1 step 5: the selected history cannot be
-                    // constructed from the collected evidence — the missing
-                    // range must be fetched by state transfer (§10) before
-                    // `StartView`.
-                    // The attempt and its selection are kept; the drop is
-                    // named, never a fault.
+                    // constructed from the collected evidence — fetch the
+                    // missing range from the reporter whose history was
+                    // selected, stamped with the TARGET view from the gap
+                    // base. The attempt and its selection are kept; the
+                    // drop is named, never a fault, and an ordinary tick
+                    // re-runs the win once the range has arrived.
                     WinOutcome::Insufficient {
                         expected,
                         got,
                         effects,
                     } => {
-                        return Ok(self
+                        let plan = self
                             .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
                             .with_bookkeeping(Bookkeeping {
                                 view_change: ViewChangeUpdate::Set(view_change),
+                                // The ordinary attempt owns the era now:
+                                // a planned overlap machine is abandoned
+                                // by any fence it joins.
+                                planned: PlannedOverlapUpdate::Clear,
                                 ..Bookkeeping::default()
                             })
-                            .with_diagnostic(Diagnostic::GapDetected { expected, got }));
+                            .with_diagnostic(Diagnostic::GapDetected { expected, got });
+                        // Open the fetch once: the gap ruling's first
+                        // insufficient outcome asks the selected reporter
+                        // for the missing range. A later insufficient
+                        // outcome — a duplicate evidence delivery, or the
+                        // tick re-drive before the range has arrived —
+                        // leaves the open fetch alone: its chunks and the
+                        // tick's cursor retry own the repair.
+                        if self.transfer.is_none() {
+                            let (effect, fetch) = self.fetch(target, reporter, expected);
+                            return Ok(plan.with_fetch(effect, fetch));
+                        }
+                        return Ok(plan);
                     }
                 }
             }
@@ -182,6 +206,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
             .with_bookkeeping(Bookkeeping {
                 view_change: ViewChangeUpdate::Set(view_change),
+                // The ordinary attempt owns the era now: a planned
+                // overlap machine is abandoned by any fence it joins.
+                planned: PlannedOverlapUpdate::Clear,
                 ..Bookkeeping::default()
             }))
     }
@@ -207,14 +234,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         journal: &J::View,
         view_change: &ViewChangeVolatile,
         target: ViewId,
-    ) -> Result<Effect, PlanRejection> {
+    ) -> Result<Effect, PlanRefusal> {
         let own = view_change
             .evidence
             .get(&self.own)
             .expect("own evidence is recorded before it is sent");
         let to = self
             .primary_of(target)
-            .ok_or(PlanRejection::Progress(ProgressError::EraSlotDiscipline))?;
+            .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
         Ok(Effect::Send {
             to,
             era: target.era,
@@ -256,7 +283,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         message: &Message,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         let Some(record) = self.progress.config().record(header.view.era) else {
             return self.drop_plan(
@@ -318,8 +345,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         era_proof: &EraProof,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
+        // Planned evidence belongs to the non-stop overlap path
+        // (§8.7.7): it is routed by its kind — distinguishable on the
+        // wire — and never lands in the ordinary attempt, where it would
+        // count toward a quorum it is not a vote in.
+        if evidence == EvidenceKind::Planned {
+            return self.plan_planned_evidence(
+                journal, from, message, retained, accepted, committed, suffix, era_proof, at, kind,
+            );
+        }
         let Some(record) = self.progress.config().record(header.view.era) else {
             return self.drop_plan(
                 Diagnostic::UnevaluableEra {
@@ -334,13 +370,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // Shape: the header slot names the reported accepted frontier
         // (rule 7's Frontier role); the frontiers are a legal chain; the
         // suffix is a contiguous ascending run ending at the frontier; the
-        // evidence is ordinary (planned evidence belongs to the planned
-        // view-change path and never lands here); the era proof matches
-        // the configuration history
+        // era proof matches the configuration history
         // (§8.7.8).
         if header.slot != accepted
             || committed > accepted
-            || evidence != EvidenceKind::Ordinary
             || !suffix_shape_ok(suffix, accepted)
             || !self.era_proof_ok(journal, record, era_proof)
         {
@@ -414,15 +447,35 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         era_proof: &EraProof,
         at: Tick,
         kind: InputKind,
-    ) -> Result<PlannedTransition, PlanRejection> {
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
+        let current = self.progress.current();
         let Some(record) = self.progress.config().record(header.view.era) else {
-            return self.drop_plan(
+            // A `StartView` one era past the current is the overlap
+            // transition's offer arriving before the establishing
+            // operation did (§8.7.7, a reordering): the ruling is the
+            // gap ruling's (§13.1 step 5) — retain the offer, fetch the
+            // missing range from the new primary under the CURRENT view,
+            // and re-run the ruling on an ordinary tick once the range
+            // has folded the era that makes the offer evaluable. Any
+            // further-out era is merely unevaluable.
+            let plan = self.drop_plan(
                 Diagnostic::UnevaluableEra {
                     era: header.view.era,
                 },
                 kind,
-            );
+            )?;
+            if Some(header.view.era) == current.era.next() {
+                let mut plan = plan.with_stalled_offer(from, message.clone());
+                if self.transfer.is_none() {
+                    if let Some(next) = self.progress.accepted().next() {
+                        let (effect, fetch) = self.fetch(current, from, next);
+                        plan = plan.with_fetch(effect, fetch);
+                    }
+                }
+                return Ok(plan);
+            }
+            return Ok(plan);
         };
         if self.primary_of(header.view) != Some(from) {
             return self.drop_plan(
@@ -466,16 +519,30 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         }
-        let mutation = match self.check_suffix(journal, suffix, accepted, committed) {
+        // The node's own published checkpoint discharges the reclaimed prefix
+        // (§4): every reclaimed slot is at or below it, hence at or below
+        // the committed frontier, so §9.2's quorum-identity argument fixes
+        // the entry — a legal offer carries it, and the install writes
+        // nothing there. Without the discharge no reclaimed node could
+        // ever verify an offer that reaches past its retained base.
+        let mutation = match self.check_suffix(
+            journal,
+            suffix,
+            accepted,
+            committed,
+            self.progress.checkpoint(),
+        ) {
             SuffixCheck::Install(mutation) => mutation,
             SuffixCheck::Gap { expected, got } => {
                 let plan = self.drop_plan(Diagnostic::GapDetected { expected, got }, kind)?;
                 // §13.1 step 5: the recipient cannot construct the offered
                 // history — fetch the missing range from the new primary.
-                // The node stays fenced; the completing evidence re-runs
-                // the ruling once the range has arrived.
+                // The node stays fenced; the retained offer re-runs the
+                // ruling on an ordinary tick once the range has arrived.
                 let (effect, fetch) = self.fetch(header.view, from, expected);
-                return Ok(plan.with_fetch(effect, fetch));
+                return Ok(plan
+                    .with_fetch(effect, fetch)
+                    .with_stalled_offer(from, message.clone()));
             }
             SuffixCheck::Conflict => {
                 let candidate = self.identity_candidate()?;
@@ -485,13 +552,35 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
         };
         let applied = self.applied_walk(journal, suffix, self.progress.applied(), committed)?;
-        let candidate = self.install_candidate(header.view, accepted, committed, applied)?;
+        // §8.7.1: the installed history's committed frontier may cover
+        // system operations this node never folded — the era advances
+        // with the install, exactly as if the commit had arrived in
+        // order. A fold refusal in the installed COMMITTED history is
+        // the same breach as a committed-slot conflict (§9.1): declare
+        // it, never guess a repair.
+        let config =
+            match self.fold_committed(journal, suffix, self.progress.committed(), committed) {
+                Ok(config) => config,
+                Err(CommitFold::Unavailable(slot)) => {
+                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
+                }
+                Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+            };
+        let candidate =
+            self.install_candidate(header.view, accepted, committed, applied, config)?;
         let effects =
             self.apply_effects_merged(journal, suffix, self.progress.committed(), committed)?;
         Ok(self
             .candidate_plan(candidate, mutation, effects, kind, false)
             .with_bookkeeping(Bookkeeping {
                 view_change: ViewChangeUpdate::Clear,
+                // The install answers any offer the node held open: a
+                // stalled gap ruling for this view is the one now
+                // completing, and an older view's is dead state.
+                stalled: StalledUpdate::Clear,
+                // An adopted view supersedes any planned overlap
+                // machine: the era now moves with the ordinary change.
+                planned: PlannedOverlapUpdate::Clear,
                 activity: Some(at),
                 ..Bookkeeping::default()
             }))
@@ -517,7 +606,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         mut effects: Vec<Effect>,
         at: Tick,
         kind: InputKind,
-    ) -> Result<WinOutcome, PlanRejection> {
+    ) -> Result<WinOutcome, PlanRefusal> {
         let committed = evidence
             .values()
             .map(|member| member.committed)
@@ -536,31 +625,57 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 effects,
             });
         }
-        let mutation =
-            match self.check_suffix(journal, &selected.suffix, selected.accepted, committed) {
-                SuffixCheck::Install(mutation) => mutation,
-                SuffixCheck::Gap { expected, got } => {
-                    return Ok(WinOutcome::Insufficient {
-                        expected,
-                        got,
-                        effects,
-                    });
-                }
-                SuffixCheck::Conflict => {
-                    let candidate = self.identity_candidate()?;
-                    let plan = self
-                        .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
-                        .with_fault_declared(Fault::IllegalTransition);
-                    return Ok(WinOutcome::Installed(Box::new(plan)));
-                }
-            };
+        // The same checkpoint discharge as the `StartView` install above.
+        let mutation = match self.check_suffix(
+            journal,
+            &selected.suffix,
+            selected.accepted,
+            committed,
+            self.progress.checkpoint(),
+        ) {
+            SuffixCheck::Install(mutation) => mutation,
+            SuffixCheck::Gap { expected, got } => {
+                return Ok(WinOutcome::Insufficient {
+                    expected,
+                    got,
+                    effects,
+                });
+            }
+            SuffixCheck::Conflict => {
+                let candidate = self.identity_candidate()?;
+                let plan = self
+                    .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                    .with_fault_declared(Fault::IllegalTransition);
+                return Ok(WinOutcome::Installed(Box::new(plan)));
+            }
+        };
         let applied = self.applied_walk(
             journal,
             &selected.suffix,
             self.progress.applied(),
             committed,
         )?;
-        let candidate = self.install_candidate(target, selected.accepted, committed, applied)?;
+        // §8.7.1: the selected history's committed frontier may cover
+        // system operations this node never folded — the era advances
+        // with the install. A fold refusal in the selected COMMITTED
+        // history is the same breach as a committed-slot conflict (§9.1):
+        // declare it, never guess a repair.
+        let config = match self.fold_committed(
+            journal,
+            &selected.suffix,
+            self.progress.committed(),
+            committed,
+        ) {
+            Ok(config) => config,
+            Err(CommitFold::Unavailable(slot)) => {
+                return Err(PlanRefusal::JournalEntryUnavailable { slot });
+            }
+            Err(CommitFold::Breach { .. }) => {
+                return Ok(WinOutcome::Installed(Box::new(self.breach_plan(kind)?)));
+            }
+        };
+        let candidate =
+            self.install_candidate(target, selected.accepted, committed, applied, config)?;
         effects.extend(self.apply_effects_merged(
             journal,
             &selected.suffix,
@@ -593,6 +708,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .with_bookkeeping(Bookkeeping {
                 proposals,
                 view_change: ViewChangeUpdate::Clear,
+                // The won change supersedes any planned overlap machine:
+                // the era now moves with the ordinary change.
+                planned: PlannedOverlapUpdate::Clear,
                 // The StartView broadcast is the new primary's
                 // announcement of the view: proof of its life (S4).
                 activity: Some(at),

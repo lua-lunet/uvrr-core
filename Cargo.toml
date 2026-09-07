@@ -6,7 +6,7 @@ edition = "2024"
 # lints, so a newer API cannot creep in unnoticed.
 rust-version = "1.85"
 description = "Sans-io Viewstamped Replication Revisited core (normal operation, view change, recovery, state transfer) with a C ABI for LuaJIT FFI."
-repository = "https://github.com/simbo1905/vrr-core"
+repository = "https://github.com/lua-lunet/uvrr-core"
 license = "MIT"
 readme = "README.md"
 keywords = ["consensus", "replication", "viewstamped", "vsr", "raft"]
@@ -37,6 +37,16 @@ name = "maelstrom-lin-kv"
 path = "src/bin/maelstrom-lin-kv/main.rs"
 required-features = ["maelstrom"]
 
+# The TigerBeetle-superblock durability demo (examples/uvrr-reincarnation/).
+# It links the static library extracted from TigerBeetle's own superblock
+# source, which build.sh in that directory compiles with TigerBeetle's pinned
+# Zig. Feature-gated so the default build, `make check`, and consumers never
+# need the Zig toolchain; it carries no dependencies.
+[[example]]
+name = "uvrr-reincarnation"
+path = "examples/uvrr-reincarnation/main.rs"
+required-features = ["uvrr"]
+
 # Every entry is optional, so a consumer's non-optional dependency set is empty
 # and `default-features = false` pulls in zero transitive crates. Enforced by
 # tests/manifest_contract.rs, which is a gate rather than a smoke test.
@@ -49,6 +59,8 @@ serde_json = { version = "1", optional = true }
 # deterministic (decision P3). `maelstrom` adds the JSON debug bridge and the
 # Maelstrom node binary.
 [features]
+# Gates examples/uvrr-reincarnation only; no dependencies behind it.
+uvrr = []
 default = []
 serde = ["dep:serde"]
 maelstrom = ["serde", "dep:serde_json"]

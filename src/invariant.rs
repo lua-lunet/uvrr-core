@@ -58,8 +58,6 @@ pub enum InputKind {
     /// A host timer event (S4; the tick itself is clock metadata, not protocol
     /// state, so the kind carries nothing).
     Tick,
-    /// A recovery attempt or its completion (§10).
-    Recovery,
     /// The host confirmed the stability of a persistence intent (§7, S2).
     StabilityConfirmed,
     /// The application acknowledged an applied slot (§11.1).
@@ -127,10 +125,9 @@ impl HeaderSlotRole {
 /// | `DoViewChange` | `Frontier` | the accepted frontier of the reported history (§9.1) |
 /// | `StartView` | `Frontier` | the accepted frontier of the installed history (§9.1) |
 /// | `PlannedViewChange` | `Absent` | like `StartViewChange`, and must not fence (§8.7.7) |
-/// | `Recovery` | `Absent` | the nonce is the tick (S4); no slot is spoken about (§10) |
-/// | `RecoveryResponse` | `Absent` | nonce and frontiers ride in the body; no slot is spoken about (§6.1) |
 /// | `GetState` | `Frontier` | the requester's accepted frontier; the fetch resumes one past it (§4, §13.1 step 5) |
 /// | `NewState` | `Frontier` | the last slot the chunk covers; `more` on a partial answer resumes from the requester's cursor (§4, §13.1 step 5) |
+/// | `Reincarnation` | `Absent` | names two identities, no history claim (`docs/uvrr-reincarnation.md` §4) |
 ///
 /// A `match` rather than a lookup table, on the codebase's standing reasoning: the
 /// compiler checks that every tag has a rule, and a tag added to `wire` without a
@@ -145,10 +142,9 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
         Tag::DoViewChange => HeaderSlotRole::Frontier,
         Tag::StartView => HeaderSlotRole::Frontier,
         Tag::PlannedViewChange => HeaderSlotRole::Absent,
-        Tag::Recovery => HeaderSlotRole::Absent,
-        Tag::RecoveryResponse => HeaderSlotRole::Absent,
         Tag::GetState => HeaderSlotRole::Frontier,
         Tag::NewState => HeaderSlotRole::Frontier,
+        Tag::Reincarnation => HeaderSlotRole::Absent,
     }
 }
 
@@ -240,28 +236,25 @@ fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {
 }
 
 /// Rule 3 — `retained` identifies the provenance of the retained history (§1.3),
-/// so it changes only when that history was re-selected. The re-selection inputs:
-/// recovery (§10 installs a coherent state), and the peer messages that install a
-/// history — `DoViewChange`, the one that completes the new primary's quorum
-/// (§9.1), `StartView`, `NewState` (state transfer, §4), and `RecoveryResponse`,
-/// the one that completes a recovery attempt with the latest fenced view's
-/// primary's history (§6.1). The match is exhaustive so a new tag forces a
+/// so it changes only when that history was re-selected. The re-selection inputs
+/// are the peer messages that install a history — `DoViewChange`, the one that
+/// completes the new primary's quorum (§9.1), `StartView`, and `NewState`
+/// (state transfer, §4). The match is exhaustive so a new tag forces a
 /// ruling here rather than inheriting one.
 fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) -> bool {
     if new.retained() == old.retained() {
         return false;
     }
     let reselects = match input {
-        InputKind::Recovery => true,
         InputKind::PeerMessage { tag, .. } => match tag {
-            Tag::DoViewChange | Tag::StartView | Tag::NewState | Tag::RecoveryResponse => true,
+            Tag::DoViewChange | Tag::StartView | Tag::NewState => true,
             Tag::Prepare
             | Tag::PrepareOk
             | Tag::Commit
             | Tag::StartViewChange
             | Tag::PlannedViewChange
-            | Tag::Recovery
-            | Tag::GetState => false,
+            | Tag::GetState
+            | Tag::Reincarnation => false,
         },
         InputKind::ClientRequest
         | InputKind::Tick
@@ -295,7 +288,6 @@ fn rule7_header_slot_violated(input: &InputKind) -> bool {
         InputKind::PeerMessage { tag, slot } => !header_slot_role(*tag).admits(*slot),
         InputKind::ClientRequest
         | InputKind::Tick
-        | InputKind::Recovery
         | InputKind::StabilityConfirmed
         | InputKind::Applied
         | InputKind::Checkpointed

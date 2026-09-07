@@ -1,0 +1,741 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 105 and seed -2175781639671168914 with 2 workers on 10 cores with 1820MB heap and 64MB offheap memory [pid: 8866] (Mac OS X 26.6.2 aarch64, Homebrew 26.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/Shared/lua-lunet/vrr-core/formal/VrrCoreEras.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/FiniteSets.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/Naturals.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/Sequences.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/TLC.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module VrrCoreEras
+Starting... (2026-09-06 08:44:17)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-09-06 08:44:17.
+Error: Invariant FrontiersOrdered is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ retainedView = ( n0 :> [era |-> 0, idx |-> 0] @@
+  n1 :> [era |-> 0, idx |-> 0] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ overlapStreamed = FALSE
+/\ everEnteredViewChange = FALSE
+/\ recoveryNonces = (n0 :> {} @@ n1 :> {} @@ n2 :> {})
+/\ logs = ( n0 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n1 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n2 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> )
+/\ historicalCommitted = { [ slot |-> 1,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"] ] }
+/\ recoveryEvidence = {}
+/\ castOccurred = FALSE
+/\ epochs = (n0 :> 0 @@ n1 :> 0 @@ n2 :> 0)
+/\ currentView = ( n0 :> [era |-> 0, idx |-> 0] @@
+  n1 :> [era |-> 0, idx |-> 0] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ committed = (n0 :> 1 @@ n1 :> 1 @@ n2 :> 1)
+/\ status = (n0 :> "normal" @@ n1 :> "normal" @@ n2 :> "normal")
+/\ messages = {}
+
+State 2: <Next line 925, col 5 to line 952, col 33 of module VrrCoreEras>
+/\ retainedView = ( n0 :> [era |-> 0, idx |-> 0] @@
+  n1 :> [era |-> 0, idx |-> 0] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ overlapStreamed = FALSE
+/\ everEnteredViewChange = TRUE
+/\ recoveryNonces = (n0 :> {} @@ n1 :> {} @@ n2 :> {})
+/\ logs = ( n0 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n1 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n2 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> )
+/\ historicalCommitted = { [ slot |-> 1,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"] ] }
+/\ recoveryEvidence = {}
+/\ castOccurred = FALSE
+/\ epochs = (n0 :> 0 @@ n1 :> 0 @@ n2 :> 0)
+/\ currentView = ( n0 :> [era |-> 0, idx |-> 1] @@
+  n1 :> [era |-> 0, idx |-> 0] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ committed = (n0 :> 1 @@ n1 :> 1 @@ n2 :> 1)
+/\ status = (n0 :> "view-change" @@ n1 :> "normal" @@ n2 :> "normal")
+/\ messages = { [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ] }
+
+State 3: <Next line 925, col 5 to line 952, col 33 of module VrrCoreEras>
+/\ retainedView = ( n0 :> [era |-> 0, idx |-> 0] @@
+  n1 :> [era |-> 0, idx |-> 0] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ overlapStreamed = FALSE
+/\ everEnteredViewChange = TRUE
+/\ recoveryNonces = (n0 :> {} @@ n1 :> {} @@ n2 :> {})
+/\ logs = ( n0 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n1 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n2 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> )
+/\ historicalCommitted = { [ slot |-> 1,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"] ] }
+/\ recoveryEvidence = {}
+/\ castOccurred = FALSE
+/\ epochs = (n0 :> 0 @@ n1 :> 0 @@ n2 :> 0)
+/\ currentView = ( n0 :> [era |-> 0, idx |-> 1] @@
+  n1 :> [era |-> 0, idx |-> 1] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ committed = (n0 :> 1 @@ n1 :> 1 @@ n2 :> 1)
+/\ status = (n0 :> "view-change" @@ n1 :> "view-change" @@ n2 :> "normal")
+/\ messages = { [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ] }
+
+State 4: <Next line 925, col 5 to line 952, col 33 of module VrrCoreEras>
+/\ retainedView = ( n0 :> [era |-> 0, idx |-> 0] @@
+  n1 :> [era |-> 0, idx |-> 0] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ overlapStreamed = FALSE
+/\ everEnteredViewChange = TRUE
+/\ recoveryNonces = (n0 :> {} @@ n1 :> {} @@ n2 :> {})
+/\ logs = ( n0 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n1 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n2 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> )
+/\ historicalCommitted = { [ slot |-> 1,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"] ] }
+/\ recoveryEvidence = {}
+/\ castOccurred = FALSE
+/\ epochs = (n0 :> 0 @@ n1 :> 0 @@ n2 :> 0)
+/\ currentView = ( n0 :> [era |-> 0, idx |-> 1] @@
+  n1 :> [era |-> 0, idx |-> 1] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ committed = (n0 :> 1 @@ n1 :> 1 @@ n2 :> 1)
+/\ status = (n0 :> "view-change" @@ n1 :> "view-change" @@ n2 :> "normal")
+/\ messages = { [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "do-view-change",
+    from |-> n0,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 0],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ] }
+
+State 5: <Next line 925, col 5 to line 952, col 33 of module VrrCoreEras>
+/\ retainedView = ( n0 :> [era |-> 0, idx |-> 0] @@
+  n1 :> [era |-> 0, idx |-> 0] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ overlapStreamed = FALSE
+/\ everEnteredViewChange = TRUE
+/\ recoveryNonces = (n0 :> {} @@ n1 :> {} @@ n2 :> {})
+/\ logs = ( n0 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n1 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n2 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> )
+/\ historicalCommitted = { [ slot |-> 1,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"] ] }
+/\ recoveryEvidence = {}
+/\ castOccurred = FALSE
+/\ epochs = (n0 :> 0 @@ n1 :> 0 @@ n2 :> 0)
+/\ currentView = ( n0 :> [era |-> 0, idx |-> 1] @@
+  n1 :> [era |-> 0, idx |-> 1] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ committed = (n0 :> 1 @@ n1 :> 1 @@ n2 :> 1)
+/\ status = (n0 :> "view-change" @@ n1 :> "view-change" @@ n2 :> "normal")
+/\ messages = { [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "do-view-change",
+    from |-> n0,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 0],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "do-view-change",
+    from |-> n1,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 0],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ] }
+
+State 6: <Next line 925, col 5 to line 952, col 33 of module VrrCoreEras>
+/\ retainedView = ( n0 :> [era |-> 0, idx |-> 0] @@
+  n1 :> [era |-> 0, idx |-> 1] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ overlapStreamed = FALSE
+/\ everEnteredViewChange = TRUE
+/\ recoveryNonces = (n0 :> {} @@ n1 :> {} @@ n2 :> {})
+/\ logs = ( n0 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n1 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n2 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> )
+/\ historicalCommitted = { [ slot |-> 1,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"] ] }
+/\ recoveryEvidence = {}
+/\ castOccurred = FALSE
+/\ epochs = (n0 :> 0 @@ n1 :> 0 @@ n2 :> 0)
+/\ currentView = ( n0 :> [era |-> 0, idx |-> 1] @@
+  n1 :> [era |-> 0, idx |-> 1] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ committed = (n0 :> 1 @@ n1 :> 1 @@ n2 :> 1)
+/\ status = (n0 :> "view-change" @@ n1 :> "normal" @@ n2 :> "normal")
+/\ messages = { [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "do-view-change",
+    from |-> n0,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 0],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "do-view-change",
+    from |-> n1,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 0],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "start-view",
+    from |-> n1,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "start-view",
+    from |-> n1,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ] }
+
+State 7: <Next line 925, col 5 to line 952, col 33 of module VrrCoreEras>
+/\ retainedView = ( n0 :> [era |-> 0, idx |-> 1] @@
+  n1 :> [era |-> 0, idx |-> 1] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ overlapStreamed = FALSE
+/\ everEnteredViewChange = TRUE
+/\ recoveryNonces = (n0 :> {} @@ n1 :> {} @@ n2 :> {})
+/\ logs = ( n0 :> <<>> @@
+  n1 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> @@
+  n2 :> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>> )
+/\ historicalCommitted = { [ slot |-> 1,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"] ] }
+/\ recoveryEvidence = {}
+/\ castOccurred = FALSE
+/\ epochs = (n0 :> 0 @@ n1 :> 0 @@ n2 :> 0)
+/\ currentView = ( n0 :> [era |-> 0, idx |-> 1] @@
+  n1 :> [era |-> 0, idx |-> 1] @@
+  n2 :> [era |-> 0, idx |-> 0] )
+/\ committed = (n0 :> 1 @@ n1 :> 1 @@ n2 :> 1)
+/\ status = (n0 :> "normal" @@ n1 :> "normal" @@ n2 :> "normal")
+/\ messages = { [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n0,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 0,
+    type |-> "start-view-change",
+    from |-> n1,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 0,
+    committed |-> 0,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "do-view-change",
+    from |-> n0,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 0],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "do-view-change",
+    from |-> n1,
+    to |-> n1,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 0],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "start-view",
+    from |-> n1,
+    to |-> n0,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ],
+  [ slot |-> 1,
+    type |-> "start-view",
+    from |-> n1,
+    to |-> n2,
+    view |-> [era |-> 0, idx |-> 1],
+    priorView |-> [era |-> 0, idx |-> 1],
+    routeEra |-> 0,
+    entry |-> [era |-> 0, kind |-> "genesis", value |-> "genesis-value"],
+    history |-> <<[era |-> 0, kind |-> "genesis", value |-> "genesis-value"]>>,
+    retained |-> [era |-> 0, idx |-> 1],
+    accepted |-> 1,
+    committed |-> 1,
+    nonce |-> 0 ] }
+
+5425 states generated, 2111 distinct states found, 1254 states left on queue.
+The depth of the complete state graph search is 8.
+The average outdegree of the complete state graph is 2 (minimum is 0, the maximum 10 and the 95th percentile is 7).
+Finished in 00s at (2026-09-06 08:44:17)
