@@ -121,7 +121,7 @@ theorem startup_cases (a b c d : Mark) :
 
 /-! ### The reincarnation state machine
 
-States per the spec: `flushed` (durable checkpoint), `unflushed` (running
+Marker states: `flushed` (durable checkpoint), `unflushed` (running
 sentinel), `dirty` (restart observed any-`unflushed`; eviction must begin),
 `bumped` (incarnation incremented, four superblocks rewritten), and
 `reincarnating` (wire phase: old identity pending eviction, new identity a

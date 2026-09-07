@@ -60,7 +60,7 @@ This create simply offers the strong consistency during non-stop cluster reconfi
 
 This Rust crate exposes a C ABI for FFI. It scales down to offer a lightweight and embeddable strong consistency model. With a small amount of data, such as leader leases or advisory locks, it removes the need to run something like Zookeeper or etcd. 
 
-In my experience the concept of external strong consistency service is one that has very sharp edges. It splits responsibility for quality, legitimacy, and performance across two product teams. Every client connected to the core is part of the full distributed system and must experience consistency. When there are silos of responsibility on the critical path then often no-ones hold themselves accountable the removal of every single source of outages. Crash safety is Crash-Stop-Self-Evict ("reincarnation"): see [docs/uvrr-reincarnation.md](docs/uvrr-reincarnation.md). 
+The concept of an external strong consistency service is one that has very sharp edges. It splits responsibility for quality, legitimacy, and performance across two product teams. Every client connected to the core is part of the full distributed system and must experience consistency. When there are silos of responsibility on the critical path then often no-ones hold themselves accountable the removal of every single source of outages. Crash safety is Crash-Stop-Self-Evict ("reincarnation"): see [docs/uvrr-reincarnation.md](docs/uvrr-reincarnation.md). 
 
 If you are curious to see if embedding strong consistency directly into your application reduces the complexity, costs and latencies of your system then try this crate. 
 
@@ -142,7 +142,7 @@ Pre-alpha. The protocol is covered by the tests above and by Maelstrom; the API 
 
 The codebase is intented to stay small and has advasorial tests. An absence of new feature being pushed is an absence of bugs and regressions. 
 
-Due to the Yeti nature of the superior but little advertised technology we are unlikely to see a ton of users leading to a 1.0.0 release. Yet I am more than open for to the idea. 
+Due to the Yeti nature of the superior but little advertised technology we are unlikely to see a ton of users leading to a 1.0.0 release.
 
 ## Attribution
 

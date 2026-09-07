@@ -52,8 +52,8 @@ byte-identical to upstream `src/*` except where listed below.
   slimmed struct.
 - New fields: `uvrr_incarnation: u64` (reincarnation identity, checksummed)
   and `uvrr_flushed: u8` (+ explicit `uvrr_flushed_padding [3]u8`) — the
-  reincarnation `flushed`/`unflushed` state as declared fields (spec's option
-  A; `flags` stays zero as TB asserts).
+  reincarnation `flushed`/`unflushed` state as declared fields
+  (`flags` stays zero as TB asserts).
 - `calculate_checksum`: patched to mask `uvrr_flushed` before hashing, so all
   copies of one sequence share one checksum (the flushed mark is per-copy
   durability state like `copy`; unmasked, an unflushed copy would read as a

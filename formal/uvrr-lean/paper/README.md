@@ -32,7 +32,7 @@ BibTeX step is needed. No credentials or paid API are required.
 
 Edit the title, author/email and `\paperrevision` near the beginning of
 paper.tex; edit the prose, equations and bibliography directly below them.
-The email is written exactly as supplied: simon.massey@stenographer.cloud.
+The author email is simon.massey@stenographer.cloud.
 The layout follows David C. Turner's UPaxos paper: US Letter, a two-column
 IEEE journal layout, Times text, a centered title/author, first-page contact
 notes, a title/revision header, top-right page numbers, and Roman-numbered
