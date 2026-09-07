@@ -1,10 +1,5 @@
 # uVRR reincarnation: the Crash-Stop-Self-Evict protocol
 
-*2026-09-07. Protocol specification per `.tmp/specs/item25.md` and the Director's
-addendum (clarifications 5–8). Grounding survey: `.tmp/research/uvrr-reincarnation-survey.md`
-(item23). Branch `research`. This document specifies; it does not claim an implementation
-or a checked formalization yet.*
-
 ## 1. Model statement
 
 uVRR by definition does **not** allow Crash-Recover (CR). It enforces
@@ -21,7 +16,7 @@ the class by construction rather than repairing it.
 
 Durable state is **four TigerBeetle-style superblocks**. Node restart reads all four.
 
-**Marker semantics** (Director clarification 6):
+**Marker semantics**:
 
 - `flushed` = "my on-disk state is a self-consistent checkpoint of identity X".
   Written at **clean shutdown** (node stopped responding, flushed all writes, fsynced)
@@ -69,15 +64,15 @@ by the bumped node to the leader. The leader drives the forced sequence of §5. 
 identity pair (old, new) is the freshness carrier where it meets rung 17's fence
 machinery: it **supersedes** the `generation` ghost field of
 `UVRR/RecoveryFence.lean` as the environment freshness abstraction, instantiated by
-the durable superblock incarnation. The RecoveryFence machinery itself stays
-(item23 K1); rung 17 is not modified here.
+the durable superblock incarnation. The RecoveryFence machinery is unaffected;
+rung 17 requires no modification.
 
 ## 5. Forced weight sequence
 
 The leader drives the forced reconfiguration sequence from the Paxos Voting Weights
 rules (simbo1905 blog, 2017-03-16: halve/double all weights, or change one node's
-weight by one; `.tmp/blogs/paxos-voting-weights.md`). Unit-weight special case
-(survey Example D), evicting `N2` and reincarnating it as `N2′`:
+weight by one). Unit-weight special case, evicting `N2` and reincarnating it
+as `N2′`:
 
 | Step | Weights (N0, N1, N2, N2′) | Rule |
 |---|---|---|
@@ -169,17 +164,16 @@ exist yet.
 log non-votingly — acquiring state by streaming while never voting — so that the
 0→1 promotion finds the node already caught up. Stated as future work, not claimed.
 
-## Grounding sources (on disk)
+## Grounding sources
 
-- `.tmp/blogs/paxos-voting-weights.md` — voting weights; halve/double and ±1 unit
-  rules; learners at weight 0 (2017-03-16).
-- `.tmp/blogs/upaxos-unbounded-paxos-reconfigurations.md` — era-indexed
-  reconfiguration, consecutive-configuration overlap, casting vote.
-- `.tmp/blogs/one-more-frown-please-upaxos-quorum-overlaps.md` — the frown operator
-  and the exact quorum-overlap chain `QIIe ⌢ QIe ⌢ QIIe+1 ⌢ QIe+1`.
-- `.tmp/blogs/viewstamped-replication-revisited.md` — uVRR motivation (2026-08-12
-  tease); TigerBeetle-style durability framing.
+- <https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/> — voting
+  weights; halve/double and ±1 unit rules; learners at weight 0.
+- <https://simbo1905.wordpress.com/2016/12/16/upaxos-unbounded-paxos-reconfigurations/>
+  — era-indexed reconfiguration, consecutive-configuration overlap, casting vote.
+- <https://simbo1905.wordpress.com/2020/05/23/one-more-frown-please-upaxos-quorum-overlaps/>
+  — the frown operator and the exact quorum-overlap chain
+  `QIIe ⌢ QIe ⌢ QIIe+1 ⌢ QIe+1`.
+- <https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/>
+  — uVRR motivation; TigerBeetle-style durability framing.
 - <https://simbo1905.wordpress.com/2024/04/12/the-network-is-faster-than-the-disk/>
   — the deferred-flush economic rationale (§3).
-- `.tmp/research/uvrr-reincarnation-survey.md` — item23 disposition map and worked
-  weight vectors (Examples A–D).

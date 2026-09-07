@@ -1,8 +1,7 @@
-# uvrr-reincarnation — vendored TigerBeetle storage-stack demo (item31)
+# uvrr-reincarnation — vendored TigerBeetle storage-stack demo
 
-Drives the VENDORED TigerBeetle 0.17.9 IO + superblock stack (`zig/` — see
-`zig/PATCH_MANIFEST.md` for every patched line and the fact-check table of the
-Director's transcript claims) through a C-ABI static library
+Drives the vendored TigerBeetle 0.17.9 IO + superblock stack (`zig/` — see
+`zig/PATCH_MANIFEST.md` for every patched line) through a C-ABI static library
 (`libuvrr_sb.a`), built with TB's pinned **Zig 0.14.1**.
 
 ## Paths demonstrated
@@ -40,4 +39,5 @@ the same vendored code on linux.
 ## History
 
 The pre-replacement filesystem-based scaffolding version of this example
-lives at tag `rust_disk`.
+lives at tag `rust_disk`; it was replaced because filesystem I/O does not
+match the TigerBeetle storage model this example vendors.

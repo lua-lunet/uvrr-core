@@ -17,6 +17,16 @@
 - Code that exposes no useful service has no value. Code that can only be tested in
   production is legacy at the moment it is written.
 
+## Documentation
+
+- Documentation must be the timeless target end state. We practice
+  markdown-driven development (MDD): the markdown states what the system IS.
+- No project plans, task identifiers, orchestration chatter, or historic
+  narrative in documentation or code. Such material is written only when
+  explicitly requested by the User or added manually by the User. Dated
+  evidence artifacts (lab book, audit logs, rung transcripts) are the
+  established exceptions; do not add new narrative classes to documentation.
+
 ## Perimeters
 
 - Enforce shapes at module perimeters: IO, network, storage, and boundaries between logic

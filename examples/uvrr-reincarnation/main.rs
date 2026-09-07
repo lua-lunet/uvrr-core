@@ -1,8 +1,8 @@
-//! TigerBeetle direct-IO durability substrate, driven through the VENDORED
+//! TigerBeetle direct-IO durability substrate, driven through the vendored
 //! TigerBeetle 0.17.9 IO + superblock stack (zig/ — see zig/PATCH_MANIFEST.md
 //! and README.md for the build).
 //!
-//! Director's delta demonstrated over TB's actual code paths:
+//! Demonstrated over TB's actual code paths:
 //!   * the data file is opened through TB's per-OS direct block-IO layer
 //!     (darwin: O_DSYNC + F_NOCACHE + flock + F_FULLFSYNC flush; linux would
 //!     use O_DIRECT — see the fact-check notes in zig/PATCH_MANIFEST.md);

@@ -15,3 +15,6 @@ Cargo.lock
 .lake/
 # Vendored dependencies (regenerable via lake build)
 research/lean-solve-auto/duper/
+
+# Zig build cache (regenerable via zig/build.sh)
+.zigcache/
