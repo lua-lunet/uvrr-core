@@ -64,5 +64,6 @@ pub mod message;
 pub mod observe;
 pub mod progress;
 pub mod quorum;
+pub mod reconfiguration;
 pub mod replica;
 pub mod wire;

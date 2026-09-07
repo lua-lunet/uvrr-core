@@ -38,8 +38,13 @@ use vrr::wire::Tag;
 // ---------------------------------------------------------------------------
 
 /// A table with every era through `era` established: `Void` at slot 1, `Init` at
-/// slot 2, and one `Increment` per further era, so era `k >= 1` is established at
-/// slot `k + 1`. The retention window keeps only the last two eras.
+/// slot 2, and one establishing operation per further era, so era `k >= 1` is
+/// established at slot `k + 1`. The retention window keeps only the last two eras.
+///
+/// The per-era operations obey the weight domain {0, 1, 2} (rules §1, R1): era 2
+/// promotes the sole member to weight 2, and every later era joins a fresh
+/// weight-0 learner and leaves it — zero-mass eras (R14), so the sequence is
+/// legal however long the fixture runs.
 fn table_upto(era: u32) -> Arc<EraTable> {
     let node = NodeId(0);
     let mut table = EraTable::genesis();
@@ -51,11 +56,25 @@ fn table_upto(era: u32) -> Arc<EraTable> {
             .extend(&SystemOperation::Init { order: vec![node] }, Slot(2))
             .expect("Init at INIT_SLOT");
     }
-    for established in 2..=era {
-        let slot = Slot(u64::from(established) + 1);
+    if era >= 2 {
         table = table
-            .extend(&SystemOperation::Increment(node), slot)
-            .expect("Increment establishes one era per slot");
+            .extend(&SystemOperation::Increment(node), Slot(3))
+            .expect("Increment establishes era 2 at slot 3");
+    }
+    for established in 3..=era {
+        let slot = Slot(u64::from(established) + 1);
+        let learner = NodeId(1000 + established);
+        let op = if established % 2 == 1 {
+            SystemOperation::Join {
+                node: learner,
+                position: 0,
+            }
+        } else {
+            SystemOperation::Leave(learner)
+        };
+        table = table
+            .extend(&op, slot)
+            .expect("the zero-mass era establishes one era per slot");
     }
     Arc::new(table)
 }

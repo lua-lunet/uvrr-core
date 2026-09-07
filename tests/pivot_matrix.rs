@@ -89,10 +89,10 @@ fn config_with_weights(order: &[NodeId], weights: &[(NodeId, u32)]) -> Configura
     config
 }
 
-/// The W/X/Y/Z sequence: four nodes, era e has W=3 X=1 Y=1 Z=1, era e+1
-/// has W=2 X=1 Y=3 Z=1. The leader W is pivotal: its weight drops from 3
-/// to 2 while Y's rises from 1 to 3, and the pivot split must account for
-/// both configurations.
+/// The W/X/Y/Z sequence: four nodes, era e has W=2 X=1 Y=1 Z=1, era e+1
+/// has W=1 X=1 Y=2 Z=1 (weights inside the {0, 1, 2} domain, R1). The
+/// leader W is pivotal: its weight drops from 2 to 1 while Y's rises from
+/// 1 to 2, and the pivot split must account for both configurations.
 #[test]
 fn construction_finds_pivot_in_wxyz_sequence() {
     let w = n(0);
@@ -100,8 +100,8 @@ fn construction_finds_pivot_in_wxyz_sequence() {
     let y = n(2);
     let z = n(3);
 
-    let current = config_with_weights(&[w, x, y, z], &[(w, 3)]);
-    let next = config_with_weights(&[w, x, y, z], &[(w, 2), (y, 3)]);
+    let current = config_with_weights(&[w, x, y, z], &[(w, 2)]);
+    let next = config_with_weights(&[w, x, y, z], &[(y, 2)]);
 
     // The construction must find a pivot for leader W.
     let pivot = vrr::replica::construct_pivot(&WeightedMajority, &current, &next, w)
@@ -152,8 +152,8 @@ fn construction_is_deterministic() {
     let y = n(2);
     let z = n(3);
 
-    let current = config_with_weights(&[w, x, y, z], &[(w, 3)]);
-    let next = config_with_weights(&[w, x, y, z], &[(w, 2), (y, 3)]);
+    let current = config_with_weights(&[w, x, y, z], &[(w, 2)]);
+    let next = config_with_weights(&[w, x, y, z], &[(y, 2)]);
 
     let first = vrr::replica::construct_pivot(&WeightedMajority, &current, &next, w);
     let second = vrr::replica::construct_pivot(&WeightedMajority, &current, &next, w);
@@ -189,8 +189,8 @@ fn valid_wxyz_pivot() -> (Configuration, Configuration, Pivot) {
     let y = n(2);
     let z = n(3);
 
-    let current = config_with_weights(&[w, x, y, z], &[(w, 3)]);
-    let next = config_with_weights(&[w, x, y, z], &[(w, 2), (y, 3)]);
+    let current = config_with_weights(&[w, x, y, z], &[(w, 2)]);
+    let next = config_with_weights(&[w, x, y, z], &[(y, 2)]);
     let pivot = vrr::replica::construct_pivot(&WeightedMajority, &current, &next, w)
         .expect("construction succeeds");
     (current, next, pivot)
@@ -262,7 +262,7 @@ fn validation_rejects_leader_absent_from_qii() {
 #[test]
 fn validation_rejects_qi_not_legal_under_current() {
     let (current, next, mut pivot) = valid_wxyz_pivot();
-    // Strip qI down to just the leader: weight 3 < threshold 4.
+    // Strip qI down to just the leader: weight 2 < threshold 3.
     let w = n(0);
     pivot.q_i = vec![w];
 
@@ -278,7 +278,7 @@ fn validation_rejects_qi_not_legal_under_current() {
 #[test]
 fn validation_rejects_qii_not_legal_under_current() {
     let (current, next, mut pivot) = valid_wxyz_pivot();
-    // Strip qII down to just the leader: weight 3 < threshold 4 in era e.
+    // Strip qII down to just the leader: weight 2 < threshold 3 in era e.
     let w = n(0);
     pivot.q_ii = vec![w];
 
@@ -295,7 +295,7 @@ fn validation_rejects_qii_not_legal_under_current() {
 fn validation_rejects_qii_not_legal_under_next() {
     let (current, next, mut pivot) = valid_wxyz_pivot();
     // A qII legal under config(e) but not config(e+1): {W, X} has weight
-    // 3+1=4 in era e (threshold 4) but 2+1=3 in era e+1 (threshold 4).
+    // 2+1=3 in era e (threshold 3) but 1+1=2 in era e+1 (threshold 3).
     let w = n(0);
     let x = n(1);
     pivot.q_ii = vec![w, x];

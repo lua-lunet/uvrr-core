@@ -168,19 +168,19 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> (ViewId, NodeId) {
 
 /// Reincarnates a crashed backup through the forced sequence, stopping at
 /// the named point. Shared by B, E and F: the choreography — dirty
-/// restart, announcement, forced steps each followed by the ordinary view
-/// change into the era it established, tick-driven continuation — is one
-/// script, and the classes observe it at different depths.
+/// restart, announcement, the forced batches each followed by the ordinary
+/// view change into the era it established, the idempotent re-announce —
+/// is one script, and the classes observe it at different depths. Each
+/// forced step is a `Batch` and commits ONE era through the ordinary
+/// reconfiguration pipeline (§5; rules §6).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Stop {
     /// Stop after the announcement armed the machine and the first forced
-    /// step committed.
-    AfterDecrement,
-    /// Stop after the old identity's eviction committed.
-    AfterRemove,
-    /// Stop after the new identity joined at weight 0.
-    AfterAdd,
-    /// Run the whole sequence: the new identity rejoins at weight 1.
+    /// batch — `[Decrement(old), Join(new)]` — committed: the old identity
+    /// sits at weight 0 and the new identity is a weight-0 learner.
+    AfterFirstEra,
+    /// Run the whole sequence: the new identity rejoins at weight 1, the
+    /// old identity is evicted.
     Complete,
 }
 
@@ -204,16 +204,21 @@ fn reincarnate_backup(h: &mut Harness, stop: Stop) {
     let outcome = h.reincarnate(n(3), n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     // One delivery pass carries the announcement (the backups drop it by
-    // name) AND the leader's first forced `Prepare`.
+    // name) AND the leader's first forced `Prepare` — for the batch
+    // `[Decrement(old), Join(new)]` as ONE establishing operation.
     h.deliver_all();
-    assert_eq!(current_era(h, n(0)), Era(2), "Decrement(old) committed");
-    assert_eq!(current_weights(h, n(0)), vec![1, 1, 0]);
-    if stop == Stop::AfterDecrement {
+    assert_eq!(current_era(h, n(0)), Era(2), "Batch([Decrement, Join]) committed");
+    assert_eq!(current_order(h, n(0)), vec![n(0), n(1), n(3), n(2)]);
+    assert_eq!(current_weights(h, n(0)), vec![1, 1, 0, 0]);
+    if stop == Stop::AfterFirstEra {
         return;
     }
 
-    // The next forced step waits for the view change into era 2, then the
-    // tick-driven continuation proposes it (§5, §8).
+    // The next forced batch waits for the view change into era 2, then the
+    // re-announce (§8) recomputes the remainder from the intermediate era —
+    // the old identity at weight 0, the new identity joined at 0 — which is
+    // exactly the second era of the weight-1 row: `[Increment(new),
+    // Leave(old)]` (rules §6).
     let (target, _) = drive_view_change(h, &[n(0), n(1)]);
     assert_eq!(target.era, Era(2));
     // Leadership rotated; the bumped node re-announces to the stable
@@ -221,36 +226,7 @@ fn reincarnate_backup(h: &mut Harness, stop: Stop) {
     let outcome = h.reincarnate(n(3), n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
-    assert_eq!(current_era(h, n(0)), Era(3), "Remove(old) committed");
-    assert_eq!(current_order(h, n(0)), vec![n(0), n(1)]);
-    assert_eq!(current_weights(h, n(0)), vec![1, 1]);
-    if stop == Stop::AfterRemove {
-        return;
-    }
-
-    // Era 3's fence view selects the FIRST leader again — whose machine
-    // is still armed from the first announcement — so a plain tick
-    // continues the sequence (§5's tick-driven re-drive).
-    let (_, prime) = drive_view_change(h, &[n(0), n(1)]);
-    let outcome = h.tick(prime);
-    assert!(matches!(outcome, StepOutcome::Published { .. }));
-    h.deliver_all();
-    assert_eq!(
-        current_era(h, n(0)),
-        Era(4),
-        "Add(new, old's position) committed"
-    );
-    assert_eq!(current_order(h, n(0)), vec![n(0), n(1), n(3)]);
-    assert_eq!(current_weights(h, n(0)), vec![1, 1, 0]);
-    if stop == Stop::AfterAdd {
-        return;
-    }
-
-    let (_, prime) = drive_view_change(h, &[n(0), n(1)]);
-    let outcome = h.tick(prime);
-    assert!(matches!(outcome, StepOutcome::Published { .. }));
-    h.deliver_all();
-    assert_eq!(current_era(h, n(0)), Era(5), "Increment(new) committed");
+    assert_eq!(current_era(h, n(0)), Era(3), "Batch([Increment, Leave]) committed");
     assert_eq!(current_order(h, n(0)), vec![n(0), n(1), n(3)]);
     assert_eq!(current_weights(h, n(0)), vec![1, 1, 1]);
     h.assert_safety();
@@ -315,11 +291,13 @@ fn assert_era_safe(steps: &[Configuration]) {
     }
 }
 
-/// The unit-scale forced sequence (§5): the old identity driven to 0 by
-/// the subtract-one rule, evicted, the new identity joined at 0 in the old
-/// succession position, then promoted — each step a distinct
-/// configuration, every intermediate quorum-safe, the final membership
-/// the rejoin.
+/// The unit-scale ±1 rules (§5) the §6 sequence is built from: the old
+/// identity driven to 0 by the subtract-one rule, departed, the new
+/// identity joined at 0 in the old succession position, then promoted —
+/// each step a distinct configuration, every intermediate quorum-safe, the
+/// final membership the rejoin. Under the era rule (rules §4, R14) the
+/// middle two steps share one era; this corpus pins the per-step rules
+/// that make each era safe.
 #[test]
 fn a_unit_scale_forced_sequence_is_the_blog_table_d() {
     let d0 = fold(&[]);
@@ -328,13 +306,13 @@ fn a_unit_scale_forced_sequence_is_the_blog_table_d() {
     assert_eq!(weights(&d1), vec![1, 1, 0]);
     let d2 = fold(&[
         SystemOperation::Decrement(n(2)),
-        SystemOperation::Remove(n(2)),
+        SystemOperation::Leave(n(2)),
     ]);
     assert_eq!(weights(&d2), vec![1, 1]);
     let d3 = fold(&[
         SystemOperation::Decrement(n(2)),
-        SystemOperation::Remove(n(2)),
-        SystemOperation::Add {
+        SystemOperation::Leave(n(2)),
+        SystemOperation::Join {
             node: n(3),
             position: 2,
         },
@@ -347,8 +325,8 @@ fn a_unit_scale_forced_sequence_is_the_blog_table_d() {
     );
     let d4 = fold(&[
         SystemOperation::Decrement(n(2)),
-        SystemOperation::Remove(n(2)),
-        SystemOperation::Add {
+        SystemOperation::Leave(n(2)),
+        SystemOperation::Join {
             node: n(3),
             position: 2,
         },
@@ -360,7 +338,8 @@ fn a_unit_scale_forced_sequence_is_the_blog_table_d() {
 
 /// The doubled-state corner (§5): the sequence runs at the doubled scale
 /// and returns to unit weights through the extra unit step that makes the
-/// halve integral. Every adjacent pair obeys a scaling or unit rule.
+/// halve integral. Every adjacent pair obeys a scaling or unit rule, and
+/// every weight stays inside the {0, 1, 2} domain (rules §1, R1).
 #[test]
 fn a_doubled_scale_corner_is_the_blog_table_c() {
     let c0 = fold(&[SystemOperation::Double]);
@@ -377,15 +356,15 @@ fn a_doubled_scale_corner_is_the_blog_table_c() {
         SystemOperation::Double,
         SystemOperation::Decrement(n(2)),
         SystemOperation::Decrement(n(2)),
-        SystemOperation::Remove(n(2)),
+        SystemOperation::Leave(n(2)),
     ]);
     assert_eq!(weights(&c3), vec![2, 2]);
     let c4 = fold(&[
         SystemOperation::Double,
         SystemOperation::Decrement(n(2)),
         SystemOperation::Decrement(n(2)),
-        SystemOperation::Remove(n(2)),
-        SystemOperation::Add {
+        SystemOperation::Leave(n(2)),
+        SystemOperation::Join {
             node: n(3),
             position: 2,
         },
@@ -395,8 +374,8 @@ fn a_doubled_scale_corner_is_the_blog_table_c() {
         SystemOperation::Double,
         SystemOperation::Decrement(n(2)),
         SystemOperation::Decrement(n(2)),
-        SystemOperation::Remove(n(2)),
-        SystemOperation::Add {
+        SystemOperation::Leave(n(2)),
+        SystemOperation::Join {
             node: n(3),
             position: 2,
         },
@@ -407,8 +386,8 @@ fn a_doubled_scale_corner_is_the_blog_table_c() {
         SystemOperation::Double,
         SystemOperation::Decrement(n(2)),
         SystemOperation::Decrement(n(2)),
-        SystemOperation::Remove(n(2)),
-        SystemOperation::Add {
+        SystemOperation::Leave(n(2)),
+        SystemOperation::Join {
             node: n(3),
             position: 2,
         },
@@ -420,8 +399,8 @@ fn a_doubled_scale_corner_is_the_blog_table_c() {
         SystemOperation::Double,
         SystemOperation::Decrement(n(2)),
         SystemOperation::Decrement(n(2)),
-        SystemOperation::Remove(n(2)),
-        SystemOperation::Add {
+        SystemOperation::Leave(n(2)),
+        SystemOperation::Join {
             node: n(3),
             position: 2,
         },
@@ -435,7 +414,7 @@ fn a_doubled_scale_corner_is_the_blog_table_c() {
 
 /// The blog's `{3, 4, 5, 6, 7}` observation — consecutive unit totals have
 /// overlapping majorities, skipping one violates it — through the live
-/// replica path: `Add` at weight 0 (total unchanged), then two unit
+/// replica path: `Join` at weight 0 (total unchanged), then two unit
 /// increments. Every intermediate era commits, and the quorum gate (Q1)
 /// is what made each proposal legal.
 #[test]
@@ -445,7 +424,7 @@ fn a_unit_ladder_commits_through_the_replica_path() {
 
     let outcome = h.reconfigure(
         n(0),
-        SystemOperation::Add {
+        SystemOperation::Join {
             node: n(3),
             position: 3,
         },
@@ -471,10 +450,10 @@ fn a_unit_ladder_commits_through_the_replica_path() {
 fn a_skipped_unit_is_refused_by_the_gate() {
     let mut h = cluster();
     bootstrap(&mut h);
-    // Remove requires weight 0, so the skip is expressed as its
-    // precondition violation instead: removing a member that still votes
+    // Leave requires weight 0, so the skip is expressed as its
+    // precondition violation instead: departing a member that still votes
     // is refused by name — the one-unit route is the ONLY departure route.
-    let outcome = h.reconfigure(n(0), SystemOperation::Remove(n(1)), None);
+    let outcome = h.reconfigure(n(0), SystemOperation::Leave(n(1)), None);
     assert_eq!(
         outcome,
         StepOutcome::PlanRefused(PlanRefusal::Reconfigure(ConfigError::NonZeroWeight(n(1))))
@@ -517,12 +496,14 @@ fn b_backup_crashed_reincarnates_and_rejoins() {
 // C. Leader crashed mid-sequence
 // ---------------------------------------------------------------------------
 
-/// The leader crashes after the first forced step commits. The cluster
+/// The leader crashes after the first forced batch commits. The cluster
 /// reaches a stable leader FIRST (§8: the reincarnated node does not force
 /// eviction until one exists), and the new leader completes the sequence
 /// from the era the crash landed in — the announcement is idempotent over
 /// the committed configuration, so the steps already committed are not
-/// re-run.
+/// re-run. The weight-1 row of the §6 table is exactly two eras, so the
+/// crash intermediate era leaves one remaining batch:
+/// `[Increment(new), Leave(old)]`.
 #[test]
 fn c_leader_crash_mid_sequence_continues_from_the_intermediate_era() {
     let mut h = cluster5();
@@ -533,12 +514,13 @@ fn c_leader_crash_mid_sequence_continues_from_the_intermediate_era() {
     h.crash(n(4));
     h.restart_as(n(4), n(5)).expect("the bumped node reopens");
 
-    // The announcement reaches the leader, which proposes the first
-    // forced step; the delivery pass commits it.
+    // The announcement reaches the leader, which proposes the first forced
+    // batch; the delivery pass commits it as one era.
     h.reincarnate(n(5), n(4));
     h.deliver_all();
-    assert_eq!(current_era(&h, n(1)), Era(2), "Decrement(old) committed");
-    assert_eq!(current_weights(&h, n(1)), vec![1, 1, 1, 1, 0]);
+    assert_eq!(current_era(&h, n(1)), Era(2), "Batch([Decrement, Join]) committed");
+    assert_eq!(current_order(&h, n(1)), vec![n(0), n(1), n(2), n(3), n(5), n(4)]);
+    assert_eq!(current_weights(&h, n(1)), vec![1, 1, 1, 1, 0, 0]);
 
     // The leader dies mid-sequence.
     h.crash(n(0));
@@ -549,28 +531,18 @@ fn c_leader_crash_mid_sequence_continues_from_the_intermediate_era() {
     assert_eq!(primary_of(&h, n(1), target), Some(n(1)));
 
     // The bumped node re-announces to the stable leader. The recomputed
-    // sequence starts where the observed intermediate era left off: the
-    // old identity is at weight 0, so no further decrement — evict, join,
-    // promote.
+    // sequence starts where the observed intermediate era left off: the old
+    // identity is at weight 0 and the new identity is already a member at
+    // weight 0, so the only remaining era is `[Increment(new), Leave(old)]`.
     h.reincarnate(n(5), n(4));
     h.deliver_all();
-    assert_eq!(current_era(&h, n(1)), Era(3), "Remove(old) committed");
-    assert_eq!(current_order(&h, n(1)), vec![n(0), n(1), n(2), n(3)]);
-
-    let _ = drive_view_change(&mut h, &[n(1), n(2), n(3)]);
-    let outcome = h.reincarnate(n(5), n(4));
-    assert!(matches!(outcome, StepOutcome::Published { .. }));
-    h.deliver_all();
-    assert_eq!(current_era(&h, n(2)), Era(4), "Add(new) committed");
-    assert_eq!(current_order(&h, n(2)), vec![n(0), n(1), n(2), n(3), n(5)]);
-
-    let _ = drive_view_change(&mut h, &[n(1), n(2), n(3)]);
-    let outcome = h.reincarnate(n(5), n(4));
-    assert!(matches!(outcome, StepOutcome::Published { .. }));
-    h.deliver_all();
-    assert_eq!(current_era(&h, n(3)), Era(5), "Increment(new) committed");
-    assert_eq!(current_order(&h, n(3)), vec![n(0), n(1), n(2), n(3), n(5)]);
-    assert_eq!(current_weights(&h, n(3)), vec![1, 1, 1, 1, 1]);
+    assert_eq!(
+        current_era(&h, n(1)),
+        Era(3),
+        "Batch([Increment(new), Leave(old)]) committed"
+    );
+    assert_eq!(current_order(&h, n(1)), vec![n(0), n(1), n(2), n(3), n(5)]);
+    assert_eq!(current_weights(&h, n(1)), vec![1, 1, 1, 1, 1]);
     h.assert_safety();
 }
 
@@ -741,7 +713,7 @@ fn marks_unflushed(copies: &mut SuperblockCopies, index: usize) {
 #[test]
 fn e_membership_discard() {
     let mut h = cluster();
-    reincarnate_backup(&mut h, Stop::AfterRemove);
+    reincarnate_backup(&mut h, Stop::Complete);
     // The old identity was evicted (era 3): its messages are foreign.
     let before = h.queued_len();
     h.inject(
@@ -811,8 +783,8 @@ fn e_membership_discard() {
 #[test]
 fn f_learner_receives_streams_and_cannot_influence() {
     let mut h = cluster();
-    reincarnate_backup(&mut h, Stop::AfterAdd);
-    // The leader streams to the learner: it is a member of the era-4
+    reincarnate_backup(&mut h, Stop::AfterFirstEra);
+    // The leader streams to the learner: it is a member of the era-2
     // configuration, so the next proposal's Prepare is ADDRESSED to it,
     // and the learner processes the delivery (its own configuration
     // history is behind — the streamed acquisition of the missing eras is
@@ -823,7 +795,7 @@ fn f_learner_receives_streams_and_cannot_influence() {
     // the fence view's recipients are the era that includes the learner,
     // so the stream reaches it only after the fence installs.
     let _ = drive_view_change(&mut h, &[n(0), n(1)]);
-    let outcome = h.propose(n(0), op_id(2), b"y");
+    let outcome = h.propose(n(1), op_id(2), b"y");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert!(
@@ -836,18 +808,18 @@ fn f_learner_receives_streams_and_cannot_influence() {
     // Its vote is discarded, named, before counting.
     h.inject(
         n(3),
-        n(0),
+        n(1),
         Message {
             header: Header {
                 tag: Tag::PrepareOk,
-                view: current_view(&h, n(0)),
+                view: current_view(&h, n(1)),
                 slot: Slot(4),
             },
             body: Body::PrepareOk {},
         },
     );
     assert_eq!(
-        h.diagnostic(n(0)),
+        h.diagnostic(n(1)),
         Some(Diagnostic::LearnerSender { sender: n(3) }),
         "the learner's vote is discarded by name"
     );
@@ -855,7 +827,7 @@ fn f_learner_receives_streams_and_cannot_influence() {
     // The quorum outcome is unaffected: the commit lands on the voting
     // members alone.
     assert!(
-        snap(&h, n(0)).committed >= 4,
+        snap(&h, n(1)).committed >= 4,
         "the operation committed without the learner"
     );
     h.assert_safety();
@@ -999,8 +971,9 @@ fn encode(message: &Message) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 /// The generator's idempotence: at the leader-crash intermediate eras, the
-/// recomputed steps are exactly the remaining ones — never a re-run of a
-/// committed step.
+/// recomputed eras are exactly the remaining ones — never a re-run of a
+/// committed step (§8; rules §6). Every element is one era's establishing
+/// `Batch`.
 #[test]
 fn forced_steps_recompute_exactly_the_remaining_suffix() {
     let void = Configuration::void()
@@ -1014,57 +987,85 @@ fn forced_steps_recompute_exactly_the_remaining_suffix() {
             INIT_SLOT,
         )
         .expect("Init");
-    // Full sequence from genesis: decrement, remove, join, promote.
+    // Full sequence from genesis: the weight-1 row of the §6 table —
+    // exactly two eras, the crossing batch then the promotion batch.
     let full = forced_steps(&genesis, n(2), n(3));
     assert_eq!(
         full,
         vec![
-            SystemOperation::Decrement(n(2)),
-            SystemOperation::Remove(n(2)),
-            SystemOperation::Add {
-                node: n(3),
-                position: 2
-            },
-            SystemOperation::Increment(n(3)),
+            SystemOperation::Batch(vec![
+                SystemOperation::Decrement(n(2)),
+                SystemOperation::Join {
+                    node: n(3),
+                    position: 2
+                },
+            ]),
+            SystemOperation::Batch(vec![
+                SystemOperation::Increment(n(3)),
+                SystemOperation::Leave(n(2)),
+            ]),
         ]
     );
-    // The observed intermediate era D1 (old at weight 0): the decrement
-    // is gone; the rest remains.
+    // The canonical first era committed: the old identity at weight 0, the
+    // new identity joined at 0 — the recompute is the weight-1 row's second
+    // era, and nothing else.
+    let era1 = genesis
+        .apply(&SystemOperation::Decrement(n(2)), Slot(3))
+        .expect("the fold accepts the decrement")
+        .apply(
+            &SystemOperation::Join {
+                node: n(3),
+                position: 2,
+            },
+            Slot(4),
+        )
+        .expect("the fold accepts the join");
+    assert_eq!(
+        forced_steps(&era1, n(2), n(3)),
+        vec![SystemOperation::Batch(vec![
+            SystemOperation::Increment(n(3)),
+            SystemOperation::Leave(n(2)),
+        ])]
+    );
+    // The observed intermediate era where the decrement committed but the
+    // join has not: the §6 weight-0 row — join and leave in one zero-mass
+    // era, then the promotion.
     let d1 = genesis
         .apply(&SystemOperation::Decrement(n(2)), Slot(3))
         .expect("the fold accepts the decrement");
     assert_eq!(
         forced_steps(&d1, n(2), n(3)),
         vec![
-            SystemOperation::Remove(n(2)),
-            SystemOperation::Add {
-                node: n(3),
-                position: 2
-            },
-            SystemOperation::Increment(n(3)),
+            SystemOperation::Batch(vec![
+                SystemOperation::Join {
+                    node: n(3),
+                    position: 2
+                },
+                SystemOperation::Leave(n(2)),
+            ]),
+            SystemOperation::Batch(vec![SystemOperation::Increment(n(3))]),
         ]
     );
     // The intermediate era where the old identity is already evicted: the
     // new identity joins in the old succession position... which is gone;
-    // it appends.
+    // it appends. Join alone, then promote — the §6 evicted row.
     let d2 = d1
-        .apply(&SystemOperation::Remove(n(2)), Slot(4))
-        .expect("the fold accepts the removal");
+        .apply(&SystemOperation::Leave(n(2)), Slot(4))
+        .expect("the fold accepts the departure");
     assert_eq!(
         forced_steps(&d2, n(2), n(3)),
         vec![
-            SystemOperation::Add {
+            SystemOperation::Batch(vec![SystemOperation::Join {
                 node: n(3),
                 position: 2
-            },
-            SystemOperation::Increment(n(3)),
+            },]),
+            SystemOperation::Batch(vec![SystemOperation::Increment(n(3))]),
         ]
     );
-    // The intermediate era where the new identity already joined at 0:
-    // only the promotion remains.
+    // The evicted row's first era committed: only the promotion remains.
     let d3 = d2
         .apply(
-            &SystemOperation::Add {
+            &SystemOperation::Join {
                 node: n(3),
                 position: 2,
             },
@@ -1073,31 +1074,38 @@ fn forced_steps_recompute_exactly_the_remaining_suffix() {
         .expect("the fold accepts the join");
     assert_eq!(
         forced_steps(&d3, n(2), n(3)),
-        vec![SystemOperation::Increment(n(3))]
+        vec![SystemOperation::Batch(vec![SystemOperation::Increment(n(3))])]
     );
     // The rejoin: nothing remains.
     let d4 = d3
-        .apply(&SystemOperation::Increment(n(3)), Slot(6))
+        .apply(
+            &SystemOperation::Batch(vec![SystemOperation::Increment(n(3))]),
+            Slot(6),
+        )
         .expect("the fold accepts the promotion");
     assert!(forced_steps(&d4, n(2), n(3)).is_empty());
     // A degenerate pair asks for nothing.
     assert!(forced_steps(&genesis, n(2), n(2)).is_empty());
-    // A doubled-scale cluster decrements twice: the subtract-one rule at
-    // any scale.
+    // A doubled-scale cluster decrements once per unit above one, then the
+    // crossing batch: the §6 weight-`w >= 2` row at any scale.
     let doubled = genesis
         .apply(&SystemOperation::Double, Slot(3))
         .expect("the fold accepts the double");
     assert_eq!(
         forced_steps(&doubled, n(2), n(3)),
         vec![
-            SystemOperation::Decrement(n(2)),
-            SystemOperation::Decrement(n(2)),
-            SystemOperation::Remove(n(2)),
-            SystemOperation::Add {
-                node: n(3),
-                position: 2
-            },
-            SystemOperation::Increment(n(3)),
+            SystemOperation::Batch(vec![SystemOperation::Decrement(n(2))]),
+            SystemOperation::Batch(vec![
+                SystemOperation::Decrement(n(2)),
+                SystemOperation::Join {
+                    node: n(3),
+                    position: 2
+                },
+            ]),
+            SystemOperation::Batch(vec![
+                SystemOperation::Increment(n(3)),
+                SystemOperation::Leave(n(2)),
+            ]),
         ]
     );
 }

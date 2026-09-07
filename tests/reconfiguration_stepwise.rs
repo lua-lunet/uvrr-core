@@ -652,27 +652,27 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
         SystemOperation::Halve,
         PlanRefusal::Reconfigure(ConfigError::OddWeight(n(0))),
     );
-    // ADD of an existing member.
+    // JOIN of an existing member.
     refused(
         &mut h,
-        SystemOperation::Add {
+        SystemOperation::Join {
             node: n(0),
             position: 0,
         },
         PlanRefusal::Reconfigure(ConfigError::DuplicateNode(n(0))),
     );
-    // REMOVE with weight still on the member.
+    // LEAVE with weight still on the member.
     refused(
         &mut h,
-        SystemOperation::Remove(n(0)),
+        SystemOperation::Leave(n(0)),
         PlanRefusal::Reconfigure(ConfigError::NonZeroWeight(n(0))),
     );
 
-    // A legal ADD commits: the added member is a LEARNER — the fold
-    // grants weight 0, whatever the operator asked for (§8.7.2).
+    // A legal JOIN commits: the joined member is a LEARNER — the fold
+    // grants weight 0, whatever the operator asked for (§8.7.2; rules §2, R2).
     let outcome = h.reconfigure(
         n(1),
-        SystemOperation::Add {
+        SystemOperation::Join {
             node: n(3),
             position: 3,
         },

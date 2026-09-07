@@ -3,18 +3,21 @@
 //!
 //! Three pieces live here, each the code of one section of that document:
 //!
-//! * **The forced weight sequence** (§5): given a committed configuration
-//!   and the announced `(old, new)` pair, the remaining steps the leader
-//!   must commit — the old identity's weight driven to 0 by unit
-//!   decrements (the subtract-one rule, always era-safe), the eviction
-//!   (`Remove`, legal only at weight 0, which changes no quorum family),
-//!   the new identity's join at weight 0 (a learner; also no quorum
-//!   change), and the promotion (`Increment`, the add-one rule). Steps the
-//!   observed eras already committed are not re-run: the announcement is
-//!   idempotent over the current configuration, which is what makes a
-//!   leader crash mid-sequence harmless (§8) — whichever safe era the
-//!   crash lands in, the next leader recomputes the remaining steps from
-//!   the configuration that era committed.
+//! * **The forced weight sequence** (§5; rules §6): given a committed
+//!   configuration and the announced `(old, new)` pair, the remaining
+//!   eras the leader must commit — the §6 table computed for the old
+//!   identity's observed state, each era ONE `Batch` establishing
+//!   operation: the old identity's weight driven to 0 by unit decrements
+//!   (the subtract-one rule, always era-safe), the crossing batch
+//!   `[Decrement(old), Join(new)]`, the promotion batch
+//!   `[Increment(new), Leave(old)]` (a zero-weight `Leave` changes no
+//!   quorum family), and for an old identity already at 0 or already
+//!   evicted the join/promotion form the table names. Steps the observed
+//!   eras already committed are not re-run: the announcement is idempotent
+//!   over the current configuration, which is what makes a leader crash
+//!   mid-sequence harmless (§8) — whichever safe era the crash lands in,
+//!   the next leader recomputes the remaining eras from the configuration
+//!   that era committed.
 //! * **The leader machine**: the pair the announcement armed, and the
 //!   tick-driven continuation that proposes the next step through the
 //!   ordinary reconfiguration pipeline — one establishing operation at a
@@ -263,48 +266,128 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 }
 
-/// The forced weight sequence the leader must still commit (§5), read
-/// from the CURRENT committed configuration: the old identity driven to
-/// weight 0 by unit decrements, evicted, the new identity joined at weight
-/// 0 in the old identity's succession position (appended when the old
-/// identity is already gone — a leader-crash intermediate era that removed
-/// before adding), then promoted 0→1. Every step obeys the subtract-one /
-/// add-one / weight-0-join rule, so every intermediate era is quorum-safe
-/// (§5's era-safety invariant; the checked weighted-overlap result covers
-/// each step).
+/// The forced weight sequence the leader must still commit (§5; rules §6), read
+/// from the CURRENT committed configuration: each element is ONE era's
+/// establishing operation — a [`SystemOperation::Batch`] — and the sequence is
+/// the §6 table computed for the old identity's observed state:
 ///
-/// Steps the configuration has already committed are absent: a leader
-/// crash mid-sequence leaves a legal starting point whose recomputation
-/// continues the sequence exactly where it stopped (§8).
+/// | Old identity's state | Remaining eras |
+/// |---|---|
+/// | weight `w >= 2` | `w−1` solitary `Decrement` eras, then `Batch([Decrement(old), Join(new)])`, then `Batch([Increment(new), Leave(old)])` |
+/// | weight `1` | `Batch([Decrement(old), Join(new)])`, then `Batch([Increment(new), Leave(old)])` |
+/// | weight `0` | `Batch([Join(new), Leave(old)])`, then `Batch([Increment(new)])` |
+/// | already evicted | `Batch([Join(new)])`, then `Batch([Increment(new)])` |
+///
+/// The new identity joins at weight 0 in the old identity's succession position
+/// (appended when the old identity is already gone — a leader-crash intermediate
+/// era that removed before adding), then is promoted. Each era is a unit batch or
+/// a zero-mass batch under the era rule R14 — the subtract-one / add-one /
+/// weight-0-join steps move at most one unit of per-node mass — so every
+/// intermediate era is quorum-safe (§6's invariant; the checked weighted-overlap
+/// result covers each step).
+///
+/// Steps the configuration has already committed are absent: a leader crash
+/// mid-sequence leaves a legal starting point whose recomputation continues the
+/// sequence exactly where it stopped (§8; rules §6 — recomputation is idempotent
+/// over the CURRENT configuration, which is what makes a leader dying at any point
+/// of the sequence harmless).
 #[must_use]
 pub fn forced_steps(
     config: &crate::configuration::Configuration,
     old: NodeId,
     new: NodeId,
 ) -> Vec<SystemOperation> {
-    let mut steps = Vec::new();
+    let mut eras = Vec::new();
     if old == new {
-        return steps;
+        return eras;
     }
+    let old_weight = config.weight_of(old).map(|weight| weight.0);
+    let new_weight = config.weight_of(new).map(|weight| weight.0);
     let old_position = config.index_of(old);
-    if let Some(weight) = config.weight_of(old) {
-        for _ in 0..weight.0 {
-            steps.push(SystemOperation::Decrement(old));
+    // The old identity's succession position while it holds one; appended once it
+    // is gone. The position is read BEFORE any op of the sequence exists: the
+    // sequence is computed, not stored.
+    let append_position = config.len();
+
+    let mut new_weight_now = new_weight;
+    if let Some(weight) = old_weight {
+        // The subtract-one rule, always era-safe: each solitary `Decrement` era
+        // is a unit batch moving exactly one unit of mass (R14).
+        for _ in 0..weight.saturating_sub(1) {
+            eras.push(SystemOperation::Batch(vec![SystemOperation::Decrement(old)]));
         }
-        steps.push(SystemOperation::Remove(old));
+        if weight >= 1 {
+            // The crossing era: old reaches weight 0 and the new identity joins
+            // as a learner in the old succession position — mass exactly 1,
+            // quorum-safe on its own. The join is present only when the new
+            // identity is not already a member (a recompute that lands after a
+            // prior era's join must not re-join).
+            let mut crossing = vec![SystemOperation::Decrement(old)];
+            if new_weight_now.is_none() {
+                crossing.push(SystemOperation::Join {
+                    node: new,
+                    position: old_position.unwrap_or(append_position),
+                });
+                // The crossing batch's own join satisfies the promotion
+                // precondition below: the recompute reads the CURRENT
+                // configuration, and this sequence is what it will land on.
+                new_weight_now = Some(0);
+            }
+            eras.push(SystemOperation::Batch(crossing));
+        }
     }
-    let mut joined = false;
-    if config.weight_of(new).is_none() {
-        steps.push(SystemOperation::Add {
-            node: new,
-            position: old_position.unwrap_or_else(|| config.len()),
-        });
-        joined = true;
+
+    // The old identity is now at weight 0 (or was never a member). The remaining
+    // eras are the new identity's promotion and the old identity's zero-weight
+    // departure, exactly as the observed state names them.
+    if old_weight.is_some() {
+        match new_weight_now {
+            None => {
+                eras.push(SystemOperation::Batch(vec![
+                    SystemOperation::Join {
+                        node: new,
+                        position: old_position.unwrap_or(append_position),
+                    },
+                    SystemOperation::Leave(old),
+                ]));
+                eras.push(SystemOperation::Batch(vec![SystemOperation::Increment(new)]));
+            }
+            Some(0) => {
+                // A recompute mid-sequence: the join already committed, so the
+                // remaining eras are the weight-1 table's second era — promote,
+                // then the zero-weight departure (mass 1).
+                eras.push(SystemOperation::Batch(vec![
+                    SystemOperation::Increment(new),
+                    SystemOperation::Leave(old),
+                ]));
+            }
+            Some(_) => {
+                // The new identity already votes; only the zero-weight departure
+                // remains, and a zero-mass batch is legal (R14).
+                eras.push(SystemOperation::Batch(vec![SystemOperation::Leave(old)]));
+            }
+        }
+    } else {
+        match new_weight {
+            None => {
+                // The old identity is already evicted: join at weight 0 (a
+                // zero-mass era), then promote (a unit era) — the table's last
+                // row.
+                eras.push(SystemOperation::Batch(vec![SystemOperation::Join {
+                    node: new,
+                    position: append_position,
+                }]));
+                eras.push(SystemOperation::Batch(vec![SystemOperation::Increment(new)]));
+            }
+            Some(0) => {
+                eras.push(SystemOperation::Batch(vec![SystemOperation::Increment(new)]));
+            }
+            // The rejoin is complete: the old identity is gone, the new identity
+            // votes.
+            Some(_) => {}
+        }
     }
-    if joined || config.weight_of(new).is_some_and(|weight| weight.0 == 0) {
-        steps.push(SystemOperation::Increment(new));
-    }
-    steps
+    eras
 }
 
 // ---------------------------------------------------------------------------

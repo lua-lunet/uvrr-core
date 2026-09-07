@@ -161,7 +161,7 @@ pub enum QuorumError {
         recovery: Vec<NodeId>,
     },
     /// A configuration presented to the gate exceeds [`MAX_MEMBERS`]. Unreachable
-    /// through the fold — `Init` and `Add` refuse past the cap first — but the gate
+    /// through the fold — `Init` and `Join` refuse past the cap first — but the gate
     /// does not trust its callers: its cost analysis assumes the bound, so it
     /// restates it rather than enumerating an unbounded membership.
     MembershipCapExceeded {
@@ -341,7 +341,7 @@ pub fn validate_era(
 /// The enumeration universe is the union of the two memberships, sorted for
 /// determinism; nodes a configuration does not know simply fail its predicate. The
 /// union of two fold-consecutive configurations never exceeds [`MAX_MEMBERS`] (the
-/// one membership-changing operations, `Add` and `Remove`, move exactly one member at
+/// one membership-changing operations, `Join` and `Leave`, move exactly one member at
 /// weight 0), so the union check cannot fire on a legitimate transition — it exists
 /// because the gate does not assume its callers only present fold-consecutive pairs.
 ///
