@@ -3,7 +3,7 @@
 //!
 //! The classes:
 //!
-//! * **A** — the Paxos Voting Weights worked examples (the halve/double and
+//! * **A** — the Voting Weights worked examples (the halve/double and
 //!   ±1-unit rules the forced sequence is grounded in) as ordinary
 //!   reconfigurations, at the configuration-fold level and through the
 //!   live replica path.
@@ -207,7 +207,11 @@ fn reincarnate_backup(h: &mut Harness, stop: Stop) {
     // name) AND the leader's first forced `Prepare` — for the batch
     // `[Decrement(old), Join(new)]` as ONE establishing operation.
     h.deliver_all();
-    assert_eq!(current_era(h, n(0)), Era(2), "Batch([Decrement, Join]) committed");
+    assert_eq!(
+        current_era(h, n(0)),
+        Era(2),
+        "Batch([Decrement, Join]) committed"
+    );
     assert_eq!(current_order(h, n(0)), vec![n(0), n(1), n(3), n(2)]);
     assert_eq!(current_weights(h, n(0)), vec![1, 1, 0, 0]);
     if stop == Stop::AfterFirstEra {
@@ -226,7 +230,11 @@ fn reincarnate_backup(h: &mut Harness, stop: Stop) {
     let outcome = h.reincarnate(n(3), n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
-    assert_eq!(current_era(h, n(0)), Era(3), "Batch([Increment, Leave]) committed");
+    assert_eq!(
+        current_era(h, n(0)),
+        Era(3),
+        "Batch([Increment, Leave]) committed"
+    );
     assert_eq!(current_order(h, n(0)), vec![n(0), n(1), n(3)]);
     assert_eq!(current_weights(h, n(0)), vec![1, 1, 1]);
     h.assert_safety();
@@ -518,8 +526,15 @@ fn c_leader_crash_mid_sequence_continues_from_the_intermediate_era() {
     // batch; the delivery pass commits it as one era.
     h.reincarnate(n(5), n(4));
     h.deliver_all();
-    assert_eq!(current_era(&h, n(1)), Era(2), "Batch([Decrement, Join]) committed");
-    assert_eq!(current_order(&h, n(1)), vec![n(0), n(1), n(2), n(3), n(5), n(4)]);
+    assert_eq!(
+        current_era(&h, n(1)),
+        Era(2),
+        "Batch([Decrement, Join]) committed"
+    );
+    assert_eq!(
+        current_order(&h, n(1)),
+        vec![n(0), n(1), n(2), n(3), n(5), n(4)]
+    );
     assert_eq!(current_weights(&h, n(1)), vec![1, 1, 1, 1, 0, 0]);
 
     // The leader dies mid-sequence.
@@ -1074,7 +1089,9 @@ fn forced_steps_recompute_exactly_the_remaining_suffix() {
         .expect("the fold accepts the join");
     assert_eq!(
         forced_steps(&d3, n(2), n(3)),
-        vec![SystemOperation::Batch(vec![SystemOperation::Increment(n(3))])]
+        vec![SystemOperation::Batch(vec![SystemOperation::Increment(n(
+            3
+        ))])]
     );
     // The rejoin: nothing remains.
     let d4 = d3
