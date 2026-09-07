@@ -328,7 +328,7 @@ The following transformations have precise quorum effects when each configuratio
 | Multiply every weight by the same positive integer | Leaves the legal quorum family unchanged. |
 | Divide every weight by a common positive divisor | Leaves the legal quorum family unchanged. |
 | Increase or decrease one replica's weight by one | Consecutive weighted-majority families universally intersect. |
-| Add or remove a zero-weight replica | Leaves the voting quorum family unchanged. |
+| Join or leave a zero-weight replica | Leaves the voting quorum family unchanged. |
 
 The one-unit rule is an intersection lemma, not a complete reconfiguration protocol. Promotion still requires state transfer, and removal still requires activation of the new configuration to fence messages authorized only by the old configuration.
 
@@ -417,8 +417,8 @@ INCREMENT(node_id)
 DECREMENT(node_id)
 DOUBLE
 HALVE
-ADD(node_id, position)      -- insert with weight 0
-REMOVE(node_id)             -- permitted only at weight 0
+JOIN(node_id, position)      -- insert with weight 0
+LEAVE(node_id)             -- permitted only at weight 0
 ```
 
 The preconditions are:
@@ -431,8 +431,8 @@ The preconditions are:
 | `DECREMENT(n)` | `W(n) >= 1`. |
 | `DOUBLE` | None beyond the common invariants. |
 | `HALVE` | Every `W(n)` is even. |
-| `ADD(n,p)` | `n` is not in `order`; `p` is a valid insertion position. The new weight is zero. |
-| `REMOVE(n)` | `n` is a member and `W(n) = 0`. |
+| `JOIN(n,p)` | `n` is not in `order`; `p` is a valid insertion position. The new weight is zero. |
+| `LEAVE(n)` | `n` is a member and `W(n) = 0`. |
 | Every operation | The result has non-empty `order` and `T(W) >= 1`. |
 
 `VOID` and `INIT` make initial configuration construction part of the replicated history rather than unrecorded ambient state. A newly added zero-weight member has no voting authority. State transfer must make it adequately current before a later committed `INCREMENT` grants authority.
@@ -522,7 +522,7 @@ iff w(S) >= floor(T/2)+1
 
 The legal quorum family is unchanged. `HALVE` is the inverse when every weight is even.
 
-**`ADD` and `REMOVE` at weight zero.** Total voting weight is unchanged and the affected member contributes zero to every sum. The voting quorum family is unchanged.
+**`JOIN` and `LEAVE` at weight zero.** Total voting weight is unchanged and the affected member contributes zero to every sum. The voting quorum family is unchanged.
 
 These lemmas establish overlap closure. They do not establish that a particular leader has the pivot required for the non-stop path.
 

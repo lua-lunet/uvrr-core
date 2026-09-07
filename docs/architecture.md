@@ -367,6 +367,49 @@ strategy offering a half-total threshold must reject odd totals rather than roun
 just messages. A `QuorumStrategy` that cannot enumerate or characterise its families well
 enough to be validated is not usable, and that is intentional.
 
+#### Q2 — The voting-weight domain {0,1,2}; join at 0, leave at 0; era batches move ≤ 1 unit of mass
+
+**Context.** Voting weights are common factors: `18/27` is `2/3`, so no node ever needs a
+weight above `2`, and a uniform double or halve is a zero op on quorum families. Learners
+(weight 0) never vote and are not counted against any quorum, so a nine-node deployment
+of three voting nodes across three data centres is a three-node cluster with six warm
+standbys. Reconfiguration must be checkable *before* it is proposed, with no way to
+compress a two-step identity swap into one era.
+
+**Decision.** The voting-weight domain is `{0, 1, 2}` (`configuration::MAX_WEIGHT = 2`).
+A node joins at weight 0 and leaves only at weight 0; there is no operation that joins
+elsewhere and no legal fold that removes a voter. Zero-weight learners receive prepare
+and commit traffic so they stay swappable in, and every replica discards
+vote/view-change messages from a non-voting identity (the `Reincarnation` announcement is
+the one exempted message). One reconfiguration commits a **batch**: either one solitary
+scaling operation (`DOUBLE`/`HALVE` — refused with company), or a unit batch whose
+per-node mass moved `Σ|W_before(a) − W_after(a)|` over the union node set is at most `1`.
+The rule is stated over per-node mass moved, not over the net total change: the
+zero-net, mass-2 identity swap is refused, and a leader crash cannot compress it.
+The leader evaluates any batch as a what-if on an immutable clone before proposing it,
+and the reducer partitions an operation stream into maximal legal era batches
+(`src/reconfiguration.rs`). The itemized rules are
+`docs/uvrr-reconfiguration-rules.md`.
+
+**Rationale.**
+
+1. The named mathematics is enough: two strict majorities intersect by the pigeonhole
+   principle; majorities intersect when per-node mass moved is ≤ 1 (Turner's UPaxos
+   Lemma 2, formalized as ladder rung 9 `WeightedGeneral.scaled_overlap`); uniform
+   scaling preserves every quorum family by common-factor normalization.
+2. A net-total rule alone would admit the mass-2 swap `(1,1,1) → (1,1,c:0,d:1)`, whose
+   era-`e` majority `{b,c}` and era-`e+1` majority `{a,d}` are disjoint — exactly the
+   Q1 counterexample shape, caught here before consensus rather than after.
+3. More eras are free (§8.7.2's non-stop transition makes each one cheap); proving that
+   two commands acted as one without a violation is work no one needs to do twice.
+
+**Consequence.** The fold refuses any operation or batch that would leave the domain
+{0,1,2}, join or remove a voter, combine scaling ops with anything, or move more than one
+unit of per-node mass. Cluster state is an immutable snapshot plus a WAL of legal
+operations; there is no Crash-Recover by design — a dirty node reincarnates under a new
+identity and the leader drives the forced sequence
+(`docs/uvrr-reincarnation.md` §6).
+
 ### Application boundary
 
 #### B1 — Seqlock over a POD snapshot for lockless observation

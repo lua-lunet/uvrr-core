@@ -70,42 +70,43 @@ rung 17 requires no modification.
 ## 5. Forced weight sequence
 
 The leader drives the forced reconfiguration sequence from the Paxos Voting Weights
-rules (simbo1905 blog, 2017-03-16: halve/double all weights, or change one node's
-weight by one). Unit-weight special case, evicting `N2` and reincarnating it
-as `N2′`:
+rules (`docs/uvrr-reconfiguration-rules.md`: the operation alphabet `DOUBLE`, `HALVE`,
+`INCREMENT`, `DECREMENT`, `JOIN`, `LEAVE`; each reconfiguration commits a legal batch,
+one era). One reconfiguration commits a batch, and a batch either moves at most one
+unit of per-node voting mass (learners at weight 0 move none) or is one solitary
+scaling op. Unit-weight special case, evicting `N2` and reincarnating it as `N2′` —
+**two eras**, each a batch:
 
-| Step | Weights (N0, N1, N2, N2′) | Rule |
-|---|---|---|
-| D0 | (1, 1, 1, –) | baseline |
-| D1 | (1, 1, 0, –) | exiting node weight 1→0 (subtract one) |
-| D2 | (1, 1, 0, 0) | new node joins at weight 0 (learner; total unchanged) |
-| D3 | (1, 1, 0, 1) | new node 0→1 (add one) |
+| Era | Batch | Weights (N0, N1, N2, N2′) | Mass moved |
+|---|---|---|---|
+| D1 | `DECREMENT(N2), JOIN(N2′)` | (1, 1, 0, 0) | 1 |
+| D2 | `INCREMENT(N2′), LEAVE(N2)` | (1, 1, –, 1) | 1 |
 
-**Era-safety invariant:** for every consecutive pair of configurations in the
-sequence, the strict majorities of the two eras overlap (equivalently, each step obeys
-the halve/double-all or ±1-unit rule, so consecutive majority families intersect).
-Hence **every intermediate era is quorum-safe on its own**: a leader dying mid-sequence
-leaves only safe membership eras, and a new leader can continue the sequence safely.
+The old identity leaves only after its weight is zero, and the new identity joins at
+zero — the two together in the crossing era move exactly one unit, and the eviction
+era moves exactly one. **Era-safety invariant:** every consecutive pair of
+configurations in the sequence satisfies the per-node mass rule (R14 of the rules
+doc), so consecutive majority families intersect and **every intermediate era is
+quorum-safe on its own**: a leader dying mid-sequence leaves only safe membership
+eras, and a new leader recomputes the remaining eras from the configuration that
+committed.
 
 **Doubled-weights corner.** If the reincarnation happens while the cluster sits in the
-doubled state of the blog's safe-replacement plan (survey Example B, state B2), the
-sequence runs at the doubled scale and the return path to unit weights needs one extra
-unit step before the halve, because halving is integral only when all weights are even:
+doubled state of the blog's safe-replacement plan, the sequence runs at the doubled
+scale and the return to unit weights needs the extra unit step that makes the halve
+integral:
 
-| Step | Weights (N0, N1, N2, N2′) | Rule |
+| Era | Batch | Weights (N0, N1, N2, N2′) |
 |---|---|---|
-| C0 | (2, 2, 2, –) | doubled baseline |
-| C1 | (2, 2, 1, –) | exiting node 2→1 |
-| C2 | (2, 2, 0, –) | exiting node 1→0 |
-| C3 | (2, 2, 0, 0) | new node joins at 0 |
-| C4 | (2, 2, 0, 1) | new node 0→1 |
-| C5 | (2, 2, 0, 2) | **corner**: new node 1→2 so the halve is integral |
-| C6 | (1, 1, 0, 1) | halve all weights |
+| C1 | `DECREMENT(N2)` | (2, 2, 1, –) |
+| C2 | `DECREMENT(N2), JOIN(N2′)` | (2, 2, 0, 0) |
+| C3 | `INCREMENT(N2′), LEAVE(N2)` | (2, 2, –, 1) |
+| C4 | `INCREMENT(N2′)` | (2, 2, –, 2) — **corner**: joiner at 2 so the halve is integral |
+| C5 | `HALVE` | (1, 1, –, 1) |
 
-Every adjacent pair above obeys a scaling or unit rule, so every intermediate era is
-quorum-safe by the same invariant. (The uniform distance-one bound for arbitrary
-changes is sharp, but scaled steps preserve overlap — the checked
-`WeightedGeneral.scaled_overlap` result covers each step.)
+Every era above is a legal batch of the rules document, so every intermediate era is
+quorum-safe by the same invariant. (Scaled steps preserve overlap by common-factor
+normalization — the checked `WeightedGeneral.scaled_overlap` result covers each step.)
 
 ## 6. Membership-discard check
 
@@ -156,7 +157,7 @@ eviction of the old identity until a stable leader exists to drive it.
 
 The reincarnation formalization is ladder rung 22 (`formal/uvrr-lean/UVRR/Reincarnation.lean`):
 the definitions and state machine above, with kernel-checked structural lemmas and finite
-instances (the unit-scale forced sequence's three consecutive eras are quorum-safe; the
+instances (the unit-scale forced sequence's two consecutive eras are quorum-safe; the
 startup classification is exhaustive; the bumped identity is never a voter again; the
 forced sequence is monotone and cannot abort). The four general theorems — bumped-identity
 non-membership in every view ≥ eviction, quorum safety of every intermediate era at
