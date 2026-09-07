@@ -822,7 +822,7 @@ The current code does not provide:
 
 - a normative C ABI transition-ownership contract — no FFI module exists at present; the C ABI is planned work.
 
-The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` and `reopen` both start fenced `Recovering` and become normal only after local restoration or quorum recovery establishes adequate state, so the amnesiac-voter path is unrepresentable.
+The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` and `reopen` both start fenced `Recovering` and become normal only after local restoration establishes adequate state, so the amnesiac-voter path is unrepresentable.
 
 ## 15. Minimal proposal
 
