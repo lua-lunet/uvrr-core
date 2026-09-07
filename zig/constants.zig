@@ -1,4 +1,4 @@
-//! PATCHED (item31): reduced constants for the tiny UVRR data file.
+//! PATCHED : reduced constants for the tiny UVRR data file.
 //! Derived from TB's src/constants.zig (0.17.9) — values not needed by the
 //! vendored IO/superblock closure are removed; the removed zones (TB WAL ring
 //! buffers, 512KiB LSM grid, client replies, message sizing) do not exist here.

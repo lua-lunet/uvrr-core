@@ -1,4 +1,4 @@
-//! NEW (item31) — zig/uvrr/capi.zig
+//! NEW  — zig/uvrr/capi.zig
 //!
 //! C-ABI entry points for the vendored UVRR stack (TB IO + superblock +
 //! membership WAL). `pub export` + `callconv(.C)`; the Rust demo binds these

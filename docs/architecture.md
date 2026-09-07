@@ -441,15 +441,16 @@ decisions and set no core precedent.
 
 #### P1 — `.tmp/` is never committed
 
-**Context.** `.tmp/vrr-durability-model.md` was force-added past `.gitignore` and left the
-index in an `AD` state. `.tmp/failure.log` is 311 KB of alpha-era output.
+**Context.** `.tmp/` is the working-tree scratch directory: untracked artifacts
+such as captured outputs and the overlap crash matrix's `failure.log` live there.
 
-**Decision.** `.tmp/` is the scratch and item-ledger directory. It is never committed. The
-`.gitignore` entry is written `.tmp/` with the trailing slash so it unambiguously names a
-directory. Normative documents live in `docs/` and are tracked.
+**Decision.** `.tmp/` is scratch and is never committed. The `.gitignore` entry
+is written `.tmp/` with the trailing slash so it unambiguously names a directory.
+Normative documents live in `docs/` and are tracked.
 
-**Consequence.** `.tmp/failure.log` stays on disk untracked; the overlap crash matrix
-mines it for regression signatures from the working tree, not from history.
+**Consequence.** Scratch artifacts such as `failure.log` stay on disk untracked;
+the overlap crash matrix mines it for regression signatures from the working
+tree, not from history.
 
 #### P2 — MIT
 

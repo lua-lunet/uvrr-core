@@ -1,20 +1,20 @@
-# PATCH MANIFEST — zig/ vendored TB 0.17.9 stack (item31)
+# PATCH MANIFEST — zig/ vendored TB 0.17.9 stack
 
-Source tree: `.tmp/tb-0.17.9` (TigerBeetle 0.17.9). Compiler: TB's pinned
+Upstream: TigerBeetle 0.17.9 (`src/`). Compiler: TB's pinned
 Zig 0.14.1 (`zig/toolchain/download.sh`, ZIG_RELEASE="0.14.1").
 
-## Fact-check table (Director transcript claims vs. code)
+## Fact-check table (upstream behavior vs. vendored code)
 
 | Claim | Verdict | Evidence (real path, checked) |
 |---|---|---|
 | TB does DIRECT BLOCK-DEVICE writes, NO filesystem | **CORRECTED** | TB opens a *data file* through the filesystem: `open_data_file` uses `openat(2)`, `flock(2)`, and fsyncs the parent directory (`src/io/darwin.zig:1001`, `src/io/linux.zig:1419`). "Direct" = page-cache bypass, per-OS: linux `O_DIRECT` (`src/io/linux.zig:1472`); darwin has NO O_DIRECT — TB "assumes Direct I/O is always supported" via `F_NOCACHE` + `O_DSYNC`, and fsyncs with `F_FULLFSYNC` because darwin fsync does not flush past the disk cache (`src/io/darwin.zig:1048-1053`, `:1092-1099`). Writes CAN target a block device (O_EXCL TODO comment), but TB's IO is not raw-block-only and never touches a filesystem-free path on darwin. |
 | IO subsystem in per-OS files `src/io/{linux,darwin,windows}.zig` + top-level `src/{linux,darwin,windows}.zig` | **CORRECTED** (second half) | `src/io/{linux,darwin,windows,common}.zig` exist and are the per-OS IO (VERIFIED). There are NO top-level `src/{linux,darwin,windows}.zig`; dispatch lives in `src/io.zig:5-17` (comptime switch on target). |
-| zig stdlib under `.tmp/tb-0.17.9/zig/zig/lib/std/` | VERIFIED | `zig/zig/lib/std/` present; compiler binary `zig/zig/zig` (Mach-O arm64). |
+| TB vendor/toolchain tree carries the Zig stdlib at `zig/zig/lib/std/` | VERIFIED | `zig/zig/lib/std/` present; compiler binary `zig/zig/zig` (Mach-O arm64). |
 | `superblock_copies = 4`, 4/6/8 configurable | VERIFIED | `src/vsr/superblock.zig:595` compile switch `{4,6,8}`; default 4 via config. |
 | write quorum 3-of-4, read quorum 2-of-4 | VERIFIED | `src/vsr/superblock_quorums.zig` `Threshold.count()`: verify=3, open=2 for 4 copies ("write quorum plus read quorum must be exactly copies + 1"). |
 | copies at different byte offsets in the SAME single data file, same node | VERIFIED | `superblock_copy_size * copy_index` offsets (`superblock.zig:602-611`); one `data_file_size_min` file per replica. |
 | header: checksum u128, sequence, cluster, parent hash-chain, vsr_state, view_headers_all | VERIFIED | `SuperBlockHeader` fields at `superblock.zig:54-107`; `parent` = "checksum of the previous superblock to hash chain across sequence numbers". |
-| set_checksum asserts flags==0 (item26) | VERIFIED | `superblock.zig:426`. |
+| set_checksum asserts flags==0 | VERIFIED | `superblock.zig:426`. |
 | Grid = 512KiB blocks, CoW, hash-chained, LSM + FreeSet | VERIFIED | `block_size = 512 KiB` default (`config.zig:161`); grid blocks addressed by u64 (`grid.zig:27`), cache hash (`grid.zig:139`); LSM tables immutable → blocks written once (copy-on-write) (`lsm/tree.zig:70-140`); FreeSet tracks free grid blocks (`vsr/free_set.zig`). |
 | WAL = 2 ring buffers (headers + prepares) | VERIFIED | `vsr.Zone.wal_headers` / `wal_prepares` (`vsr.zig:125-141`); journal headers "circular buffer" (`vsr/journal.zig:17-24`). |
 | `src/aof.zig` = optional append-only hash-chained DR log | VERIFIED | `aof.zig` (`magic_number`, hash-chained entries, "Reconstruct a cluster from one or more AOF files"). |
@@ -26,7 +26,7 @@ Zig 0.14.1 (`zig/toolchain/download.sh`, ZIG_RELEASE="0.14.1").
 `queue.zig`, `time.zig`, `trace.zig`, `trace/{event,statsd,event_metric,…}.zig`,
 `testing/time.zig`, `testing/exhaustigen.zig`, `stdx/` (whole directory),
 `vsr/checksum.zig`, `vsr/superblock_quorums.zig`, `toolchain/download.sh` —
-byte-identical to `.tmp/tb-0.17.9/src/*` except where listed below.
+byte-identical to upstream `src/*` except where listed below.
 
 ## Patched files (changed lines)
 

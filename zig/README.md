@@ -1,10 +1,9 @@
-# zig/ — vendored TigerBeetle 0.17.9 storage stack (item31)
+# zig/ — vendored TigerBeetle 0.17.9 storage stack
 
-The Director rejected the filesystem-based scaffolding demo (tag `rust_disk`).
 This tree vendors TigerBeetle 0.17.9's actual storage stack and drives it
 through a C-ABI static library; `examples/uvrr-reincarnation/` is the consumer.
 
-## Vendored (verbatim, from `.tmp/tb-0.17.9/src/`)
+## Vendored (verbatim, from upstream `src/`)
 
 - `io.zig`, `io/{linux,darwin,windows,common}.zig` — the direct-IO subsystem
 - `queue.zig`, `time.zig`, `trace.zig`, `trace/*.zig`, `stdx/` (support closure)

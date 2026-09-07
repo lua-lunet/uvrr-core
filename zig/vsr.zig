@@ -1,4 +1,4 @@
-//! NEW (item31): minimal `vsr` shim for the vendored superblock/quorums closure.
+//! NEW : minimal `vsr` shim for the vendored superblock/quorums closure.
 //! This is NOT TB's src/vsr.zig (1786 lines, consensus engine). It carries only
 //! the symbols superblock.zig / superblock_quorums.zig / checksum.zig need:
 //! checksum (vendored verbatim), Header (TB's extern layout, no body/release

@@ -1,4 +1,4 @@
-//! NEW (item31) — zig/uvrr/store.zig
+//! NEW  — zig/uvrr/store.zig
 //!
 //! Synchronous driver over the VENDORED TB IO subsystem (zig/io/*.zig — the
 //! real per-OS direct block-IO layer: io_uring on linux, kqueue+F_NOCACHE on

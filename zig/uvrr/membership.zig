@@ -1,4 +1,4 @@
-//! NEW (item31) — zig/uvrr/membership.zig
+//! NEW  — zig/uvrr/membership.zig
 //!
 //! Cluster-membership store for tiny data, in TB idiom (modeled on
 //! src/aof.zig: append-only hash-chained log, fixed-size extern entries,

@@ -1,4 +1,4 @@
-//! PATCHED (item31) from TB 0.17.9 src/vsr/superblock.zig — see zig/PATCH_MANIFEST.md.
+//! PATCHED  from TB 0.17.9 src/vsr/superblock.zig — see zig/PATCH_MANIFEST.md.
 //!
 //! Retained verbatim (TB line refs in comments):
 //!   * the SuperBlockHeader checksum scheme (calculate/set/valid_checksum)
@@ -13,7 +13,7 @@
 //!   * `uvrr_incarnation` (u64) and `uvrr_flushed` (u8): the reincarnation
 //!     `flushed`/`unflushed` state as declared fields, covered by the checksum
 //!     (checksum discipline holds; TB's reserved `flags` stays 0 and is still
-//!     asserted zero in set_checksum, per item26).
+//!     asserted zero in set_checksum).
 //!   * identity/sequence bumps per the reincarnation protocol
 //!     (`open_highest_identity`: higher identity wins among equal sequences).
 //!   * the async SuperBlockType(Storage) state machine is replaced by the
@@ -286,7 +286,7 @@ comptime {
 /// unchanged): format writes a copyset for the first sequence, open verifies
 /// the read quorum (2/4), writes repair to 3/4 (verify quorum).
 ///
-/// PATCH (reincarnation protocol, item31):
+/// PATCH (reincarnation protocol):
 ///   * clean shutdown: bump nothing; set uvrr_flushed=1 on all four copies.
 ///   * dirty restart: read the working quorum; bump sequence by 1 and
 ///     uvrr_incarnation by 1; clear uvrr_flushed; write all four copies.
