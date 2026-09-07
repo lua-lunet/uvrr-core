@@ -295,7 +295,7 @@ V_g ⌢ V_g
 
 This self-intersection is not implied by `QI ⌢ QII` alone. It is required by this diskless VRR construction because a recovering replica must encounter the volatile evidence that an earlier view was fenced. A quorum policy is therefore not automatically a valid VRR-2012 policy merely because `QI ⌢ QII` holds.
 
-This section describes classic VRR-2012 diskless recovery (its §4.3) as literature, not uVRR: uVRR replaces the diskless recovery overlap with Crash-Stop-Self-Evict reincarnation. A crashed node whose superblocks record an unflushed session reopens under a new incarnation, the leader evicts the old identity through the forced weight sequence (exiting 1 to 0, joining at 0, then 0 to 1), and the new identity rejoins as a weight-0 learner whose messages are ignored — so no recovery quorum meets a fence family, and the obligation above governs the classic design only.
+This section describes classic VRR-2012 diskless recovery (its §4.3) as literature, not uVRR: uVRR replaces the diskless recovery overlap with Crash-Stop-Self-Evict reincarnation. A crashed node whose superblocks record an unflushed session reopens under a new incarnation, the leader evicts the old identity through the forced weight sequence (exiting 1 to 0, joining at 0, then 0 to 1), and the new identity rejoins as a weight-0 standby — a **standby** is TigerBeetle's term for its non-voting cluster members (older drafts of this document called it a learner): standby nodes have a zero voting weight so cannot form part of any quorum nor actively participate in the VSR algorithm — so no recovery quorum meets a fence family, and the obligation above governs the classic design only.
 
 ### 8.4 Weighted quorums
 
@@ -319,7 +319,7 @@ A strict weighted-majority family uses:
 T_majority = floor(W / 2) + 1
 ```
 
-It self-intersects and is therefore valid for `C_g`, `V_g`, `F_g`, and `R_g`. Weight zero grants no voting authority. A zero-weight member may receive state and serve as a learner, but it must become adequately caught up before a later configuration gives it positive weight.
+It self-intersects and is therefore valid for `C_g`, `V_g`, `F_g`, and `R_g`. Weight zero grants no voting authority. A zero-weight member may receive state and serve as a standby, but it must become adequately caught up before a later configuration gives it positive weight.
 
 The following transformations have precise quorum effects when each configuration uses strict weighted majorities:
 
@@ -374,7 +374,7 @@ The chain transfers to VRR as a necessary history-preservation condition: the vi
 2. which configuration authorizes each message while the transition is incomplete;
 3. how old-generation voters become fenced;
 4. how recovery intersects volatile view-fence knowledge across the boundary; and
-5. when a zero-weight learner is sufficiently caught up to receive positive weight.
+5. when a zero-weight standby is sufficiently caught up to receive positive weight.
 
 The *leader casting vote* is a pipelining optimisation rather than a safety condition. Its prepare/accept routing sequence is not itself a VRR view-change sequence. Section 8.7 defines the corresponding Unbounded VSR transition which this project intends to support; implementation remains conditional on a complete model and safety proof of that VSR-specific transition.
 

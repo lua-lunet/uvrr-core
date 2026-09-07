@@ -130,7 +130,10 @@ The eras model makes seven state-space cuts:
    configuration by the `CrashRetainsDurable` constant rather than explored
    nondeterministically. uVRR replaces the classic quorum-recovery exchange
    with Crash-Stop-Self-Evict reincarnation (a dirty node reopens under a new
-   incarnation and rejoins as a weight-0 learner), so the model performs no
+   incarnation and rejoins as a weight-0 standby — a **standby** is
+   TigerBeetle's term for its non-voting cluster members: standby nodes have a
+   zero voting weight so cannot form part of any quorum nor actively
+   participate in the VSR algorithm), so the model performs no
    recovery exchange; the fenced replica sends nothing, which the
    `RecoveringSendsNothing` property checks at the transition where a message
    is added. Quorum counting is over the recorded evidence itself: a message

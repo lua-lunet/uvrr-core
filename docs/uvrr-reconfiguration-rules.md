@@ -23,21 +23,28 @@ weight above `2`:
 §3 scaling rules), which keeps every worked schedule inside the domain the closure
 arguments were checked over.
 
-A weight-0 member is a **learner**: it never votes and is counted against no quorum.
+A weight-0 member is a **standby** — TigerBeetle's term for its non-voting cluster
+members (older drafts of this document called it a learner). Standby nodes have a zero
+voting weight so cannot form part of any quorum nor actively participate in the VSR
+algorithm. TigerBeetle ships exactly this role: its constants cap `standbys_max` alongside
+`replicas_max` and sum them into `members_max`, and its primary replicates to other
+replicas *and* standbys (`send_message_to_other_replicas_and_standbys` in
+`src/vsr/replica.zig`) while every quorum is sized on the replica count alone.
+
 A nine-node deployment of three voting nodes across three data centres with six
-learners is a **three-node cluster** with six warm standbys — the quorum arithmetic
-runs entirely over the voters. There is no bound on the number of learners other
-than the membership cap, and learners may come and go.
+standbys is a **three-node cluster** with six warm standbys — the quorum arithmetic
+runs entirely over the voters. There is no bound on the number of standbys other
+than the membership cap, and standbys may come and go.
 
 ## 2. Membership rules
 
 | Rule | Statement |
 |---|---|
-| R2 | A node joins the cluster at voting weight zero (`Join` inserts a learner; there is no operation that joins at any other weight). |
+| R2 | A node joins the cluster at voting weight zero (`Join` inserts a standby; there is no operation that joins at any other weight). |
 | R3 | A node leaves the cluster only after its voting weight has been changed to zero (`Leave` is legal only at weight 0). |
 | R4 | A zero-weight member never votes: it is not a voter in any quorum evaluation, so it is not counted against any quorum. |
 | R5 | A leader does not count any response from a zero-weight member toward any vote, and every replica drops view-change-like messages from a zero-weight member. The one message a non-voting identity may send that is never dropped is the `Reincarnation` announcement (§4 of `docs/uvrr-reincarnation.md`) — the entry ticket. |
-| R6 | A leader sends prepare and commit to zero-weight learners so they stay caught up: warm standbys, swappable in by uVRR. |
+| R6 | A leader sends prepare and commit to zero-weight standbys so they stay caught up: warm standbys, swappable in by uVRR. |
 
 ## 3. The operation alphabet
 
@@ -49,7 +56,7 @@ nothing saturates, nothing rounds, no partial application.
 | Rule | Operation | Boundary | Refusal |
 |---|---|---|---|
 | R7 | `INCREMENT(n)` | `W(n) + 1 ≤ 2` | the cap variant: the node would leave the domain |
-| R8 | `DECREMENT(n)` | `W(n) ≥ 1`; resulting total ≥ 1 | the learner has no weight to give; a zero total is quorum-impossible |
+| R8 | `DECREMENT(n)` | `W(n) ≥ 1`; resulting total ≥ 1 | the standby has no weight to give; a zero total is quorum-impossible |
 | R9 | `DOUBLE` | every `W(n) ≤ 1`, so every doubled weight stays in the domain | the first member that would pass 2 is named |
 | R10 | `HALVE` | every `W(n)` even (`0` or `2`); no rounding | the first odd member is named |
 | R11 | `JOIN { node, position }` | `node` not a member; inserts at weight 0 | duplicate, cap, or position out of range |
@@ -76,7 +83,7 @@ LEAVE(c)]` applied to `(a:1, b:1, c:1)` has net change `0` yet moves mass `2`
 alone would admit the swap it exists to forbid.
 
 Zero-weight joins and leaves move no mass (`|0 − 0| = 0`), so **any number of
-learners may join or leave in one era** — R14 admits them without bound, which is
+standbys may join or leave in one era** — R14 admits them without bound, which is
 the property R1–R4 rest on.
 
 ## 5. The planner: reduce-left batch evaluation
@@ -218,8 +225,8 @@ Every rule has a test that can fail. The matrix:
 | Test | Confirms |
 |---|---|
 | many zero-weight joins in one era | R2, R4, R14 mass 0 |
-| learners coming and going in one era (mixed `JOIN`/`LEAVE` at 0) | R3, R14 |
-| one unit change plus learners in one era | R14 mass 1 |
+| standbys coming and going in one era (mixed `JOIN`/`LEAVE` at 0) | R3, R14 |
+| one unit change plus standbys in one era | R14 mass 1 |
 | two unit changes in one era refused (`BatchMassMoved`) | R14 sharpness |
 | the identity swap in one era refused (the `0`-net, mass-`2` batch) | R14, not net-total |
 | the resurrection four split into exactly two eras by the planner | §5, the canonical two-step |

@@ -4,13 +4,16 @@
 
 uVRR forbids the classic crash-recover class: a node whose durable superblocks
 record an unflushed session reopens with a NEW identity (an incarnation bump),
-sends the leader a reincarnation message, and rejoins as a weight-0 learner —
+sends the leader a reincarnation message, and rejoins as a weight-0 standby —
+(a **standby** is TigerBeetle's term for its non-voting cluster members; this
+README's older drafts called it a learner. Standby nodes have a zero voting weight
+so cannot form part of any quorum nor actively participate in the VSR algorithm.)
 Crash-Stop-Self-Evict. The classic VRR-2012 diskless quorum recovery (§4.3)
 and the DISC'17 Appendix B.1 amnesia class it exposes are therefore avoided by
 construction in uVRR; those mechanisms are literature about classic
 crash-recovery designs, not open problems here. The ladder's rung 17–20
 fence/acquisition machinery is the proof skeleton the reincarnated weight-0
-learner obeys. The protocol specification is [docs/uvrr-reincarnation.md](../../docs/uvrr-reincarnation.md).
+standby obeys. The protocol specification is [docs/uvrr-reincarnation.md](../../docs/uvrr-reincarnation.md).
 
 ## Editing the paper
 

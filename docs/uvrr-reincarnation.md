@@ -38,7 +38,11 @@ to all four superblocks, then enter the wire phase (§4). The state machine is:
 | `unflushed` | running sentinel; written at start of operating |
 | `dirty` | restart observed any-`unflushed`; eviction must begin |
 | `bumped` | incarnation incremented; all four superblocks rewritten as (new identity, `flushed`) |
-| `reincarnating` | wire phase: old identity pending eviction, new identity a weight-0 learner |
+| `reincarnating` | wire phase: old identity pending eviction, new identity a weight-0 standby |
+
+A **standby** is TigerBeetle's term for its non-voting cluster members (this document's
+older drafts called it a learner). Standby nodes have a zero voting weight so cannot
+form part of any quorum nor actively participate in the VSR algorithm.
 
 **Read rule (higher-identity-wins):** any read of the superblocks may observe a higher
 identity than the reader last knew; the reader adopts the higher identity.
@@ -73,7 +77,7 @@ The leader drives the forced reconfiguration sequence from the Paxos Voting Weig
 rules (`docs/uvrr-reconfiguration-rules.md`: the operation alphabet `DOUBLE`, `HALVE`,
 `INCREMENT`, `DECREMENT`, `JOIN`, `LEAVE`; each reconfiguration commits a legal batch,
 one era). One reconfiguration commits a batch, and a batch either moves at most one
-unit of per-node voting mass (learners at weight 0 move none) or is one solitary
+unit of per-node voting mass (standbys at weight 0 move none) or is one solitary
 scaling op. Unit-weight special case, evicting `N2` and reincarnating it as `N2′` —
 **two eras**, each a batch:
 
@@ -111,7 +115,7 @@ normalization — the checked `WeightedGeneral.scaled_overlap` result covers eac
 ## 6. Membership-discard check
 
 Messages **FROM** a node that is not in the current voting configuration — a weight-0
-learner, or a superseded old identity — are **discarded** by the standard membership
+standby, or a superseded old identity — are **discarded** by the standard membership
 check on ingress. Messages **TO** such a node are fine. This is good practice
 independent of reincarnation; the crash-vector collector's
 `old_reply_rejected` (rung 18) is the same primitive: once a later incarnation is
@@ -124,7 +128,7 @@ The leader stays live for client requests throughout. It streams, in order:
 
 1. the **first reconfiguration** (the forced sequence of §5),
 2. then **client traffic**,
-3. and **preemptively streams** to the reincarnated node **as a learner**
+3. and **preemptively streams** to the reincarnated node **as a standby**
    (weight 0; messages TO it fine, FROM it discarded via §6).
 
 ## 8. Leader-crash ordering
@@ -139,7 +143,7 @@ eviction of the old identity until a stable leader exists to drive it.
 
 - Rung 17 (`RecoveryFence`): the recovering replica cannot reply; fresh-episode
   evidence only; stale evidence rejected. This is precisely the ingress rule the
-  weight-0 learner obeys and why the leader may safely stream to it. Its `generation`
+  weight-0 standby obeys and why the leader may safely stream to it. Its `generation`
   ghost is superseded as a carrier by the durable superblock incarnation (§4); the
   machinery stays.
 - Rung 18 (`CrashVector`): `old_reply_rejected` is the membership-discard check for
@@ -149,7 +153,7 @@ eviction of the old identity until a stable leader exists to drive it.
   premise becomes dischargeable — under reincarnation, retention of incarnation
   knowledge is the durable superblock identity itself.
 - Rung 20 (`RecoveryAcquire`): the echoed `(incarnation, sequence)` request identity
-  is the wire-level freshness contract the reincarnation message and learner streaming
+  is the wire-level freshness contract the reincarnation message and standby streaming
   use; `crashed` bumping the incarnation is the formal shape of dirty ⇒ bump.
 - Rungs 1–9 (eras, weights, weighted-general): the forced sequence is a path through
   the existing weighted-era space; each step's safety is the weighted-overlap
@@ -166,14 +170,14 @@ in general — are that rung's stated proof obligations, for later rungs.
 
 ## 10. Future work
 
-**Speculative learner recovery:** a zero-weight learner may speculatively recover its
+**Speculative standby recovery:** a zero-weight standby may speculatively recover its
 log non-votingly — acquiring state by streaming while never voting — so that the
 0→1 promotion finds the node already caught up. Stated as future work, not claimed.
 
 ## Grounding sources
 
 - <https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/> — voting
-  weights; halve/double and ±1 unit rules; learners at weight 0.
+  weights; halve/double and ±1 unit rules; standbys at weight 0.
 - <https://simbo1905.wordpress.com/2016/12/16/upaxos-unbounded-paxos-reconfigurations/>
   — era-indexed reconfiguration, consecutive-configuration overlap, casting vote.
 - <https://simbo1905.wordpress.com/2020/05/23/one-more-frown-please-upaxos-quorum-overlaps/>

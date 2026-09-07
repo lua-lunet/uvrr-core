@@ -370,15 +370,18 @@ enough to be validated is not usable, and that is intentional.
 #### Q2 — The voting-weight domain {0,1,2}; join at 0, leave at 0; era batches move ≤ 1 unit of mass
 
 **Context.** Voting weights are common factors: `18/27` is `2/3`, so no node ever needs a
-weight above `2`, and a uniform double or halve is a zero op on quorum families. Learners
-(weight 0) never vote and are not counted against any quorum, so a nine-node deployment
+weight above `2`, and a uniform double or halve is a zero op on quorum families. Standbys
+— TigerBeetle's term for its non-voting cluster members (weight 0; older drafts called
+them learners) — never vote and are not counted against any quorum: standby nodes have a
+zero voting weight so cannot form part of any quorum nor actively participate in the VSR
+algorithm. A nine-node deployment
 of three voting nodes across three data centres is a three-node cluster with six warm
 standbys. Reconfiguration must be checkable *before* it is proposed, with no way to
 compress a two-step identity swap into one era.
 
 **Decision.** The voting-weight domain is `{0, 1, 2}` (`configuration::MAX_WEIGHT = 2`).
 A node joins at weight 0 and leaves only at weight 0; there is no operation that joins
-elsewhere and no legal fold that removes a voter. Zero-weight learners receive prepare
+elsewhere and no legal fold that removes a voter. Zero-weight standbys receive prepare
 and commit traffic so they stay swappable in, and every replica discards
 vote/view-change messages from a non-voting identity (the `Reincarnation` announcement is
 the one exempted message). One reconfiguration commits a **batch**: either one solitary
