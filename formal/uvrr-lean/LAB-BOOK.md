@@ -731,3 +731,36 @@ did not replay: its recorded listing of `NegativeControls.lean` and
 `showboat verify` diffed on its first block. It was regenerated from its own
 extracted recipe (`showboat extract`), and now replays; no Lean source or
 mutation changed. Manifest: `evidence/recovery-acquire/validation.json`.
+
+## 2026-09-07 P — reincarnation documentation (item25)
+
+Per `.tmp/specs/item25.md` (with the Director's addendum clarifications 5–8) and the
+item23 survey `.tmp/research/uvrr-reincarnation-survey.md`, the Crash-Stop-Self-Evict
+model is now documented as **reincarnation** in `docs/uvrr-reincarnation.md`: the
+four-superblock durable identity contract with clarified `flushed`/`unflushed` marker
+semantics (flushed = self-consistent checkpoint, written at clean shutdown and after
+the bump; unflushed = running sentinel written at start), the flushed/unflushed/dirty/
+bumped/reincarnating state machine, higher-identity-wins and continuation-commitment
+invariants, the membership-discard check, the streaming order (reconfiguration first,
+then client traffic, then preemptive weight-0 learner streaming), the leader-crash
+ordering precondition, and the forced weight sequence 1→0 / join-at-0 / 0→1 with its
+per-era safety argument. The doubled-weights corner is worked out explicitly: in the
+doubled scale the return halve is integral only when all weights are even, so one
+extra unit increment on the new identity precedes the halve. The economic rationale
+(“the network is faster than the disk”, deferred flushes, one fsync per epoch) is
+prominent per clarification 7, and the identity pair (old, new) is stated to supersede
+rung 17's `generation` ghost as freshness carrier where they meet, with the
+RecoveryFence machinery retained and rung 17 untouched (clarification 8). Speculative
+non-voting learner log recovery is stated as future work only.
+
+The manuscript gains a subsection “Unbounded VRR reincarnation” after the acquisition
+subsection and before the casting-vote design-model coda, plus bibliography entries
+for the voting-weights and network-faster-than-the-disk blogs. The abstract's
+replacement of the recovery open-problem framing and the evidence list's renumbered
+rungs 17–20 were already consistent with the post-deletion ladder; the evidence list
+now also records that the classic attempt's delayed-fence rung was deleted with it.
+No Lean, Rust, TLC or mutation inputs changed, so no rebuilds or replays beyond the
+paper were due. The paper rebuilds with zero errors and no overfull boxes (8 pages).
+The reincarnation formalization itself is a future ladder rung (planned next as the
+post-deletion ladder's successor rung); this entry banks documentation only, and no
+git operations were performed (orchestrator commits).

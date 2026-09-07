@@ -10,7 +10,7 @@ and the DISC'17 Appendix B.1 amnesia class it exposes are therefore avoided by
 construction in uVRR; those mechanisms are literature about classic
 crash-recovery designs, not open problems here. The ladder's rung 17–20
 fence/acquisition machinery is the proof skeleton the reincarnated weight-0
-learner obeys.
+learner obeys. The protocol specification is [docs/uvrr-reincarnation.md](../../docs/uvrr-reincarnation.md).
 
 ## Editing the paper
 

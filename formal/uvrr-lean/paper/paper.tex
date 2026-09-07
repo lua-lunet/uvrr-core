@@ -578,6 +578,46 @@ reconstruction, the read quorum, mapping the echoed (incarnation, sequence)
 identity to the superblock incarnation contract, log integration and liveness
 remain open.
 
+\subsection{Unbounded VRR reincarnation}
+uVRR does not implement crash-recovery. It enforces Crash-Stop-Self-Evict, called
+\emph{reincarnation}: a node whose volatile state was lost reopens as a different
+node. Durable state is four TigerBeetle-style superblocks. A restart that reads all
+four as \code{flushed} marks them \code{unflushed} and continues normally; a restart
+that reads any \code{unflushed} block is dirty, bumps its incarnation, and rewrites
+all four blocks as the new identity marked \code{flushed}. Any read that observes a
+higher identity adopts it. Once the eviction is initiated it must continue. A
+\emph{reincarnation} message carries the identity pair (old, new) to the leader; the
+durable incarnation supersedes the fence machinery's ghost generation as the
+freshness carrier where the two meet, while the fence and acquisition theorems above
+remain in force with the carrier re-instantiated.
+
+The leader stays live for client requests and drives a forced weight sequence from
+the voting-weights rules \cite{votingweights}: the exiting node's weight goes
+$1\to0$, the new identity joins at $0$, and the new identity goes $0\to1$. Each step
+is a unit-weight change, so the strict majorities of consecutive configurations
+overlap by Theorem~\ref{thm:weights}'s corollaries and every intermediate era is
+quorum-safe on its own; a leader dying mid-sequence leaves only safe eras that a new
+leader can continue. If the sequence runs in the doubled scale of a weight-doubling
+plan, the return halve is integral only when all weights are even, so the corner
+sequence inserts one extra unit increment on the new identity before the halve. The
+leader streams the first reconfiguration, then client traffic, and preemptively
+streams to the reincarnated node as a weight-0 learner; messages to it are fine and
+messages from it are discarded by the standard membership check, which is the same
+rule the crash-vector collector's stale-reply filter realizes. If the leader crashes,
+the cluster must reach a stable leader before the reincarnated node forces its old
+identity's eviction.
+
+The economics defer disk flushes: because ``the network is faster than the disk''
+\cite{netdisk}, the forced rounds are network round trips cheaper than fsyncs for
+nano-state, and the four-superblock mark is one fsync amortized over the whole epoch.
+Same-identity recovery after volatile-state loss is thereby unrepresentable rather
+than repaired: classic VRR-2012 diskless quorum recovery is not performed, so the
+DISC'17 Appendix B.1 amnesia class is avoided by construction, and a zero-weight
+learner may speculatively recover its log non-votingly as future work. The
+formalization of the superblock contract and the forced sequence against the fence
+and acquisition machinery is a concrete proof obligation, planned as a later ladder
+rung.
+
 \subsection{Casting votes and the design model}
 The inherited casting-vote lemma assumes an old decision quorum $q$, a new
 promise quorum $q'$, and a leader $\ell$ with $q\cap q'=\{\ell\}$. Sending
@@ -653,7 +693,9 @@ acceptor), 11 (suffix promises), 12 (fault controls), 13 (whole-log
 selection), 14 (normal-log provenance), 15 (fenced histories), and 16
 (shared multi-view preservation), 17 (conditional recovery fencing), 18
 (crash-vector collection), 19 (acquisition ordering), and 20 (operational
-acquisition certificates). The original
+acquisition certificates). The classic crash-recover attempt's delayed-fence
+counterexample rung was deleted with that attempt, and the ladder's recovery rungs
+are numbered 17--20 after renumbering. The original
 report is retained as an audit input. Its statement that every rung includes
 a successful build and axiom report does not hold for rung 8.
 
@@ -788,6 +830,12 @@ MIT-CSAIL-TR-2012-021, 23 July 2012.
 \bibitem{uvrr} simbo1905, ``Unbounded Viewstamped Replication Revisited?''
 12 August 2026.
 \url{https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/}.
+\bibitem{netdisk} simbo1905, ``The network is faster than the disk,'' 12 April
+2024, accessed 7 September 2026.
+\url{https://simbo1905.wordpress.com/2024/04/12/the-network-is-faster-than-the-disk/}.
+\bibitem{votingweights} simbo1905, ``Paxos Voting Weights,'' 16 March 2017,
+accessed 7 September 2026.
+\url{https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/}.
 \bibitem{showboat} S.~Willison, ``Showboat: Create executable demo documents,''
 software, version 0.6.1 used for the inherited evidence.
 \url{https://github.com/simonw/showboat}.

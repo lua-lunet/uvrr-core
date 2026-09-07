@@ -1,46 +1,57 @@
-//! TigerBeetle-style four-superblock durability substrate, driven through the
-//! extracted TigerBeetle 0.17.9 superblock code (see README.md for the build).
+//! TigerBeetle direct-IO durability substrate, driven through the VENDORED
+//! TigerBeetle 0.17.9 IO + superblock stack (zig/ — see zig/PATCH_MANIFEST.md
+//! and README.md for the build).
 //!
-//! Director's delta demonstrated:
-//!   * four superblock copies on disk, TB layout/checksums verbatim;
-//!   * `flushed`/`unflushed` bit (in TB's reserved `flags` field);
-//!   * restart reads all FOUR; ANY valid copy unflushed ⇒ dirty;
-//!   * dirty ⇒ bump the incarnation (TB's `sequence`, hash-chained by
-//!     `parent`), write the new identity + `flushed` to all four; higher
+//! Director's delta demonstrated over TB's actual code paths:
+//!   * the data file is opened through TB's per-OS direct block-IO layer
+//!     (darwin: O_DSYNC + F_NOCACHE + flock + F_FULLFSYNC flush; linux would
+//!     use O_DIRECT — see the fact-check notes in zig/PATCH_MANIFEST.md);
+//!   * four superblock copies, TB checksum scheme and 2-of-4 open quorum;
+//!   * `uvrr_flushed` mark; any valid copy unflushed ⇒ dirty restart;
+//!   * dirty ⇒ bump the incarnation (hash-chained `parent`, advanced
+//!     `sequence`), write the new identity to all four copies; higher
 //!     identity wins on subsequent reads;
-//!   * clean shutdown ⇒ flush writes, fsync, mark `flushed` in all four;
-//!   * continuation commitment: the clean path continues the same identity.
+//!   * clean shutdown ⇒ flushed mark on all four copies through TB's sync path;
+//!   * membership ops (add_one/remove_one/double/halve) through the ops WAL,
+//!     checkpointed into one 4 KiB block, replayed on reopen.
 //!
-//! Dependency-free: std only. Run through `build.sh`, which compiles the Zig
-//! extraction and links it.
+//! Dependency-free: std only. Run through `build.sh`, which compiles the
+//! vendored Zig tree with TB's pinned Zig 0.14.1 and links it.
 
-use std::ffi::{CStr, CString, c_char, c_int};
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
-struct UvrrState {
-    adopted_sequence: u64,
-    flushed: bool,
-    dirty: bool,
-    valid_copies: u8,
-    unflushed_copies: u8,
-}
-
-// Opaque handle: TigerBeetle's SuperBlockHeader by value.
-#[repr(C)]
-struct Handle {
-    _header: [u8; 0],
-    _align: u64,
-}
+use std::ffi::{CString, c_char, c_int};
 
 #[link(name = "uvrr_sb", kind = "static")]
 unsafe extern "C" {
-    fn uvrr_sb_format(path: *const c_char, cluster: u64, out: *mut *mut Handle) -> c_int;
-    fn uvrr_sb_open(path: *const c_char, out: *mut *mut Handle, state: *mut UvrrState) -> c_int;
-    fn uvrr_sb_bump(handle: *mut Handle, path: *const c_char) -> c_int;
-    fn uvrr_sb_set_flushed(handle: *mut Handle, path: *const c_char, flushed: bool) -> c_int;
-    fn uvrr_sb_copy_size() -> u64;
-    fn uvrr_sb_close(handle: *mut Handle);
+    fn uvrr_format(
+        dir_path: *const c_char,
+        file_name: *const c_char,
+        cluster_lo: u64,
+        cluster_hi: u64,
+        incarnation: u64,
+    ) -> c_int;
+    fn uvrr_open(
+        dir_path: *const c_char,
+        file_name: *const c_char,
+        cluster_lo: u64,
+        cluster_hi: u64,
+    ) -> c_int;
+    fn uvrr_clean_shutdown() -> c_int;
+    fn uvrr_dirty_restart() -> c_int;
+    fn uvrr_op(op: c_int, identity_lo: u64, identity_hi: u64, weight: u16, learner: c_int) -> c_int;
+    fn uvrr_checkpoint() -> c_int;
+    fn uvrr_sequence() -> u64;
+    fn uvrr_incarnation() -> u64;
+    fn uvrr_flushed() -> c_int;
+    fn uvrr_member_count() -> u32;
+    fn uvrr_simulate_dirty_copy(index: u32) -> c_int;
+    fn uvrr_member(
+        index: u32,
+        identity_lo: *mut u64,
+        identity_hi: *mut u64,
+        weight: *mut u16,
+        learner: *mut c_int,
+    ) -> c_int;
+    fn uvrr_close();
 }
 
 fn check(rc: c_int, what: &str) {
@@ -49,144 +60,149 @@ fn check(rc: c_int, what: &str) {
     }
 }
 
-struct Superblock {
-    handle: *mut Handle,
-    path: CString,
-}
+const OP_ADD_ONE: c_int = 0;
+const OP_REMOVE_ONE: c_int = 1;
+const OP_DOUBLE: c_int = 2;
+const OP_HALVE: c_int = 3;
 
-impl Superblock {
-    fn format(path: &CStr, cluster: u64) -> Self {
-        let mut handle: *mut Handle = std::ptr::null_mut();
-        let rc = unsafe { uvrr_sb_format(path.as_ptr(), cluster, &mut handle) };
-        check(rc, "format");
-        Self {
-            handle,
-            path: path.to_owned(),
-        }
-    }
-
-    fn open(path: &CStr) -> (Self, UvrrState) {
-        let mut handle: *mut Handle = std::ptr::null_mut();
-        let mut state = UvrrState::default();
-        let rc = unsafe { uvrr_sb_open(path.as_ptr(), &mut handle, &mut state) };
-        check(rc, "open");
-        (
-            Self {
-                handle,
-                path: path.to_owned(),
-            },
-            state,
-        )
-    }
-
-    fn set_flushed(&mut self, flushed: bool) {
-        let rc = unsafe { uvrr_sb_set_flushed(self.handle, self.path.as_ptr(), flushed) };
-        check(rc, "set_flushed");
-    }
-
-    fn bump(&mut self) {
-        let rc = unsafe { uvrr_sb_bump(self.handle, self.path.as_ptr()) };
-        check(rc, "bump");
-    }
-}
-
-impl Drop for Superblock {
-    fn drop(&mut self) {
-        unsafe { uvrr_sb_close(self.handle) }
-    }
-}
+const CLUSTER: u128 = 0xBEEF;
 
 fn main() {
     let dir = std::env::temp_dir().join("uvrr-reincarnation-demo");
     std::fs::create_dir_all(&dir).expect("create demo dir");
-    let path_buf = dir.join("superblock.bin");
+    let path_buf = dir.join("uvrr-data.bin");
     std::fs::remove_file(&path_buf).ok();
-    let path = CString::new(path_buf.to_str().expect("utf8 path")).expect("nul-free");
+    let dir_c = CString::new(dir.to_str().expect("utf8 dir")).expect("nul-free");
+    let file_c = CString::new("uvrr-data.bin").expect("nul-free");
 
-    println!("== format: four TB superblock copies, sequence=1, flushed");
-    drop(Superblock::format(&path, 0xBEEF));
-
-    println!(
-        "== CLEAN PATH: startup reads all 4 copies; all flushed => clean => continue same identity"
+    println!("== format: 4 superblock copies + ops WAL + one 4KiB checkpoint block (TB direct IO)");
+    check(
+        unsafe {
+            uvrr_format(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0, 1)
+        },
+        "format",
     );
-    let (mut sb, state) = Superblock::open(&path);
-    println!("   state: {state:?}");
-    assert!(!state.dirty, "freshly formatted store must be clean");
-    assert!(state.flushed, "freshly formatted store must be flushed");
-    assert_eq!(state.valid_copies, 0b1111, "all four copies must verify");
-    let identity = state.adopted_sequence;
+    unsafe { uvrr_close() };
+
+    println!("== CLEAN PATH: open; all copies flushed => clean => continue same identity");
+    check(
+        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
+        "open",
+    );
+    assert_eq!(unsafe { uvrr_sequence() }, 0);
+    assert_eq!(unsafe { uvrr_flushed() }, 1, "fresh format must be flushed");
+    let identity = unsafe { uvrr_incarnation() };
     println!("   continuation commitment: identity {identity} continues unchanged");
 
-    println!(
-        "== clean shutdown path: writes go unflushed in flight, then flush + fsync + mark flushed"
+    println!("== membership: add_one/remove_one/double/halve through the ops WAL");
+    member_add(1, 1);
+    member_add(2, 1);
+    member_add(3, 2);
+    assert_eq!(unsafe { uvrr_member_count() }, 3, "three members");
+    member_double(1);
+    member_halve(3);
+    member_remove(2);
+    assert_eq!(unsafe { uvrr_member_count() }, 2, "two members left");
+    member_add(4, 1); // learner
+    member_add(5, 4);
+    member_add(6, 2);
+    println!("   members now: {}", unsafe { uvrr_member_count() });
+    check(unsafe { uvrr_checkpoint() }, "checkpoint");
+
+    println!("== clean shutdown: flushed mark written to all four copies, TB sync path");
+    check(unsafe { uvrr_clean_shutdown() }, "clean_shutdown");
+    unsafe { uvrr_close() };
+
+    check(
+        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
+        "reopen after clean shutdown",
     );
-    sb.set_flushed(false);
-    sb.set_flushed(true); // stop responding -> flush -> fsync -> mark flushed in all four
-    drop(sb);
-    let (sb, state) = Superblock::open(&path);
-    println!("   state: {state:?}");
-    assert!(!state.dirty, "clean shutdown must reopen clean");
-    assert_eq!(
-        state.adopted_sequence, identity,
-        "clean path keeps identity"
+    assert_eq!(unsafe { uvrr_flushed() }, 1, "clean store reopens flushed");
+    assert_eq!(unsafe { uvrr_member_count() }, 5, "membership replayed");
+    drop_members();
+    unsafe { uvrr_close() };
+
+    println!("== DIRTY PATH: crash with unflushed state (simulated torn shutdown)");
+    check(
+        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
+        "open",
     );
-    drop(sb);
+    // A crash that left copy 0 recorded unflushed (consistent header, flushed=0).
+    check(unsafe { uvrr_simulate_dirty_copy(0) }, "simulate_dirty_copy");
+    unsafe { uvrr_close() };
 
-    println!("== DIRTY PATH: crash with in-flight (unflushed) state");
-    let (mut sb, state) = Superblock::open(&path);
-    assert!(!state.dirty, "precondition");
-    sb.set_flushed(false); // simulates the crash: last write left unflushed
-    drop(sb);
+    check(
+        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
+        "open dirty",
+    );
+    assert_eq!(unsafe { uvrr_flushed() }, 1, "3-of-4 flushed still wins");
+    let old_identity = unsafe { uvrr_incarnation() };
 
-    let (sb, state) = Superblock::open(&path);
-    println!("   state: {state:?}");
-    assert!(state.dirty, "any valid copy unflushed => dirty");
-    let old_identity = state.adopted_sequence;
-    assert_eq!(old_identity, identity);
-    drop(sb);
+    println!("== dirty => bump incarnation, rewrite all four copies");
+    check(unsafe { uvrr_dirty_restart() }, "dirty_restart");
+    unsafe { uvrr_close() };
 
-    println!("== dirty => bump incarnation, write new identity + flushed to ALL FOUR");
-    let (mut sb, state) = Superblock::open(&path);
-    assert!(state.dirty);
-    sb.bump();
-    drop(sb);
-
-    let (sb, state) = Superblock::open(&path);
-    println!("   state: {state:?}");
-    assert!(!state.dirty, "post-bump store must reopen clean");
-    assert!(state.flushed, "post-bump copies carry the flushed bit");
-    assert_eq!(state.valid_copies, 0b1111, "bump wrote all four copies");
-    let new_identity = state.adopted_sequence;
-    assert_eq!(new_identity, old_identity + 1, "incarnation bumped by one");
+    check(
+        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
+        "reopen after bump",
+    );
+    let new_identity = unsafe { uvrr_incarnation() };
+    assert_eq!(new_identity, old_identity + 1, "incarnation bumped");
+    assert_eq!(unsafe { uvrr_flushed() }, 0, "bumped copies start unflushed");
     println!("   REINCARNATION: identity {old_identity} -> {new_identity} (higher identity wins)");
-    drop(sb);
+    check(unsafe { uvrr_clean_shutdown() }, "clean_shutdown");
+    unsafe { uvrr_close() };
 
-    println!("== higher-identity-wins: tearing one copy cannot regress the adopted identity");
-    tear_one_copy(&path_buf, unsafe { uvrr_sb_copy_size() });
-    let (sb, state) = Superblock::open(&path);
-    println!("   state: {state:?}");
-    assert_eq!(state.adopted_sequence, new_identity, "stale copy must lose");
-    assert_eq!(state.valid_copies, 0b1110, "3 of 4 valid after tear");
-    drop(sb);
+    println!("== membership replay across restart: reopen replays checkpoint + WAL suffix");
+    check(
+        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
+        "reopen",
+    );
+    assert_eq!(unsafe { uvrr_member_count() }, 5, "membership intact");
+    drop_members();
+    unsafe { uvrr_close() };
 
     println!(
-        "DEMO OK: clean path continued identity {identity}; dirty path reincarnated {old_identity} -> {new_identity}"
+        "DEMO OK: clean path continued identity {identity}; dirty path reincarnated {old_identity} -> {new_identity}; membership replayed through the WAL"
     );
 }
 
-/// Overwrite copy 0 with the previous generation's content (simulates a lost
-/// write), so the store holds copies [old, new, new, new].
-fn tear_one_copy(path: &std::path::Path, copy_size: u64) {
-    use std::io::{Read, Seek, SeekFrom, Write};
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path)
-        .expect("open superblock zone");
-    let mut stale = vec![0u8; copy_size as usize];
-    file.seek(SeekFrom::Start(copy_size)).expect("seek copy 1");
-    file.read_exact(&mut stale).expect("read copy 1");
-    file.seek(SeekFrom::Start(0)).expect("seek copy 0");
-    file.write_all(&stale).expect("write stale copy 0");
-    file.sync_all().expect("fsync");
+fn member_add(identity: u64, weight: u16) {
+    check(
+        unsafe { uvrr_op(OP_ADD_ONE, identity, 0, weight, 0) },
+        "op add_one",
+    );
+}
+
+fn member_remove(identity: u64) {
+    check(
+        unsafe { uvrr_op(OP_REMOVE_ONE, identity, 0, 0, 0) },
+        "op remove_one",
+    );
+}
+
+fn member_double(identity: u64) {
+    check(unsafe { uvrr_op(OP_DOUBLE, identity, 0, 0, 0) }, "op double");
+}
+
+fn member_halve(identity: u64) {
+    check(unsafe { uvrr_op(OP_HALVE, identity, 0, 0, 0) }, "op halve");
+}
+
+fn drop_members() {
+    let count = unsafe { uvrr_member_count() };
+    for i in 0..count {
+        let mut lo = 0u64;
+        let mut hi = 0u64;
+        let mut weight = 0u16;
+        let mut learner: c_int = 0;
+        check(
+            unsafe { uvrr_member(i, &mut lo, &mut hi, &mut weight, &mut learner) },
+            "member read",
+        );
+        println!(
+            "   member[{i}]: identity {:#x} weight {weight} learner {learner}",
+            ((hi as u128) << 64) | lo as u128
+        );
+    }
 }
