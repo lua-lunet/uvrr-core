@@ -29,7 +29,7 @@ theorem bump_supersedes (i : Ident) : bump i ≠ i := by
   simp [bump]
 
 /-- Weight of an identity in a configuration; weight 0 is a non-voting
-learner or an evicted identity. -/
+standby or an evicted identity. -/
 abbrev Weight := Nat
 
 /-- A configuration is the identity-to-weight map. -/
@@ -46,20 +46,53 @@ structure Reincarnate (A : Type) where
 
 /-! ### The forced weight sequence (unit rule) -/
 
-/-- Step 0: the exiting node's weight drops by one unit (1 → 0 in the
-unit-weight scenario). -/
+/-- The crossing era (docs §5, era D1): one batch of `DECREMENT(old),
+JOIN(new)` — the exiting node's weight drops one unit and the new identity
+joins at weight 0 as a standby. -/
+def crossEra {A : Type} [DecidableEq A] (old new : A) (w : Config A) : Config A :=
+  fun a => if a = old then w a - 1 else if a = new then 0 else w a
+
+/-- The eviction era (docs §5, era D2): one batch of `INCREMENT(new),
+LEAVE(old)` — the new identity is promoted one unit and the old identity,
+already at weight 0, leaves the voting configuration. In the weight-map
+model the leave of a weight-0 identity is invisible: it was never a voter
+(`step1_not_voting`) and contributes nothing to any quorum. -/
+def evictEra {A : Type} [DecidableEq A] (new : A) (w : Config A) : Config A :=
+  fun a => if a = new then w a + 1 else w a
+
+/-- The unit-rule steps the two eras are built from: a solitary decrement,
+the weight-0 join, and the unit promotion. -/
 def step0 {A : Type} [DecidableEq A] (old : A) (w : Config A) : Config A :=
   fun a => if a = old then w a - 1 else w a
 
-/-- Step 1: the old identity is evicted (weight clamped to 0, never a voter
-again) and the new identity joins at weight 0 as a learner. -/
+/-- The weight-0 join: the new identity enters as a standby; total and every
+voter unchanged. -/
 def step1 {A : Type} [DecidableEq A] (old new : A) (w : Config A) : Config A :=
   fun a => if a = old then 0 else if a = new then 0 else w a
 
-/-- Step 2: the new identity is promoted by one unit (0 → 1 in the
-unit-weight scenario). -/
+/-- The unit promotion: the new identity 0 → 1. -/
 def step2 {A : Type} [DecidableEq A] (new : A) (w : Config A) : Config A :=
   fun a => if a = new then w a + 1 else w a
+
+theorem crossEra_decrements {A : Type} [DecidableEq A] {old new : A} (_h : old ≠ new)
+    (w : Config A) :
+    crossEra old new w old = w old - 1 := by
+  rw [crossEra, if_pos rfl]
+
+theorem crossEra_joins_standby {A : Type} [DecidableEq A] {old new : A} (h : old ≠ new)
+    (w : Config A) :
+    crossEra old new w new = 0 := by
+  rw [crossEra, if_neg (Ne.symm h), if_pos rfl]
+
+theorem crossEra_other {A : Type} [DecidableEq A] {old new a : A}
+    (ho : a ≠ old) (hn : a ≠ new) (w : Config A) :
+    crossEra old new w a = w a := by simp [crossEra, ho, hn]
+
+theorem evictEra_promotes {A : Type} [DecidableEq A] (new : A) (w : Config A) :
+    evictEra new w new = w new + 1 := by simp [evictEra]
+
+theorem evictEra_other {A : Type} [DecidableEq A] {new a : A} (hn : a ≠ new) (w : Config A) :
+    evictEra new w a = w a := by simp [evictEra, hn]
 
 theorem step0_decrements {A : Type} [DecidableEq A] (old : A) (w : Config A) :
     step0 old w old = w old - 1 := by simp [step0]
@@ -70,7 +103,7 @@ theorem step0_other {A : Type} [DecidableEq A] {old a : A} (h : a ≠ old) (w : 
 theorem step1_evicts {A : Type} [DecidableEq A] (old new : A) (w : Config A) :
     step1 old new w old = 0 := by simp [step1]
 
-theorem step1_joins_learner {A : Type} [DecidableEq A] (old new : A) (w : Config A) :
+theorem step1_joins_standby {A : Type} [DecidableEq A] (old new : A) (w : Config A) :
     step1 old new w new = 0 := by simp [step1]
 
 theorem step1_other {A : Type} [DecidableEq A] {old new a : A}
@@ -125,7 +158,7 @@ Marker states: `flushed` (durable checkpoint), `unflushed` (running
 sentinel), `dirty` (restart observed any-`unflushed`; eviction must begin),
 `bumped` (incarnation incremented, four superblocks rewritten), and
 `reincarnating` (wire phase: old identity pending eviction, new identity a
-weight-0 learner). -/
+weight-0 standby). -/
 
 inductive Phase where
   | flushed
@@ -202,72 +235,112 @@ theorem forced_sequence : ForcedRun .dirty .flushed :=
   (((ForcedRun.step (ForcedRun.refl .dirty) ForcedStep.bump_write).step
     ForcedStep.enter_wire).step ForcedStep.complete)
 
-/-! ### Worked scenario: the unit-weight three-node eviction (docs §5)
+/-! ### Worked scenario: the unit-weight three-node reincarnation (docs §5)
 
 Identities `0, 1, 2` are `N0, N1, N2` at unit weight; identity `3` is the
-reincarnated `N2′`. The forced sequence is D0 → D1 → D2 → D3. -/
+reincarnated `N2′`. The forced sequence is TWO eras, each one legal batch:
+E1 = `DECREMENT(N2), JOIN(N2′)` (`crossEra`), then
+E2 = `INCREMENT(N2′), LEAVE(N2)` (`evictEra`). Every consecutive pair of eras
+moves at most one unit of per-node voting mass (the era rule the fold and the
+planner enforce before any op is proposed), so consecutive strict majorities
+overlap. -/
 
 def nodes : List Nat := [0, 1, 2, 3]
 
-/-- D0 baseline: three unit-weight voters. -/
+/-- E0 baseline: three unit-weight voters. -/
 def unit3 : Config Nat := fun a => if a = 0 ∨ a = 1 ∨ a = 2 then 1 else 0
 
-/-- D1: exiting node weight 1 → 0 (subtract one). -/
-def d1 : Config Nat := step0 2 unit3
+/-- E1: the crossing era — old identity driven to weight 0 and the
+reincarnated identity joined as a standby, in one batch. -/
+def e1 : Config Nat := crossEra 2 3 unit3
 
-/-- D2: old identity evicted, new node joins at weight 0 (total unchanged). -/
-def d2 : Config Nat := step1 2 3 d1
-
-/-- D3: new node 0 → 1 (add one). -/
-def d3 : Config Nat := step2 3 d2
+/-- E2: the eviction era — the new identity promoted and the weight-0 old
+identity left, in one batch. -/
+def e2 : Config Nat := evictEra 3 e1
 
 theorem unit3_total : WeightedGeneral.total nodes unit3 = 3 := by
   simp [nodes, WeightedGeneral.total, unit3] <;> omega
 
-theorem d3_total : WeightedGeneral.total nodes d3 = 3 := by
-  simp [nodes, WeightedGeneral.total, d3, step2, d2, step1, d1, step0, unit3] <;> omega
+theorem e1_membership :
+    e1 2 = 0 ∧ e1 3 = 0 ∧ e1 0 = 1 ∧ e1 1 = 1 := by
+  simp [e1, crossEra, unit3]
 
-theorem d2_membership :
-    d2 2 = 0 ∧ d2 3 = 0 ∧ d2 0 = 1 ∧ d2 1 = 1 := by
-  simp [d2, step1, d1, step0, unit3]
+theorem e2_membership :
+    e2 3 = 1 ∧ e2 0 = 1 ∧ e2 1 = 1 ∧ ¬ voting e2 2 := by
+  simp [e2, evictEra, e1, crossEra, unit3, voting]
 
-/-- D1 → D2 leaves every weight unchanged: the eviction of the already
-weight-0 old identity and the learner join preserve the weight map
-pointwise, so the two eras are the same majority family. -/
-theorem d1_d2_equal : ∀ a, d2 a = d1 a := by
-  intro a
-  by_cases h2 : a = 2
-  · subst a; simp [d2, step1, d1, step0, unit3]
-  · by_cases h3 : a = 3
-    · subst a; simp [d2, step1, d1, step0, unit3]
-    · simp [d2, step1, d1, step0, unit3, h2, h3]
+/-- The R14 era rule, kernel-checked: the crossing era moves exactly ONE
+unit of per-node voting mass (`N2` down one; `N2′` enters at 0 and moves
+none). -/
+theorem e1_mass :
+    WeightedGeneral.total nodes
+      (fun a => WeightedGeneral.distance (unit3 a) (e1 a)) = 1 := by
+  simp [nodes, WeightedGeneral.total, WeightedGeneral.distance, unit3, e1, crossEra] <;> omega
 
-/-- Era safety D0 → D1: the single unit decrement keeps consecutive strict
-majorities overlapping (rung 9's distance-one overlap, at the concrete
+/-- The R14 era rule, kernel-checked: the eviction era moves exactly ONE
+unit (`N2′` up one; the weight-0 leave of `N2` moves none). -/
+theorem e2_mass :
+    WeightedGeneral.total nodes
+      (fun a => WeightedGeneral.distance (e1 a) (e2 a)) = 1 := by
+  simp [nodes, WeightedGeneral.total, WeightedGeneral.distance, e2, evictEra, e1,
+    crossEra, unit3] <;> omega
+
+/-- Era safety E0 → E1: the crossing batch keeps consecutive strict
+majorities overlapping (rung 9's distance-one overlap at the concrete
 configuration). -/
-theorem d0_d1_safe :
-    Frown (WeightedGeneral.majority nodes unit3) (WeightedGeneral.majority nodes d1) := by
-  have hd :
-      WeightedGeneral.total nodes
-        (fun a => WeightedGeneral.distance (unit3 a) (d1 a)) = 1 := by
-    simp [nodes, WeightedGeneral.total, WeightedGeneral.distance, unit3, d1, step0] <;> omega
-  exact WeightedGeneral.unit_change_overlap nodes unit3 d1 (Nat.le_of_eq hd)
+theorem e0_e1_safe :
+    Frown (WeightedGeneral.majority nodes unit3) (WeightedGeneral.majority nodes e1) := by
+  exact WeightedGeneral.unit_change_overlap nodes unit3 e1 (Nat.le_of_eq e1_mass)
 
-/-- Era safety D1 → D2: the eras coincide pointwise. -/
-theorem d1_d2_safe :
-    Frown (WeightedGeneral.majority nodes d1) (WeightedGeneral.majority nodes d2) := by
-  have he : d2 = d1 := funext d1_d2_equal
-  rw [he]; exact WeightedGeneral.self_overlap nodes d1
-
-/-- Era safety D2 → D3: the one-unit promotion keeps consecutive strict
+/-- Era safety E1 → E2: the eviction batch keeps consecutive strict
 majorities overlapping. -/
-theorem d2_d3_safe :
-    Frown (WeightedGeneral.majority nodes d2) (WeightedGeneral.majority nodes d3) := by
+theorem e1_e2_safe :
+    Frown (WeightedGeneral.majority nodes e1) (WeightedGeneral.majority nodes e2) := by
   have hd :
       WeightedGeneral.total nodes
-        (fun a => WeightedGeneral.distance (d2 a) (d3 a)) = 1 := by
-    simp [nodes, WeightedGeneral.total, WeightedGeneral.distance, d3, step2, d2, step1,
-      d1, step0, unit3] <;> omega
-  exact WeightedGeneral.unit_change_overlap nodes d2 d3 (Nat.le_of_eq hd)
+        (fun a => WeightedGeneral.distance (e1 a) (e2 a)) ≤ 1 := Nat.le_of_eq e2_mass
+  exact WeightedGeneral.unit_change_overlap nodes e1 e2 hd
+
+/-! ### The rejected transition: the identity swap in ONE era
+
+Applying `LEAVE(old)` and `INCREMENT(new)` to the BASELINE in one era — the
+swap the two-era form exists to prevent — moves two units: the old identity's
+weight goes down one AND the new identity's weight goes up one in the same
+era. Its endpoint's era-`E0` majority `{N1, N2}` and era-`E2` majority
+`{N0, N2′}` are disjoint. The fold refuses it; here is the refuted
+assertion, kernel-checked. -/
+
+/-- The swap: old identity evicted AND new identity promoted in one era —
+the batch the two-era form replaces. -/
+def swapEra : Config Nat :=
+  fun a => if a = 2 then 0 else if a = 3 then 1 else unit3 a
+
+/-- The swap moves TWO units of per-node voting mass in one era. -/
+theorem swap_mass :
+    WeightedGeneral.total nodes
+      (fun a => WeightedGeneral.distance (unit3 a) (swapEra a)) = 2 := by
+  simp [nodes, WeightedGeneral.total, WeightedGeneral.distance, unit3, swapEra] <;> omega
+
+/-- So the unit era rule REFUSES the swap: the mass the era would move
+exceeds the one-unit bound the fold and the planner enforce before any
+operation is proposed. -/
+theorem swap_rejected :
+    ¬ (WeightedGeneral.total nodes
+        (fun a => WeightedGeneral.distance (unit3 a) (swapEra a)) ≤ 1) := by
+  rw [swap_mass]
+  omega
+
+/-- And the swap endpoint's majority families are genuinely disjoint: the
+counterexample that shows the bound is not bureaucracy. -/
+theorem swap_unsafe :
+    ∃ q r, WeightedGeneral.majority nodes unit3 q
+      ∧ WeightedGeneral.majority nodes swapEra r ∧ ¬ ∃ a, q a ∧ r a := by
+  refine ⟨fun a => a = 1 ∨ a = 2, fun a => a = 0 ∨ a = 3, ?_, ?_, ?_⟩
+  · simp [WeightedGeneral.majority, WeightedGeneral.mass, WeightedGeneral.total, nodes, unit3]
+  · simp [WeightedGeneral.majority, WeightedGeneral.mass, WeightedGeneral.total, nodes,
+      swapEra, unit3]
+  · intro h
+    obtain ⟨a, h1, h2⟩ := h
+    rcases h1 with h1 | h1 <;> rcases h2 with h2 | h2 <;> omega
 
 end Reincarnation

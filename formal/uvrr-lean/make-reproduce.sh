@@ -132,7 +132,7 @@ builds and diffs every captured output.
 | 18 | `CrashVector.lean` | Published crash-vector collector: reachable reply sets are incarnation-consistent |
 | 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; retention discharged by the durable superblock identity |
 | 20 | `RecoveryAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
-| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: forced-sequence definitions, reincarnation state machine and continuation commitment; unit-weight three-node era-safety instances; general theorems listed as proof obligations |
+| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: two-era forced weight sequence (`crossEra`/`evictEra` batches, R14 one-unit mass rule), reincarnation state machine and continuation commitment; unit-weight three-node era-safety instances; one-era swap refusal with disjoint-majority witness; general theorems listed as proof obligations |
 EOF
 run 'for f in ladder/[0-9][0-9]-*.md; do
   if showboat verify "$f" >/dev/null 2>&1; then echo "ok   $f"; else echo "FAIL $f"; exit 1; fi

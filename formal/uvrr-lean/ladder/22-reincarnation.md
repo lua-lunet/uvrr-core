@@ -1,24 +1,32 @@
 # Rung 22: uVRR reincarnation — Crash-Stop-Self-Evict (spec-only)
 
-*2026-09-07T01:33:43Z by Showboat 0.6.1*
-<!-- showboat-id: 1c5b16bd-34a6-4e41-9527-eb05e822ff28 -->
+*2026-09-08T01:10:02Z by Showboat 0.6.1*
+<!-- showboat-id: 2156e12c-9168-45d2-a9e2-bf26bb086bef -->
 
 This rung fixes the reincarnation specification as definitions: the four-superblock
 durable identity contract (`Mark`, `allFlushed`, `dirtyStartup`), the incarnation bump
 (`bump`, `bump_supersedes`), the identity-to-weight configuration map (`Config`, `voting`),
-the forced weight sequence (`step0` old 1→0; `step1` evict old, join new at 0; `step2` new 0→1),
-the flushed/unflushed/dirty/bumped/reincarnating state machine (`Phase`, `Transition`), the
+the two-era forced weight sequence (`crossEra` — one batch of `DECREMENT(old), JOIN(new)`,
+the crossing era; `evictEra` — one batch of `INCREMENT(new), LEAVE(old)`, the eviction era;
+built on the unit steps `step0`/`step1`/`step2`), the
+flushed/unflushed/dirty/bumped/reincarnating state machine (`Phase`, `Transition`), the
 higher-identity-wins read rule (`adopt`), and continuation commitment (`committedPhase`,
 `ForcedStep`, `ForcedRun`, `forced_prefix`, `forced_monotone`). The admitted content is
-kernel-checked structural lemmas plus `decide`/`simp`-enumerated finite instances: the three
-consecutive eras of the unit-weight three-node eviction scenario of the protocol's forced
-sequence are pairwise quorum-safe (`d0_d1_safe`, `d1_d2_safe`, `d2_d3_safe`), the startup
+kernel-checked structural lemmas plus `decide`/`simp`-enumerated finite instances of the
+unit-weight three-node reincarnation: the two consecutive eras of the forced sequence are
+pairwise quorum-safe (`e0_e1_safe`, `e1_e2_safe`), and each era moves exactly ONE unit of
+per-node voting mass — the R14 mass rule the fold and the planner enforce before any op is
+proposed (`e1_mass`, `e2_mass`). The one-era alternative the two-era form replaces —
+`LEAVE(old)` and `INCREMENT(new)` applied to the BASELINE in a single batch — is refused:
+it moves two units (`swap_mass`), so the era rule rejects it (`swap_rejected`), and its
+endpoint majority families are genuinely disjoint (`swap_unsafe`). The startup
 classification is exhaustive over the sixteen mark combinations (`startup_cases`), and the
-bumped identity is never again a voter after eviction (`step1_not_voting`). This is a
-SPEC-ONLY rung: no general-protocol theorem is admitted. The general theorems — bumped-identity
-non-membership in every view at or after eviction, quorum safety of every intermediate era at
-arbitrary scale, unreachability of the classic amnesia trace, and continuation commitment in
-general — are listed as proof obligations below, to be proved by later rungs.
+old identity is never again a voter after the crossing era (`step1_not_voting`). This is a
+SPEC-ONLY rung: no general-protocol theorem is admitted. The general theorems —
+bumped-identity non-membership in every view at or after the crossing era, quorum safety of
+every intermediate era at arbitrary scale, unreachability of the classic amnesia trace, and
+continuation commitment in general — are listed as proof obligations below, to be proved by
+later rungs.
 
 ```bash
 cat UVRR/Reincarnation.lean
@@ -56,7 +64,7 @@ theorem bump_supersedes (i : Ident) : bump i ≠ i := by
   simp [bump]
 
 /-- Weight of an identity in a configuration; weight 0 is a non-voting
-learner or an evicted identity. -/
+standby or an evicted identity. -/
 abbrev Weight := Nat
 
 /-- A configuration is the identity-to-weight map. -/
@@ -73,20 +81,53 @@ structure Reincarnate (A : Type) where
 
 /-! ### The forced weight sequence (unit rule) -/
 
-/-- Step 0: the exiting node's weight drops by one unit (1 → 0 in the
-unit-weight scenario). -/
+/-- The crossing era (docs §5, era D1): one batch of `DECREMENT(old),
+JOIN(new)` — the exiting node's weight drops one unit and the new identity
+joins at weight 0 as a standby. -/
+def crossEra {A : Type} [DecidableEq A] (old new : A) (w : Config A) : Config A :=
+  fun a => if a = old then w a - 1 else if a = new then 0 else w a
+
+/-- The eviction era (docs §5, era D2): one batch of `INCREMENT(new),
+LEAVE(old)` — the new identity is promoted one unit and the old identity,
+already at weight 0, leaves the voting configuration. In the weight-map
+model the leave of a weight-0 identity is invisible: it was never a voter
+(`step1_not_voting`) and contributes nothing to any quorum. -/
+def evictEra {A : Type} [DecidableEq A] (new : A) (w : Config A) : Config A :=
+  fun a => if a = new then w a + 1 else w a
+
+/-- The unit-rule steps the two eras are built from: a solitary decrement,
+the weight-0 join, and the unit promotion. -/
 def step0 {A : Type} [DecidableEq A] (old : A) (w : Config A) : Config A :=
   fun a => if a = old then w a - 1 else w a
 
-/-- Step 1: the old identity is evicted (weight clamped to 0, never a voter
-again) and the new identity joins at weight 0 as a learner. -/
+/-- The weight-0 join: the new identity enters as a standby; total and every
+voter unchanged. -/
 def step1 {A : Type} [DecidableEq A] (old new : A) (w : Config A) : Config A :=
   fun a => if a = old then 0 else if a = new then 0 else w a
 
-/-- Step 2: the new identity is promoted by one unit (0 → 1 in the
-unit-weight scenario). -/
+/-- The unit promotion: the new identity 0 → 1. -/
 def step2 {A : Type} [DecidableEq A] (new : A) (w : Config A) : Config A :=
   fun a => if a = new then w a + 1 else w a
+
+theorem crossEra_decrements {A : Type} [DecidableEq A] {old new : A} (_h : old ≠ new)
+    (w : Config A) :
+    crossEra old new w old = w old - 1 := by
+  rw [crossEra, if_pos rfl]
+
+theorem crossEra_joins_standby {A : Type} [DecidableEq A] {old new : A} (h : old ≠ new)
+    (w : Config A) :
+    crossEra old new w new = 0 := by
+  rw [crossEra, if_neg (Ne.symm h), if_pos rfl]
+
+theorem crossEra_other {A : Type} [DecidableEq A] {old new a : A}
+    (ho : a ≠ old) (hn : a ≠ new) (w : Config A) :
+    crossEra old new w a = w a := by simp [crossEra, ho, hn]
+
+theorem evictEra_promotes {A : Type} [DecidableEq A] (new : A) (w : Config A) :
+    evictEra new w new = w new + 1 := by simp [evictEra]
+
+theorem evictEra_other {A : Type} [DecidableEq A] {new a : A} (hn : a ≠ new) (w : Config A) :
+    evictEra new w a = w a := by simp [evictEra, hn]
 
 theorem step0_decrements {A : Type} [DecidableEq A] (old : A) (w : Config A) :
     step0 old w old = w old - 1 := by simp [step0]
@@ -97,7 +138,7 @@ theorem step0_other {A : Type} [DecidableEq A] {old a : A} (h : a ≠ old) (w : 
 theorem step1_evicts {A : Type} [DecidableEq A] (old new : A) (w : Config A) :
     step1 old new w old = 0 := by simp [step1]
 
-theorem step1_joins_learner {A : Type} [DecidableEq A] (old new : A) (w : Config A) :
+theorem step1_joins_standby {A : Type} [DecidableEq A] (old new : A) (w : Config A) :
     step1 old new w new = 0 := by simp [step1]
 
 theorem step1_other {A : Type} [DecidableEq A] {old new a : A}
@@ -152,7 +193,7 @@ Marker states: `flushed` (durable checkpoint), `unflushed` (running
 sentinel), `dirty` (restart observed any-`unflushed`; eviction must begin),
 `bumped` (incarnation incremented, four superblocks rewritten), and
 `reincarnating` (wire phase: old identity pending eviction, new identity a
-weight-0 learner). -/
+weight-0 standby). -/
 
 inductive Phase where
   | flushed
@@ -229,73 +270,113 @@ theorem forced_sequence : ForcedRun .dirty .flushed :=
   (((ForcedRun.step (ForcedRun.refl .dirty) ForcedStep.bump_write).step
     ForcedStep.enter_wire).step ForcedStep.complete)
 
-/-! ### Worked scenario: the unit-weight three-node eviction (docs §5)
+/-! ### Worked scenario: the unit-weight three-node reincarnation (docs §5)
 
 Identities `0, 1, 2` are `N0, N1, N2` at unit weight; identity `3` is the
-reincarnated `N2′`. The forced sequence is D0 → D1 → D2 → D3. -/
+reincarnated `N2′`. The forced sequence is TWO eras, each one legal batch:
+E1 = `DECREMENT(N2), JOIN(N2′)` (`crossEra`), then
+E2 = `INCREMENT(N2′), LEAVE(N2)` (`evictEra`). Every consecutive pair of eras
+moves at most one unit of per-node voting mass (the era rule the fold and the
+planner enforce before any op is proposed), so consecutive strict majorities
+overlap. -/
 
 def nodes : List Nat := [0, 1, 2, 3]
 
-/-- D0 baseline: three unit-weight voters. -/
+/-- E0 baseline: three unit-weight voters. -/
 def unit3 : Config Nat := fun a => if a = 0 ∨ a = 1 ∨ a = 2 then 1 else 0
 
-/-- D1: exiting node weight 1 → 0 (subtract one). -/
-def d1 : Config Nat := step0 2 unit3
+/-- E1: the crossing era — old identity driven to weight 0 and the
+reincarnated identity joined as a standby, in one batch. -/
+def e1 : Config Nat := crossEra 2 3 unit3
 
-/-- D2: old identity evicted, new node joins at weight 0 (total unchanged). -/
-def d2 : Config Nat := step1 2 3 d1
-
-/-- D3: new node 0 → 1 (add one). -/
-def d3 : Config Nat := step2 3 d2
+/-- E2: the eviction era — the new identity promoted and the weight-0 old
+identity left, in one batch. -/
+def e2 : Config Nat := evictEra 3 e1
 
 theorem unit3_total : WeightedGeneral.total nodes unit3 = 3 := by
   simp [nodes, WeightedGeneral.total, unit3] <;> omega
 
-theorem d3_total : WeightedGeneral.total nodes d3 = 3 := by
-  simp [nodes, WeightedGeneral.total, d3, step2, d2, step1, d1, step0, unit3] <;> omega
+theorem e1_membership :
+    e1 2 = 0 ∧ e1 3 = 0 ∧ e1 0 = 1 ∧ e1 1 = 1 := by
+  simp [e1, crossEra, unit3]
 
-theorem d2_membership :
-    d2 2 = 0 ∧ d2 3 = 0 ∧ d2 0 = 1 ∧ d2 1 = 1 := by
-  simp [d2, step1, d1, step0, unit3]
+theorem e2_membership :
+    e2 3 = 1 ∧ e2 0 = 1 ∧ e2 1 = 1 ∧ ¬ voting e2 2 := by
+  simp [e2, evictEra, e1, crossEra, unit3, voting]
 
-/-- D1 → D2 leaves every weight unchanged: the eviction of the already
-weight-0 old identity and the learner join preserve the weight map
-pointwise, so the two eras are the same majority family. -/
-theorem d1_d2_equal : ∀ a, d2 a = d1 a := by
-  intro a
-  by_cases h2 : a = 2
-  · subst a; simp [d2, step1, d1, step0, unit3]
-  · by_cases h3 : a = 3
-    · subst a; simp [d2, step1, d1, step0, unit3]
-    · simp [d2, step1, d1, step0, unit3, h2, h3]
+/-- The R14 era rule, kernel-checked: the crossing era moves exactly ONE
+unit of per-node voting mass (`N2` down one; `N2′` enters at 0 and moves
+none). -/
+theorem e1_mass :
+    WeightedGeneral.total nodes
+      (fun a => WeightedGeneral.distance (unit3 a) (e1 a)) = 1 := by
+  simp [nodes, WeightedGeneral.total, WeightedGeneral.distance, unit3, e1, crossEra] <;> omega
 
-/-- Era safety D0 → D1: the single unit decrement keeps consecutive strict
-majorities overlapping (rung 9's distance-one overlap, at the concrete
+/-- The R14 era rule, kernel-checked: the eviction era moves exactly ONE
+unit (`N2′` up one; the weight-0 leave of `N2` moves none). -/
+theorem e2_mass :
+    WeightedGeneral.total nodes
+      (fun a => WeightedGeneral.distance (e1 a) (e2 a)) = 1 := by
+  simp [nodes, WeightedGeneral.total, WeightedGeneral.distance, e2, evictEra, e1,
+    crossEra, unit3] <;> omega
+
+/-- Era safety E0 → E1: the crossing batch keeps consecutive strict
+majorities overlapping (rung 9's distance-one overlap at the concrete
 configuration). -/
-theorem d0_d1_safe :
-    Frown (WeightedGeneral.majority nodes unit3) (WeightedGeneral.majority nodes d1) := by
-  have hd :
-      WeightedGeneral.total nodes
-        (fun a => WeightedGeneral.distance (unit3 a) (d1 a)) = 1 := by
-    simp [nodes, WeightedGeneral.total, WeightedGeneral.distance, unit3, d1, step0] <;> omega
-  exact WeightedGeneral.unit_change_overlap nodes unit3 d1 (Nat.le_of_eq hd)
+theorem e0_e1_safe :
+    Frown (WeightedGeneral.majority nodes unit3) (WeightedGeneral.majority nodes e1) := by
+  exact WeightedGeneral.unit_change_overlap nodes unit3 e1 (Nat.le_of_eq e1_mass)
 
-/-- Era safety D1 → D2: the eras coincide pointwise. -/
-theorem d1_d2_safe :
-    Frown (WeightedGeneral.majority nodes d1) (WeightedGeneral.majority nodes d2) := by
-  have he : d2 = d1 := funext d1_d2_equal
-  rw [he]; exact WeightedGeneral.self_overlap nodes d1
-
-/-- Era safety D2 → D3: the one-unit promotion keeps consecutive strict
+/-- Era safety E1 → E2: the eviction batch keeps consecutive strict
 majorities overlapping. -/
-theorem d2_d3_safe :
-    Frown (WeightedGeneral.majority nodes d2) (WeightedGeneral.majority nodes d3) := by
+theorem e1_e2_safe :
+    Frown (WeightedGeneral.majority nodes e1) (WeightedGeneral.majority nodes e2) := by
   have hd :
       WeightedGeneral.total nodes
-        (fun a => WeightedGeneral.distance (d2 a) (d3 a)) = 1 := by
-    simp [nodes, WeightedGeneral.total, WeightedGeneral.distance, d3, step2, d2, step1,
-      d1, step0, unit3] <;> omega
-  exact WeightedGeneral.unit_change_overlap nodes d2 d3 (Nat.le_of_eq hd)
+        (fun a => WeightedGeneral.distance (e1 a) (e2 a)) ≤ 1 := Nat.le_of_eq e2_mass
+  exact WeightedGeneral.unit_change_overlap nodes e1 e2 hd
+
+/-! ### The rejected transition: the identity swap in ONE era
+
+Applying `LEAVE(old)` and `INCREMENT(new)` to the BASELINE in one era — the
+swap the two-era form exists to prevent — moves two units: the old identity's
+weight goes down one AND the new identity's weight goes up one in the same
+era. Its endpoint's era-`E0` majority `{N1, N2}` and era-`E2` majority
+`{N0, N2′}` are disjoint. The fold refuses it; here is the refuted
+assertion, kernel-checked. -/
+
+/-- The swap: old identity evicted AND new identity promoted in one era —
+the batch the two-era form replaces. -/
+def swapEra : Config Nat :=
+  fun a => if a = 2 then 0 else if a = 3 then 1 else unit3 a
+
+/-- The swap moves TWO units of per-node voting mass in one era. -/
+theorem swap_mass :
+    WeightedGeneral.total nodes
+      (fun a => WeightedGeneral.distance (unit3 a) (swapEra a)) = 2 := by
+  simp [nodes, WeightedGeneral.total, WeightedGeneral.distance, unit3, swapEra] <;> omega
+
+/-- So the unit era rule REFUSES the swap: the mass the era would move
+exceeds the one-unit bound the fold and the planner enforce before any
+operation is proposed. -/
+theorem swap_rejected :
+    ¬ (WeightedGeneral.total nodes
+        (fun a => WeightedGeneral.distance (unit3 a) (swapEra a)) ≤ 1) := by
+  rw [swap_mass]
+  omega
+
+/-- And the swap endpoint's majority families are genuinely disjoint: the
+counterexample that shows the bound is not bureaucracy. -/
+theorem swap_unsafe :
+    ∃ q r, WeightedGeneral.majority nodes unit3 q
+      ∧ WeightedGeneral.majority nodes swapEra r ∧ ¬ ∃ a, q a ∧ r a := by
+  refine ⟨fun a => a = 1 ∨ a = 2, fun a => a = 0 ∨ a = 3, ?_, ?_, ?_⟩
+  · simp [WeightedGeneral.majority, WeightedGeneral.mass, WeightedGeneral.total, nodes, unit3]
+  · simp [WeightedGeneral.majority, WeightedGeneral.mass, WeightedGeneral.total, nodes,
+      swapEra, unit3]
+  · intro h
+    obtain ⟨a, h1, h2⟩ := h
+    rcases h1 with h1 | h1 <;> rcases h2 with h2 | h2 <;> omega
 
 end Reincarnation
 ```
@@ -311,10 +392,15 @@ lake env lean UVRR/Reincarnation.lean
 lake env lean --stdin <<'LEAN'
 import UVRR.Reincarnation
 #print axioms Reincarnation.bump_supersedes
+#print axioms Reincarnation.crossEra_decrements
+#print axioms Reincarnation.crossEra_joins_standby
+#print axioms Reincarnation.crossEra_other
+#print axioms Reincarnation.evictEra_promotes
+#print axioms Reincarnation.evictEra_other
 #print axioms Reincarnation.step0_decrements
 #print axioms Reincarnation.step0_other
 #print axioms Reincarnation.step1_evicts
-#print axioms Reincarnation.step1_joins_learner
+#print axioms Reincarnation.step1_joins_standby
 #print axioms Reincarnation.step1_other
 #print axioms Reincarnation.step1_not_voting
 #print axioms Reincarnation.step2_promotes
@@ -327,21 +413,30 @@ import UVRR.Reincarnation
 #print axioms Reincarnation.forced_prefix
 #print axioms Reincarnation.forced_sequence
 #print axioms Reincarnation.unit3_total
-#print axioms Reincarnation.d3_total
-#print axioms Reincarnation.d2_membership
-#print axioms Reincarnation.d1_d2_equal
-#print axioms Reincarnation.d0_d1_safe
-#print axioms Reincarnation.d1_d2_safe
-#print axioms Reincarnation.d2_d3_safe
+#print axioms Reincarnation.e1_membership
+#print axioms Reincarnation.e2_membership
+#print axioms Reincarnation.e1_mass
+#print axioms Reincarnation.e2_mass
+#print axioms Reincarnation.e0_e1_safe
+#print axioms Reincarnation.e1_e2_safe
+#print axioms Reincarnation.swap_mass
+#print axioms Reincarnation.swap_rejected
+#print axioms Reincarnation.swap_unsafe
 LEAN
+
 ```
 
 ```output
 'Reincarnation.bump_supersedes' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Reincarnation.crossEra_decrements' does not depend on any axioms
+'Reincarnation.crossEra_joins_standby' does not depend on any axioms
+'Reincarnation.crossEra_other' depends on axioms: [propext]
+'Reincarnation.evictEra_promotes' depends on axioms: [propext]
+'Reincarnation.evictEra_other' depends on axioms: [propext]
 'Reincarnation.step0_decrements' depends on axioms: [propext]
 'Reincarnation.step0_other' depends on axioms: [propext]
 'Reincarnation.step1_evicts' depends on axioms: [propext]
-'Reincarnation.step1_joins_learner' depends on axioms: [propext]
+'Reincarnation.step1_joins_standby' depends on axioms: [propext]
 'Reincarnation.step1_other' depends on axioms: [propext]
 'Reincarnation.step1_not_voting' depends on axioms: [propext]
 'Reincarnation.step2_promotes' depends on axioms: [propext]
@@ -354,12 +449,15 @@ LEAN
 'Reincarnation.forced_prefix' depends on axioms: [propext]
 'Reincarnation.forced_sequence' does not depend on any axioms
 'Reincarnation.unit3_total' depends on axioms: [propext]
-'Reincarnation.d3_total' depends on axioms: [propext]
-'Reincarnation.d2_membership' depends on axioms: [propext]
-'Reincarnation.d1_d2_equal' depends on axioms: [propext]
-'Reincarnation.d0_d1_safe' depends on axioms: [propext, Classical.choice, Quot.sound]
-'Reincarnation.d1_d2_safe' depends on axioms: [propext, Classical.choice, Quot.sound]
-'Reincarnation.d2_d3_safe' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Reincarnation.e1_membership' depends on axioms: [propext]
+'Reincarnation.e2_membership' depends on axioms: [propext]
+'Reincarnation.e1_mass' depends on axioms: [propext]
+'Reincarnation.e2_mass' depends on axioms: [propext]
+'Reincarnation.e0_e1_safe' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Reincarnation.e1_e2_safe' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Reincarnation.swap_mass' depends on axioms: [propext]
+'Reincarnation.swap_rejected' depends on axioms: [propext, Quot.sound]
+'Reincarnation.swap_unsafe' depends on axioms: [propext, Classical.choice, Quot.sound]
 ```
 
 ## Proof obligations
@@ -369,38 +467,41 @@ rung's target, stated precisely with the definitions it would use. None is
 claimed here; the checked instances of this module are finite witnesses that
 the definitions are populated correctly, not partial proofs of the obligations.
 
-**(a) Bumped-identity non-membership after eviction.** For every reachable
+**(a) Bumped-identity non-membership after the crossing era.** For every reachable
 protocol state in which the forced sequence for the reincarnation message
 `Reincarnate old new` (with `new = bump old` or any strictly higher identity
-adopted per the read rule) has completed `step1` or later, the old identity has
-weight 0 — hence `¬ voting` — in the configuration of every view whose
-configuration index is at or after the eviction step, and messages from it are
-discarded by the ingress membership check. Definitions used: `Ident`, `bump`,
-`bump_supersedes`, `Weight`, `Config`, `voting`, `step0`, `step1`, `step1_evicts`,
-`step1_not_voting`, `Transition` (`bump_write`, `enter_wire`), the view
-configuration as a `Config` carried by the reconfiguration stream, and the
-membership-discard check of the protocol's §6 (the `old_reply_rejected`
-primitive of rung 18).
+adopted per the read rule) has completed the crossing era or later, the old
+identity has weight 0 — hence `¬ voting` — in the configuration of every view
+whose configuration index is at or after the crossing era, and messages from it
+are discarded by the ingress membership check. Definitions used: `Ident`, `bump`,
+`bump_supersedes`, `Weight`, `Config`, `voting`, `crossEra`,
+`crossEra_joins_standby`, `evictEra`, `step1_not_voting`, `Transition`
+(`bump_write`, `enter_wire`), the view configuration as a `Config` carried by the
+reconfiguration stream, and the membership-discard check of the protocol's §6
+(the `old_reply_rejected` primitive of rung 18).
 
 **(b) Quorum safety of every intermediate era (general case).** For every
 identity type, every finite support list `nodes`, and every pair of
-configurations `w`, `v` produced by consecutive legal steps of the forced
-sequence — a ±1 unit change on one node, or a halve/double-all scaling step,
-including the doubled-scale corner sequence where one extra unit increment
-precedes the integral halve — the consecutive strict-majority families overlap:
+configurations `w`, `v` produced by consecutive legal eras of the forced
+sequence — each era a single batch whose total per-node voting mass movement is
+at most one unit, the R14 era rule the fold and the planner enforce before any
+op is proposed, including the doubled-scale corner sequence where one extra
+unit increment precedes the integral halve — the consecutive strict-majority
+families overlap:
 `Frown (WeightedGeneral.majority nodes w) (WeightedGeneral.majority nodes v)`.
 Definitions used: `nodes`, `WeightedGeneral.total`, `WeightedGeneral.mass`,
 `WeightedGeneral.majority`, `WeightedGeneral.Frown`, `WeightedGeneral.scaled_overlap`,
-`WeightedGeneral.unit_change_overlap`, `step0`, `step1`, `step2`, `forced_monotone`;
-the three checked instances `d0_d1_safe`, `d1_d2_safe`, `d2_d3_safe` are the
-unit-scale finite case of this statement.
+`WeightedGeneral.unit_change_overlap`, `crossEra`, `evictEra`, `e1_mass`,
+`e2_mass`, `forced_monotone`; the two checked instances `e0_e1_safe`,
+`e1_e2_safe` are the unit-scale finite case of this statement.
 
 **(c) Unreachability of the classic amnesia trace.** The classic VRR crash-
 recover trace — a node loses volatile state, reopens under its OLD identity,
 and regains voting eligibility — is unreachable under reincarnation: a restart
 observing any `unflushed` mark is dirty, dirty forces the bump to a strictly
-higher identity, the old identity is evicted at `step1` and never a voter
-again, and no `Transition` re-enters a pre-dirty phase from a committed one.
+higher identity, the old identity is driven to weight 0 in the crossing era
+and left in the eviction era, never a voter again, and no `Transition`
+re-enters a pre-dirty phase from a committed one.
 Definitions used: `Mark`, `allFlushed`, `dirtyStartup`, `startup_cases`,
 `Phase`, `Transition`, `committedPhase`, `step_commitment`, `ForcedStep`,
 `ForcedRun`, `forced_prefix`, `bump`, `bump_supersedes`, `adopt`,
@@ -415,6 +516,7 @@ until it completes to the new identity's `flushed`, and whichever era a leader
 crash lands in is a legal, quorum-safe starting era by obligation (b).
 Definitions used: `Phase`, `committedPhase`, `Transition`, `step_commitment`,
 `ForcedStep`, `ForcedRun`, `forced_prefix`, `forced_monotone`, `forced_sequence`,
-`d0_d1_safe`/`d1_d2_safe`/`d2_d3_safe`, and the leader-crash ordering
+`e0_e1_safe`/`e1_e2_safe`, and the leader-crash ordering
 precondition (a stable leader exists before the reincarnated node forces its
 old-identity eviction).
+

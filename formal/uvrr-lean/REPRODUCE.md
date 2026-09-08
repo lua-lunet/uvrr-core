@@ -1,7 +1,7 @@
 # Reproducing the uVRR safety-ladder evidence
 
-*2026-09-07T14:02:01Z by Showboat 0.6.1*
-<!-- showboat-id: 19a97e97-9949-4018-8d12-3779882c491c -->
+*2026-09-08T01:11:24Z by Showboat 0.6.1*
+<!-- showboat-id: 1e559500-f5df-437d-bf54-207586766a42 -->
 
 This is an executable laboratory document built with Simon Willison's Showboat. Every
 fenced `bash` block below was run, and the block after it is the output that was captured
@@ -117,7 +117,7 @@ da655d993fccb7074d35e78f53df04d6dbaceaae5d3357f4169718f985c1f44b  UVRR/CrashVect
 3e7340de62ef42558df1e9a687876b1f85d99189f6c977e605f0c9293963a394  UVRR/NormalLog.lean
 8fd7ba97afdacdccca71fc30875fd72da385fea6670e2dd779ab3cf9b1a5e323  UVRR/RecoveryAcquire.lean
 3c6d33205b535dd20427ec65b166694c6527001aaa96648dba59fd25887dc5fe  UVRR/RecoveryFence.lean
-f27dc9b2b2c54742d3d06ddda4aa87fb8ebf05cca4bcd93b25d902d747f06113  UVRR/Reincarnation.lean
+f5367996b239d9dfc26b904e02ebc7dc4c53aa0bce46fcaa994ba6b46f74a71c  UVRR/Reincarnation.lean
 931d0ba52acbe700050a2444e1cab4f0f530c7c2517edfe962c57c694be33375  UVRR/Structure.lean
 d7c8b1934cde6236b24d8bf64f00f7611d171a194e2486287433cc57391003b9  UVRR/Synod.lean
 0bc8565547700d036d19909bd9a18aecd2bd7f8a785002bfe5c3a5f1a4e941d9  UVRR/ViewFence.lean
@@ -141,7 +141,7 @@ python3 check_axioms.py
 ```
 
 ```output
-PASS 386 declarations: only standard Lean axioms
+PASS 396 declarations: only standard Lean axioms
 ```
 
 ```bash
@@ -183,7 +183,7 @@ builds and diffs every captured output.
 | 18 | `CrashVector.lean` | Published crash-vector collector: reachable reply sets are incarnation-consistent |
 | 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; retention discharged by the durable superblock identity |
 | 20 | `RecoveryAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
-| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: forced-sequence definitions, reincarnation state machine and continuation commitment; unit-weight three-node era-safety instances; general theorems listed as proof obligations |
+| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: two-era forced weight sequence (`crossEra`/`evictEra` batches, R14 one-unit mass rule), reincarnation state machine and continuation commitment; unit-weight three-node era-safety instances; one-era swap refusal with disjoint-majority witness; general theorems listed as proof obligations |
 
 ```bash
 for f in ladder/[0-9][0-9]-*.md; do
@@ -347,7 +347,7 @@ printf "overfull boxes: %s\n" "$(grep -c Overfull paper/paper.log || true)"
 ```
 
 ```output
-e9d61268dca1e3fedae0f89d11dff8116b7de6428bd179ddc6bde1ef8ab9e62c  paper/paper.pdf
+c795b8b30698a48bf98a020d2d0afcc4ebbf4008fe19e256c29724e6b2e0c36e  paper/paper.pdf
 Title:           An Executable Safety Ladder Toward Unbounded Viewstamped Replication
 Author:          Simon Massey
 Pages:           8
@@ -359,7 +359,7 @@ shasum -a 256 paper/paper.tex paper/build.sh
 ```
 
 ```output
-7f537650a7bbad0813dd37c6747929f3e4a26c8bafe32f13c36d176df5532cca  paper/paper.tex
+8dc996a1b08385e69260dd3503adf21e9355c330a2e5ec41b814a8e97e4606ce  paper/paper.tex
 e3f5d3b629938c30d42840648a9fc6331c78cbbebfb1606c5042705fb2ca5212  paper/build.sh
 ```
 
@@ -393,7 +393,7 @@ f49557de254c33eb55317d1907e83abc84f50c378d3e7571c1acdaa7edbe955b  ladder/15-view
 d08b444567a5b071a30578efde0d160b5ead8b6079bcbdec44fea762efa5e071  ladder/18-crash-vector.md
 2643b179950d597fe9ea2cc98067a2235a9bb83d94abe173a3e97b6422022c18  ladder/19-acquisition-order.md
 cee41077b7268279ad8061261f3d7fdf315d8d2e24bfc5eba5788d4d402316fc  ladder/20-recovery-acquisition.md
-a8e64888830d4e1e1b4876db6a8e65ed627b981cf1aa96fe0a52c7955e958d6a  ladder/22-reincarnation.md
+2e617c3e83e89c2b9356fd48d3c2ce70e8ebbc249a80e479261794754e97e0a0  ladder/22-reincarnation.md
 a4add3a8c2c0ee28c1f3d75d3e0e2a4f87132f3bd38c48fafaae68357a96c6e8  check_axioms.py
 2617b524ded9fff554c7418054a44dd8095a51212d21284801fc665a54f6ca6f  check_mutations.py
 ```

@@ -56,7 +56,7 @@ draft, rather than a proved theorem. The current ladder is:
 | 18 | `CrashVector.lean` | Published crash-vector collector: arbitrary reachable reply sets satisfy incarnation consistency; stale-quorum witness and filter-removal control |
 | 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; incarnation-retention premise discharged by the durable superblock identity; backward-response countermodel |
 | 20 | `RecoveryAcquire.lean` | Operational crash/start/emit/answer/collect/finish acquisition; finished certificates are crash-consistent quorums for exactly their request and incarnation; stale-request countermodel |
-| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: forced-sequence definitions, flushed/unflushed/dirty/bumped/reincarnating state machine, continuation commitment, unit-weight three-node era-safety instances; general theorems listed as proof obligations |
+| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: two-era forced weight sequence (`crossEra`/`evictEra` batches, R14 one-unit mass rule), flushed/unflushed/dirty/bumped/reincarnating state machine, continuation commitment, unit-weight three-node era-safety instances, one-era swap refusal with disjoint-majority witness; general theorems listed as proof obligations |
 
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"
