@@ -2,17 +2,29 @@
 (***************************************************************************
  * Reduced design model of the crash-stop-self-evict reincarnation sequence.
  *
- * Three voting identities a, b, c; c crashes with a dirty superblock, is
- * fenced (bumped), and reopens under the new identity d.  Two committed
- * eras follow: era 1 batches DECREMENT(c)+JOIN(d) (c 1->0, d joins at 0),
- * era 2 batches INCREMENT(d)+LEAVE(c) (d 0->1, c leaves at 0).  The
- * message set is monotone: no message is ever removed, modelling
- * reordering, duplication, and loss without transport state.
- *************************************************************************)
+ * The voting identities crash-stop: one member crashes with a dirty
+ * superblock, is fenced (bumped), and reopens under the new identity d.
+ * Two committed eras follow: era 1 batches DECREMENT(Victim)+JOIN(d)
+ * (the victim lands at 0, d joins at 0), era 2 batches INCREMENT(d)+
+ * LEAVE(Victim) (d 0->1, the victim leaves at 0).  The message set is
+ * monotone: no message is ever removed, modelling reordering,
+ * duplication, and loss without transport state.
+ *
+ * Scenario constants:
+ *   Members    -- the original voting identities;
+ *   Victim     -- the member that crashes dirty and is fenced;
+ *   StartWt    -- the initial voting weight of every original member
+ *                 (the reborn identity always starts at 0);
+ *   CrashFirst -- when TRUE, era 1 may commit only before a mid-sequence
+ *                 leader crash and era 2 only after one, forcing the
+ *                 leader-crash-between-eras path (the remaining era is
+ *                 recomputed idempotently from current state).
+ ***************************************************************************)
 
 EXTENDS FiniteSets, Naturals, TLC
 
-Members  == {"a", "b", "c"}
+CONSTANTS Members, Victim, StartWt, CrashFirst
+
 Reborn   == "d"
 AllIds   == Members \cup {Reborn}
 MaxEra   == 2
@@ -27,15 +39,15 @@ AnnounceKind == "reincarnate"
 AckKind      == "ack"
 MsgKinds     == {AnnounceKind, AckKind}
 
-VARIABLES wt, marks, bumped, era, msgs, leader, quorums, moved
+VARIABLES wt, marks, bumped, era, msgs, leader, quorums, moved, crashed
 
-vars == <<wt, marks, bumped, era, msgs, leader, quorums, moved>>
+vars == <<wt, marks, bumped, era, msgs, leader, quorums, moved, crashed>>
 
+RECURSIVE SumWt(_)
 SumWt(s) ==
-    (IF "a" \in s THEN wt["a"] ELSE 0)
-  + (IF "b" \in s THEN wt["b"] ELSE 0)
-  + (IF "c" \in s THEN wt["c"] ELSE 0)
-  + (IF "d" \in s THEN wt["d"] ELSE 0)
+    IF s = {} THEN 0
+    ELSE LET x == CHOOSE i \in s : TRUE
+         IN wt[x] + SumWt(s \ {x})
 
 (* Strict majority over the current weight table. *)
 IsStrictMajority(s) == 2 * SumWt(s) > SumWt(Members)
@@ -53,7 +65,7 @@ Support == {Leader} \cup CountedAcks
 ZeroMoved == [i \in AllIds |-> 0]
 
 Init ==
-    /\ wt       = [i \in AllIds |-> IF i = "d" THEN 0 ELSE 1]
+    /\ wt       = [i \in AllIds |-> IF i \in Members THEN StartWt ELSE 0]
     /\ marks    = [i \in AllIds |-> Clean]
     /\ bumped   = {}
     /\ era      = 0
@@ -61,6 +73,7 @@ Init ==
     /\ leader   = Leader
     /\ quorums  = [e \in 1..MaxEra |-> {}]
     /\ moved    = [e \in 1..MaxEra |-> ZeroMoved]
+    /\ crashed  = FALSE
 
 (***************************************************************************
  * Superblock lifecycle.  DirtyRestart records an unflushed superblock;
@@ -70,28 +83,29 @@ Init ==
 DirtyRestart(id) ==
     /\ marks[id] = Clean
     /\ marks' = [marks EXCEPT ![id] = Dirty]
-    /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved>>
+    /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved, crashed>>
 
 RestartFlush(id) ==
     /\ marks[id] = Dirty
     /\ marks' = [marks EXCEPT ![id] = Clean]
-    /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved>>
+    /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved, crashed>>
 
 (***************************************************************************
  * Bump: the dirty identity is fenced (weight forced to 0, recorded in
  * bumped, never to vote again) and the node reopens under the new
- * identity (c reopens as d, which starts at weight 0 until it joins).
+ * identity (the victim reopens as d, which starts at weight 0 until it
+ * joins).
  ***************************************************************************)
 
 Bump ==
-    /\ marks["c"] = Dirty
-    /\ wt["c"] > 0
-    /\ "c" \notin bumped
+    /\ marks[Victim] = Dirty
+    /\ wt[Victim] > 0
+    /\ Victim \notin bumped
     /\ era < MaxEra
-    /\ wt'      = [wt EXCEPT !["c"] = 0]
-    /\ bumped'  = bumped \cup {"c"}
-    /\ marks'   = [marks EXCEPT !["c"] = Clean]
-    /\ UNCHANGED <<era, msgs, leader, quorums, moved>>
+    /\ wt'      = [wt EXCEPT ![Victim] = 0]
+    /\ bumped'  = bumped \cup {Victim}
+    /\ marks'   = [marks EXCEPT ![Victim] = Clean]
+    /\ UNCHANGED <<era, msgs, leader, quorums, moved, crashed>>
 
 (***************************************************************************
  * Reincarnate announcement: the leader advertises the new identity.
@@ -101,9 +115,9 @@ Announce ==
     /\ bumped # {}
     /\ marks[leader] = Clean
     /\ msgs' = msgs \cup
-           {[type |-> AnnounceKind, from |-> leader, to |-> m, era |-> era] :
-               m \in AllIds \ {leader}}
-    /\ UNCHANGED <<wt, marks, bumped, era, leader, quorums, moved>>
+            {[type |-> AnnounceKind, from |-> leader, to |-> m, era |-> era] :
+                m \in AllIds \ {leader}}
+    /\ UNCHANGED <<wt, marks, bumped, era, leader, quorums, moved, crashed>>
 
 (***************************************************************************
  * Reply ingress.  A weight-0 identity's reply is discarded (StandbyDiscard,
@@ -117,8 +131,8 @@ Ack(id) ==
            /\ m.to = id
     /\ wt[id] > 0
     /\ msgs' = msgs \cup
-           {[type |-> AckKind, from |-> id, to |-> leader, era |-> era]}
-    /\ UNCHANGED <<wt, marks, bumped, era, leader, quorums, moved>>
+            {[type |-> AckKind, from |-> id, to |-> leader, era |-> era]}
+    /\ UNCHANGED <<wt, marks, bumped, era, leader, quorums, moved, crashed>>
 
 StandbyDiscard(id) ==
     /\ \E m \in msgs :
@@ -128,44 +142,48 @@ StandbyDiscard(id) ==
     /\ UNCHANGED vars
 
 (***************************************************************************
- * Era 1 commit: batch DECREMENT(c) + JOIN(d).  c 1->0 (mass 1), d joins
- * at 0 (mass 0).  Guarded by a commit quorum over the current weight
- * table; the per-node mass bound is ASSERTED.
+ * Era 1 commit: batch DECREMENT(Victim) + JOIN(d).  The victim lands at 0
+ * (mass 1), d joins at 0 (mass 0).  Guarded by a commit quorum over the
+ * current weight table; the per-node mass bound is ASSERTED.
  ***************************************************************************)
 
 LeaderCommitEra1 ==
     /\ era = 0
     /\ bumped # {}
     /\ marks[leader] = Clean
+    /\ ~CrashFirst \/ ~crashed
     /\ IsStrictMajority(Support)
     /\ Assert(\A i \in AllIds :
-                  (IF i = "c" THEN 1 ELSE 0) <= 1,
+                  (IF i = Victim THEN 1 ELSE 0) <= 1,
               "mass: era1 batch per-node mass <= 1")
-    /\ wt'      = [wt EXCEPT !["c"] = 0, !["d"] = 0]
+    /\ wt'      = [wt EXCEPT ![Victim] = 0, ![Reborn] = 0]
     /\ quorums' = [quorums EXCEPT ![1] = Support]
-    /\ moved'   = [moved EXCEPT ![1] = [moved[1] EXCEPT !["c"] = 1]]
+    /\ moved'   = [moved EXCEPT ![1] = [moved[1] EXCEPT ![Victim] = 1]]
     /\ era'     = 1
-    /\ UNCHANGED <<marks, bumped, msgs, leader>>
+    /\ UNCHANGED <<marks, bumped, msgs, leader, crashed>>
 
 (***************************************************************************
- * Era 2 commit: batch INCREMENT(d) + LEAVE(c).  d 0->1 (mass 1), c leaves
- * at 0 (mass 0).  Same quorum and mass discipline.  Both actions depend
- * only on current state and assign (rather than accumulate) their
- * effects, so recomputation after a leader crash mid-way is idempotent.
+ * Era 2 commit: batch INCREMENT(d) + LEAVE(Victim).  d 0->1 (mass 1), the
+ * victim leaves at 0 (mass 0).  Same quorum and mass discipline.  Both
+ * actions depend only on current state and assign (rather than
+ * accumulate) their effects, so recomputation after a leader crash
+ * mid-way is idempotent.  Under CrashFirst, era 2 may commit only after
+ * a mid-sequence leader crash.
  ***************************************************************************)
 
 LeaderCommitEra2 ==
     /\ era = 1
     /\ marks[leader] = Clean
+    /\ ~CrashFirst \/ crashed
     /\ IsStrictMajority(Support)
     /\ Assert(\A i \in AllIds :
-                  (IF i = "d" THEN 1 ELSE 0) <= 1,
+                  (IF i = Reborn THEN 1 ELSE 0) <= 1,
               "mass: era2 batch per-node mass <= 1")
-    /\ wt'      = [wt EXCEPT !["d"] = 1]
+    /\ wt'      = [wt EXCEPT ![Reborn] = 1]
     /\ quorums' = [quorums EXCEPT ![2] = Support]
-    /\ moved'   = [moved EXCEPT ![2] = [moved[2] EXCEPT !["d"] = 1]]
+    /\ moved'   = [moved EXCEPT ![2] = [moved[2] EXCEPT ![Reborn] = 1]]
     /\ era'     = 2
-    /\ UNCHANGED <<marks, bumped, msgs, leader>>
+    /\ UNCHANGED <<marks, bumped, msgs, leader, crashed>>
 
 (***************************************************************************
  * Leader crash between eras; the remaining eras are recomputed by the
@@ -176,6 +194,7 @@ LeaderCrashMid ==
     /\ bumped # {}
     /\ marks[leader] = Clean
     /\ marks' = [marks EXCEPT ![leader] = Dirty]
+    /\ crashed' = TRUE
     /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved>>
 
 Next ==
@@ -205,6 +224,7 @@ TypeOK ==
     /\ leader  = Leader
     /\ quorums \in [1..MaxEra -> SUBSET AllIds]
     /\ moved   \in [1..MaxEra -> [AllIds -> 0..2]]
+    /\ crashed \in BOOLEAN
 
 (* Consecutive committed eras used strict majorities that overlap. *)
 FrownChain ==

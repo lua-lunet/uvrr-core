@@ -1,0 +1,17 @@
+{
+  "config": "VrrCoreReincarnationCrash.cfg",
+  "model": "VrrCoreReincarnation.tla",
+  "status": "exited",
+  "exit_code": 0,
+  "elapsed_seconds": 0.77,
+  "wall_limit_seconds": 120,
+  "java_heap_limit": "2g",
+  "workers": 2,
+  "states_generated": 7633,
+  "states_distinct": 752,
+  "search_depth": 18,
+  "sha256": {
+    "VrrCoreReincarnation.tla": "01036a30eb7390cff256acb4c5b0fe12335cb98bb724023d7eb93576ea358fa6",
+    "VrrCoreReincarnationCrash.cfg": "77675e921f77a6185fde3a19a5917407c86ef06f9368b3f769db9cd5198beccb"
+  }
+}
