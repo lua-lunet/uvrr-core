@@ -359,11 +359,11 @@ if [ -f paper/paper.log ]; then printf "overfull boxes: %s\n" "$(grep -c Overful
 ```
 
 ```output
-c9d801f22e0283a7fb19d15de3ab53ec0e2db20ccab963dd3e42c865b5a6d406  paper/papers/20260908-0a79eb7.pdf
-footer id 20260908-0a79eb7 present
-Title:           An Executable Safety Ladder Toward Unbounded Viewstamped Replication
+09f4cb84f8c803adcbb25b8ad4bf5ca4dcce59b11395458060a1c7cbf1b16447  paper/papers/20260908-d59eba7.pdf
+footer id 20260908-d59eba7 present
+Title:           Diskless Viewstamped Replication with Unbounded Crash-Stop Resurrection
 Author:          Simon Massey
-Pages:           13
+Pages:           14
 overfull boxes: 0
 ```
 
@@ -372,8 +372,8 @@ shasum -a 256 paper/paper.tex paper/build.sh
 ```
 
 ```output
-4d0a290222814774f38edacb83e956889156ace4010c9da41963c1ebad3971d1  paper/paper.tex
-a2400a095137b5cba6840a936ed45004c196e99a4bac7678ed032b7de9afaad1  paper/build.sh
+330dfde31e3169438f417953cbf073c5eb78904d2efe8a65b121f1c22c228bec  paper/paper.tex
+292cdb04deb318d68d7f0eb0e95c94869dc6e8776f5c8f29859e79743834e4e9  paper/build.sh
 ```
 
 ## 7. Digests of the transcripts and check scripts
