@@ -57,6 +57,7 @@ draft, rather than a proved theorem. The current ladder is:
 | 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; incarnation-retention premise discharged by the durable superblock identity; backward-response countermodel |
 | 20 | `RecoveryAcquire.lean` | Operational crash/start/emit/answer/collect/finish acquisition; finished certificates are crash-consistent quorums for exactly their request and incarnation; stale-request countermodel |
 | 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: two-era forced weight sequence (`crossEra`/`evictEra` batches, R14 one-unit mass rule), flushed/unflushed/dirty/bumped/reincarnating state machine, continuation commitment, unit-weight three-node era-safety instances, one-era swap refusal with disjoint-majority witness; general theorems listed as proof obligations |
+| 23 | `CastingVoteReincarnation.lean` | Rung 6's casting vote instantiated on the reincarnation eras: two-node leader-overlap case (`{0,1}` → `{0}` meeting in the leader alone, every E0/E1 quorum pair decisive at the leader, boundary overlap through the casting-vote structure) and the honest three-node degenerate negative (forming quorums coincide, no pivot needed, none exercised); leader-contained quorum families and leader-alone phase-I quorum as general shapes |
 
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"
