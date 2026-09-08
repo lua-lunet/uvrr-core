@@ -1014,9 +1014,10 @@ because ``the network is faster than the disk'' \cite{netdisk}; the four-superbl
 mark is one fsync amortized over the whole epoch.
 Same-identity recovery after volatile-state loss is thereby unrepresentable rather
 than repaired: classic VRR-2012 diskless quorum recovery is not performed, so the
-amnesia class documented for that design --- by Michael et al.'s Appendix B.1
-divergence pattern \cite{recovery} and by the FAST'18 systems evidence
-\cite{alagappan2018} --- is avoided by construction, and a zero-weight
+class that design exposes --- Michael et al.'s Appendix B.1
+divergence pattern \cite{recovery} and the truncate data-loss finding of
+Alagappan et al.'s Section~2.3 \cite{alagappan2018} --- is avoided by
+construction, and a zero-weight
 standby may speculatively recover its log non-votingly as future work. The
 formalization of the superblock contract and the forced sequence against the fence
 and acquisition machinery is a concrete proof obligation, recorded with the
@@ -1449,8 +1450,9 @@ positive results are kernel-checked and replayable, adds the negative
 controls, and extends the construction's boundary to the VRR recovery and
 reincarnation obligations.
 
-The crash-recovery amnesia class was documented at the systems level by
-Alagappan et al. \cite{alagappan2018}, whose protocol-aware recovery makes
+Committed-data loss on crash recovery was documented at the systems level by
+Alagappan et al. \cite{alagappan2018} (their Section~2.3), whose
+protocol-aware recovery makes
 the storage layer enforce the protocol's own invariants, and formalized for
 diskless crash recovery by Michael et al. \cite{diskless,recovery}, whose
 crash-vector collection and acquisition ordering are checked as ladder rungs
