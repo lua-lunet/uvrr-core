@@ -357,8 +357,8 @@ if [ -f paper/paper.log ]; then printf "overfull boxes: %s\n" "$(grep -c Overful
 ```
 
 ```output
-22479ee258b0c73901bec025c1e38b12af87a16107cf28c5c06a43187e146c48  paper/papers/20260908-f70546e.pdf
-footer id 20260908-f70546e present
+c9d801f22e0283a7fb19d15de3ab53ec0e2db20ccab963dd3e42c865b5a6d406  paper/papers/20260908-0a79eb7.pdf
+footer id 20260908-0a79eb7 present
 Title:           An Executable Safety Ladder Toward Unbounded Viewstamped Replication
 Author:          Simon Massey
 Pages:           13
@@ -370,7 +370,7 @@ shasum -a 256 paper/paper.tex paper/build.sh
 ```
 
 ```output
-420e2f8bce868680c26034eb962cca6dd54473e54fde4167e800353608e523a2  paper/paper.tex
+4d0a290222814774f38edacb83e956889156ace4010c9da41963c1ebad3971d1  paper/paper.tex
 a2400a095137b5cba6840a936ed45004c196e99a4bac7678ed032b7de9afaad1  paper/build.sh
 ```
 
