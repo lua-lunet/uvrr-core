@@ -21,9 +21,10 @@ Publication rules:
   never overwritten. Building an already-published id is refused; remove the
   PDF deliberately to reattempt. When HEAD moves, the next build publishes
   under the new id and older PDFs remain untouched as history.
-- The build refuses while tracked files under `paper/` carry unstaged
-  modifications: the id names HEAD's commit, so it must not be stamped over
-  edits that the recorded commit does not contain.
+- The build refuses while tracked files under `paper/` carry uncommitted
+  modifications relative to HEAD, staged or not: the paper publishes only
+  from committed sources, because the id names HEAD's commit. The flow is
+  commit the sources, then build, then commit the published PDF.
 - After publishing, the script asserts with `pdftotext` that the footer id is
   present in the PDF text; a PDF that fails the check is withdrawn, not
   published.

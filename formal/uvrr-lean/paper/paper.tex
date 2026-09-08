@@ -2,12 +2,13 @@
 \RequirePackage[T1]{fontenc}
 \documentclass[10pt,journal,letterpaper]{IEEEtran}
 \usepackage{amsmath,amssymb,amsthm,booktabs,array}
+\usepackage{graphicx}
 \usepackage{microtype}
 \usepackage[hidelinks]{hyperref}
 \usepackage{fancyhdr}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,backgrounds,calc}
-\hypersetup{pdftitle={An Executable Safety Ladder Toward Unbounded Viewstamped Replication},
+\hypersetup{pdftitle={Diskless Viewstamped Replication with Unbounded Crash-Stop Resurrection},
   pdfauthor={Simon Massey}}
 % Turner-style running furniture: title/revision on page 1, page numbers at
 % top right throughout, and the paper id in the bottom footer of every page.
@@ -23,7 +24,7 @@
 \renewcommand{\headrulewidth}{0pt}
 \fancypagestyle{uvrrfirst}{%
   \fancyhf{}
-  \fancyhead[L]{\normalfont\scriptsize UVRR SAFETY LADDER --- \paperrevision\ --- \paperversion}
+  \fancyhead[L]{\normalfont\scriptsize DISKLESS VRR --- \paperrevision\ --- \paperversion}
   \fancyhead[R]{\normalfont\footnotesize\thepage}
   \fancyfoot[C]{\normalfont\scriptsize\paperversion}
   \renewcommand{\headrulewidth}{0pt}}
@@ -65,7 +66,7 @@ designs; all numbers and charts are placeholders (marked ``dummy'').}}\par}
   #1
   \bottomrule
   \end{tabular}}
-\title{An Executable Safety Ladder Toward\\Unbounded Viewstamped Replication}
+\title{Diskless Viewstamped Replication with\\Unbounded Crash-Stop Resurrection}
 \author{Simon Massey%
 \thanks{Research manuscript, 8 September 2026.}%
 \thanks{Simon Massey (email: \href{mailto:simon.massey@stenographer.cloud}{simon.massey@stenographer.cloud}).}}
@@ -82,28 +83,26 @@ for keeping a consensus pipeline unbounded through cluster reconfiguration
 and unbounded pipelining. The reasoning is Turner's; what this paper adds is
 an executable safety ladder --- a Lean 4.33.1 development whose every positive
 result is kernel-checked with runnable evidence --- and a working
-demonstration. The demonstration matters because crash-recovery amnesia is a
-measured systems failure, not a hypothetical one: Alagappan et al.\ documented
-consensus-based storage losing data when nodes that recovered from crashes
-rejoined as themselves, trusting state they no longer had
+demonstration. The demonstration matters because the failure is measured,
+not hypothetical: Alagappan et al.\ documented consensus-based storage
+losing committed data when crashed nodes rejoined as themselves, trusting
+state they no longer had
 \cite{alagappan2018}. uVRR eliminates that class by design: Crash-Recovery is
 converted into Crash-Stop, and a crashed node reincarnates as a new node that
-rejoins as a weight-0 standby (a \emph{standby} is TigerBeetle's term for a
-non-voting cluster member; a standby has zero voting weight, so it cannot form
-part of any quorum nor actively participate in the Viewstamped Replication
-algorithm). This
-checkpoint audits an inherited Lean development of the era-indexed agreement
-argument and extends it with a finite-support weighted-majority theorem, a
-derivation of the proposal-era bound from suffix promises, operational
-acceptor and normal-log invariants, a whole-log selection induction step, and
+rejoins as a weight-0 standby (a \emph{standby} is a non-voting member: zero
+voting weight, part of no quorum, inactive in the Viewstamped Replication
+algorithm). The checkpoint extends an inherited Lean development of the
+era-indexed agreement argument with a finite-support weighted-majority
+theorem, a proposal-era bound from suffix promises, operational acceptor and
+normal-log invariants, a whole-log selection induction step, and
 fault-injection controls. We distinguish reproducibility from mathematical
-correctness and from protocol refinement, and counterexamples that establish
+correctness and from protocol refinement; counterexamples establish
 independence of assumptions from claims of universal necessity. The
-outstanding integration obligations are stated explicitly: concrete protocol
+outstanding integration obligations are stated explicitly: protocol
 refinement, recovery fencing, repeated reconfiguration, client semantics,
 and progress. The lunet-locks demonstration implements the diskless core for
-advisory leases and is under active hardening; the experimental evaluation of
-rejoin latency and forced-flush latency is designed but not yet performed.
+advisory leases and is under active hardening; rejoin-latency, forced-flush,
+and fault-injection experiments are designed but not yet performed.
 \end{abstract}
 \begin{IEEEkeywords}
 Distributed algorithms, replication, reconfiguration, crash recovery, formal verification.
@@ -133,16 +132,22 @@ on the normal path: replicated state, not local storage, provides the
 persistence.
 
 That diskless design has a sharp edge. Alagappan et al., in a Best Paper at
-USENIX FAST 2018 \cite{alagappan2018}, document crash-recovery amnesia in
-consensus-based storage: when a node recovers from a crash and rejoins as
-itself, the recovery path can break the invariants of the very protocol the
-node runs, because the node trusts protocol state it no longer has --- an
-unflushed log suffix, a stale leader record, a forgotten promise. Their
-protocol-aware recovery repairs the class by teaching the storage layer the
-protocol's own rules, at the cost of fsyncs on the recovery boundary. Michael
+USENIX FAST 2018 \cite{alagappan2018}, show that consensus-based storage can
+break the invariants of the very protocol the node runs when a node recovers
+from a crash and rejoins as itself: under the recovery policies the systems
+actually shipped, a recovering node truncates its log, losing the data
+locally, and when that node then forms a majority together with nodes that
+are lagging, committed data is silently lost, violating safety. Their
+Section~2.3 states exactly this on the printed page~17; their Figure~2
+(page~18) walks the failure through the protocol step by step; and their
+Table~4(a) (page~25) measures it, with the shipped recovery policies
+recovering correctly in only 46 of 2401 targeted-corruption cases across the
+systems they tested. Their protocol-aware recovery repairs the class by
+teaching the storage layer the protocol's own rules, at the cost of fsyncs on
+the recovery boundary. Michael
 et al.\ had formalized the same boundary for diskless crash recovery
 \cite{diskless,recovery}; the Appendix B.1 divergence pattern of their
-extended report is the same amnesia class.
+extended report is the same class.
 
 This paper takes the position that the amnesia class is better eliminated by
 design than repaired by a smarter recovery path. The motivating uVRR proposal
@@ -176,9 +181,10 @@ replayed as a kernel-checked Lean 4.33.1 development with executable evidence
 documents, negative controls, and model checks. It is also new here as a
 working demonstration: lunet-locks, an advisory-lease service running the
 diskless core, described in Section~\ref{sec:demo}. The experiments planned
-for that demonstration --- node-kill rejoin latency and the latency delta of a
-forced synchronous disk flush at the recovery boundary, repeated on cloud
-deployments --- are presented in Section~\ref{sec:experiments} as designs,
+for that demonstration --- node-kill rejoin latency, the latency delta of a
+forced synchronous disk flush at the recovery boundary, Maelstrom
+brute-force fault injection at three and then five nodes, and repetition on
+cloud deployments --- are presented in Section~\ref{sec:experiments} as designs,
 with placeholders in place of measurements and warnings at the section's top
 and bottom.
 
@@ -972,6 +978,26 @@ rule the crash-vector collector's stale-reply filter realizes. If the leader cra
 the cluster must reach a stable leader before the reincarnated node forces its old
 identity's eviction.
 
+Fig.~\ref{fig:reincarnation} shows this forced sequence as a space-time chart
+drawn in the grammar of Turner's message diagrams \cite{turner}: four
+lifelines $A$, $B$ (the leader), $C$, and $D$, time flowing down; a numbered
+diagonal vector per step; the bold cross where $C$ crashes and is fenced,
+with its dead segment dashed below; the open circle where $D$'s lifeline
+begins; the dashed era-1 separator carrying \code{DECREMENT(C)}~+~\code{JOIN(D)},
+with $D$ joining at weight 0 as a standby and receiving the dashed
+preemptive stream; the era-2 separator carrying \code{INCREMENT(D)}~+~\code{LEAVE(C)},
+with $D$ promoted to weight 1 and $C$ leaving at weight 0; and the forming
+quorum $\{A,B\}$ promised in both eras, so no casting-vote pivot is
+exercised on this path. The chart is rendered from the tracked source
+\code{diagrams/reincarnation.svg}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{diagrams/reincarnation.png}
+\caption{The reincarnation forced sequence.}
+\label{fig:reincarnation}
+\end{figure}
+
 \begin{table}[t]
 \centering\small
 \caption{Reincarnation forced weight sequence.}
@@ -1138,20 +1164,35 @@ finished demonstration of the reincarnation protocol.
 \section{Experimental results: designs, not measurements}\label{sec:experiments}
 \expwarning
 
+The claim under test is diskless low latency: rejoin through reincarnation
+is faster than paying a forced disk flush at the recovery boundary. The
+decision rule for the campaign: if the measured rejoin latency of E1 is
+slower than the forced-flush baseline of E2 at the same sample count, the
+diskless claim collapses --- if recovery is slower than doing disk flushes,
+nothing has been achieved. The system under test for all four designs is the
+\code{lunet-locks} demonstration of Section~\ref{sec:demo}; every number
+below is the placeholder $\mathrm{xxxx}$, to be filled at run time.
+
 \subsection{E1: node-kill rejoin latency}
-The design kills one member of a three-replica \code{lunet-locks} cluster
-$k=\mathrm{xxxx}$ times. After each kill, a replacement process for the same
-member starts, rejoins through the fenced recovery exchange, and the harness
-records the reincarnation-to-rejoin latency: the interval from the
-replacement's process start to its first quorum-committed operation. The
-planned report is a distribution over $k$ kills: median $\mathrm{xxxx}$~ms,
-ninth decile $\mathrm{xxxx}$~ms, worst case $\mathrm{xxxx}$~ms, with
-$\mathrm{xxxx}$ failed rejoins, at a kill interval of
-$\mathrm{xxxx}$~s and a lease expiry of $\mathrm{xxxx}$~ms.
-Fig.~\ref{fig:e1} shows the designed chart: kill iteration on the horizontal
-axis, rejoin latency on the vertical axis, one series per cluster size (three
-and five replicas). No data points exist yet; the chart is watermarked
-``dummy''.
+The design kills one voting node that is not the leader, rotated across all
+non-leader voting nodes of the three-datacentre \code{lunet-locks} cluster,
+for $k=\mathrm{xxxx}$ kill/rejoin cycles, with continuous competing lock
+traffic at the lease cadence throughout. Each iteration begins only after
+the previous rejoin has completed serving and a soak interval has elapsed,
+so no measurement is contaminated by the previous one. For each iteration
+the harness waits for steady state, kills the node's process --- Crash-Stop:
+volatile state lost, the node is by construction a different node on reopen
+--- and the iteration ends when the reincarnated node has rejoined as a
+weight-0 standby, been walked back to voting weight by the leader's forced
+sequence, and is again a voting, serving replica. The metric is the
+kill-to-rejoin-serving latency, one sample per iteration: p50
+$\mathrm{xxxx}$~ms, p90 $\mathrm{xxxx}$~ms, p99 $\mathrm{xxxx}$~ms, max
+$\mathrm{xxxx}$~ms, mean $\mathrm{xxxx}$~ms, and the count of eras and view
+changes consumed per rejoin, $\mathrm{xxxx}$. Fig.~\ref{fig:e1} shows the
+designed chart: kill iteration on the horizontal axis, rejoin-serving
+latency on the vertical axis, one series per milestone of the forced
+sequence (standby rejoin at weight 0, voting again at weight 1). No data
+points exist yet; the chart is watermarked ``dummy''.
 
 \begin{figure}[t]
 \centering
@@ -1159,33 +1200,54 @@ and five replicas). No data points exist yet; the chart is watermarked
 \draw[gray!45,opacity=0.85,rotate around={38:(1.9,1.4)}] (1.9,1.4)
  node[font=\fontsize{26}{26}\selectfont\bfseries,text=gray]{dummy};
 \draw[-{Stealth},thick] (0,0) -- (4.1,0) node[anchor=west,font=\scriptsize]{kill iteration $1\ldots k$};
-\draw[-{Stealth},thick] (0,0) -- (0,3.1) node[anchor=south,font=\scriptsize,rotate=90]{rejoin latency (ms)};
+\draw[-{Stealth},thick] (0,0) -- (0,3.1) node[anchor=south,font=\scriptsize,rotate=90]{rejoin-serving latency (ms)};
 \foreach \xx in {0.8,1.6,2.4,3.2}{\draw (\xx,0.05) -- (\xx,-0.05) node[anchor=north,font=\tiny,text=gray]{xxxx};}
 \foreach \yy in {0.8,1.6,2.4}{\draw (0.05,\yy) -- (-0.05,\yy) node[anchor=east,font=\tiny,text=gray]{xxxx};}
 \draw[thick,black!60,dash pattern=on 3pt off 2pt] (0.6,2.7) -- (1.4,2.7);
-\node[anchor=west,font=\scriptsize] at (1.45,2.7) {3-replica cluster};
+\node[anchor=west,font=\scriptsize] at (1.45,2.7) {standby rejoin (weight 0)};
 \draw[thick,black!60] (0.6,2.35) -- (1.4,2.35);
-\node[anchor=west,font=\scriptsize] at (1.45,2.35) {5-replica cluster};
+\node[anchor=west,font=\scriptsize] at (1.45,2.35) {voting again (weight 1)};
 \end{tikzpicture}
 \caption{E1: node-kill rejoin latency.}
 \label{fig:e1}
 \end{figure}
 
-\subsection{E2: forced synchronous disk flush}
-The FAST'18-style workaround is to force a synchronous disk flush at the
-recovery boundary. The design builds custom \code{lunet-locks} binaries that
-fsync the recovery boundary before the rejoin exchange, in two modes beyond
-the diskless default: a naive single flush, and a double-ring-space flush at
-the view-change step; each is measured against the diskless default under the
-same kill schedule as E1. The planned
-report is the rejoin-latency delta: default median $\mathrm{xxxx}$~ms,
-forced-flush median $\mathrm{xxxx}$~ms, delta $\mathrm{xxxx}$~ms, with tail
-figures $\mathrm{xxxx}$~ms at the ninth decile. The delta is the utility
-test: if reincarnation is slower than the forced flush, the diskless design
-has achieved nothing. Fig.~\ref{fig:e2} shows the
-designed chart: node restart event on the horizontal axis, rejoin latency on
-the vertical axis, one series per build (diskless default and forced-flush).
-No data points exist yet; the chart is watermarked ``dummy''.
+\subsection{E2: disk modes at the recovery boundary}
+What does the diskless default save, in latency, against paying a forced
+flush at the recovery boundary? The design builds custom \code{lunet-locks}
+binaries, identical in every respect other than the durability behavior at
+the recovery boundary --- the point at which a reincarnating node durably
+records state before rejoining serving:
+\begin{itemize}
+\item \emph{Diskless (the default).} No durable writes at the recovery
+boundary; quorum memory is the only protocol state, and the recovery nonce
+file remains as shipped.
+\item \emph{Naive single write (the latency baseline).} One 4~KiB block
+write followed by \code{fsync} at the recovery boundary. Per the FAST'18
+finding \cite{alagappan2018}, even a single write plus \code{fsync} is not
+fault-safe against real disk faults; the variant is the latency baseline
+only, never a safety claim.
+\item \emph{Double-ring write.} A TigerBeetle-style double write at the
+recovery boundary: one 4~KiB block of data plus a checksum header to the
+first WAL ring, then the header and checksum with no payload to the second
+WAL ring, the two rings spaced apart in separate 4~KiB-sector-aligned zones
+so the two checksum copies sit in different erasure blocks. Both flush
+variants carry fake data only, with no read-back: they measure
+write-and-flush latency and never reconstruct state from what was written.
+\end{itemize}
+Each variant runs E1's procedure exactly, $k=\mathrm{xxxx}$ iterations per
+variant, cold counts. The metrics are the kill-to-rejoin-serving
+distribution per variant (percentiles as in E1) and, for the flush
+variants, the recovery-boundary flush latency itself per iteration. The
+planned report is the rejoin-latency delta: diskless median
+$\mathrm{xxxx}$~ms, naive-flush median $\mathrm{xxxx}$~ms, double-ring
+median $\mathrm{xxxx}$~ms, with tail figures $\mathrm{xxxx}$~ms at the ninth
+decile. The delta is the utility test: if reincarnation is slower than the
+forced flush, the diskless design has achieved nothing.
+Fig.~\ref{fig:e2} shows the designed chart: node restart event on the
+horizontal axis, rejoin-serving latency on the vertical axis, one series per
+build (diskless default, naive single write, double-ring write). No data
+points exist yet; the chart is watermarked ``dummy''.
 
 \begin{figure}[t]
 \centering
@@ -1193,28 +1255,49 @@ No data points exist yet; the chart is watermarked ``dummy''.
 \draw[gray!45,opacity=0.85,rotate around={38:(1.9,1.4)}] (1.9,1.4)
  node[font=\fontsize{26}{26}\selectfont\bfseries,text=gray]{dummy};
 \draw[-{Stealth},thick] (0,0) -- (4.1,0) node[anchor=west,font=\scriptsize]{node restart event};
-\draw[-{Stealth},thick] (0,0) -- (0,3.1) node[anchor=south,font=\scriptsize,rotate=90]{rejoin latency (ms)};
+\draw[-{Stealth},thick] (0,0) -- (0,3.1) node[anchor=south,font=\scriptsize,rotate=90]{rejoin-serving latency (ms)};
 \foreach \xx in {0.8,1.6,2.4,3.2}{\draw (\xx,0.05) -- (\xx,-0.05) node[anchor=north,font=\tiny,text=gray]{xxxx};}
 \foreach \yy in {0.8,1.6,2.4}{\draw (0.05,\yy) -- (-0.05,\yy) node[anchor=east,font=\tiny,text=gray]{xxxx};}
-\draw[thick,black!60,dash pattern=on 3pt off 2pt] (0.6,2.7) -- (1.4,2.7);
-\node[anchor=west,font=\scriptsize] at (1.45,2.7) {diskless default};
-\draw[thick,black!60] (0.6,2.35) -- (1.4,2.35);
-\node[anchor=west,font=\scriptsize] at (1.45,2.35) {forced-flush build};
+\draw[thick,black!60,dash pattern=on 3pt off 2pt] (0.6,2.75) -- (1.4,2.75);
+\node[anchor=west,font=\scriptsize] at (1.45,2.75) {diskless default};
+\draw[thick,black!60,dotted] (0.6,2.45) -- (1.4,2.45);
+\node[anchor=west,font=\scriptsize] at (1.45,2.45) {naive single write};
+\draw[thick,black!60] (0.6,2.15) -- (1.4,2.15);
+\node[anchor=west,font=\scriptsize] at (1.45,2.15) {double-ring write};
 \end{tikzpicture}
-\caption{E2: forced synchronous flush versus the diskless default.}
+\caption{E2: disk modes at the recovery boundary.}
 \label{fig:e2}
 \end{figure}
 
-\subsection{E3: cloud deployment}
-Both experiments are to be repeated on cloud virtual machines spread across
-three zones, the correlated-infrastructure setting that weighted
-configurations address. The planned report repeats the E1 and E2 designs with
-$\mathrm{xxxx}$ kills per configuration and records zone-crossing medians of
-$\mathrm{xxxx}$~ms (E1) and $\mathrm{xxxx}$~ms (E2), with
-$\mathrm{xxxx}$ availability incidents. Fig.~\ref{fig:e3} shows the designed
-chart: experiment on the horizontal axis (E1 rejoin, E2 flush delta),
-latency on the vertical axis, one series per deployment (local cluster,
-cloud VMs). No data points exist yet; the chart is watermarked ``dummy''.
+\subsection{E3: Maelstrom brute force at three and five nodes}
+Does reincarnation hold consistency under brute-force fault injection? Jepsen's Maelstrom drives the cluster under its fault
+profile with reincarnation as the failure model: node crashes with
+volatile-state loss --- the crashed node reincarnates rather than
+crash-recovers --- plus partitions, with a Maelstrom adapter fronting the
+lock service as a compare-and-set register and competing lock clients at
+the lease cadence. The design runs the fault profile at three nodes, then
+at five, $\mathrm{xxxx}$ runs per cluster size. Three checks decide each
+run: Maelstrom's linearizability check passes over the register --- no
+committed operation is lost, and no node rejoins under its old identity to
+overwrite a newer decision; every killed node reincarnates and rejoins
+serving, with no run ending in a permanently lost node; and no read ever
+reports two holders, expiry being judged only in the leader's clock. All
+figures $\mathrm{xxxx}$. A passing campaign supports the case that
+reincarnation eliminates the FAST'18 weakness: consistency under crash with
+successful rejoin, by construction rather than by recovery.
+
+\subsection{E4: cloud repetition}
+E1 and E2 are repeated on commodity cloud virtual machines, the six-node
+cluster laid out over three regions, two machines each --- the
+correlated-infrastructure setting that weighted configurations address.
+Variables, procedure, metrics, and sample counts are E1's and E2's
+unchanged; only the environment differs. The planned report records
+$\mathrm{xxxx}$ kills per configuration and zone-crossing medians of
+$\mathrm{xxxx}$~ms (E1) and $\mathrm{xxxx}$~ms (E2), with $\mathrm{xxxx}$
+availability incidents. Fig.~\ref{fig:e4} shows the designed chart:
+experiment on the horizontal axis (E1 rejoin, E2 flush delta), latency on
+the vertical axis, one series per deployment (local cluster, cloud
+machines). No data points exist yet; the chart is watermarked ``dummy''.
 
 \begin{figure}[t]
 \centering
@@ -1228,10 +1311,10 @@ cloud VMs). No data points exist yet; the chart is watermarked ``dummy''.
 \draw[thick,black!60,dash pattern=on 3pt off 2pt] (0.6,2.7) -- (1.4,2.7);
 \node[anchor=west,font=\scriptsize] at (1.45,2.7) {local cluster};
 \draw[thick,black!60] (0.6,2.35) -- (1.4,2.35);
-\node[anchor=west,font=\scriptsize] at (1.45,2.35) {cloud VMs, three zones};
+\node[anchor=west,font=\scriptsize] at (1.45,2.35) {cloud machines, three regions};
 \end{tikzpicture}
-\caption{E3: cloud repetition of E1 and E2.}
-\label{fig:e3}
+\caption{E4: cloud repetition of E1 and E2.}
+\label{fig:e4}
 \end{figure}
 
 \expwarning

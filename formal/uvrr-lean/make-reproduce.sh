@@ -40,7 +40,7 @@ a credential, or a model service.
 
 **What this document does and does not establish.** It shows that the Lean library
 compiles under the pinned toolchain, that every named declaration depends only on the
-three standard Lean axioms, that all 21 rung transcripts replay, that the fault-injection
+three standard Lean axioms, that all 22 rung transcripts replay, that the fault-injection
 mutations are rejected by the compiler, that the two TLC model checks reproduce, that
 the Rust implementation passes its gates, and that the paper's published,
 id-stamped PDF verifies by digest and footer. It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder

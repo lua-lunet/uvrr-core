@@ -3,8 +3,9 @@
 # Showboat or any model service. The id is YYYYMMDD-<short HEAD sha>; it is
 # stamped into every page footer via the generated, gitignored version.tex
 # and the PDF is published as papers/<id>.pdf, an immutable version of
-# record. An already-published id is never rebuilt, and unstaged edits to
-# tracked sources here are refused: the id names HEAD's commit. SOURCE_DATE_EPOCH
+# record. An already-published id is never rebuilt, and uncommitted edits to
+# tracked sources here are refused: the paper publishes only from committed
+# sources, because the id names HEAD's commit. SOURCE_DATE_EPOCH
 # stays fixed unless the caller overrides it, so the layout is stable for a
 # given Tectonic release and package bundle (2026-09-06T00:00:00Z).
 set -eu
@@ -33,10 +34,11 @@ ROOT=$(git rev-parse --show-toplevel)
 ID="$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
 OUT="papers/$ID.pdf"
 
-if ! git diff --quiet -- .; then
-    printf 'REFUSED: tracked sources under paper/ have unstaged modifications:\n' >&2
-    git diff --name-only -- . >&2
-    printf 'The id %s names HEAD; publish the edits under their own commit id. Stage or commit first.\n' "$ID" >&2
+if ! git diff --quiet HEAD -- .; then
+    printf 'REFUSED: tracked sources under paper/ differ from HEAD:\n' >&2
+    git diff --name-only HEAD -- . >&2
+    printf 'The paper publishes only from committed sources, and the id %s names HEAD.\n' "$ID" >&2
+    printf 'Commit the sources first, then build, then commit the published PDF.\n' >&2
     exit 1
 fi
 

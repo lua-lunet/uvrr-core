@@ -18,3 +18,6 @@ research/lean-solve-auto/duper/
 
 # Zig build cache (regenerable via zig/build.sh)
 .zigcache/
+
+# Promptfoo config and cache (panel review)
+.promptfoo/

@@ -19,7 +19,7 @@ a credential, or a model service.
 
 **What this document does and does not establish.** It shows that the Lean library
 compiles under the pinned toolchain, that every named declaration depends only on the
-three standard Lean axioms, that all 21 rung transcripts replay, that the fault-injection
+three standard Lean axioms, that all 22 rung transcripts replay, that the fault-injection
 mutations are rejected by the compiler, that the two TLC model checks reproduce, that
 the Rust implementation passes its gates, and that the paper's published,
 id-stamped PDF verifies by digest and footer. It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder
@@ -340,7 +340,9 @@ no Paxos references under src/
 date plus the short HEAD sha, and stamps the same id into every page footer.
 Published PDFs are immutable versions of record: the script refuses to rebuild
 an already-published id and refuses to build while tracked sources under
-`paper/` carry unstaged edits. This section therefore verifies the published
+`paper/` differ from HEAD, staged or not --- the paper publishes only from
+committed sources, so the flow is commit the sources, then build, then commit
+the published PDF. This section therefore verifies the published
 PDF for the current id instead of rebuilding it: existence, digest, the footer
 id through `pdftotext`, page count, and the overfull-box count from the
 retained build log.
