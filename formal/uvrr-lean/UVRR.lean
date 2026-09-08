@@ -21,3 +21,4 @@ import UVRR.RecoveryAcquire
 import UVRR.Reincarnation
 import UVRR.ReincarnationGeneral
 import UVRR.CastingVoteReincarnation
+import UVRR.ReincarnationFive
