@@ -1,0 +1,81 @@
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /var/apalache/_apalache-out/VrrCoreErasApalacheCinit.tla/2026-09-08T23-13-53_2569702206924070428
+# APALACHE version: 0ed8817 | build: 0ed8817                      I@23:13:53.214
+Tuning:                                                           I@23:13:53.224
+PASS #0: SanyParser                                               I@23:13:53.568
+PASS #1: TypeCheckerSnowcat                                       I@23:13:54.869
+ > Running Snowcat .::.                                           I@23:13:54.869
+ > Your types are purrfect!                                       I@23:13:57.409
+ > All expressions are typed                                      I@23:13:57.410
+PASS #2: ConfigurationPass                                        I@23:13:57.413
+  > Set the initialization predicate to ProbeCex                  I@23:13:57.419
+  > Set the transition predicate to Next                          I@23:13:57.420
+  > Set the constant initialization predicate to ConstInit        I@23:13:57.421
+  > Set an invariant to CommittedLogsAgree                        I@23:13:57.422
+PASS #3: DesugarerPass                                            I@23:13:57.444
+  > Desugaring...                                                 I@23:13:57.445
+PASS #4: InlinePass                                               I@23:13:57.668
+Leaving only relevant operators: CommittedLogsAgree, ConstInit, ConstInitPrimed, Next, ProbeCex, ProbeCexPrimed I@23:13:57.670
+PASS #5: TemporalPass                                             I@23:13:58.009
+  > Rewriting temporal operators...                               I@23:13:58.009
+  > No temporal property specified, nothing to encode             I@23:13:58.010
+PASS #6: InlinePass                                               I@23:13:58.010
+Leaving only relevant operators: CommittedLogsAgree, ConstInit, ConstInitPrimed, Next, ProbeCex, ProbeCexPrimed I@23:13:58.010
+PASS #7: PrimingPass                                              I@23:13:58.063
+  > Introducing ConstInitPrimed for ConstInit'                    I@23:13:58.067
+  > Introducing ProbeCexPrimed for ProbeCex'                      I@23:13:58.072
+PASS #8: VCGen                                                    I@23:13:58.074
+  > Producing verification conditions from the invariant CommittedLogsAgree I@23:13:58.074
+  > VCGen produced 3 verification condition(s)                    I@23:13:58.080
+PASS #9: PreprocessingPass                                        I@23:13:58.086
+  > Before preprocessing: unique renaming                         I@23:13:58.086
+ > Applying standard transformations:                             I@23:13:58.090
+  > PrimePropagation                                              I@23:13:58.091
+  > Desugarer                                                     I@23:13:58.103
+  > UniqueRenamer                                                 I@23:13:58.142
+  > Normalizer                                                    I@23:13:58.165
+  > SetMembershipSimplifier                                       I@23:13:58.183
+  > Keramelizer                                                   I@23:13:58.201
+  > After preprocessing: UniqueRenamer                            I@23:13:58.279
+PASS #10: TransitionFinderPass                                    I@23:13:58.310
+  > Found 1 initializing transitions                              I@23:13:58.390
+  > Found 17 transitions                                          I@23:13:58.451
+  > Found constant initializer ConstInit                          I@23:13:58.452
+  > Applying unique renaming                                      I@23:13:58.466
+PASS #11: OptimizationPass                                        I@23:13:58.493
+ > Applying optimizations:                                        I@23:13:58.497
+  > ConstSimplifier                                               I@23:13:58.498
+  > ExprOptimizer                                                 I@23:13:58.562
+  > SetMembershipSimplifier                                       I@23:13:58.605
+  > ConstSimplifier                                               I@23:13:58.611
+PASS #12: AnalysisPass                                            I@23:13:58.633
+ > Marking skolemizable existentials and sets to be expanded...   I@23:13:58.634
+  > Skolemization                                                 I@23:13:58.635
+  > Expansion                                                     I@23:13:58.638
+  > Remove unused let-in defs                                     I@23:13:58.656
+ > Running analyzers...                                           I@23:13:58.669
+  > Introduced expression grades                                  I@23:13:58.682
+PASS #13: BoundedChecker                                          I@23:13:58.682
+State 0: Checking 3 state invariants                              I@23:13:59.646
+State 0: state invariant 0 holds.                                 I@23:13:59.700
+State 0: state invariant 1 holds.                                 I@23:13:59.723
+State 0: state invariant 2 holds.                                 I@23:13:59.763
+Step 0: picking a transition out of 1 transition(s)               I@23:13:59.771
+Step 1: Transition #0 is disabled                                 I@23:14:00.018
+State 1: Checking 3 state invariants                              I@23:14:00.180
+State 1: state invariant 0 holds.                                 I@23:14:00.193
+State 1: state invariant 1 holds.                                 I@23:14:00.211
+State 1: state invariant 2 holds.                                 I@23:14:00.232
+State 1: Checking 3 state invariants                              I@23:14:00.326
+State 1: state invariant 0 holds.                                 I@23:14:00.339
+State 1: state invariant 1 holds.                                 I@23:14:00.352
+Check the trace in: /var/apalache/_apalache-out/VrrCoreErasApalacheCinit.tla/2026-09-08T23-13-53_2569702206924070428/violation1.tla, /var/apalache/_apalache-out/VrrCoreErasApalacheCinit.tla/2026-09-08T23-13-53_2569702206924070428/MCviolation1.out, /var/apalache/_apalache-out/VrrCoreErasApalacheCinit.tla/2026-09-08T23-13-53_2569702206924070428/violation1.json, /var/apalache/_apalache-out/VrrCoreErasApalacheCinit.tla/2026-09-08T23-13-53_2569702206924070428/violation1.itf.json I@23:14:00.965
+State 1: state invariant 2 violated.                              I@23:14:00.966
+Found 1 error(s)                                                  I@23:14:00.969
+The outcome is: Error                                             I@23:14:00.983
+Checker has found an error                                        I@23:14:01.004
+It took me 0 days  0 hours  0 min  7 sec                          I@23:14:01.005
+Total time: 7.785 sec                                             I@23:14:01.005
+EXITCODE: ERROR (12)

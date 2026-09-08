@@ -1,0 +1,74 @@
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /var/apalache/_apalache-out/VrrCoreErasApalache.tla/2026-09-08T18-18-50_15302059930442950489
+# APALACHE version: 0ed8817 | build: 0ed8817                      I@18:18:50.086
+  > VrrCoreErasApalache3.cfg: Loading TLC configuration           I@18:18:50.098
+Using CHECK_DEADLOCK=false from the TLC configuration.            W@18:18:50.299
+Tuning:                                                           I@18:18:50.300
+PASS #0: SanyParser                                               I@18:18:50.551
+PASS #1: TypeCheckerSnowcat                                       I@18:18:51.601
+ > Running Snowcat .::.                                           I@18:18:51.602
+ > Your types are purrfect!                                       I@18:18:53.943
+ > All expressions are typed                                      I@18:18:53.944
+PASS #2: ConfigurationPass                                        I@18:18:53.948
+  > VrrCoreErasApalache3.cfg: Using SPECIFICATION Spec            I@18:18:54.092
+  > VrrCoreErasApalache3.cfg: found INVARIANTS: CommittedLogsAgree I@18:18:54.094
+  > Set the initialization predicate to Init                      I@18:18:54.100
+  > Set the transition predicate to Next                          I@18:18:54.100
+  > Set the constant initialization predicate to CInit            I@18:18:54.101
+  > Set an invariant to CommittedLogsAgree                        I@18:18:54.101
+PASS #3: DesugarerPass                                            I@18:18:54.120
+  > Desugaring...                                                 I@18:18:54.120
+PASS #4: InlinePass                                               I@18:18:54.150
+Leaving only relevant operators: CInit, CInitPrimed, CommittedLogsAgree, Init, InitPrimed, Next I@18:18:54.151
+PASS #5: TemporalPass                                             I@18:18:54.493
+  > Rewriting temporal operators...                               I@18:18:54.493
+  > No temporal property specified, nothing to encode             I@18:18:54.493
+PASS #6: InlinePass                                               I@18:18:54.493
+Leaving only relevant operators: CInit, CInitPrimed, CommittedLogsAgree, Init, InitPrimed, Next I@18:18:54.494
+PASS #7: PrimingPass                                              I@18:18:54.564
+  > Introducing CInitPrimed for CInit'                            I@18:18:54.566
+  > Introducing InitPrimed for Init'                              I@18:18:54.570
+PASS #8: VCGen                                                    I@18:18:54.583
+  > Producing verification conditions from the invariant CommittedLogsAgree I@18:18:54.584
+  > VCGen produced 3 verification condition(s)                    I@18:18:54.591
+PASS #9: PreprocessingPass                                        I@18:18:54.595
+  > Before preprocessing: unique renaming                         I@18:18:54.595
+ > Applying standard transformations:                             I@18:18:54.599
+  > PrimePropagation                                              I@18:18:54.600
+  > Desugarer                                                     I@18:18:54.622
+  > UniqueRenamer                                                 I@18:18:54.705
+  > Normalizer                                                    I@18:18:54.772
+  > SetMembershipSimplifier                                       I@18:18:54.809
+  > Keramelizer                                                   I@18:18:54.839
+  > After preprocessing: UniqueRenamer                            I@18:18:54.976
+PASS #10: TransitionFinderPass                                    I@18:18:55.098
+  > Found 1 initializing transitions                              I@18:18:55.161
+  > Found 17 transitions                                          I@18:18:55.207
+  > Found constant initializer CInit                              I@18:18:55.208
+  > Applying unique renaming                                      I@18:18:55.216
+PASS #11: OptimizationPass                                        I@18:18:55.255
+ > Applying optimizations:                                        I@18:18:55.258
+  > ConstSimplifier                                               I@18:18:55.259
+  > ExprOptimizer                                                 I@18:18:55.378
+  > SetMembershipSimplifier                                       I@18:18:55.427
+  > ConstSimplifier                                               I@18:18:55.437
+PASS #12: AnalysisPass                                            I@18:18:55.468
+ > Marking skolemizable existentials and sets to be expanded...   I@18:18:55.470
+  > Skolemization                                                 I@18:18:55.471
+  > Expansion                                                     I@18:18:55.474
+  > Remove unused let-in defs                                     I@18:18:55.489
+ > Running analyzers...                                           I@18:18:55.503
+  > Introduced expression grades                                  I@18:18:55.515
+PASS #13: BoundedChecker                                          I@18:18:55.515
+State 0: Checking 3 state invariants                              I@18:19:24.200
+State 0: state invariant 0 holds.                                 I@18:19:24.304
+State 0: state invariant 1 holds.                                 I@18:19:24.342
+State 0: state invariant 2 holds.                                 I@18:19:24.380
+Step 0: picking a transition out of 1 transition(s)               I@18:19:24.403
+The outcome is: NoError                                           I@18:19:24.670
+Checker reports no error up to computation length 0               I@18:19:24.673
+It took me 0 days  0 hours  0 min 34 sec                          I@18:19:24.675
+Total time: 34.583 sec                                            I@18:19:24.675
+EXITCODE: OK

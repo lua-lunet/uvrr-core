@@ -1,0 +1,117 @@
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /var/apalache/_apalache-out/VrrCoreErasApalache.tla/2026-09-08T18-45-43_2333337740638980867
+# APALACHE version: 0ed8817 | build: 0ed8817                      I@18:45:43.696
+  > VrrCoreErasApalache3.cfg: Loading TLC configuration           I@18:45:43.703
+Using CHECK_DEADLOCK=false from the TLC configuration.            W@18:45:43.900
+Tuning:                                                           I@18:45:43.901
+PASS #0: SanyParser                                               I@18:45:44.143
+PASS #1: TypeCheckerSnowcat                                       I@18:45:45.147
+ > Running Snowcat .::.                                           I@18:45:45.147
+ > Your types are purrfect!                                       I@18:45:47.525
+ > All expressions are typed                                      I@18:45:47.526
+PASS #2: ConfigurationPass                                        I@18:45:47.533
+  > VrrCoreErasApalache3.cfg: Using SPECIFICATION Spec            I@18:45:47.667
+  > VrrCoreErasApalache3.cfg: found INVARIANTS: CommittedLogsAgree I@18:45:47.674
+  > Set the initialization predicate to Init                      I@18:45:47.683
+  > Set the transition predicate to Next                          I@18:45:47.683
+  > Set the constant initialization predicate to CInit            I@18:45:47.683
+  > Set an invariant to CommittedLogsAgree                        I@18:45:47.684
+PASS #3: DesugarerPass                                            I@18:45:47.705
+  > Desugaring...                                                 I@18:45:47.705
+PASS #4: InlinePass                                               I@18:45:47.730
+Leaving only relevant operators: CInit, CInitPrimed, CommittedLogsAgree, Init, InitPrimed, Next I@18:45:47.731
+PASS #5: TemporalPass                                             I@18:45:48.080
+  > Rewriting temporal operators...                               I@18:45:48.080
+  > No temporal property specified, nothing to encode             I@18:45:48.080
+PASS #6: InlinePass                                               I@18:45:48.080
+Leaving only relevant operators: CInit, CInitPrimed, CommittedLogsAgree, Init, InitPrimed, Next I@18:45:48.081
+PASS #7: PrimingPass                                              I@18:45:48.157
+  > Introducing CInitPrimed for CInit'                            I@18:45:48.159
+  > Introducing InitPrimed for Init'                              I@18:45:48.162
+PASS #8: VCGen                                                    I@18:45:48.175
+  > Producing verification conditions from the invariant CommittedLogsAgree I@18:45:48.176
+  > VCGen produced 3 verification condition(s)                    I@18:45:48.182
+PASS #9: PreprocessingPass                                        I@18:45:48.185
+  > Before preprocessing: unique renaming                         I@18:45:48.185
+ > Applying standard transformations:                             I@18:45:48.189
+  > PrimePropagation                                              I@18:45:48.190
+  > Desugarer                                                     I@18:45:48.236
+  > UniqueRenamer                                                 I@18:45:48.294
+  > Normalizer                                                    I@18:45:48.337
+  > SetMembershipSimplifier                                       I@18:45:48.369
+  > Keramelizer                                                   I@18:45:48.401
+  > After preprocessing: UniqueRenamer                            I@18:45:48.542
+PASS #10: TransitionFinderPass                                    I@18:45:48.656
+  > Found 1 initializing transitions                              I@18:45:48.718
+  > Found 17 transitions                                          I@18:45:48.769
+  > Found constant initializer CInit                              I@18:45:48.770
+  > Applying unique renaming                                      I@18:45:48.779
+PASS #11: OptimizationPass                                        I@18:45:48.818
+ > Applying optimizations:                                        I@18:45:48.820
+  > ConstSimplifier                                               I@18:45:48.821
+  > ExprOptimizer                                                 I@18:45:48.939
+  > SetMembershipSimplifier                                       I@18:45:48.985
+  > ConstSimplifier                                               I@18:45:48.993
+PASS #12: AnalysisPass                                            I@18:45:49.025
+ > Marking skolemizable existentials and sets to be expanded...   I@18:45:49.027
+  > Skolemization                                                 I@18:45:49.027
+  > Expansion                                                     I@18:45:49.029
+  > Remove unused let-in defs                                     I@18:45:49.067
+ > Running analyzers...                                           I@18:45:49.079
+  > Introduced expression grades                                  I@18:45:49.093
+PASS #13: BoundedChecker                                          I@18:45:49.093
+State 0: Checking 3 state invariants                              I@18:46:16.406
+State 0: state invariant 0 holds.                                 I@18:46:16.447
+State 0: state invariant 1 holds.                                 I@18:46:16.487
+State 0: state invariant 2 holds.                                 I@18:46:16.514
+Step 0: picking a transition out of 1 transition(s)               I@18:46:16.539
+State 1: Checking 3 state invariants                              I@18:46:17.061
+State 1: state invariant 0 holds.                                 I@18:46:17.132
+State 1: state invariant 1 holds.                                 I@18:46:17.200
+State 1: state invariant 2 holds.                                 I@18:46:18.233
+State 1: Checking 3 state invariants                              I@18:46:18.405
+State 1: state invariant 0 holds.                                 I@18:46:18.474
+State 1: state invariant 1 holds.                                 I@18:46:18.606
+State 1: state invariant 2 holds.                                 I@18:46:19.748
+Step 1: Transition #2 is disabled                                 I@18:46:19.790
+Step 1: Transition #3 is disabled                                 I@18:46:19.862
+Step 1: Transition #4 is disabled                                 I@18:46:19.895
+Step 1: Transition #5 is disabled                                 I@18:46:19.952
+Step 1: Transition #6 is disabled                                 I@18:46:19.986
+Step 1: Transition #7 is disabled                                 I@18:46:20.038
+Step 1: Transition #8 is disabled                                 I@18:46:20.059
+Step 1: Transition #9 is disabled                                 I@18:46:20.079
+Step 1: Transition #11 is disabled                                I@18:46:20.178
+Step 1: Transition #12 is disabled                                I@18:46:20.204
+Step 1: Transition #13 is disabled                                I@18:46:20.270
+Step 1: picking a transition out of 2 transition(s)               I@18:46:20.277
+State 2: Checking 3 state invariants                              I@18:46:20.510
+State 2: state invariant 0 holds.                                 I@18:46:20.579
+State 2: state invariant 1 holds.                                 I@18:46:20.651
+State 2: state invariant 2 holds.                                 I@18:46:23.179
+State 2: Checking 3 state invariants                              I@18:46:23.398
+State 2: state invariant 0 holds.                                 I@18:46:23.587
+State 2: state invariant 1 holds.                                 I@18:46:23.661
+State 2: state invariant 2 holds.                                 I@18:46:29.372
+State 2: Checking 3 state invariants                              I@18:46:29.753
+State 2: state invariant 0 holds.                                 I@18:46:29.913
+State 2: state invariant 1 holds.                                 I@18:46:30.189
+State 2: state invariant 2 holds.                                 I@18:46:49.536
+Step 2: Transition #3 is disabled                                 I@18:46:49.637
+Step 2: Transition #4 is disabled                                 I@18:46:49.752
+Step 2: Transition #5 is disabled                                 I@18:46:51.720
+Step 2: Transition #6 is disabled                                 I@18:46:51.811
+Step 2: Transition #7 is disabled                                 I@18:46:51.895
+Step 2: Transition #8 is disabled                                 I@18:46:52.017
+Step 2: Transition #9 is disabled                                 I@18:46:52.080
+Step 2: Transition #11 is disabled                                I@18:46:54.071
+Step 2: Transition #12 is disabled                                I@18:46:54.135
+Step 2: Transition #13 is disabled                                I@18:46:54.255
+Step 2: picking a transition out of 3 transition(s)               I@18:46:54.263
+The outcome is: NoError                                           I@18:46:54.581
+Checker reports no error up to computation length 2               I@18:46:54.582
+It took me 0 days  0 hours  1 min 10 sec                          I@18:46:54.585
+Total time: 70.881 sec                                            I@18:46:54.585
+EXITCODE: OK
