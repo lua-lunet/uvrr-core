@@ -49,6 +49,22 @@
 \noindent\fcolorbox{black}{yellow!14}{\parbox{\dimexpr\columnwidth-2\fboxsep-2\fboxrule\relax}{\small
 \textbf{WARNING: THIS WORK HAS NOT BEEN DONE.} The experiments below are
 designs; all numbers and charts are placeholders (marked ``dummy'').}}\par}
+% Reincarnation weight-transition table. Rows are data: \uwrweightrow{era
+% label}{wA}{wB}{wC}{wD} emits one configuration row inside \uwrweightstable,
+% so further eras or scales are added as rows, not as hand-layout. A weight
+% cell '-' typesets as an en dash --- the identity is not a member of the
+% configuration --- while a numeric cell is a weight, '0' being a standby
+% member; the two stay visually distinct by construction of \uwrweightcell.
+\newcommand{\uwrweightcell}[1]{\ifx-#1\textendash\else#1\fi}
+\newcommand{\uwrweightrow}[5]{#1 & \uwrweightcell{#2} & \uwrweightcell{#3} & \uwrweightcell{#4} & \uwrweightcell{#5} \\}
+\newcommand{\uwrweightstable}[1]{%
+  \begin{tabular}{@{}lcccc@{}}
+  \toprule
+  Era & A & B & C & D\\
+  \midrule
+  #1
+  \bottomrule
+  \end{tabular}}
 \title{An Executable Safety Ladder Toward\\Unbounded Viewstamped Replication}
 \author{Simon Massey%
 \thanks{Research manuscript, 8 September 2026.}%
@@ -934,8 +950,19 @@ $1\to0$ (a Leave), the new identity joins at weight $0$ (a Join), and the new
 identity goes $0\to1$. Each step
 is a unit-weight change, so the strict majorities of consecutive configurations
 overlap by Theorem~\ref{thm:weights}'s corollaries and every intermediate era is
-quorum-safe on its own; a leader dying mid-sequence leaves only safe eras that a new
-leader can continue. If the sequence runs in the doubled scale of a weight-doubling
+quorum-safe on its own; a leader dying mid-sequence leaves only safe eras that a
+new leader can continue. Table~\ref{tab:reincarnationweights} instantiates the
+sequence at unit weight for the three-voter cluster $A,B,C$ with $B$ the leader
+and $C$ the crashed identity that returns as $D$: the start configuration is
+$(1,1,1,\textendash)$; era~1 drives the leader's batch
+\code{DECREMENT(C)}~+~\code{JOIN(D)}, reaching $(1,1,0,0)$; era~2 drives
+\code{INCREMENT(D)}~+~\code{LEAVE(C)}, reaching $(1,1,\textendash,1)$. In the
+table a \textendash{} is not a weight: it marks an identity that is not a member
+of the configuration in that era, whereas $0$ is the weight of a standby member
+that the cluster still holds in its order --- which the reincarnated node is
+between the two eras while it is streamed preemptively. The old identity $C$ is
+evicted by Crash-Stop-Self-Evict, never a recovered amnesiac. If the sequence
+runs in the doubled scale of a weight-doubling
 plan, the return halve is integral only when all weights are even, so the corner
 sequence inserts one extra unit increment on the new identity before the halve. The
 leader streams the first reconfiguration, then client traffic, and preemptively
@@ -944,6 +971,16 @@ messages from it are discarded by the standard membership check, which is the sa
 rule the crash-vector collector's stale-reply filter realizes. If the leader crashes,
 the cluster must reach a stable leader before the reincarnated node forces its old
 identity's eviction.
+
+\begin{table}[t]
+\centering\small
+\caption{Reincarnation forced weight sequence.}
+\label{tab:reincarnationweights}
+\uwrweightstable{%
+  \uwrweightrow{start}{1}{1}{1}{-}
+  \uwrweightrow{era 1: \code{DECREMENT(C)}~+~\code{JOIN(D)}}{1}{1}{0}{0}
+  \uwrweightrow{era 2: \code{INCREMENT(D)}~+~\code{LEAVE(C)}}{1}{1}{-}{1}}
+\end{table}
 
 The economics defer disk flushes: nano-state fits in memory, so disk flushes can
 be deferred, and the network round trips of reincarnation are cheaper than fsyncs
