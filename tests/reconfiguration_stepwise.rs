@@ -288,6 +288,92 @@ fn stop_the_world_reconfigure_advances_the_era() {
 }
 
 // ---------------------------------------------------------------------
+// 2b. The establishing era completes under the leader's own continuous
+//     stream (§8.7.4, §8.7.8): while a stop-the-world transition is
+//     OUTSTANDING — the committed history has established the successor
+//     era, the current view has not entered it — the primary's own
+//     proposals are not proof of view life. The stream keeps committing,
+//     the fence arms and fires on the same timeout as an idle primary,
+//     and the view change enters the established-but-unentered era.
+// ---------------------------------------------------------------------
+#[test]
+fn stop_the_world_join_completes_under_a_continuous_stream() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+
+    // The client stream is live before the reconfiguration.
+    h.propose(n(0), op_id(1), b"stream");
+    h.deliver_all();
+
+    // The stop-the-world join: the establishing entry proposes and
+    // commits through the ordinary pipeline. The era advances; the view
+    // does not — the transition is OUTSTANDING.
+    let outcome = h.reconfigure(
+        n(0),
+        SystemOperation::Join {
+            node: n(3),
+            position: 3,
+        },
+        None,
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(snap(&h, n(0)).committed, 4);
+    assert_eq!(current_era(&h, n(0)), Era(2));
+    assert_eq!(current_era(&h, n(1)), Era(2));
+    assert_eq!(current_era(&h, n(2)), Era(2));
+    assert_eq!(
+        current_view(&h, n(0)),
+        view(0),
+        "the view has not entered the established era"
+    );
+    assert_eq!(current_weights(&h, n(0)), vec![1, 1, 1, 0]);
+
+    // The stream KEEPS committing while the transition is outstanding —
+    // and the clock advances, as a live host's does. Every round ticks
+    // the whole cluster, then proposes, then delivers: exactly the
+    // traffic that would otherwise refresh the primary's baseline. More
+    // than `primary_timeout` rounds pass; the fence must fire anyway.
+    for round in 0..TIMEOUT + 3 {
+        h.tick_all();
+        if status_of(&h, n(0)) == Status::Normal && current_view(&h, n(0)) == view(0) {
+            let outcome = h.propose(n(0), op_id(10 + round), b"stream");
+            assert!(
+                matches!(outcome, StepOutcome::Published { .. }),
+                "the stream keeps committing while the transition is outstanding: {outcome:?}"
+            );
+            h.deliver_all();
+        }
+    }
+    assert_eq!(
+        status_of(&h, n(0)),
+        Status::ViewChange,
+        "the fence fires on the stream, not on its absence"
+    );
+
+    // The view change runs to completion: the cluster enters the
+    // established-but-unentered era (§8.7.8).
+    while h.queued_len() > 0 {
+        h.deliver_all();
+    }
+    for id in [n(0), n(1), n(2)] {
+        assert_eq!(status_of(&h, id), Status::Normal, "{id:?} installs");
+        assert_eq!(current_view(&h, id), era2_view(1), "{id:?} is in era 2");
+        assert_eq!(current_era(&h, id), Era(2));
+        assert_eq!(current_weights(&h, id), vec![1, 1, 1, 0], "{id:?} agrees");
+    }
+    h.assert_safety();
+
+    // The stream resumes in the new view under the era-2 arithmetic
+    // (QII_2 = 2 of weight 3; the joined learner's weight is 0).
+    let outcome = h.propose(n(1), op_id(99), b"resumed");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(snap(&h, n(1)).committed, 8);
+    h.assert_safety();
+}
+
+// ---------------------------------------------------------------------
 // 5. The era/slot relation is enforced at accept: out-of-era entries are
 //    refused by name, and only the relation's window is accepted.
 // ---------------------------------------------------------------------
