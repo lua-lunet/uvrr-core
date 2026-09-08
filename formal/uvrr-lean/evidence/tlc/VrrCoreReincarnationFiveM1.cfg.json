@@ -1,0 +1,18 @@
+{
+  "config": "VrrCoreReincarnationFiveM1.cfg",
+  "model": "VrrCoreReincarnation.tla",
+  "status": "exited",
+  "exit_code": 12,
+  "expected_verdict": "violation",
+  "violated_invariant": "MassRule",
+  "elapsed_seconds": 0.8,
+  "wall_limit_seconds": 180,
+  "java_heap_limit": "2g",
+  "workers": 1,
+  "states_generated": 5089,
+  "states_distinct": 991,
+  "sha256": {
+    "VrrCoreReincarnation.tla": "54f919e62328240def9d1672cc2388b34ccfb90bafa8b92044f7a1b1fa8e56d2",
+    "VrrCoreReincarnationFiveM1.cfg": "a7c96f13a3c6b29e4b1e22df3dbc1f52f0d4b7d43051e2e1031701f66053339b"
+  }
+}

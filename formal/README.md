@@ -247,8 +247,11 @@ delta an era produces on each node.
 | `VrrCoreReincarnation2.cfg` | exhaustive, 2 nodes (a:1, b:1), b crashes and reincarnates as d | green: 344 distinct / 2,373 generated, depth 13, 0.7s |
 | `VrrCoreReincarnationDouble.cfg` | exhaustive, 3 nodes at double scale (a:2, b:2, c:2) | green: 1,264 distinct / 13,345 generated, depth 17, 0.8s |
 | `VrrCoreReincarnationCrash.cfg` | exhaustive, leader crash forced between the two eras | green: 752 distinct / 7,633 generated, depth 18, 0.8s |
+| `VrrCoreReincarnationFive.cfg` | exhaustive, 5 nodes (a:1, b:1, c:1, e:1, f:1), f crashes and reincarnates as d, all invariants | green: 271,552 distinct / 4,595,361 generated, depth 25, 12.2s |
 | `VrrCoreReincarnationM1.cfg` | mutation: era 1 skips the decrement, era 2 leaves the victim at weight 2 | red by `MassRule`: the leave moves 2 units, counterexample records `moved[2][c] = 2` |
 | `VrrCoreReincarnationM2.cfg` | mutation: one-era swap, the unfenced victim evicted and d promoted in one era | red by `MassRule`: the swap evicts at full weight, counterexample records `moved[1][c] = 2` |
+| `VrrCoreReincarnationFiveM1.cfg` | mutation at 5 nodes (a:1, b:1, c:1, e:1, f:1): era 1 skips the decrement, era 2 leaves the victim at weight 2 | red by `MassRule`: the leave moves 2 units, counterexample records `moved[2][f] = 2` |
+| `VrrCoreReincarnationFiveM2.cfg` | mutation at 5 nodes: one-era swap, the unfenced victim evicted and d promoted in one era | red by `MassRule`: the swap evicts at full weight, counterexample records `moved[1][f] = 2` |
 | `VrrCoreReincarnationM3.cfg` | mutation: the sequence runs without the fence (dirty restart, no bump) | red by `RebornAfterFence`: d holds weight 1 while `bumped = {}` |
 | `VrrCoreReincarnationM4.cfg` | mutation: the sequence aborts after era 1, era 2 never proposed | red by `SequenceCompletes`: `aborted = TRUE` with `quorums[2] = {}` |
 | `VrrCoreReincarnationM5.cfg` | mutation: weight-0 identities' replies counted in quorums | red by `NoStandbyVote`: a weight-0 identity's reply is counted in `quorums[1]` |
@@ -263,3 +266,10 @@ the first violation, so only the violated invariant is compared). All runs used
 the hash-pinned TLC 2.19 jar (`sha256 936a2620…`), 2g heap; green searches with
 2 workers, mutations with 1. Evidence logs and digests are in
 `formal/uvrr-lean/evidence/tlc/`.
+
+The five-node run holds the model unchanged: `Leader = "a"` and `Reborn = "d"`
+are fixed definitions, so the fifth voter is `f` (the leader `a` stays in the
+voter set, `d` remains outside it) and the recursion/majority machinery
+generalizes to any member count. The five-node config was also offered to the
+symbolic checker Apalache, which rejected the model outright; that outcome is
+recorded in `research/apalache-smoke.md`.
