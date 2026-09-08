@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 # Regenerate REPRODUCE.md, the single executable reproduction document, with Showboat.
-# Run from formal/uvrr-lean. Every command is executed for real while the document is
-# built; `showboat verify REPRODUCE.md` later reruns all of them and diffs the output.
-# Nothing here reads outside the repository except the pinned TLC jar download, which
-# lands in the gitignored .tmp/ directory at the repository root.
+# Full reproduction is opt-in: pass --full. Every command is executed for real while
+# the document is built; `showboat verify REPRODUCE.md` later reruns all of them and
+# diffs the output. Nothing here reads outside the repository except the pinned TLC
+# jar download, which lands in the gitignored .tmp/ directory at the repository root.
+# Run independently before a major release; never for minor edits such as paper
+# rewordings.
 set -euo pipefail
 cd "$(dirname "$0")"
 export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+if [ "${1:-}" != "--full" ]; then
+  echo "make-reproduce.sh: no-op. Full reproduction is opt-in and rebuilds and replays"
+  echo "the whole evidence chain (Lean build, axiom audit, rungs, mutations, TLC, Rust"
+  echo "gates, published-paper verification). It is run independently before a major"
+  echo "release, not on minor paper rewordings. To run it: make-reproduce.sh --full"
+  exit 0
+fi
 D=REPRODUCE.md
 rm -f "$D"
 note() { showboat note "$D"; }          # body on stdin

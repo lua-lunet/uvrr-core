@@ -52,7 +52,7 @@ entries, so no separate BibTeX step is needed.
 Edit the title, author/email and `\paperrevision` near the beginning of
 paper.tex; edit the prose, equations and bibliography directly below them.
 The author email is simon.massey@stenographer.cloud. The layout follows
-David C. Turner's UPaxos paper: US Letter, a two-column IEEE journal layout,
+David C. Turner's paper: US Letter, a two-column IEEE journal layout,
 Times text, a centered title/author, first-page contact notes, a
 title/revision header, top-right page numbers, the paper id in the bottom
 footer, and Roman-numbered section headings. His affiliation, copyright and
@@ -60,5 +60,6 @@ license are not assigned to this manuscript.
 
 The proof ladder and lab book live in the parent directory. Publishing this
 paper does not rerun or change the formal evidence; the ladder transcripts
-are replayed by `../make-reproduce.sh`, which verifies — and never rebuilds —
-the published PDF.
+are replayed by `../make-reproduce.sh --full`, which verifies — and never
+rebuilds — the published PDF. Full reproduction is opt-in and is run
+independently before a major release, not on minor paper rewordings.

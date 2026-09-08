@@ -186,7 +186,7 @@ intersections of integer sets" — has standard names:
 | Rule | Named result |
 |---|---|
 | Two strict majorities of one configuration intersect | the **pigeonhole principle**: strict-majority threshold `floor(T/2) + 1` exceeds half the total, so two disjoint sets would exceed the total |
-| Majorities intersect when the **per-node mass moved** is ≤ 1 | Turner's UPaxos **Lemma 2** (general weighted-majority overlap), formalized as ladder rung 9 `WeightedGeneral.scaled_overlap` |
+| Majorities intersect when the **per-node mass moved** is ≤ 1 | Turner's **Lemma 2** (general weighted-majority overlap), formalized as ladder rung 9 `WeightedGeneral.scaled_overlap` |
 | `DOUBLE`/`HALVE` change no quorum family | **common-factor normalization**: the majority threshold `floor(T/2) + 1` scales with `T`, so `18/27 = 2/3` — the "zero op" |
 | Even totals need one more than half, odd totals split exactly | `floor(T/2) + 1` is the strict-majority threshold: even `T` is "eager" (`2n → n+1`), odd `2n+1 → n+1` splits evenly |
 

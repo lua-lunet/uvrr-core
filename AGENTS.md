@@ -97,6 +97,14 @@ every assertion through the public interface, which is where the contract actual
 - A commit message describes the change as delivered. It does not enumerate pending
   chores, releases, or review steps, and it carries no internal tracking identifiers.
 
+## Reproduction
+
+- `formal/uvrr-lean/make-reproduce.sh --full` regenerates and replays the entire
+  evidence chain (Lean build, axiom audit, rung transcripts, mutation controls, TLC,
+  Rust gates, published-paper verification). It is run independently before a major
+  release. It is never run for minor edits such as paper rewordings; without `--full`
+  the script is a no-op that prints how to run it.
+
 ## Scratch and concurrent work
 
 - `.tmp/` is scratch space. Never stage or commit anything under `.tmp/`.

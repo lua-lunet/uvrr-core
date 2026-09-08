@@ -1,7 +1,7 @@
 # Reproducing the uVRR safety-ladder evidence
 
-*2026-09-08T07:40:12Z by Showboat 0.6.1*
-<!-- showboat-id: 9231a920-b7e1-4396-ac31-bf79e104989b -->
+*2026-09-08T09:31:15Z by Showboat 0.6.1*
+<!-- showboat-id: 9528404b-237c-45b0-a458-57c5a02290a2 -->
 
 This is an executable laboratory document built with Simon Willison's Showboat. Every
 fenced `bash` block below was run, and the block after it is the output that was captured
@@ -357,11 +357,11 @@ if [ -f paper/paper.log ]; then printf "overfull boxes: %s\n" "$(grep -c Overful
 ```
 
 ```output
-7c35cfdde125b5ebbd53555b79d2fc2c004d78bbff879b4efa9f981d08c45109  paper/papers/20260908-2ac438f.pdf
-footer id 20260908-2ac438f present
+22479ee258b0c73901bec025c1e38b12af87a16107cf28c5c06a43187e146c48  paper/papers/20260908-f70546e.pdf
+footer id 20260908-f70546e present
 Title:           An Executable Safety Ladder Toward Unbounded Viewstamped Replication
 Author:          Simon Massey
-Pages:           8
+Pages:           13
 overfull boxes: 0
 ```
 
@@ -370,7 +370,7 @@ shasum -a 256 paper/paper.tex paper/build.sh
 ```
 
 ```output
-bdc9dc4d0f4e680f441bcb0fa09b60a284db66058f8436e1bc87e2466f39521e  paper/paper.tex
+420e2f8bce868680c26034eb962cca6dd54473e54fde4167e800353608e523a2  paper/paper.tex
 a2400a095137b5cba6840a936ed45004c196e99a4bac7678ed032b7de9afaad1  paper/build.sh
 ```
 

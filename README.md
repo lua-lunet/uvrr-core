@@ -1,7 +1,9 @@
-# vrr-core
+# Unbounded Viewstamped Replication Revisited (uVRR)
 
 A **sans-io** [Viewstamped Replication Revisited](https://dspace.mit.edu/server/api/core/bitstreams/9f8c52b3-ea46-4fde-9dc9-354ed6d9c7d9/content)
-core library in Rust, with a C ABI for LuaJIT FFI and a demo Maelstrom node for checking it.
+core library in Rust, with unbounded cluster reconfigurations, that replaces
+Crash-Recover behaviour with a low-latency Crash-Stop-Reincarnation. It has a C ABI
+for LuaJIT FFI and a demo Maelstrom node for checking it.
 
 Sans-io means the whole protocol is a state machine: you hand a replica an input
 and drain the outputs it produced. No sockets, no threads, no async runtime, no

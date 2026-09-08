@@ -397,7 +397,7 @@ and the reducer partitions an operation stream into maximal legal era batches
 **Rationale.**
 
 1. The named mathematics is enough: two strict majorities intersect by the pigeonhole
-   principle; majorities intersect when per-node mass moved is ≤ 1 (Turner's UPaxos
+   principle; majorities intersect when per-node mass moved is ≤ 1 (Turner's
    Lemma 2, formalized as ladder rung 9 `WeightedGeneral.scaled_overlap`); uniform
    scaling preserves every quorum family by common-factor normalization.
 2. A net-total rule alone would admit the mass-2 swap `(1,1,1) → (1,1,c:0,d:1)`, whose

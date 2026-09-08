@@ -4,6 +4,32 @@ Source: David C. Turner, "Unbounded Pipelining in Dynamically Reconfigurable Pax
 Clusters," revision 1A9DBA37, 14 August 2017 —
 https://tessanddave.com/paxos-reconf-latest.pdf (10 pages, US Letter, 612×792 pt).
 
+## Reference papers of record
+
+Two public copies of the Viewstamped Replication lineage are banked here as the
+register references for the retelling; their introductions are the register the
+rewritten paper matches.
+
+- `vsr-1988-oki-liskov.pdf` — B. M. Oki and B. H. Liskov, "Viewstamped
+  Replication: A New Primary Copy Method to Support Highly-Available Distributed
+  Systems," Proc. ACM PODC 1988, pp. 8–17 (10 pages). Public copy fetched from
+  https://www.cs.cmu.edu/~15712/papers/oki88.pdf. sha256
+  `ebaf3c9159a06203da7fadbd88b0ef8b5435a2bac7cba69a19617a5f68b66f92`.
+  The PDF is a scanned copy with an OCR text layer; the page text carries
+  scanning artifacts ("netwolrk", "faiistop") that do not affect the figures or
+  the statements used as register references.
+- `vrr-2012-liskov-cowling.pdf` — B. Liskov and J. Cowling, "Viewstamped
+  Replication Revisited," MIT-CSAIL-TR-2012-021, 23 July 2012 (16 pages).
+  Public copy fetched from
+  https://dspace.mit.edu/bitstream/handle/1721.1/71763/MIT-CSAIL-TR-2012-021.pdf
+  (the DSpace record lists the MD5 `19cfab7a34e323c00102c7fd2f7289cb` for the
+  same bitstream). sha256
+  `a4be688ed2d5ebb02511cde31ef43001cc7668681af9393bab69b5e3397895b6`.
+  Authorship note: every public copy of this technical report (MIT DSpace, the
+  PMG copy, and university mirrors) names Barbara Liskov and James Cowling as
+  the authors; no four-author edition is publicly verifiable, and the paper's
+  bibliography cites the two-author form.
+
 ## Acquisition and pinning
 
 - `paxos-reconf-latest.pdf` — sha256
@@ -96,4 +122,37 @@ eab8118e6e47f0f69d11f7466fd5a5eededd8e18cc2763ce12c28e424f536467  figures/fig-5.
 3f5ffd4ecdf89f4dd8887a74b9f91d52914fcbe27183857cf68c6ff7cfd7f8ff  paxos-reconf-latest.pdf
 968496c3a509d84a43f3305517a871d7a34ffc3167399156f7872f8948065da4  summary.md
 b43ba62be656af15228677b273fd09eb119e85af485f1f0fe83a26c62d73cedb  text.txt
+ebaf3c9159a06203da7fadbd88b0ef8b5435a2bac7cba69a19617a5f68b66f92  vsr-1988-oki-liskov.pdf
+a4be688ed2d5ebb02511cde31ef43001cc7668681af9393bab69b5e3397895b6  vrr-2012-liskov-cowling.pdf
 ```
+
+## Original redrawn figures — double-blind verdicts
+
+The paper's five figures are original TikZ redrawings (VRR vocabulary, shaded
+era bands, event dots; Turner's are plain-line diagrams with dashed era rules),
+verified per the reference protocol: the published page is cropped to the figure
+region (caption excluded, 300 dpi via pdftoppm), the PNG is sent to Mistral
+vision (`mistral-medium-latest`, the same prompt that produced the reference
+`fig-<n>.description.md` bank), and the returned standalone description is
+compared against the reference description. A figure passes when the two
+descriptions agree on the semantic content: nodes, arrows with direction and
+endpoints, phases, and ordering. No eyes-on-originals at any point.
+
+Verdicts (final reads, 300 dpi crops of the published PDF):
+
+| Redrawn figure | Reference | Semantic agreement | Verdict |
+|---|---|---|---|
+| Invariants S1–S6 (framed list) | fig-1.description.md | framed list of formal statements labeled S1–S6 over proposed/chosen/promised/accepted, quorums, quantifiers | PASS |
+| Invariants P1–P7 (framed list) | fig-2.description.md | framed list P1–P7: configuration condition, suffix/point promise era bounds, i_max, value rule, choice bounds | PASS |
+| Fully concurrent reconfiguration flow | fig-3.description.md | three lifelines a1/ℓ/a2; prepare(b)→ℓ in era e, prepare(b′)→ℓ in era e+1; fourteen ℓ→a2 proposals i..i+13 in order, i..i+11 on b and i+12/i+13 on b′; era e holds i..i+5, era e+1 holds i+6..i+13 | PASS |
+| Bounded-pipeline regime (α=2) | fig-4.description.md | three lifelines; both prepares a1→ℓ in era e; six proposals i..i+5 on b in era e, two proposals i+6/i+7 on b′ in era e+1 | PASS |
+| Stop-and-reconfigure regime | fig-5.description.md | three lifelines; prepare(b)→ℓ in era e, prepare(b′)→ℓ in era e+1; four ℓ→a2 proposals i, i+3, i+1, i+2 in era e (the out-of-order stop), three i+4/i+5/i+6 on b′ in era e+1 | PASS |
+
+Known vision quirks, documented above and expected on both sides of every
+comparison: the quorum-intersection symbol ⌢ is misread (∉/⊨ here; ⊂/→ in the
+reference reads), era labels transcribe informally ("e+1" as "e+" or "e + 1"),
+and single reads can garble one endpoint or band before iteration; the passing
+reads are the final reads of the published PDF. Iteration history: the framed
+lists passed on the first read; the lifeline figures needed scale and
+band-contrast iteration — the unbounded flow only read its era membership
+correctly once redrawn at a column footprint comparable to Turner's original.
