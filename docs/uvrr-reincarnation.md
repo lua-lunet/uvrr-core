@@ -168,11 +168,34 @@ non-membership in every view ≥ eviction, quorum safety of every intermediate e
 arbitrary scale, unreachability of the classic amnesia trace, and continuation commitment
 in general — are that rung's stated proof obligations, for later rungs.
 
-## 10. Future work
+## 10. Learner acquisition
 
-**Speculative standby recovery:** a zero-weight standby may speculatively recover its
-log non-votingly — acquiring state by streaming while never voting — so that the
-0→1 promotion finds the node already caught up. Stated as future work, not claimed.
+**Speculative learner recovery:** a zero-weight learner acquires state by
+streaming while never voting, so that the 0→1 promotion finds the node already
+caught up. The mechanism is the ordinary state transfer, gated by the learner
+acquisition rule:
+
+- **Serving:** the leader serves a `GetState` from a member of its current
+  committed configuration — any weight, a weight-0 learner included — even
+  when the sender is not a member of the configuration of the era it names:
+  a learner behind the frontier can only name the eras its own table holds,
+  and the era that admitted it is by definition not one of them. Serving is
+  read-only retransmission; a node outside the current configuration (a
+  foreign identity, a superseded old identity) is refused as before.
+- **Acquisition:** a node still at its boot fence (`Recovering` at
+  `current == retained`, the reopen state) that opened the fetch itself
+  takes the answering chunk's committed frontier and folds the system
+  operations it covers — the fold input is the chunk the suffix ruling
+  already verified against the local journal. The node stays fenced: it
+  adopts no view, its votes are never counted, and it serves nothing. The
+  admitting era folds exactly there, which makes the leader's `StartView`
+  evaluable and the ordinary install completes the catch-up.
+- **Authority:** unchanged — a learner votes only after a committed
+  `INCREMENT` grants it weight; while its weight is 0 its messages are
+  discarded by the standard membership checks (§6).
+
+A `ViewChange`-fenced node is not covered: its attempt's completing ruling
+owns the commit frontier.
 
 ## Grounding sources
 
