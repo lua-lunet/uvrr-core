@@ -1,5 +1,5 @@
 TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
-Running breadth-first search Model-Checking with fp 89 and seed 2846267253133451309 with 2 workers on 10 cores with 1820MB heap and 64MB offheap memory [pid: 38343] (Mac OS X 26.6.2 aarch64, Homebrew 26.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
+Running breadth-first search Model-Checking with fp 50 and seed 2913542602021284 with 2 workers on 10 cores with 1820MB heap and 64MB offheap memory [pid: 45887] (Mac OS X 26.6.2 aarch64, Homebrew 26.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
 Parsing file /Users/Shared/lua-lunet/vrr-core/formal/VrrCoreReincarnation.tla
 Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/FiniteSets.tla
 Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/Naturals.tla
@@ -10,9 +10,9 @@ Semantic processing of module Sequences
 Semantic processing of module FiniteSets
 Semantic processing of module TLC
 Semantic processing of module VrrCoreReincarnation
-Starting... (2026-09-08 16:17:40)
+Starting... (2026-09-08 16:35:29)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-09-08 16:17:40.
+Finished computing initial states: 1 distinct state generated at 2026-09-08 16:35:29.
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
@@ -20,4 +20,4 @@ Model checking completed. No error has been found.
 7633 states generated, 752 distinct states found, 0 states left on queue.
 The depth of the complete state graph search is 18.
 The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 4 and the 95th percentile is 4).
-Finished in 00s at (2026-09-08 16:17:40)
+Finished in 00s at (2026-09-08 16:35:29)

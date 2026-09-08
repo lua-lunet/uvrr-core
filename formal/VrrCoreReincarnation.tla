@@ -18,12 +18,15 @@
  *   CrashFirst -- when TRUE, era 1 may commit only before a mid-sequence
  *                 leader crash and era 2 only after one, forcing the
  *                 leader-crash-between-eras path (the remaining era is
- *                 recomputed idempotently from current state).
+ *                 recomputed idempotently from current state);
+ *   Defect     -- a single weakened guard per mutation config; "none" is
+ *                 the intact design.  Mass is the weight delta an era
+ *                 produces on each node.
  ***************************************************************************)
 
 EXTENDS FiniteSets, Naturals, TLC
 
-CONSTANTS Members, Victim, StartWt, CrashFirst
+CONSTANTS Members, Victim, StartWt, CrashFirst, Defect
 
 Reborn   == "d"
 AllIds   == Members \cup {Reborn}
@@ -35,13 +38,23 @@ Clean    == "clean"
 Dirty    == "dirty"
 Marks    == {Clean, Dirty}
 
+NoDefect     == "none"
+LeaveNonzero == "leave-nonzero"
+OneEraSwap   == "one-era-swap"
+DirtyNoBump  == "dirty-no-bump"
+AbortMidway  == "abort-midway"
+CountStandby == "count-standby"
+
+Defects == {NoDefect, LeaveNonzero, OneEraSwap, DirtyNoBump,
+            AbortMidway, CountStandby}
+
 AnnounceKind == "reincarnate"
 AckKind      == "ack"
 MsgKinds     == {AnnounceKind, AckKind}
 
-VARIABLES wt, marks, bumped, era, msgs, leader, quorums, moved, crashed
+VARIABLES wt, marks, bumped, era, msgs, leader, quorums, moved, crashed, aborted
 
-vars == <<wt, marks, bumped, era, msgs, leader, quorums, moved, crashed>>
+vars == <<wt, marks, bumped, era, msgs, leader, quorums, moved, crashed, aborted>>
 
 RECURSIVE SumWt(_)
 SumWt(s) ==
@@ -58,7 +71,7 @@ IsStrictMajority(s) == 2 * SumWt(s) > SumWt(Members)
 CountedAcks == {m.from : m \in {r \in msgs :
                    /\ r.type = AckKind
                    /\ r.to = Leader
-                   /\ wt[r.from] > 0}}
+                   /\ (Defect = CountStandby \/ wt[r.from] > 0)}}
 
 Support == {Leader} \cup CountedAcks
 
@@ -74,6 +87,8 @@ Init ==
     /\ quorums  = [e \in 1..MaxEra |-> {}]
     /\ moved    = [e \in 1..MaxEra |-> ZeroMoved]
     /\ crashed  = FALSE
+    /\ aborted  = FALSE
+    /\ Defect \in Defects
 
 (***************************************************************************
  * Superblock lifecycle.  DirtyRestart records an unflushed superblock;
@@ -83,12 +98,12 @@ Init ==
 DirtyRestart(id) ==
     /\ marks[id] = Clean
     /\ marks' = [marks EXCEPT ![id] = Dirty]
-    /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved, crashed>>
+    /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved, crashed, aborted>>
 
 RestartFlush(id) ==
     /\ marks[id] = Dirty
     /\ marks' = [marks EXCEPT ![id] = Clean]
-    /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved, crashed>>
+    /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved, crashed, aborted>>
 
 (***************************************************************************
  * Bump: the dirty identity is fenced (weight forced to 0, recorded in
@@ -102,22 +117,24 @@ Bump ==
     /\ wt[Victim] > 0
     /\ Victim \notin bumped
     /\ era < MaxEra
-    /\ wt'      = [wt EXCEPT ![Victim] = 0]
+    /\ wt'      = IF Defect = LeaveNonzero
+                  THEN wt
+                  ELSE [wt EXCEPT ![Victim] = 0]
     /\ bumped'  = bumped \cup {Victim}
     /\ marks'   = [marks EXCEPT ![Victim] = Clean]
-    /\ UNCHANGED <<era, msgs, leader, quorums, moved, crashed>>
+    /\ UNCHANGED <<era, msgs, leader, quorums, moved, crashed, aborted>>
 
 (***************************************************************************
  * Reincarnate announcement: the leader advertises the new identity.
  ***************************************************************************)
 
 Announce ==
-    /\ bumped # {}
+    /\ bumped # {} \/ Defect = DirtyNoBump \/ Defect = OneEraSwap
     /\ marks[leader] = Clean
     /\ msgs' = msgs \cup
             {[type |-> AnnounceKind, from |-> leader, to |-> m, era |-> era] :
                 m \in AllIds \ {leader}}
-    /\ UNCHANGED <<wt, marks, bumped, era, leader, quorums, moved, crashed>>
+    /\ UNCHANGED <<wt, marks, bumped, era, leader, quorums, moved, crashed, aborted>>
 
 (***************************************************************************
  * Reply ingress.  A weight-0 identity's reply is discarded (StandbyDiscard,
@@ -129,10 +146,10 @@ Ack(id) ==
     /\ \E m \in msgs :
            /\ m.type = AnnounceKind
            /\ m.to = id
-    /\ wt[id] > 0
+    /\ (wt[id] > 0 \/ Defect = CountStandby)
     /\ msgs' = msgs \cup
             {[type |-> AckKind, from |-> id, to |-> leader, era |-> era]}
-    /\ UNCHANGED <<wt, marks, bumped, era, leader, quorums, moved, crashed>>
+    /\ UNCHANGED <<wt, marks, bumped, era, leader, quorums, moved, crashed, aborted>>
 
 StandbyDiscard(id) ==
     /\ \E m \in msgs :
@@ -149,18 +166,22 @@ StandbyDiscard(id) ==
 
 LeaderCommitEra1 ==
     /\ era = 0
-    /\ bumped # {}
+    /\ bumped # {} \/ Defect = DirtyNoBump
     /\ marks[leader] = Clean
     /\ ~CrashFirst \/ ~crashed
     /\ IsStrictMajority(Support)
     /\ Assert(\A i \in AllIds :
                   (IF i = Victim THEN 1 ELSE 0) <= 1,
               "mass: era1 batch per-node mass <= 1")
-    /\ wt'      = [wt EXCEPT ![Victim] = 0, ![Reborn] = 0]
+    /\ wt'      = IF Defect = LeaveNonzero
+                  THEN [wt EXCEPT ![Reborn] = 0]
+                  ELSE [wt EXCEPT ![Victim] = 0, ![Reborn] = 0]
     /\ quorums' = [quorums EXCEPT ![1] = Support]
-    /\ moved'   = [moved EXCEPT ![1] = [moved[1] EXCEPT ![Victim] = 1]]
+    /\ moved'   = IF Defect = LeaveNonzero
+                  THEN moved
+                  ELSE [moved EXCEPT ![1] = [moved[1] EXCEPT ![Victim] = 1]]
     /\ era'     = 1
-    /\ UNCHANGED <<marks, bumped, msgs, leader, crashed>>
+    /\ UNCHANGED <<marks, bumped, msgs, leader, crashed, aborted>>
 
 (***************************************************************************
  * Era 2 commit: batch INCREMENT(d) + LEAVE(Victim).  d 0->1 (mass 1), the
@@ -179,11 +200,47 @@ LeaderCommitEra2 ==
     /\ Assert(\A i \in AllIds :
                   (IF i = Reborn THEN 1 ELSE 0) <= 1,
               "mass: era2 batch per-node mass <= 1")
-    /\ wt'      = [wt EXCEPT ![Reborn] = 1]
+    /\ wt'      = [wt EXCEPT ![Victim] = 0, ![Reborn] = 1]
     /\ quorums' = [quorums EXCEPT ![2] = Support]
-    /\ moved'   = [moved EXCEPT ![2] = [moved[2] EXCEPT ![Reborn] = 1]]
+    /\ moved'   = [moved EXCEPT ![2] =
+                   [moved[2] EXCEPT
+                        ![Victim] = IF Defect = LeaveNonzero THEN wt[Victim]
+                                    ELSE moved[2][Victim],
+                        ![Reborn] = 1]]
     /\ era'     = 2
-    /\ UNCHANGED <<marks, bumped, msgs, leader, crashed>>
+    /\ UNCHANGED <<marks, bumped, msgs, leader, crashed, aborted>>
+
+(***************************************************************************
+ * Mutation path: the one-era identity swap.  The intact design never
+ * takes this action: the old identity is evicted at its full weight and
+ * the new identity is promoted in one committed era, moving the old
+ * identity's whole weight in a single era.
+ ***************************************************************************)
+
+LeaderCommitSwap ==
+    /\ Defect = OneEraSwap
+    /\ era = 0
+    /\ marks[leader] = Clean
+    /\ IsStrictMajority(Support)
+    /\ wt'      = [wt EXCEPT ![Victim] = 0, ![Reborn] = 1]
+    /\ quorums' = [quorums EXCEPT ![1] = Support]
+    /\ moved'   = [moved EXCEPT ![1] = [moved[1] EXCEPT
+                        ![Victim] = wt[Victim], ![Reborn] = 1]]
+    /\ era'     = 1
+    /\ UNCHANGED <<marks, bumped, msgs, leader, crashed, aborted>>
+
+(***************************************************************************
+ * Mutation path: the forced sequence aborts after era 1 without ever
+ * proposing era 2.  The intact design never takes this action.
+ ***************************************************************************)
+
+AbortSequence ==
+    /\ Defect = AbortMidway
+    /\ era = 1
+    /\ ~aborted
+    /\ aborted' = TRUE
+    /\ UNCHANGED <<wt, marks, bumped, era, msgs, leader, quorums, moved,
+                   crashed>>
 
 (***************************************************************************
  * Leader crash between eras; the remaining eras are recomputed by the
@@ -195,7 +252,7 @@ LeaderCrashMid ==
     /\ marks[leader] = Clean
     /\ marks' = [marks EXCEPT ![leader] = Dirty]
     /\ crashed' = TRUE
-    /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved>>
+    /\ UNCHANGED <<wt, bumped, era, msgs, leader, quorums, moved, aborted>>
 
 Next ==
     \/ \E id \in AllIds : DirtyRestart(id)
@@ -206,6 +263,8 @@ Next ==
     \/ \E id \in AllIds : StandbyDiscard(id)
     \/ LeaderCommitEra1
     \/ LeaderCommitEra2
+    \/ LeaderCommitSwap
+    \/ AbortSequence
     \/ LeaderCrashMid
 
 Spec == Init /\ [][Next]_vars
@@ -225,6 +284,7 @@ TypeOK ==
     /\ quorums \in [1..MaxEra -> SUBSET AllIds]
     /\ moved   \in [1..MaxEra -> [AllIds -> 0..2]]
     /\ crashed \in BOOLEAN
+    /\ aborted \in BOOLEAN
 
 (* Consecutive committed eras used strict majorities that overlap. *)
 FrownChain ==
@@ -248,5 +308,13 @@ NoStandbyVote ==
                 /\ m.type = AckKind
                 /\ m.from = i
                 /\ wt[i] > 0
+
+(* Identity rule: the reborn identity may hold weight only once the
+ * victim identity has been fenced (bumped). *)
+RebornAfterFence == wt[Reborn] > 0 => Victim \in bumped
+
+(* Continuation rule: a committed forced sequence is never abandoned
+ * before its final era commits. *)
+SequenceCompletes == ~aborted \/ quorums[2] # {}
 
 =============================================================================

@@ -3,7 +3,7 @@
   "model": "VrrCoreReincarnation.tla",
   "status": "exited",
   "exit_code": 0,
-  "elapsed_seconds": 0.71,
+  "elapsed_seconds": 0.79,
   "wall_limit_seconds": 120,
   "java_heap_limit": "2g",
   "workers": 2,
@@ -11,7 +11,7 @@
   "states_distinct": 344,
   "search_depth": 13,
   "sha256": {
-    "VrrCoreReincarnation.tla": "01036a30eb7390cff256acb4c5b0fe12335cb98bb724023d7eb93576ea358fa6",
-    "VrrCoreReincarnation2.cfg": "58f7c57ff507f0795bba3f5e46366fb80cf192d301b61aa2473662867649f057"
+    "VrrCoreReincarnation.tla": "54f919e62328240def9d1672cc2388b34ccfb90bafa8b92044f7a1b1fa8e56d2",
+    "VrrCoreReincarnation2.cfg": "f192dda9cd497fb124ee0d9e8f21db3117b850736efb1426057664644471f19e"
   }
 }
