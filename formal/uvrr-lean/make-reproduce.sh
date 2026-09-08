@@ -33,8 +33,8 @@ a credential, or a model service.
 compiles under the pinned toolchain, that every named declaration depends only on the
 three standard Lean axioms, that all 21 rung transcripts replay, that the fault-injection
 mutations are rejected by the compiler, that the two TLC model checks reproduce, that
-the Rust implementation passes its gates, and that the paper builds to a byte-identical
-PDF. It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder
+the Rust implementation passes its gates, and that the paper's published,
+id-stamped PDF verifies by digest and footer. It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder
 proves exact component theorems, and whole-log composition across reconfigurations,
 client-visible linearizability and progress are open, as the paper and `LAB-BOOK.md`
 state.
@@ -205,17 +205,25 @@ if rg -q "#\[cfg\(test\)\]|mod tests" src; then echo "FAIL inline tests under sr
 if rg -qi paxos src; then echo "FAIL Paxos reference under src/"; exit 1; else echo "no Paxos references under src/"; fi'
 
 note <<'EOF'
-## 6. The paper
+## 6. The published paper
 
-`paper/build.sh` runs Tectonic on `paper/paper.tex` with a fixed `SOURCE_DATE_EPOCH`, so
-the PDF is byte-identical across builds with the same Tectonic release and the same
-package bundle. Tectonic downloads and caches the standard packages on its first run; a
-verifier without that cache needs network access once. The digest of the PDF, its page
-count and its metadata are recorded, followed by the digest of the source.
+`paper/build.sh` publishes `paper/papers/<id>.pdf`, where `<id>` is the build
+date plus the short HEAD sha, and stamps the same id into every page footer.
+Published PDFs are immutable versions of record: the script refuses to rebuild
+an already-published id and refuses to build while tracked sources under
+`paper/` carry unstaged edits. This section therefore verifies the published
+PDF for the current id instead of rebuilding it: existence, digest, the footer
+id through `pdftotext`, page count, and the overfull-box count from the
+retained build log.
 EOF
-run 'sh paper/build.sh >/dev/null 2>&1 && shasum -a 256 paper/paper.pdf
-pdfinfo paper/paper.pdf | grep -E "^(Title|Author|Pages)"
-printf "overfull boxes: %s\n" "$(grep -c Overfull paper/paper.log || true)"'
+run 'id="$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
+f="paper/papers/$id.pdf"
+test -f "$f" || { echo "MISSING $f"; exit 1; }
+shasum -a 256 "$f"
+pdftotext "$f" - | grep -qF "$id" || { echo "FOOTER ID $id MISSING in $f"; exit 1; }
+echo "footer id $id present"
+pdfinfo "$f" | grep -E "^(Title|Author|Pages)"
+if [ -f paper/paper.log ]; then printf "overfull boxes: %s\n" "$(grep -c Overfull paper/paper.log || true)"; fi'
 run 'shasum -a 256 paper/paper.tex paper/build.sh'
 
 note <<'EOF'

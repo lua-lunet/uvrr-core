@@ -19,12 +19,14 @@ standby obeys. The protocol specification is [docs/uvrr-reincarnation.md](../../
 
 Edit [paper/paper.tex](paper/paper.tex), then run `paper/build.sh`.
 The [standalone build instructions](paper/README.md) require only Tectonic;
-no proof harness or model service is involved.
+no proof harness or model service is involved. Each run publishes an
+immutable, id-stamped PDF under [paper/papers/](paper/papers/).
 
 ## Verified research checkpoint — 6 September 2026
 
-The current [LaTeX manuscript](paper/paper.tex) and [rendered paper](paper/paper.pdf)
-state the results through rung 20 and the remaining end-to-end proof obligations.
+The current [LaTeX manuscript](paper/paper.tex) and the published PDFs under
+[paper/papers/](paper/papers/) state the results through rung 20 and the
+remaining end-to-end proof obligations.
 The [laboratory book](LAB-BOOK.md) records commands, failures, bounded Leanstral
 experiments, and commit checkpoints (its counterexample-era entries are dated
 history about the classic crash-recovery attempt that reincarnation removed).

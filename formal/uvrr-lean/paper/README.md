@@ -1,43 +1,64 @@
-# Edit and build the paper
+# Publish the paper
 
-The editable source is **paper.tex**. The output is **paper.pdf**.
-Everything needed from this project is in this directory; the build does not
-run Lean, Rust, Showboat, Codex, or any model service.
+The editable source is **paper.tex**. `./build.sh` typesets it with Tectonic and
+publishes an immutable, versioned copy to **papers/<id>.pdf**, where `<id>` is
+`YYYYMMDD-<short HEAD sha>`. The same id is stamped into the bottom footer of
+every page and into the title-page revision line through the generated,
+gitignored **version.tex**; the id of the most recent publication is recorded
+in the gitignored **.published-id** stamp.
 
 From a terminal:
 
 ```sh
 cd formal/uvrr-lean/paper
 ./build.sh
-open paper.pdf
+open "papers/$(cat .published-id).pdf"
 ```
 
-Or invoke the script by its path from any working directory:
+Publication rules:
 
-```sh
-formal/uvrr-lean/paper/build.sh
-```
+- `papers/` is tracked in git: each PDF there is a version of record and is
+  never overwritten. Building an already-published id is refused; remove the
+  PDF deliberately to reattempt. When HEAD moves, the next build publishes
+  under the new id and older PDFs remain untouched as history.
+- The build refuses while tracked files under `paper/` carry unstaged
+  modifications: the id names HEAD's commit, so it must not be stamped over
+  edits that the recorded commit does not contain.
+- After publishing, the script asserts with `pdftotext` that the footer id is
+  present in the PDF text; a PDF that fails the check is withdrawn, not
+  published.
+- The intermediate **paper.pdf**, **version.tex**, **.published-id** and
+  **paper.log** are gitignored build artifacts; only the sources and
+  `papers/*.pdf` are tracked.
 
-Verified with Tectonic 0.17.0. The script fixes `SOURCE_DATE_EPOCH`, so two builds
-with the same Tectonic release and package bundle produce byte-identical PDFs; the
-recorded digest is in `../REPRODUCE.md`.
+`./build.sh --ocr` additionally uploads the published PDF to Mistral OCR
+(`mistral-ocr-latest`) using `MISTRAL_API_KEY` from the repository `.env`,
+requires every LaTeX caption string to appear in the OCR text, and writes the
+OCR markdown to the gitignored `.tmp/` at the repository root. The key is
+never echoed, staged, or committed, and the pass is off by default.
 
-Install the typesetter once, if needed, with `brew install tectonic`.
-Tectonic obtains and caches the ordinary LaTeX packages on the first build.
-After that, `./build.sh --only-cached` builds without downloading packages.
-The script is equivalent to `tectonic --keep-logs paper.tex` in this directory.
-It stops with a nonzero exit status on a failed build and leaves diagnostics
-in paper.log. The source has inline bibliography entries, so no separate
-BibTeX step is needed. No credentials or paid API are required.
+Verified with Tectonic 0.17.0. The script fixes `SOURCE_DATE_EPOCH`, so the
+layout is stable for a given Tectonic release and package bundle; publication
+is by id, not by byte-identical rebuild, and `../REPRODUCE.md` verifies the
+published PDF by digest and footer instead of rebuilding it. Install the
+typesetter once, if needed, with `brew install tectonic`; Tectonic obtains and
+caches the ordinary LaTeX packages on the first build, and
+`./build.sh --only-cached` builds without downloading. The script is
+equivalent to `tectonic --keep-logs paper.tex` in this directory plus the
+publication steps above. It stops with a nonzero exit status on a failed
+build and leaves diagnostics in paper.log. The source has inline bibliography
+entries, so no separate BibTeX step is needed.
 
 Edit the title, author/email and `\paperrevision` near the beginning of
 paper.tex; edit the prose, equations and bibliography directly below them.
-The author email is simon.massey@stenographer.cloud.
-The layout follows David C. Turner's UPaxos paper: US Letter, a two-column
-IEEE journal layout, Times text, a centered title/author, first-page contact
-notes, a title/revision header, top-right page numbers, and Roman-numbered
-section headings. His affiliation, copyright and license are not assigned
-to this manuscript.
+The author email is simon.massey@stenographer.cloud. The layout follows
+David C. Turner's UPaxos paper: US Letter, a two-column IEEE journal layout,
+Times text, a centered title/author, first-page contact notes, a
+title/revision header, top-right page numbers, the paper id in the bottom
+footer, and Roman-numbered section headings. His affiliation, copyright and
+license are not assigned to this manuscript.
 
-The proof ladder and lab book live in the parent directory. Editing this paper
-rebuilds the document; it does not rerun or change the formal evidence.
+The proof ladder and lab book live in the parent directory. Publishing this
+paper does not rerun or change the formal evidence; the ladder transcripts
+are replayed by `../make-reproduce.sh`, which verifies — and never rebuilds —
+the published PDF.

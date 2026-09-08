@@ -1,7 +1,7 @@
 # Reproducing the uVRR safety-ladder evidence
 
-*2026-09-08T01:11:24Z by Showboat 0.6.1*
-<!-- showboat-id: 1e559500-f5df-437d-bf54-207586766a42 -->
+*2026-09-08T07:40:12Z by Showboat 0.6.1*
+<!-- showboat-id: 9231a920-b7e1-4396-ac31-bf79e104989b -->
 
 This is an executable laboratory document built with Simon Willison's Showboat. Every
 fenced `bash` block below was run, and the block after it is the output that was captured
@@ -21,8 +21,8 @@ a credential, or a model service.
 compiles under the pinned toolchain, that every named declaration depends only on the
 three standard Lean axioms, that all 21 rung transcripts replay, that the fault-injection
 mutations are rejected by the compiler, that the two TLC model checks reproduce, that
-the Rust implementation passes its gates, and that the paper builds to a byte-identical
-PDF. It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder
+the Rust implementation passes its gates, and that the paper's published,
+id-stamped PDF verifies by digest and footer. It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder
 proves exact component theorems, and whole-log composition across reconfigurations,
 client-visible linearizability and progress are open, as the paper and `LAB-BOOK.md`
 state.
@@ -92,7 +92,7 @@ cat lean-toolchain; lake build 2>&1 | tail -1
 
 ```output
 leanprover/lean4:v4.33.1
-Build completed successfully (23 jobs).
+Build completed successfully (24 jobs).
 ```
 
 ```bash
@@ -103,10 +103,11 @@ shasum -a 256 lakefile.toml lake-manifest.json lean-toolchain UVRR.lean UVRR/*.l
 3278e7feb5801b189f9bf9861fcf942a0f6741a40c5c19d6ea6501e257fce718  lakefile.toml
 6e47b49409f143d341c4c6e804639227c01096f1628f765a9e75c9cc8b91e767  lake-manifest.json
 3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71  lean-toolchain
-d7dbedb0785984c1d40e60fe482c7ba2e3a4c063b2af3cd5de60d5acfc503031  UVRR.lean
+673beb468be6a7bc466e5e51396a841cc29349ef262010f4546c46bff5d34436  UVRR.lean
 447b859643b2b93cfba5504912cb3a6eea63b3b5d618aa3daeb1c8f9f50997e0  UVRR/Acceptor.lean
 4c57bf2b9ac24872ebfa4d748c2640f6ead82f1901ffb3eda46b1b1dc45e75c6  UVRR/AcquisitionOrder.lean
 eb7499f88feea53a0a972634acf5c8d30aaae3f6a75c3f6cde7cd13596ccbc9d  UVRR/CastingVote.lean
+f7bdff7228ebbb6c43678ac75e77a5ee25a09023af0120bd23aa651890d628b2  UVRR/CastingVoteReincarnation.lean
 36126e1a2160a491d124f40d1f91872cae43c9af888f7545a70dc898ae198d53  UVRR/Counterexample.lean
 da655d993fccb7074d35e78f53df04d6dbaceaae5d3357f4169718f985c1f44b  UVRR/CrashVector.lean
 93ba001b17ad908d03de8319cb0868a863573e680107c3099e28bc6c259a471d  UVRR/Eras.lean
@@ -141,7 +142,7 @@ python3 check_axioms.py
 ```
 
 ```output
-PASS 396 declarations: only standard Lean axioms
+PASS 414 declarations: only standard Lean axioms
 ```
 
 ```bash
@@ -213,6 +214,7 @@ ok   ladder/18-crash-vector.md
 ok   ladder/19-acquisition-order.md
 ok   ladder/20-recovery-acquisition.md
 ok   ladder/22-reincarnation.md
+ok   ladder/23-casting-vote-reincarnation.md
 ```
 
 ### 3.1 Compiler-rejected mutations
@@ -332,22 +334,31 @@ no inline tests under src/
 no Paxos references under src/
 ```
 
-## 6. The paper
+## 6. The published paper
 
-`paper/build.sh` runs Tectonic on `paper/paper.tex` with a fixed `SOURCE_DATE_EPOCH`, so
-the PDF is byte-identical across builds with the same Tectonic release and the same
-package bundle. Tectonic downloads and caches the standard packages on its first run; a
-verifier without that cache needs network access once. The digest of the PDF, its page
-count and its metadata are recorded, followed by the digest of the source.
+`paper/build.sh` publishes `paper/papers/<id>.pdf`, where `<id>` is the build
+date plus the short HEAD sha, and stamps the same id into every page footer.
+Published PDFs are immutable versions of record: the script refuses to rebuild
+an already-published id and refuses to build while tracked sources under
+`paper/` carry unstaged edits. This section therefore verifies the published
+PDF for the current id instead of rebuilding it: existence, digest, the footer
+id through `pdftotext`, page count, and the overfull-box count from the
+retained build log.
 
 ```bash
-sh paper/build.sh >/dev/null 2>&1 && shasum -a 256 paper/paper.pdf
-pdfinfo paper/paper.pdf | grep -E "^(Title|Author|Pages)"
-printf "overfull boxes: %s\n" "$(grep -c Overfull paper/paper.log || true)"
+id="$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
+f="paper/papers/$id.pdf"
+test -f "$f" || { echo "MISSING $f"; exit 1; }
+shasum -a 256 "$f"
+pdftotext "$f" - | grep -qF "$id" || { echo "FOOTER ID $id MISSING in $f"; exit 1; }
+echo "footer id $id present"
+pdfinfo "$f" | grep -E "^(Title|Author|Pages)"
+if [ -f paper/paper.log ]; then printf "overfull boxes: %s\n" "$(grep -c Overfull paper/paper.log || true)"; fi
 ```
 
 ```output
-c795b8b30698a48bf98a020d2d0afcc4ebbf4008fe19e256c29724e6b2e0c36e  paper/paper.pdf
+7c35cfdde125b5ebbd53555b79d2fc2c004d78bbff879b4efa9f981d08c45109  paper/papers/20260908-2ac438f.pdf
+footer id 20260908-2ac438f present
 Title:           An Executable Safety Ladder Toward Unbounded Viewstamped Replication
 Author:          Simon Massey
 Pages:           8
@@ -359,8 +370,8 @@ shasum -a 256 paper/paper.tex paper/build.sh
 ```
 
 ```output
-8dc996a1b08385e69260dd3503adf21e9355c330a2e5ec41b814a8e97e4606ce  paper/paper.tex
-e3f5d3b629938c30d42840648a9fc6331c78cbbebfb1606c5042705fb2ca5212  paper/build.sh
+bdc9dc4d0f4e680f441bcb0fa09b60a284db66058f8436e1bc87e2466f39521e  paper/paper.tex
+a2400a095137b5cba6840a936ed45004c196e99a4bac7678ed032b7de9afaad1  paper/build.sh
 ```
 
 ## 7. Digests of the transcripts and check scripts
@@ -394,6 +405,7 @@ d08b444567a5b071a30578efde0d160b5ead8b6079bcbdec44fea762efa5e071  ladder/18-cras
 2643b179950d597fe9ea2cc98067a2235a9bb83d94abe173a3e97b6422022c18  ladder/19-acquisition-order.md
 cee41077b7268279ad8061261f3d7fdf315d8d2e24bfc5eba5788d4d402316fc  ladder/20-recovery-acquisition.md
 2e617c3e83e89c2b9356fd48d3c2ce70e8ebbc249a80e479261794754e97e0a0  ladder/22-reincarnation.md
+022650e916645e510dbae93c8816fa3c942952e7d78021365796a91ae5980aa3  ladder/23-casting-vote-reincarnation.md
 a4add3a8c2c0ee28c1f3d75d3e0e2a4f87132f3bd38c48fafaae68357a96c6e8  check_axioms.py
 2617b524ded9fff554c7418054a44dd8095a51212d21284801fc665a54f6ca6f  check_mutations.py
 ```

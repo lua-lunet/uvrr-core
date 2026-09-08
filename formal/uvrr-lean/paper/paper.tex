@@ -8,16 +8,22 @@
 \hypersetup{pdftitle={An Executable Safety Ladder Toward Unbounded Viewstamped Replication},
   pdfauthor={Simon Massey}}
 % Turner-style running furniture: title/revision on page 1, page numbers at
-% top right throughout, and no bottom page number. Edit the revision here.
+% top right throughout, and the paper id in the bottom footer of every page.
+% Edit the revision here; build.sh writes the id of the published version to
+% the gitignored version.tex before each build.
 \newcommand{\paperrevision}{RESEARCH CHECKPOINT --- 6 SEPTEMBER 2026}
+\newcommand{\paperversion}{UNSTAMPED}
+\IfFileExists{version.tex}{\input{version.tex}}{}
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[R]{\normalfont\footnotesize\thepage}
+\fancyfoot[C]{\normalfont\scriptsize\paperversion}
 \renewcommand{\headrulewidth}{0pt}
 \fancypagestyle{uvrrfirst}{%
   \fancyhf{}
-  \fancyhead[L]{\normalfont\scriptsize UVRR SAFETY LADDER --- \paperrevision}
+  \fancyhead[L]{\normalfont\scriptsize UVRR SAFETY LADDER --- \paperrevision\ --- \paperversion}
   \fancyhead[R]{\normalfont\footnotesize\thepage}
+  \fancyfoot[C]{\normalfont\scriptsize\paperversion}
   \renewcommand{\headrulewidth}{0pt}}
 
 \setlength{\emergencystretch}{1em}

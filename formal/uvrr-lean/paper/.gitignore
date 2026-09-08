@@ -2,3 +2,6 @@
 *.aux
 *.out
 *.synctex.gz
+/paper.pdf
+/version.tex
+/.published-id
