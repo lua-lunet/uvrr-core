@@ -5,6 +5,17 @@ core library in Rust, with unbounded cluster reconfigurations, that replaces
 Crash-Recover behaviour with a low-latency Crash-Stop-Reincarnation. It has a C ABI
 for LuaJIT FFI and a demo Maelstrom node for checking it.
 
+This crate offers strong consistency during non-stop cluster reconfigurations
+without disk flushes. This is achieved by porting to Viewstamped Replication
+Revisited the leader casting vote technique from David Turner's technical
+report on unbounded pipelining in dynamically reconfigurable clusters
+(Tracsis, 2016–17, tessanddave.com).
+
+This Rust crate exposes a C ABI for FFI. It scales down to offer a lightweight
+and embeddable strong consistency model. With a small amount of data, such as
+leader leases or advisory locks, it removes the need to run something like
+ZooKeeper or etcd.
+
 Sans-io means the whole protocol is a state machine: you hand a replica an input
 and drain the outputs it produced. No sockets, no threads, no async runtime, no
 callbacks. The host owns transport, timers, and durability.
