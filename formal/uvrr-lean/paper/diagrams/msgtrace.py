@@ -3,25 +3,36 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""message-traces: time-stepped message-sequence renderer.
+"""message-traces: space-time diagram renderer (Turner's notation).
 
 Reads a small trace language (mermaid-sequence-like) and emits a
-deterministic SVG: lifelines per actor, numbered arrows placed at
-discrete time steps, crash / reincarnate markers, and shaded era bands.
+deterministic SVG in the space-time grammar of David C. Turner's message
+diagrams: each actor is a vertical lifeline with time flowing DOWN, and
+every message is a downward diagonal vector from one lifeline to another
+(down-right when the receiver sits to the right, down-left when to the
+left); there are no horizontal message arrows. Era boundaries are dashed
+horizontal lines across all lifelines with the era labels set in the left
+margin. Crash markers (x, dashed dead segment below) and reincarnate
+markers (open circle, lifeline starts there) are minimal monochrome
+extensions. The drawing is black on white in a serif face throughout.
 
 Language (one directive per line, `#` comments, blank lines ignored):
 
     title <text>                 caption drawn at the top (optional)
     actors NAME[(label)] ...     lifelines, declared once, left to right
-    era <text>                   begins a shaded band over subsequent rows
+    numbers on|off               prefix message numbers (default: on)
+    era <text>                   begins an era region over subsequent rows
     crash NAME@STEP              crash marker on NAME's lifeline at STEP
     reincarnate NAME@STEP        birth marker on NAME's lifeline at STEP
-    STEP SRC->DST: label         solid numbered arrow
-    STEP SRC-->DST: label        dashed numbered arrow
+    STEP SRC->DST: label         solid diagonal vector; label may be empty
+    STEP SRC-->DST: label        dashed diagonal vector; label may be empty
 
-Rows are the sorted set of step numbers; every arrow and marker lands on
-its step's row, so layout is time-stepped by construction. Output is
-byte-identical for identical input.
+Rows are the sorted step numbers (time positions); every vector and marker
+lands on its step's row and each vector drops exactly one row, so
+consecutive messages chain tail-to-head as in the original figures. A
+message's label (and, when `numbers on`, its step number) is set beside
+the destination lifeline at the arrowhead, on the side away from the
+incoming diagonal. Output is byte-identical for identical input.
 """
 
 import argparse
@@ -30,18 +41,23 @@ import re
 import sys
 from pathlib import Path
 
-ARROW = re.compile(r"^(\d+)\s+([A-Za-z0-9_]+)(-{1,2}>)([A-Za-z0-9_]+)\s*:\s*(.+)$")
+ARROW = re.compile(r"^(\d+)\s+([A-Za-z0-9_]+)(-{1,2}>)([A-Za-z0-9_]+)\s*:\s*(.*)$")
 MARKER = re.compile(r"^(crash|reincarnate)\s+([A-Za-z0-9_]+)@(\d+)$")
 
-BAND_FILL = ["#eef3fb", "#fdf4e7"]
-FONT = "Helvetica, Arial, sans-serif"
-ROW_H = 58
-COL_W = 190
-LEFT = 90
-RIGHT = 230
-TOP_TITLE = 30
-TOP_ACTORS = 66
-LIFELINE_TOP = 96
+FONT = "Times New Roman, Times, serif"
+INK = "#111111"
+DEAD = "#555555"
+COL_W = 170
+ROW_H = 85
+LEFT = 265
+RIGHT = 200
+CAP_HALF = 22
+CAP_Y = 72
+ACTOR_BASE = 58
+TITLE_Y = 30
+ERA_WRAP = 28
+LABEL_WRAP = 24
+LINE_H = 15
 
 
 def esc(s: str) -> str:
@@ -79,12 +95,19 @@ def parse(path: Path):
         elif line.startswith("actors "):
             names = []
             for tok in line[7:].split():
-                if "(" in tok:
+                if "=" in tok:
+                    name, label = tok.split("=", 1)
+                    names.append((name, label))
+                elif "(" in tok:
                     name, label = tok.split("(", 1)
-                    names.append((name, label.rstrip(")")))
+                    names.append((name, f"{name} ({label.rstrip(')')})"))
                 else:
                     names.append((tok, tok))
             events.append(("actors", names))
+        elif line == "numbers on":
+            events.append(("numbers", True))
+        elif line == "numbers off":
+            events.append(("numbers", False))
         elif line.startswith("era "):
             events.append(("era", line[4:].strip()))
         elif m := MARKER.match(line):
@@ -103,17 +126,22 @@ def build(events, srcname: str):
         sys.exit(f"{srcname}: must begin with an `actors` directive")
     actors = {name: (i, label) for i, (name, label) in enumerate(events[0][1])}
     title = next((payload for kind, payload in events if kind == "title"), "")
+    numbers = all(payload for kind, payload in events if kind == "numbers")
 
     steps = {p[0] for k, p in events if k == "arrow"} | {p[1] for k, p in events if k in ("crash", "reincarnate")}
+    if not steps:
+        sys.exit(f"{srcname}: no rows")
     row_of = {step: i for i, step in enumerate(sorted(steps))}
 
-    bands = []  # {label, rows: [row indexes]}
-    current = None
+    regions: list[dict] = []  # {label, rows: [row indexes], labelled}
+    unlabelled: dict = {"label": "", "rows": [], "labelled": False}
+    regions.append(unlabelled)
+    current = unlabelled
     arrows, crashes, births = [], [], []
     for kind, payload in events[1:]:
         if kind == "era":
-            current = {"label": payload, "rows": []}
-            bands.append(current)
+            current = {"label": payload, "rows": [], "labelled": True}
+            regions.append(current)
         elif kind in ("crash", "reincarnate"):
             name, step = payload
             if name not in actors:
@@ -131,37 +159,64 @@ def build(events, srcname: str):
             if current is not None:
                 current["rows"].append(row_of[step])
             arrows.append((step, src, dashed, dst, label))
-    return actors, title, row_of, bands, arrows, crashes, births
+    return actors, title, numbers, row_of, regions, arrows, crashes, births
 
 
-def render(actors, title, row_of, bands, arrows, crashes, births, srcname: str) -> str:
+def marker_side(arrows, row_of, name: str, step: int, x: dict) -> bool:
+    """True when the marker's label goes on the right of its lifeline."""
+    r = row_of[step]
+    for astep, src, _dashed, dst, _label in arrows:
+        if dst == name and row_of[astep] == r - 1:
+            return x[src] > x[dst]
+    return True
+
+
+def render(actors, title, numbers, row_of, regions, arrows, crashes, births, srcname: str) -> str:
     n = len(actors)
-    steps_sorted = sorted(row_of)
-    band_label_lines = []
-    band_first_row = []
-    for band in bands:
-        if not band["rows"]:
-            sys.exit(f"{srcname}: era band with no rows: {band['label']!r}")
-        band_label_lines.append(wrap(band["label"], 96))
-        band_first_row.append(min(band["rows"]))
-    # Extra vertical gap inserted before a band's first row so the band's
-    # label block fits inside the band above its first arrow without
-    # touching the previous row or the band above.
-    gap_before = {}
-    for lines, first in zip(band_label_lines, band_first_row):
-        gap_before[first] = max(6, 76 + 15 * (len(lines) - 1) - ROW_H)
-    y = {}
-    cursor = LIFELINE_TOP
-    for r, step in enumerate(steps_sorted):
+    rows = sorted(row_of.values())
+    x = {name: LEFT + i * COL_W for name, (i, _) in actors.items()}
+    first_x = min(x.values())
+    last_x = max(x.values())
+
+    # Era furniture. Each `era` directive opens a labelled region. A region
+    # whose predecessor has rows gets a dashed separator at its top with its
+    # label just below; the diagram's first labelled region has no line above
+    # it and its label is set just above the next separator — reproducing the
+    # `era e` / `era e + 1` pair bracketing one dashed line.
+    era_first_row: dict[int, list[str]] = {}
+    gap_before: dict[int, int] = {}
+    prev_has_rows = False
+    first_region_lines: list[str] | None = None
+    for region in regions:
+        label = region["label"]
+        if region["labelled"] and label and not label.lower().startswith("era"):
+            label = f"era {label}"
+        lines = wrap(label, ERA_WRAP) if region["labelled"] and label else []
+        if region["rows"] and region["labelled"]:
+            if prev_has_rows:
+                top = min(region["rows"])
+                era_first_row[top] = lines
+                gap_before[top] = 54 + LINE_H * len(lines)
+            elif first_region_lines is None:
+                first_region_lines = lines
+        prev_has_rows = prev_has_rows or bool(region["rows"])
+
+    y: dict[int, float] = {}
+    cursor = float(CAP_Y + 46)
+    for r in rows:
         if r in gap_before:
             cursor += gap_before[r]
         y[r] = cursor
         cursor += ROW_H
-    yr = y  # keyed by row index; resolve steps via row_of
-    bottom = yr[len(steps_sorted) - 1] + 34
+    ys = lambda step: y[row_of[step]]
+    last_drop = y[rows[-1]] + ROW_H
+    bottom = last_drop + 30
     width = LEFT + (n - 1) * COL_W + RIGHT
-    x = {name: LEFT + i * COL_W for name, (i, _) in actors.items()}
-    ys = lambda step: yr[row_of[step]]
+
+    land = {}  # row -> y of the point one row below
+    for r in rows:
+        i = rows.index(r)
+        land[r] = y[rows[i + 1]] if i + 1 < len(rows) else last_drop
 
     crash_steps = {name: step for name, step in crashes}
     birth_steps = {name: step for name, step in births}
@@ -174,7 +229,7 @@ def render(actors, title, row_of, bands, arrows, crashes, births, srcname: str) 
     )
     out.append(f'<rect width="{fmt(width)}" height="{fmt(bottom + 16)}" fill="#ffffff"/>')
 
-    def text(xp, yp, s, size: float = 13, fill="#111827", anchor="middle", weight="normal", style=None):
+    def text(xp, yp, s, size: float = 12.5, fill=INK, anchor="middle", weight="normal", style=None):
         attrs = f' font-style="{style}"' if style else ""
         out.append(
             f'<text x="{fmt(xp)}" y="{fmt(yp)}" font-size="{size}" fill="{fill}" '
@@ -182,115 +237,125 @@ def render(actors, title, row_of, bands, arrows, crashes, births, srcname: str) 
         )
 
     if title:
-        text(24, TOP_TITLE, title, size=15, anchor="start", weight="bold")
+        text(24, TITLE_Y, title, size=17, anchor="start", weight="bold")
 
-    # Era bands (behind everything else); labels sit inside the band above
-    # its first row.
-    for bi, band in enumerate(bands):
-        lines = band_label_lines[bi]
-        first = band_first_row[bi]
-        last = max(band["rows"])
-        top = y[first] - 44 - 15 * (len(lines) - 1)
-        bot = y[last] + 20
+    # Era separators: dashed horizontal lines across all lifelines. Each
+    # separator carries its region's label just below; the first labelled
+    # region's label is set just above the first separator.
+    for r, lines in sorted(era_first_row.items()):
+        ysep = y[r] - 40 - LINE_H * len(lines)
         out.append(
-            f'<rect x="16" y="{fmt(top)}" width="{fmt(width - 32)}" height="{fmt(bot - top)}" '
-            f'fill="{BAND_FILL[bi % len(BAND_FILL)]}" stroke="#c9d2de" stroke-width="1"/>'
+            f'<line x1="{fmt(first_x - 8)}" y1="{fmt(ysep)}" x2="{fmt(last_x + 8)}" y2="{fmt(ysep)}" '
+            f'stroke="{INK}" stroke-width="1.2" stroke-dasharray="9 6"/>'
         )
-        ly = top + 16
+        ly = ysep + 16
         for line in lines:
-            text(24, ly, line, size=12.5, fill="#334155", anchor="start", weight="bold")
-            ly += 15
+            text(first_x - 14, ly, line, size=14, anchor="end")
+            ly += LINE_H
+        if first_region_lines:
+            fy = ysep - 10 - LINE_H * (len(first_region_lines) - 1)
+            for line in first_region_lines:
+                text(first_x - 14, fy, line, size=14, anchor="end")
+                fy += LINE_H
+            first_region_lines = None
 
-    # Lifelines.
+    # Lifelines: solid above a crash, dashed (dead) below it; born at a
+    # reincarnate marker.
     for name, (i, _) in actors.items():
         xn = x[name]
-        y0, y1 = LIFELINE_TOP, bottom
+        y0, y1 = float(CAP_Y), bottom
         if name in crash_steps:
             yc = ys(crash_steps[name])
             out.append(
-                f'<line x1="{fmt(xn)}" y1="{fmt(y0)}" x2="{fmt(xn)}" y2="{fmt(yc)}" stroke="#111827" stroke-width="1.5"/>'
+                f'<line x1="{fmt(xn)}" y1="{fmt(y0)}" x2="{fmt(xn)}" y2="{fmt(yc)}" stroke="{INK}" stroke-width="1.2"/>'
             )
             out.append(
-                f'<line x1="{fmt(xn)}" y1="{fmt(yc)}" x2="{fmt(xn)}" y2="{fmt(y1)}" stroke="#9ca3af" '
-                f'stroke-width="1.5" stroke-dasharray="3 5"/>'
+                f'<line x1="{fmt(xn)}" y1="{fmt(yc)}" x2="{fmt(xn)}" y2="{fmt(y1)}" stroke="{DEAD}" '
+                f'stroke-width="1.2" stroke-dasharray="3 5"/>'
             )
         elif name in birth_steps:
             yb = ys(birth_steps[name])
             out.append(
-                f'<line x1="{fmt(xn)}" y1="{fmt(yb)}" x2="{fmt(xn)}" y2="{fmt(y1)}" stroke="#111827" stroke-width="1.5"/>'
+                f'<line x1="{fmt(xn)}" y1="{fmt(yb)}" x2="{fmt(xn)}" y2="{fmt(y1)}" stroke="{INK}" stroke-width="1.2"/>'
             )
         else:
             out.append(
-                f'<line x1="{fmt(xn)}" y1="{fmt(y0)}" x2="{fmt(xn)}" y2="{fmt(y1)}" stroke="#111827" stroke-width="1.5"/>'
+                f'<line x1="{fmt(xn)}" y1="{fmt(y0)}" x2="{fmt(xn)}" y2="{fmt(y1)}" stroke="{INK}" stroke-width="1.2"/>'
             )
 
-    # Actor headers.
-    for name, (i, label) in actors.items():
-        display = name if label == name else f"{name} ({label})"
+    # Actor furniture: cap tick with the label set above it.
+    for name, (i, display) in actors.items():
         xn = x[name]
-        box_w = 44 + 9 * len(display)
+        xn = x[name]
         out.append(
-            f'<rect x="{fmt(xn - box_w / 2)}" y="{fmt(TOP_ACTORS - 18)}" width="{fmt(box_w)}" height="26" rx="5" '
-            f'fill="#1f2937"/>'
+            f'<line x1="{fmt(xn - CAP_HALF)}" y1="{fmt(CAP_Y)}" x2="{fmt(xn + CAP_HALF)}" y2="{fmt(CAP_Y)}" '
+            f'stroke="{INK}" stroke-width="1.4"/>'
         )
-        out.append(
-            f'<text x="{fmt(xn)}" y="{fmt(TOP_ACTORS)}" font-size="13.5" fill="#ffffff" '
-            f'text-anchor="middle" font-weight="bold">{esc(display)}</text>'
-        )
+        text(xn, ACTOR_BASE, display, size=18, style="italic")
 
-    # Markers.
+    # Diagonal message vectors: tail on the source lifeline at the step's
+    # row, filled head on the destination lifeline one row below.
+    for step, src, dashed, dst, label in arrows:
+        x1, x2 = x[src], x[dst]
+        ya, yb = ys(step), land[row_of[step]]
+        dx, dy = x2 - x1, yb - ya
+        dist = (dx * dx + dy * dy) ** 0.5
+        ux, uy = dx / dist, dy / dist
+        dash = ' stroke-dasharray="6 4"' if dashed else ""
+        out.append(
+            f'<line x1="{fmt(x1)}" y1="{fmt(ya)}" x2="{fmt(x2 - 8 * ux)}" y2="{fmt(yb - 8 * uy)}" '
+            f'stroke="{INK}" stroke-width="1.3"{dash}/>'
+        )
+        bx, by = x2 - 9 * ux, yb - 9 * uy
+        px, py = -uy * 4, ux * 4
+        out.append(
+            f'<polygon points="{fmt(x2)},{fmt(yb)} {fmt(bx + px)},{fmt(by + py)} {fmt(bx - px)},{fmt(by - py)}" '
+            f'fill="{INK}"/>'
+        )
+        if label or numbers:
+            body = f"{step} {label}" if numbers and label else (str(step) if numbers else label)
+            lines = wrap(body, LABEL_WRAP) if " " in body else [body]
+            anchor = "start" if x1 < x2 else "end"
+            lx = x2 + 10 if anchor == "start" else x2 - 10
+            ly = yb + 4 - LINE_H * (len(lines) - 1) / 2
+            for line in lines:
+                text(lx, ly, line, size=15, anchor=anchor, weight="bold")
+                ly += LINE_H
+
+    # Markers. A marker sharing its point with a landing arrowhead sets its
+    # label on the side opposite that arrowhead's label.
     for name, step in crashes:
         xn, yn = x[name], ys(step)
-        out.append(
-            f'<line x1="{fmt(xn - 8)}" y1="{fmt(yn - 8)}" x2="{fmt(xn + 8)}" y2="{fmt(yn + 8)}" '
-            f'stroke="#b3261e" stroke-width="3" stroke-linecap="round"/>'
-        )
-        out.append(
-            f'<line x1="{fmt(xn - 8)}" y1="{fmt(yn + 8)}" x2="{fmt(xn + 8)}" y2="{fmt(yn - 8)}" '
-            f'stroke="#b3261e" stroke-width="3" stroke-linecap="round"/>'
-        )
-        text(xn + 14, yn + 4, "crash (fenced)", size=12, fill="#b3261e", anchor="start", weight="bold")
+        for s in (-1, 1):
+            out.append(
+                f'<line x1="{fmt(xn - 8 * s)}" y1="{fmt(yn - 8)}" x2="{fmt(xn + 8 * s)}" y2="{fmt(yn + 8)}" '
+                f'stroke="{INK}" stroke-width="2.6" stroke-linecap="round"/>'
+            )
+        side = "start" if marker_side(arrows, row_of, name, step, x) else "end"
+        mx = xn + 13 if side == "start" else xn - 13
+        text(mx, yn + 4, "crash (fenced)", size=14, anchor=side, style="italic")
     for name, step in births:
         xn, yn = x[name], ys(step)
         out.append(
-            f'<circle cx="{fmt(xn)}" cy="{fmt(yn)}" r="7" fill="#ffffff" stroke="#0b7a3e" stroke-width="2.5"/>'
+            f'<circle cx="{fmt(xn)}" cy="{fmt(yn)}" r="6" fill="#ffffff" stroke="{INK}" stroke-width="2"/>'
         )
-        text(xn + 14, yn + 4, "reincarnate (new identity)", size=12, fill="#0b7a3e", anchor="start", weight="bold")
-
-    # Numbered arrows.
-    for step, src, dashed, dst, label in arrows:
-        x1, x2 = x[src], x[dst]
-        ya = ys(step)
-        direction = 1 if x2 >= x1 else -1
-        dash = ' stroke-dasharray="6 4"' if dashed else ""
-        out.append(
-            f'<line x1="{fmt(x1)}" y1="{fmt(ya)}" x2="{fmt(x2 - direction * 9)}" y2="{fmt(ya)}" '
-            f'stroke="#111827" stroke-width="1.6"{dash}/>'
-        )
-        tip, base = x2, x2 - direction * 10
-        out.append(
-            f'<polygon points="{fmt(tip)},{fmt(ya)} {fmt(base)},{fmt(ya - 4.5)} {fmt(base)},{fmt(ya + 4.5)}" '
-            f'fill="#111827"/>'
-        )
-        mid = (x1 + x2) / 2
-        out.append(
-            f'<text x="{fmt(mid)}" y="{fmt(ya - 8)}" font-size="12.5" fill="#111827" text-anchor="middle">'
-            f'<tspan font-weight="bold">{step}</tspan><tspan dx="6">{esc(label)}</tspan></text>'
-        )
+        side = "start" if marker_side(arrows, row_of, name, step, x) else "end"
+        mx = xn + 13 if side == "start" else xn - 13
+        text(mx, yn + 4, "reincarnate", size=14, anchor=side, style="italic")
 
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="render a message trace to deterministic SVG")
+    ap = argparse.ArgumentParser(description="render a message trace to a deterministic space-time SVG")
     ap.add_argument("trace", type=Path)
     ap.add_argument("-o", "--out", type=Path, default=None)
     args = ap.parse_args()
     out = args.out or args.trace.with_suffix(".svg")
     events = parse(args.trace)
-    actors, title, row_of, bands, arrows, crashes, births = build(events, str(args.trace))
-    svg = render(actors, title, row_of, bands, arrows, crashes, births, str(args.trace))
+    actors, title, numbers, row_of, regions, arrows, crashes, births = build(events, str(args.trace))
+    svg = render(actors, title, numbers, row_of, regions, arrows, crashes, births, str(args.trace))
     out.write_text(svg, encoding="utf-8")
     print(f"wrote {out}")
 
