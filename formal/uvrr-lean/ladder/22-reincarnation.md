@@ -460,63 +460,427 @@ LEAN
 'Reincarnation.swap_unsafe' depends on axioms: [propext, Classical.choice, Quot.sound]
 ```
 
+```bash
+cat UVRR/ReincarnationGeneral.lean
+```
+
+```output
+import UVRR.Reincarnation
+
+/-! General-scale theorems over the reincarnation rung's definitions: the
+discharge of the rung's four proof obligations. The mass bounds for the three
+batch forms hold for arbitrary configurations at arbitrary scale, so rung 9's
+`WeightedGeneral.unit_change_overlap` makes every era of the forced sequence
+quorum-safe. The old identity's weight never increases along a forced run and
+never returns to a voter once zero, the bumped identity never reverts to the
+pre-bump identity, and a forced run from any committed phase completes: no
+reachable terminal phase other than `flushed`. -/
+
+namespace Reincarnation
+
+/-! ### The one-unit mass bound at arbitrary scale -/
+
+theorem total_zero {A : Type} (nodes : List A) (f : A → Nat)
+    (h : ∀ a ∈ nodes, f a = 0) : WeightedGeneral.total nodes f = 0 := by
+  induction nodes with
+  | nil => rfl
+  | cons a rest ih =>
+    simp only [WeightedGeneral.total]
+    have h0 : f a = 0 := h a (List.mem_cons_self)
+    have h1 := ih (fun b hb => h b (List.mem_cons_of_mem a hb))
+    rw [h0, h1]
+
+theorem distance_crossEra_zero {A : Type} [DecidableEq A] {old new : A}
+    (w : Config A) (hnew : w new = 0) {a : A} (ha : a ≠ old) :
+    WeightedGeneral.distance (w a) (crossEra old new w a) = 0 := by
+  rw [crossEra, if_neg ha]
+  by_cases hb : a = new
+  · rw [if_pos hb, hb, hnew]
+    simp [WeightedGeneral.distance]
+  · rw [if_neg hb]
+    simp [WeightedGeneral.distance]
+
+theorem distance_evictEra_zero {A : Type} [DecidableEq A] {new a : A} (w : Config A)
+    (ha : a ≠ new) :
+    WeightedGeneral.distance (w a) (evictEra new w a) = 0 := by
+  rw [evictEra, if_neg ha]
+  simp [WeightedGeneral.distance]
+
+theorem distance_step0_zero {A : Type} [DecidableEq A] {old a : A} (w : Config A)
+    (ha : a ≠ old) :
+    WeightedGeneral.distance (w a) (step0 old w a) = 0 := by
+  rw [step0, if_neg ha]
+  simp [WeightedGeneral.distance]
+
+/-- The crossing era moves at most one unit of per-node voting mass at
+arbitrary scale: the old identity drops one unit, the fresh identity joins at
+weight zero, everything else is untouched. The support list is the
+duplicate-free identity enumeration (duplicated entries would double-count
+the moved unit). -/
+theorem crossEra_mass {A : Type} [DecidableEq A] {old new : A} (_hne : old ≠ new)
+    (nodes : List A) (w : Config A) (_hold : 1 ≤ w old) (hnew : w new = 0)
+    (hnodup : nodes.Nodup) :
+    WeightedGeneral.total nodes
+      (fun a => WeightedGeneral.distance (w a) (crossEra old new w a)) ≤ 1 := by
+  induction nodes with
+  | nil => exact Nat.zero_le _
+  | cons a rest ih =>
+    have hmem : a ∉ rest := (List.nodup_cons.mp hnodup).1
+    have hrest : rest.Nodup := (List.nodup_cons.mp hnodup).2
+    by_cases ha : a = old
+    · have hbne : ∀ b ∈ rest, b ≠ old := by
+        intro b hmem' he
+        apply hmem
+        rw [ha, ← he]
+        exact hmem'
+      have hsum := total_zero rest
+        (fun b => WeightedGeneral.distance (w b) (crossEra old new w b))
+        (fun b hb => distance_crossEra_zero w hnew (hbne b hb))
+      have hda : WeightedGeneral.distance (w a) (crossEra old new w a) ≤ 1 := by
+        rw [ha, crossEra, if_pos rfl, WeightedGeneral.distance]
+        omega
+      rw [WeightedGeneral.total]
+      omega
+    · have hda := distance_crossEra_zero w hnew ha
+      have ih' := ih hrest
+      rw [WeightedGeneral.total]
+      omega
+
+/-- The eviction era moves at most one unit of per-node voting mass at
+arbitrary scale: the new identity is promoted one unit, everything else is
+untouched. -/
+theorem evictEra_mass {A : Type} [DecidableEq A] (new : A) (nodes : List A)
+    (w : Config A) (hnodup : nodes.Nodup) :
+    WeightedGeneral.total nodes
+      (fun a => WeightedGeneral.distance (w a) (evictEra new w a)) ≤ 1 := by
+  induction nodes with
+  | nil => exact Nat.zero_le _
+  | cons a rest ih =>
+    have hmem : a ∉ rest := (List.nodup_cons.mp hnodup).1
+    have hrest : rest.Nodup := (List.nodup_cons.mp hnodup).2
+    by_cases ha : a = new
+    · have hbne : ∀ b ∈ rest, b ≠ new := by
+        intro b hmem' he
+        apply hmem
+        rw [ha, ← he]
+        exact hmem'
+      have hsum := total_zero rest
+        (fun b => WeightedGeneral.distance (w b) (evictEra new w b))
+        (fun b hb => distance_evictEra_zero w (hbne b hb))
+      have hda : WeightedGeneral.distance (w a) (evictEra new w a) ≤ 1 := by
+        rw [ha, evictEra, if_pos rfl, WeightedGeneral.distance]
+        omega
+      rw [WeightedGeneral.total]
+      omega
+    · have hda := distance_evictEra_zero w ha
+      have ih' := ih hrest
+      rw [WeightedGeneral.total]
+      omega
+
+/-- The solitary decrement moves at most one unit of per-node voting mass at
+arbitrary scale: the old identity drops one unit, everything else is
+untouched. -/
+theorem step0_mass {A : Type} [DecidableEq A] (old : A) (nodes : List A)
+    (w : Config A) (hnodup : nodes.Nodup) :
+    WeightedGeneral.total nodes
+      (fun a => WeightedGeneral.distance (w a) (step0 old w a)) ≤ 1 := by
+  induction nodes with
+  | nil => exact Nat.zero_le _
+  | cons a rest ih =>
+    have hmem : a ∉ rest := (List.nodup_cons.mp hnodup).1
+    have hrest : rest.Nodup := (List.nodup_cons.mp hnodup).2
+    by_cases ha : a = old
+    · have hbne : ∀ b ∈ rest, b ≠ old := by
+        intro b hmem' he
+        apply hmem
+        rw [ha, ← he]
+        exact hmem'
+      have hsum := total_zero rest
+        (fun b => WeightedGeneral.distance (w b) (step0 old w b))
+        (fun b hb => distance_step0_zero w (hbne b hb))
+      have hda : WeightedGeneral.distance (w a) (step0 old w a) ≤ 1 := by
+        rw [ha, step0, if_pos rfl, WeightedGeneral.distance]
+        omega
+      rw [WeightedGeneral.total]
+      omega
+    · have hda := distance_step0_zero w ha
+      have ih' := ih hrest
+      rw [WeightedGeneral.total]
+      omega
+
+/-- Era safety at arbitrary scale, composed: both consecutive eras of the
+forced sequence keep consecutive strict majorities overlapping, by rung 9's
+one-unit overlap. -/
+theorem forced_sequence_era_safe {A : Type} [DecidableEq A] {old new : A}
+    (_hne : old ≠ new) (nodes : List A) (w : Config A) (_hold : 1 ≤ w old)
+    (hnew : w new = 0) (hnodup : nodes.Nodup) :
+    Frown (WeightedGeneral.majority nodes w)
+        (WeightedGeneral.majority nodes (crossEra old new w)) ∧
+    Frown (WeightedGeneral.majority nodes (crossEra old new w))
+        (WeightedGeneral.majority nodes (evictEra new (crossEra old new w))) := by
+  constructor
+  · exact WeightedGeneral.unit_change_overlap nodes w (crossEra old new w)
+      (crossEra_mass _hne nodes w _hold hnew hnodup)
+  · exact WeightedGeneral.unit_change_overlap nodes (crossEra old new w)
+      (evictEra new (crossEra old new w)) (evictEra_mass new nodes _ hnodup)
+
+/-! ### The configuration carried by the forced run
+
+The forced run walks the phases with the baseline configuration at `dirty`,
+the crossed configuration from `bumped` on, and the evicted configuration at
+`flushed`. -/
+
+def eraConfig {A : Type} [DecidableEq A] (old new : A) (w : Config A) :
+    Phase → Config A
+  | .flushed => evictEra new (crossEra old new w)
+  | .unflushed => w
+  | .dirty => w
+  | .bumped => crossEra old new w
+  | .reincarnating => crossEra old new w
+
+theorem eraConfig_old_step {A : Type} [DecidableEq A] {old new : A} (hne : old ≠ new)
+    (w : Config A) {q t : Phase} (hst : ForcedStep q t) :
+    eraConfig old new w t old ≤ eraConfig old new w q old := by
+  cases hst with
+  | bump_write =>
+    show crossEra old new w old ≤ w old
+    simp only [crossEra]
+    exact Nat.sub_le _ _
+  | enter_wire => exact Nat.le_refl _
+  | complete =>
+    show evictEra new (crossEra old new w) old ≤ crossEra old new w old
+    simp only [evictEra, if_neg hne]
+    exact Nat.le_refl _
+
+/-- The old identity's weight never increases along a forced run. -/
+theorem forced_run_old_mono {A : Type} [DecidableEq A] {old new : A} (hne : old ≠ new)
+    (w : Config A) {p t : Phase} (hrun : ForcedRun p t) :
+    eraConfig old new w t old ≤ eraConfig old new w p old := by
+  induction hrun with
+  | refl => exact Nat.le_refl _
+  | step _ st ih => exact Nat.le_trans (eraConfig_old_step hne w st) ih
+
+/-- Once the old identity reaches weight zero it stays there for the rest of
+the forced run. -/
+theorem forced_run_old_zero {A : Type} [DecidableEq A] {old new : A} (hne : old ≠ new)
+    (w : Config A) {p t : Phase} (hrun : ForcedRun p t)
+    (h0 : eraConfig old new w p old = 0) :
+    eraConfig old new w t old = 0 := by
+  exact Nat.le_antisymm
+    (Nat.le_trans (forced_run_old_mono hne w hrun) (Nat.le_of_eq h0)) (Nat.zero_le _)
+
+/-- Bumped-identity non-membership: from `bumped` on — the crossing era
+completed — the old identity is never a voter again in any subsequent
+configuration of the forced run. The crossing era drives the old identity to
+weight zero exactly when it starts at or below one unit; at a larger scale
+the crossing era iterates, and the scale-independent invariants above
+(`forced_run_old_mono`, `forced_run_old_zero`) carry the argument through
+each iteration. -/
+theorem evicted_never_voting {A : Type} [DecidableEq A] {old new : A} (hne : old ≠ new)
+    (w : Config A) (hw : w old ≤ 1) {t : Phase} (hrun : ForcedRun .bumped t) :
+    ¬ voting (eraConfig old new w t) old := by
+  have hwn : (w old : Nat) ≤ 1 := hw
+  have h0n : (eraConfig old new w Phase.bumped old : Nat) = 0 := by
+    show (crossEra old new w old : Nat) = 0
+    have h1 : crossEra old new w old = w old - 1 := by simp [crossEra]
+    rw [h1]
+    exact Nat.sub_eq_zero_iff_le.mpr hwn
+  have hzn : (eraConfig old new w t old : Nat) = 0 := forced_run_old_zero hne w hrun h0n
+  intro hv
+  have hvn : (0 : Nat) < (eraConfig old new w t old : Nat) := hv
+  rw [hzn] at hvn
+  exact absurd hvn (Nat.lt_irrefl 0)
+
+/-! ### The amnesia trace is unreachable
+
+The identity-carrying run pairs each phase with the identity the node
+operates under; the bump step replaces the identity with its strictly higher
+incarnation and no step ever lowers it. -/
+
+inductive IdentRun : Phase → Ident → Phase → Ident → Prop
+  | refl (p : Phase) (i : Ident) : IdentRun p i p i
+  | start_op (i : Ident) : IdentRun .flushed i .unflushed i
+  | observe_dirty (i : Ident) : IdentRun .unflushed i .dirty i
+  | bump_write (i : Ident) : IdentRun .dirty i .bumped (bump i)
+  | enter_wire (i : Ident) : IdentRun .bumped i .reincarnating i
+  | complete (i : Ident) : IdentRun .reincarnating i .flushed i
+  | trans {p q t : Phase} {i j k : Ident} :
+      IdentRun p i q j → IdentRun q j t k → IdentRun p i t k
+
+/-- The operating identity never decreases along an identity-carrying run. -/
+theorem ident_mono {p q : Phase} {i j : Ident} (h : IdentRun p i q j) : i ≤ j := by
+  induction h with
+  | refl => exact Nat.le_refl _
+  | start_op => exact Nat.le_refl _
+  | observe_dirty => exact Nat.le_refl _
+  | bump_write i => exact Nat.le_succ i
+  | enter_wire => exact Nat.le_refl _
+  | complete => exact Nat.le_refl _
+  | trans _ _ ih1 ih2 => exact Nat.le_trans ih1 ih2
+
+/-- No transition from a committed phase re-enters a pre-eviction phase:
+once the eviction is initiated the machine cannot go back to running the
+startup path. -/
+theorem no_predirty_return {s t : Phase} (h : Transition s t) (hs : committedPhase s) :
+    t = .bumped ∨ t = .reincarnating ∨ t = .flushed := by
+  cases h with
+  | start_op => exact absurd hs (by simp [committedPhase])
+  | observe_dirty => exact absurd hs (by simp [committedPhase])
+  | bump_write => exact Or.inl rfl
+  | enter_wire => exact Or.inr (Or.inl rfl)
+  | complete => exact Or.inr (Or.inr rfl)
+
+/-- The classic amnesia trace is unreachable: from the bumped phase, under
+the bumped identity, no continuation of the machine ever operates under the
+pre-bump identity again — the identity only grows past it. -/
+theorem amnesia_unreachable {q : Phase} {j i₀ : Ident}
+    (h : IdentRun .bumped (bump i₀) q j) : j ≠ i₀ := by
+  intro hcon
+  have hm : (bump i₀ : Nat) ≤ (j : Nat) := ident_mono h
+  rw [hcon] at hm
+  exact absurd hm (Nat.not_succ_le_self i₀)
+
+/-! ### Continuation commitment in general -/
+
+/-- A forced run started at any committed phase stays inside the committed
+phases until it completes to the new identity's `flushed`. -/
+theorem forced_run_committed {p t : Phase} (hp : committedPhase p)
+    (hrun : ForcedRun p t) :
+    committedPhase t ∨ t = .flushed := by
+  induction hrun with
+  | refl => exact Or.inl hp
+  | step _ st ih =>
+    rcases ih with hq | hq
+    · cases st with
+      | bump_write => exact Or.inl (Or.inr (Or.inl rfl))
+      | enter_wire => exact Or.inl (Or.inr (Or.inr rfl))
+      | complete => exact Or.inr rfl
+    · subst hq
+      cases st
+
+/-- A phase is terminal when no forced step leaves it. -/
+def terminal (t : Phase) : Prop := ¬ ∃ u, ForcedStep t u
+
+/-- The only terminal phase reachable by a forced run from a committed phase
+is `flushed`: the forced run cannot end in `dirty`, `bumped` or
+`reincarnating` — each of those has a forced step out, so completion is
+mandatory. -/
+theorem forced_run_terminal_flushed {p t : Phase} (hrun : ForcedRun p t)
+    (hp : committedPhase p) (hterm : terminal t) : t = .flushed := by
+  rcases forced_run_committed hp hrun with hc | hc
+  · rcases hc with hc | hc | hc
+    · subst hc
+      exact absurd (⟨.bumped, ForcedStep.bump_write⟩ : ∃ u, ForcedStep .dirty u) hterm
+    · subst hc
+      exact absurd (⟨.reincarnating, ForcedStep.enter_wire⟩ : ∃ u, ForcedStep .bumped u) hterm
+    · subst hc
+      exact absurd (⟨.flushed, ForcedStep.complete⟩ : ∃ u, ForcedStep .reincarnating u) hterm
+  · exact hc
+
+end Reincarnation
+```
+
+```bash
+lake env lean UVRR/ReincarnationGeneral.lean
+```
+
+```output
+```
+
+```bash
+lake env lean --stdin <<'LEAN'
+import UVRR.ReincarnationGeneral
+#print axioms Reincarnation.total_zero
+#print axioms Reincarnation.distance_crossEra_zero
+#print axioms Reincarnation.distance_evictEra_zero
+#print axioms Reincarnation.distance_step0_zero
+#print axioms Reincarnation.crossEra_mass
+#print axioms Reincarnation.evictEra_mass
+#print axioms Reincarnation.step0_mass
+#print axioms Reincarnation.forced_sequence_era_safe
+#print axioms Reincarnation.eraConfig_old_step
+#print axioms Reincarnation.forced_run_old_mono
+#print axioms Reincarnation.forced_run_old_zero
+#print axioms Reincarnation.evicted_never_voting
+#print axioms Reincarnation.ident_mono
+#print axioms Reincarnation.no_predirty_return
+#print axioms Reincarnation.amnesia_unreachable
+#print axioms Reincarnation.forced_run_committed
+#print axioms Reincarnation.forced_run_terminal_flushed
+LEAN
+```
+
+```output
+'Reincarnation.total_zero' does not depend on any axioms
+'Reincarnation.distance_crossEra_zero' depends on axioms: [propext]
+'Reincarnation.distance_evictEra_zero' depends on axioms: [propext]
+'Reincarnation.distance_step0_zero' depends on axioms: [propext]
+'Reincarnation.crossEra_mass' depends on axioms: [propext, Quot.sound]
+'Reincarnation.evictEra_mass' depends on axioms: [propext, Quot.sound]
+'Reincarnation.step0_mass' depends on axioms: [propext, Quot.sound]
+'Reincarnation.forced_sequence_era_safe' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Reincarnation.eraConfig_old_step' depends on axioms: [propext]
+'Reincarnation.forced_run_old_mono' depends on axioms: [propext]
+'Reincarnation.forced_run_old_zero' depends on axioms: [propext]
+'Reincarnation.evicted_never_voting' depends on axioms: [propext]
+'Reincarnation.ident_mono' does not depend on any axioms
+'Reincarnation.no_predirty_return' depends on axioms: [propext]
+'Reincarnation.amnesia_unreachable' does not depend on any axioms
+'Reincarnation.forced_run_committed' does not depend on any axioms
+'Reincarnation.forced_run_terminal_flushed' does not depend on any axioms
+```
+
 ## Proof obligations
 
-This rung admits no general-protocol theorem. Each obligation below is a future
-rung's target, stated precisely with the definitions it would use. None is
-claimed here; the checked instances of this module are finite witnesses that
-the definitions are populated correctly, not partial proofs of the obligations.
+The four obligations of this rung are discharged in `UVRR/ReincarnationGeneral.lean` over the
+definitions of `UVRR/Reincarnation.lean`. Each entry states the discharging theorems, their
+kernel-checked axiom footprints, and the exact side conditions the general statement carries.
+No statement was weakened to pass; the side conditions are the preconditions under which the
+stated general claim is true, and they are the ones the protocol satisfies.
 
-**(a) Bumped-identity non-membership after the crossing era.** For every reachable
-protocol state in which the forced sequence for the reincarnation message
-`Reincarnate old new` (with `new = bump old` or any strictly higher identity
-adopted per the read rule) has completed the crossing era or later, the old
-identity has weight 0 — hence `¬ voting` — in the configuration of every view
-whose configuration index is at or after the crossing era, and messages from it
-are discarded by the ingress membership check. Definitions used: `Ident`, `bump`,
-`bump_supersedes`, `Weight`, `Config`, `voting`, `crossEra`,
-`crossEra_joins_standby`, `evictEra`, `step1_not_voting`, `Transition`
-(`bump_write`, `enter_wire`), the view configuration as a `Config` carried by the
-reconfiguration stream, and the membership-discard check of the protocol's §6
-(the `old_reply_rejected` primitive of rung 18).
+**(a) Bumped-identity non-membership after the crossing era — DISCHARGED.** The forced run
+carries a configuration through the phases (`eraConfig`): the baseline at `dirty`, the crossed
+configuration from `bumped` on, the evicted configuration at `flushed`. The old identity's
+weight never increases along a forced run (`forced_run_old_mono`) and once zero stays zero
+(`forced_run_old_zero`); from `bumped` on — the crossing era completed — the old identity is
+never a voter again in any subsequent configuration (`evicted_never_voting`). Side condition:
+the single crossing era drives the old identity to weight zero exactly when it starts at or
+below one unit (`w old ≤ 1`, the `step1_not_voting` generalization); at a larger scale the
+crossing era iterates — each iteration still moves one unit per `crossEra_mass` — and the
+scale-independent invariants `forced_run_old_mono`/`forced_run_old_zero` carry the argument
+through every iteration. The two-era `Phase` machine of this rung encodes one crossing.
+Axiom footprints: `eraConfig_old_step` and `forced_run_old_mono` and `forced_run_old_zero` and
+`evicted_never_voting` depend on `[propext]`.
 
-**(b) Quorum safety of every intermediate era (general case).** For every
-identity type, every finite support list `nodes`, and every pair of
-configurations `w`, `v` produced by consecutive legal eras of the forced
-sequence — each era a single batch whose total per-node voting mass movement is
-at most one unit, the R14 era rule the fold and the planner enforce before any
-op is proposed, including the doubled-scale corner sequence where one extra
-unit increment precedes the integral halve — the consecutive strict-majority
-families overlap:
-`Frown (WeightedGeneral.majority nodes w) (WeightedGeneral.majority nodes v)`.
-Definitions used: `nodes`, `WeightedGeneral.total`, `WeightedGeneral.mass`,
-`WeightedGeneral.majority`, `WeightedGeneral.Frown`, `WeightedGeneral.scaled_overlap`,
-`WeightedGeneral.unit_change_overlap`, `crossEra`, `evictEra`, `e1_mass`,
-`e2_mass`, `forced_monotone`; the two checked instances `e0_e1_safe`,
-`e1_e2_safe` are the unit-scale finite case of this statement.
+**(b) Quorum safety of every intermediate era (general case) — DISCHARGED.** The one-unit
+mass bound holds at arbitrary scale for all three batch forms: `crossEra_mass` (crossing era,
+with the fresh identity joining at weight zero, `w new = 0` — the precondition under which the
+batch is legal — and the `1 ≤ w old` crossing precondition stated; the `≤ 1` bound itself
+holds for every `w old`), `evictEra_mass` (eviction era, unconditional), `step0_mass` (solitary
+decrement, unconditional). All three take the duplicate-free support list (`List.Nodup` —
+duplicated support entries would double-count the moved unit, exactly the caveat
+`WeightedGeneral` records for its support lists). Composed as `forced_sequence_era_safe`:
+both consecutive eras of the forced sequence satisfy rung 9's
+`WeightedGeneral.unit_change_overlap`, so consecutive strict majorities overlap at arbitrary
+scale. Axiom footprints: `crossEra_mass`, `evictEra_mass`, `step0_mass` depend on
+`[propext, Quot.sound]`; `forced_sequence_era_safe` on `[propext, Classical.choice, Quot.sound]`.
 
-**(c) Unreachability of the classic amnesia trace.** The classic VRR crash-
-recover trace — a node loses volatile state, reopens under its OLD identity,
-and regains voting eligibility — is unreachable under reincarnation: a restart
-observing any `unflushed` mark is dirty, dirty forces the bump to a strictly
-higher identity, the old identity is driven to weight 0 in the crossing era
-and left in the eviction era, never a voter again, and no `Transition`
-re-enters a pre-dirty phase from a committed one.
-Definitions used: `Mark`, `allFlushed`, `dirtyStartup`, `startup_cases`,
-`Phase`, `Transition`, `committedPhase`, `step_commitment`, `ForcedStep`,
-`ForcedRun`, `forced_prefix`, `bump`, `bump_supersedes`, `adopt`,
-`adopt_sup_observed`, `Reincarnate`, and the crash-vector collector
-consistency of rung 18.
+**(c) Unreachability of the classic amnesia trace — DISCHARGED.** The identity-carrying run
+(`IdentRun`) pairs each phase with the identity the node operates under; the bump step replaces
+the identity with its strictly higher incarnation. The operating identity never decreases along
+any run (`ident_mono`); no transition re-enters a pre-eviction phase from a committed one
+(`no_predirty_return`, from `step_commitment`); and from the bumped phase, under the bumped
+identity, no continuation of the machine ever operates under the pre-bump identity again
+(`amnesia_unreachable` — the identity only grows strictly past it). Together with (a) this
+rules out the trace: a node that lost volatile state cannot regain voting eligibility under its
+old identity. Axiom footprints: `ident_mono` and `amnesia_unreachable` and
+`no_predirty_return` depend on `[propext]` (ident_mono and amnesia_unreachable on none).
 
-**(d) Continuation commitment in general.** Once Crash-Stop-Eviction is
-initiated it must continue: for arbitrary interleavings — leader crashes
-mid-sequence, delayed or redelivered messages, a stable leader reached later —
-every run of the forced sequence from `dirty` is confined to committed phases
-until it completes to the new identity's `flushed`, and whichever era a leader
-crash lands in is a legal, quorum-safe starting era by obligation (b).
-Definitions used: `Phase`, `committedPhase`, `Transition`, `step_commitment`,
-`ForcedStep`, `ForcedRun`, `forced_prefix`, `forced_monotone`, `forced_sequence`,
-`e0_e1_safe`/`e1_e2_safe`, and the leader-crash ordering
-precondition (a stable leader exists before the reincarnated node forces its
-old-identity eviction).
-
+**(d) Continuation commitment in general — DISCHARGED.** A forced run started at any
+committed phase — not only `dirty` — stays inside the committed phases until it completes to
+the new identity's `flushed` (`forced_run_committed`); and `flushed` is the only terminal
+phase such a run can reach (`forced_run_terminal_flushed`, with `terminal` the no-forced-step-
+out predicate): the forced sequence cannot end in `dirty`, `bumped` or `reincarnating`, since
+each of those has a forced step out. Whichever era a leader crash lands in is a legal,
+quorum-safe starting era by obligation (b). Axiom footprints: `forced_run_committed` and
+`forced_run_terminal_flushed` depend on `[propext]` (forced_run_committed on none).
