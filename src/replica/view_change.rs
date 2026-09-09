@@ -458,7 +458,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // missing range from the new primary under the CURRENT view,
             // and re-run the ruling on an ordinary tick once the range
             // has folded the era that makes the offer evaluable. Any
-            // further-out era is merely unevaluable.
+            // further-out era is merely unevaluable: the §8.7.3
+            // era/slot discipline caps what a fenced boot view can
+            // accept to its own era and the successor, so an offer more
+            // than one era past the boot table cannot be serviced by
+            // the fetch at all — the multi-era catch-up that needs it is
+            // a protocol gap (§10), not a gate to loosen.
             let plan = self.drop_plan(
                 Diagnostic::UnevaluableEra {
                     era: header.view.era,

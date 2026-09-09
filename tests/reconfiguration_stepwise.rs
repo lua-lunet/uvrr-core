@@ -68,8 +68,10 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
     Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-/// The primary of a view under the genesis order 0, 1, 2 (§1.2) — the
-/// position rotates on the view number alone, whatever the weights say.
+/// The primary of a view under the genesis order 0, 1, 2 (§1.2) while every
+/// member votes — the voter-only succession reduces to the modular position
+/// rule with no learner present. A configuration with a weight-0 member
+/// asserts its primary from the era table instead (§8.4).
 fn primary_of(view: ViewId) -> NodeId {
     n(view.view.0 % 3)
 }
@@ -715,15 +717,21 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
     h.deliver_all();
     assert_eq!(current_era(&h, n(0)), Era(2));
     // ...the ordinary view change carries the cluster into era 2, and
-    // the position — not the weight — makes n1 the primary (§8.7.8).
+    // the voter-only succession (§8.4) makes n2 — the second VOTER — the
+    // primary of view 1: a weight-0 member is never the primary (§8.7.8).
     drive_view_change(&mut h, &[n(0), n(1), n(2)], era2_view(1));
-    assert_eq!(primary_of(era2_view(1)), n(1));
+    let era2 = h.era_table(n(0)).expect("the node is live");
+    assert_eq!(
+        era2.record(Era(2))
+            .and_then(|record| record.config.primary(View(1))),
+        Some(n(2))
+    );
 
     let refused = |h: &mut Harness, op: SystemOperation, expected: PlanRefusal| {
-        let before = snap(h, n(1)).accepted;
-        let outcome = h.reconfigure(n(1), op, None);
+        let before = snap(h, n(2)).accepted;
+        let outcome = h.reconfigure(n(2), op, None);
         assert_eq!(outcome, StepOutcome::PlanRefused(expected));
-        assert_eq!(snap(h, n(1)).accepted, before, "the log is untouched");
+        assert_eq!(snap(h, n(2)).accepted, before, "the log is untouched");
     };
 
     // DECREMENT below zero.
@@ -757,7 +765,7 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
     // A legal JOIN commits: the joined member is a LEARNER — the fold
     // grants weight 0, whatever the operator asked for (§8.7.2; rules §2, R2).
     let outcome = h.reconfigure(
-        n(1),
+        n(2),
         SystemOperation::Join {
             node: n(3),
             position: 3,

@@ -323,3 +323,175 @@ fn the_serving_gate_still_refuses_a_non_member() {
     assert!(!snap(&h, n(0)).faulted, "a refusal, never a fault");
     h.assert_safety();
 }
+
+/// The live acquisition shape: the responder's committed frontier RUNS
+/// between the retained offer and the answering chunk. The establishing
+/// fan-out reaches members only, so the learner's first sight of its
+/// admitting era is the fence's `StartView` — one or more eras past its boot
+/// table, retained with a fetch (§13.1 step 5). Live, the primary keeps
+/// committing while the fetch is in flight, so the answering chunk's
+/// committed frontier runs past the offer's — and the acquisition that takes
+/// the chunk's frontier whole strands the offer forever: the retained
+/// ruling's staleness gate then refuses an offer that claims less than the
+/// node durably holds, no tick ever completes it, and the learner is fenced
+/// for good. The acquisition therefore folds what the retained offer needs —
+/// the chunk's frontier, capped by the offer's own committed frontier — and
+/// the offer installs on the next ordinary tick; the era's stream (R6
+/// reaches learners) carries the tail.
+#[test]
+fn the_acquisition_completes_when_the_responder_runs_ahead_of_the_offer() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    h.boot_as(n(3))
+        .expect("the joiner boots over genesis knowledge");
+    // Client operations commit before the join, so the fetched chunk
+    // carries operation slots — the §11 upcalls a live stream supplies.
+    for lsb in 1..=2u64 {
+        let outcome = h.propose(n(0), op_id(lsb), format!("op{lsb}").as_bytes());
+        assert!(matches!(outcome, StepOutcome::Published { .. }));
+    }
+    h.deliver_all();
+    // The join commits; era 2 folds at every incumbent. The learner's
+    // table still holds only the genesis fold.
+    let outcome = h.reconfigure(
+        n(0),
+        SystemOperation::Join {
+            node: n(3),
+            position: 3,
+        },
+        None,
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(2), "the join committed");
+    assert_eq!(current_era(&h, n(3)), Era(1), "the learner is fenced");
+
+    // The fence into era 2 — driven and delivered among the incumbents
+    // only, so the era-2 `StartView` sits queued at the learner, unused.
+    let target = fence_target(&h, n(0));
+    for _ in 0..=TIMEOUT {
+        h.tick(n(0));
+    }
+    for _ in 0..16 {
+        for id in [n(0), n(1), n(2)] {
+            h.deliver_to(id);
+        }
+    }
+    assert_eq!(
+        current_view(&h, n(0)),
+        target,
+        "the incumbents entered the established era"
+    );
+    // The era-2 primary (view 1 selects position 1) commits MORE client
+    // operations — the responder now runs ahead of the retained offer.
+    let win_committed = snap(&h, n(1)).committed;
+    for lsb in 10..=11u64 {
+        let outcome = h.propose(n(1), op_id(lsb), format!("op{lsb}").as_bytes());
+        assert!(matches!(outcome, StepOutcome::Published { .. }));
+    }
+    for _ in 0..8 {
+        for id in [n(0), n(1), n(2)] {
+            h.deliver_to(id);
+        }
+    }
+    assert!(
+        snap(&h, n(0)).committed > win_committed,
+        "the incumbents commit newer operations past the offer's frontier"
+    );
+
+    // The learner's first sight of its admitting era: the retained offer
+    // and the fetch it opens.
+    h.deliver_tag(n(3), Tag::StartView);
+    h.deliver_to(n(1));
+    h.deliver_tag(n(3), Tag::NewState);
+    // The acquisition folds the admitting era; the retained offer
+    // installs on the next ordinary tick.
+    assert_eq!(
+        current_era(&h, n(3)),
+        Era(2),
+        "the learner folded the era that admitted it"
+    );
+    h.tick(n(3));
+    assert_eq!(
+        status_of(&h, n(3)),
+        Status::Normal,
+        "the retained offer installed"
+    );
+    assert_eq!(
+        current_view(&h, n(3)),
+        target,
+        "the learner joined the offered view"
+    );
+    // The offer's own frontier: the acquisition folded what the offer
+    // needed; the responder's later commits arrive with the stream.
+    assert_eq!(
+        snap(&h, n(3)).committed,
+        win_committed,
+        "the learner's frontier is the offer's; the stream carries the tail"
+    );
+
+    // The era's stream catches the learner up to the responder.
+    h.deliver_all();
+    assert_eq!(
+        snap(&h, n(3)).committed,
+        snap(&h, n(0)).committed,
+        "the learner is caught up"
+    );
+    h.assert_safety();
+}
+
+/// The serving gate answers a fetch whose requested era the responder's
+/// retention window has moved past. The window is two eras (§8.7.1): a
+/// reincarnated node — or any boot-fenced learner — fetches under an era of
+/// its OWN choosing, its boot view, and an incumbent that has folded two
+/// reconfigurations since no longer retains that record. Serving is
+/// read-only retransmission of durable journal content to a member the
+/// current configuration vouches for; the requested era's unavailability
+/// removes only the requested-era disjunct, never the service.
+#[test]
+fn the_serving_gate_answers_a_fetch_from_a_past_window_era() {
+    let mut h = cluster();
+    joined_and_caught_up(&mut h);
+    // A second reconfiguration folds era 3 at every incumbent: the
+    // retention window is now [2, 3] and era 1 — the learner's boot era —
+    // is evicted.
+    let outcome = h.reconfigure(n(1), SystemOperation::Double, None);
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(3), "era 3 folded");
+    assert_eq!(
+        current_era(&h, n(3)),
+        Era(3),
+        "the learner folded along with the incumbents"
+    );
+
+    // A boot-fenced node of this deployment (the reincarnation shape)
+    // fetches under its boot view: era 1, view 0. The requester is a
+    // member of the responder's current configuration at weight 0.
+    let request = Message {
+        header: Header {
+            tag: Tag::GetState,
+            view: ViewId {
+                era: Era(1),
+                view: View(0),
+            },
+            slot: vrr::ids::Slot(2),
+        },
+        body: Body::GetState {
+            from: vrr::ids::Slot(3),
+        },
+    };
+    let before = h.queued_len();
+    h.inject(n(3), n(0), request);
+    assert_eq!(
+        h.diagnostic(n(0)),
+        Some(Diagnostic::None),
+        "the fetch is served, not dropped: the sender is a current-configuration member"
+    );
+    assert!(
+        h.queued_len() > before,
+        "a NewState answer is queued for the requester"
+    );
+    assert!(!snap(&h, n(0)).faulted, "a serve, never a fault");
+    h.assert_safety();
+}

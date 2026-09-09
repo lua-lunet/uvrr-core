@@ -265,20 +265,40 @@ impl Configuration {
             .map(|(_, index)| index)
     }
 
-    /// `order[view mod len]` (§1.2), or `None` on the void configuration.
+    /// The primary of `view`: `voters[view mod voters]` (§1.2, §8.4), or
+    /// `None` on the void configuration.
     ///
-    /// The index is into the host-supplied sequence, unsorted and unmodified: view 0
-    /// selects `order[0]`, and the host chose who that is when it wrote `Init`. `None`
-    /// is the total answer for the void configuration — there is no index into an
-    /// empty sequence — not a defensive fallback.
+    /// The index is over the positive-weight members' sequence, in the order
+    /// the host supplied — unsorted and unmodified. View 0 selects the first
+    /// voter; a learner (weight 0, §8.4) keeps its succession position for
+    /// `Join`'s insertion arithmetic and is skipped by the primary selection
+    /// alone. A learner is never the primary: its vote counts against no
+    /// quorum (R4), so it could not complete the evidence quorum of the very
+    /// change that elects it, and a learner in the era that admitted it may
+    /// not yet hold that era at all — the rotation would then wait forever
+    /// on evidence its designated primary cannot evaluate.
+    ///
+    /// `None` is the total answer for the void configuration — there is no
+    /// index into an empty sequence — not a defensive fallback. A non-void
+    /// configuration always answers: the fold leaves `total() >= 1`, so at
+    /// least one voter exists.
     #[must_use]
     pub fn primary(&self, view: View) -> Option<NodeId> {
-        let len = self.len();
-        if len == 0 {
+        let voters = self
+            .order
+            .iter()
+            .filter(|member| member.weight.0 != 0)
+            .count();
+        let voters = u32::try_from(voters).ok()?;
+        if voters == 0 {
             return None;
         }
-        let index = usize::try_from(view.0 % len).ok()?;
-        self.order.get(index).map(|member| member.node)
+        let index = usize::try_from(view.0 % voters).ok()?;
+        self.order
+            .iter()
+            .filter(|member| member.weight.0 != 0)
+            .nth(index)
+            .map(|member| member.node)
     }
 
     /// The sum of the weights of `members`, or `None` if any is unknown or named twice.
