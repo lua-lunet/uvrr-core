@@ -563,6 +563,135 @@ fn c_leader_crash_mid_sequence_continues_from_the_intermediate_era() {
 }
 
 // ---------------------------------------------------------------------------
+// Leader-kill wedge (issue #13): the LEADER's own reincarnation
+// ---------------------------------------------------------------------------
+
+/// Killing the VOTING PRIMARY survives the bumped identity's forced walk
+/// (issue #13): the stable leader is elected first (§8), the re-announced
+/// pair drives the two forced batches through it, every intermediate era
+/// commits — and the spec of correct behavior: the reincarnated identity
+/// catches up (§10, every admitted era included) and the succession into
+/// ITS first designated view — view 3 of the rejoin era selects the
+/// rejoined identity, the first voter of the old leader's succession
+/// position — installs, and the cluster keeps committing under a leader
+/// that can evaluate the live view. No wedge, no announcement storm.
+/// Today the reincarnated identity folds only its admitting era (the
+/// `plan_start_view` era gate drops an offer more than one era past its
+/// boot table), so the succession hands the leader role to a
+/// still-stale-table process: the change's evidence is dropped
+/// `UnevaluableEra` at the designated primary (`src/replica/view_change.rs`,
+/// `plan_start_view_change`/`plan_do_view_change`), the install never
+/// runs, and the commit stream dies.
+#[test]
+fn killing_the_voting_primary_survives_the_reincarnated_identitys_forced_walk() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    // The leader is RUNNING when the volatile state is lost: an accepted
+    // operation, then the crash (§2's dirty-by-construction restart).
+    let outcome = h.propose(n(0), op_id(1), b"x");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    h.crash(n(0));
+
+    // The identity bump; the bumped identity reopens over the disk.
+    h.restart_as(n(0), n(3)).expect("the bumped node reopens");
+    // The first announcement: no stable leader exists — the backups drop
+    // it by name (§8), and the bumped node re-announces.
+    let outcome = h.reincarnate(n(3), n(0));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+
+    // A stable leader first (§8): the fence elects n(1).
+    let (stable, _) = drive_view_change(&mut h, &[n(1), n(2)]);
+    assert_eq!(
+        stable.era,
+        Era(1),
+        "the stable leader is elected in the old era"
+    );
+
+    // The re-announce (§8) drives the crossing batch through the stable
+    // leader: the old leader's weight reaches 0 and the bumped identity
+    // joins at weight 0 in the old succession position.
+    let outcome = h.reincarnate(n(3), n(0));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(
+        current_era(&h, n(1)),
+        Era(2),
+        "Batch([Decrement, Join]) committed"
+    );
+    assert_eq!(current_order(&h, n(1)), vec![n(3), n(0), n(1), n(2)]);
+    assert_eq!(current_weights(&h, n(1)), vec![0, 0, 1, 1]);
+
+    // The ordinary view change into the crossing era.
+    let (crossing, _) = drive_view_change(&mut h, &[n(1), n(2)]);
+    assert_eq!(crossing.era, Era(2));
+
+    // The re-announce (§8) drives the promotion batch: the reincarnated
+    // identity rejoins at weight 1, the old identity is evicted.
+    let outcome = h.reincarnate(n(3), n(0));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(
+        current_era(&h, n(1)),
+        Era(3),
+        "Batch([Increment, Leave]) committed"
+    );
+    assert_eq!(current_order(&h, n(1)), vec![n(3), n(1), n(2)]);
+    assert_eq!(current_weights(&h, n(1)), vec![1, 1, 1]);
+    h.assert_safety();
+
+    // SPEC OF CORRECT BEHAVIOR: the succession into the reincarnated
+    // identity's first designated view installs — the rejoined leader can
+    // evaluate the live view — and the cluster keeps committing under it.
+    // View 3 of the rejoin era selects the rejoined identity (the first
+    // voter, the old leader's succession position).
+    let target = fence_target(&h, n(1));
+    assert_eq!(
+        target,
+        ViewId {
+            era: Era(3),
+            view: View(3)
+        },
+        "the rejoin era's next view is the reincarnated identity's first designation"
+    );
+    assert_eq!(
+        primary_of(&h, n(1), target),
+        Some(n(3)),
+        "the succession designates the reincarnated identity"
+    );
+    for _ in 0..=TIMEOUT {
+        h.tick(n(1));
+    }
+    h.deliver_all();
+    for id in [n(3), n(1), n(2)] {
+        assert_eq!(
+            status_of(&h, id),
+            Status::Normal,
+            "{id:?} installs the view the reincarnated identity leads (last diagnostic {:?})",
+            h.diagnostic(id),
+        );
+        assert_eq!(current_view(&h, id), target, "{id:?} is in the target");
+    }
+    h.assert_safety();
+
+    // The commit stream lives on under the rejoined leader.
+    let committed_before = snap(&h, n(3)).committed;
+    let outcome = h.propose(n(3), op_id(2), b"y");
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the cluster keeps committing under the rejoined leader: {outcome:?}\n{}",
+        h.trace_dump()
+    );
+    h.deliver_all();
+    assert!(
+        snap(&h, n(3)).committed > committed_before,
+        "the commit landed under the rejoined leader"
+    );
+    h.assert_safety();
+}
+
+// ---------------------------------------------------------------------------
 // D. Four-superblock semantics
 // ---------------------------------------------------------------------------
 

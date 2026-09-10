@@ -182,31 +182,41 @@ acquisition rule:
   and the era that admitted it is by definition not one of them. Serving is
   read-only retransmission; a node outside the current configuration (a
   foreign identity, a superseded old identity) is refused as before.
-- **Acquisition:** a node still at its boot fence (`Recovering` at
-  `current == retained`, the reopen state) that opened the fetch itself
-  takes the answering chunk's committed frontier and folds the system
-  operations it covers — the fold input is the chunk the suffix ruling
-  already verified against the local journal. The node stays fenced: it
-  adopts no view, its votes are never counted, and it serves nothing.
-  The admitting era folds exactly there, which makes the leader's
-  `StartView` evaluable and the ordinary install completes the catch-up.
-- **Era-by-era catch-up:** a boot-fenced member admitted several eras
-  past its boot table catches up era by era, one fold per stalled-ruling
-  re-run: an offer more than one era past is retained when it NAMES the
-  node (the era's establishing operation — a `Join`, the `Increment`
-  that promotes it, or a batch carrying either), the acquisition's fold
-  is capped at one era past the view it carries (the §8.7.3 era window),
-  each ordinary tick re-runs the retained ruling, the walked view carries
-  the next round's fetch, and the offer installs — the ordinary install —
-  once its era is evaluable. The member never votes in an era it has not
-  folded, and the walked view never adopts: the node is `Recovering`
-  until the retained offer installs.
+- **Acquisition:** a node that has adopted nothing — no view installed
+  since it opened — that opened the fetch itself takes the answering
+  chunk's committed frontier and folds the system operations it covers —
+  the fold input is the chunk the suffix ruling already verified against
+  the local journal. Two states are this state: the boot fence
+  (`Recovering` at `current == retained`, the reopen state), and the
+  reincarnated not-yet-adopted state the forced walk leaves behind
+  (`ViewChange` under the higher-view signal's fence, `retained` still
+  the boot view whose configuration cannot yet name the node). The node
+  stays fenced: it adopts no view, its votes are never counted, and a
+  boot-fenced node serves nothing. The admitting era folds exactly
+  there, which makes the leader's `StartView` evaluable and the ordinary
+  install completes the catch-up.
+- **Era-by-era catch-up:** a fenced member admitted several eras past
+  its table catches up era by era, one fold per stalled-ruling re-run:
+  an offer more than one era past is retained when it NAMES the node
+  (the era's establishing operation — a `Join`, the `Increment` that
+  promotes it, or a batch carrying either), the acquisition's fold is
+  capped at one era past the view it carries (the §8.7.3 era window),
+  each ordinary tick re-runs the retained ruling, the walked view
+  carries the next round's fetch, and the offer installs — the ordinary
+  install — once its era is evaluable. The member never votes in an era
+  it has not folded, and the walked view never adopts. A reincarnated
+  identity catches up the same way to the live view before it can lead
+  it: the designations that succession hands it wait for the folds, and
+  the designation completes when the live view's evidence arrives at a
+  table that can evaluate it.
 - **Authority:** unchanged — a learner votes only after a committed
   `INCREMENT` grants it weight; while its weight is 0 its messages are
   discarded by the standard membership checks (§6).
 
-A `ViewChange`-fenced node is not covered: its attempt's completing ruling
-owns the commit frontier.
+A `ViewChange`-fenced node whose retained view's configuration admits it
+is not covered: its attempt's completing ruling owns the commit frontier.
+Only the reincarnated not-yet-adopted state — the retained configuration
+cannot yet name the node — folds under the fence.
 
 ## Grounding sources
 
