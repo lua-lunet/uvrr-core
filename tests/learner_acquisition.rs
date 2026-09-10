@@ -201,6 +201,159 @@ fn joined_and_caught_up(h: &mut Harness) -> ViewId {
     target
 }
 
+/// Admits `joiner` at the next appended position (stop-the-world — no
+/// pivot exists for a membership change), drives the ordinary view change
+/// into the era the join committed, exactly as [`joined_and_caught_up`]
+/// does for the first joiner, and runs the joiner's §10 catch-up: the
+/// offer installs on the ordinary tick, not on delivery alone. Returns
+/// the fence target; the caller asserts the era.
+fn admit_joiner(h: &mut Harness, joiner: NodeId, position: u32) -> ViewId {
+    let proposer =
+        primary_of(h, n(0), current_view(h, n(0))).expect("a live view names its primary");
+    h.boot_as(joiner)
+        .expect("the joiner boots over genesis knowledge");
+    let outcome = h.reconfigure(
+        proposer,
+        SystemOperation::Join {
+            node: joiner,
+            position,
+        },
+        None,
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    let target = drive_view_change(h, &[n(0), n(1), n(2), n(3)]).0;
+    catch_up(h, joiner);
+    target
+}
+
+/// Ticks the learner between delivery rounds until it is caught up — the
+/// amended tick shape this corpus uses throughout: a real sans-I/O host
+/// ticks, so each ordinary tick re-runs the retained offer's stalled
+/// ruling, each round folds one era (the §8.7.3 window) and the next
+/// round proceeds, and the offer installs once its era is evaluable.
+fn catch_up(h: &mut Harness, learner: NodeId) {
+    let mut rounds = 0;
+    while status_of(h, learner) != Status::Normal
+        || snap(h, learner).committed != snap(h, n(0)).committed
+    {
+        rounds += 1;
+        assert!(
+            rounds <= 8,
+            "the learner's era-by-era catch-up wedged after {rounds} rounds (last diagnostic {:?})\n{}",
+            h.diagnostic(learner),
+            h.trace_dump()
+        );
+        h.tick(learner);
+        h.deliver_all();
+    }
+}
+
+/// A joiner admitted SEVERAL eras past its boot table (the issue-#13
+/// fourth finding): boot three genesis voters, admit three joiners across
+/// successive eras — one committed `Join` per era — then promote the
+/// second joiner. The promoted joiner folds the eras its boot table is
+/// behind on through the §10 acquisition, era by era — one fold per
+/// stalled-ruling re-run (the §8.7.3 window caps each round at one era
+/// past the view it carries), the next round proceeds, and the offer
+/// installs once its era is evaluable — never voting in an era it has not
+/// folded. The voter-only succession then designates it for a view it can
+/// evaluate, and the cluster commits under the new configuration — first
+/// under its own leadership, then with one incumbent partitioned, when
+/// its vote is the difference.
+#[test]
+fn a_joiner_admitted_several_eras_past_its_boot_table_when_promoted_keeps_the_cluster_committing() {
+    let mut h = cluster();
+    joined_and_caught_up(&mut h);
+
+    // The second and third joiners admit across successive eras.
+    let second = admit_joiner(&mut h, n(4), 4);
+    assert_eq!(second.era, Era(3), "the second join committed");
+    let third = admit_joiner(&mut h, n(5), 5);
+    assert_eq!(third.era, Era(4), "the third join committed");
+    // The promoted joiner's own catch-up keeps pace era by era: its era-4
+    // offer was retained while the third joiner admitted.
+    catch_up(&mut h, n(4));
+
+    // The promotion of the second joiner: era 5 folds under the new
+    // configuration — order [0, 1, 2, 3, 4, 5], the promoted joiner the
+    // fourth voter.
+    let promote_primary =
+        primary_of(&h, n(0), current_view(&h, n(0))).expect("a live view names its primary");
+    let outcome = h.reconfigure(promote_primary, SystemOperation::Increment(n(4)), None);
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(5), "the promotion committed");
+    assert_eq!(current_weights(&h, n(0)), vec![1, 1, 1, 0, 1, 0]);
+
+    // The ordinary view change into the promotion era.
+    let (era5, _) = drive_view_change(&mut h, &[n(0), n(1), n(2), n(3)]);
+    assert_eq!(era5.era, Era(5));
+    catch_up(&mut h, n(4));
+
+    // The promoted joiner caught up: Normal, at the live view, holding
+    // the leader's committed frontier.
+    assert_eq!(
+        status_of(&h, n(4)),
+        Status::Normal,
+        "the promoted joiner folded the eras past its boot table and caught up (last diagnostic {:?})",
+        h.diagnostic(n(4)),
+    );
+    assert_eq!(current_view(&h, n(4)), era5);
+    assert_eq!(snap(&h, n(4)).committed, snap(&h, n(0)).committed);
+
+    // Electable: the voter-only succession walks to the promoted joiner —
+    // view 7 of era 5 selects the fourth voter.
+    for expected in [View(5), View(6), View(7)] {
+        let (target, _) = drive_view_change(&mut h, &[n(0), n(1), n(2), n(3)]);
+        assert_eq!(target.view, expected, "the succession advances");
+    }
+    let last = ViewId {
+        era: Era(5),
+        view: View(7),
+    };
+    assert_eq!(
+        primary_of(&h, n(0), last),
+        Some(n(4)),
+        "the promoted joiner is the designated primary of view 7"
+    );
+    // The promoted joiner holds the view it leads: the succession's
+    // ordinary announcements carried it there.
+    assert_eq!(
+        current_view(&h, n(4)),
+        last,
+        "the promoted joiner leads the view it can evaluate"
+    );
+
+    // Effective: the cluster commits under the promoted joiner's own
+    // leadership.
+    let outcome = h.propose(n(4), op_id(30), b"under-new-config");
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the cluster commits under the promoted joiner: {outcome:?}\n{}",
+        h.trace_dump()
+    );
+    h.deliver_all();
+    let committed = snap(&h, n(4)).committed;
+
+    // And its vote is required: with one incumbent partitioned, the
+    // era-5 arithmetic (total 4, threshold 3) commits only with the
+    // promoted joiner's vote — the leader and one incumbent weigh 2.
+    h.partition(vec![n(2)], vec![n(0), n(1), n(3), n(4)]);
+    let outcome = h.propose(n(4), op_id(31), b"vote-required");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert!(
+        snap(&h, n(4)).committed > committed,
+        "the cluster keeps committing under the new configuration with an incumbent partitioned"
+    );
+
+    h.heal();
+    h.drop_held();
+    h.deliver_all();
+    h.assert_safety();
+}
+
 /// A joined learner folds the era that admitted it, catches up to the
 /// leader's frontiers, and serves the same applied history — without ever
 /// influencing a quorum while its weight is 0.
