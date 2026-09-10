@@ -68,8 +68,10 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
     Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-/// The primary of a view under the genesis order 0, 1, 2 (§1.2) — the
-/// position rotates on the view number alone, whatever the weights say.
+/// The primary of a view under the genesis order 0, 1, 2 (§1.2) while every
+/// member votes — the voter-only succession reduces to the modular position
+/// rule with no learner present. A configuration with a weight-0 member
+/// asserts its primary from the era table instead (§8.4).
 fn primary_of(view: ViewId) -> NodeId {
     n(view.view.0 % 3)
 }
@@ -284,6 +286,92 @@ fn stop_the_world_reconfigure_advances_the_era() {
     assert_eq!(accepted.era, Era(2));
     // The era-2 quorum is the weighted one (QII_2 = 3 of weight 4): the
     // operation committed under the configuration its own era names.
+    h.assert_safety();
+}
+
+// ---------------------------------------------------------------------
+// 2b. The establishing era completes under the leader's own continuous
+//     stream (§8.7.4, §8.7.8): while a stop-the-world transition is
+//     OUTSTANDING — the committed history has established the successor
+//     era, the current view has not entered it — the primary's own
+//     proposals are not proof of view life. The stream keeps committing,
+//     the fence arms and fires on the same timeout as an idle primary,
+//     and the view change enters the established-but-unentered era.
+// ---------------------------------------------------------------------
+#[test]
+fn stop_the_world_join_completes_under_a_continuous_stream() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+
+    // The client stream is live before the reconfiguration.
+    h.propose(n(0), op_id(1), b"stream");
+    h.deliver_all();
+
+    // The stop-the-world join: the establishing entry proposes and
+    // commits through the ordinary pipeline. The era advances; the view
+    // does not — the transition is OUTSTANDING.
+    let outcome = h.reconfigure(
+        n(0),
+        SystemOperation::Join {
+            node: n(3),
+            position: 3,
+        },
+        None,
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(snap(&h, n(0)).committed, 4);
+    assert_eq!(current_era(&h, n(0)), Era(2));
+    assert_eq!(current_era(&h, n(1)), Era(2));
+    assert_eq!(current_era(&h, n(2)), Era(2));
+    assert_eq!(
+        current_view(&h, n(0)),
+        view(0),
+        "the view has not entered the established era"
+    );
+    assert_eq!(current_weights(&h, n(0)), vec![1, 1, 1, 0]);
+
+    // The stream KEEPS committing while the transition is outstanding —
+    // and the clock advances, as a live host's does. Every round ticks
+    // the whole cluster, then proposes, then delivers: exactly the
+    // traffic that would otherwise refresh the primary's baseline. More
+    // than `primary_timeout` rounds pass; the fence must fire anyway.
+    for round in 0..TIMEOUT + 3 {
+        h.tick_all();
+        if status_of(&h, n(0)) == Status::Normal && current_view(&h, n(0)) == view(0) {
+            let outcome = h.propose(n(0), op_id(10 + round), b"stream");
+            assert!(
+                matches!(outcome, StepOutcome::Published { .. }),
+                "the stream keeps committing while the transition is outstanding: {outcome:?}"
+            );
+            h.deliver_all();
+        }
+    }
+    assert_eq!(
+        status_of(&h, n(0)),
+        Status::ViewChange,
+        "the fence fires on the stream, not on its absence"
+    );
+
+    // The view change runs to completion: the cluster enters the
+    // established-but-unentered era (§8.7.8).
+    while h.queued_len() > 0 {
+        h.deliver_all();
+    }
+    for id in [n(0), n(1), n(2)] {
+        assert_eq!(status_of(&h, id), Status::Normal, "{id:?} installs");
+        assert_eq!(current_view(&h, id), era2_view(1), "{id:?} is in era 2");
+        assert_eq!(current_era(&h, id), Era(2));
+        assert_eq!(current_weights(&h, id), vec![1, 1, 1, 0], "{id:?} agrees");
+    }
+    h.assert_safety();
+
+    // The stream resumes in the new view under the era-2 arithmetic
+    // (QII_2 = 2 of weight 3; the joined learner's weight is 0).
+    let outcome = h.propose(n(1), op_id(99), b"resumed");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(snap(&h, n(1)).committed, 8);
     h.assert_safety();
 }
 
@@ -629,15 +717,21 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
     h.deliver_all();
     assert_eq!(current_era(&h, n(0)), Era(2));
     // ...the ordinary view change carries the cluster into era 2, and
-    // the position — not the weight — makes n1 the primary (§8.7.8).
+    // the voter-only succession (§8.4) makes n2 — the second VOTER — the
+    // primary of view 1: a weight-0 member is never the primary (§8.7.8).
     drive_view_change(&mut h, &[n(0), n(1), n(2)], era2_view(1));
-    assert_eq!(primary_of(era2_view(1)), n(1));
+    let era2 = h.era_table(n(0)).expect("the node is live");
+    assert_eq!(
+        era2.record(Era(2))
+            .and_then(|record| record.config.primary(View(1))),
+        Some(n(2))
+    );
 
     let refused = |h: &mut Harness, op: SystemOperation, expected: PlanRefusal| {
-        let before = snap(h, n(1)).accepted;
-        let outcome = h.reconfigure(n(1), op, None);
+        let before = snap(h, n(2)).accepted;
+        let outcome = h.reconfigure(n(2), op, None);
         assert_eq!(outcome, StepOutcome::PlanRefused(expected));
-        assert_eq!(snap(h, n(1)).accepted, before, "the log is untouched");
+        assert_eq!(snap(h, n(2)).accepted, before, "the log is untouched");
     };
 
     // DECREMENT below zero.
@@ -671,7 +765,7 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
     // A legal JOIN commits: the joined member is a LEARNER — the fold
     // grants weight 0, whatever the operator asked for (§8.7.2; rules §2, R2).
     let outcome = h.reconfigure(
-        n(1),
+        n(2),
         SystemOperation::Join {
             node: n(3),
             position: 3,

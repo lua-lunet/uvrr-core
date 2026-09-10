@@ -1107,10 +1107,11 @@ fn weight_of_set_rejects_unknown_and_duplicate_members() {
 // 11. `primary` is modular selection
 // ---------------------------------------------------------------------------
 
-/// `primary(v) = order[v mod len]` (§1.2), exhaustively over `len ∈ 1..=8` and
-/// `view ∈ 0..64`. The core sorts nothing: the sequence is the one the host supplied in
-/// `Init`, so the index is into *that* sequence and this test compares against it
-/// directly rather than against a sorted copy.
+/// `primary(v) = voters[v mod voters]` (§1.2, §8.4), exhaustively over
+/// `len ∈ 1..=8` and `view ∈ 0..64`. The core sorts nothing: the sequence is
+/// the one the host supplied in `Init`, so the index is into *that* sequence
+/// and this test compares against it directly rather than against a sorted
+/// copy. With no learner present the voters are the whole order.
 #[test]
 fn primary_is_modular_over_the_host_supplied_order() {
     for len in 1..=8u32 {
@@ -1129,6 +1130,54 @@ fn primary_is_modular_over_the_host_supplied_order() {
                 "len {len} view {view}"
             );
         }
+    }
+}
+
+/// The succession is VOTER-ONLY (§8.4): a learner — weight 0 — is never
+/// elected primary. A whole-order modular rule selects the weight-0 member at
+/// its position, and a learner cannot serve as primary: its vote counts for
+/// nothing (R4) and, in the era that admitted it, its boot table may not even
+/// name the era — the view change then waits forever on evidence the
+/// designated primary cannot evaluate. The index is over the positive-weight
+/// members' sequence, in host order; the learner keeps its succession
+/// position for `Join`'s insertion arithmetic and is skipped by the primary
+/// selection alone.
+#[test]
+fn primary_succession_excludes_learners() {
+    let voters: Vec<NodeId> = (0..3).map(|i| NodeId(600 + i)).collect();
+    let learner = NodeId(603);
+    let config = initialised(&voters);
+    let config = config
+        .apply(
+            &SystemOperation::Join {
+                node: learner,
+                position: 3,
+            },
+            Slot(3),
+        )
+        .expect("the learner joins at weight 0, appended at position 3");
+    assert_eq!(
+        shape(&config),
+        vec![
+            (NodeId(600), 1),
+            (NodeId(601), 1),
+            (NodeId(602), 1),
+            (learner, 0)
+        ]
+    );
+
+    for view in 0..64u32 {
+        let expected = voters[usize::try_from(view % 3).unwrap()];
+        assert_ne!(
+            config.primary(View(view)),
+            Some(learner),
+            "view {view}: a learner is never the primary"
+        );
+        assert_eq!(
+            config.primary(View(view)),
+            Some(expected),
+            "view {view}: the index is over the voters"
+        );
     }
 }
 

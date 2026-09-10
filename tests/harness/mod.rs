@@ -71,10 +71,10 @@ use std::sync::Arc;
 use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, Stability, StabilityResult};
 use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
-use vrr::journal::{Journal, JournalView, LogEntry, RangeOutcome, SegmentedLog};
+use vrr::journal::{Journal, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog};
 use vrr::message::Message;
 use vrr::observe::Diagnostic;
-use vrr::progress::{ProgressSnapshot, Status};
+use vrr::progress::{Progress, ProgressSnapshot, Status};
 use vrr::quorum::WeightedMajority;
 use vrr::replica::{
     Input, LifecycleRefusal, Observer, PersistedProgress, Pivot, PlanRefusal, PublishOutcome,
@@ -1281,6 +1281,92 @@ impl Harness {
                 self.record(format!(
                     "n={new:?} restart_as(old n={id:?}) refused: {error:?}"
                 ));
+                Err(error)
+            }
+        }
+    }
+
+    /// Boots a fresh later life over the deployment's genesis knowledge —
+    /// the boot a joining member gets: the shared committed genesis
+    /// (slots 1–2, byte-for-byte what [`Replica::provision`] installs)
+    /// journaled, the same genesis fold as the era table, and no progress
+    /// beyond it. The node is transport-addressable and fenced
+    /// (`Status::Recovering`) until the primary's stream proves currency;
+    /// it is not a member of any configuration it can name, so a fresh
+    /// join converges only through the §10 learner acquisition. The
+    /// identity must not be a genesis member: a genesis member
+    /// provisions instead, and booting it over genesis knowledge again
+    /// would fork no history but claim a second life it never lived.
+    pub fn boot_as(&mut self, id: NodeId) -> Result<(), LifecycleRefusal> {
+        assert!(
+            !self.genesis_order.contains(&id),
+            "n={id:?} is a genesis member; only a joining identity boots"
+        );
+        let mut journal = make_journal(self.tail_capacity);
+        let table = EraTable::genesis()
+            .extend(&SystemOperation::Void, VOID_SLOT)
+            .and_then(|table| {
+                table.extend(
+                    &SystemOperation::Init {
+                        order: self.genesis_order.clone(),
+                    },
+                    INIT_SLOT,
+                )
+            })
+            .map_err(LifecycleRefusal::Configuration)?;
+        let era = table.current().era;
+        let genesis = [
+            LogEntry {
+                slot: VOID_SLOT,
+                era: Era::INITIAL,
+                payload: Payload::System(SystemOperation::Void),
+            },
+            LogEntry {
+                slot: INIT_SLOT,
+                era,
+                payload: Payload::System(SystemOperation::Init {
+                    order: self.genesis_order.clone(),
+                }),
+            },
+        ];
+        journal
+            .install_suffix(VOID_SLOT, &genesis)
+            .map_err(LifecycleRefusal::Journal)?;
+        let view = ViewId {
+            era,
+            view: View::INITIAL,
+        };
+        let config = Arc::new(table);
+        let boot = Progress::reconstitute(
+            view,
+            view,
+            Status::Recovering,
+            INIT_SLOT,
+            INIT_SLOT,
+            INIT_SLOT,
+            Slot::NONE,
+            0,
+            Arc::clone(&config),
+            None,
+        )
+        .map_err(LifecycleRefusal::Progress)?;
+        match Replica::reopen(
+            id,
+            WeightedMajority,
+            journal,
+            PersistedProgress::from(&boot),
+            Arc::clone(&config),
+            self.stability,
+            self.knobs,
+        ) {
+            Ok(replica) => {
+                let index = self.grow_to(id);
+                self.install(index, replica);
+                self.record(format!("n={id:?} boot_as (fresh joiner)"));
+                Ok(())
+            }
+            Err(error) => {
+                self.record(format!("n={id:?} boot_as refused: {error:?}"));
                 Err(error)
             }
         }

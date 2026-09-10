@@ -90,21 +90,28 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// cannot alter committed state, so a node is never fenced with
     /// respect to SERVING — fencing governs participation, not serving.
     /// The serving gate is therefore the cluster-legality gate alone (the
-    /// era is known, the sender is a member) plus the two statuses whose
-    /// journal is not servable: `Recovering` (the standing ruling — a
-    /// recovering node's history is not yet proved current) and
-    /// `Replaying` (the journal is mid-install, structurally
-    /// inconsistent). A fenced `ViewChange` node serves exactly like a
-    /// `Normal` one, and the request's view is a correlation token (like
-    /// the recovery nonce), not a serving condition: the response header
-    /// echoes it so the recipient's open-fetch qualification — the real
-    /// gate — can match the answer to the fetch it opened. The chunk is a
-    /// contiguous ascending run from `from`, never a byte past the host's
-    /// transport budget (W4); `more` tells the requester the frontier
-    /// sits past the chunk, so a partial answer resumes from the cursor.
-    /// A request the node cannot serve is a named drop, never a fault:
-    /// the requester's fetch stays open and another answer closes the
-    /// gap.
+    /// sender is a member of the requested era's configuration or — the
+    /// learner acquisition rule (`docs/uvrr-reincarnation.md` §10) — of
+    /// the responder's current committed configuration, a weight-0
+    /// learner included) plus the two statuses whose journal is not
+    /// servable: `Recovering` (the standing ruling — a recovering node's
+    /// history is not yet proved current) and `Replaying` (the journal is
+    /// mid-install, structurally inconsistent). A fenced `ViewChange`
+    /// node serves exactly like a `Normal` one, and the request's view is
+    /// a correlation token (like the recovery nonce), not a serving
+    /// condition: the response header echoes it so the recipient's
+    /// open-fetch qualification — the real gate — can match the answer to
+    /// the fetch it opened. When the requested era is outside the
+    /// responder's retention window the requested-era disjunct is simply
+    /// unavailable — the window moved past the era a boot-fenced learner
+    /// fetches under — and the current-configuration disjunct decides
+    /// alone; the chunk is the same verified history either way. The chunk
+    /// is a contiguous ascending run from `from`, never a byte past the
+    /// host's transport budget (W4); `more` tells the requester the
+    /// frontier sits past the chunk, so a partial answer resumes from the
+    /// cursor. A request the node cannot serve is a named drop, never a
+    /// fault: the requester's fetch stays open and another answer closes
+    /// the gap.
     pub(in crate::replica) fn plan_get_state(
         &self,
         journal: &J::View,
@@ -114,15 +121,32 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
-        let Some(record) = self.progress.config().record(header.view.era) else {
-            return self.drop_plan(
-                Diagnostic::UnevaluableEra {
-                    era: header.view.era,
-                },
-                kind,
-            );
-        };
-        if record.config.weight_of(from).is_none() {
+        // The cluster-legality gate, with the learner acquisition rule
+        // (`docs/uvrr-reincarnation.md` §10): a sender that is not a member
+        // of the REQUESTED era's configuration may still be served when it
+        // is a member of the responder's current committed configuration —
+        // any weight, a weight-0 learner included. A learner behind the
+        // commit frontier can only name the eras its own table holds, and
+        // the era that admitted it is by definition not one of them; R6
+        // obliges the leader to keep learners caught up, serving is
+        // read-only retransmission of durable journal content, and the
+        // responder's current configuration is exactly the membership the
+        // §6 ingress check admits messages FROM. A node outside the current
+        // configuration — a foreign identity, a superseded old identity —
+        // is refused as before.
+        let served = self
+            .progress
+            .config()
+            .record(header.view.era)
+            .is_some_and(|record| record.config.weight_of(from).is_some())
+            || self
+                .progress
+                .config()
+                .current()
+                .config
+                .weight_of(from)
+                .is_some();
+        if !served {
             return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind);
         }
         let frontier = self.progress.accepted();
@@ -210,8 +234,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// view, another sender, no open fetch, a range the node already
     /// holds — is a named drop, never a fault. The chunk is HISTORY, not
     /// the completing ruling: a fenced node's committed frontier waits
-    /// for its own path's qualified evidence (the `StartView`, the
-    /// recovery ruling).
+    /// for its own path's qualified evidence (the `StartView`) — with
+    /// the §10 learner acquisition exception: the boot-fenced node's own
+    /// open fetch is its qualified evidence, so a `Recovering` node at
+    /// its boot fence takes the chunk's committed frontier and folds
+    /// what it covers (the ruling below).
     #[allow(clippy::too_many_arguments)]
     pub(in crate::replica) fn plan_new_state(
         &self,
@@ -324,12 +351,58 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         };
         // The install moves the accepted frontier only; the committed
         // frontier moves on the current view's own transfer — while the
-        // node is fenced, the completing ruling owns it.
+        // node is fenced, the completing ruling owns it. The one §10
+        // exception is the boot-fenced node's OWN acquisition: a node
+        // still at its boot fence (`Recovering` at `current == retained`,
+        // the reopen state — it has adopted nothing) that opened this
+        // fetch itself may take the chunk's committed frontier and fold
+        // the system operations it covers. That is the speculative
+        // learner recovery `docs/uvrr-reincarnation.md` §10 states: the
+        // learner acquires state by streaming while never voting — the
+        // chunk is history it actively fetched, every entry verified
+        // against its local journal by the suffix ruling above, and the
+        // fold input is the same verified history every other fold path
+        // reads. The node stays fenced: it adopts no view, its votes are
+        // not counted (the membership check at the counting site), and it
+        // serves nothing (`Recovering`). A `ViewChange`-fenced node is
+        // NOT covered: its attempt's completing ruling owns the commit
+        // frontier, unchanged.
         let new_accepted = accepted.max(through);
         let current_view_transfer =
             header.view == current && self.progress.status() == Status::Normal;
-        let new_committed = if current_view_transfer {
-            self.progress.committed().max(committed.min(new_accepted))
+        let boot_acquisition = header.view == current
+            && self.progress.status() == Status::Recovering
+            && current == self.progress.retained();
+        // The §10 learner acquisition's take: the answering chunk's
+        // committed frontier, CAPPED by a retained gap-ruled offer's own
+        // committed frontier (§13.1 step 5). The offer is the node's own
+        // knowledge of a committed selection; its staleness gate refuses
+        // an offer that claims less than the node durably holds, so an
+        // acquisition that runs past it — live, the responder keeps
+        // committing while the fetch is in flight — would strand the
+        // retained ruling forever, and with it the fenced learner: the
+        // `StartView` is one-shot and no later route installs an
+        // already-entered view. Folding what the offer needs — and no
+        // further — keeps the offer installable; the era's stream (R6
+        // reaches learners) carries the tail. The cap never undershoots
+        // the fold: the offer's selection covers everything committed at
+        // its view, its own era's establishing operation included. An
+        // open fetch with no retained offer, and the ordinary same-view
+        // transfer at a `Normal` node, take the chunk's frontier whole.
+        let boot_cap = if boot_acquisition {
+            match self.stalled.as_ref().map(|offer| &offer.message.body) {
+                Some(Body::StartView { committed, .. }) => Some(*committed),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let take = match boot_cap {
+            Some(cap) => committed.min(cap),
+            None => committed,
+        };
+        let new_committed = if current_view_transfer || boot_acquisition {
+            self.progress.committed().max(take.min(new_accepted))
         } else {
             self.progress.committed()
         };

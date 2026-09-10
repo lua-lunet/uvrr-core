@@ -1535,9 +1535,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .with_activity(at));
         }
         // Any Normal node can suspect — the primary of the current view
-        // included: it refreshes its baseline only on its own proposals,
-        // so an idle primary times out into the next view exactly like a
-        // backup with a silent primary. A solo primary's change still
+        // included: it refreshes its baseline only on its own proposals —
+        // and not at all while a stop-the-world era transition is
+        // outstanding ([`Self::stop_the_world_transition_outstanding`]) —
+        // so an idle primary, and a primary whose own stream is holding an
+        // establishing era open, time out into the next view exactly like
+        // a backup with a silent primary. A solo primary's change still
         // cannot complete (the fence needs a quorum), which is the paper's
         // answer to a partitioned primary's suspicion (§9).
         let suspects = self.knobs.primary_timeout != 0
@@ -2055,6 +2058,22 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         } else {
             current.next_in_era()
         }
+    }
+
+    /// Whether a stop-the-world era transition is OUTSTANDING at this
+    /// serving primary (§8.7.4): the committed configuration history has
+    /// established the successor era and the current view has not entered
+    /// it, and no planned overlap machine is armed — the non-stop
+    /// transition (§8.7.6–§8.7.7) completes by solicited evidence, never
+    /// by a fence, so it does not count. While outstanding, the primary's
+    /// own proposals do not refresh its suspicion baseline (S4): they are
+    /// the activity that would otherwise keep the fence from arming, and
+    /// the establishing era completes only through the fence into the
+    /// established-but-unentered era ([`Self::view_change_target`],
+    /// §8.7.8).
+    fn stop_the_world_transition_outstanding(&self) -> bool {
+        self.progress.config().current().era != self.progress.current().era
+            && self.planned.is_none()
     }
 
     /// §12: while a confirmation is pending, no second transition is planned.
@@ -2608,11 +2627,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 header.view == current && self.primary_of(header.view) == Some(from)
             }
             // A same-view PrepareOk at the serving primary: its proposals
-            // are landing, so the view is alive (the primary's baseline).
+            // are landing, so the view is alive (the primary's baseline) —
+            // EXCEPT while a stop-the-world era transition is OUTSTANDING
+            // ([`Self::stop_the_world_transition_outstanding`], §8.7.4):
+            // the primary's own proposals are then exactly the activity
+            // that would keep the fence from ever arming, and the
+            // establishing era completes only through the fence into the
+            // established-but-unentered era (§8.7.8) — they are not proof
+            // of view life while it is outstanding.
             Body::PrepareOk {} => {
                 header.view == current
                     && self.progress.status() == Status::Normal
                     && self.primary_of(current) == Some(self.own)
+                    && !self.stop_the_world_transition_outstanding()
             }
             // A same-view transfer chunk from the legitimate primary: the
             // view it answers a fetch under is alive.

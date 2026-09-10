@@ -19,8 +19,8 @@
 //!   commitment.
 //! * **E** — membership discard: messages from an unknown or superseded
 //!   identity ignored by the leader.
-//! * **F** — the reincarnated weight-0 learner: receives streams, cannot
-//!   influence.
+//! * **F** — the reincarnated weight-0 learner: acquires the era that
+//!   admitted it, cannot influence.
 //! * **G** — mutation negative controls: mutated variants are rejected.
 //!
 //! The old amnesia-era corpus (the classic §4.3 recovery tests) was
@@ -484,9 +484,10 @@ fn b_backup_crashed_reincarnates_and_rejoins() {
     assert_eq!(current_order(&h, n(0)), vec![n(0), n(1), n(3)]);
     assert_eq!(current_weights(&h, n(0)), vec![1, 1, 1]);
     // The superseded identity is gone from every configuration the
-    // voting members folded (the rejoined node is still acquiring the
-    // streamed history — §10's acquisition, future work beyond this
-    // corpus's claims).
+    // voting members folded (the rejoined node acquires the streamed
+    // history through the §10 learner acquisition and stays fenced until
+    // its own StartView installs — voting authority is a matter for the
+    // committed `Increment`, which this corpus does not exercise).
     for id in [n(0), n(1)] {
         assert!(
             h.era_table(id)
@@ -792,35 +793,57 @@ fn e_membership_discard() {
 // F. Learner
 // ---------------------------------------------------------------------------
 
-/// The reincarnated weight-0 node: the leader streams TO it (it fences
-/// into the leader's view — proof of reception), its OWN vote is discarded
-/// before it is ever counted, and quorum outcomes complete without it.
+/// The reincarnated weight-0 learner: it acquires the era that admitted it
+/// through its own fetch (§10's learner acquisition), stays fenced — its
+/// OWN vote is discarded before it is ever counted — and quorum outcomes
+/// complete without it.
 #[test]
-fn f_learner_receives_streams_and_cannot_influence() {
+fn f_learner_acquires_its_admitting_era_and_cannot_influence() {
     let mut h = cluster();
     reincarnate_backup(&mut h, Stop::AfterFirstEra);
-    // The leader streams to the learner: it is a member of the era-2
-    // configuration, so the next proposal's Prepare is ADDRESSED to it,
-    // and the learner processes the delivery (its own configuration
-    // history is behind — the streamed acquisition of the missing eras is
-    // §10's stated future work, not claimed here — so the received
-    // stream is dropped by name, which is the observable proof it
-    // arrived).
     // The era the join committed awaits the ordinary view change (§8.7.4);
     // the fence view's recipients are the era that includes the learner,
-    // so the stream reaches it only after the fence installs.
+    // so the StartView reaches it. The era is one past its boot table
+    // (§10): the ruling retains the offer and fetches the missing range
+    // under the boot view, the leader serves the fetch (the learner is a
+    // member of the leader's current configuration), and the boot-fenced
+    // acquisition folds the era that admitted it — the learner never
+    // voted, adopted nothing, and stays fenced.
     let _ = drive_view_change(&mut h, &[n(0), n(1)]);
+    assert_eq!(
+        current_era(&h, n(3)),
+        Era(2),
+        "the learner folded the era that admitted it"
+    );
+    assert_eq!(
+        status_of(&h, n(3)),
+        Status::Recovering,
+        "the acquisition runs at the boot fence, never voting"
+    );
+    // The stream arrives and is processed: the prepare from the leader of
+    // a higher view is the staleness signal (§10) — the learner fences
+    // into the advertised view, never installation evidence.
     let outcome = h.propose(n(1), op_id(2), b"y");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
-    assert!(
-        matches!(h.diagnostic(n(3)), Some(Diagnostic::UnevaluableEra { .. })),
-        "the learner received and processed the stream: {:?}\n{}",
-        h.diagnostic(n(3)),
-        h.trace_dump()
+    assert_eq!(
+        status_of(&h, n(3)),
+        Status::ViewChange,
+        "the learner fenced into the leader's view"
     );
+    // The retained offer re-runs on an ordinary tick (§13.1 step 5): the
+    // fetched era makes it evaluable, the install adopts the view, and
+    // the boot fence is discharged by the fetch the learner opened.
+    h.tick(n(3));
+    assert_eq!(
+        status_of(&h, n(3)),
+        Status::Normal,
+        "the learner is caught up"
+    );
+    assert_eq!(current_era(&h, n(3)), Era(2));
 
-    // Its vote is discarded, named, before counting.
+    // Its vote is discarded, named, before counting — the weight is still
+    // 0, so no quorum ever counts it.
     h.inject(
         n(3),
         n(1),
