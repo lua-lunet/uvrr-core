@@ -20,7 +20,7 @@ RATE       ?= 20
 INTERVAL   ?= 10
 WORKLOAD   ?= lin-kv
 
-.PHONY: help build check test test-clean test-partition test-kill test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local
+.PHONY: help build check test test-clean test-partition test-kill test-resurrect test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local
 
 help:
 	@echo "make test            - the Rust test suite"
@@ -29,6 +29,7 @@ help:
 	@echo "make test-clean      - lin-kv, no faults (plumbing + baseline linearizability)"
 	@echo "make test-partition  - lin-kv under network partitions"
 	@echo "make test-kill       - lin-kv under process kill/restart"
+	@echo "make test-resurrect  - lin-kv, persisted nodes under kill (in-place reincarnation)"
 	@echo "make test-all        - lin-kv under partition + kill + pause"
 	@echo "make serve           - browse past results at http://localhost:8080"
 	@echo "make e2e             - Docker: build image and run all Maelstrom tests"
@@ -74,6 +75,22 @@ test-partition: build
 
 test-kill: build
 	$(call run_maelstrom,--nemesis kill --nemesis-interval $(INTERVAL))
+
+# The resurrection lane: the kill nemesis against PERSISTED nodes —
+# dirty reopens bump identities and the core's reincarnation machinery
+# walks them back in, with the host's §14.2 first-fence lever arming the
+# boot fence a no-live-primary restart cannot self-arm. The state dir is
+# this lane's own, cleaned first so every run starts from first life and
+# passed explicitly; the volatile lanes above are untouched.
+RESURRECT_STATE ?= $(CURDIR)/.tmp/state-resurrect
+
+test-resurrect: build
+	rm -rf $(RESURRECT_STATE)
+	mkdir -p $(RESURRECT_STATE)
+	cd maelstrom && MAELSTROM_VRR_STATE_DIR=$(RESURRECT_STATE) $(LEIN) run test \
+		-w $(WORKLOAD) --bin $(BIN) \
+		--node-count $(NODES) --time-limit $(TIME_LIMIT) \
+		--rate $(RATE) --concurrency 2n --nemesis kill --nemesis-interval $(INTERVAL)
 
 test-all: build
 	$(call run_maelstrom,--nemesis partition,kill,pause --nemesis-interval $(INTERVAL))

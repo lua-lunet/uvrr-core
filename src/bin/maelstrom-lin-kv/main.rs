@@ -91,6 +91,26 @@
 //! answers `error`, and exits nonzero so Jepsen restarts the node. Never a
 //! panic.
 //!
+//! # The first fence (§14.2, the host's obligation)
+//!
+//! The boot fence never self-arms from persisted knowledge: the tick's
+//! bootstrap self-promotion is the genesis view's own (post-genesis
+//! history excludes it), tick suspicion requires `Normal` (the boot
+//! fence excludes that), and every install route needs a live primary's
+//! datagram — so a reopened node with no live primary to adopt from
+//! stands silent forever; no first datagram ever exists. The host arms
+//! the first fence, exactly as a real deployment's cluster manager
+//! does: a dirty reopen first takes the ordinary path (a live primary's
+//! traffic adopts it, the leader's forced sequence readmits it); if the
+//! node is still fenced at its reopen view after
+//! [`FORCE_FEED_WINDOWS`] primary-timeout windows of silence — a
+//! bounded, deterministic tick count, no clock — the host drives the
+//! core's [`Input::AdminForceView`] once, targeting the view the
+//! core's own suspicion would pick, and the ordinary
+//! fence/evidence/install pipeline owns the view from there. Once per
+//! life: the lever arms the first fence; it never babysits the
+//! protocol's own view changes.
+//!
 //! # Identity mapping (host-side, transparent to Maelstrom)
 //!
 //! The core's `NodeId` space is the identity space the bump moves in; the
@@ -156,7 +176,7 @@ use std::time::Duration;
 use serde_json::Value;
 use vrr::configuration::{SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, Stability};
-use vrr::ids::{Era, NodeId, Operation, OperationId, Slot, Tick};
+use vrr::ids::{Era, NodeId, Operation, OperationId, Slot, Tick, ViewId};
 use vrr::journal::{Journal, LogEntry, Payload, SegmentedLog};
 use vrr::message::{Body, Message};
 use vrr::progress::Status;
@@ -179,6 +199,13 @@ const TICK: Duration = Duration::from_millis(100);
 /// the activity evidence and suspicion never fires; the knob only decides
 /// how quickly a genuinely dead primary is deposed.
 const PRIMARY_TIMEOUT_TICKS: u64 = 25;
+/// Fenced timeout windows a dirty reopen waits before the host drives the
+/// §14.2 force-view (see the module docs' first-fence section): three
+/// windows of the primary timeout above. A live cluster that is going to
+/// adopt the node does so inside a couple of windows (its own suspicion
+/// fence fires at one); three silent windows is the no-live-primary
+/// signature. A tick count, never a clock.
+const FORCE_FEED_WINDOWS: u64 = 3;
 
 /// The replica this host runs: the default journal and the default quorum
 /// strategy, exactly as the test harness provisions them.
@@ -384,6 +411,23 @@ struct NodeRunner {
     /// and re-announced on every tick (§8) until the identity is a voting
     /// member again. `None` on a fresh provision or a clean reopen.
     announce: Option<NodeId>,
+    /// A dirty reopen's first-fence countdown (the module docs'
+    /// first-fence section): armed only on the bump path, disarmed by
+    /// any progress, and spent once.
+    force_feed: Option<ForceFeed>,
+}
+
+/// The §14.2 lever's bookkeeping: how long the node has stood fenced at
+/// its reopen view with nothing moving, and whether the lever has been
+/// driven.
+struct ForceFeed {
+    /// The view the node reopened fenced at: the wedge shape is
+    /// standing still there.
+    at: ViewId,
+    /// Ticks spent fenced at `at` with no progress.
+    silent: u64,
+    /// Whether the lever has been driven this life.
+    driven: bool,
 }
 
 impl NodeRunner {
@@ -464,7 +508,7 @@ impl NodeRunner {
             // the historical provision path.
             _ => None,
         };
-        let loaded = match &self.store {
+        let loaded = match self.store.as_mut() {
             Some(store) => store.load(),
             None => Err(store::StoreError::Absent),
         };
@@ -637,6 +681,21 @@ impl NodeRunner {
                     // announced: the bump is written by the write-through
                     // below, before `init_ok` is answered.
                     self.announce = Some(crashed);
+                    // The §14.2 lever arms (the module docs' first-fence
+                    // section): the fence view this life reopened at, the
+                    // countdown standing still until the ordinary path
+                    // moves it or the bound runs out.
+                    let at = self
+                        .replica
+                        .as_ref()
+                        .expect("the replica just opened")
+                        .progress()
+                        .current();
+                    self.force_feed = Some(ForceFeed {
+                        at,
+                        silent: 0,
+                        driven: false,
+                    });
                     self.drive(Input::Reincarnate { old: crashed });
                 } else {
                     eprintln!(
@@ -684,9 +743,11 @@ impl NodeRunner {
         }
     }
 
-    /// Builds the snapshot and writes it.
-    fn write_state(&self) -> std::io::Result<()> {
-        let Some(store) = &self.store else {
+    /// Builds the snapshot and writes it: the first life creates the
+    /// whole file; an armed store commits the delta — the new entries
+    /// append, then the header slot rewrites (the store's own barrier).
+    fn write_state(&mut self) -> Result<(), String> {
+        let Some(store) = self.store.as_mut() else {
             return Ok(());
         };
         let Some(replica) = &self.replica else {
@@ -695,14 +756,14 @@ impl NodeRunner {
         let Some(copies) = self.copies else {
             return Ok(());
         };
-        let state = NodeState::snapshot(
-            copies,
-            self.identity.roster.clone(),
-            vrr::replica::PersistedProgress::from(replica.progress()),
-            &replica.journal().view(),
-        )
-        .map_err(std::io::Error::other)?;
-        store.write(&state)
+        let progress = vrr::replica::PersistedProgress::from(replica.progress());
+        let view = replica.journal().view();
+        if store.armed() {
+            store.commit(copies, progress, &view)
+        } else {
+            let state = NodeState::snapshot(copies, self.identity.roster.clone(), progress, &view)?;
+            store.create(&state)
+        }
     }
 
     /// A clean shutdown (§2): the flushed marker. The write's failure is
@@ -1167,6 +1228,59 @@ impl NodeRunner {
             } else {
                 self.announce = None;
             }
+        }
+        // The §14.2 lever (the module docs' first-fence section): a dirty
+        // reopen standing fenced at its reopen view is the no-self-arm
+        // wedge. After FORCE_FEED_WINDOWS silent windows the host arms the
+        // first fence itself — once. Any progress, an adoption or a fence
+        // someone else's datagram started, disarms the countdown for
+        // good: the lever arms the first fence, it never babysits the
+        // protocol's own machinery.
+        if let Some(mut force) = self.force_feed.take() {
+            let Some(replica) = self.replica.as_ref() else {
+                self.force_feed = Some(force);
+                return;
+            };
+            let progress = replica.progress();
+            let (status, current, established) = (
+                progress.status(),
+                progress.current(),
+                progress.config().current().era,
+            );
+            if status == Status::Recovering && current == force.at {
+                force.silent += 1;
+                if force.silent >= FORCE_FEED_WINDOWS * PRIMARY_TIMEOUT_TICKS && !force.driven {
+                    force.driven = true;
+                    let target = if Some(established) == current.era.next() {
+                        current.next_in_next_era()
+                    } else {
+                        current.next_in_era()
+                    };
+                    eprintln!(
+                        "vrr-force: node {} stood fenced for {} windows at {:?}: arming the first fence via the §14.2 force-view (the boot fence never self-arms from persisted knowledge; a deployment's cluster manager does exactly this)",
+                        self.id, FORCE_FEED_WINDOWS, force.at
+                    );
+                    match target {
+                        Some(target) => match self.step(Input::AdminForceView { target }) {
+                            Ok(effects) => self.route(effects),
+                            Err(refusal) => {
+                                eprintln!(
+                                    "vrr-force: node {}'s force-view was refused: {refusal:?}",
+                                    self.id
+                                );
+                            }
+                        },
+                        None => eprintln!(
+                            "vrr-force: node {} cannot name a view past {:?}: the view space is spent",
+                            self.id, current
+                        ),
+                    }
+                }
+                self.force_feed = Some(force);
+            }
+            // Else: the fence view or the status moved — the ordinary
+            // machinery owns the node from here, and the countdown stays
+            // disarmed.
         }
     }
 
