@@ -12,6 +12,15 @@
 //! transfer: the leader serves a member of its current committed
 //! configuration, and the boot-fenced node's own fetch is its qualified
 //! evidence.
+//!
+//! The retention rule's full admission vocabulary: a far-future offer is
+//! retained only when it NAMES the boot-fenced member — through the `Join`
+//! that inserts it, the `Increment` that promotes it, or a batch carrying
+//! either — and an offer naming nobody (a departure, a scaling op) is
+//! dropped `UnevaluableEra` with the boot fence untouched. The
+//! acquisition's era-window walk re-issues its fetch under the WALKED
+//! view, so the two-era retention window cannot evict the record the next
+//! chunk needs.
 
 mod harness;
 
@@ -131,6 +140,46 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> (ViewId, NodeId) {
     }
     h.assert_safety();
     (target, driver)
+}
+
+/// Drives the view change the fence machinery targets, asserting every
+/// node in `live` installs it — and delivering to `live` only: the
+/// announcement a fenced member outside `live` would receive stays queued,
+/// so the script stages it (`deliver_tag`) or discards it (`drop_queued`).
+/// The shape [`drive_view_change`] uses for a cluster whose live set is
+/// the fence's whole quorum; here the learners under test stay fenced
+/// while the incumbents establish each era.
+fn fence_among(h: &mut Harness, live: &[NodeId]) -> ViewId {
+    let target = fence_target(h, live[0]);
+    let driver = live
+        .iter()
+        .copied()
+        .find(|&id| status_of(h, id) == Status::Normal)
+        .expect("a live Normal member drives the fence");
+    for _ in 0..=TIMEOUT {
+        h.tick(driver);
+    }
+    let mut rounds = 0;
+    while live
+        .iter()
+        .any(|&id| status_of(h, id) != Status::Normal || current_view(h, id) != target)
+    {
+        rounds += 1;
+        assert!(
+            rounds <= 16,
+            "the incumbents' fence wedged after {rounds} rounds\n{}",
+            h.trace_dump()
+        );
+        for &id in live {
+            h.deliver_to(id);
+        }
+    }
+    for &id in live {
+        assert_eq!(status_of(h, id), Status::Normal, "{id:?} installs");
+        assert_eq!(current_view(h, id), target, "{id:?} is in the target");
+    }
+    h.assert_safety();
+    target
 }
 
 /// Joins `n(3)` at weight 0 (stop-the-world — no pivot exists for a
@@ -646,5 +695,335 @@ fn the_serving_gate_answers_a_fetch_from_a_past_window_era() {
         "a NewState answer is queued for the requester"
     );
     assert!(!snap(&h, n(0)).faulted, "a serve, never a fault");
+    h.assert_safety();
+}
+
+/// The negative arm of the §10 retention rule (`plan_start_view`'s
+/// non-retainable far-future arm): a far-future offer whose establishing
+/// operation does NOT name the boot-fenced member is dropped
+/// `UnevaluableEra` with nothing retained — no stalled offer, no fetch
+/// opened — and the boot fence stands. A scaling era (`Double`) is the
+/// establishing operation that names nobody: not the `Join` that inserts,
+/// not the `Increment` that promotes, not a batch carrying either, so the
+/// offer is not the recipient's catch-up route.
+///
+/// The staging: `n(3)` boots over genesis, joins in era 2, and never sees
+/// the era-2 announcement — the script discards it (`drop_queued`), the
+/// same script decision the network's drop is — so its table still holds
+/// only the genesis fold when the era-3 announcement (established by the
+/// `Double`) arrives: three eras past the boot view, one past `next`.
+#[test]
+fn a_far_future_offer_that_names_nobody_is_dropped_at_the_boot_fence() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    h.boot_as(n(3))
+        .expect("the joiner boots over genesis knowledge");
+    let boot_view = current_view(&h, n(3));
+    let boot_committed = snap(&h, n(3)).committed;
+
+    // The join commits era 2 at the incumbents; the learner's first sight
+    // of it would be the fence's announcement — retained by the overlap
+    // arm — which the script stages away.
+    let outcome = h.reconfigure(
+        n(0),
+        SystemOperation::Join {
+            node: n(3),
+            position: 3,
+        },
+        None,
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(2), "the join committed");
+    fence_among(&mut h, &[n(0), n(1), n(2)]);
+    assert_eq!(
+        current_era(&h, n(3)),
+        Era(1),
+        "the learner never saw the era-2 announcement"
+    );
+    h.drop_queued(n(3));
+
+    // Era 3 folds under the `Double` — no membership change, no naming.
+    let outcome = h.reconfigure(n(1), SystemOperation::Double, None);
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(3));
+    let target = fence_among(&mut h, &[n(0), n(1), n(2)]);
+    assert_eq!(target.era, Era(3));
+
+    // The learner's first sight of its admitting era: a far-future offer
+    // that names nobody. Dropped by name; no stalled offer is retained and
+    // no fetch is opened — the sender sees no GetState.
+    h.deliver_tag(n(3), Tag::StartView);
+    assert_eq!(
+        h.diagnostic(n(3)),
+        Some(Diagnostic::UnevaluableEra { era: Era(3) }),
+        "an unnamed node's far-future offer is refused by name"
+    );
+    assert!(
+        h.peek_queued(n(2), Tag::GetState).is_none(),
+        "no fetch opened"
+    );
+    assert_eq!(
+        status_of(&h, n(3)),
+        Status::Recovering,
+        "the boot fence stands"
+    );
+    assert_eq!(current_view(&h, n(3)), boot_view, "nothing was adopted");
+    assert_eq!(snap(&h, n(3)).committed, boot_committed);
+
+    // The fence is not a stalled ruling in disguise: ordinary ticks
+    // re-run nothing, the node stays at its boot fence, and the cluster
+    // keeps committing without it.
+    for _ in 0..3 {
+        h.tick(n(3));
+        h.deliver_all();
+    }
+    assert_eq!(status_of(&h, n(3)), Status::Recovering, "still fenced");
+    assert_eq!(
+        current_era(&h, n(3)),
+        Era(1),
+        "no era folded at the learner"
+    );
+    assert_eq!(current_view(&h, n(3)), boot_view);
+    assert_eq!(snap(&h, n(3)).committed, boot_committed);
+    assert_eq!(
+        current_era(&h, n(0)),
+        Era(3),
+        "the cluster runs on without the unnamed learner"
+    );
+    h.assert_safety();
+}
+
+/// The `Increment` admission arm: a boot-fenced member still waiting on
+/// its own `Join`'s history is ADMITTED by the far-future era whose
+/// establishing operation is the `Increment` that promotes it — the offer
+/// is retained with a fetch under the boot view, the acquisition folds the
+/// admitting eras, and the offer installs on the ordinary tick.
+///
+/// The staging: `n(3)` boots over genesis, joins in era 2, and the script
+/// discards the era-2 announcement (`drop_queued`) so the learner is still
+/// boot-fenced when the `Increment` promotes it in era 3 — the era-3
+/// announcement is the learner's first sight, two eras past its boot view.
+#[test]
+fn a_far_future_offer_naming_the_boot_fenced_member_through_its_increment_is_retained() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    h.boot_as(n(3))
+        .expect("the joiner boots over genesis knowledge");
+    let outcome = h.reconfigure(
+        n(0),
+        SystemOperation::Join {
+            node: n(3),
+            position: 3,
+        },
+        None,
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(2), "the join committed");
+    fence_among(&mut h, &[n(0), n(1), n(2)]);
+    h.drop_queued(n(3));
+
+    // The promotion commits era 3: the establishing operation is the
+    // `Increment` naming the boot-fenced learner.
+    let outcome = h.reconfigure(n(1), SystemOperation::Increment(n(3)), None);
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(3), "the promotion committed");
+    assert_eq!(current_weights(&h, n(0)), vec![1, 1, 1, 1]);
+    let target = fence_among(&mut h, &[n(0), n(1), n(2)]);
+    assert_eq!(
+        target,
+        ViewId {
+            era: Era(3),
+            view: View(2)
+        }
+    );
+
+    // The offer names the learner through its `Increment`: retained, with
+    // a fetch opened under the boot view.
+    h.deliver_tag(n(3), Tag::StartView);
+    assert_eq!(
+        h.diagnostic(n(3)),
+        Some(Diagnostic::UnevaluableEra { era: Era(3) }),
+        "the offer is unevaluable at the boot fence — and retained"
+    );
+    assert!(
+        h.peek_queued(n(2), Tag::GetState).is_some(),
+        "the retained offer opened a fetch"
+    );
+
+    // The acquisition folds the admitting eras; the offer installs on the
+    // ordinary tick.
+    catch_up(&mut h, n(3));
+    assert_eq!(
+        status_of(&h, n(3)),
+        Status::Normal,
+        "the promoted joiner caught up"
+    );
+    assert_eq!(current_view(&h, n(3)), target);
+    assert_eq!(snap(&h, n(3)).committed, snap(&h, n(0)).committed);
+    h.assert_safety();
+}
+
+/// The `Batch` admission arm: a far-future offer whose establishing
+/// operation is a batch carrying the admitting operation — a batch whose
+/// first sub-operation names a DIFFERENT member, so the retention decision
+/// must walk the batch's sub-operations — is retained, fetched, and
+/// installed, exactly as a single `Join` or `Increment` offer is.
+///
+/// The staging: `n(3)` joins in era 2 with the era-2 announcement staged
+/// away; era 3 is established by `Batch([Join { n(4) }, Increment(n(3))])`
+/// — one committed operation, one era, the learner named only inside the
+/// batch. `n(4)`'s process is never started: the establishing fan-out
+/// reaches configuration members, and a member whose process never boots
+/// has its stream recorded undeliverable, by the harness's own terms.
+#[test]
+fn a_far_future_offer_naming_the_boot_fenced_member_through_a_batch_is_retained() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    h.boot_as(n(3))
+        .expect("the joiner boots over genesis knowledge");
+    let outcome = h.reconfigure(
+        n(0),
+        SystemOperation::Join {
+            node: n(3),
+            position: 3,
+        },
+        None,
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(2), "the join committed");
+    fence_among(&mut h, &[n(0), n(1), n(2)]);
+    h.drop_queued(n(3));
+
+    // The batch carries the admission: one era, two sub-operations, the
+    // learner named only by the second.
+    let outcome = h.reconfigure(
+        n(1),
+        SystemOperation::Batch(vec![
+            SystemOperation::Join {
+                node: n(4),
+                position: 4,
+            },
+            SystemOperation::Increment(n(3)),
+        ]),
+        None,
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(3), "the batch committed");
+    assert_eq!(current_order(&h, n(0)), vec![n(0), n(1), n(2), n(3), n(4)]);
+    assert_eq!(current_weights(&h, n(0)), vec![1, 1, 1, 1, 0]);
+    let target = fence_among(&mut h, &[n(0), n(1), n(2)]);
+    assert_eq!(
+        target,
+        ViewId {
+            era: Era(3),
+            view: View(2)
+        }
+    );
+
+    // The offer names the learner through the batch: retained, fetched.
+    h.deliver_tag(n(3), Tag::StartView);
+    assert_eq!(
+        h.diagnostic(n(3)),
+        Some(Diagnostic::UnevaluableEra { era: Era(3) }),
+        "the offer is unevaluable at the boot fence — and retained"
+    );
+    assert!(
+        h.peek_queued(n(2), Tag::GetState).is_some(),
+        "the retained offer opened a fetch"
+    );
+
+    catch_up(&mut h, n(3));
+    assert_eq!(
+        status_of(&h, n(3)),
+        Status::Normal,
+        "the named learner caught up"
+    );
+    assert_eq!(current_view(&h, n(3)), target);
+    assert_eq!(snap(&h, n(3)).committed, snap(&h, n(0)).committed);
+    h.assert_safety();
+}
+
+/// The walked fetch: the boot acquisition's re-issued fetch rides the
+/// WALKED view, not the chunk header's view, so the era table's retention
+/// window cannot evict the record the next chunk needs. The acquisition
+/// crosses TWO era windows: a chunk three eras past the boot view folds
+/// one era per round, each round re-issuing its fetch under the view the
+/// fold walked to — the third round's chunk names an era the folded table
+/// still holds, and the offer installs. A fetch that stayed on the boot
+/// view would, after the second fold, name the boot era the table has
+/// walked past, and the third chunk would be unevaluable at the very
+/// guard that reads it — the acquisition wedged, the offer stranded.
+///
+/// The staging: `n(3)` joins in era 2 with the announcement staged away;
+/// eras 3 and 4 fold (`Double`, then the `Increment` promoting the
+/// learner — the era-4 offer's establishing operation names it) before the
+/// learner's first sight: the era-4 announcement, three eras past the
+/// boot view. `n(3)` is inserted at the succession FRONT so the era-4
+/// view's primary is an incumbent — the learner under test must be a
+/// backup the fence can announce to, never the primary the fence waits
+/// on.
+#[test]
+fn the_walked_fetch_rides_the_walked_view_across_two_era_windows() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    h.boot_as(n(3))
+        .expect("the joiner boots over genesis knowledge");
+    let outcome = h.reconfigure(
+        n(0),
+        SystemOperation::Join {
+            node: n(3),
+            position: 0,
+        },
+        None,
+    );
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(2), "the join committed");
+    assert_eq!(current_order(&h, n(0)), vec![n(3), n(0), n(1), n(2)]);
+    fence_among(&mut h, &[n(0), n(1), n(2)]);
+    h.drop_queued(n(3));
+
+    // Two more eras commit before the learner's first sight — era 3 by
+    // the `Double`, era 4 by the learner's own promotion.
+    let outcome = h.reconfigure(n(1), SystemOperation::Double, None);
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(3));
+    fence_among(&mut h, &[n(0), n(1), n(2)]);
+    h.drop_queued(n(3));
+    let outcome = h.reconfigure(n(2), SystemOperation::Increment(n(3)), None);
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(current_era(&h, n(0)), Era(4), "the promotion committed");
+    let target = fence_among(&mut h, &[n(0), n(1), n(2)]);
+    assert_eq!(
+        target,
+        ViewId {
+            era: Era(4),
+            view: View(3)
+        }
+    );
+
+    // The era-4 offer names the learner through its `Increment`: retained
+    // with a fetch under the boot view.
+    h.deliver_tag(n(3), Tag::StartView);
+    assert!(
+        h.peek_queued(n(2), Tag::GetState).is_some(),
+        "the retained offer opened a fetch"
+    );
+
+    // Two era windows crossed, one fold per round, each round's fetch
+    // riding the view the previous fold walked to; the offer installs on
+    // the ordinary tick.
+    catch_up(&mut h, n(3));
+    assert_eq!(status_of(&h, n(3)), Status::Normal, "the learner caught up");
+    assert_eq!(current_view(&h, n(3)), target);
+    assert_eq!(snap(&h, n(3)).committed, snap(&h, n(0)).committed);
     h.assert_safety();
 }
