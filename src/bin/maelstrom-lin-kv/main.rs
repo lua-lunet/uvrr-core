@@ -29,23 +29,60 @@
 //! The core reads no clock; the host owns time. This host's clock is a
 //! single `u64` counter, bumped once per driven input and carried as
 //! [`TimedInput::at`].
+//!
+//! # Membership verbs (§8.7)
+//!
+//! Four Maelstrom message kinds drive cluster making through the core's
+//! public [`Input::Reconfigure`] path — the §8.7.2 pre-proposal gates are
+//! the core's, and every core refusal becomes a named Maelstrom `error`,
+//! never a crash:
+//!
+//! - `join {node_id}` — admit an already-running bench node at weight 0
+//!   ([`SystemOperation::Join`], stop-the-world). The bench roster is fixed
+//!   by `node_ids`, so a join naming an id outside the roster is refused by
+//!   the host (`malformed-request`, code 12) before the core is touched; a
+//!   join of a member the configuration already holds is refused by the
+//!   fold itself.
+//! - `promote {node_id}` — one weight step toward voting
+//!   ([`SystemOperation::Increment`]); takes the §8.7.6 pivot when one
+//!   exists for this leader, and falls back to stop-the-world when the
+//!   leader is non-pivotal — a latency outcome, not an error.
+//! - `demote {node_id}` — one weight step down ([`SystemOperation::Decrement`],
+//!   stop-the-world).
+//! - `leave {node_id}` — remove a weight-0 member ([`SystemOperation::Leave`],
+//!   stop-the-world); the canonical departure is `demote` to 0 then `leave`
+//!   of the same node.
+//!
+//! A verb is a client RPC like any other: a node that does not lead
+//! forwards it once, exactly as the lin-kv path does. The reply is not the
+//! proposal's: it leaves when the establishing operation COMMITS and the
+//! era folds on this node (§8.7.1), and every reply — `*_ok` or `error` —
+//! echoes the node's current configuration view: the established era, the
+//! current view, and the member order with weights. A refusal is definite
+//! (the gates run before the proposal; the operation never entered the
+//! log); a verb whose establishing operation dies uncommitted in a view
+//! change gets no reply at all, which is the honest indeterminate.
 
 mod kv;
 mod proto;
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, Write};
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use serde_json::Value;
+use vrr::configuration::SystemOperation;
 use vrr::effects::{Effect, Stability};
-use vrr::ids::{NodeId, Operation, OperationId, Tick};
+use vrr::ids::{Era, NodeId, Operation, OperationId, Slot, Tick};
 use vrr::journal::{Journal, SegmentedLog};
 use vrr::message::Message;
 use vrr::progress::Status;
 use vrr::quorum::WeightedMajority;
-use vrr::replica::{Input, PlanRefusal, PublishOutcome, Replica, TimedInput, ViewChangeKnobs};
+use vrr::replica::{
+    Input, PlanRefusal, PublishOutcome, Replica, TimedInput, ViewChangeKnobs, construct_pivot,
+};
 use vrr::wire::{Pack, Unpack};
 
 use crate::kv::Kv;
@@ -127,6 +164,22 @@ enum Waiter {
     },
 }
 
+/// A membership verb proposed and accepted, whose answer still waits: the
+/// establishing operation commits only through a quorum, and the era folds
+/// exactly there (§8.7.1). The request names the successor era it watches
+/// and the slot its establishing operation accepted; the reply leaves when
+/// that era's record names that slot.
+struct PendingMembership {
+    /// The era the establishing operation establishes once it commits.
+    watch_era: Era,
+    /// The slot the proposal accepted.
+    slot: Slot,
+    /// Where the answer goes.
+    waiter: Waiter,
+    /// The reply body's type: the verb's `*_ok`.
+    reply_kind: String,
+}
+
 #[derive(Default)]
 struct NodeRunner {
     id: String,
@@ -142,6 +195,9 @@ struct NodeRunner {
     /// exactly this pair, so an `Effect::Apply` correlates back to the
     /// Maelstrom client that is waiting.
     waiting: HashMap<(u64, u64), Waiter>,
+    /// Membership verbs proposed but not yet committed: the establishing
+    /// operation's slot and the era to watch for its fold.
+    pending: Vec<PendingMembership>,
 }
 
 impl NodeRunner {
@@ -152,8 +208,10 @@ impl NodeRunner {
             "proxy" => self.on_proxy(&message),
             "proxy_reply" => self.on_proxy_reply(&message),
             "read" | "write" | "cas" => self.on_client(&message),
+            "join" | "promote" | "demote" | "leave" => self.on_membership(&message),
             other => eprintln!("ignoring unsupported message type {other}"),
         }
+        self.flush_membership();
     }
 
     fn on_init(&mut self, message: &Incoming) {
@@ -314,6 +372,9 @@ impl NodeRunner {
     /// nothing to verify.
     fn submit(&mut self, client_id: u64, request_num: u64, op: &Value, waiter: Waiter) {
         let kind = op.get("type").and_then(Value::as_str).unwrap_or("");
+        if matches!(kind, "join" | "promote" | "demote" | "leave") {
+            return self.submit_membership(kind, op, waiter);
+        }
         let key = op.get("key").cloned().unwrap_or(Value::Null);
         let request = match kind {
             "read" => KvRequest::Read {
@@ -398,6 +459,245 @@ impl NodeRunner {
                 self.refuse(&waiter, "request refused by primary");
             }
         }
+    }
+
+    /// One membership verb, addressed by a client. The verb targets a node
+    /// by `node_id`; the answering path is the KV path's: the addressed
+    /// node submits, a backup forwards once to the primary.
+    fn on_membership(&mut self, message: &Incoming) {
+        let Some(msg_id) = message.msg_id() else {
+            eprintln!("membership verb without msg_id");
+            return;
+        };
+        let waiter = Waiter::Client {
+            node: message.src.clone(),
+            msg_id,
+        };
+        self.submit_membership(message.kind(), &message.body, waiter);
+    }
+
+    /// Submits one membership verb, direct or forwarded. The host's own
+    /// pre-gates run before the core is touched: a verb without a
+    /// `node_id`, or naming an id outside the bench roster (fixed by
+    /// `node_ids`), is a definite malformed request. At the primary the
+    /// verb becomes `Input::Reconfigure` — `Join`/`Decrement`/`Leave` stop
+    /// the world (`pivot: None`), `Increment` takes the §8.7.6 pivot when
+    /// one exists for this leader. The reply is not the proposal's: it
+    /// leaves at the era fold (§8.7.1), so a primary death or a view
+    /// change that drops the uncommitted establishing operation leaves
+    /// the request unanswered — the honest indeterminate. Every core
+    /// refusal is answered as a named Maelstrom error carrying the
+    /// refusal diagnostic, never a crash.
+    fn submit_membership(&mut self, kind: &str, request: &Value, waiter: Waiter) {
+        let Some(target) = request.get("node_id").and_then(Value::as_str) else {
+            self.membership_error(
+                &waiter,
+                error::MALFORMED_REQUEST,
+                "membership verb without a node_id".to_string(),
+            );
+            return;
+        };
+        let Some(node) = self.index_of(target) else {
+            self.membership_error(
+                &waiter,
+                error::MALFORMED_REQUEST,
+                format!("membership verb names {target}, which is not a bench node"),
+            );
+            return;
+        };
+        if !self.leads() {
+            // Forward once. The same ruling as the KV path: a node that
+            // received a forward and still does not lead refuses rather
+            // than bouncing it on.
+            let primary = self
+                .primary()
+                .and_then(|id| self.members.get(id.0 as usize).cloned());
+            match (&waiter, primary) {
+                (Waiter::Client { node, msg_id }, Some(primary)) if primary != self.id => {
+                    let body = serde_json::json!({
+                        "type": "proxy",
+                        "client": node,
+                        "client_msg_id": msg_id,
+                        "op": request,
+                    });
+                    self.send(&primary, body);
+                }
+                _ => self.refuse(&waiter, "not the primary"),
+            }
+            return;
+        }
+        let replica = self.replica.as_ref().expect("leads() held a live replica");
+        // A join appends a learner at the end of the succession sequence:
+        // position <= len() is the fold's R11 precondition, and len() of
+        // the current configuration is the only position that appends.
+        let position = replica.progress().config().current().config.len();
+        let operation = match kind {
+            "join" => SystemOperation::Join { node, position },
+            "promote" => SystemOperation::Increment(node),
+            "demote" => SystemOperation::Decrement(node),
+            "leave" => SystemOperation::Leave(node),
+            _ => unreachable!("the dispatch match admits four membership kinds"),
+        };
+        let pivot = match &operation {
+            SystemOperation::Increment(_) => self.pivot_for(&operation),
+            _ => None,
+        };
+        let stepped = self.step(Input::Reconfigure {
+            op: operation.clone(),
+            pivot: pivot.clone(),
+        });
+        let stepped = match (&pivot, stepped) {
+            (Some(_), Err(PlanRefusal::ReconfigureViewExhausted { .. })) => {
+                // The named `v'` is not representable (§8.7.3 forbids
+                // wraparound); the stop-the-world path names no `v'` —
+                // retry without the pivot.
+                self.step(Input::Reconfigure {
+                    op: operation,
+                    pivot: None,
+                })
+            }
+            (_, stepped) => stepped,
+        };
+        match stepped {
+            Ok(effects) => {
+                self.route(effects);
+                let replica = self
+                    .replica
+                    .as_ref()
+                    .expect("an accepted proposal implies a live replica");
+                let progress = replica.progress();
+                let watch_era = progress
+                    .current()
+                    .era
+                    .next()
+                    .expect("an accepted establishing operation has a successor era");
+                self.pending.push(PendingMembership {
+                    watch_era,
+                    slot: progress.accepted(),
+                    waiter,
+                    reply_kind: format!("{kind}_ok"),
+                });
+            }
+            Err(rejection) => {
+                eprintln!("reconfiguration refused: {rejection:?}");
+                self.membership_error(
+                    &waiter,
+                    error::TEMPORARILY_UNAVAILABLE,
+                    format!("reconfiguration refused: {rejection:?}"),
+                );
+            }
+        }
+    }
+
+    /// The concrete pivot for this leader under the fold of `operation`,
+    /// when one exists (§8.7.6). A leader with no legal split gets `None`:
+    /// the stop-the-world fallback is a latency outcome, not an error.
+    fn pivot_for(&self, operation: &SystemOperation) -> Option<vrr::replica::Pivot> {
+        let replica = self.replica.as_ref()?;
+        let progress = replica.progress();
+        let current = progress.config().current();
+        let slot = progress.accepted().next()?;
+        let next = progress.config().extend(operation, slot).ok()?;
+        construct_pivot(
+            &WeightedMajority,
+            &current.config,
+            &next.current().config,
+            replica.own(),
+        )
+    }
+
+    /// A membership refusal: a named Maelstrom error carrying the core's
+    /// refusal diagnostic, echoing the node's current configuration view
+    /// — the same shape the KV path's definite failures answer with.
+    fn membership_error(&mut self, waiter: &Waiter, code: u32, text: String) {
+        let body = serde_json::json!({
+            "type": "error",
+            "code": code,
+            "text": text,
+            "config": self.config_view(),
+        });
+        self.answer(waiter, body);
+    }
+
+    /// Answers every membership request whose establishing operation has
+    /// committed and folded (§8.7.1): the watched era's record names the
+    /// proposal's slot. Runs after every driven input, because the commit
+    /// cascade rides ordinary peer traffic and ticks. An establishing
+    /// operation a view change replaced never establishes anything here —
+    /// whether it committed elsewhere is unknowable from this node, so
+    /// the request gets no answer and the pending entry is dropped.
+    fn flush_membership(&mut self) {
+        if self.pending.is_empty() {
+            return;
+        }
+        let Some(table) = self
+            .replica
+            .as_ref()
+            .map(|replica| Arc::clone(replica.progress().config()))
+        else {
+            self.pending.clear();
+            return;
+        };
+        let view = self.config_view();
+        let mut answered: Vec<(Waiter, String, Value)> = Vec::new();
+        let mut settled: Vec<usize> = Vec::new();
+        for (index, pending) in self.pending.iter().enumerate() {
+            match table.record(pending.watch_era) {
+                Some(record) if record.established_by == pending.slot => {
+                    answered.push((
+                        pending.waiter.clone(),
+                        pending.reply_kind.clone(),
+                        view.clone(),
+                    ));
+                    settled.push(index);
+                }
+                Some(_) => {
+                    eprintln!("membership verb lost: its establishing operation never committed");
+                    settled.push(index);
+                }
+                None => {}
+            }
+        }
+        for index in settled.iter().rev() {
+            self.pending.remove(*index);
+        }
+        for (waiter, reply_kind, config) in answered {
+            let body = serde_json::json!({
+                "type": reply_kind,
+                "config": config,
+            });
+            self.answer(&waiter, body);
+        }
+    }
+
+    /// The node's current configuration view (§8.7.1), read through the
+    /// same public surface the KV path drives: the published progress and
+    /// its era table's newest record — the member order in succession
+    /// sequence, each with its weight, with the current view and era.
+    fn config_view(&self) -> Value {
+        let Some(replica) = self.replica.as_ref() else {
+            return serde_json::json!({ "era": 0, "view_era": 0, "view": 0, "members": [] });
+        };
+        let progress = replica.progress();
+        let current = progress.current();
+        let established = progress.config().current();
+        let members = established
+            .config
+            .order()
+            .iter()
+            .map(|member| {
+                serde_json::json!({
+                    "node": self.members.get(member.node.0 as usize),
+                    "weight": member.weight.0,
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::json!({
+            "era": established.era.0,
+            "view_era": current.era.0,
+            "view": current.view.0,
+            "members": members,
+        })
     }
 
     fn on_tick(&mut self) {

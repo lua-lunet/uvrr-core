@@ -34,6 +34,12 @@ fn binary() -> Option<&'static str> {
 /// generous.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// How long a whole scripted cluster may keep serving client traffic.
+/// The membership lifecycle serializes its verbs through the
+/// stop-the-world gate (§8.7.8), so each verb polls through the era
+/// transition in flight — roughly `PRIMARY_TIMEOUT_TICKS` ticks per verb.
+const CLUSTER_TIMEOUT: Duration = Duration::from_secs(90);
+
 /// A spawned node process. Lines for the node go to `to_node`; lines the
 /// node emits arrive parsed on `out`, which a relay may take over.
 struct Node {
@@ -189,7 +195,7 @@ impl RelayedCluster {
         }
         RelayedCluster {
             collected,
-            deadline: Instant::now() + REPLY_TIMEOUT,
+            deadline: Instant::now() + CLUSTER_TIMEOUT,
         }
     }
 
@@ -296,4 +302,149 @@ fn two_node_cluster_replicates_a_forwarded_write() {
     assert_eq!(reply.get("dest").and_then(Value::as_str), Some("c2"));
     let body = assert_reply(&reply, 7, "read_ok");
     assert_eq!(body.get("value"), Some(&Value::from(9)));
+}
+
+/// The host's membership pre-gate runs before the core is touched: a join
+/// naming an id outside the bench roster (fixed by `node_ids`) is a
+/// definite malformed request, answered with Maelstrom's own
+/// `malformed-request` code — the core is never touched.
+#[test]
+fn join_refuses_an_id_outside_the_bench_roster() {
+    if binary().is_none() {
+        eprintln!("maelstrom feature off; no adapter binary to drive");
+        return;
+    }
+    let node = Node::spawn();
+    node.init("n0", &["n0"]);
+    assert_reply(&node.recv(), 1, "init_ok");
+    node.send(
+        "c1",
+        "n0",
+        json!({"type": "join", "msg_id": 2, "node_id": "n9"}),
+    );
+    let body = assert_reply(&node.recv(), 2, "error");
+    assert_eq!(
+        body.get("code").and_then(Value::as_u64),
+        Some(12),
+        "the refusal is the roster gate, not the core: {body}"
+    );
+    // Every membership reply echoes the node's configuration view.
+    assert!(
+        body.get("config").and_then(Value::as_object).is_some(),
+        "the refusal echoes the configuration view: {body}"
+    );
+}
+
+/// The member order and weights of an echoed configuration view.
+fn members_of(body: &Value) -> Vec<(String, u64)> {
+    body.get("config")
+        .and_then(|config| config.get("members"))
+        .and_then(Value::as_array)
+        .expect("every membership reply echoes a configuration view")
+        .iter()
+        .map(|member| {
+            (
+                member
+                    .get("node")
+                    .and_then(Value::as_str)
+                    .expect("a member names its node")
+                    .to_string(),
+                member
+                    .get("weight")
+                    .and_then(Value::as_u64)
+                    .expect("a member carries its weight"),
+            )
+        })
+        .collect()
+}
+
+/// One membership RPC, retried until the cluster answers `*_ok`. A
+/// refusal is definite — the core's gates ran before the proposal, the
+/// operation never entered the log — so a retry after one is honest, and
+/// it is also how the stop-the-world gate (§8.7.4, §8.7.8: one era
+/// transition outstanding at a time, the next verb waits for the view
+/// change into the established era) is driven. An unanswered verb whose
+/// establishing operation died uncommitted is the honest indeterminate;
+/// the deadline asserts only the healthy path.
+fn membership_ok(
+    cluster: &RelayedCluster,
+    node: &Node,
+    client: &str,
+    msg_id: &mut u64,
+    kind: &str,
+    target: &str,
+) -> Value {
+    let deadline = Instant::now() + CLUSTER_TIMEOUT;
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "{kind} {target} committed within the cluster timeout"
+        );
+        *msg_id += 1;
+        let request = *msg_id;
+        node.send(
+            client,
+            "n0",
+            json!({"type": kind, "msg_id": request, "node_id": target}),
+        );
+        let body = loop {
+            let reply = cluster.recv_client();
+            let seen = reply
+                .get("body")
+                .and_then(|body| body.get("in_reply_to"))
+                .and_then(Value::as_u64);
+            if seen == Some(request) {
+                break reply.get("body").cloned().expect("a reply carries a body");
+            }
+        };
+        if body.get("type").and_then(Value::as_str) == Some(&format!("{kind}_ok")) {
+            return body;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// The full membership lifecycle over the scripted transport: demote a
+/// voter to a learner, leave it out of the configuration entirely, join
+/// it back at weight 0, and promote it to a voter again. Every `*_ok`
+/// reply echoes the answering primary's current configuration view, and
+/// the echoes are the membership-convergence evidence the checker later
+/// rules on.
+#[test]
+fn membership_verbs_make_and_unmake_a_member() {
+    if binary().is_none() {
+        eprintln!("maelstrom feature off; no adapter binary to drive");
+        return;
+    }
+    let mut n0 = Node::spawn();
+    let mut n1 = Node::spawn();
+    let mut n2 = Node::spawn();
+    n0.init("n0", &["n0", "n1", "n2"]);
+    n1.init("n1", &["n0", "n1", "n2"]);
+    n2.init("n2", &["n0", "n1", "n2"]);
+    let cluster = RelayedCluster::start(&mut [&mut n0, &mut n1, &mut n2]);
+    std::thread::sleep(Duration::from_millis(500));
+
+    let mut msg_id = 1u64;
+    let demoted = membership_ok(&cluster, &n0, "c1", &mut msg_id, "demote", "n2");
+    assert!(
+        members_of(&demoted).contains(&("n2".into(), 0)),
+        "the demoted member is a learner: {demoted}"
+    );
+    let left = membership_ok(&cluster, &n0, "c1", &mut msg_id, "leave", "n2");
+    assert!(
+        !members_of(&left).iter().any(|(name, _)| name == "n2"),
+        "the left member is out of the configuration: {left}"
+    );
+    let joined = membership_ok(&cluster, &n0, "c1", &mut msg_id, "join", "n2");
+    assert_eq!(
+        members_of(&joined),
+        vec![("n0".into(), 1), ("n1".into(), 1), ("n2".into(), 0)],
+        "the join appends the learner: {joined}"
+    );
+    let promoted = membership_ok(&cluster, &n0, "c1", &mut msg_id, "promote", "n2");
+    assert!(
+        members_of(&promoted).contains(&("n2".into(), 1)),
+        "the promoted member votes again: {promoted}"
+    );
 }

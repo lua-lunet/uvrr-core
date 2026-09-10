@@ -35,9 +35,12 @@ impl Incoming {
 
 /// Maelstrom error codes we use. 11 and 20/22 are the codes the `lin-kv`
 /// workload understands; 11 is a *definite* failure ("this did not happen"),
-/// which we may only claim when the core provably refused to append.
+/// which we may only claim when the core provably refused to append. 12 is
+/// the membership host's own pre-gate: a request the bench roster cannot
+/// possibly satisfy (`malformed-request` — definite, before the core).
 pub mod error {
     pub const TEMPORARILY_UNAVAILABLE: u32 = 11;
+    pub const MALFORMED_REQUEST: u32 = 12;
     pub const KEY_DOES_NOT_EXIST: u32 = 20;
     pub const PRECONDITION_FAILED: u32 = 22;
 }
