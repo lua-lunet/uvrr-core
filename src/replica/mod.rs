@@ -212,6 +212,11 @@ pub enum Input {
     /// member `target` maps to under the current membership order. The
     /// target must strictly advance the view within the current era;
     /// anything else is refused as bad input.
+    ///
+    /// The cold-start arm: the boot fence never self-arms from persisted
+    /// knowledge (§5), so a post-genesis cold start arms its first fence
+    /// through this lever — a real deployment's cluster manager does
+    /// exactly this.
     AdminForceView {
         /// The view to enter: `target.view` past the current view number,
         /// `target.era` the current era.
@@ -1297,7 +1302,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// normal only after local restoration establishes adequate state. The
     /// persisted fault, if any, is preserved —
     /// faults survive restart because they are part of progress (§5
-    /// invariant 5).
+    /// invariant 5). The boot fence never self-arms from persisted
+    /// knowledge: a post-genesis cold start arms its first fence through
+    /// the host's [`Input::AdminForceView`] lever (§14.2) — a real
+    /// deployment's cluster manager does exactly this.
     ///
     /// A host that cannot produce a persisted progress must say so by using
     /// [`Replica::provision`] instead; the core makes the host say which it

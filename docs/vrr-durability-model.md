@@ -158,6 +158,8 @@ The following cross-strategy invariants are mandatory:
 
 `status` is process control as well as protocol state. A reopened node which has not proved its state current starts fenced/recovering regardless of the last status observed before failure.
 
+The boot fence never self-arms from persisted knowledge: a reopened member promotes itself only over the pristine genesis, and only a normal member suspects a silent primary, so a post-genesis full-cluster cold start — every member reopened fenced — emits nothing until the host acts. The host arms the first fence through the host-forced view change (`Input::AdminForceView`, §14.2), which drives the ordinary fence/evidence/install pipeline; a real deployment's cluster manager does exactly this (the Maelstrom host's bounded force-feed on a dirty reopen is the same obligation).
+
 ## 6. Functional core model
 
 The SANS-I/O transition is:
@@ -813,6 +815,7 @@ The current code contains:
 - explicit `Recovering` and `Replaying` statuses;
 - host strategies for the journal (`Journal`/`JournalView`, with the segmented in-memory implementation) and an explicit stability-completion boundary (`Stability`) gating dependent effects;
 - the provisioning/reopen lifecycle: `provision` establishes the genesis configuration, `reopen` restarts after possible state loss, and both start fenced `Recovering`;
+- the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it — the arm a post-genesis cold start's first fence goes through (§5), the boot fence never self-arming from persisted knowledge;
 - the host-supplied `u64` event tick on every input, with recovery nonces derived from it (§6.1);
 - the higher-view normal-message state-transfer behaviour specified by VRR-2012.
 

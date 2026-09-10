@@ -29,20 +29,29 @@
 //!    then n(1) starts; both tick in lockstep rounds. The pin: a leader is
 //!    elected, a first value commits, both apply.
 //! 2. **Post-genesis cold restart**: committed normal operations past the
-//!    genesis (`accepted > INIT_SLOT`) plus one committed
-//!    reconfiguration era, then a full-cluster staggered restart over the
-//!    recorded disks (the `tests/reincarnation.rs` restart idiom): n(0)
-//!    reopens and ticks alone through several timeout windows, then n(1)
-//!    reopens. The shape is pinned under two tick schedules: a lockstep
-//!    (metronome) schedule — both nodes tick in the same round — and a
-//!    lawful phase-shifted schedule (n(0) on even rounds, n(1) on odd)
-//!    that no real host's timers phase-lock into.
+//!    genesis (`accepted > INIT_SLOT`) plus one committed reconfiguration
+//!    era, then a full-cluster staggered restart over the recorded disks
+//!    (the `tests/reincarnation.rs` restart idiom): n(0) reopens and
+//!    ticks alone through several timeout windows, then n(1) reopens. The
+//!    restarted cluster is fenced by design — §5's boot fence never
+//!    self-arms from persisted knowledge — so the shape pins both sides
+//!    of the host obligation:
+//!    - **with the lever**: once both nodes have reopened, the host arms
+//!      the first fence through the §14.2 force-view input on the fenced
+//!      node, and the ordinary fence/evidence/install pipeline completes
+//!      the restart: a leader is elected at/beyond the folded era, a new
+//!      value commits, both apply (the §11.1 catch-up walk included). A
+//!      real deployment's cluster manager does exactly this.
+//!    - **without the lever**: the same restart stays fenced — both
+//!      nodes `Recovering`, not one datagram under either tick schedule
+//!      (lockstep and phase-shifted), and the client surface the named
+//!      refusal. The fence is the host's to arm.
 
 mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{INIT_SLOT, SystemOperation};
-use vrr::ids::{Era, NodeId, OperationId, View, ViewId};
+use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
 use vrr::progress::Status;
 use vrr::replica::{PlanRefusal, ViewChangeKnobs};
 
@@ -209,6 +218,53 @@ fn post_genesis_history(h: &mut Harness) -> ViewId {
     folded
 }
 
+/// The full-cluster staggered restart over the post-genesis disks: n(0)
+/// reopens first and ticks alone through several timeout windows — fenced,
+/// silent, the view unmoved — then n(1) reopens. Both nodes end fenced
+/// `Recovering` at the folded view (§5's boot rule).
+fn staggered_reopen(h: &mut Harness, folded: ViewId) {
+    h.crash(n(0));
+    h.crash(n(1));
+    h.restart_with(n(0))
+        .expect("n(0) reopens over its recorded disk");
+    assert_eq!(status_of(h, n(0)), Status::Recovering, "fenced at reopen");
+    assert_eq!(current_era(h, n(0)), Era(2), "the folded era persisted");
+
+    // n(0) alone through several timeout windows: no datagram is ever
+    // emitted — a `Recovering` node can neither promote (post-genesis
+    // history) nor suspect (suspicion requires `Normal`).
+    for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
+        h.tick(n(0));
+    }
+    assert_eq!(status_of(h, n(0)), Status::Recovering);
+    assert_eq!(current_view(h, n(0)), folded, "the view did not move");
+    assert_eq!(h.queued_len(), 0, "the solo phase emitted nothing");
+
+    h.restart_with(n(1))
+        .expect("n(1) reopens over its recorded disk");
+    assert_eq!(status_of(h, n(1)), Status::Recovering, "fenced at reopen");
+}
+
+/// The boundary property the fenced restart holds: every member
+/// `Recovering` at the folded view it reopened at, the folded era
+/// persisted, and not one datagram in flight.
+fn assert_fenced_boundary(h: &Harness, folded: ViewId) {
+    for id in [n(0), n(1)] {
+        assert_eq!(status_of(h, id), Status::Recovering, "{id:?} stays fenced");
+        assert_eq!(current_view(h, id), folded, "{id:?} never moved");
+        assert_eq!(
+            current_era(h, id),
+            folded.era,
+            "{id:?} holds the folded era"
+        );
+    }
+    assert_eq!(
+        h.queued_len(),
+        0,
+        "the whole window emitted not one datagram"
+    );
+}
+
 /// The staggered genesis start: n(0) provisioned and ticked alone through
 /// several `primary_timeout` windows, then n(1); both tick. The solo
 /// phase's one fence firing targets the succession view whose primary is
@@ -299,107 +355,184 @@ fn staggered_genesis_start_completes() {
     h.assert_safety();
 }
 
-/// The post-genesis cold restart under a lockstep (metronome) schedule:
-/// both nodes tick in the same round, a schedule no real host produces.
+/// The post-genesis cold restart, resolved: the host arms the first fence.
 ///
-/// SPEC OF CORRECT BEHAVIOR: a full-cluster staggered restart reopens
-/// every node fenced `Recovering` (§5's boot rule), and the cluster's own
-/// machinery then elects a leader at/beyond the folded era and commits a
-/// NEW value.
+/// The restarted cluster reopens fenced and its own machinery fires
+/// nothing — the tick's bootstrap self-promotion is genesis-only, and
+/// suspicion requires `Status::Normal` (`src/replica/mod.rs`,
+/// `plan_tick`), so no first datagram ever exists. The host obligation
+/// (§5, §14.2): arm the first fence through the force-view lever, after
+/// which the ORDINARY fence/evidence/install pipeline does the rest,
+/// exactly as in every view change — the forced node fences into the
+/// target view, the other member joins from the `StartViewChange`, both
+/// reach the fence quorum, the target view's primary wins the evidence
+/// quorum, installs, and serves.
 ///
-/// Today the restart wedges, and this test pins the wedge. The refusing
-/// gates, in order: the tick's bootstrap self-promotion requires
-/// `accepted == committed == INIT_SLOT` at the genesis view
-/// (`src/replica/mod.rs`, `plan_tick`), which post-genesis history
-/// excludes; tick-driven suspicion requires `Status::Normal`
-/// (`plan_tick`'s second decision), which the boot fence excludes — so no
-/// `StartViewChange` is ever broadcast; and the remaining
-/// `Recovering → Normal` routes (the §4 bootstrap adoption and the §9.1
-/// `StartView` install) require a sender that already holds a live
-/// primary's authority. With every member reopened there is no such
-/// sender: no first datagram ever exists, the cluster is silent whatever
-/// the tick schedule, and the client surface is the named refusal — both
-/// nodes answer `NotPrimary` naming the view's designated, still-fenced
-/// primary.
+/// The pin: after the staggered reopen and the solo fenced windows, one
+/// force-view input completes the restart — a leader is elected
+/// at/beyond the folded era, a NEW value commits at it, and both apply
+/// it, the restarted application walking the §11.1 catch-up first (the
+/// reconfiguration slot is a system operation and walks itself, §11).
 #[test]
-fn post_genesis_cold_restart_wedges_under_lockstep_ticking() {
+fn post_genesis_cold_restart_completes_when_the_host_arms_the_first_fence() {
     let mut h = cluster();
     let folded = post_genesis_history(&mut h);
+    staggered_reopen(&mut h, folded);
 
-    // The full-cluster crash; n(0) reopens first.
-    h.crash(n(0));
-    h.crash(n(1));
-    h.restart_with(n(0))
-        .expect("n(0) reopens over its recorded disk");
-    assert_eq!(status_of(&h, n(0)), Status::Recovering, "fenced at reopen");
-    assert_eq!(current_era(&h, n(0)), Era(2), "the folded era persisted");
+    // THE HOST OBLIGATION: arm the first fence through the §14.2 lever.
+    // The target is the next view in the folded era; its primary is the
+    // member the era's membership order names — n(0), the node that
+    // waited alone.
+    let target = ViewId {
+        era: folded.era,
+        view: View(folded.view.0 + 1),
+    };
+    assert_eq!(
+        primary_of(&h, n(0), target),
+        Some(n(0)),
+        "the target's primary under the folded era's order"
+    );
+    assert!(
+        matches!(h.force_view(n(0), target), StepOutcome::Published { .. }),
+        "the forced fence is accepted"
+    );
+    assert_eq!(status_of(&h, n(0)), Status::ViewChange, "the fence armed");
+    assert_eq!(current_view(&h, n(0)), target);
 
-    // n(0) alone through several timeout windows: no datagram is ever
-    // emitted — a `Recovering` node can neither promote (post-genesis
-    // history) nor suspect (suspicion requires `Normal`).
-    for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
-        h.tick(n(0));
+    // The ordinary pipeline runs from the armed fence; both nodes tick
+    // in lockstep rounds until a leader serves. The loop stops at the
+    // FIRST serving round: an idle cluster churns views by design (S4 —
+    // an idle primary's own timeout deposes it exactly like a backup's).
+    let mut elected = None;
+    for _ in 0..8 {
+        h.tick_all();
+        h.deliver_all();
+        if status_of(&h, n(0)) == Status::Normal && status_of(&h, n(1)) == Status::Normal {
+            elected = Some(current_view(&h, n(1)));
+            break;
+        }
     }
-    assert_eq!(status_of(&h, n(0)), Status::Recovering);
-    assert_eq!(current_view(&h, n(0)), folded, "the view did not move");
-    assert_eq!(h.queued_len(), 0, "the solo phase emitted nothing");
+    let elected = elected.unwrap_or_else(|| panic!("no leader elected\n{}", h.trace_dump()));
 
-    // n(1) reopens; both tick in lockstep rounds.
-    h.restart_with(n(1))
-        .expect("n(1) reopens over its recorded disk");
-    assert_eq!(status_of(&h, n(1)), Status::Recovering, "fenced at reopen");
+    // A leader is elected at/beyond the folded era, and it serves.
+    assert_eq!(elected, target, "the armed fence's target won");
+    assert_eq!(
+        elected.era, folded.era,
+        "the election sits in the folded era"
+    );
+    for id in [n(0), n(1)] {
+        assert_eq!(
+            status_of(&h, id),
+            Status::Normal,
+            "{id:?} is Normal (last diagnostic {:?})",
+            h.diagnostic(id)
+        );
+        assert_eq!(current_view(&h, id), elected, "{id:?} is in the view");
+    }
+    assert_eq!(
+        primary_of(&h, n(1), elected),
+        Some(n(0)),
+        "the elected view's primary serves"
+    );
+    h.assert_safety();
+
+    // The restarted application catches up first (§11.1): the restored
+    // committed history is acknowledged slot by slot — the committed
+    // reconfiguration slot is core-internal and walks itself (§11) — so
+    // the applied frontier lands on the folded history before new
+    // traffic.
+    for id in [n(0), n(1)] {
+        for slot in [Slot(3), Slot(4), Slot(6)] {
+            assert!(
+                matches!(h.report_applied(id, slot), StepOutcome::Published { .. }),
+                "the restored history acknowledges at n({}) s{}",
+                id.0,
+                slot.0
+            );
+        }
+        assert_eq!(
+            snap(&h, id).applied,
+            6,
+            "the application caught up at {id:?}"
+        );
+    }
+    h.assert_safety();
+
+    // A NEW value commits at the elected leader, and both apply it.
+    assert!(
+        matches!(
+            h.propose(n(0), op_id(4), b"new"),
+            StepOutcome::Published { .. }
+        ),
+        "the leader serves"
+    );
+    h.deliver_all();
+    for id in [n(0), n(1)] {
+        assert_eq!(
+            snap(&h, id).committed,
+            7,
+            "the new value committed at {id:?}"
+        );
+    }
+    h.assert_safety();
+    for id in [n(0), n(1)] {
+        let applies = h.execute_apply_effects(id);
+        assert_eq!(applies.len(), 1, "one Apply at {id:?}: {applies:?}");
+        assert_eq!(applies[0].slot, Slot(7), "the new value's upcall at {id:?}");
+        assert!(
+            matches!(applies[0].outcome, StepOutcome::Published { .. }),
+            "the acknowledgement taken at n({})",
+            id.0
+        );
+        assert_eq!(
+            applied_payloads(&h, id),
+            vec![b"new"],
+            "the application ran the new value at {id:?}"
+        );
+        assert_eq!(
+            snap(&h, id).applied,
+            7,
+            "the applied frontier passed the new commit at {id:?}"
+        );
+    }
+}
+
+/// The same post-genesis cold restart with the lever withheld: the
+/// boundary, stated as the design it is.
+///
+/// §5's boot fence never self-arms from persisted knowledge. A reopened
+/// member can neither promote (the tick's bootstrap self-promotion is
+/// genesis-only) nor suspect (suspicion requires `Status::Normal`), and
+/// every `Recovering → Normal` route — the §4 bootstrap adoption, the
+/// §9.1 `StartView` install — needs a sender that already holds a live
+/// primary's authority. A full-cluster cold start has no such sender: no
+/// first datagram ever exists, so the cluster is silent under any tick
+/// schedule and the fence stays up until the host arms it (§14.2 — the
+/// completion pin above). A real deployment's cluster manager does
+/// exactly this.
+///
+/// The pin: both nodes stay `Recovering` at the folded view through
+/// lockstep AND lawful phase-shifted windows, the queue holds not one
+/// datagram, and the client surface is the named refusal — `NotPrimary`
+/// naming the view's designated, still-fenced primary.
+#[test]
+fn post_genesis_cold_restart_stays_fenced_without_the_lever() {
+    let mut h = cluster();
+    let folded = post_genesis_history(&mut h);
+    staggered_reopen(&mut h, folded);
+
+    // A lockstep (metronome) schedule — both nodes tick in the same
+    // round, a schedule no real host produces.
     for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
         h.tick_all();
         h.deliver_all();
     }
+    assert_fenced_boundary(&h, folded);
 
-    // The pinned wedge: no leader, no message, no client service.
-    for id in [n(0), n(1)] {
-        assert_eq!(status_of(&h, id), Status::Recovering, "{id:?} stays fenced");
-        assert_eq!(current_view(&h, id), folded, "{id:?} never moved");
-        assert_eq!(current_era(&h, id), Era(2), "{id:?} holds the folded era");
-    }
-    assert_eq!(
-        h.queued_len(),
-        0,
-        "the whole window emitted not one datagram"
-    );
-    for (id, lsb) in [(n(0), 4u64), (n(1), 5)] {
-        assert_eq!(
-            h.propose(id, op_id(lsb), b"new"),
-            StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
-                view: folded,
-                primary: Some(n(1)),
-            }),
-            "the client surface is the named refusal at n({})",
-            id.0
-        );
-    }
-    h.assert_safety();
-}
-
-/// The same post-genesis cold restart under a lawful host tick schedule:
-/// deterministic but phase-shifted — n(0) ticks on even rounds, n(1) on
-/// odd — so no two timers ever fire in the same round. The wedge is
-/// schedule-independent (see the lockstep pin's gates): the first
-/// datagram never exists, so no phase relationship can matter, and this
-/// control pins that the failure is not a host-timing artifact.
-#[test]
-fn post_genesis_cold_restart_wedges_under_a_phase_shifted_schedule() {
-    let mut h = cluster();
-    let folded = post_genesis_history(&mut h);
-
-    h.crash(n(0));
-    h.crash(n(1));
-    h.restart_with(n(0))
-        .expect("n(0) reopens over its recorded disk");
-    for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
-        h.tick(n(0));
-    }
-    h.restart_with(n(1))
-        .expect("n(1) reopens over its recorded disk");
-
-    // The lawful schedule: one node's timer per round, phases disjoint.
+    // A lawful phase-shifted schedule — n(0) on even rounds, n(1) on
+    // odd, so no two timers ever fire in the same round. The silence has
+    // no phase relationship: no first datagram exists for any schedule
+    // to matter to.
     for round in 0..(2 * WINDOWS * (TIMEOUT + 1)) {
         if round % 2 == 0 {
             h.tick(n(0));
@@ -408,17 +541,10 @@ fn post_genesis_cold_restart_wedges_under_a_phase_shifted_schedule() {
         }
         h.deliver_all();
     }
+    assert_fenced_boundary(&h, folded);
 
-    for id in [n(0), n(1)] {
-        assert_eq!(status_of(&h, id), Status::Recovering, "{id:?} stays fenced");
-        assert_eq!(current_view(&h, id), folded, "{id:?} never moved");
-        assert_eq!(current_era(&h, id), Era(2), "{id:?} holds the folded era");
-    }
-    assert_eq!(
-        h.queued_len(),
-        0,
-        "the phase-shifted window emitted not one datagram"
-    );
+    // The client surface: the named refusal, naming the view's
+    // designated, still-fenced primary.
     for (id, lsb) in [(n(0), 4u64), (n(1), 5)] {
         assert_eq!(
             h.propose(id, op_id(lsb), b"new"),
