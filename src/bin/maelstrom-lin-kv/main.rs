@@ -13,18 +13,38 @@
 //! channel; a single core thread owns all state and is the only writer to
 //! stdout, so there is no lock around the replica.
 //!
-//! # Durability (§7): write-through at the host boundary
+//! # Durability: two modes, one host
 //!
-//! The node runs [`Stability::Volatile`] — the core's statement that effects
-//! release at `publish` — and enforces the durability ordering itself,
-//! between publish and observability: after every published transition the
-//! host rewrites the node's state file (temp file, fsync, atomic rename,
-//! fsync of the directory — the §7 `Forced` barrier shape) and only then
-//! routes any released effect. The state file carries exactly what the core
-//! considers durable: the §5 persisted progress record, the journal's
-//! retained history, and the §2 restart model (see below). A kill therefore
-//! loses at most the in-flight input; every effect the client or a peer ever
-//! observed rests on a file the host fsynced first.
+//! The bench host has two durability modes, fixed by the environment at
+//! init:
+//!
+//! - **Volatile — the default.** `MAELSTROM_VRR_STATE_DIR` unset or
+//!   empty: no store at all — no file is opened, written or fsynced, and
+//!   every construction takes the [`Stability::Volatile`] provision path:
+//!   first boot or kill-nemesis restart alike provisions fenced
+//!   `Recovering` (the genesis ruling, §1.3), and a node becomes `Normal`
+//!   only through the bootstrap adoption (§4). A voter whose volatile
+//!   state vanished while retaining authority is unrepresentable in this
+//!   host: a restarted node rejoins fenced, and the next view change
+//!   deposes any stale primary. A kill loses the process's state; the
+//!   survivors inside the fault bound keep serving.
+//! - **Persisted — opt-in.** `MAELSTROM_VRR_STATE_DIR` set: the state dir
+//!   is the persistence home, and the write-through barrier and the §2
+//!   restart decision below govern it. The state file carries exactly
+//!   what the core considers durable: the §5 persisted progress record,
+//!   the journal's retained history, and the §2 restart model. A kill
+//!   loses at most the in-flight input; every effect the client or a peer
+//!   ever observed rests on a file the host fsynced first.
+//!
+//! # The persisted mode's write-through (§7)
+//!
+//! In both modes the node runs [`Stability::Volatile`] — the core's
+//! statement that effects release at `publish`. In the persisted mode the
+//! host enforces the durability ordering itself, between publish and
+//! observability: after every published transition the host rewrites the
+//! node's state file (temp file, fsync, atomic rename, fsync of the
+//! directory — the §7 `Forced` barrier shape) and only then routes any
+//! released effect.
 //!
 //! The stability handshake stays `Volatile` because it is the only level
 //! whose contract this host can discharge honestly: every other level parks
@@ -41,8 +61,7 @@
 //!
 //! # The restart decision (§2 of `docs/uvrr-reincarnation.md`)
 //!
-//! The state dir (`MAELSTROM_VRR_STATE_DIR`, falling back to a fresh
-//! per-process temp dir when unset) is the persistence home. On `init`:
+//! In the persisted mode the state dir is the persistence home. On `init`:
 //!
 //! - **No state file** — the first life: `Node::provision` exactly as the
 //!   genesis ruling prescribes, then the state file is written with the
@@ -208,10 +227,12 @@ fn main() {
         match event {
             Event::Message(message) => node.on_message(message),
             Event::Tick => node.on_tick(),
-            // A clean shutdown (§2): the state file becomes a flushed
-            // checkpoint — the next init under the same state dir reopens
-            // cleanly, under the same identity. A kill leaves the running
-            // sentinel in the file: the next init reads dirty and bumps.
+            // A clean shutdown (§2, persisted mode): the state file
+            // becomes a flushed checkpoint — the next init under the same
+            // state dir reopens cleanly, under the same identity. A kill
+            // leaves the running sentinel in the file: the next init
+            // reads dirty and bumps. The volatile mode has nothing to
+            // flush; EOF is just exit.
             Event::Eof => {
                 node.clean_shutdown();
                 return;
@@ -349,12 +370,15 @@ struct NodeRunner {
     /// Membership verbs proposed but not yet committed: the establishing
     /// operation's slot and the era to watch for its fold.
     pending: Vec<PendingMembership>,
-    /// The persistence home, when the state dir is real. `None` never
-    /// happens in practice: the fallback lane keeps a per-process temp
-    /// dir, and the absent-dir provision case is a fresh file in it.
+    /// The persistence home, when the node opts in:
+    /// `MAELSTROM_VRR_STATE_DIR` set at init. `None` is the volatile
+    /// default — no store, no file I/O; the provision path is the
+    /// historical one, and no write is ever issued.
     store: Option<Store>,
     /// The §2 four-superblock copies this node carries, written on every
-    /// persist. `None` only before the first init completes.
+    /// persist. `None` before the first init completes — and always in
+    /// the volatile mode, which carries no restart model and writes
+    /// nothing.
     copies: Option<SuperblockCopies>,
     /// The old identity of a dirty restart whose bump is announced (§4)
     /// and re-announced on every tick (§8) until the identity is a voting
@@ -376,13 +400,14 @@ impl NodeRunner {
         self.flush_membership();
     }
 
-    /// The init handshake: parse the roster, open the persistence home,
-    /// and decide the restart (§2): provision a first life, or reopen the
-    /// durable evidence — cleanly (flushed) under the same identity, or
-    /// dirty (unflushed) under the bumped identity, whose restart the
-    /// core's reincarnation machinery then owns. A state file the host
-    /// cannot vouch for is the reopen refusal path: named, answered
-    /// `error`, exit nonzero.
+    /// The init handshake: parse the roster, take the durability mode the
+    /// environment selects (volatile default, persisted opt-in), and — in
+    /// the persisted mode — decide the restart (§2): provision a first
+    /// life, or reopen the durable evidence — cleanly (flushed) under the
+    /// same identity, or dirty (unflushed) under the bumped identity,
+    /// whose restart the core's reincarnation machinery then owns. A
+    /// state file the host cannot vouch for is the reopen refusal path:
+    /// named, answered `error`, exit nonzero.
     fn on_init(&mut self, message: &Incoming) {
         let node_id = message
             .field("node_id")
@@ -422,31 +447,27 @@ impl NodeRunner {
             }
             return;
         };
-        self.store = Some(match std::env::var("MAELSTROM_VRR_STATE_DIR") {
-            Ok(dir) => match Store::open(std::path::Path::new(&dir), &node_id) {
-                Ok(store) => store,
+        // The mode selection: a set, non-empty `MAELSTROM_VRR_STATE_DIR`
+        // opts the node into the persisted mode; unset or empty is the
+        // volatile default — no store, no file I/O, the provision path
+        // below.
+        self.store = match std::env::var("MAELSTROM_VRR_STATE_DIR") {
+            Ok(dir) if !dir.is_empty() => match Store::open(std::path::Path::new(&dir), &node_id) {
+                Ok(store) => Some(store),
                 Err(reason) => self.refuse_node(
                     message,
                     format!("the state dir {dir} is unusable: {reason}"),
                 ),
             },
-            // Unset: a fresh per-process temp directory, mirroring the
-            // Dockerfile default's home under the system temp root. A new
-            // process never finds a state file in it, so the fallback
-            // provisions exactly as the unpersisted host did.
-            Err(_) => Store::open(
-                &std::env::temp_dir().join(format!("maelstrom-state-{}", std::process::id())),
-                &node_id,
-            )
-            .unwrap_or_else(|reason| {
-                self.refuse_node(message, format!("no persistence home: {reason}"))
-            }),
-        });
-        let loaded = self
-            .store
-            .as_ref()
-            .expect("the persistence home was just opened")
-            .load();
+            // Unset or empty: the volatile default. No store is opened and
+            // no file is ever touched; the absent-evidence arm below takes
+            // the historical provision path.
+            _ => None,
+        };
+        let loaded = match &self.store {
+            Some(store) => store.load(),
+            None => Err(store::StoreError::Absent),
+        };
         let genesis_order = (0..members.len())
             .map(Identity::genesis)
             .collect::<Vec<_>>();
@@ -461,8 +482,9 @@ impl NodeRunner {
 
         match loaded {
             Err(store::StoreError::Absent) => {
-                // A first life: the genesis ruling, exactly as the
-                // unpersisted host ran it. The state file is written with
+                // A first life — and the volatile default's every life:
+                // the genesis ruling, exactly as the unpersisted host ran
+                // it. In the persisted mode the state file is written with
                 // the running sentinel before `init_ok` is answered.
                 let own = Identity::genesis(index);
                 match Node::provision(
@@ -478,7 +500,9 @@ impl NodeRunner {
                             "vrr-init: node {node_id} provisions a fresh identity (no persisted state)"
                         );
                         self.replica = Some(replica);
-                        self.copies = Some(fresh_copies().start_operating());
+                        if self.store.is_some() {
+                            self.copies = Some(fresh_copies().start_operating());
+                        }
                     }
                     Err(reason) => {
                         self.refuse_node(message, format!("provision refused: {reason:?}"))
@@ -511,8 +535,9 @@ impl NodeRunner {
             }
         }
 
-        // Start of operating (§2): the running sentinel, durable before
-        // the node answers anything.
+        // Start of operating (§2, persisted mode): the running sentinel,
+        // durable before the node answers anything. The volatile mode has
+        // no file to write.
         if let Err(reason) = self.write_state() {
             self.refuse_node(message, format!("the state file is unwritable: {reason}"));
         }

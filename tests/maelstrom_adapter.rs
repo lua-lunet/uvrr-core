@@ -18,7 +18,7 @@
 //! real.
 
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -75,6 +75,27 @@ impl Node {
                 command.stderr(Stdio::null());
             }
         }
+        Node::start(command, state_dir.is_some())
+    }
+
+    // `Drop` kills and waits the child; see `spawn`.
+    #[allow(clippy::zombie_processes)]
+    fn spawn_volatile(tmp: &Path) -> Node {
+        let mut command = Command::new(binary().expect("spawn called with the binary present"));
+        command.stdin(Stdio::piped()).stdout(Stdio::piped());
+        // The volatile default, made observable: no state dir reaches the
+        // child (an inherited one is removed), and the system temp root the
+        // node would fall back to is a private directory the test inspects.
+        command.env_remove("MAELSTROM_VRR_STATE_DIR");
+        command.env("TMPDIR", tmp);
+        command.stderr(Stdio::piped());
+        Node::start(command, true)
+    }
+
+    /// Spawns the node process and starts its transport threads. When
+    /// `pipe_stderr` is set, the host's lifecycle diagnostics arrive on a
+    /// channel the test polls.
+    fn start(mut command: Command, pipe_stderr: bool) -> Node {
         let mut child = command.spawn().expect("the adapter binary spawns");
         let mut stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
@@ -101,7 +122,7 @@ impl Node {
                 }
             }
         });
-        let stderr = state_dir.map(|_| {
+        let stderr = pipe_stderr.then(|| {
             let pipe = child.stderr.take().expect("piped stderr");
             let (lines, stderr) = channel::<String>();
             std::thread::spawn(move || {
@@ -921,5 +942,60 @@ fn a_corrupt_state_file_refuses_to_start() {
     assert!(
         !status.success(),
         "the refused node exits nonzero: {status}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The volatile default: `MAELSTROM_VRR_STATE_DIR` unset means no store at
+// all. The node provisions the historical `Stability::Volatile` way and
+// serves lin-kv traffic without one byte of file I/O.
+// ---------------------------------------------------------------------------
+
+/// The volatile default is the absence of a store, observed from the
+/// outside: nodes spawned without the env, with the system temp root they
+/// would fall back to pointed at a private directory, provision and serve
+/// committed traffic while that directory stays empty — no state file is
+/// opened, written or fsynced anywhere.
+#[test]
+fn the_volatile_default_serves_with_no_file_io() {
+    if binary().is_none() {
+        eprintln!("maelstrom feature off; no adapter binary to drive");
+        return;
+    }
+    let tmp = std::env::temp_dir().join(format!("uvrr-maelstrom-volatile-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).expect("the private temp root creates");
+
+    let mut n0 = Node::spawn_volatile(&tmp);
+    let mut n1 = Node::spawn_volatile(&tmp);
+    n0.init("n0", &["n0", "n1"]);
+    n1.init("n1", &["n0", "n1"]);
+    n0.stderr_containing("provisions a fresh identity");
+    n1.stderr_containing("provisions a fresh identity");
+    let cluster = RelayedCluster::start(&mut [&mut n0, &mut n1]);
+    std::thread::sleep(Duration::from_millis(500));
+
+    client_ok(
+        &cluster,
+        &n0,
+        "c1",
+        "n0",
+        "write",
+        json!({"key": 3, "value": 9}),
+    );
+    let body = client_ok(&cluster, &n1, "c1", "n1", "read", json!({"key": 3}));
+    assert_eq!(
+        body.get("value"),
+        Some(&Value::from(9)),
+        "the volatile lane serves committed traffic: {body}"
+    );
+
+    let written = std::fs::read_dir(&tmp)
+        .expect("the private temp root reads")
+        .filter_map(Result::ok)
+        .count();
+    assert_eq!(
+        written, 0,
+        "the volatile default writes nothing — not even a fallback store"
     );
 }
