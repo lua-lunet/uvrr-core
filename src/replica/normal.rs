@@ -117,7 +117,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// frontier's successor is dropped and reported as
     /// [`Diagnostic::GapDetected`], and the fetch half of the ruling rides
     /// the same transition — a `GetState` for the missing range goes to
-    /// the primary.
+    /// the primary. The host obligation rides with it (`docs/architecture.md`,
+    /// the contiguity gap rule): a host detects `slot > local frontier` at its
+    /// boundary and treats the epoch as stalled until state transfer repairs
+    /// the log; an era change is the lawful repair.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::replica) fn plan_prepare(
         &self,

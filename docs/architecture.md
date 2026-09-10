@@ -112,6 +112,20 @@ inside the core; it exists for the host and the C ABI.
 The graph above is acyclic, and stays so by ruling. A proposed edge that would create a
 cycle is a signal that a responsibility is in the wrong module.
 
+## The contiguity gap rule
+
+Normal operation's contiguity guard (§13.1 step 5) drops a `Prepare` whose slot is
+past the accepted frontier's successor and publishes `Diagnostic::GapDetected` on the
+observation; the fetch half of the ruling — a `GetState` for the missing range —
+rides the same transition. A `Commit` carries a frontier, not a slot: it is clamped
+to the local accepted frontier and never claims what the journal does not record
+(§5 invariant 2), so a gap can never enter through the commit path.
+
+Host obligation at the sans-I/O boundary: a host detects `slot > local frontier` at
+its boundary and treats the epoch as stalled until state transfer repairs the log;
+an era change is the lawful repair. The core publishes the named diagnostic and runs
+the fetch; the repair decision is the host's.
+
 ## Decision record
 
 Each decision states context, decision, consequence. These are rulings, not proposals.
@@ -119,7 +133,8 @@ A later item may not contradict one; it may only supersede one by amending this 
 and saying so.
 
 Identifiers are per-domain: `W` identity & wire, `S` durability & stability, `Q` quorum
-policy, `B` application boundary, `P` process & hygiene. Numbering is within the domain.
+policy, `B` application boundary, `G` runtime guards & enforcement, `P` process & hygiene.
+Numbering is within the domain.
 Section references are to `docs/vrr-durability-model.md`.
 
 ### Identity & wire
@@ -482,6 +497,66 @@ it. The client-table design explored during the rewrite is superseded and must n
 be integrated. A demonstration application (a clustered diskless byte stack) is
 deferred until after the full verification gate; its transport choices remain host
 decisions and set no core precedent.
+
+### Runtime guards
+
+#### G1 — Two runtime tiers: asserted invariants and maybes
+
+**Context.** The core already holds compile-time unrepresentability (`const _:
+() = assert!(...)` sanity and constructors that refuse illegal states), the
+closed `invariant::legal` checker that faults impossible LOCAL transitions, and
+the §4 totality that drops hostile peer input by name on the Diagnostic record.
+No documented rule says which runtime condition deserves which treatment, so
+every new module re-decides it.
+
+**Decision.** The runtime rule is two-tier:
+
+- **Invariants** — conditions whose impossibility the surrounding code
+  establishes. Asserted with `assert!`, always, release included. A violation
+  is a bug in the core itself, never a hostile input.
+- **Maybes** — conditions that are not provably impossible and are typically
+  adversary- or environment-adjacent. They panic in test and debug builds, so a
+  suite or smoke run surfaces them; in release they continue and surface
+  through the named Diagnostic surface.
+
+**Consequence.** A condition is assigned to one tier by this rule, not
+re-decided per module. The §4 guards' named drops are the established shape for
+peer-input maybes: total, named, never faulting the node. An `assert!` is never
+a stand-in for a hostile-input check, and a hostile-input check is never a
+stand-in for an `assert!`.
+
+#### G2 — The incarnation band is an asserted invariant
+
+**Context.** The bump is the sole constructor of a higher identity. A wrapped
+or reused identity would make a superseded one indistinguishable from a
+current one — the amnesiac voter of §14.2 by another name.
+
+**Decision.** The incarnation-band disjointness is asserted at the bump: the
+identity `bump` returns is strictly greater than the one it supersedes, so the
+superseded band never re-enters circulation. The surrounding `checked_add`
+establishes the impossibility; the `assert!` at the bump site is the tripwire,
+release included. The exhaustion refusal (`bump` returning `None`) is the
+refusal path, not a violation.
+
+**Consequence.** A future change to the band arithmetic that could wrap a
+superseded identity into circulation faults at the bump instead of circulating
+silently.
+
+#### G3 — Maybes surface through the Diagnostic they already flow through
+
+**Context.** The core reads no clock, opens no socket, and holds no log (S4,
+S1): it cannot log, warn, or report except by returning data to the host. The
+Diagnostic record is a seqlock-protected last-value snapshot (B1).
+
+**Decision.** No host-report surface this release. A maybe in the core
+continues in release and surfaces through the Diagnostic it already flows
+through. A host-report hook — a host-set report function or a trait value
+passed at construction — is an amendment to this record, not a quiet addition.
+
+**Consequence.** The Diagnostic record holds only the latest transition's
+outcome: two rapid drops overwrite each other, and a host that never polls it
+sees nothing. The host's stall-detection obligation is stated with the
+contiguity gap rule above.
 
 ### Process & hygiene
 

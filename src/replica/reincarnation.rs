@@ -410,9 +410,20 @@ impl Incarnation {
     /// The bumped identity: exactly one past the current one (§2's dirty
     /// path). Refused at exhaustion — a wrapped identity would make a
     /// superseded one indistinguishable from a current one.
+    ///
+    /// The band invariant (G2, `docs/architecture.md`): the bump is the sole
+    /// constructor of a higher identity, and the identity it returns is
+    /// strictly greater than the one it supersedes — the superseded band
+    /// never re-enters circulation. The surrounding `checked_add` establishes
+    /// the impossibility; the `assert!` is the tripwire, release included.
     #[must_use]
     pub fn bump(self) -> Option<Incarnation> {
-        self.0.checked_add(1).map(Incarnation)
+        let next = self.0.checked_add(1)?;
+        assert!(
+            next > self.0,
+            "the bumped identity must lie in a band disjoint from the identity it supersedes"
+        );
+        Some(Incarnation(next))
     }
 }
 
