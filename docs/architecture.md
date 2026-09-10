@@ -49,6 +49,20 @@ tick + message + state -> state + list(messages)
 Every input carries the host tick, and for a recovery input that tick is a recovery
 nonce; the attempt retains a bounded set of them, one per re-drive (§6.1, S4).
 
+Timeout policy is host policy in the same sense, and the core publishes a
+recommendation rather than a timer. For the view-change timeout: size the unit at
+`2×rtt` — the first window is one unit split evenly into a fixed and a uniform
+random half, so the earliest suspicion is a full round trip after the last observed
+activity; a 20 ms unit presumes ~10 ms RTT, ~5 ms one-way between two DCs. Each
+failed or interrupted election attempt doubles the window (unit, `2·unit`,
+`4·unit`, …, capped at 5000 ms), split into a fixed part and a uniform random part
+that both grow with the window — the fixed part so a duel survivor gets real work
+done inside its window, the random part so dueling hosts' timers spread and one
+election completes while the other waits — and the counter resets to the unit on
+commit or adopt. The host draws the random part and delivers its ticks; the core
+only counts. The schedule's arithmetic is published as pure functions in `backoff`;
+the recommendation is documented on `ViewChangeKnobs`.
+
 ## Modules
 
 | Module | Responsibility | Spec |
@@ -68,6 +82,7 @@ nonce; the attempt retains a bounded set of them, one per re-drive (§6.1, S4).
 | `replica::transfer` | state transfer sequencing; sizing is the host's | §4, §13.1, W5 |
 | `replica::reconfiguration` | membership and weight change; not yet implemented | §8.7.1–§8.7.8 |
 | `effects` | the output half of the transition, as inert data | §6, §7 |
+| `backoff` | the recommended randomized-timeout schedule, as pure arithmetic for the host | S4 |
 
 ## Module dependency graph
 
@@ -107,7 +122,9 @@ gate as free functions (Q1); `invariant` holds the closed transition-legality ch
 Both are depended on by `replica`, so no path reaches a proposal without passing the
 gates. `effects` is a leaf: nothing in the core consumes an effect, because effects are
 returned to the host, never performed. `observe` reads `progress` and is read by nothing
-inside the core; it exists for the host and the C ABI.
+inside the core; it exists for the host and the C ABI. `backoff` has no edges at all:
+it depends on nothing inside the core and nothing inside the core depends on it — pure
+arithmetic published for the host (the randomized-timeout recommendation, S4).
 
 The graph above is acyclic, and stays so by ruling. A proposed edge that would create a
 cycle is a signal that a responsibility is in the wrong module.

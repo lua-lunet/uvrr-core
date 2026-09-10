@@ -497,6 +497,38 @@ pub enum PublishOutcome {
 /// (the bootstrap and message-driven view changes still run); the genesis
 /// bootstrap then behaves exactly as the bootstrap rule specifies.
 ///
+/// # Choosing `primary_timeout`: the recommended randomized schedule
+///
+/// Randomized deadlines are the recommendation — they are what keep
+/// view-change duels from repeating. The schedule's arithmetic is published
+/// as pure functions in [`crate::backoff`]; the recommendation itself:
+///
+/// - **Unit sizing.** Size the timeout UNIT at `2×rtt`
+///   ([`crate::backoff::unit_from_rtt`]). The first window is one unit,
+///   split evenly into a fixed and a uniform random half, so the first
+///   suspicion deadline falls in `[unit/2, unit)` and the earliest it can
+///   fire is `unit/2 = rtt` — a full round trip. An answer in flight from a
+///   live primary lands before the earliest suspicion; the random half adds
+///   up to one more round trip of margin. A unit of 20 ms presumes an RTT
+///   of ~10 ms — ~5 ms one-way between servers in two DCs.
+/// - **Exponential backoff.** Each failed or interrupted election attempt
+///   doubles the window — unit, `2·unit`, `4·unit`, … — capped at
+///   [`crate::backoff::CAP_MILLIS`] (5000 ms). Every window splits into a
+///   FIXED part and a uniform RANDOM part, both growing with the window
+///   ([`crate::backoff::window`] computes exactly this split): the fixed
+///   part grows so a duel survivor gets real work done inside its window —
+///   a node that has just won an election must fit a `Prepare`/`Commit`
+///   round before its own next suspicion — and the random part widens so
+///   dueling hosts' timers spread and one node completes its election
+///   while the other waits.
+/// - **Reset.** The attempt counter returns to zero — the window to the
+///   unit — on commit or adopt: when the node observes same-view activity
+///   from the legitimate primary, or installs a new view.
+/// - **Sans-I/O honesty.** The host draws the random part, translates the
+///   drawn deadline into host ticks for `primary_timeout`, and delivers
+///   those ticks; the core only counts them. The core owns no clock, no
+///   randomness and no timer phase.
+///
 /// `view_change_budget` bounds the byte size of the history suffix carried
 /// by `DoViewChange` and `StartView` (§13.1). The core's obligation is
 /// exactness (W4): entries are packed newest-first and the wire suffix never
