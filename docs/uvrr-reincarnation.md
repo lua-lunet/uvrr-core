@@ -187,9 +187,20 @@ acquisition rule:
   takes the answering chunk's committed frontier and folds the system
   operations it covers — the fold input is the chunk the suffix ruling
   already verified against the local journal. The node stays fenced: it
-  adopts no view, its votes are never counted, and it serves nothing. The
-  admitting era folds exactly there, which makes the leader's `StartView`
-  evaluable and the ordinary install completes the catch-up.
+  adopts no view, its votes are never counted, and it serves nothing.
+  The admitting era folds exactly there, which makes the leader's
+  `StartView` evaluable and the ordinary install completes the catch-up.
+- **Era-by-era catch-up:** a boot-fenced member admitted several eras
+  past its boot table catches up era by era, one fold per stalled-ruling
+  re-run: an offer more than one era past is retained when it NAMES the
+  node (the era's establishing operation — a `Join`, the `Increment`
+  that promotes it, or a batch carrying either), the acquisition's fold
+  is capped at one era past the view it carries (the §8.7.3 era window),
+  each ordinary tick re-runs the retained ruling, the walked view carries
+  the next round's fetch, and the offer installs — the ordinary install —
+  once its era is evaluable. The member never votes in an era it has not
+  folded, and the walked view never adopts: the node is `Recovering`
+  until the retained offer installs.
 - **Authority:** unchanged — a learner votes only after a committed
   `INCREMENT` grants it weight; while its weight is 0 its messages are
   discarded by the standard membership checks (§6).

@@ -457,24 +457,45 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // gap ruling's (§13.1 step 5) — retain the offer, fetch the
             // missing range from the new primary under the CURRENT view,
             // and re-run the ruling on an ordinary tick once the range
-            // has folded the era that makes the offer evaluable. Any
-            // further-out era is merely unevaluable: the §8.7.3
+            // has folded the era that makes the offer evaluable.
+            //
+            // An offer MORE than one era past is the §10 learner
+            // acquisition's catch-up route when — and only when — the
+            // recipient is still at its boot fence (`Recovering` at
+            // `current == retained`, the reopen state: it has adopted
+            // nothing) and the offer NAMES it: the offered era's
+            // establishing operation admits the node (a `Join`, the
+            // `Increment` that promotes it, or a batch carrying either).
+            // The node stays fenced — it adopts nothing here, its votes
+            // are never counted, and it serves nothing — the acquisition
+            // (`docs/uvrr-reincarnation.md` §10) is the same ordinary
+            // state transfer, and the offered era's fold makes the offer
+            // evaluable for the ordinary install that completes the
+            // catch-up. Anything else is merely unevaluable: the §8.7.3
             // era/slot discipline caps what a fenced boot view can
-            // accept to its own era and the successor, so an offer more
-            // than one era past the boot table cannot be serviced by
-            // the fetch at all — the multi-era catch-up that needs it is
-            // a protocol gap (§10), not a gate to loosen.
+            // accept to its own era and the successor, so an unnamed
+            // node's far-future offer is not serviced by the fetch at
+            // all.
             let plan = self.drop_plan(
                 Diagnostic::UnevaluableEra {
                     era: header.view.era,
                 },
                 kind,
             )?;
-            if Some(header.view.era) == current.era.next() {
+            let next = current.era.next();
+            let retainable = if Some(header.view.era) == next {
+                true
+            } else {
+                next.is_some_and(|successor| header.view.era > successor)
+                    && self.progress.status() == Status::Recovering
+                    && current == self.progress.retained()
+                    && establishing_op_names(&era_proof.op, self.own)
+            };
+            if retainable {
                 let mut plan = plan.with_stalled_offer(from, message.clone());
                 if self.transfer.is_none() {
-                    if let Some(next) = self.progress.accepted().next() {
-                        let (effect, fetch) = self.fetch(current, from, next);
+                    if let Some(next_slot) = self.progress.committed().next() {
+                        let (effect, fetch) = self.fetch(current, from, next_slot);
                         plan = plan.with_fetch(effect, fetch);
                     }
                 }
@@ -722,5 +743,20 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 ..Bookkeeping::default()
             });
         Ok(WinOutcome::Installed(Box::new(plan)))
+    }
+}
+
+/// Whether `op` — the establishing operation a `StartView` offer's era
+/// proof carries — names `node` as a member the era admits: the `Join`
+/// that inserts it, the `Increment` that promotes it, or a batch carrying
+/// either. A departure (`Decrement`, `Leave`) does not admit; the offer
+/// is the node's catch-up route (§10), and a departing node is not
+/// catching up.
+fn establishing_op_names(op: &SystemOperation, node: NodeId) -> bool {
+    match op {
+        SystemOperation::Join { node: joined, .. } => *joined == node,
+        SystemOperation::Increment(named) => *named == node,
+        SystemOperation::Batch(ops) => ops.iter().any(|sub_op| establishing_op_names(sub_op, node)),
+        _ => false,
     }
 }

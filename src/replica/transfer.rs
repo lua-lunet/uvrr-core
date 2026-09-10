@@ -59,10 +59,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// from the legitimate primary of a view past the node's current one
     /// (the caller has verified the attribution). The message proves the
     /// node stale — but it is NOT installation evidence (§13.4's hint
-    /// rule), so the node ceases lower-view participation by fencing into
-    /// the message's view through the ordinary change pipeline, fetches
-    /// the history it lacks from the sender, and installs only when the
-    /// qualified evidence — the `StartView` — arrives.
+    /// rule): the node fences into the message's view through the
+    /// ordinary change pipeline, fetches the history it lacks from the
+    /// sender, and installs only when the qualified evidence — the
+    /// `StartView` — arrives.
     pub(in crate::replica) fn plan_higher_view_signal(
         &self,
         journal: &J::View,
@@ -331,24 +331,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     ..Bookkeeping::default()
                 }));
         }
-        let mutation = match self.check_suffix(journal, entries, through, committed, Slot::NONE) {
-            SuffixCheck::Install(mutation) => mutation,
-            // A reordered chunk: it cannot be verified against the local
-            // journal until its prefix arrives. Named, kept waiting — the
-            // fetch stays open and the in-flight chunks close it.
-            SuffixCheck::Gap { expected, got } => {
-                return self.drop_plan(Diagnostic::GapDetected { expected, got }, kind);
-            }
-            // A chunk contradicting a slot this node durably committed is
-            // the same quorum-obligation violation as a conflicting
-            // StartView suffix (§9.2): declare the breach.
-            SuffixCheck::Conflict => {
-                let candidate = self.identity_candidate()?;
-                return Ok(self
-                    .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
-                    .with_fault_declared(Fault::IllegalTransition));
-            }
-        };
         // The install moves the accepted frontier only; the committed
         // frontier moves on the current view's own transfer — while the
         // node is fenced, the completing ruling owns it. The one §10
@@ -367,12 +349,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // serves nothing (`Recovering`). A `ViewChange`-fenced node is
         // NOT covered: its attempt's completing ruling owns the commit
         // frontier, unchanged.
-        let new_accepted = accepted.max(through);
         let current_view_transfer =
             header.view == current && self.progress.status() == Status::Normal;
-        let boot_acquisition = header.view == current
-            && self.progress.status() == Status::Recovering
-            && current == self.progress.retained();
+        // The boot acquisition's take: the node is still at its boot fence
+        // (`Recovering` at `current == retained` — the reopen state, it
+        // has adopted nothing) and the chunk answers the fetch it opened
+        // itself (the transfer qualification above). The fetch's view is
+        // the correlation token the node opened the fetch under; the
+        // acquisition's walked view (below) keeps `current == retained`
+        // as the folded eras walk it forward.
+        let boot_acquisition =
+            self.progress.status() == Status::Recovering && current == self.progress.retained();
         // The §10 learner acquisition's take: the answering chunk's
         // committed frontier, CAPPED by a retained gap-ruled offer's own
         // committed frontier (§13.1 step 5). The offer is the node's own
@@ -401,42 +388,204 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Some(cap) => committed.min(cap),
             None => committed,
         };
+        let new_accepted = accepted.max(through);
         let new_committed = if current_view_transfer || boot_acquisition {
             self.progress.committed().max(take.min(new_accepted))
         } else {
             self.progress.committed()
         };
-        let mut effects = if new_committed > self.progress.committed() {
-            self.apply_effects_merged(journal, entries, self.progress.committed(), new_committed)?
-        } else {
-            Vec::new()
+        // Shape against the local journal first (§13.1): a reordered chunk
+        // is a named gap, a committed-slot contradiction a breach — both
+        // before anything folds (§9.2).
+        let mutation = match self.check_suffix(journal, entries, through, committed, Slot::NONE) {
+            SuffixCheck::Install(mutation) => mutation,
+            SuffixCheck::Gap { expected, got } => {
+                return self.drop_plan(Diagnostic::GapDetected { expected, got }, kind);
+            }
+            SuffixCheck::Conflict => {
+                let candidate = self.identity_candidate()?;
+                return Ok(self
+                    .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                    .with_fault_declared(Fault::IllegalTransition));
+            }
         };
         // §8.7.1: the committed frontier moved — fold the system
         // operations the advance newly covers. A fold refusal here is a
         // chunk that contradicts committed history the configuration
         // cannot hold: the same breach as the conflict arm above (§9.2).
-        let config =
-            match self.fold_committed(journal, entries, self.progress.committed(), new_committed) {
-                Ok(config) => config,
-                Err(CommitFold::Unavailable(slot)) => {
-                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
+        //
+        // The boot acquisition's fold may reach eras the boot view has not
+        // entered, so it folds only as far as §8.7.3's era window (W1)
+        // lets the boot view carry: the fold stops before the table would
+        // establish an era more than one past `era(current)`, the
+        // committed and accepted frontiers stop at the fold's frontier,
+        // and the durable view's era walks into the era the folded table
+        // established (the view number is preserved — no view change runs
+        // here; the node stays fenced `Recovering` and adopts no history).
+        // The chunk's tail past the fold is re-fetched by the
+        // acquisition's next round (the cursor below, or the re-retain's
+        // fetch once the stalled ruling re-runs).
+        let fold = if boot_acquisition {
+            self.fold_acquisition(
+                journal,
+                entries,
+                self.progress.committed(),
+                new_committed,
+                current.era.next(),
+            )
+            .map(|(table, covered, stopped)| (table, Some((covered, stopped))))
+        } else {
+            self.fold_committed(journal, entries, self.progress.committed(), new_committed)
+                .map(|table| (table, None))
+        };
+        let (folded, folded_state) = match fold {
+            Ok(pair) => pair,
+            Err(CommitFold::Unavailable(slot)) => {
+                return Err(PlanRefusal::JournalEntryUnavailable { slot });
+            }
+            Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+        };
+        let (new_committed, window_stopped) = folded_state
+            .map_or((new_committed, false), |(covered, stopped)| {
+                (covered, stopped)
+            });
+        let new_accepted = if boot_acquisition {
+            accepted.max(new_committed)
+        } else {
+            new_accepted
+        };
+        // The journal records only what the candidate's frontiers carry: a
+        // window-capped fold's tail is re-fetched by the acquisition's next
+        // round, so the batch is truncated to the covered prefix.
+        let truncated = boot_acquisition && new_committed < through;
+        let journaled: Vec<LogEntry> = if truncated {
+            entries
+                .iter()
+                .filter(|entry| entry.slot <= new_committed)
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let overlay: &[LogEntry] = if journaled.is_empty() {
+            entries
+        } else {
+            &journaled
+        };
+        let mutation = if truncated {
+            if new_committed < accepted {
+                JournalMutation::None
+            } else {
+                match self.check_suffix(
+                    journal,
+                    &entries
+                        .iter()
+                        .filter(|entry| entry.slot <= new_committed)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    new_committed,
+                    committed,
+                    Slot::NONE,
+                ) {
+                    SuffixCheck::Install(mutation) => mutation,
+                    SuffixCheck::Gap { expected, got } => {
+                        return self.drop_plan(Diagnostic::GapDetected { expected, got }, kind);
+                    }
+                    SuffixCheck::Conflict => {
+                        let candidate = self.identity_candidate()?;
+                        return Ok(self
+                            .candidate_plan(
+                                candidate,
+                                JournalMutation::None,
+                                Vec::new(),
+                                kind,
+                                false,
+                            )
+                            .with_fault_declared(Fault::IllegalTransition));
+                    }
                 }
-                Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
-            };
-        let candidate = self.candidate_with(
-            self.progress.status(),
-            new_accepted,
-            new_committed,
-            self.applied_walk(journal, entries, self.progress.applied(), new_committed)?,
-            config,
-        )?;
+            }
+        } else {
+            mutation
+        };
+        let mut effects = if new_committed > self.progress.committed() {
+            self.apply_effects_merged(
+                journal,
+                &entries
+                    .iter()
+                    .filter(|entry| entry.slot <= new_committed)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                self.progress.committed(),
+                new_committed,
+            )?
+        } else {
+            Vec::new()
+        };
+        let walked = boot_acquisition && window_stopped && folded.current().era > current.era;
+        // The walk's target, when the fold walked the view into the era the
+        // folded table established. The acquisition's next round rides it:
+        // the re-issued fetch (below) carries the walked view, whose era
+        // record the folded table holds — a fetch that stayed on the boot
+        // view would name an era the table's two-era retention window has
+        // walked past, and the answering chunk would be unevaluable at the
+        // very guard that reads it.
+        let walked_view = if walked {
+            Some(
+                current
+                    .next_in_next_era()
+                    .ok_or(PlanRefusal::Progress(ProgressError::ViewSuccessor))?,
+            )
+        } else {
+            None
+        };
+        let candidate = if let Some(target) = walked_view {
+            let revision = self
+                .progress
+                .revision()
+                .checked_add(1)
+                .ok_or(PlanRefusal::Progress(ProgressError::RevisionExhausted))?;
+            Progress::reconstitute(
+                target,
+                target,
+                self.progress.status(),
+                new_accepted,
+                new_committed,
+                self.applied_walk(journal, overlay, self.progress.applied(), new_committed)?,
+                self.progress.checkpoint(),
+                revision,
+                Arc::clone(&folded),
+                None,
+            )
+            .map_err(PlanRefusal::Progress)?
+        } else {
+            self.candidate_with(
+                self.progress.status(),
+                new_accepted,
+                new_committed,
+                self.applied_walk(journal, overlay, self.progress.applied(), new_committed)?,
+                Arc::clone(&folded),
+            )?
+        };
         // The cursor: a partial answer resumes with a fresh `GetState`
         // one past the newly installed frontier; the final chunk closes
-        // the fetch.
-        let transfer = if more {
+        // the fetch. The boot acquisition's window-capped fold is partial
+        // by construction when it stopped short of the chunk's own
+        // coverage (`new_committed < through`): the fetch stays open
+        // either way, so the next round folds the tail — and rides the
+        // view the candidate now carries (the walk's target, when the
+        // fold walked) so the answering chunk's era record is one the
+        // folded table still holds.
+        let truncated = boot_acquisition && new_committed < through;
+        let fetch_view = if boot_acquisition {
+            walked_view.unwrap_or(current)
+        } else {
+            header.view
+        };
+        let transfer = if more || truncated {
             match new_accepted.next() {
                 Some(next) => {
-                    let (effect, fetch) = self.fetch(header.view, from, next);
+                    let (effect, fetch) = self.fetch(fetch_view, from, next);
                     effects.push(effect);
                     TransferUpdate::Set(fetch)
                 }
@@ -452,5 +601,54 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 transfer,
                 ..Bookkeeping::default()
             }))
+    }
+
+    /// The boot acquisition's fold (§10): the committed range folded slot
+    /// by slot, stopping before the era table would establish an era more
+    /// than one past `era(current)` (§8.7.3's era window, W1). Returns the
+    /// folded table, the frontier the fold actually covered — the
+    /// committed frontier the boot view can carry — and whether the fold
+    /// stopped at the era window (as opposed to exhausting the range);
+    /// the range's tail past the fold is re-fetched by the acquisition's
+    /// next round. The entries are the verified chunk (or offer) history
+    /// every other fold path reads; a fold refusal here is the same
+    /// breach as the ordinary path's (§9.2).
+    fn fold_acquisition(
+        &self,
+        journal: &J::View,
+        overlay: &[LogEntry],
+        from: Slot,
+        through: Slot,
+        window: Option<Era>,
+    ) -> Result<(Arc<EraTable>, Slot, bool), CommitFold> {
+        let mut table = Arc::clone(self.progress.config());
+        let mut covered = from;
+        let mut slot = from;
+        let mut window_stopped = false;
+        while let Some(next) = slot.next() {
+            if next > through {
+                break;
+            }
+            let entry = match overlay.iter().find(|entry| entry.slot == next) {
+                Some(entry) => entry,
+                None => journal.get(next).ok_or(CommitFold::Unavailable(next))?,
+            };
+            if let Payload::System(op) = &entry.payload {
+                let extended = table
+                    .extend(op, next)
+                    .map_err(|error| CommitFold::Breach { slot: next, error })?;
+                if window.is_some_and(|successor| extended.current().era > successor) {
+                    // The era window is spent: the fold stops before this
+                    // slot, whose establishing operation awaits the next
+                    // acquisition round (after the view's era walked).
+                    window_stopped = true;
+                    break;
+                }
+                table = Arc::new(extended);
+            }
+            covered = next;
+            slot = next;
+        }
+        Ok((table, covered, window_stopped))
     }
 }
