@@ -116,7 +116,17 @@ normalization — the checked `WeightedGeneral.scaled_overlap` result covers eac
 
 Messages **FROM** a node that is not in the current voting configuration — a weight-0
 standby, or a superseded old identity — are **discarded** by the standard membership
-check on ingress. Messages **TO** such a node are fine. This is good practice
+check on ingress. Messages **TO** such a node are fine. Two exceptions, each the
+message that makes or keeps a membership: the `Reincarnation` announcement is the
+bumped node's entry ticket (§4), and the non-stop reconfiguration's solicited planned
+evidence (§8.7.7) is the vote the construction solicited — the pivot places a
+departing member inside `qI` precisely so its answer completes the planned quorum, so
+the discard treating that one answer as hostile input would conflate the transition
+with the departure. The exception is scoped to exactly that message: a `DoViewChange`
+carrying `EvidenceKind::Planned` for the armed machine's transition view, from a
+member the machine's pivot names in `qI`; every other guard of the planned-evidence
+path re-fires at the counting site, and a non-member's ordinary traffic — and its
+state-transfer requests — stay refused by name. This is good practice
 independent of reincarnation; the crash-vector collector's
 `old_reply_rejected` (rung 18) is the same primitive: once a later incarnation is
 known for a node, replies from the old identity never regain eligibility, regardless

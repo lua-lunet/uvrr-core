@@ -2582,6 +2582,32 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         })
     }
 
+    /// Whether `message` is the planned evidence the armed reconfiguration
+    /// machine solicited FROM `from` (§8.7.7): a `DoViewChange` carrying
+    /// `EvidenceKind::Planned` for exactly the machine's transition view,
+    /// from a member the machine's pivot names in `qI`. The §6
+    /// membership-discard admits exactly this message past the gate; every
+    /// other guard of the planned-evidence path — the solicited machine,
+    /// the transition view, the `qI` vote set, the shape rules, the era
+    /// proof — still applies at the counting site
+    /// ([`Self::plan_planned_evidence`]). A non-member's ordinary
+    /// view-change traffic stays refused by name.
+    fn planned_evidence_solicited(&self, from: NodeId, message: &Message) -> bool {
+        let Body::DoViewChange {
+            evidence: EvidenceKind::Planned,
+            ..
+        } = &message.body
+        else {
+            return false;
+        };
+        let Some(planned) = &self.planned else {
+            return false;
+        };
+        planned.solicited
+            && message.header.view == planned.target
+            && planned.pivot.q_i.contains(&from)
+    }
+
     /// The peer-message dispatch (§4, §9): normal operation, the ordinary
     /// view-change exchange, the non-stop overlap exchange (§8.7.7),
     /// recovery, and state transfer are live.
@@ -2603,11 +2629,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The §6 membership-discard check (`docs/uvrr-reincarnation.md`):
         // a message FROM a node outside the current committed
         // configuration — a superseded old identity, or any other
-        // non-member — is discarded. The one exception is the
-        // `Reincarnation` announcement: it is the bumped node's entry
-        // ticket, the message that makes it a member. Messages TO such a
-        // node are unaffected.
+        // non-member — is discarded. Two exceptions, each the message that
+        // makes or keeps a membership: the `Reincarnation` announcement is
+        // the bumped node's entry ticket, and the reconfiguration's own
+        // solicited planned evidence is the vote the construction
+        // solicited — the pivot puts a departing member inside `qI`
+        // precisely so its answer completes the planned quorum
+        // (§8.7.7), so the discard treating that one answer as hostile
+        // input is a conflation of the transition with the departure.
+        // Everything else FROM a non-member is refused by name, and every
+        // other guard of the planned-evidence path re-fires downstream.
+        // Messages TO such a node are unaffected.
         if message.header.tag != Tag::Reincarnation
+            && !self.planned_evidence_solicited(from, message)
             && self
                 .progress
                 .config()
