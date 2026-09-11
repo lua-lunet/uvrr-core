@@ -27,13 +27,30 @@
 \thispagestyle{fancy}
 
 \begin{abstract}
-Small replicated metadata should not require a disk flush on the critical path. We present Unbounded Viewstamped Replication Revisited (uVRR), a design for embedding a strongly consistent metadata service whose normal replication path uses volatile state. Its organising mechanism is leader overlap: the leader prepares a new quorum while withholding its own promise, preserving an existing decision quorum until handover. A cleanly stopped process restarts with its identity and flushed state; a crashed process instead joins with a fresh identity. For a five-voter, unit-weight configuration, replacement uses two committed configuration batches, first removing the old vote and then enabling the replacement. We describe the boundary at which a singleton leader overlap exists and distinguish this opportunity for continued operation from a general availability guarantee. The accompanying Lean development establishes conditional per-slot agreement for the replacement schedule, its voting weights, and identity nonreuse. These are deductive results under explicit history and lifecycle assumptions; they are not measurements of implementation latency or a refinement proof of the executable system.
+Small replicated metadata should not require a disk flush on the critical path.
+We present Unbounded Viewstamped Replication Revisited, a protocol design for
+embedding strong consistency that preserves volatile replication while replacing
+crash recovery with crash-stop reincarnation.
+A cleanly stopped process restarts with its identity and flushed state.
+A crashed process permanently retires its old identity and rejoins under a fresh
+identity, obtaining state and voting authority through reconfiguration.
+Its organising mechanism is leader overlap: where the leader is the sole
+intersection of the active decision quorum and the next prepare quorum, it
+withholds its own promise so that preparation can proceed while the active
+quorum remains usable.
+For a five-voter, unit-weight configuration, replacement takes two committed
+configuration batches: first removing the old vote, then enabling the new vote.
+The Lean development proves per-slot agreement across this schedule from the
+protocol's history invariants, verifies the replacement weights, and establishes
+both exclusion of the evicted voter and nonreuse of its identity.
+This gives a precise basis for replacing failed members while keeping
+synchronous disk writes out of normal metadata replication.
 \end{abstract}
 
 \section{Introduction}\label{sec:intro}
-A distributed application may need agreement over a small amount of metadata even when its main workload does not require a replicated transaction log. The design problem is to put that agreement inside the application without making synchronous disk writes part of every metadata update. The motivation for uVRR is this small-state, embedded setting~\cite{motivation}. Low update latency and prompt replacement of failed processes are design objectives; this paper does not report performance measurements.
+A distributed application may need agreement over a small amount of metadata even when its main workload does not require a replicated transaction log. The design problem is to put that agreement inside the application without making synchronous disk writes part of every metadata update. The motivation for Unbounded Viewstamped Replication Revisited (uVRR) is this small-state, embedded setting~\cite{motivation}. Removing synchronous persistence from the normal replication path removes its storage delay from each update; reincarnation makes replacement of failed processes a membership operation.
 
-Viewstamped Replication Revisited (VRR) separates normal replication from changes of view and membership~\cite{vrr}. Here we organise membership changes around the overlap of the quorums on either side of a configuration boundary. Turner shows how a leader that is the sole intersection of an active phase-two quorum and a prospective phase-one quorum can delay its own promise until the other promises arrive~\cite{turner}. That local action lets the active quorum remain usable during preparation. We use this construction directly and attribute it to Turner.
+Viewstamped Replication Revisited (VRR) already avoids disk writes during normal processing and view changes~\cite{vrr}. We preserve that property and organise membership changes around the overlap of the quorums on either side of a configuration boundary. Turner shows how a leader that is the sole intersection of an active phase-two quorum and a prospective phase-one quorum can delay its own promise until the other promises arrive~\cite{turner}. That local action lets the active quorum remain usable during preparation.
 
 The second design choice concerns identity. A process that loses volatile protocol state cannot resume voting as the same acceptor merely because it occupies the same machine. In uVRR a clean stop preserves state for a same-identity restart. An unclean stop permanently ends the old identity; the replacement obtains state and voting authority through membership change. This makes repeated process replacement a reconfiguration problem. ``Diskless'' refers to the normal replication path: startup fencing and clean shutdown still use durable writes.
 
