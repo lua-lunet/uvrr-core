@@ -1231,7 +1231,7 @@ impl NodeRunner {
         }
         // The §14.2 lever (the module docs' first-fence section): a dirty
         // reopen standing fenced at its reopen view is the no-self-arm
-        // wedge. After FORCE_FEED_WINDOWS silent windows the host arms the
+        // stall. After FORCE_FEED_WINDOWS silent windows the host arms the
         // first fence itself — once. Any progress, an adoption or a fence
         // someone else's datagram started, disarms the countdown for
         // good: the lever arms the first fence, it never babysits the
