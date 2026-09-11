@@ -10,9 +10,9 @@ The final target is `ReincarnationSafety.five_safe`. Given the existing Turner h
 3. `Replacement` records that old and new are both non-voters in the intermediate era, and only the new identity has weight one after promotion. The E1/E2 casting-vote example is the existing pivot at node 3, checked below.
 4. `amnesia_unreachable` rules out a return to the pre-bump identity in the existing identity transition model. The host supplies the clean-restart versus fresh-incarnation classification. Its disk implementation is outside this theorem.
 
-The final proof concludes agreement, replacement weights, and identity non-reuse together. It is a composition theorem over the stated abstract invariants, not a Rust refinement or liveness theorem. Two eras means two committed reconfiguration batches, not a wall-clock bound or a claim that catch-up needs no additional messages.
+The final proof concludes agreement, replacement weights, eviction from voting authority along the forced run, and identity non-reuse together. It is a composition theorem over the stated abstract invariants, not a Rust refinement or liveness theorem. Two eras means two committed reconfiguration batches, not a wall-clock bound or a claim that catch-up needs no additional messages.
 
-Leanstral supplied the proof in two bounded API rounds. The first attempt projected the wrong component of the final membership lemma; compiler feedback corrected it on round two. Definitions and the theorem statement were compared byte-for-byte with the submitted target. The accepted proof was then shortened without changing that statement and compiled again. No new disk model, liveness proof, or state-space search is needed for this rung.
+The original three-conjunct composition was supplied by Leanstral in two bounded API rounds. The current statement additionally exposes the existing `five_evicted_never_voting` invariant as a fourth conjunct; that extension is a direct lemma application. The first attempt projected the wrong component of the final membership lemma; compiler feedback corrected it on round two. Definitions and the theorem statement were compared byte-for-byte with the submitted target. The accepted proof was then shortened without changing that statement and compiled again. No new disk model, liveness proof, or state-space search is needed for this rung.
 
 ```bash
 cat UVRR/ReincarnationSafety.lean
@@ -56,6 +56,9 @@ These are safety statements even for executions that stop forever. -/
 def Safe {B V : Type} (P : Paxos Nat B V) : Prop :=
   (∀ i b c, P.chosen i b → P.chosen i c → P.v i b = P.v i c) ∧
   Replacement ∧
+  (∀ phase, Reincarnation.ForcedRun .bumped phase →
+    ¬ Reincarnation.voting
+      (Reincarnation.eraConfig 0 5 ReincarnationFive.unit5 phase) 0) ∧
   (∀ old phase current,
     Reincarnation.IdentRun .bumped (Reincarnation.bump old) phase current →
     current ≠ old)
@@ -63,7 +66,7 @@ def Safe {B V : Type} (P : Paxos Nat B V) : Prop :=
 /-- Five-voter crash-stop reincarnation is safe across the two committed
 reconfiguration eras, for every view schedule satisfying Contract. -/
 theorem five_safe {B V : Type} (P : Paxos Nat B V) (h : Contract P) : Safe P := by
-  refine ⟨?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_⟩
   · intro i b c hb hc
     exact ReincarnationAgreement.five_agreement P h.qi h.qii h.mono h.eraLe
       h.p23 h.p4 h.p5 h.p6 h.p7 h.order hb hc
@@ -71,6 +74,8 @@ theorem five_safe {B V : Type} (P : Paxos Nat B V) (h : Contract P) : Safe P := 
       ReincarnationFive.c1_membership.2.1,
       ReincarnationFive.c2_membership.2.2.2.2.2.1,
       ReincarnationFive.c2_membership.1⟩
+  · intro phase hrun
+    exact ReincarnationFive.five_evicted_never_voting hrun
   · intro old phase current hbump
     exact Reincarnation.amnesia_unreachable hbump
 

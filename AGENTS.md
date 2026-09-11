@@ -134,8 +134,10 @@ design, not accident.
   the delayed-fence counterexample evidence was removed with the classic
   crash-recover attempt it witnessed (historical copies remain under
   `research/uvrr-audit/`).
-- **Leanstral** (Mistral) — LLM Lean proof generator. Reported in the paper as a
-  failed-attempt tool. No accepted Leanstral-generated proof is attributed.
+- **Leanstral** (Mistral) — LLM Lean proof generator. Rung 26 records an accepted
+  composition proof supplied with library signatures and checked by Lean.
+  Failed attempts and externally reported repair trials remain distinguished
+  from kernel-checked results.
 - **Showboat** — executable evidence packaging. Cited in the paper bibliography.
 - **Tectonic** — LaTeX build tool for `paper.tex` (via `paper/build.sh`).
 
