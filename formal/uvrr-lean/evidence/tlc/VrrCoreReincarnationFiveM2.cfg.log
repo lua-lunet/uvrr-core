@@ -1,8 +1,8 @@
 TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
 Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector by passing the "-XX:+UseParallelGC" property.
 (Use the -nowarning option to disable this warning.)
-Running breadth-first search Model-Checking with fp 13 and seed 5070351519449351352 with 2 workers on 10 cores with 2048MB heap and 64MB offheap memory [pid: 60153] (Mac OS X 26.6.2 aarch64, Homebrew 26.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
-Parsing file /Users/Shared/lua-lunet/vrr-core/.tmp/tlc-five/fiveM2w1/VrrCoreReincarnation.tla
+Running breadth-first search Model-Checking with fp 106 and seed -8323286205945429152 with 1 worker on 10 cores with 2048MB heap and 64MB offheap memory [pid: 92520] (Mac OS X 26.6.2 aarch64, Homebrew 26.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/opencode/uvrr-wtF/formal/VrrCoreReincarnation.tla
 Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/FiniteSets.tla
 Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/Naturals.tla
 Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/TLC.tla
@@ -12,14 +12,15 @@ Semantic processing of module Sequences
 Semantic processing of module FiniteSets
 Semantic processing of module TLC
 Semantic processing of module VrrCoreReincarnation
-Starting... (2026-09-08 17:10:30)
+Starting... (2026-09-11 01:48:49)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-09-08 17:10:31.
+Finished computing initial states: 1 distinct state generated at 2026-09-11 01:48:49.
 Error: Invariant MassRule is violated.
 Error: The behavior up to this point is:
 State 1: <Initial predicate>
 /\ leader = "a"
 /\ aborted = FALSE
+/\ leaders = <<"none", "none">>
 /\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
    [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
 /\ msgs = {}
@@ -32,12 +33,14 @@ State 1: <Initial predicate>
   e |-> "clean",
   f |-> "clean",
   d |-> "clean" ]
+/\ views = 0
 /\ era = 0
 /\ wt = [a |-> 2, b |-> 2, c |-> 2, e |-> 2, f |-> 2, d |-> 0]
 
-State 2: <Announce line 132, col 5 to line 137, col 85 of module VrrCoreReincarnation>
+State 2: <Announce line 180, col 5 to line 186, col 44 of module VrrCoreReincarnation>
 /\ leader = "a"
 /\ aborted = FALSE
+/\ leaders = <<"none", "none">>
 /\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
    [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
 /\ msgs = { [era |-> 0, from |-> "a", type |-> "reincarnate", to |-> "b"],
@@ -54,12 +57,14 @@ State 2: <Announce line 132, col 5 to line 137, col 85 of module VrrCoreReincarn
   e |-> "clean",
   f |-> "clean",
   d |-> "clean" ]
+/\ views = 0
 /\ era = 0
 /\ wt = [a |-> 2, b |-> 2, c |-> 2, e |-> 2, f |-> 2, d |-> 0]
 
-State 3: <Ack line 146, col 5 to line 152, col 85 of module VrrCoreReincarnation>
+State 3: <Ack line 197, col 5 to line 205, col 44 of module VrrCoreReincarnation>
 /\ leader = "a"
 /\ aborted = FALSE
+/\ leaders = <<"none", "none">>
 /\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
    [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
 /\ msgs = { [era |-> 0, from |-> "a", type |-> "reincarnate", to |-> "b"],
@@ -77,12 +82,14 @@ State 3: <Ack line 146, col 5 to line 152, col 85 of module VrrCoreReincarnation
   e |-> "clean",
   f |-> "clean",
   d |-> "clean" ]
+/\ views = 0
 /\ era = 0
 /\ wt = [a |-> 2, b |-> 2, c |-> 2, e |-> 2, f |-> 2, d |-> 0]
 
-State 4: <Ack line 146, col 5 to line 152, col 85 of module VrrCoreReincarnation>
+State 4: <Ack line 197, col 5 to line 205, col 44 of module VrrCoreReincarnation>
 /\ leader = "a"
 /\ aborted = FALSE
+/\ leaders = <<"none", "none">>
 /\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
    [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
 /\ msgs = { [era |-> 0, from |-> "a", type |-> "reincarnate", to |-> "b"],
@@ -101,12 +108,14 @@ State 4: <Ack line 146, col 5 to line 152, col 85 of module VrrCoreReincarnation
   e |-> "clean",
   f |-> "clean",
   d |-> "clean" ]
+/\ views = 0
 /\ era = 0
 /\ wt = [a |-> 2, b |-> 2, c |-> 2, e |-> 2, f |-> 2, d |-> 0]
 
-State 5: <LeaderCommitSwap line 221, col 5 to line 230, col 66 of module VrrCoreReincarnation>
+State 5: <LeaderCommitSwap line 277, col 5 to line 287, col 73 of module VrrCoreReincarnation>
 /\ leader = "a"
 /\ aborted = FALSE
+/\ leaders = <<"a", "none">>
 /\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 2, d |-> 1],
    [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
 /\ msgs = { [era |-> 0, from |-> "a", type |-> "reincarnate", to |-> "b"],
@@ -125,10 +134,11 @@ State 5: <LeaderCommitSwap line 221, col 5 to line 230, col 66 of module VrrCore
   e |-> "clean",
   f |-> "clean",
   d |-> "clean" ]
+/\ views = 0
 /\ era = 1
 /\ wt = [a |-> 2, b |-> 2, c |-> 2, e |-> 2, f |-> 0, d |-> 1]
 
-1267 states generated, 339 distinct states found, 203 states left on queue.
-The depth of the complete state graph search is 6.
-The average outdegree of the complete state graph is 3 (minimum is 0, the maximum 7 and the 95th percentile is 5).
-Finished in 00s at (2026-09-08 17:10:31)
+81 states generated, 29 distinct states found, 14 states left on queue.
+The depth of the complete state graph search is 5.
+The average outdegree of the complete state graph is 2 (minimum is 0, the maximum 4 and the 95th percentile is 4).
+Finished in 00s at (2026-09-11 01:48:49)

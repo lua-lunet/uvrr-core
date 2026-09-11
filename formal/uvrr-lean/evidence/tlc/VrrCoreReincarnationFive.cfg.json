@@ -3,15 +3,15 @@
   "model": "VrrCoreReincarnation.tla",
   "status": "exited",
   "exit_code": 0,
-  "elapsed_seconds": 12.2,
+  "elapsed_seconds": 1.07,
   "wall_limit_seconds": 180,
   "java_heap_limit": "2g",
   "workers": 2,
-  "states_generated": 4595361,
-  "states_distinct": 271552,
-  "search_depth": 25,
+  "states_generated": 53078,
+  "states_distinct": 3406,
+  "search_depth": 20,
   "sha256": {
-    "VrrCoreReincarnation.tla": "54f919e62328240def9d1672cc2388b34ccfb90bafa8b92044f7a1b1fa8e56d2",
-    "VrrCoreReincarnationFive.cfg": "34c7e6fa73d50479d06670efc74f3ef6bf37bc12007ac19e6880a7e36196e8de"
+    "VrrCoreReincarnation.tla": "822c76cd5508817cd111b659498e462dc92401f9117b475a00ef05884732d43b",
+    "VrrCoreReincarnationFive.cfg": "72a4f805c5841bd12e8edd8c851b836d9e767e6cf93ccd2041683a201a321a19"
   }
 }

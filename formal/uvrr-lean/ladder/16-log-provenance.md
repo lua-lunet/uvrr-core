@@ -1,7 +1,7 @@
 # Rung 16: Shared multi-view committed-log compatibility
 
-*2026-09-06T08:16:09Z by Showboat 0.6.1*
-<!-- showboat-id: b43d5d1b-716e-44cc-aa0d-027107175ece -->
+*2026-09-11T00:42:07Z by Showboat 0.6.1*
+<!-- showboat-id: 2a2aaeb5-6768-432e-8330-3e8a4538f9f5 -->
 
 A shared transition model joins authentic prepare histories to local fencing, report emission and certified view activation. Its inductive invariant discharges same-view comparability and installed-base extension. Strong view induction proves committed-log compatibility and equal-length equality without a global agreement guard. Scope: one quorum family, arbitrary log length and view count, no crashes. Unique source activation is an explicit unused-view guard; concrete primary/wire refinement, recovery, membership changes, clients and progress remain open. A nonempty two-view execution and delayed wrong-view prepare control check the model interface.
 
@@ -18,7 +18,7 @@ installation base and an append-only primary history. Source activation
 requires authentic quorum reports and the executable maximum-rank selector,
 never a global agreement test. Local replicas use ViewFence transitions, receive
 only issued next-slot prepares, and emit immutable reports. No crash operation
-or first-round recovery knowledge is represented in this projection.
+or first-round restart knowledge is represented in this projection.
 -/
 namespace LogProvenance
 

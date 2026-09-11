@@ -1,0 +1,199 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 86 and seed -196350267849326477 with 2 workers on 10 cores with 1820MB heap and 64MB offheap memory [pid: 93467] (Mac OS X 26.6.2 aarch64, Homebrew 26.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/opencode/uvrr-wtF/formal/VrrCoreReincarnation.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/FiniteSets.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/Naturals.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/TLC.tla
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module VrrCoreReincarnation
+Starting... (2026-09-11 01:55:27)
+Implied-temporal checking--satisfiability problem has 1 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-09-11 01:55:27.
+Checking temporal properties for the current state space with 32584 total distinct states at (2026-09-11 01:55:30)
+Error: Temporal properties were violated.
+
+Error: The following behavior constitutes a counter-example:
+
+State 1: <Initial predicate>
+/\ leader = "a"
+/\ aborted = FALSE
+/\ leaders = <<"none", "none">>
+/\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
+   [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
+/\ msgs = {}
+/\ bumped = {}
+/\ crashed = FALSE
+/\ quorums = <<{}, {}>>
+/\ marks = [ a |-> "clean",
+  b |-> "clean",
+  c |-> "clean",
+  e |-> "clean",
+  f |-> "clean",
+  d |-> "clean" ]
+/\ views = 0
+/\ era = 0
+/\ wt = [a |-> 1, b |-> 1, c |-> 1, e |-> 1, f |-> 1, d |-> 0]
+
+State 2: <Crash line 127, col 5 to line 133, col 35 of module VrrCoreReincarnation>
+/\ leader = "a"
+/\ aborted = FALSE
+/\ leaders = <<"none", "none">>
+/\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
+   [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
+/\ msgs = {}
+/\ bumped = {}
+/\ crashed = FALSE
+/\ quorums = <<{}, {}>>
+/\ marks = [ a |-> "clean",
+  b |-> "clean",
+  c |-> "clean",
+  e |-> "clean",
+  f |-> "dirty",
+  d |-> "clean" ]
+/\ views = 0
+/\ era = 0
+/\ wt = [a |-> 1, b |-> 1, c |-> 1, e |-> 1, f |-> 1, d |-> 0]
+
+State 3: <Bump line 163, col 5 to line 172, col 37 of module VrrCoreReincarnation>
+/\ leader = "a"
+/\ aborted = FALSE
+/\ leaders = <<"none", "none">>
+/\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
+   [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
+/\ msgs = {}
+/\ bumped = {"f"}
+/\ crashed = FALSE
+/\ quorums = <<{}, {}>>
+/\ marks = [ a |-> "clean",
+  b |-> "clean",
+  c |-> "clean",
+  e |-> "clean",
+  f |-> "dirty",
+  d |-> "clean" ]
+/\ views = 0
+/\ era = 0
+/\ wt = [a |-> 1, b |-> 1, c |-> 1, e |-> 1, f |-> 0, d |-> 0]
+
+State 4: <Crash line 127, col 5 to line 133, col 35 of module VrrCoreReincarnation>
+/\ leader = "a"
+/\ aborted = FALSE
+/\ leaders = <<"none", "none">>
+/\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
+   [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
+/\ msgs = {}
+/\ bumped = {"f"}
+/\ crashed = TRUE
+/\ quorums = <<{}, {}>>
+/\ marks = [ a |-> "dirty",
+  b |-> "clean",
+  c |-> "clean",
+  e |-> "clean",
+  f |-> "dirty",
+  d |-> "clean" ]
+/\ views = 0
+/\ era = 0
+/\ wt = [a |-> 1, b |-> 1, c |-> 1, e |-> 1, f |-> 0, d |-> 0]
+
+State 5: <ViewChange line 144, col 5 to line 153, col 37 of module VrrCoreReincarnation>
+/\ leader = "b"
+/\ aborted = FALSE
+/\ leaders = <<"none", "none">>
+/\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
+   [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
+/\ msgs = {}
+/\ bumped = {"f"}
+/\ crashed = TRUE
+/\ quorums = <<{}, {}>>
+/\ marks = [ a |-> "dirty",
+  b |-> "clean",
+  c |-> "clean",
+  e |-> "clean",
+  f |-> "dirty",
+  d |-> "clean" ]
+/\ views = 1
+/\ era = 0
+/\ wt = [a |-> 1, b |-> 1, c |-> 1, e |-> 1, f |-> 0, d |-> 0]
+
+State 6: <Announce line 180, col 5 to line 186, col 44 of module VrrCoreReincarnation>
+/\ leader = "b"
+/\ aborted = FALSE
+/\ leaders = <<"none", "none">>
+/\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
+   [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
+/\ msgs = { [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "a"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "c"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "e"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "f"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "d"] }
+/\ bumped = {"f"}
+/\ crashed = TRUE
+/\ quorums = <<{}, {}>>
+/\ marks = [ a |-> "dirty",
+  b |-> "clean",
+  c |-> "clean",
+  e |-> "clean",
+  f |-> "dirty",
+  d |-> "clean" ]
+/\ views = 1
+/\ era = 0
+/\ wt = [a |-> 1, b |-> 1, c |-> 1, e |-> 1, f |-> 0, d |-> 0]
+
+State 7: <Ack line 197, col 5 to line 205, col 44 of module VrrCoreReincarnation>
+/\ leader = "b"
+/\ aborted = FALSE
+/\ leaders = <<"none", "none">>
+/\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
+   [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
+/\ msgs = { [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "a"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "c"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "e"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "f"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "d"],
+  [era |-> 0, from |-> "c", type |-> "ack", to |-> "b"] }
+/\ bumped = {"f"}
+/\ crashed = TRUE
+/\ quorums = <<{}, {}>>
+/\ marks = [ a |-> "dirty",
+  b |-> "clean",
+  c |-> "clean",
+  e |-> "clean",
+  f |-> "dirty",
+  d |-> "clean" ]
+/\ views = 1
+/\ era = 0
+/\ wt = [a |-> 1, b |-> 1, c |-> 1, e |-> 1, f |-> 0, d |-> 0]
+
+State 8: <Crash line 127, col 5 to line 133, col 35 of module VrrCoreReincarnation>
+/\ leader = "b"
+/\ aborted = FALSE
+/\ leaders = <<"none", "none">>
+/\ moved = << [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0],
+   [a |-> 0, b |-> 0, c |-> 0, e |-> 0, f |-> 0, d |-> 0] >>
+/\ msgs = { [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "a"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "c"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "e"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "f"],
+  [era |-> 0, from |-> "b", type |-> "reincarnate", to |-> "d"],
+  [era |-> 0, from |-> "c", type |-> "ack", to |-> "b"] }
+/\ bumped = {"f"}
+/\ crashed = TRUE
+/\ quorums = <<{}, {}>>
+/\ marks = [ a |-> "dirty",
+  b |-> "clean",
+  c |-> "clean",
+  e |-> "dirty",
+  f |-> "dirty",
+  d |-> "clean" ]
+/\ views = 1
+/\ era = 0
+/\ wt = [a |-> 1, b |-> 1, c |-> 1, e |-> 1, f |-> 0, d |-> 0]
+
+State 9: Stuttering
+Finished checking temporal properties in 00s at 2026-09-11 01:55:30
+426526 states generated, 59666 distinct states found, 28764 states left on queue.
+Finished in 03s at (2026-09-11 01:55:30)

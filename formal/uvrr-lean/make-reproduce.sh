@@ -40,7 +40,7 @@ a credential, or a model service.
 
 **What this document does and does not establish.** It shows that the Lean library
 compiles under the pinned toolchain, that every named declaration depends only on the
-three standard Lean axioms, that all 22 rung transcripts replay, that the fault-injection
+three standard Lean axioms, that all 20 rung transcripts replay, that the fault-injection
 mutations are rejected by the compiler, that the two TLC model checks reproduce, that
 the Rust implementation passes its gates, and that the paper's published,
 id-stamped PDF verifies by digest and footer. It does **not** establish an end-to-end uVRR or VRR-2012 safety proof: the ladder
@@ -137,11 +137,10 @@ builds and diffs every captured output.
 | 14 | `NormalLog.lean` | Fixed-view message induction: report comparability and replica prefix retention |
 | 15 | `ViewFence.lean` | Voter-report bounds; committed prefixes preserved in later activated views under explicit provenance |
 | 16 | `LogProvenance.lean` | Shared multi-view transition induction: committed-log compatibility, fixed configuration, no crashes |
-| 17 | `RestartFence.lean` | A supporting quorum retains a known fence through arbitrary crash/restart sequences |
-| 18 | `CrashVector.lean` | Published crash-vector collector: reachable reply sets are incarnation-consistent |
-| 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit restart provenance; retention discharged by the durable superblock identity |
-| 20 | `RestartAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
-| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: two-era forced weight sequence (`crossEra`/`evictEra` batches, R14 one-unit mass rule), reincarnation state machine and continuation commitment; unit-weight three-node era-safety instances; one-era swap refusal with disjoint-majority witness; general theorems listed as proof obligations |
+| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: two-era forced weight sequence (`crossEra`/`evictEra` batches, R14 one-unit mass rule), reincarnation state machine and continuation commitment; general obligations discharged at arbitrary scale in `ReincarnationGeneral.lean` |
+| 23 | `CastingVoteReincarnation.lean` | Rung 6's casting vote on the reincarnation eras: the two-node leader-overlap case and the three-node degenerate negative |
+| 24 | `ReincarnationFive.lean` | The five-voter reincarnation: computed majority families, era safety by the general discharge, the E1/E2 pivot at `n3` |
+| 25 | `ReincarnationAgreement.lean` | Agreement across the forced sequence under every view schedule: P1 discharged for the era family at arbitrary scale, Theorem 10 instantiated; the five-node instance with its leader-overlap pivot and majority boundary |
 EOF
 run 'for f in ladder/[0-9][0-9]-*.md; do
   if showboat verify "$f" >/dev/null 2>&1; then echo "ok   $f"; else echo "FAIL $f"; exit 1; fi
@@ -153,8 +152,8 @@ note <<'EOF'
 `check_mutations.py` copies a module into a temporary file, applies one named edit, and
 requires Lean to reject the result after the unchanged copy compiles. The edits remove a
 guard or premise that the proof relies on: an existential instead of universal quorum
-check, an unsafe four-node family, an omitted crash-vector filter, an omitted response
-ordering, a stale acquisition request, and a `sorry` that
+check, an unsafe four-node family, an omitted next-slot guard, an append after the
+view-change fence, a cross-view prepare receipt, and a `sorry` that
 must be exposed by the axiom audit despite a zero compiler exit. Rejection measures proof
 sensitivity; it is not a claim that every conceivable algorithm needs the guard.
 EOF
@@ -248,13 +247,10 @@ note <<'EOF'
 
 Everything above is either a kernel-checked component theorem, a finite model check, or an
 implementation test. The end-to-end uVRR claim is not yet proved. The obligations recorded
-in `LAB-BOOK.md` and in the paper's closing section are: the four general proof obligations
-of the reincarnation spec rung 22 (bumped-identity non-membership after eviction, quorum
-safety of every intermediate era at arbitrary scale, unreachability of the classic amnesia
-trace, and continuation commitment in general), quorum-knowledge persistence and value
-reconstruction for the
-operational acquisition of rung 20, whole-log preservation across an arbitrary sequence of
-reconfigurations, client-visible linearizability, conditional progress, and an explicit
+in `LAB-BOOK.md` and in the paper's closing section are:
+whole-log preservation across an arbitrary sequence of reconfigurations, the
+composition of the view-change log provenance of rungs 13–16 with the era sequence of
+rung 25, client-visible linearizability, conditional progress, and an explicit
 refinement between the Rust implementation and the checked models.
 EOF
 echo "generated $D"
