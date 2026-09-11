@@ -17,10 +17,10 @@
 //! to assume:
 //!
 //! 1.  provision constructs exactly the genesis state (era 1, view 0, slots 1–2
-//!     committed, fenced `Recovering`) and refuses a non-member, a duplicate or
+//!     committed, fenced `Restarting`) and refuses a non-member, a duplicate or
 //!     over-cap order, and a genesis configuration the quorum gate rejects;
 //! 2.  reopen validates the persisted progress against the journal, forces the
-//!     fenced `Recovering` boot rule, and preserves a persisted fault across
+//!     fenced `Restarting` boot rule, and preserves a persisted fault across
 //!     restart;
 //! 3.  volatile publication releases effects at `publish`, exactly once, and the
 //!     observation changes on publish only;
@@ -180,7 +180,7 @@ impl QuorumStrategy for AnythingQuorums {
 /// committed == Slot(2)`, `applied == Slot(2)` (the §11 system-slot ruling:
 /// both genesis slots are core-internal and walk `applied` by themselves)
 /// and `checkpoint == Slot(0)`, fenced in
-/// `Recovering` (the genesis ruling: a fresh node and a reopened node are
+/// `Restarting` (the genesis ruling: a fresh node and a reopened node are
 /// uniform — fenced until they prove their state current). Nothing about a
 /// fresh cluster is special-cased into `Normal`.
 #[test]
@@ -190,7 +190,7 @@ fn provision_constructs_exactly_the_genesis_state() {
 
     assert_eq!(progress.current(), genesis_view());
     assert_eq!(progress.retained(), genesis_view());
-    assert_eq!(progress.status(), Status::Recovering);
+    assert_eq!(progress.status(), Status::Joining);
     assert_eq!(progress.accepted(), Slot(2));
     assert_eq!(progress.committed(), Slot(2));
     assert_eq!(progress.applied(), Slot(2));
@@ -213,7 +213,7 @@ fn provision_constructs_exactly_the_genesis_state() {
     let snapshot = replica.observer().read();
     assert_eq!(snapshot.era, 1);
     assert_eq!(snapshot.view, 0);
-    assert_eq!(snapshot.status, Status::Recovering.to_word());
+    assert_eq!(snapshot.status, Status::Joining.to_word());
     assert!(!snapshot.faulted);
     assert_eq!(snapshot.accepted, 2);
     assert_eq!(snapshot.committed, 2);
@@ -389,7 +389,7 @@ fn provision_refuses_a_non_empty_journal() {
 // 2. Reopen
 // ---------------------------------------------------------------------------
 
-/// A consistent persisted progress and journal reopens — fenced `Recovering`
+/// A consistent persisted progress and journal reopens — fenced `Restarting`
 /// whatever status was persisted, per §5's boot rule: the pre-failure status
 /// is evidence about the past, not authority over the present.
 #[test]
@@ -412,7 +412,7 @@ fn reopen_restores_evidence_and_fences_regardless_of_persisted_status() {
         .expect("a consistent reopen succeeds");
         assert_eq!(
             reopened.progress().status(),
-            Status::Recovering,
+            Status::Restarting,
             "persisted {status:?} reopens fenced"
         );
         assert_eq!(reopened.progress().accepted(), Slot(2));
@@ -505,7 +505,7 @@ fn volatile_publish_releases_exactly_once_and_observes_on_publish_only() {
     let observer = replica.observer();
     let before = observer.read();
     assert_eq!(before.revision, 0);
-    assert_eq!(before.status, Status::Recovering.to_word());
+    assert_eq!(before.status, Status::Joining.to_word());
 
     let planned = replica
         .plan(&tick(1), &view_of(&replica))
@@ -943,7 +943,7 @@ fn an_illegal_candidate_is_discarded_and_faults_the_node() {
     let regressed = Progress::reconstitute(
         genesis_view(),
         genesis_view(),
-        Status::Recovering,
+        Status::Restarting,
         Slot(2),
         Slot(1), // committed behind the published Slot(2): rule 1
         Slot(0),

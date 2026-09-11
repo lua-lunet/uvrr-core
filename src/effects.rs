@@ -133,7 +133,7 @@ pub struct PersistenceIntent {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stability {
     /// State is installed in process memory; safety relies on VRR-2012 quorum
-    /// memory and recovery (§7). Effects release at `publish`.
+    /// memory and restart (§7). Effects release at `publish`.
     Volatile,
     /// The host accepted a write for later durability; until a barrier
     /// completes, safety remains the `Volatile` case (§7).

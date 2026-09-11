@@ -321,7 +321,7 @@ fn validation_rejects_qii_not_legal_under_next() {
 struct Thresholds {
     commit: u64,
     view_change: u64,
-    recovery: u64,
+    restart: u64,
     fence: u64,
 }
 
@@ -330,7 +330,7 @@ impl Thresholds {
         match role {
             Role::Commit => self.commit,
             Role::ViewChange => self.view_change,
-            Role::Recovery => self.recovery,
+            Role::Restart => self.restart,
             Role::Fence => self.fence,
         }
     }
@@ -352,7 +352,7 @@ impl QuorumStrategy for Thresholds {
 #[test]
 fn valid_pivot_does_not_bypass_transition_gate() {
     // Q1's six-node counterexample: thresholds commit=3, view=4, fence=4,
-    // recovery=4. INCREMENT of n0 takes the next config to weights
+    // restart=4. INCREMENT of n0 takes the next config to weights
     // [2,1,1,1,1,1] (total 7), where a disjoint view-change quorum
     // {n1,n2,n3,n4} (weight 4, under era e) and commit quorum {n0,n5}
     // (weight 3, under era e+1) exist — the R2 forward violation
@@ -361,7 +361,7 @@ fn valid_pivot_does_not_bypass_transition_gate() {
     let strategy = Thresholds {
         commit: 3,
         view_change: 4,
-        recovery: 4,
+        restart: 4,
         fence: 4,
     };
     let mut replica = Replica::provision(

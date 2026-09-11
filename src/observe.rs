@@ -59,7 +59,7 @@ pub enum Diagnostic {
         view: ViewId,
     },
     /// The message's view differs from the node's current view and no
-    /// adoption rule applies. View change and recovery have their own
+    /// adoption rule applies. View change and restart have their own
     /// adoption rules; normal operation drops the message.
     ViewMismatch {
         /// The view the message named.

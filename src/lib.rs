@@ -18,7 +18,7 @@
 //!
 //! The old alpha implementation was cut rather than patched: it encoded a
 //! mutable `&mut self step() -> Vec<Output>` transition, an embedded advisory-lock
-//! service, JSON in the datagram path, and a caller-supplied recovery nonce. All four
+//! service, JSON in the datagram path, and a caller-supplied restart nonce. All four
 //! are contradicted by the contract above.
 //!
 //! The rewrite is landing layer by layer, `ids -> wire -> configuration -> {journal,
@@ -28,9 +28,10 @@
 //! capabilities), `progress` (the `Progress` record), `observe` (seqlock observation),
 //! `invariant` (the closed transition-legality checker), `quorum` (the strategy and the
 //! closed intersection gate), `message` (the protocol bodies), `effects` (the host
-//! effect vocabulary) and `replica` (the plan/publish/confirm pipeline and lifecycle)
-//! are real modules with contract tests. `replica` is split into `normal` (§4
-//! `Prepare`/`PrepareOk`/`Commit`), `view_change` (§9), `recovery` (§10, §6.1),
+//! effect vocabulary), `backoff` (the recommended randomized-timeout schedule, as
+//! pure arithmetic for the host) and `replica` (the plan/publish/confirm pipeline and
+//! lifecycle) are real modules with contract tests. `replica` is split into `normal` (§4
+//! `Prepare`/`PrepareOk`/`Commit`), `view_change` (§9), `restart` (§10, §6.1),
 //! `transfer` (state transfer, §13.1 step 5) and `reconfiguration` (§8.7.1–§8.7.8),
 //! whose path is not yet implemented.
 
@@ -55,6 +56,7 @@ mod readme_doctests {
     #![doc = include_str!("../README.md")]
 }
 
+pub mod backoff;
 pub mod configuration;
 pub mod effects;
 pub mod ids;

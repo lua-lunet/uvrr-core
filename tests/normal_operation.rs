@@ -1,9 +1,9 @@
 //! Normal operation: VRR-2012 §4 (Prepare/PrepareOk/Commit), the
 //! Propose/Apply/Applied application boundary (§11.1), commit-frontier
-//! piggybacking (§13.3), and the bootstrap from the fenced `Recovering`
+//! piggybacking (§13.3), and the bootstrap from the fenced `Restarting`
 //! genesis state.
 //!
-//! The bootstrap (the genesis ruling, §1.3): a `Recovering` node whose journal holds
+//! The bootstrap (the genesis ruling, §1.3): a `Restarting` node whose journal holds
 //! the complete committed genesis (slots 1–2, nothing missing) and which IS
 //! `config.primary(View(0))` enters `Normal` on a tick — at initial
 //! provisioning there is no prior state to be amnesiac about, so the §14.2
@@ -105,8 +105,8 @@ fn bootstrap_and_one_request_end_to_end() {
         let snapshot = h.snapshot(id).expect("provisioned");
         assert_eq!(
             snapshot.status,
-            Status::Recovering.to_word(),
-            "every node starts fenced Recovering"
+            Status::Joining.to_word(),
+            "every provisioned node starts fenced Joining"
         );
     }
 
@@ -125,8 +125,9 @@ fn bootstrap_and_one_request_end_to_end() {
     for id in [n(1), n(2)] {
         assert_eq!(
             h.snapshot(id).expect("up").status,
-            Status::Recovering.to_word(),
-            "backups adopt the view from the primary's messages, not from ticks"
+            Status::Joining.to_word(),
+            "backups are still at their birth status: they adopt the view \
+             from the primary's messages, not from ticks"
         );
     }
     assert_eq!(

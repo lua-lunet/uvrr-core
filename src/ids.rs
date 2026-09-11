@@ -115,11 +115,11 @@ const _: () = assert!(align_of::<Slot>() == align_of::<u64>());
 
 /// Host-supplied event value carried by every input.
 ///
-/// Spec §6.1 and decision S4: the core reads no clock, and for a recovery input this
-/// value **is** the recovery nonce. One value cannot disagree with itself, which is why
+/// Spec §6.1 and decision S4: the core reads no clock, and for a restart input this
+/// value **is** the restart nonce. One value cannot disagree with itself, which is why
 /// there is no separate nonce type. The core treats it as opaque and converts no units,
 /// so nanoseconds, milliseconds and a harness counter are all admissible; the §6.1
-/// obligation that no recovery attempt reuse a nonce while an earlier attempt's message
+/// obligation that no restart attempt reuse a nonce while an earlier attempt's message
 /// can still be delivered is a property of the host's declared clock strategy and is not
 /// checkable here.
 #[repr(transparent)]
@@ -392,7 +392,7 @@ pub fn next_view_selecting(current: View, index: u32, members: u32) -> Option<Vi
 /// Why a node has declared itself unfit to participate.
 ///
 /// A fault is **sticky**: once set it is never cleared, and a faulted node refuses all
-/// new input, forcing a host restart and an explicit recovery that establishes a coherent
+/// new input, forcing a host restart and an explicit restart that establishes a coherent
 /// state (§5 invariant 5, §12's `Indeterminate persistence result -> Faulted`). The
 /// variants below are the complete set of sources, enumerated rather than collapsed into
 /// a string, so that a `match` over them is a compile-time obligation for every consumer
@@ -433,9 +433,9 @@ impl Fault {
     /// convention observed by whichever code happens to hold a `Fault`. There is
     /// deliberately no clear, reset, or `try_recover` path anywhere in the crate; a
     /// reviewer encountering that absence should read this method and conclude it is the
-    /// design, not an oversight. Recovery from a fault is a host lifecycle event — the
+    /// design, not an oversight. Restart from a fault is a host lifecycle event — the
     /// node is restarted and re-establishes a coherent state through the ordinary
-    /// recovery path (§5 invariant 5) — not a state transition the core can perform on
+    /// restart path (§5 invariant 5) — not a state transition the core can perform on
     /// itself, because a node that has lost track of its own durable state cannot be the
     /// authority that declares itself sound again.
     #[must_use]

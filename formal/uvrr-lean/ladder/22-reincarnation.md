@@ -11,7 +11,20 @@ the crossing era; `evictEra` — one batch of `INCREMENT(new), LEAVE(old)`, the 
 built on the unit steps `step0`/`step1`/`step2`), the
 flushed/unflushed/dirty/bumped/reincarnating state machine (`Phase`, `Transition`), the
 higher-identity-wins read rule (`adopt`), and continuation commitment (`committedPhase`,
-`ForcedStep`, `ForcedRun`, `forced_prefix`, `forced_monotone`). The admitted content is
+`ForcedStep`, `ForcedRun`, `forced_prefix`, `forced_monotone`).
+
+**Marker-machine note (post-dating the rung's transcript):** the governing boot rule is
+now the marker transition machine (`docs/vrr-durability-model.md` §5.1) —
+`Stopping→Stopped` proves the drain, a 2-of-4 `Stopped` quorum at boot is the clean stop
+whose `Restarting` node is a member with complete state ticking the full protocol, and a
+missing stopped quorum bumps the identity and enters `Joining`, not a member. The
+definitions below (`Mark`, `dirtyStartup`, `Phase`) encode the older
+all-`flushed`/any-`unflushed` classification as a simplified twin of the machine's closed
+4-copy domain; their re-statement over the machine is the release-gate regeneration, not
+a re-proof made here. The transcript below is the rung's dated evidence and is left as
+recorded.
+
+The admitted content is
 kernel-checked structural lemmas plus `decide`/`simp`-enumerated finite instances of the
 unit-weight three-node reincarnation: the two consecutive eras of the forced sequence are
 pairwise quorum-safe (`e0_e1_safe`, `e1_e2_safe`), and each era moves exactly ONE unit of

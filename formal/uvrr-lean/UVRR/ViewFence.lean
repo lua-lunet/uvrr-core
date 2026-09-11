@@ -5,7 +5,7 @@ may replace an uncommitted suffix; appends within that view preserve prefixes.
 Entering view change raises the floor before any reply is emitted. Votes and
 replies are immutable ghost histories. Installation takes an arbitrary log:
 its cross-view safety must come from the global selection theorem, not a guard
-that already assumes agreement. The first view-change round and recovery are
+that already assumes agreement. The first view-change round and restart are
 not yet modeled here; this is the local history projection they must preserve.
 -/
 namespace ViewFence

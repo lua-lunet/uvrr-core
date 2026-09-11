@@ -9,12 +9,12 @@
 //! 2. force-feed — `inject` reaches a node with exactly the outcome of a
 //!    queued delivery of the same datagram, and a legitimate
 //!    `Prepare` from the view-0 primary is adopted and accepted by a
-//!    `Recovering` backup while a proposal to a non-primary is the
+//!    `Restarting` backup while a proposal to a non-primary is the
 //!    named `NotPrimary` refusal;
 //! 3. partition accounting — datagrams sent across a partition are held,
 //!    counted, and deliverable after `heal`; an explicit drop is recorded;
 //! 4. crash/restart — deliveries to a down node are recorded undeliverable;
-//!    a reopen yields the recorded `Recovering` state and
+//!    a reopen yields the recorded `Restarting` state and
 //!    `restart_with` restores the recorded disk under the boot rule;
 //! 5. fault declaration discipline — an undeclared fault fails the step with
 //!    the full trace; the same script with `expect_fault` passes;
@@ -230,7 +230,7 @@ fn the_same_script_produces_byte_identical_traces() {
 /// `inject` bypasses the network queues but reaches the node through the same
 /// plan/publish path as a queued delivery: identical input, identical
 /// outcome. The normal-operation handlers are live: a legitimate `Prepare` from
-/// the view-0 primary is adopted and accepted by a `Recovering` backup
+/// the view-0 primary is adopted and accepted by a `Restarting` backup
 /// (VRR-2012 §4), which answers `PrepareOk`.
 #[test]
 fn inject_reaches_the_node_exactly_as_a_queued_delivery() {
@@ -336,7 +336,7 @@ fn partition_holds_counts_and_releases_on_heal() {
 /// A crashed node's volatile state dies with it: deliveries to it are
 /// recorded undeliverable. `restart_with` reopens the recorded disk,
 /// preserving the published record under the boot rule (fenced
-/// `Recovering` regardless).
+/// `Restarting` regardless).
 #[test]
 fn crash_makes_deliveries_undeliverable_and_restart_restores() {
     let mut h = Harness::provision(3);
@@ -360,7 +360,7 @@ fn crash_makes_deliveries_undeliverable_and_restart_restores() {
     h.restart_with(n(0)).expect("reopen from the recorded disk");
     let s = h.snapshot(n(0)).expect("node 0 is up");
     assert_eq!(s.revision, 2, "the published revision survived the crash");
-    assert_eq!(s.status, Status::Recovering.to_word());
+    assert_eq!(s.status, Status::Restarting.to_word());
     assert_eq!(s.accepted, 2);
     assert_eq!(s.committed, 2);
     h.assert_safety();
@@ -430,7 +430,7 @@ fn the_safety_checker_catches_planted_violations() {
     // Frontier sanity: applied ahead of committed breaks the chain.
     let planted = vec![evidence(
         0,
-        snapshot(Status::Recovering, 1, 0, 0, 2, 1, 2),
+        snapshot(Status::Restarting, 1, 0, 0, 2, 1, 2),
         &[0, 1, 2],
         vec![],
         vec![],
@@ -477,14 +477,14 @@ fn the_safety_checker_catches_planted_violations() {
     let planted = vec![
         evidence(
             0,
-            snapshot(Status::Recovering, 1, 0, 0, 0, 2, 2),
+            snapshot(Status::Restarting, 1, 0, 0, 0, 2, 2),
             &[0, 1, 2],
             genesis_log(&[0, 1, 2]),
             vec![],
         ),
         evidence(
             1,
-            snapshot(Status::Recovering, 1, 0, 0, 0, 2, 2),
+            snapshot(Status::Restarting, 1, 0, 0, 0, 2, 2),
             &[0, 1, 2],
             genesis_log(&[0, 1, 3]),
             vec![],
@@ -503,14 +503,14 @@ fn the_safety_checker_catches_planted_violations() {
     let planted = vec![
         evidence(
             0,
-            snapshot(Status::Recovering, 1, 0, 0, 0, 2, 2),
+            snapshot(Status::Restarting, 1, 0, 0, 0, 2, 2),
             &[0, 1, 2],
             vec![],
             vec![(3, 0xAA)],
         ),
         evidence(
             1,
-            snapshot(Status::Recovering, 1, 0, 0, 0, 2, 2),
+            snapshot(Status::Restarting, 1, 0, 0, 0, 2, 2),
             &[0, 1, 2],
             vec![],
             vec![(3, 0xBB)],
@@ -528,7 +528,7 @@ fn the_safety_checker_catches_planted_violations() {
     // Applied contiguity: slot 4 was never applied.
     let planted = vec![evidence(
         0,
-        snapshot(Status::Recovering, 1, 0, 0, 0, 2, 2),
+        snapshot(Status::Restarting, 1, 0, 0, 0, 2, 2),
         &[0, 1, 2],
         vec![],
         vec![(3, 0xAA), (5, 0xBB)],
@@ -546,14 +546,14 @@ fn the_safety_checker_catches_planted_violations() {
     let sound = vec![
         evidence(
             0,
-            snapshot(Status::Recovering, 1, 0, 0, 0, 2, 2),
+            snapshot(Status::Restarting, 1, 0, 0, 0, 2, 2),
             &[0, 1, 2],
             genesis_log(&[0, 1, 2]),
             vec![(3, 0xAA)],
         ),
         evidence(
             1,
-            snapshot(Status::Recovering, 1, 0, 0, 0, 2, 2),
+            snapshot(Status::Restarting, 1, 0, 0, 0, 2, 2),
             &[0, 1, 2],
             genesis_log(&[0, 1, 2]),
             vec![(3, 0xAA)],

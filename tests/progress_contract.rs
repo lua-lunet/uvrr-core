@@ -21,7 +21,7 @@
 //!    — the `+1` boundary (overlap mode) passes, `+2` is refused at construction;
 //! 7. the seqlock never returns a torn read, under a writer/reader race;
 //! 8. `ViewId::INITIAL` is the genesis view: `Progress::genesis` advertises it,
-//!    fenced and recovering, per §5.
+//!    fenced and restarting, per §5.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -170,9 +170,9 @@ fn frontier_chain_is_exhaustively_enforced() {
 // ---------------------------------------------------------------------------
 
 /// `Normal` requires `current == retained`; `ViewChange` requires `current >=
-/// retained`. `Recovering` and `Replaying` carry no relation — §1.3 states that in
+/// retained`. `Restarting` and `Replaying` carry no relation — §1.3 states that in
 /// those statuses `current` is not an authority to participate, so constraining it
-/// would forbid states a recovering node legitimately holds.
+/// would forbid states a restarting node legitimately holds.
 #[test]
 fn status_view_relation_is_enforced() {
     let table = genesis_table();
@@ -204,7 +204,7 @@ fn status_view_relation_is_enforced() {
     assert!(build(view(0, 1), view(0, 0), Status::ViewChange).is_ok());
     assert!(build(view(0, 1), view(0, 1), Status::ViewChange).is_ok());
 
-    assert!(build(view(0, 0), view(0, 1), Status::Recovering).is_ok());
+    assert!(build(view(0, 0), view(0, 1), Status::Restarting).is_ok());
     assert!(build(view(0, 0), view(0, 1), Status::Replaying).is_ok());
 }
 
@@ -245,7 +245,7 @@ fn fault_is_sticky_across_every_transition() {
         expected
     );
     assert_eq!(
-        faulted.with_status(Status::Recovering).unwrap_err(),
+        faulted.with_status(Status::Restarting).unwrap_err(),
         expected
     );
     assert_eq!(faulted.with_config(table_upto(1)).unwrap_err(), expected);
@@ -735,7 +735,7 @@ fn observation_never_returns_a_torn_read() {
 /// (see `Configuration::void`), and view 0 is the first primary term once `Init`
 /// commits. It is not "no view": a freshly provisioned node has a real genesis
 /// view, so no `Option<ViewId>` appears anywhere. Per §5 the genesis node is
-/// fenced and recovering until it proves its state current.
+/// fenced and restarting until it proves its state current.
 #[test]
 fn genesis_advertises_view_id_initial_fenced() {
     let table = genesis_table();
@@ -743,7 +743,7 @@ fn genesis_advertises_view_id_initial_fenced() {
 
     assert_eq!(genesis.current(), ViewId::INITIAL);
     assert_eq!(genesis.retained(), ViewId::INITIAL);
-    assert_eq!(genesis.status(), Status::Recovering);
+    assert_eq!(genesis.status(), Status::Joining);
     assert_eq!(genesis.accepted(), Slot::NONE);
     assert_eq!(genesis.committed(), Slot::NONE);
     assert_eq!(genesis.applied(), Slot::NONE);
@@ -767,13 +767,14 @@ fn snapshot_is_flat_and_decodes() {
     for (status, word) in [
         (Status::Normal, 0),
         (Status::ViewChange, 1),
-        (Status::Recovering, 2),
+        (Status::Restarting, 2),
         (Status::Replaying, 3),
+        (Status::Joining, 4),
     ] {
         assert_eq!(status.to_word(), word);
         assert_eq!(Status::from_word(word), Some(status));
     }
-    assert_eq!(Status::from_word(4), None);
+    assert_eq!(Status::from_word(5), None);
 
     let progress = normal(view(2, 9), 3, 2, 1, 1, 9, &table_upto(2));
     let snapshot = progress.to_snapshot();

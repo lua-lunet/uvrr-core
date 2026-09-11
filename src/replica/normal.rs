@@ -105,7 +105,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// outcome; then the slot relation decides: accept, idempotent
     /// re-acknowledgement, or gap.
     ///
-    /// The bootstrap rule: a `Recovering` backup receiving a legitimate
+    /// The bootstrap rule: a fenced entry (`Restarting` or `Joining`) backup
+    /// receiving a legitimate
     /// `Prepare` for its current view — with `current == retained`, so
     /// entering `Normal` re-selects nothing and rule 3 of the legality gate
     /// is untouched — adopts the view and enters `Normal` (§4's own
@@ -117,7 +118,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// frontier's successor is dropped and reported as
     /// [`Diagnostic::GapDetected`], and the fetch half of the ruling rides
     /// the same transition — a `GetState` for the missing range goes to
-    /// the primary.
+    /// the primary. The host obligation rides with it (`docs/architecture.md`,
+    /// the contiguity gap rule): a host detects `slot > local frontier` at its
+    /// boundary and treats the epoch as stalled until state transfer repairs
+    /// the log; an era change is the lawful repair.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::replica) fn plan_prepare(
         &self,
@@ -159,13 +163,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if header.view > current {
             return self.plan_higher_view_signal(journal, from, header.view, at, kind);
         }
-        // The message's view must be the node's current view; a `Recovering`
-        // node adopts it (the bootstrap rule above). Anything else is a
-        // view change or a recovery, and the message drops.
+        // The message's view must be the node's current view; a fenced
+        // entry state (`Restarting` or `Joining`) adopts it (the bootstrap
+        // rule above). Anything else is a view change or a recovery, and
+        // the message drops.
         let eligible = header.view == current
             && match self.progress.status() {
                 Status::Normal => true,
-                Status::Recovering => current == self.progress.retained(),
+                Status::Restarting | Status::Joining => current == self.progress.retained(),
                 Status::ViewChange | Status::Replaying => false,
             };
         if !eligible {
@@ -177,7 +182,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         }
-        let adopt = self.progress.status() == Status::Recovering;
+        let adopt = matches!(self.progress.status(), Status::Restarting | Status::Joining);
         // Era discipline (§8.7.3): era(view) <= era(entry) <= era(view) + 1.
         let era_legal = entry.era == header.view.era || header.view.era.next() == Some(entry.era);
         if !era_legal {
@@ -493,7 +498,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `committed = min(header.committed, accepted)` — the frontier never
     /// claims what the journal does not record (§5 invariant 2) — and emit
     /// `Apply` for the newly committed operation slots in slot order (§11.1).
-    /// A `Recovering` backup adopts the view under the same rule as
+    /// A fenced entry backup adopts the view under the same rule as
     /// `Prepare`.
     pub(in crate::replica) fn plan_commit(
         &self,
@@ -532,7 +537,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let eligible = header.view == current
             && match self.progress.status() {
                 Status::Normal => true,
-                Status::Recovering => current == self.progress.retained(),
+                Status::Restarting | Status::Joining => current == self.progress.retained(),
                 Status::ViewChange | Status::Replaying => false,
             };
         if !eligible {
@@ -544,7 +549,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         }
-        let status = if self.progress.status() == Status::Recovering {
+        let status = if matches!(self.progress.status(), Status::Restarting | Status::Joining) {
             Status::Normal
         } else {
             self.progress.status()

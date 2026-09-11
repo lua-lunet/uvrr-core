@@ -3,7 +3,7 @@ import UVRR.Synod
 /-! An operational single-era acceptor. Ballots are natural view rounds.
 Votes and emitted replies are append-only ghost histories; floor is the local
 promise watermark. Promise generation reads the most recent accepted ballot.
-This subsystem neither chooses values nor implements diskless recovery.
+This subsystem neither chooses values nor implements diskless restart.
 -/
 namespace Acceptor
 
