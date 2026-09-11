@@ -13,10 +13,13 @@
 //! * **C** — the leader crashed mid-sequence: a stable leader first, then
 //!   the new leader completes the sequence from the observed intermediate
 //!   era.
-//! * **D** — the four-superblock semantics: marker transitions
-//!   (flushed/unflushed/dirty/bumped), any-of-four unflushed → dirty,
-//!   all-flushed → clean-continue, higher-identity-wins, continuation
-//!   commitment.
+//! * **D** — the marker transition machine (§5.1): the EXHAUSTIVE closed
+//!   4-copy domain (4⁴ = 256 assignments) — 2-of-4 `Stopped` ⟺ the clean
+//!   stop, every other assignment bumps, the identity resolved INSIDE the
+//!   working quorum (higher-identity-wins, never across all copies),
+//!   all-`Joining` resurrects again; plus the stop path
+//!   (`begin_stop`/`finish_stop`, the marker order as the drain's proof)
+//!   and continuation commitment.
 //! * **E** — membership discard: messages from an unknown or superseded
 //!   identity ignored by the leader.
 //! * **F** — the reincarnated weight-0 learner: acquires the era that
@@ -38,8 +41,8 @@ use vrr::observe::Diagnostic;
 use vrr::progress::Status;
 use vrr::quorum::{QuorumStrategy, Role, WeightedMajority};
 use vrr::replica::{
-    CopyState, Incarnation, Marker, PlanRefusal, RestartClass, RestartDecision, SuperblockCopies,
-    forced_steps,
+    CopyState, Incarnation, Marker, PlanRefusal, RestartClass, RestartDecision, RestartRefusal,
+    SuperblockCopies, forced_steps,
 };
 use vrr::wire::{Header, Pack, Tag, Unpack, UnpackError};
 
@@ -692,7 +695,7 @@ fn killing_the_voting_primary_survives_the_reincarnated_identitys_forced_walk() 
 }
 
 // ---------------------------------------------------------------------------
-// D. Four-superblock semantics
+// D. The marker transition machine
 // ---------------------------------------------------------------------------
 
 fn copies(marks: [Marker; 4], identity: u64) -> SuperblockCopies {
@@ -704,38 +707,89 @@ fn copies(marks: [Marker; 4], identity: u64) -> SuperblockCopies {
     }
 }
 
-/// All four read `flushed` → clean: mark `unflushed` (the running
-/// sentinel) and continue under the SAME identity — the ordinary CR-free
-/// path, no recovery protocol run.
+/// The closed 4-copy domain, EXHAUSTIVE: every assignment of the four
+/// marker states to four copies — 4⁴ = 256, all cheap. For each
+/// assignment:
+///
+/// * the verdict is `Stopped` ⟺ ≥2 copies hold `Stopped` — 2-of-4 of the
+///   state right of the Stopping→Stopped transition, the clean stop;
+/// * the quorum-resolved identity is the single written identity;
+/// * a stopped quorum continues: `Continue { identity }` and
+///   `(identity, Restarting)` 4x — a member with complete state;
+/// * EVERY non-clean assignment bumps: `Bump { old, new }` and
+///   `(new, Joining)` 4x — a crash, a torn marker set, and death
+///   mid-join all resurrect.
+///
+/// The mid-join case falls out of the table and is asserted explicitly:
+/// all-`Joining` reads no stopped quorum, bumps, writes `Joining` again,
+/// and the rewritten set resurrects AGAIN — the commitment never wedges.
 #[test]
-fn d_all_flushed_is_clean_and_continues() {
-    let stored = copies([Marker::Flushed; 4], 7);
-    assert_eq!(stored.classify(), RestartClass::Clean);
-    let (decision, running) = stored.restart().expect("the identity space is not spent");
-    assert_eq!(
-        decision,
-        RestartDecision::Continue {
-            identity: Incarnation(7)
-        }
-    );
-    assert!(
-        running
-            .copies
+fn d_marker_domain_exhaustive() {
+    let states = [
+        Marker::Stopping,
+        Marker::Stopped,
+        Marker::Restarting,
+        Marker::Joining,
+    ];
+    for bits in 0..256usize {
+        let marks = [
+            states[bits & 3],
+            states[(bits >> 2) & 3],
+            states[(bits >> 4) & 3],
+            states[(bits >> 6) & 3],
+        ];
+        let stored = copies(marks, 7);
+        let clean = marks
             .iter()
-            .all(|copy| copy.identity == Incarnation(7) && copy.marker == Marker::Unflushed),
-        "the clean path marks unflushed"
-    );
-}
+            .filter(|mark| **mark == Marker::Stopped)
+            .count()
+            >= 2;
+        let (class, identity) = stored
+            .classify()
+            .expect("the single written identity reaches the open threshold");
+        assert_eq!(identity, Incarnation(7), "marks {marks:?}");
+        assert_eq!(
+            class == RestartClass::Stopped,
+            clean,
+            "the verdict must follow the 2-of-4 Stopped rule: {marks:?}"
+        );
+        let (decision, written) = stored.restart().expect("the identity space is not spent");
+        if clean {
+            assert_eq!(
+                decision,
+                RestartDecision::Continue {
+                    identity: Incarnation(7)
+                },
+                "marks {marks:?}"
+            );
+            assert!(
+                written.copies.iter().all(
+                    |copy| copy.identity == Incarnation(7) && copy.marker == Marker::Restarting
+                ),
+                "the continue writes Restarting 4x: {marks:?}"
+            );
+        } else {
+            assert_eq!(
+                decision,
+                RestartDecision::Bump {
+                    old: Incarnation(7),
+                    new: Incarnation(8)
+                },
+                "marks {marks:?}"
+            );
+            assert!(
+                written
+                    .copies
+                    .iter()
+                    .all(|copy| copy.identity == Incarnation(8) && copy.marker == Marker::Joining),
+                "the bump writes Joining 4x: {marks:?}"
+            );
+        }
+    }
 
-/// ANY of the four reading `unflushed` → the node is dirty: bump, rewrite
-/// all four as `(new, flushed)`.
-#[test]
-fn d_any_unflushed_is_dirty_and_bumps() {
-    let mut marks = [Marker::Flushed; 4];
-    marks[2] = Marker::Unflushed;
-    let stored = copies(marks, 7);
-    assert_eq!(stored.classify(), RestartClass::Dirty);
-    let (decision, bumped) = stored.restart().expect("the identity space is not spent");
+    // Death mid-join: all-`Joining` resurrects again — and again.
+    let mid_join = copies([Marker::Joining; 4], 7);
+    let (decision, rejoined) = mid_join.restart().expect("the bump succeeds");
     assert_eq!(
         decision,
         RestartDecision::Bump {
@@ -743,48 +797,107 @@ fn d_any_unflushed_is_dirty_and_bumps() {
             new: Incarnation(8)
         }
     );
-    assert!(
-        bumped
-            .copies
-            .iter()
-            .all(|copy| copy.identity == Incarnation(8) && copy.marker == Marker::Flushed),
-        "the bump rewrites all four as (new, flushed)"
+    let (again, resurrected) = rejoined.restart().expect("the second bump succeeds");
+    assert_eq!(
+        again,
+        RestartDecision::Bump {
+            old: Incarnation(8),
+            new: Incarnation(9)
+        }
     );
-    // The running sentinel replaces the bump's flushed mark the moment
-    // the node starts operating.
-    let running = bumped.start_operating();
     assert!(
-        running
+        resurrected
             .copies
             .iter()
-            .all(|copy| copy.marker == Marker::Unflushed)
-    );
-    // A clean shutdown rewrites the checkpoint mark.
-    let clean = running.clean_shutdown();
-    assert!(
-        clean
-            .copies
-            .iter()
-            .all(|copy| copy.marker == Marker::Flushed)
+            .all(|copy| copy.identity == Incarnation(9) && copy.marker == Marker::Joining)
     );
 }
 
-/// Higher-identity-wins: a read adopts the highest identity any copy
-/// carries, whatever the others say; the bump continues from THAT.
+/// The stop path (§5.1): the stop command writes `Stopping` 4x; the
+/// drain — flush WALs and grids — is the HOST's and sits strictly
+/// between the two marker writes; after it `finish_stop` writes
+/// `Stopped` 4x. The marker order is the drain's proof, so the completed
+/// stop boots as a member with complete state: `Continue` and
+/// `Restarting` 4x under the same identity.
 #[test]
-fn d_higher_identity_wins() {
-    let mut mixed = copies([Marker::Flushed; 4], 7);
-    mixed.copies[1].identity = Incarnation(9);
-    assert_eq!(mixed.read_identity(), Incarnation(9));
-    marks_unflushed(&mut mixed, 0);
-    let (decision, _) = mixed.restart().expect("the identity space is not spent");
+fn d_stop_path_marks_the_drain() {
+    let running = copies([Marker::Restarting; 4], 7);
+    let stopping = running.begin_stop();
+    assert!(
+        stopping
+            .copies
+            .iter()
+            .all(|copy| copy.marker == Marker::Stopping)
+    );
+    // The host drains here: flush the WALs and the grids. No marker
+    // write in between — the marker order is the drain's proof.
+    let stopped = stopping.finish_stop();
+    assert!(
+        stopped
+            .copies
+            .iter()
+            .all(|copy| copy.marker == Marker::Stopped)
+    );
+    assert_eq!(
+        stopped.classify(),
+        Some((RestartClass::Stopped, Incarnation(7)))
+    );
+    let (decision, restarted) = stopped.restart().expect("the identity space is not spent");
+    assert_eq!(
+        decision,
+        RestartDecision::Continue {
+            identity: Incarnation(7)
+        }
+    );
+    assert!(
+        restarted
+            .copies
+            .iter()
+            .all(|copy| copy.marker == Marker::Restarting)
+    );
+}
+
+/// The identity is resolved INSIDE the working quorum
+/// (higher-identity-wins), never highest-observed-across-all: the
+/// highest identity whose cohort reaches the open threshold — 2 of 4 —
+/// wins; a lone copy at a higher identity cannot impose it.
+#[test]
+fn d_identity_resolved_inside_the_working_quorum() {
+    let mut higher_cohort = copies([Marker::Joining; 4], 7);
+    higher_cohort.copies[0].identity = Incarnation(9);
+    higher_cohort.copies[1].identity = Incarnation(9);
+    assert_eq!(
+        higher_cohort.classify(),
+        Some((RestartClass::NotStopped, Incarnation(9)))
+    );
+    let (decision, _) = higher_cohort
+        .restart()
+        .expect("the identity space is not spent");
     assert_eq!(
         decision,
         RestartDecision::Bump {
             old: Incarnation(9),
             new: Incarnation(10)
         },
-        "the bump continues from the highest observed identity"
+        "the highest identity reaching the open threshold wins"
+    );
+
+    let mut lone_higher = copies([Marker::Joining; 4], 7);
+    lone_higher.copies[2].identity = Incarnation(12);
+    assert_eq!(
+        lone_higher.classify(),
+        Some((RestartClass::NotStopped, Incarnation(7)))
+    );
+    let (decision, _) = lone_higher
+        .restart()
+        .expect("the identity space is not spent");
+    assert_eq!(
+        decision,
+        RestartDecision::Bump {
+            old: Incarnation(7),
+            new: Incarnation(8)
+        },
+        "a single stale-or-superseded copy cannot impose its identity"
     );
 }
 
@@ -793,17 +906,15 @@ fn d_higher_identity_wins() {
 /// restart re-enters the same protocol from it.
 #[test]
 fn d_continuation_commitment() {
-    let mut marks = [Marker::Flushed; 4];
-    marks[3] = Marker::Unflushed;
+    let mut marks = [Marker::Restarting; 4];
+    marks[3] = Marker::Stopping;
     let (decision, bumped) = copies(marks, 7).restart().expect("the bump succeeds");
     let RestartDecision::Bump { new, .. } = decision else {
-        panic!("a dirty restart bumps");
+        panic!("no stopped quorum bumps");
     };
-    // The wire phase runs; the node starts operating (running sentinel);
-    // it then restarts AGAIN: dirty once more, and the identity only
-    // moves forward.
-    let running = bumped.start_operating();
-    let (second, rebumped) = running.restart().expect("the second bump succeeds");
+    // The wire phase runs; the node then restarts AGAIN: no stopped
+    // quorum once more, and the identity only moves forward.
+    let (second, rebumped) = bumped.restart().expect("the second bump succeeds");
     assert_eq!(
         second,
         RestartDecision::Bump {
@@ -811,10 +922,10 @@ fn d_continuation_commitment() {
             new: Incarnation(new.0 + 1)
         }
     );
-    // And a CLEAN shutdown then a restart continues the committed
-    // identity — never a reversion to anything lower.
-    let clean = rebumped.clean_shutdown();
-    let (third, continued) = clean.restart().expect("the clean path continues");
+    // A clean stop then a restart continues the committed identity —
+    // never a reversion to anything lower.
+    let stopped = rebumped.finish_stop();
+    let (third, continued) = stopped.restart().expect("the clean path continues");
     assert_eq!(
         third,
         RestartDecision::Continue {
@@ -825,7 +936,7 @@ fn d_continuation_commitment() {
         continued
             .copies
             .iter()
-            .all(|copy| copy.marker == Marker::Unflushed)
+            .all(|copy| copy.marker == Marker::Restarting)
     );
 }
 
@@ -833,18 +944,12 @@ fn d_continuation_commitment() {
 /// refuses rather than wrapping a superseded identity into circulation.
 #[test]
 fn d_identity_exhaustion_refuses() {
-    let mut marks = [Marker::Flushed; 4];
-    marks[0] = Marker::Unflushed;
-    let stored = copies(marks, u64::MAX);
+    let stored = copies([Marker::Joining; 4], u64::MAX);
     assert_eq!(
         stored.restart().err(),
-        Some(Incarnation(u64::MAX)),
+        Some(RestartRefusal::Exhausted(Incarnation(u64::MAX))),
         "the bump refuses at exhaustion"
     );
-}
-
-fn marks_unflushed(copies: &mut SuperblockCopies, index: usize) {
-    copies.copies[index].marker = Marker::Unflushed;
 }
 
 // ---------------------------------------------------------------------------

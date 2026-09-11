@@ -123,7 +123,8 @@ mod transfer;
 mod view_change;
 
 pub use reincarnation::{
-    CopyState, Incarnation, Marker, RestartClass, RestartDecision, SuperblockCopies, forced_steps,
+    CopyState, Incarnation, Marker, RestartClass, RestartDecision, RestartRefusal,
+    SuperblockCopies, forced_steps,
 };
 
 /// One host event with the host tick attached (§6, S4).
