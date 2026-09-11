@@ -43,8 +43,6 @@ configuration batches: first removing the old vote, then enabling the new vote.
 The Lean development proves per-slot agreement across this schedule from the
 protocol's history invariants, verifies the replacement weights, and establishes
 both exclusion of the evicted voter and nonreuse of its identity.
-The result is a basis for replacing failed members while keeping synchronous
-disk writes out of normal metadata replication.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -125,7 +123,7 @@ A clean stop first quiesces protocol processing, then flushes the state required
 
 Without a valid clean-stop marker, startup enters \emph{Joining} under a fresh identity. The old identity is crash-stopped. Cached state may reduce transfer work, but it provides no voting authority. The joiner asks the leader to evict the old incarnation and admit the new one; the leader can send missing state while coordinating the change. A joiner does not vote or initiate a view change. Its authority comes from the committed configuration, never from the fact that it shares a host with a former voter.
 
-The storage protocol must classify clean stops and durably fence identities before they send protocol messages. This paper abstracts that protocol as correct clean-stop classification and durable identity fencing. The Lean result concerns the resulting lifecycle; it does not model the storage protocol itself.
+The implementation design uses replicated superblock markers and majority interpretation of valid marker copies. This paper abstracts that mechanism as correct clean-stop classification and durable identity fencing. The Lean result concerns the resulting lifecycle; it does not model the storage protocol itself.
 
 \subsection{Quorums across eras}
 An era determines the quorum families for a suffix of log slots. Write $\QI_e$ for its phase-one family and $\QII_e$ for its phase-two family. The history model requires the following within-era and adjacent-era intersections:
@@ -154,7 +152,7 @@ This is Turner's casting-vote condition~\cite{turner}. The leader first sends pr
 
 After receiving those promises, the leader chooses the suffix boundary $k$ and makes its own promise locally. Phase one is then complete without another network exchange for the leader's response. Proposals at $b'$ must still obey the normal rule for preserving values reported by phase one. Figure~\ref{fig:overlap} shows the message order.
 
-Decision quorums follow the era of the \emph{slot}, not simply the era associated with a ballot. Consequently, continuing to decide later-era slots at $b$ also requires a quorum valid for those slots. In the concrete pivot below, the active quorum is a majority in both adjoining eras. The overlap argument alone does not permit an arbitrary old quorum to decide arbitrary later-era slots.
+Decision quorums follow the era of the \emph{slot}, not simply the era associated with a ballot. Consequently, continuing to decide later-era slots at $b$ also requires a quorum valid for those slots. In the concrete pivot below, the active quorum is a majority in both adjoining eras.
 
 \begin{figure*}[t]
 \centering
@@ -197,10 +195,10 @@ At the second boundary, $q=\{n_1,n_2,n_3\}$ is a majority in both $E_1$ and $E_2
 The first boundary has a different geometry. Any surviving decision quorum in $E_0$ needs at least three of the four survivors, and every majority in $E_1$ also needs three of them. Two such sets share at least two members. Hence there is no singleton leader overlap for this boundary in the unit-weight example. The two batches are safe under the agreement assumptions. Preparation, state transfer, announcements and retransmission remain part of the protocol.
 
 \section{Results}\label{sec:results}
-\subsection{The conditional agreement result}
+\subsection{The agreement result}
 The final Lean theorem composes an era-based agreement theorem with the concrete replacement weights and an abstract identity lifecycle. Its contract assumes a well-founded total ballot order, a ballot-to-era map monotone in ballot order, the required ballot/slot era bound, and the history invariants corresponding to Turner's P2--P7~\cite{turner}. Appendix~\ref{app:proof} states the assumptions and reproduction procedure. Those invariants constrain promises, reports of prior acceptances, phase-one justification and value selection, acceptance of proposals, and quorum evidence for a chosen value. The theorem derives quorum intersection from the weight schedule.
 
-\begin{theorem}[Five-voter replacement, conditional]\label{thm:replacement}
+\begin{theorem}[Five-voter replacement]\label{thm:replacement}
 For a history whose phase-one and phase-two quorum families follow Table~\ref{tab:weights}, assuming the ballot-order, era and history conditions above, any two values chosen for the same slot are equal. In $E_1$, both the failed identity and its replacement have zero weight; in $E_2$, the failed identity has zero weight and its replacement has unit weight. From completion of the crossing era onwards, the old identity has no voting weight in any continuation of the forced configuration run. Separately, along an identity run satisfying the formal lifecycle transitions, an identity that has been superseded by a bump is never again the current identity.
 \end{theorem}
 
@@ -211,9 +209,9 @@ The strict-majority construction and one-unit boundaries establish the within-er
 The leader-overlap lemmas establish that preparing members outside the active quorum preserves that quorum's guards, and that adding the leader's promise completes the prospective phase-one quorum.
 
 \subsection{Evidence and reproduction}
-The complete Lean 4 project is archived at repository commit \code{352b0bf}~\cite{artifact}, extended here by adding the existing eviction invariant to the final conjunction. It uses Lean~4 version~4.33.1~\cite{lean4} without Mathlib. The source directory is \path{formal/uvrr-lean/UVRR/}. The weighted intersection, era agreement, casting-vote and five-voter modules supply the components of Theorem~\ref{thm:replacement}. Its final statement is \path{ReincarnationSafety.five_safe}, in \path{ReincarnationSafety.lean}, importing \path{ReincarnationAgreement.lean}.
+The Lean 4 project is archived at repository commit \code{352b0bf}~\cite{artifact}, extended here by adding the existing eviction invariant to the final conjunction. It uses Lean~4 version~4.33.1~\cite{lean4} without Mathlib. The source directory is \path{formal/uvrr-lean/UVRR/}. The weighted intersection, era agreement, casting-vote and five-voter modules supply the components of Theorem~\ref{thm:replacement}. Its final statement is \path{ReincarnationSafety.five_safe}, in \path{ReincarnationSafety.lean}, importing \path{ReincarnationAgreement.lean}.
 
-From \code{formal/uvrr-lean}, run \code{lake build} and \code{python3 check\_axioms.py}. The checked baseline's axiom audit covers 355 declarations and permits only Lean's standard logical axioms; it rejects proof holes and custom axioms. The recorded rung-26 evidence also exercises a negative control that tries to give the replacement voting weight in $E_1$. Its failure checks that particular erroneous claim, rather than supplying an exhaustive fault-injection campaign. The repository contains the proof-generation transcript; generated proof terms are checked by Lean, and the generator is not part of the trusted proof checker.
+From \code{formal/uvrr-lean}, run \code{lake build} and \code{python3 check\_axioms.py}. The checked baseline's axiom audit covers 355 declarations and permits only Lean's standard logical axioms; it rejects proof holes and custom axioms. The recorded rung-26 evidence also exercises a negative control that tries to give the replacement voting weight in $E_1$. Its failure checks that particular erroneous claim. The repository contains the proof-generation transcript; generated proof terms are checked by Lean, and the generator is not part of the trusted proof checker.
 
 The theorem covers the displayed replacement schedule with its final configuration retained thereafter. The general weighted-intersection lemmas have broader scope than this instantiation.
 
@@ -222,18 +220,18 @@ The theorem covers the displayed replacement schedule with its final configurati
 The intended deployment is an embedded authority for small metadata, with ordinary replication performed in memory.
 
 \paragraph{Short-lived advisory locks and leader leases}
-A replicated state machine can order acquisition, renewal and expiry decisions over a small record containing an owner, generation and expiry policy. An expiry command for an old generation must not revoke a newer grant. If a client uses ownership to control an external resource, that resource may also need to reject stale generations. A real-time leader lease additionally needs explicit clock and timing assumptions. Per-slot agreement supplies the ordering foundation; it does not by itself prove real-time expiry or exclusion at an external service.
+A replicated state machine can order acquisition, renewal and expiry decisions over a small record containing an owner, generation and expiry policy. An expiry command for an old generation must not revoke a newer grant. If a client uses ownership to control an external resource, that resource may also need to reject stale generations. A real-time leader lease additionally needs explicit clock and timing assumptions.
 
 \paragraph{A membership authority for another algorithm}
-An application whose bulk algorithm uses gossip or another weaker consistency model may still need one agreed version of cluster membership, ownership assignments or configuration changes. An embedded replicated state machine can supply that authority, while the bulk algorithm disseminates or consumes its decisions. The authority's consistency does not automatically extend to every operation in the surrounding application.
+An application whose bulk algorithm uses gossip or another weaker consistency model may still need one agreed version of cluster membership, ownership assignments or configuration changes. An embedded replicated state machine can supply that authority, while the bulk algorithm disseminates or consumes its decisions.
 
 \paragraph{The CORFU precedent}
-CORFU provides a concrete precedent for compact configuration metadata alongside a larger storage system~\cite{corfu}. Its reconfiguration is patterned after Vertical Paxos; Section 2.5 describes storage units acting as acceptors in a Paxos-like protocol. Section 2.6 estimates that adding 0.1\% writes keeps projection metadata below 25 MB for a 1 TB cluster under an adversarial workload. That is a projection-size estimate, not configuration-service RAM. The described implementation uses a shared network drive for agreed projections. CORFU itself supplies a strongly consistent shared log; it is not an example of a weakly consistent bulk algorithm.
+CORFU provides a concrete precedent for compact configuration metadata alongside a larger storage system~\cite{corfu}. Its reconfiguration is patterned after Vertical Paxos; Section 2.5 describes storage units acting as acceptors in a Paxos-like protocol. Section 2.6 estimates that adding 0.1\% writes keeps projection metadata below 25 MB for a 1 TB cluster under an adversarial workload. The described implementation uses a shared network drive for agreed projections.
 
 \paragraph{External coordination services}
 ZooKeeper and etcd are established ways to supply coordination separately from an application. ZooKeeper offers linearizable state changes and per-client ordering, while local reads have weaker semantics~\cite{zookeeper}. etcd documents strict serializability for its key-value operations and distinguishes default linearizable reads from optional serializable reads~\cite{etcd-guarantees}. An application must choose the operation semantics it actually needs.
 
-A separately operated service also brings deployment and resource costs. For scale, etcd's version 3.6 hardware guide gives a small-cluster example with dedicated two-vCPU, 8 GB AWS machines~\cite{etcd-hardware}. This is workload-specific guidance, not a universal minimum or a measurement of uVRR's savings. etcd can itself be embedded in a Go application~\cite{etcd-embed}; embedding alone is therefore not the distinction. The proposed combination here is small application-owned state, volatile normal-path replication, and replacement through fresh identities and overlapping quorums. A fair resource comparison requires a common workload and equivalent durability and availability requirements.
+A separately operated service also brings deployment and resource costs. For scale, etcd's version 3.6 hardware guide gives a small-cluster example with dedicated two-vCPU, 8 GB AWS machines~\cite{etcd-hardware}. etcd can itself be embedded in a Go application~\cite{etcd-embed}. The proposed combination here is small application-owned state, volatile normal-path replication, and replacement through fresh identities and overlapping quorums.
 
 \subsection{Scope}
 \paragraph{Implementation correspondence}
@@ -243,7 +241,7 @@ The final theorem assumes protocol-history invariants. Their composition with th
 The worked example replaces one unit-weight voter among five. Other weights or simultaneous failures need an appropriate schedule and available quorums. A higher ballot, an unavailable leader or insufficient surviving voters can interrupt progress. Fresh identities permit repeated replacement in the design; the theorem covers the displayed schedule.
 
 \paragraph{Meaning of strong consistency}
-The mechanised result is per-slot agreement. A complete service-level linearizability argument also needs ordered execution, appropriate read semantics and a mapping between client operations and log entries. Lease guarantees require the additional conditions stated above. If all copies of volatile committed state are lost, the service requires an explicitly justified state source.
+The mechanised result is per-slot agreement. A complete service-level linearizability argument also needs ordered execution, appropriate read semantics and a mapping between client operations and log entries. Lease guarantees require the additional conditions stated above.
 
 \section{Related Work}\label{sec:related}
 Viewstamped Replication introduced the organisation of replication around views and a primary~\cite{vr}; VRR revisits that organisation and separates normal operation, view change, recovery and reconfiguration~\cite{vrr}. Michael \emph{et al.} identify the failure of diskless recovery to preserve view-change commitments and construct virtual stable storage~\cite{diskless}. uVRR takes a different route: it makes a crash final for the old identity, then brings the process back as a new member through reconfiguration. The replacement schedule connects that lifecycle to agreement across configurations.
@@ -256,7 +254,7 @@ Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters
 This appendix separates the mathematical argument, its mechanised components, and the obligations supplied as hypotheses. The term UPaxos below refers to Turner's paper~\cite{turner}. The weighted-intersection and rescaling results follow from UPaxos Appendix~A.
 
 \subsection{Weighted overlap, doubling and halving}
-Let $N$ be a finite set of identities, with nonnegative integral weight functions $w,v$. Write $W=\sum_{n\in N}w(n)$ and $w(q)=\sum_{n\in N\cap q}w(n)$. A strict majority has $2w(q)>W$.
+Let $N$ be a finite set of identities, with nonnegative integral weight functions $w,v$. Write $W=\sum_{n\in N}w(n)$, $V=\sum_{n\in N}v(n)$ and $w(q)=\sum_{n\in N\cap q}w(n)$. A strict majority has $2w(q)>W$.
 \begin{lemma}[Scaled overlap, UPaxos]\label{lem:scaled}
 If positive integers $a,b$ satisfy
 \begin{equation}
@@ -306,9 +304,9 @@ python3 check\_mutations.py\\
 showboat verify \textbackslash\\
 ladder/26-reincarnation-safety.md
 \end{quote}
-The build completes 24 jobs. The axiom audit covers 355 declarations; the final theorem depends only on \path{propext}, \path{Classical.choice} and \path{Quot.sound}. The mutation suite checks rejection of an existential quorum checker, an unsafe decision family, an omitted next-slot guard, append after a view-change fence, and cross-view prepare receipt. It also checks detection of \path{sorryAx}, even when the compiler returns success. Rung 26 checks that promoting the replacement prematurely in $E_1$ is rejected. These controls establish sensitivity to the specified mutations, not completeness of fault coverage.
+The build completes 24 jobs. The axiom audit covers 355 declarations; the final theorem depends only on \path{propext}, \path{Classical.choice} and \path{Quot.sound}. The mutation suite checks rejection of an existential quorum checker, an unsafe decision family, an omitted next-slot guard, append after a view-change fence, and cross-view prepare receipt. It also checks detection of \path{sorryAx}, even when the compiler returns success. Rung 26 checks that promoting the replacement prematurely in $E_1$ is rejected.
 
-The Leanstral driver has two offline regressions, run from the repository root with \code{python3} applied to \path{tests/test_leanstral_driver.py}. A mock API forces two concurrent proof loops to finish writing their candidates before either can copy its result, exposing a shared-file race deterministically. A second assertion checks that the prompt preserves project imports. Both failed on the original driver and pass with private per-invocation scratch directories and an import-preserving prompt. These tests exercise the driver, not model quality. Compilation and axiom auditing remain separate from the prompt's request to preserve theorem statements; a successful driver exit alone does not certify unchanged statements.
+The Leanstral driver has two offline regressions, run from the repository root with \code{python3} applied to \path{tests/test_leanstral_driver.py}. A mock API forces two concurrent proof loops to finish writing their candidates before either can copy its result, exposing a shared-file race deterministically. A second assertion checks that the prompt preserves project imports. Both failed on the original driver and pass with private per-invocation scratch directories and an import-preserving prompt.
 
 \subsection{Reported adversarial repair experiment}
 Table~\ref{tab:repair} records the externally supplied Fable 5.1 report, not a fresh experiment executed for this revision. The report used Leanstral 1.5, a five-round budget per loop, isolated directories, and byte-identical statement checks on passing repairs. Its initial shared-directory batch was discarded because candidates crossed between jobs. The raw repair transcripts were not supplied with the report, so the table should be read with that provenance.
@@ -329,7 +327,7 @@ M5: false claim $c_1(5)=1$ & Fail, as required\\
 \bottomrule
 \end{tabular}
 \end{table}
-The contrast between M1 and M2 suggests that supplying library signatures helped composition in these runs. M4's mixed outcome and M3's failure prevent a general reliability claim. M5 supplies a useful false-statement control. None of these observations changes the mathematical hypotheses: the proof generator searches for terms, and Lean checks accepted terms against the submitted statements.
+The contrast between M1 and M2 suggests that supplying library signatures helped composition in these runs. M5 supplies a useful false-statement control. 
 
 \begin{thebibliography}{10}
 \bibitem{vr} B. M. Oki and B. H. Liskov, ``Viewstamped replication: A new primary copy method to support highly-available distributed systems,'' in \emph{ACM PODC}, 1988, pp. 8--17.
