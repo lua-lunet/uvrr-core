@@ -315,7 +315,7 @@ V_g ⌢ V_g
 
 This self-intersection is not implied by `QI ⌢ QII` alone. It is required by this diskless VRR construction because a recovering replica must encounter the volatile evidence that an earlier view was fenced. A quorum policy is therefore not automatically a valid VRR-2012 policy merely because `QI ⌢ QII` holds.
 
-This section describes classic VRR-2012 diskless recovery (its §4.3) as literature, not uVRR: uVRR replaces the diskless recovery overlap with Crash-Stop-Self-Evict reincarnation. A crashed node whose superblocks record an unflushed session reopens under a new incarnation, the leader evicts the old identity through the forced weight sequence (exiting 1 to 0, joining at 0, then 0 to 1), and the new identity rejoins as a weight-0 standby — a **standby** is TigerBeetle's term for its non-voting cluster members (older drafts of this document called it a learner): standby nodes have a zero voting weight so cannot form part of any quorum nor actively participate in the VSR algorithm — so no recovery quorum meets a fence family, and the obligation above governs the classic design only.
+This section describes classic VRR-2012 diskless recovery (its §4.3) as literature, not uVRR: uVRR replaces the diskless recovery overlap with Crash-Stop-Self-Evict reincarnation. A crashed node — its superblocks prove no controlled shutdown (§5.1) — reopens under a bumped new incarnation, the leader evicts the old identity through the forced weight sequence (exiting 1 to 0, joining at 0, then 0 to 1), and the new identity rejoins as a weight-0 standby — a **standby** is TigerBeetle's term for its non-voting cluster members (older drafts of this document called it a learner): standby nodes have a zero voting weight so cannot form part of any quorum nor actively participate in the VSR algorithm — so no recovery quorum meets a fence family, and the obligation above governs the classic design only.
 
 ### 8.4 Weighted quorums
 
@@ -844,7 +844,7 @@ The current code does not provide:
 
 - a normative C ABI transition-ownership contract — no FFI module exists at present; the C ABI is planned work.
 
-The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` and `reopen` both start fenced `Restarting` and become normal only after local restoration establishes adequate state, so the amnesiac-voter path is unrepresentable.
+The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` joins fenced `Joining`, `reopen` restarts fenced `Restarting` — the boot decision is the marker read (§5.1) — and each becomes normal only after the protocol establishes adequate state, so the amnesiac-voter path is unrepresentable.
 
 ## 15. Minimal proposal
 

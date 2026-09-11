@@ -23,37 +23,49 @@ in the drain between `Stopping` and `Stopped`.
 ## 2. Durable identity contract: the four superblocks
 
 Durable state is **four TigerBeetle-style superblocks**. Node restart reads all four.
+The markers are an ordered transition system — the marker transition machine of
+`docs/vrr-durability-model.md` §5.1:
 
-**Marker semantics**:
+```text
+Running ──stop──> Stopping ──drain──> Stopped ──boot, 2-of-4──> Restarting
+                  (4x write)  flush     (4x write)              (4x write)
+                              WALs + grids
+Running ──crash──> (markers unchanged) ──boot, no 2-of-4 Stopped──> Joining
+                                                       (bump, 4x write)
+```
 
-- `flushed` = "my on-disk state is a self-consistent checkpoint of identity X".
-  Written at **clean shutdown** (node stopped responding, flushed all writes, fsynced)
-  and at the **bump** (after rewriting all four superblocks as the new identity).
-- `unflushed` = running state, written when a node **starts** operating.
-
-Startup classification:
-
-1. All four read `flushed` → mark `unflushed`, continue normally. This is the
-   ordinary CR-free path: no recovery protocol runs.
-2. Any of the four reads `unflushed` → the node is **dirty**.
-
-**Dirty path:** bump the incarnation (new identity), write new identity + `flushed`
-to all four superblocks, then enter the wire phase (§4). The state machine is:
+Each state names the transition that must have completed for it to exist. The
+quorum question at boot is *did the transition complete?*, answered by 2-of-4
+copies holding `Stopped` (the open threshold; the working quorum also resolves
+the identity, higher-identity-wins, and repairs the remaining copies to 3-of-4
+or better):
 
 | State | Meaning |
 |---|---|
-| `flushed` | durable checkpoint of identity X; written at clean shutdown and after the bump |
-| `unflushed` | running sentinel; written at start of operating |
-| `dirty` | restart observed any-`unflushed`; eviction must begin |
-| `bumped` | incarnation incremented; all four superblocks rewritten as (new identity, `flushed`) |
-| `reincarnating` | wire phase: old identity pending eviction, new identity a weight-0 standby |
+| `Stopping` | the stop command was received, 4x written; the node has stopped sending; the drain is not yet proven, so this state vouches for nothing |
+| `Stopped` | the `Stopping→Stopped` transition completed, 4x; the drain happened strictly between the two marker writes, so a `Stopped` copy vouches for the WAL under it — there is no amnesiac risk |
+| `Restarting` | the boot of a controlled shutdown, 4x: the identity continues — a member with complete state, no amnesia, ticking the full protocol |
+| `Joining` | the resurrection, 4x under a bumped identity: not a member — no vote, no view change; every node drops its messages by the membership checks |
+
+There is no flush on the protocol's hot path anywhere: the drain — the only
+flush work — sits strictly between `Stopping` and `Stopped`, outside every
+protocol exchange. The marker writes themselves are durable-on-write, the only
+disk traffic outside the stop path. A stop that dies partway still reads clean
+on the surviving quorum, correctly: the flush had already completed before the
+first `Stopped` write. A node dying mid-join reads no stopped quorum and
+resurrects again — a running node's markers hold `Restarting` (or `Joining`)
+from its boot write, so a crash leaves exactly the no-controlled-shutdown
+evidence the next boot needs.
 
 A **standby** is TigerBeetle's term for its non-voting cluster members (this document's
 older drafts called it a learner). Standby nodes have a zero voting weight so cannot
 form part of any quorum nor actively participate in the VSR algorithm.
 
 **Read rule (higher-identity-wins):** any read of the superblocks may observe a higher
-identity than the reader last knew; the reader adopts the higher identity.
+identity than the reader last knew; the reader adopts the higher identity — inside the
+working quorum (§5.1: the winner is the highest-identity cohort that reaches the open
+threshold, never the highest identity observed across all copies, which a lone stale or
+superseded copy cannot impose).
 
 **Continuation commitment:** once Crash-Stop-Eviction is initiated it MUST continue;
 the forced sequence of §5 is never aborted mid-way.
@@ -65,9 +77,10 @@ Reincarnation takes advantage of "The network is faster than the disk"
 For nano-state that fits in memory, disk flushes can be **deferred**: the forced
 reconfiguration rounds of §5 are network round trips, which are cheaper than fsyncs.
 The four-superblock mark is **one fsync amortized over the whole epoch**, not
-per-operation durability. The dirty check is therefore paid once per restart, and the
-correctness cost of same-identity amnesia is avoided entirely instead of being paid
-per operation as a flush.
+per-operation durability. The boot question (§2, §5.1) is therefore paid once per
+restart — the 2-of-4 `Stopped` quorum read — and the correctness cost of
+same-identity amnesia is avoided entirely instead of being paid per operation as a
+flush.
 
 ## 4. Wire message
 
@@ -172,19 +185,25 @@ eviction of the old identity until a stable leader exists to drive it.
   knowledge is the durable superblock identity itself.
 - Rung 20 (`RestartAcquire`): the echoed `(incarnation, sequence)` request identity
   is the wire-level freshness contract the reincarnation message and standby streaming
-  use; `crashed` bumping the incarnation is the formal shape of dirty ⇒ bump.
+  use; `crashed` bumping the incarnation is the formal shape of the machine's
+  no-stopped-quorum ⇒ bump arm (§5.1).
 - Rungs 1–9 (eras, weights, weighted-general): the forced sequence is a path through
   the existing weighted-era space; each step's safety is the weighted-overlap
   argument.
 
 The reincarnation formalization is ladder rung 22 (`formal/uvrr-lean/UVRR/Reincarnation.lean`):
-the definitions and state machine above, with kernel-checked structural lemmas and finite
+kernel-checked structural lemmas and finite
 instances (the unit-scale forced sequence's two consecutive eras are quorum-safe; the
-startup classification is exhaustive; the bumped identity is never a voter again; the
+bumped identity is never a voter again; the
 forced sequence is monotone and cannot abort). The four general theorems — bumped-identity
 non-membership in every view ≥ eviction, quorum safety of every intermediate era at
 arbitrary scale, unreachability of the classic amnesia trace, and continuation commitment
-in general — are that rung's stated proof obligations, for later rungs.
+in general — are that rung's stated proof obligations, for later rungs. The rung's
+startup-classification definitions predate the marker transition machine: they encode the
+older two-mark running/checkpoint classification instead of the machine's
+`Stopping`/`Stopped`/`Restarting`/`Joining` states, the 2-of-4 stopped quorum, and the
+boot decision table. Their re-statement over the marker machine is the release-gate
+regeneration, not a claim made here.
 
 ## 10. Learner acquisition
 

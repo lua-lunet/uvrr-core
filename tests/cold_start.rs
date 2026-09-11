@@ -1,7 +1,8 @@
-//! The cold-start corpus: the staggered genesis start, and the
-//! post-genesis full-cluster cold restart.
+//! The cold-start corpus: the staggered genesis start, the post-genesis
+//! cold restart through the marker machine, and the crash-shape Joining
+//! pin.
 //!
-//! Both shapes are deterministic and clockless: ticks only, no sleeps, no
+//! All shapes are deterministic and clockless: ticks only, no sleeps, no
 //! RNG — the harness is the host (`tests/harness/mod.rs`). The knobs every
 //! script runs: `primary_timeout = 3` host ticks, `view_change_budget`
 //! unbounded — the same view-change knob values the other knob-driven
@@ -28,35 +29,46 @@
 //!    fence into the succession view whose primary is the absent n(1) —
 //!    then n(1) starts; both tick in lockstep rounds. The pin: a leader is
 //!    elected, a first value commits, both apply.
-//! 2. **Post-genesis cold restart**: committed normal operations past the
-//!    genesis (`accepted > INIT_SLOT`) plus one committed reconfiguration
-//!    era, then a full-cluster staggered restart over the recorded disks
-//!    (the `tests/reincarnation.rs` restart idiom): n(0) reopens and
-//!    ticks alone through several timeout windows, then n(1) reopens. The
-//!    restarted cluster is fenced by design — §5's boot fence never
-//!    self-arms from persisted knowledge — so the shape pins both sides
-//!    of the host obligation:
-//!    - **with the lever**: once both nodes have reopened, the host arms
-//!      the first fence through the §14.2 force-view input on the fenced
-//!      node, and the ordinary fence/evidence/install pipeline completes
-//!      the restart: a leader is elected at/beyond the folded era, a new
-//!      value commits, both apply (the §11.1 catch-up walk included). A
-//!      real deployment's cluster manager does exactly this.
-//!    - **without the lever**: the same restart stays fenced — both
-//!      nodes `Restarting`, not one datagram under either tick schedule
-//!      (lockstep and phase-shifted), and the client surface the named
-//!      refusal. The fence is the host's to arm.
+//! 2. **Post-genesis cold restart through the marker machine**
+//!    (§5.1 of `docs/vrr-durability-model.md`): committed normal
+//!    operations past the genesis plus one committed reconfiguration era,
+//!    then the HOST performs the controlled stop of each node —
+//!    `begin_stop`, the drain, `finish_stop` — and the boot's quorum read
+//!    (`SuperblockCopies::restart`) answers the one question it asks: the
+//!    2-of-4 `Stopped` verdict is the clean stop, the identity continues,
+//!    and the node boots as `Restarting` — a member with complete state
+//!    and no amnesia. Staggered: n(0) restarts and ticks ALONE through
+//!    several timeout windows — it ticks the FULL protocol, so it now
+//!    suspects the silent primary and issues `StartViewChange`; no quorum
+//!    evidence can arrive until n(1) restarts — then n(1) restarts, the
+//!    mutually-heard fence completes, and the ordinary
+//!    fence/evidence/install pipeline finishes the restart: a leader is
+//!    elected at/beyond the folded era, a NEW value commits, both apply.
+//!    There is NO `AdminForceView` anywhere: the tick does the work — the
+//!    old cold-start "wedge" was a test's misunderstanding of uVRR, and
+//!    under the marker machine it does not exist.
+//! 3. **The crash-shape Joining pin**: a node restarted through the
+//!    machine with a NON-stopped marker set — the markers its boot wrote,
+//!    the crash shape — bumps and enters `Joining`. It is not a member: it
+//!    neither votes nor view-changes (its tick drives only its own
+//!    re-drive, and its solo windows emit not one datagram), and anything
+//!    it emits is dropped by the §6 membership checks — a fabricated
+//!    fence vote from the bumped identity is discarded by name and
+//!    disturbs nothing.
 
 mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{INIT_SLOT, SystemOperation};
 use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::message::{Body, Message};
+use vrr::observe::Diagnostic;
 use vrr::progress::Status;
-use vrr::replica::{PlanRefusal, ViewChangeKnobs};
+use vrr::replica::{CopyState, Incarnation, Marker, RestartDecision, SuperblockCopies};
+use vrr::wire::{Header, Tag};
 
-/// The timeout knob: a `Normal` node suspects its primary after more than
-/// three ticks of silence (S4).
+/// The timeout knob: a suspecting node — `Normal` backup or `Restarting`
+/// member (§5.1) — fires after more than three ticks of silence (S4).
 const TIMEOUT: u64 = 3;
 
 /// The staggered-start window multiplier: several `primary_timeout`
@@ -76,7 +88,7 @@ fn op_id(lsb: u64) -> OperationId {
 fn cluster() -> Harness {
     Harness::with_knobs(
         2,
-        ViewChangeKnobs {
+        vrr::replica::ViewChangeKnobs {
             primary_timeout: TIMEOUT,
             view_change_budget: usize::MAX,
         },
@@ -181,6 +193,38 @@ fn commit_quiet(h: &mut Harness, primary: NodeId, lsb: u64, payload: &[u8]) {
     h.deliver_all();
 }
 
+/// One node's four superblock copies at the given incarnation, all four
+/// carrying `marker` — the uniform 4x write shape every marker
+/// transition leaves.
+fn copies(marker: Marker, identity: u64) -> SuperblockCopies {
+    SuperblockCopies {
+        copies: [CopyState {
+            identity: Incarnation(identity),
+            marker,
+        }; 4],
+    }
+}
+
+/// The HOST's controlled stop of one node (§5.1): `begin_stop` (the node
+/// has stopped sending — no disk flush sits on the protocol's hot path),
+/// the drain (the host flushes WALs and grids, strictly between the two
+/// marker writes — here it is work the host does outside the core, and it
+/// is protocol-invisible), `finish_stop` (the drain's proof), then the
+/// boot's quorum read: 2-of-4 `Stopped` is the clean stop, the identity
+/// continues.
+fn host_stop(identity: u64) -> (RestartDecision, SuperblockCopies) {
+    let stopping = copies(Marker::Restarting, identity).begin_stop();
+    assert!(
+        stopping
+            .copies
+            .iter()
+            .all(|copy| copy.marker == Marker::Stopping),
+        "the stop command wrote `Stopping` 4x"
+    );
+    let stopped = stopping.finish_stop();
+    stopped.restart().expect("the identity space is not spent")
+}
+
 /// Builds the post-genesis history the cold restart reopens over: two
 /// committed normal operations (slots 3–4), one committed reconfiguration
 /// era — the stop-the-world `Double` at slot 5, establishing era 2 with
@@ -216,53 +260,6 @@ fn post_genesis_history(h: &mut Harness) -> ViewId {
     }
     h.assert_safety();
     folded
-}
-
-/// The full-cluster staggered restart over the post-genesis disks: n(0)
-/// reopens first and ticks alone through several timeout windows — fenced,
-/// silent, the view unmoved — then n(1) reopens. Both nodes end fenced
-/// `Restarting` at the folded view (§5's boot rule).
-fn staggered_reopen(h: &mut Harness, folded: ViewId) {
-    h.crash(n(0));
-    h.crash(n(1));
-    h.restart_with(n(0))
-        .expect("n(0) reopens over its recorded disk");
-    assert_eq!(status_of(h, n(0)), Status::Restarting, "fenced at reopen");
-    assert_eq!(current_era(h, n(0)), Era(2), "the folded era persisted");
-
-    // n(0) alone through several timeout windows: no datagram is ever
-    // emitted — a `Restarting` node can neither promote (post-genesis
-    // history) nor suspect (suspicion requires `Normal`).
-    for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
-        h.tick(n(0));
-    }
-    assert_eq!(status_of(h, n(0)), Status::Restarting);
-    assert_eq!(current_view(h, n(0)), folded, "the view did not move");
-    assert_eq!(h.queued_len(), 0, "the solo phase emitted nothing");
-
-    h.restart_with(n(1))
-        .expect("n(1) reopens over its recorded disk");
-    assert_eq!(status_of(h, n(1)), Status::Restarting, "fenced at reopen");
-}
-
-/// The boundary property the fenced restart holds: every member
-/// `Restarting` at the folded view it reopened at, the folded era
-/// persisted, and not one datagram in flight.
-fn assert_fenced_boundary(h: &Harness, folded: ViewId) {
-    for id in [n(0), n(1)] {
-        assert_eq!(status_of(h, id), Status::Restarting, "{id:?} stays fenced");
-        assert_eq!(current_view(h, id), folded, "{id:?} never moved");
-        assert_eq!(
-            current_era(h, id),
-            folded.era,
-            "{id:?} holds the folded era"
-        );
-    }
-    assert_eq!(
-        h.queued_len(),
-        0,
-        "the whole window emitted not one datagram"
-    );
 }
 
 /// The staggered genesis start: n(0) provisioned and ticked alone through
@@ -355,34 +352,30 @@ fn staggered_genesis_start_completes() {
     h.assert_safety();
 }
 
-/// The post-genesis cold restart, resolved: the host arms the first fence.
+/// The post-genesis cold restart through the marker machine — the pin the
+/// old corpus got wrong: there is no wedge, because a `Restarting` node
+/// ticks the full protocol.
 ///
-/// The restarted cluster reopens fenced and its own machinery fires
-/// nothing — the tick's bootstrap self-promotion is genesis-only, and
-/// suspicion requires `Status::Normal` (`src/replica/mod.rs`,
-/// `plan_tick`), so no first datagram ever exists. The host obligation
-/// (§5, §14.2): arm the first fence through the force-view lever, after
-/// which the ORDINARY fence/evidence/install pipeline does the rest,
-/// exactly as in every view change — the forced node fences into the
-/// target view, the other member joins from the `StartViewChange`, both
-/// reach the fence quorum, the target view's primary wins the evidence
-/// quorum, installs, and serves.
-///
-/// The pin: after the staggered reopen and the solo fenced windows, one
-/// force-view input completes the restart — a leader is elected
-/// at/beyond the folded era, a NEW value commits at it, and both apply
-/// it, the restarted application walking the §11.1 catch-up first (the
-/// reconfiguration slot is a system operation and walks itself, §11).
+/// §5.1: the HOST performs the stop — `begin_stop`, the drain,
+/// `finish_stop` — and the boot's quorum read (`SuperblockCopies::restart`)
+/// proves the clean stop: 2-of-4 `Stopped` means the transition completed,
+/// the drain completed, there is no amnesiac risk, and the identity
+/// continues as `Restarting` — a member with complete state ticking the
+/// full protocol. Staggered: n(0) restarts first and ticks ALONE through
+/// several timeout windows; its first timeout fires the fence into the
+/// succession view — the folded era's order names n(0) that view's
+/// primary — and no quorum evidence can arrive while n(1) is down. n(1)
+/// then restarts through the same machine; the queued and fresh
+/// `StartViewChange` votes mutually complete the fence, the target
+/// primary's evidence quorum wins, and the ordinary install seats the
+/// leader. The pin: a leader is elected at/beyond the folded era, the
+/// restarted application walks the §11.1 catch-up, a NEW value commits at
+/// the elected leader, and both apply it — with NO `AdminForceView`
+/// anywhere.
 #[test]
-fn post_genesis_cold_restart_completes_when_the_host_arms_the_first_fence() {
+fn post_genesis_cold_restart_completes_through_the_machine() {
     let mut h = cluster();
     let folded = post_genesis_history(&mut h);
-    staggered_reopen(&mut h, folded);
-
-    // THE HOST OBLIGATION: arm the first fence through the §14.2 lever.
-    // The target is the next view in the folded era; its primary is the
-    // member the era's membership order names — n(0), the node that
-    // waited alone.
     let target = ViewId {
         era: folded.era,
         view: View(folded.view.0 + 1),
@@ -390,19 +383,81 @@ fn post_genesis_cold_restart_completes_when_the_host_arms_the_first_fence() {
     assert_eq!(
         primary_of(&h, n(0), target),
         Some(n(0)),
-        "the target's primary under the folded era's order"
+        "the succession view's primary under the folded era's order"
+    );
+
+    // n(0) stops and boots through the machine: the host stop, then the
+    // quorum read continuing the identity as `Restarting`.
+    let (decision, written) = host_stop(7);
+    assert_eq!(
+        decision,
+        RestartDecision::Continue {
+            identity: Incarnation(7)
+        },
+        "the stopped quorum continues the identity"
     );
     assert!(
-        matches!(h.force_view(n(0), target), StepOutcome::Published { .. }),
-        "the forced fence is accepted"
+        written
+            .copies
+            .iter()
+            .all(|copy| copy.marker == Marker::Restarting),
+        "the boot wrote `Restarting` 4x"
     );
-    assert_eq!(status_of(&h, n(0)), Status::ViewChange, "the fence armed");
-    assert_eq!(current_view(&h, n(0)), target);
+    h.crash(n(0));
+    h.restart_with(n(0))
+        .expect("n(0) boots over its recorded disk");
+    assert_eq!(
+        status_of(&h, n(0)),
+        Status::Restarting,
+        "a controlled shutdown restarts as Restarting"
+    );
+    assert_eq!(current_era(&h, n(0)), Era(2), "the folded era persisted");
 
-    // The ordinary pipeline runs from the armed fence; both nodes tick
-    // in lockstep rounds until a leader serves. The loop stops at the
-    // FIRST serving round: an idle cluster churns views by design (S4 —
-    // an idle primary's own timeout deposes it exactly like a backup's).
+    // The solo phase: n(0) ticks ALONE through several timeout windows —
+    // and it ticks the FULL protocol now: its first timeout fires the
+    // fence into the succession view. No quorum evidence can arrive until
+    // n(1) restarts: the attempt sits armed with one queued fence vote.
+    for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
+        h.tick(n(0));
+    }
+    assert_eq!(status_of(&h, n(0)), Status::ViewChange, "the fence fired");
+    assert_eq!(
+        current_view(&h, n(0)),
+        target,
+        "the target view was entered"
+    );
+    assert_eq!(h.queued_len(), 1, "the solo phase emitted the fence vote");
+
+    // n(1) stops and boots through the machine the same way.
+    let (decision, written) = host_stop(8);
+    assert_eq!(
+        decision,
+        RestartDecision::Continue {
+            identity: Incarnation(8)
+        },
+        "the stopped quorum continues the identity"
+    );
+    assert!(
+        written
+            .copies
+            .iter()
+            .all(|copy| copy.marker == Marker::Restarting),
+        "the boot wrote `Restarting` 4x"
+    );
+    h.crash(n(1));
+    h.restart_with(n(1))
+        .expect("n(1) boots over its recorded disk");
+    assert_eq!(status_of(&h, n(1)), Status::Restarting, "fenced at boot");
+    assert_eq!(
+        current_view(&h, n(1)),
+        folded,
+        "n(1) reopens at the folded view"
+    );
+
+    // Both tick in lockstep rounds until a leader serves. The loop stops
+    // at the FIRST serving round: an idle cluster churns views by design
+    // (S4 — an idle primary's own timeout deposes it exactly like a
+    // backup's). No `AdminForceView` anywhere: the tick did the work.
     let mut elected = None;
     for _ in 0..8 {
         h.tick_all();
@@ -415,7 +470,7 @@ fn post_genesis_cold_restart_completes_when_the_host_arms_the_first_fence() {
     let elected = elected.unwrap_or_else(|| panic!("no leader elected\n{}", h.trace_dump()));
 
     // A leader is elected at/beyond the folded era, and it serves.
-    assert_eq!(elected, target, "the armed fence's target won");
+    assert_eq!(elected, target, "the staggered restart's fence won");
     assert_eq!(
         elected.era, folded.era,
         "the election sits in the folded era"
@@ -497,64 +552,105 @@ fn post_genesis_cold_restart_completes_when_the_host_arms_the_first_fence() {
     }
 }
 
-/// The same post-genesis cold restart with the lever withheld: the
-/// boundary, stated as the design it is.
+/// The crash-shape Joining pin (§5.1's `Anything-else→Joining`).
 ///
-/// §5's boot fence never self-arms from persisted knowledge. A reopened
-/// member can neither promote (the tick's bootstrap self-promotion is
-/// genesis-only) nor suspect (suspicion requires `Status::Normal`), and
-/// every `Restarting → Normal` route — the §4 bootstrap adoption, the
-/// §9.1 `StartView` install — needs a sender that already holds a live
-/// primary's authority. A full-cluster cold start has no such sender: no
-/// first datagram ever exists, so the cluster is silent under any tick
-/// schedule and the fence stays up until the host arms it (§14.2 — the
-/// completion pin above). A real deployment's cluster manager does
-/// exactly this.
-///
-/// The pin: both nodes stay `Restarting` at the folded view through
-/// lockstep AND lawful phase-shifted windows, the queue holds not one
-/// datagram, and the client surface is the named refusal — `NotPrimary`
-/// naming the view's designated, still-fenced primary.
+/// A running node's markers hold the `Restarting` 4x its boot wrote, so a
+/// crash leaves exactly the no-controlled-shutdown evidence: no 2-of-4
+/// `Stopped`. The boot's quorum read (`SuperblockCopies::restart`) bumps
+/// the identity and writes `Joining` 4x. The bumped node is NOT a member:
+/// it neither votes nor view-changes — its tick drives only its own
+/// re-drive, so its solo windows emit not one datagram — and anything it
+/// emits is dropped by the §6 membership checks: a fabricated
+/// `StartViewChange` from the bumped identity is discarded by name
+/// (`UnknownSender`) and disturbs the live member not at all.
 #[test]
-fn post_genesis_cold_restart_stays_fenced_without_the_lever() {
+fn crash_shape_bumps_and_joins_without_membership() {
     let mut h = cluster();
-    let folded = post_genesis_history(&mut h);
-    staggered_reopen(&mut h, folded);
+    bootstrap(&mut h);
+    commit_quiet(&mut h, n(0), 1, b"one");
 
-    // A lockstep (metronome) schedule — both nodes tick in the same
-    // round, a schedule no real host produces.
+    // The crash shape: n(1) died while running — the markers on disk are
+    // the `Restarting` 4x its boot wrote, no `Stopped` in sight.
+    h.crash(n(1));
+    let (decision, written) = copies(Marker::Restarting, 8)
+        .restart()
+        .expect("the identity space is not spent");
+    assert_eq!(
+        decision,
+        RestartDecision::Bump {
+            old: Incarnation(8),
+            new: Incarnation(9),
+        },
+        "no stopped quorum bumps the identity"
+    );
+    assert!(
+        written
+            .copies
+            .iter()
+            .all(|copy| copy.identity == Incarnation(9) && copy.marker == Marker::Joining),
+        "the resurrection wrote `Joining` 4x under the bumped identity"
+    );
+
+    // The harness restart idiom for the bump: the new identity reopens
+    // over the old disk — the dirty path's identity change.
+    h.restart_as(n(1), n(2))
+        .expect("the bumped identity reopens over the recorded disk");
+    let member_view = current_view(&h, n(0));
+
+    // Its tick drives only its own re-drive: through several timeout
+    // windows it emits not one datagram — it cannot promote (it is not the
+    // primary of any view it can name), it cannot suspect (§5.1: not a
+    // member — no vote, no view change — and the suspicion gate is a voting
+    // member's act), and it has no open fetch to re-run.
     for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
-        h.tick_all();
+        h.tick(n(2));
+    }
+    assert_eq!(h.queued_len(), 0, "the solo windows emitted nothing");
+
+    // And no message of its regains eligibility: a fabricated fence vote
+    // from the bumped identity is discarded by the §6 membership check
+    // before it is ever counted — n(0) never arms a fence and stays Normal
+    // in its view.
+    let before = h.queued_len();
+    h.inject(
+        n(2),
+        n(0),
+        Message {
+            header: Header {
+                tag: Tag::StartViewChange,
+                view: ViewId {
+                    era: current_era(&h, n(0)),
+                    view: View(current_view(&h, n(0)).view.0 + 1),
+                },
+                slot: Slot::NONE,
+            },
+            body: Body::StartViewChange {},
+        },
+    );
+    assert_eq!(
+        h.diagnostic(n(0)),
+        Some(Diagnostic::UnknownSender { sender: n(2) }),
+        "the bumped identity is discarded by name"
+    );
+    assert_eq!(h.queued_len(), before, "nothing was queued by the drop");
+    assert_eq!(
+        status_of(&h, n(0)),
+        Status::Normal,
+        "n(0) was not disturbed"
+    );
+    assert_eq!(
+        current_view(&h, n(0)),
+        member_view,
+        "n(0)'s view did not move"
+    );
+
+    // Further solo windows emit nothing more; the cluster is undisturbed.
+    for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
+        h.tick(n(2));
         h.deliver_all();
     }
-    assert_fenced_boundary(&h, folded);
-
-    // A lawful phase-shifted schedule — n(0) on even rounds, n(1) on
-    // odd, so no two timers ever fire in the same round. The silence has
-    // no phase relationship: no first datagram exists for any schedule
-    // to matter to.
-    for round in 0..(2 * WINDOWS * (TIMEOUT + 1)) {
-        if round % 2 == 0 {
-            h.tick(n(0));
-        } else {
-            h.tick(n(1));
-        }
-        h.deliver_all();
-    }
-    assert_fenced_boundary(&h, folded);
-
-    // The client surface: the named refusal, naming the view's
-    // designated, still-fenced primary.
-    for (id, lsb) in [(n(0), 4u64), (n(1), 5)] {
-        assert_eq!(
-            h.propose(id, op_id(lsb), b"new"),
-            StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
-                view: folded,
-                primary: Some(n(1)),
-            }),
-            "the client surface is the named refusal at n({})",
-            id.0
-        );
-    }
+    assert_eq!(h.queued_len(), 0, "the dead identity emitted nothing more");
+    assert_eq!(status_of(&h, n(0)), Status::Normal, "n(0) still serves");
+    assert_eq!(status_of(&h, n(2)), Status::Restarting, "still fenced");
     h.assert_safety();
 }

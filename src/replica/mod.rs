@@ -212,12 +212,10 @@ pub enum Input {
     /// change driven from the host's say-so, whose new primary is the
     /// member `target` maps to under the current membership order. The
     /// target must strictly advance the view within the current era;
-    /// anything else is refused as bad input.
-    ///
-    /// The cold-start arm: the boot fence never self-arms from persisted
-    /// knowledge (§5), so a post-genesis cold start arms its first fence
-    /// through this lever — a real deployment's cluster manager does
-    /// exactly this.
+    /// anything else is refused as bad input. A general administrative
+    /// lever, not a boot obligation: the boot decision is the marker read
+    /// (§5.1), and a restarted member needs no lever — it ticks the full
+    /// protocol.
     AdminForceView {
         /// The view to enter: `target.view` past the current view number,
         /// `target.era` the current era.
@@ -1305,10 +1303,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// normal only after local restoration establishes adequate state. The
     /// persisted fault, if any, is preserved —
     /// faults survive restart because they are part of progress (§5
-    /// invariant 5). The boot fence never self-arms from persisted
-    /// knowledge: a post-genesis cold start arms its first fence through
-    /// the host's [`Input::AdminForceView`] lever (§14.2) — a real
-    /// deployment's cluster manager does exactly this.
+    /// invariant 5). The boot decision is the marker read (§5.1): a stopped
+    /// quorum restarts here as `Restarting` — a member with complete state,
+    /// ticking the full protocol — and anything else resurrects as `Joining`
+    /// under a bumped identity.
     ///
     /// A host that cannot produce a persisted progress must say so by using
     /// [`Replica::provision`] instead; the core makes the host say which it
@@ -1360,9 +1358,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The shared constructor: the observation is born holding the initial
     /// snapshot (B1), and nothing is outstanding. The activity baseline is
-    /// the epoch tick: a node starts never-having-heard a primary, and the
-    /// bootstrap's fenced entry status exempts it from suspicion until it
-    /// first adopts a view.
+    /// the epoch tick: a node starts never-having-heard a primary. A
+    /// `Joining` node is fenced from suspicion — it is not a member (§5.1) —
+    /// while a `Restarting` node ticks the full protocol and suspects a
+    /// silent primary from that baseline once the timeout passes: its flush
+    /// happened in the drain between `Stopping` and `Stopped`, not on the
+    /// hot path (§5.1).
     fn assemble(
         own: NodeId,
         strategy: Q,
@@ -1543,13 +1544,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the view stalls but cannot diverge; deposing it is the view change
     /// below.
     ///
-    /// The tick's second decision (S4): a `Normal` backup whose
-    /// primary has been silent for more than
+    /// The tick's second decision (S4): a `Normal` backup or a
+    /// `Restarting` node whose primary has been silent for more than
     /// [`ViewChangeKnobs::primary_timeout`] ticks enters the next view
     /// change. Silence is measured from the last same-view `Prepare` or
     /// `Commit` from the legitimate primary (or the last view adoption);
     /// the primary of the current view never suspects itself, and a
-    /// fenced entry node or already-`ViewChange` node has nothing to suspect —
+    /// `Joining` node or already-`ViewChange` node has nothing to suspect —
     /// a stalled attempt is state transfer's repair (§10), not a fresh timeout.
     fn plan_tick(&self, journal: &J::View, at: Tick) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
@@ -1579,17 +1580,37 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 )
                 .with_activity(at));
         }
-        // Any Normal node can suspect — the primary of the current view
-        // included: it refreshes its baseline only on its own proposals —
-        // and not at all while a stop-the-world era transition is
-        // outstanding ([`Self::stop_the_world_transition_outstanding`]) —
-        // so an idle primary, and a primary whose own stream is holding an
-        // establishing era open, time out into the next view exactly like
-        // a backup with a silent primary. A solo primary's change still
-        // cannot complete (the fence needs a quorum), which is the paper's
-        // answer to a partitioned primary's suspicion (§9).
+        // The marker machine's ruling (§5.1 of `docs/vrr-durability-model.md`):
+        // a `Restarting` node completed a controlled shutdown — its flush
+        // happened in the drain between `Stopping` and `Stopped`, not on the
+        // hot path — so it is a member with complete state and no amnesia: it
+        // ticks the full protocol and suspects a silent primary exactly like
+        // a `Normal` backup. A `Joining` node is not a member: no vote, no
+        // view change — the membership checks drop anything it emits — and
+        // its tick drives only its own re-drive (the announcement re-send and
+        // the §10 acquisition re-run). The suspicion is therefore a VOTING
+        // member's act: the voting-weight check in the gate is what keeps a
+        // boot-fenced weight-0 learner (the §10 acquisition state, held under
+        // the same fenced entry statuses) out of the view-change machinery.
+        // Any voting member can fire — the primary of the current view
+        // included: it refreshes its baseline only on its own proposals — and
+        // not at all while a stop-the-world era transition is outstanding
+        // ([`Self::stop_the_world_transition_outstanding`]) — so an idle
+        // primary, and a primary whose own stream is holding an establishing
+        // era open, time out into the next view exactly like a backup with a
+        // silent primary. A solo primary's change still cannot complete (the
+        // fence needs a quorum), which is the paper's answer to a
+        // partitioned primary's suspicion (§9).
+        let voting_member = self
+            .progress
+            .config()
+            .current()
+            .config
+            .weight_of(self.own)
+            .is_some_and(|weight| weight.0 >= 1);
         let suspects = self.knobs.primary_timeout != 0
-            && self.progress.status() == Status::Normal
+            && voting_member
+            && matches!(self.progress.status(), Status::Normal | Status::Restarting)
             && self
                 .primary_activity
                 .0
