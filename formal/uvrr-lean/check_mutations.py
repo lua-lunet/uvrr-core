@@ -92,7 +92,7 @@ def main():
         ):
             raise RuntimeError("message-view mutant was not rejected by the proof:\n" + output)
         print("PASS Lean rejects cross-view prepare receipt")
-        recovery = (ROOT / "UVRR/RecoveryFence.lean").read_text()
+        recovery = (ROOT / "UVRR/RestartFence.lean").read_text()
         path.write_text(recovery)
         result = lean(path)
         if result.returncode != 0:
@@ -107,7 +107,7 @@ def main():
             ("unknown module", "unknown module prefix", "memory", "heartbeats")
         ):
             raise RuntimeError("episode-freshness mutant was not rejected by the proof:\n" + output)
-        print("PASS Lean rejects stale recovery episode evidence")
+        print("PASS Lean rejects stale restart episode evidence")
         vector = (ROOT / "UVRR/CrashVector.lean").read_text()
         path.write_text(vector)
         result = lean(path)
@@ -140,7 +140,7 @@ def main():
         ):
             raise RuntimeError("acquisition-order mutant was not rejected by the proof:\n" + output)
         print("PASS Lean rejects omitted acquisition response ordering")
-        operational = (ROOT / "UVRR/RecoveryAcquire.lean").read_text()
+        operational = (ROOT / "UVRR/RestartAcquire.lean").read_text()
         path.write_text(operational)
         result = lean(path)
         if result.returncode != 0:

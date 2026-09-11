@@ -17,7 +17,8 @@
 //!
 //! The node runs [`Stability::Volatile`] and persists nothing. That is safe
 //! because of the genesis ruling (§1.3): every construction — first boot or
-//! kill-nemesis restart alike — starts fenced `Recovering`, and a node
+//! kill-nemesis restart alike — starts fenced (`Joining` on provision,
+//! `Restarting` on reopen), and a node
 //! becomes `Normal` only through the bootstrap adoption (§4). A voter whose
 //! volatile state vanished while retaining authority is unrepresentable in
 //! this host: a restarted node rejoins fenced, and the next view change
@@ -194,7 +195,7 @@ impl NodeRunner {
             })
             .and_then(|(own, genesis_order)| {
                 // Always `provision`, never `reopen`: this host persists
-                // nothing, and the fenced `Recovering` start is the honest
+                // nothing, and the fenced `Joining` start is the honest
                 // statement of that (see the module docs).
                 Node::provision(
                     own,

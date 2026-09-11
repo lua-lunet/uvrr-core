@@ -19,7 +19,8 @@
 //!
 //! - the §1.3 frontier chain `checkpoint <= applied <= committed <= accepted`;
 //! - the §1.3 status/view relations: `Normal` requires `current == retained`;
-//!   `ViewChange` requires `current >= retained`; `Recovering` and `Replaying`
+//!   `ViewChange` requires `current >= retained`; the fenced entry states
+//!   `Restarting`, `Joining`, and `Replaying`
 //!   carry no relation, because in them `current` is not an authority to
 //!   participate;
 //! - era/slot discipline (§8.7.3, W1): the era authorising `accepted` is
@@ -39,13 +40,13 @@
 //! be the authority that declares itself sound again, so no transition clears a
 //! fault and the replica refuses all further input (§5 invariant 5, §12's
 //! `Indeterminate persistence result -> Faulted`). Recovery is a host lifecycle
-//! event — restart, then the ordinary §10 recovery path re-establishes a coherent
+//! event — restart, then the ordinary restart path re-establishes a coherent
 //! state — not a state transition the core performs on itself.
 //!
 //! `status` is process control as well as protocol state. A reopened node that has
-//! not proved its state current starts fenced and recovering, whatever status was
+//! not proved its state current starts fenced and restarting, whatever status was
 //! last observed before failure — which is why [`Progress::genesis`] is
-//! [`Status::Recovering`] and not `Normal`. The pre-failure status is evidence
+//! [`Status::Joining`] and not `Normal`. The pre-failure status is evidence
 //! about the past, not authority over the present; [`Progress::reconstitute`]
 //! accepts any status because it restores *evidence*, and downgrading that evidence
 //! to a fenced start is the replica's boot rule (§5), not a property of the
@@ -70,9 +71,13 @@ pub enum Status {
     /// replica has entered the later view as a fence but no new history has been
     /// selected and installed, which is exactly why `retained` exists.
     ViewChange,
-    /// Proving state currency through the §10 recovery path. `current` is not an
+    /// A node restarting with persisted knowledge, proving its state currency
+    /// through the restart path. `current` is not an authority to participate.
+    Restarting,
+    /// A node joining the cluster fresh (provision): proving membership and
+    /// state currency from the genesis knowledge. `current` is not an
     /// authority to participate.
-    Recovering,
+    Joining,
     /// Re-applying a transferred or restored history. `current` is not an authority
     /// to participate.
     Replaying,
@@ -90,7 +95,8 @@ impl Status {
         match self {
             Status::Normal => 0,
             Status::ViewChange => 1,
-            Status::Recovering => 2,
+            Status::Restarting => 2,
+            Status::Joining => 4,
             Status::Replaying => 3,
         }
     }
@@ -103,8 +109,9 @@ impl Status {
         match word {
             0 => Some(Status::Normal),
             1 => Some(Status::ViewChange),
-            2 => Some(Status::Recovering),
+            2 => Some(Status::Restarting),
             3 => Some(Status::Replaying),
+            4 => Some(Status::Joining),
             _ => None,
         }
     }
@@ -249,7 +256,8 @@ impl Progress {
     /// "no view": a freshly provisioned node has a real genesis view, so no
     /// `Option<ViewId>` appears anywhere in the crate.
     ///
-    /// The status is [`Status::Recovering`] per §5: a node that has not proved its
+    /// The status is the caller's fenced entry state (`Restarting` on reopen,
+    /// `Joining` on provision) per §5: a node that has not proved its
     /// state current starts fenced, and genesis is the uniform case of that rule —
     /// fresh and reopened nodes enter the protocol the same way, through recovery
     /// or an installed view.
@@ -263,7 +271,7 @@ impl Progress {
         Progress::reconstitute(
             ViewId::INITIAL,
             ViewId::INITIAL,
-            Status::Recovering,
+            Status::Joining,
             Slot::NONE,
             Slot::NONE,
             Slot::NONE,
@@ -347,12 +355,12 @@ impl Progress {
     }
 
     /// §1.3: `Normal` requires `current == retained`; `ViewChange` requires
-    /// `current >= retained`. `Recovering`/`Replaying` carry no relation.
+    /// `current >= retained`. The fenced entry states carry no relation.
     pub(crate) fn check_status_relation(&self) -> Result<(), ProgressError> {
         let holds = match self.status {
             Status::Normal => self.current == self.retained,
             Status::ViewChange => self.current >= self.retained,
-            Status::Recovering | Status::Replaying => true,
+            Status::Restarting | Status::Joining | Status::Replaying => true,
         };
         if holds {
             Ok(())

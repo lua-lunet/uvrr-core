@@ -130,10 +130,18 @@ fn tick_into_view_change(h: &mut Harness, id: NodeId, target: ViewId) {
 }
 
 /// Drives a complete view change to `target` among the live nodes: the
-/// prime times out first, the exchange runs out, every live node installs
-/// the new view.
+/// target's primary — the era table's voter-only succession names it
+/// (§8.4) — times out first, the exchange runs out, every live node
+/// installs the new view. The driver is a VOTING member by construction:
+/// a weight-0 member is never the primary (§8.7.8) and does not drive
+/// view change (§5.1 — suspicion is a voting member's act).
 fn drive_view_change(h: &mut Harness, live: &[NodeId], target: ViewId) {
-    let prime = primary_of(target);
+    let prime = h
+        .era_table(live[0])
+        .expect("the driver is live")
+        .record(target.era)
+        .and_then(|record| record.config.primary(target.view))
+        .expect("the target's era is established and its primary is named");
     tick_into_view_change(h, prime, target);
     h.deliver_all();
     for &id in live {
@@ -600,7 +608,7 @@ impl Thresholds {
         match role {
             Role::Commit => self.commit,
             Role::ViewChange => self.view_change,
-            Role::Recovery => self.recovery,
+            Role::Restart => self.recovery,
             Role::Fence => self.fence,
         }
     }

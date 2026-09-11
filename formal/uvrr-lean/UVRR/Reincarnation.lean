@@ -3,9 +3,15 @@ import UVRR.WeightedGeneral
 /-! uVRR reincarnation: the Crash-Stop-Self-Evict protocol (spec-only rung).
 A node whose volatile state was lost is a different node: it reopens under a
 new identity obtained by bumping its incarnation, and its old identity is
-evicted from the voting configuration by the forced weight sequence. Durable
-state is four superblocks whose marks classify the startup; any `unflushed`
-mark makes the node dirty, and a dirty node must bump. The leader drives the
+evicted from the voting configuration by the forced weight sequence. The
+governing boot rule is the marker transition machine (`docs/vrr-durability-model.md`
+§5.1): `Stopping→Stopped` proves the drain, a 2-of-4 `Stopped` quorum at boot is
+the clean stop whose `Restarting` node is a member with complete state ticking
+the full protocol, and a missing stopped quorum bumps the identity and enters
+`Joining` — not a member. This module's `Mark`/`dirtyStartup` definitions encode
+the older all-`flushed`/any-`unflushed` classification as a simplified twin of
+the machine's closed 4-copy domain; their re-statement over the marker machine is
+the release-gate regeneration, not a claim made here. The leader drives the
 forced sequence of the Paxos Voting Weights rules; every consecutive pair of
 eras overlaps, so each intermediate era is quorum-safe on its own. Once the
 Crash-Stop-Eviction is initiated it must continue: the forced sequence is

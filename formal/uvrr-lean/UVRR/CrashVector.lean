@@ -3,7 +3,7 @@ import UVRR.Synod
 /-! Crash-vector reply filtering, following Michael, Ports, Sharma and Szekeres,
 UW-CSE-17-08-01 (2017), Algorithm 1 and Definition 6. This module checks the
 collection primitive. It does not assume that filtering alone proves durable
-quorum knowledge: recovery must itself acquire and propagate its new incarnation,
+quorum knowledge: restart must itself acquire and propagate its new incarnation,
 and value/knowledge reconstruction and protocol integration remain obligations.
 -/
 namespace CrashVector

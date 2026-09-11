@@ -45,7 +45,7 @@
 //!
 //! VRR-2012 §4 is live: `Prepare`/`PrepareOk`/`Commit` with
 //! commit-frontier piggybacking (§13.3), the Propose/Apply/Applied boundary
-//! (§11.1), and the bootstrap from the fenced `Recovering` genesis state (the
+//! (§11.1), and the bootstrap from the fenced `Joining` genesis state (the
 //! ruling is on the `plan_tick` handler). Every handler is total: invalid peer
 //! input is dropped with a named [`Diagnostic`] on the observation, never
 //! faults the node; faulting stays reserved for impossible LOCAL transitions
@@ -123,7 +123,8 @@ mod transfer;
 mod view_change;
 
 pub use reincarnation::{
-    CopyState, Incarnation, Marker, RestartClass, RestartDecision, SuperblockCopies, forced_steps,
+    CopyState, Incarnation, Marker, RestartClass, RestartDecision, RestartRefusal,
+    SuperblockCopies, forced_steps,
 };
 
 /// One host event with the host tick attached (§6, S4).
@@ -211,7 +212,10 @@ pub enum Input {
     /// change driven from the host's say-so, whose new primary is the
     /// member `target` maps to under the current membership order. The
     /// target must strictly advance the view within the current era;
-    /// anything else is refused as bad input.
+    /// anything else is refused as bad input. A general administrative
+    /// lever, not a boot obligation: the boot decision is the marker read
+    /// (§5.1), and a restarted member needs no lever — it ticks the full
+    /// protocol.
     AdminForceView {
         /// The view to enter: `target.view` past the current view number,
         /// `target.era` the current era.
@@ -313,7 +317,8 @@ pub enum PlanRefusal {
     /// candidates.
     Progress(ProgressError),
     /// A proposal reached a node that is not the `Normal` primary of
-    /// its current view (§4): a backup, a fenced `Recovering` node, or the
+    /// its current view (§4): a backup, a fenced entry node (`Restarting` or
+    /// `Joining`), or the
     /// primary of some other view. Carries the node's current view and the
     /// primary of that view (when the configuration can name one) so the
     /// host can redirect the proposer (§13.4's convergence hint applied to
@@ -497,6 +502,38 @@ pub enum PublishOutcome {
 /// (the bootstrap and message-driven view changes still run); the genesis
 /// bootstrap then behaves exactly as the bootstrap rule specifies.
 ///
+/// # Choosing `primary_timeout`: the recommended randomized schedule
+///
+/// Randomized deadlines are the recommendation — they are what keep
+/// view-change duels from repeating. The schedule's arithmetic is published
+/// as pure functions in [`crate::backoff`]; the recommendation itself:
+///
+/// - **Unit sizing.** Size the timeout UNIT at `2×rtt`
+///   ([`crate::backoff::unit_from_rtt`]). The first window is one unit,
+///   split evenly into a fixed and a uniform random half, so the first
+///   suspicion deadline falls in `[unit/2, unit)` and the earliest it can
+///   fire is `unit/2 = rtt` — a full round trip. An answer in flight from a
+///   live primary lands before the earliest suspicion; the random half adds
+///   up to one more round trip of margin. A unit of 20 ms presumes an RTT
+///   of ~10 ms — ~5 ms one-way between servers in two DCs.
+/// - **Exponential backoff.** Each failed or interrupted election attempt
+///   doubles the window — unit, `2·unit`, `4·unit`, … — capped at
+///   [`crate::backoff::CAP_MILLIS`] (5000 ms). Every window splits into a
+///   FIXED part and a uniform RANDOM part, both growing with the window
+///   ([`crate::backoff::window`] computes exactly this split): the fixed
+///   part grows so a duel survivor gets real work done inside its window —
+///   a node that has just won an election must fit a `Prepare`/`Commit`
+///   round before its own next suspicion — and the random part widens so
+///   dueling hosts' timers spread and one node completes its election
+///   while the other waits.
+/// - **Reset.** The attempt counter returns to zero — the window to the
+///   unit — on commit or adopt: when the node observes same-view activity
+///   from the legitimate primary, or installs a new view.
+/// - **Sans-I/O honesty.** The host draws the random part, translates the
+///   drawn deadline into host ticks for `primary_timeout`, and delivers
+///   those ticks; the core only counts them. The core owns no clock, no
+///   randomness and no timer phase.
+///
 /// `view_change_budget` bounds the byte size of the history suffix carried
 /// by `DoViewChange` and `StartView` (§13.1). The core's obligation is
 /// exactness (W4): entries are packed newest-first and the wire suffix never
@@ -563,7 +600,7 @@ pub struct PersistedProgress {
     /// The view at which the current logical history was selected (§1.3).
     pub retained: ViewId,
     /// The last observed status. Evidence only: `reopen` fences to
-    /// [`Status::Recovering`] regardless (§5's boot rule).
+    /// [`Status::Restarting`] regardless (§5's boot rule).
     pub status: Status,
     /// The accepted frontier; must agree with the journal's at `reopen`.
     pub accepted: Slot,
@@ -727,7 +764,7 @@ struct Evidence {
 /// Volatile by design: the fence is VRR-2012's volatile `StartViewChange`
 /// exchange (§9.3 — the core never substitutes a persisted view record for
 /// it), so a crash discards the attempt and the node reopens fenced
-/// `Recovering` (§5's boot rule). The durable half is `Progress.current`,
+/// `Restarting` (§5's boot rule). The durable half is `Progress.current`,
 /// which already advanced past every earlier view at entry.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct ViewChangeVolatile {
@@ -1105,7 +1142,7 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// (B1; the §4 handlers' total-drop contract made observable).
     diagnostics: Arc<Observation<Diagnostic>>,
     /// The primary's outstanding and unapplied proposals, keyed by slot.
-    /// Volatile: a node that loses it reopens fenced `Recovering` (§5's
+    /// Volatile: a node that loses it reopens fenced `Restarting` (§5's
     /// boot rule), so the loss can never masquerade as authority.
     proposals: BTreeMap<Slot, Proposal>,
     /// The one outstanding parked transition, if any (§12).
@@ -1161,9 +1198,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `accepted == committed == Slot(2)`; `applied == Slot(2)` (the §11
     /// system-slot ruling: both genesis slots are core-internal and walk
     /// `applied` by themselves) and `checkpoint == Slot(0)`; status
-    /// [`Status::Recovering`] — the genesis ruling (§1.3),
-    /// §5's boot rule made uniform: a fresh node and a reopened node enter
-    /// the protocol the same way, fenced until they prove their state
+    /// [`Status::Joining`] — the genesis ruling (§1.3),
+    /// §5's boot rule made uniform: a provisioned node joins fenced `Joining`
+    /// and a reopened node restarts fenced `Restarting`, both fenced until
+    /// they prove their state
     /// current. Nothing about a fresh cluster is special-cased into `Normal`.
     ///
     /// The quorum gate (Q1) runs here on the genesis configuration: an
@@ -1242,7 +1280,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let progress = Progress::reconstitute(
             view,
             view,
-            Status::Recovering,
+            Status::Joining,
             INIT_SLOT,
             INIT_SLOT,
             INIT_SLOT,
@@ -1261,11 +1299,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// The persisted progress is evidence about the past, not authority over
     /// the present: whatever status was last observed before failure, the
-    /// node reopens in [`Status::Recovering`] (§5's boot rule) and becomes
+    /// node reopens in [`Status::Restarting`] (§5's boot rule) and becomes
     /// normal only after local restoration establishes adequate state. The
     /// persisted fault, if any, is preserved —
     /// faults survive restart because they are part of progress (§5
-    /// invariant 5).
+    /// invariant 5). The boot decision is the marker read (§5.1): a stopped
+    /// quorum restarts here as `Restarting` — a member with complete state,
+    /// ticking the full protocol — and anything else resurrects as `Joining`
+    /// under a bumped identity.
     ///
     /// A host that cannot produce a persisted progress must say so by using
     /// [`Replica::provision`] instead; the core makes the host say which it
@@ -1300,7 +1341,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let progress = Progress::reconstitute(
             persisted.current,
             persisted.retained,
-            Status::Recovering,
+            Status::Restarting,
             persisted.accepted,
             persisted.committed,
             persisted.applied,
@@ -1317,9 +1358,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The shared constructor: the observation is born holding the initial
     /// snapshot (B1), and nothing is outstanding. The activity baseline is
-    /// the epoch tick: a node starts never-having-heard a primary, and the
-    /// bootstrap's `Recovering` status exempts it from suspicion until it
-    /// first adopts a view.
+    /// the epoch tick: a node starts never-having-heard a primary. A
+    /// `Joining` node is fenced from suspicion — it is not a member (§5.1) —
+    /// while a `Restarting` node ticks the full protocol and suspects a
+    /// silent primary from that baseline once the timeout passes: its flush
+    /// happened in the drain between `Stopping` and `Stopped`, not on the
+    /// hot path (§5.1).
     fn assemble(
         own: NodeId,
         strategy: Q,
@@ -1476,7 +1520,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The tick (S4): today it drives exactly one protocol decision, the
     /// bootstrap self-promotion of the genesis primary.
     ///
-    /// A `Recovering` node enters `Normal` on a tick when ALL of: its
+    /// A fenced entry node (`Restarting` or `Joining`) enters `Normal` on a
+    /// tick when ALL of: its
     /// journal holds the complete committed genesis (slots 1–2, both
     /// physically present, nothing beyond), `current == retained` at the
     /// genesis view, and it IS `config.primary(View(0))` under its
@@ -1487,7 +1532,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// (`current.view != 0`) or holds post-genesis history (`accepted >
     /// 2`), and both exclude it here; its path is §10 recovery.
     /// The promotion happens on a tick, not in `provision`, so construction
-    /// stays uniform — every node starts fenced `Recovering` — and the
+    /// stays uniform — provision joins fenced `Joining`, reopen restarts
+    /// fenced `Restarting` — and the
     /// promotion is an explicit protocol step the trace shows.
     ///
     /// On promotion the new primary announces its committed frontier to
@@ -1498,17 +1544,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the view stalls but cannot diverge; deposing it is the view change
     /// below.
     ///
-    /// The tick's second decision (S4): a `Normal` backup whose
-    /// primary has been silent for more than
+    /// The tick's second decision (S4): a `Normal` backup or a
+    /// `Restarting` node whose primary has been silent for more than
     /// [`ViewChangeKnobs::primary_timeout`] ticks enters the next view
     /// change. Silence is measured from the last same-view `Prepare` or
     /// `Commit` from the legitimate primary (or the last view adoption);
     /// the primary of the current view never suspects itself, and a
-    /// `Recovering` or already-`ViewChange` node has nothing to suspect —
+    /// `Joining` node or already-`ViewChange` node has nothing to suspect —
     /// a stalled attempt is state transfer's repair (§10), not a fresh timeout.
     fn plan_tick(&self, journal: &J::View, at: Tick) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
-        let promotable = self.progress.status() == Status::Recovering
+        let promotable = matches!(self.progress.status(), Status::Restarting | Status::Joining)
             && current == self.progress.retained()
             && current.view == View::INITIAL
             && self.progress.accepted() == INIT_SLOT
@@ -1534,17 +1580,37 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 )
                 .with_activity(at));
         }
-        // Any Normal node can suspect — the primary of the current view
-        // included: it refreshes its baseline only on its own proposals —
-        // and not at all while a stop-the-world era transition is
-        // outstanding ([`Self::stop_the_world_transition_outstanding`]) —
-        // so an idle primary, and a primary whose own stream is holding an
-        // establishing era open, time out into the next view exactly like
-        // a backup with a silent primary. A solo primary's change still
-        // cannot complete (the fence needs a quorum), which is the paper's
-        // answer to a partitioned primary's suspicion (§9).
+        // The marker machine's ruling (§5.1 of `docs/vrr-durability-model.md`):
+        // a `Restarting` node completed a controlled shutdown — its flush
+        // happened in the drain between `Stopping` and `Stopped`, not on the
+        // hot path — so it is a member with complete state and no amnesia: it
+        // ticks the full protocol and suspects a silent primary exactly like
+        // a `Normal` backup. A `Joining` node is not a member: no vote, no
+        // view change — the membership checks drop anything it emits — and
+        // its tick drives only its own re-drive (the announcement re-send and
+        // the §10 acquisition re-run). The suspicion is therefore a VOTING
+        // member's act: the voting-weight check in the gate is what keeps a
+        // boot-fenced weight-0 learner (the §10 acquisition state, held under
+        // the same fenced entry statuses) out of the view-change machinery.
+        // Any voting member can fire — the primary of the current view
+        // included: it refreshes its baseline only on its own proposals — and
+        // not at all while a stop-the-world era transition is outstanding
+        // ([`Self::stop_the_world_transition_outstanding`]) — so an idle
+        // primary, and a primary whose own stream is holding an establishing
+        // era open, time out into the next view exactly like a backup with a
+        // silent primary. A solo primary's change still cannot complete (the
+        // fence needs a quorum), which is the paper's answer to a
+        // partitioned primary's suspicion (§9).
+        let voting_member = self
+            .progress
+            .config()
+            .current()
+            .config
+            .weight_of(self.own)
+            .is_some_and(|weight| weight.0 >= 1);
         let suspects = self.knobs.primary_timeout != 0
-            && self.progress.status() == Status::Normal
+            && voting_member
+            && matches!(self.progress.status(), Status::Normal | Status::Restarting)
             && self
                 .primary_activity
                 .0
@@ -2582,6 +2648,32 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         })
     }
 
+    /// Whether `message` is the planned evidence the armed reconfiguration
+    /// machine solicited FROM `from` (§8.7.7): a `DoViewChange` carrying
+    /// `EvidenceKind::Planned` for exactly the machine's transition view,
+    /// from a member the machine's pivot names in `qI`. The §6
+    /// membership-discard admits exactly this message past the gate; every
+    /// other guard of the planned-evidence path — the solicited machine,
+    /// the transition view, the `qI` vote set, the shape rules, the era
+    /// proof — still applies at the counting site
+    /// ([`Self::plan_planned_evidence`]). A non-member's ordinary
+    /// view-change traffic stays refused by name.
+    fn planned_evidence_solicited(&self, from: NodeId, message: &Message) -> bool {
+        let Body::DoViewChange {
+            evidence: EvidenceKind::Planned,
+            ..
+        } = &message.body
+        else {
+            return false;
+        };
+        let Some(planned) = &self.planned else {
+            return false;
+        };
+        planned.solicited
+            && message.header.view == planned.target
+            && planned.pivot.q_i.contains(&from)
+    }
+
     /// The peer-message dispatch (§4, §9): normal operation, the ordinary
     /// view-change exchange, the non-stop overlap exchange (§8.7.7),
     /// recovery, and state transfer are live.
@@ -2603,11 +2695,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The §6 membership-discard check (`docs/uvrr-reincarnation.md`):
         // a message FROM a node outside the current committed
         // configuration — a superseded old identity, or any other
-        // non-member — is discarded. The one exception is the
-        // `Reincarnation` announcement: it is the bumped node's entry
-        // ticket, the message that makes it a member. Messages TO such a
-        // node are unaffected.
+        // non-member — is discarded. Two exceptions, each the message that
+        // makes or keeps a membership: the `Reincarnation` announcement is
+        // the bumped node's entry ticket, and the reconfiguration's own
+        // solicited planned evidence is the vote the construction
+        // solicited — the pivot puts a departing member inside `qI`
+        // precisely so its answer completes the planned quorum
+        // (§8.7.7), so the discard treating that one answer as hostile
+        // input is a conflation of the transition with the departure.
+        // Everything else FROM a non-member is refused by name, and every
+        // other guard of the planned-evidence path re-fires downstream.
+        // Messages TO such a node are unaffected.
         if message.header.tag != Tag::Reincarnation
+            && !self.planned_evidence_solicited(from, message)
             && self
                 .progress
                 .config()

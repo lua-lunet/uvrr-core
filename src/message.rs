@@ -137,7 +137,7 @@ pub enum Body {
     /// pair of identities the restarted node carries. Sent by the bumped
     /// node to the leader; the leader drives the forced weight sequence of
     /// §5 in reply. The pair is the freshness carrier where it meets the
-    /// `RecoveryFence` machinery (§4 of the doc): it supersedes the
+    /// `RestartFence` machinery (§4 of the doc): it supersedes the
     /// `generation` ghost as the freshness carrier; that machinery is
     /// untouched.
     Reincarnation {

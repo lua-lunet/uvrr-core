@@ -116,8 +116,8 @@ da655d993fccb7074d35e78f53df04d6dbaceaae5d3357f4169718f985c1f44b  UVRR/CrashVect
 51b2987e04a4ebed3baa3fdf5c28619cf6eac03e45a779fff0a8af22afccf6ae  UVRR/MultiPromise.lean
 88f777a188475d320a8b58f841d7d6401d3ebf74fc0f81d6a52beacedb4f630d  UVRR/NegativeControls.lean
 3e7340de62ef42558df1e9a687876b1f85d99189f6c977e605f0c9293963a394  UVRR/NormalLog.lean
-8fd7ba97afdacdccca71fc30875fd72da385fea6670e2dd779ab3cf9b1a5e323  UVRR/RecoveryAcquire.lean
-3c6d33205b535dd20427ec65b166694c6527001aaa96648dba59fd25887dc5fe  UVRR/RecoveryFence.lean
+8fd7ba97afdacdccca71fc30875fd72da385fea6670e2dd779ab3cf9b1a5e323  UVRR/RestartAcquire.lean
+3c6d33205b535dd20427ec65b166694c6527001aaa96648dba59fd25887dc5fe  UVRR/RestartFence.lean
 f5367996b239d9dfc26b904e02ebc7dc4c53aa0bce46fcaa994ba6b46f74a71c  UVRR/Reincarnation.lean
 931d0ba52acbe700050a2444e1cab4f0f530c7c2517edfe962c57c694be33375  UVRR/Structure.lean
 d7c8b1934cde6236b24d8bf64f00f7611d171a194e2486287433cc57391003b9  UVRR/Synod.lean
@@ -180,10 +180,10 @@ builds and diffs every captured output.
 | 14 | `NormalLog.lean` | Fixed-view message induction: report comparability and replica prefix retention |
 | 15 | `ViewFence.lean` | Voter-report bounds; committed prefixes preserved in later activated views under explicit provenance |
 | 16 | `LogProvenance.lean` | Shared multi-view transition induction: committed-log compatibility, fixed configuration, no crashes |
-| 17 | `RecoveryFence.lean` | A supporting quorum retains a known fence through arbitrary crash/recovery sequences |
+| 17 | `RestartFence.lean` | A supporting quorum retains a known fence through arbitrary crash/restart sequences |
 | 18 | `CrashVector.lean` | Published crash-vector collector: reachable reply sets are incarnation-consistent |
-| 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; retention discharged by the durable superblock identity |
-| 20 | `RecoveryAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
+| 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit restart provenance; retention discharged by the durable superblock identity |
+| 20 | `RestartAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
 | 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: two-era forced weight sequence (`crossEra`/`evictEra` batches, R14 one-unit mass rule), reincarnation state machine and continuation commitment; unit-weight three-node era-safety instances; one-era swap refusal with disjoint-majority witness; general theorems listed as proof obligations |
 
 ```bash
@@ -209,10 +209,10 @@ ok   ladder/13-view-selection.md
 ok   ladder/14-normal-log.md
 ok   ladder/15-view-fence.md
 ok   ladder/16-log-provenance.md
-ok   ladder/17-recovery-fence.md
+ok   ladder/17-restart-fence.md
 ok   ladder/18-crash-vector.md
 ok   ladder/19-acquisition-order.md
-ok   ladder/20-recovery-acquisition.md
+ok   ladder/20-restart-acquisition.md
 ok   ladder/22-reincarnation.md
 ok   ladder/23-casting-vote-reincarnation.md
 ```
@@ -238,7 +238,7 @@ PASS Lean rejects unsafe four-node decision family
 PASS Lean rejects omitted next-slot guard
 PASS Lean rejects append after view-change fence
 PASS Lean rejects cross-view prepare receipt
-PASS Lean rejects stale recovery episode evidence
+PASS Lean rejects stale restart episode evidence
 PASS Lean rejects omitted crash-vector filtering
 PASS Lean rejects omitted acquisition response ordering
 PASS Lean rejects recovering sender response
@@ -283,7 +283,7 @@ Error: Invariant FrontiersOrdered is violated.
 
 `VrrCoreEras.cfg` is the three-node `inc3` scenario with one command value, maximum log
 length three, two eras and view index zero; `MaxEpoch=0` disables crashes, so this run
-gives no crash-recovery coverage. Breadth-first search with two workers and a 2 GiB heap
+gives no crash-restart coverage. Breadth-first search with two workers and a 2 GiB heap
 takes about two and a half minutes on the recording machine and must complete with no
 error and an empty queue. The generated and distinct state totals are deterministic for a
 completed search; the progress lines with timings are not compared.
@@ -402,10 +402,10 @@ cb9f5e2becc3d7499c017f0c01ef6786ea27a6534649d47f1f3f04efe348c650  ladder/11-mult
 4ba1b60110417289a9045d9931d3fb1854d17aacbe51e217010290134414645f  ladder/14-normal-log.md
 f49557de254c33eb55317d1907e83abc84f50c378d3e7571c1acdaa7edbe955b  ladder/15-view-fence.md
 57b9623d0dc25838188314dfe077a97a9a7a6d26c390f09a9514fbeb39888c13  ladder/16-log-provenance.md
-371ce4eeb2ce5ec33538cf76ea989dbf957fbda318da486d4ba1ab8ea7db16e1  ladder/17-recovery-fence.md
+371ce4eeb2ce5ec33538cf76ea989dbf957fbda318da486d4ba1ab8ea7db16e1  ladder/17-restart-fence.md
 d08b444567a5b071a30578efde0d160b5ead8b6079bcbdec44fea762efa5e071  ladder/18-crash-vector.md
 2643b179950d597fe9ea2cc98067a2235a9bb83d94abe173a3e97b6422022c18  ladder/19-acquisition-order.md
-cee41077b7268279ad8061261f3d7fdf315d8d2e24bfc5eba5788d4d402316fc  ladder/20-recovery-acquisition.md
+cee41077b7268279ad8061261f3d7fdf315d8d2e24bfc5eba5788d4d402316fc  ladder/20-restart-acquisition.md
 2e617c3e83e89c2b9356fd48d3c2ce70e8ebbc249a80e479261794754e97e0a0  ladder/22-reincarnation.md
 022650e916645e510dbae93c8816fa3c942952e7d78021365796a91ae5980aa3  ladder/23-casting-vote-reincarnation.md
 a4add3a8c2c0ee28c1f3d75d3e0e2a4f87132f3bd38c48fafaae68357a96c6e8  check_axioms.py

@@ -6,7 +6,7 @@ installation base and an append-only primary history. Source activation
 requires authentic quorum reports and the executable maximum-rank selector,
 never a global agreement test. Local replicas use ViewFence transitions, receive
 only issued next-slot prepares, and emit immutable reports. No crash operation
-or first-round recovery knowledge is represented in this projection.
+or first-round restart knowledge is represented in this projection.
 -/
 namespace LogProvenance
 

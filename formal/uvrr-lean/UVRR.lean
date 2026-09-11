@@ -13,11 +13,11 @@ import UVRR.ViewSelection
 import UVRR.NormalLog
 import UVRR.ViewFence
 import UVRR.LogProvenance
-import UVRR.RecoveryFence
+import UVRR.RestartFence
 import UVRR.CrashVector
 
 import UVRR.AcquisitionOrder
-import UVRR.RecoveryAcquire
+import UVRR.RestartAcquire
 import UVRR.Reincarnation
 import UVRR.ReincarnationGeneral
 import UVRR.CastingVoteReincarnation

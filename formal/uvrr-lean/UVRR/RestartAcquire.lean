@@ -1,15 +1,3 @@
-# Rung 20: Operational crash-vector acquisition certificates
-
-*2026-09-06T08:58:58Z by Showboat 0.6.1*
-<!-- showboat-id: 3bb19e31-ba24-49c2-9dfa-06cf7f4462b9 -->
-
-Crash, start, emit, answer, collect and finish transitions derive authentic crash-consistent quorum certificates for exact request/incarnation identities. Historical replies originate at operational senders. Crash erases protocol knowledge; a concrete three-node trace completes recovery at incarnation 1. An authentic same-incarnation older-request reply violates freshness when replayed into a new acquisition. Echoed request identity is explicit; mapping it to the concrete nonce contract is open. This is acquisition mechanics, not persistence, a full recovery proof, liveness or a production repair.
-
-```bash
-cat UVRR/RecoveryAcquire.lean
-```
-
-```output
 import UVRR.CrashVector
 import UVRR.NormalLog
 
@@ -24,7 +12,7 @@ logical incarnation (the host freshness obligation, not a disk write).
 Payload knowledge is ghost set membership, not a prescribed storage format.
 ReadQuorum, liveness, reconstruction fidelity and log integration remain open.
 -/
-namespace RecoveryAcquire
+namespace RestartAcquire
 
 structure Payload (A X : Type) where
   recipient : A
@@ -229,7 +217,7 @@ theorem reachable_inv {A X : Type} {family : QSys A} {s : State A X}
   | init => exact initial_inv _
   | step _ step ih => exact step_inv ih step
 
-/-- Every completed acquisition, including recovery, has an authentic,
+/-- Every completed acquisition, including restart, has an authentic,
 crash-consistent distinct-identity quorum for its exact request and incarnation.
 The full persistence theorem is a further obligation, not a finish guard. -/
 theorem completed_certificate {A X : Type} {family : QSys A} {s : State A X}
@@ -281,7 +269,7 @@ noncomputable def s8 : State Nat Unit :=
 
 -- Reduction is confined to this concrete witness; the safety induction above
 -- quantifies over arbitrary node/value types and unbounded finite executions.
-theorem recovery_completes : Reachable family s8 ∧
+theorem restart_completes : Reachable family s8 ∧
     (s8.nodes 0).online = true ∧ cert.generation = 1 ∧
     Certified family s8.responses cert := by
   have h1 : Reachable family s1 := .step .init (.crash _ 0)
@@ -332,31 +320,4 @@ theorem stale_request_countermodel :
       started, crashed, initial, initialNode, NormalLog.put] at eq
 
 end Example
-end RecoveryAcquire
-```
-
-```bash
-lake env lean UVRR/RecoveryAcquire.lean
-```
-
-```output
-```
-
-```bash
-lake env lean --stdin <<'LEAN'
-import UVRR.RecoveryAcquire
-#print axioms RecoveryAcquire.completed_certificate
-#print axioms RecoveryAcquire.response_origin
-#print axioms RecoveryAcquire.finish_transfers
-#print axioms RecoveryAcquire.Example.recovery_completes
-#print axioms RecoveryAcquire.Example.stale_request_countermodel
-LEAN
-```
-
-```output
-'RecoveryAcquire.completed_certificate' depends on axioms: [propext, Classical.choice, Quot.sound]
-'RecoveryAcquire.response_origin' depends on axioms: [propext, Classical.choice, Quot.sound]
-'RecoveryAcquire.finish_transfers' does not depend on any axioms
-'RecoveryAcquire.Example.recovery_completes' depends on axioms: [propext, Classical.choice, Quot.sound]
-'RecoveryAcquire.Example.stale_request_countermodel' depends on axioms: [propext, Classical.choice, Quot.sound]
-```
+end RestartAcquire

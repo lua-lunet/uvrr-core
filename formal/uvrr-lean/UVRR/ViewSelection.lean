@@ -4,7 +4,7 @@ import UVRR.Synod
 log length. The preservation theorem is the view-induction step. It explicitly
 requires same-view log comparability, quorum coverage, surviving voter history,
 and preservation by strictly later normal views. Deriving those premises from
-the complete message/recovery transition system remains a separate obligation.
+the complete message/restart transition system remains a separate obligation.
 No global prefix-agreement check is used in the selection algorithm.
 -/
 namespace ViewSelection

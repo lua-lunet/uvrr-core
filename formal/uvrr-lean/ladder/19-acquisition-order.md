@@ -1,4 +1,4 @@
-# Rung 19: Temporal acquisition under explicit recovery provenance
+# Rung 19: Temporal acquisition under explicit restart provenance
 
 *2026-09-06T08:51:50Z by Showboat 0.6.1*
 <!-- showboat-id: 5722d9e8-f5d9-496b-9546-5bc35cf820ec -->

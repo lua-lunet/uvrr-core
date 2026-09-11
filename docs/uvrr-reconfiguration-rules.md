@@ -43,7 +43,7 @@ than the membership cap, and standbys may come and go.
 | R2 | A node joins the cluster at voting weight zero (`Join` inserts a standby; there is no operation that joins at any other weight). |
 | R3 | A node leaves the cluster only after its voting weight has been changed to zero (`Leave` is legal only at weight 0). |
 | R4 | A zero-weight member never votes: it is not a voter in any quorum evaluation, so it is not counted against any quorum. |
-| R5 | A leader does not count any response from a zero-weight member toward any vote, and every replica drops view-change-like messages from a zero-weight member. The one message a non-voting identity may send that is never dropped is the `Reincarnation` announcement (§4 of `docs/uvrr-reincarnation.md`) — the entry ticket. |
+| R5 | A leader does not count any response from a zero-weight member toward any vote, and every replica drops view-change-like messages from a zero-weight member. The one message a non-voting identity may send that is never dropped is the `Reincarnation` announcement (§4 of `docs/uvrr-reincarnation.md`) — the entry ticket. The one response a departing identity's answer still counts toward is the non-stop transition's own planned quorum (§8.7.7): the pivot places the departing member inside `qI` and the construction solicits exactly that vote, so the §6 membership-discard (`docs/uvrr-reincarnation.md`) admits precisely that solicited `EvidenceKind::Planned` answer past ingress — every other message from the departed identity stays refused by name. |
 | R6 | A leader sends prepare and commit to zero-weight standbys so they stay caught up: warm standbys, swappable in by uVRR. |
 
 ## 3. The operation alphabet

@@ -47,12 +47,14 @@ build:
 	cargo build --release --all-targets --features maelstrom
 
 test:
-	cargo test
+	# The Maelstrom adapter binary is feature-gated; the lane must build it.
+	cargo test --features maelstrom
 
 check:
 	cargo fmt -- --check
 	cargo clippy --all-targets -- -D warnings
-	cargo test
+	# The Maelstrom adapter binary is feature-gated; the lane must build it.
+	cargo test --features maelstrom
 
 clean-state:
 	rm -rf $(STATE_DIR)

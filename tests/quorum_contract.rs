@@ -75,8 +75,8 @@ struct Thresholds {
     commit: u64,
     /// Weight threshold for `Role::ViewChange` (QI).
     view_change: u64,
-    /// Weight threshold for `Role::Recovery` (R_g).
-    recovery: u64,
+    /// Weight threshold for `Role::Restart` (R_g).
+    restart: u64,
     /// Weight threshold for `Role::Fence` (F_g).
     fence: u64,
 }
@@ -86,7 +86,7 @@ impl Thresholds {
         match role {
             Role::Commit => self.commit,
             Role::ViewChange => self.view_change,
-            Role::Recovery => self.recovery,
+            Role::Restart => self.restart,
             Role::Fence => self.fence,
         }
     }
@@ -165,7 +165,7 @@ fn q1_scenario() -> (Thresholds, Configuration, Configuration) {
     let strategy = Thresholds {
         commit: 3,
         view_change: 4,
-        recovery: 4,
+        restart: 4,
         fence: 4,
     };
     let current = initialised(&SIX);
@@ -304,14 +304,14 @@ fn weighted_majority_validates_every_reachable_era_and_transition() {
 /// A commit family that admits singletons violates `R1` even when every other family
 /// is a strict majority: `{n0}` commits while `{n1,n2}` changes the view. The refusal
 /// must be `R1Violation`, and `validate_era` must reach it — the self-intersection and
-/// fence/recovery checks hold for this strategy, so the variant cannot be arriving
+/// fence/restart checks hold for this strategy, so the variant cannot be arriving
 /// from a different obligation.
 #[test]
 fn undersized_commit_family_is_an_r1_violation() {
     let strategy = Thresholds {
         commit: 1,
         view_change: 2,
-        recovery: 2,
+        restart: 2,
         fence: 2,
     };
     let config = initialised(&[N0, N1, N2]);
@@ -340,7 +340,7 @@ fn non_self_intersecting_view_family_is_named() {
     let strategy = Thresholds {
         commit: 3,
         view_change: 2,
-        recovery: 3,
+        restart: 3,
         fence: 3,
     };
     let config = initialised(&[N0, N1, N2, N3]);
@@ -361,28 +361,28 @@ fn non_self_intersecting_view_family_is_named() {
     }
 }
 
-/// Fence and recovery families of threshold 1 over three members leave `R1` and the
-/// view self-intersection intact (both majorities) but admit a disjoint fence/recovery
+/// Fence and restart families of threshold 1 over three members leave `R1` and the
+/// view self-intersection intact (both majorities) but admit a disjoint fence/restart
 /// pair — a recovering replica could miss the volatile evidence that a view was fenced
-/// (§8.3). The refusal must be `FenceRecoveryViolation`.
+/// (§8.3). The refusal must be `FenceRestartViolation`.
 #[test]
-fn disjoint_fence_and_recovery_families_are_named() {
+fn disjoint_fence_and_restart_families_are_named() {
     let strategy = Thresholds {
         commit: 2,
         view_change: 2,
-        recovery: 1,
+        restart: 1,
         fence: 1,
     };
     let config = initialised(&[N0, N1, N2]);
 
     let refusal = validate_era(&strategy, &config)
-        .expect_err("disjoint fence and recovery families must be refused");
+        .expect_err("disjoint fence and restart families must be refused");
     match refusal {
-        QuorumError::FenceRecoveryViolation { fence, recovery } => {
+        QuorumError::FenceRestartViolation { fence, restart } => {
             assert_eq!(fence, vec![N0]);
-            assert_eq!(recovery, vec![N1]);
+            assert_eq!(restart, vec![N1]);
         }
-        other => panic!("expected FenceRecoveryViolation, got {other:?}"),
+        other => panic!("expected FenceRestartViolation, got {other:?}"),
     }
 }
 
@@ -418,7 +418,7 @@ impl QuorumStrategy for ParityCommit {
                     4
                 }
             }
-            Role::ViewChange | Role::Recovery | Role::Fence => 4,
+            Role::ViewChange | Role::Restart | Role::Fence => 4,
         };
         match config.weight_of_set(members) {
             Some(weight) => weight >= threshold,
@@ -435,14 +435,14 @@ impl QuorumStrategy for ParityCommit {
                     4
                 }
             }
-            Role::ViewChange | Role::Recovery | Role::Fence => 4,
+            Role::ViewChange | Role::Restart | Role::Fence => 4,
         };
         Some(threshold)
     }
 }
 
 /// Both eras are individually legal under `ParityCommit` — `R1`, self-intersection and
-/// fence/recovery all hold in each — and the forward transition check passes. The
+/// fence/restart all hold in each — and the forward transition check passes. The
 /// refusal must come from the reverse direction alone, witnessed by `{n0,n1,n2}`
 /// against `{n3,n4,n5}`.
 #[test]
@@ -499,7 +499,7 @@ fn weighted_majority_threshold_matches_enumerated_minimum() {
     for config in &configurations {
         let members: Vec<NodeId> = config.order().iter().map(|member| member.node).collect();
         let full = (1u32 << members.len()) - 1;
-        for role in [Role::Commit, Role::ViewChange, Role::Recovery, Role::Fence] {
+        for role in [Role::Commit, Role::ViewChange, Role::Restart, Role::Fence] {
             let declared = strategy
                 .threshold(role, config)
                 .expect("WeightedMajority is threshold-expressible");
@@ -619,7 +619,7 @@ fn every_refusal_witness_is_genuine_and_minimal() {
     let r1_strategy = Thresholds {
         commit: 1,
         view_change: 2,
-        recovery: 2,
+        restart: 2,
         fence: 2,
     };
     let three = initialised(&[N0, N1, N2]);
@@ -639,7 +639,7 @@ fn every_refusal_witness_is_genuine_and_minimal() {
     let split_view = Thresholds {
         commit: 3,
         view_change: 2,
-        recovery: 3,
+        restart: 3,
         fence: 3,
     };
     let four = initialised(&[N0, N1, N2, N3]);
@@ -655,22 +655,22 @@ fn every_refusal_witness_is_genuine_and_minimal() {
         other => panic!("expected SelfIntersectionViolation, got {other:?}"),
     }
 
-    // Test 3c: disjoint fence/recovery families.
+    // Test 3c: disjoint fence/restart families.
     let split_fr = Thresholds {
         commit: 2,
         view_change: 2,
-        recovery: 1,
+        restart: 1,
         fence: 1,
     };
     match validate_era(&split_fr, &three) {
-        Err(QuorumError::FenceRecoveryViolation { fence, recovery }) => {
+        Err(QuorumError::FenceRestartViolation { fence, restart }) => {
             assert_genuine_witness(
                 &split_fr,
                 (Role::Fence, &three, &fence),
-                (Role::Recovery, &three, &recovery),
+                (Role::Restart, &three, &restart),
             );
         }
-        other => panic!("expected FenceRecoveryViolation, got {other:?}"),
+        other => panic!("expected FenceRestartViolation, got {other:?}"),
     }
 
     // Test 4: the reverse-direction refusal.

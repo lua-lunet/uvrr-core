@@ -422,7 +422,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the selected history.
     ///
     /// The adoption rule: any node the change passed by — `Normal` or
-    /// `Recovering` in an earlier view, or fencing into this very view —
+    /// `Restarting` in an earlier view, or fencing into this very view —
     /// installs the offered history, provided it can VERIFY it: the suffix
     /// must reach back to a slot the node can check (its frontier, or a
     /// shared slot whose entry agrees). A suffix that starts past the
@@ -461,13 +461,18 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             //
             // An offer MORE than one era past is the §10 learner
             // acquisition's catch-up route when — and only when — the
-            // recipient is still at its boot fence (`Recovering` at
-            // `current == retained`, the reopen state: it has adopted
-            // nothing) and the offer NAMES it: the offered era's
-            // establishing operation admits the node (a `Join`, the
-            // `Increment` that promotes it, or a batch carrying either).
-            // The node stays fenced — it adopts nothing here, its votes
-            // are never counted, and it serves nothing — the acquisition
+            // recipient has adopted nothing and the offer NAMES it: the
+            // offered era's establishing operation admits the node (a
+            // `Join`, the `Increment` that promotes it, or a batch
+            // carrying either). Two states have adopted nothing: the
+            // boot fence (a fenced entry state — `Restarting` on reopen,
+            // `Joining` on provision — at `current == retained`), and the
+            // reincarnated not-yet-adopted state
+            // the forced walk leaves behind (`ViewChange` under the
+            // higher-view signal's fence) — recognized there by the
+            // same naming test the offer itself carries. The node stays
+            // fenced — it adopts nothing here, its votes
+            // are never counted — the acquisition
             // (`docs/uvrr-reincarnation.md` §10) is the same ordinary
             // state transfer, and the offered era's fold makes the offer
             // evaluable for the ordinary install that completes the
@@ -483,12 +488,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             )?;
             let next = current.era.next();
+            let boot_fence = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+                && current == self.progress.retained();
             let retainable = if Some(header.view.era) == next {
                 true
             } else {
                 next.is_some_and(|successor| header.view.era > successor)
-                    && self.progress.status() == Status::Recovering
-                    && current == self.progress.retained()
+                    && (boot_fence || self.progress.status() == Status::ViewChange)
                     && establishing_op_names(&era_proof.op, self.own)
             };
             if retainable {
@@ -752,7 +758,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 /// either. A departure (`Decrement`, `Leave`) does not admit; the offer
 /// is the node's catch-up route (§10), and a departing node is not
 /// catching up.
-fn establishing_op_names(op: &SystemOperation, node: NodeId) -> bool {
+pub(in crate::replica) fn establishing_op_names(op: &SystemOperation, node: NodeId) -> bool {
     match op {
         SystemOperation::Join { node: joined, .. } => *joined == node,
         SystemOperation::Increment(named) => *named == node,

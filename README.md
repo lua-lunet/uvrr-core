@@ -144,11 +144,6 @@ vacuously true `:linearizable`. Safety still held; liveness was impossible. The
 default here is `NODES=5` (f=2) for that reason. Read `ok-count` before reading
 the verdict.
 
-**Recovery needs every other member below K=5.** Recovery requires `Q` distinct
-*other* Normal responders. At K=3 and K=4 that is every remaining member, so a
-recovering replica tolerates zero further failures. At K=5, `Q=3` of 4 others,
-leaving one spare. Rolling restarts only make progress from K=5 up.
-
 ## Status
 
 Pre-alpha. The protocol is covered by the tests above and by Maelstrom; the API is not stable. It is intended to be open to extension yet closed to modifications of the invalidate the invariants of the algorithm. This means that it is only like to change if new extension points are needed or if a bug is found. 

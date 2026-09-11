@@ -18,7 +18,7 @@
 //! The self-intersection obligation `V_g ⌢ V_g` deserves separate mention because it is
 //! not required between arbitrary phase-one quorums of the classical protocol family,
 //! and its absence is the standard way a flexible-quorum policy that satisfies
-//! `QI ⌢ QII` is nevertheless an invalid VRR-2012 policy: diskless recovery requires
+//! `QI ⌢ QII` is nevertheless an invalid VRR-2012 policy: diskless restart requires
 //! a recovering replica to encounter the volatile evidence that an earlier view was
 //! fenced (§8.3).
 //!
@@ -75,9 +75,9 @@ pub enum InputKind {
 ///
 /// This table resolves the question: the 20-byte header (W1) has a slot field for
 /// framing regularity, but not every message names a slot in the protocol sense, and a
-/// fabricated position in a fence or recovery message is worse than none — it is
+/// fabricated position in a fence or restart message is worse than none — it is
 /// a claim about history the message never made. The table is public so the
-/// view-change and recovery paths cite it rather than re-deciding it, and it lives
+/// view-change and restart paths cite it rather than re-deciding it, and it lives
 /// here rather than in
 /// `wire` because the wire layer stays agnostic: it encodes 20 bytes for every
 /// tag and asks no questions.
@@ -171,7 +171,7 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
 ///    legal successor — delegated to `ViewId::is_legal_successor`, never
 ///    re-derived.
 /// 3. **Retained provenance** (§1.3): `retained` changes only on re-selection —
-///    recovery, or a `DoViewChange`/`StartView`/`NewState` peer message.
+///    restart, or a `DoViewChange`/`StartView`/`NewState` peer message.
 /// 4. **Revision**: exactly +1, so a stale plan is rejected by comparison (§12).
 /// 5. **Sticky fault** (§5 invariant 5, S3): a faulted `old` admits no `new` at
 ///    all, and the reported fault is the existing one.
