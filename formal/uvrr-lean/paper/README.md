@@ -1,4 +1,21 @@
-# Publish the paper
+# Draft and publish the paper
+
+The current draft is **Unbounded Viewstamped Replication Revisited for
+Diskless Strong Consistency**, centred on leader overlap and the five-voter
+replacement schedule. Applications are discussed separately from the introduction.
+
+For a local draft, run from the repository root:
+
+```sh
+mkdir -p output/pdf
+tectonic --keep-logs --outdir output/pdf formal/uvrr-lean/paper/paper.tex
+```
+
+This produces `output/pdf/paper.pdf` without publishing a version of record.
+The proof baseline is identified in the manuscript. From `formal/uvrr-lean`,
+`lake build` and `python3 check_axioms.py` check that baseline's Lean sources.
+
+## Publication
 
 The editable source is **paper.tex**. `./build.sh` typesets it with Tectonic and
 publishes an immutable, versioned copy to **papers/<id>.pdf**, where `<id>` is
@@ -40,8 +57,7 @@ never echoed, staged, or committed, and the pass is off by default.
 
 Verified with Tectonic 0.17.0. The script fixes `SOURCE_DATE_EPOCH`, so the
 layout is stable for a given Tectonic release and package bundle; publication
-is by id, not by byte-identical rebuild, and `../REPRODUCE.md` verifies the
-published PDF by digest and footer instead of rebuilding it. Install the
+is by id, not by byte-identical rebuild. Install the
 typesetter once, if needed, with `brew install tectonic`; Tectonic obtains and
 caches the ordinary LaTeX packages on the first build, and
 `./build.sh --only-cached` builds without downloading. The script is
@@ -55,12 +71,10 @@ paper.tex; edit the prose, equations and bibliography directly below them.
 The author email is simon.massey@stenographer.cloud. The layout follows
 David C. Turner's paper: US Letter, a two-column IEEE journal layout,
 Times text, a centered title/author, first-page contact notes, a
-title/revision header, top-right page numbers, the paper id in the bottom
+top-right page numbers, the revision and paper id in the bottom
 footer, and Roman-numbered section headings. His affiliation, copyright and
 license are not assigned to this manuscript.
 
-The proof ladder and lab book live in the parent directory. Publishing this
-paper does not rerun or change the formal evidence; the ladder transcripts
-are replayed by `../make-reproduce.sh --full`, which verifies — and never
-rebuilds — the published PDF. Full reproduction is opt-in and is run
-independently before a major release, not on minor paper rewordings.
+The proof ladder lives in the parent directory. Publishing this paper does
+not rerun or change the formal evidence. Rung 26 records the final conditional
+composition and its checks; its transcript is `../ladder/26-reincarnation-safety.md`.

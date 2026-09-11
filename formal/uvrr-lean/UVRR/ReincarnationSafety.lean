@@ -35,6 +35,9 @@ These are safety statements even for executions that stop forever. -/
 def Safe {B V : Type} (P : Paxos Nat B V) : Prop :=
   (∀ i b c, P.chosen i b → P.chosen i c → P.v i b = P.v i c) ∧
   Replacement ∧
+  (∀ phase, Reincarnation.ForcedRun .bumped phase →
+    ¬ Reincarnation.voting
+      (Reincarnation.eraConfig 0 5 ReincarnationFive.unit5 phase) 0) ∧
   (∀ old phase current,
     Reincarnation.IdentRun .bumped (Reincarnation.bump old) phase current →
     current ≠ old)
@@ -42,7 +45,7 @@ def Safe {B V : Type} (P : Paxos Nat B V) : Prop :=
 /-- Five-voter crash-stop reincarnation is safe across the two committed
 reconfiguration eras, for every view schedule satisfying Contract. -/
 theorem five_safe {B V : Type} (P : Paxos Nat B V) (h : Contract P) : Safe P := by
-  refine ⟨?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_⟩
   · intro i b c hb hc
     exact ReincarnationAgreement.five_agreement P h.qi h.qii h.mono h.eraLe
       h.p23 h.p4 h.p5 h.p6 h.p7 h.order hb hc
@@ -50,6 +53,8 @@ theorem five_safe {B V : Type} (P : Paxos Nat B V) (h : Contract P) : Safe P := 
       ReincarnationFive.c1_membership.2.1,
       ReincarnationFive.c2_membership.2.2.2.2.2.1,
       ReincarnationFive.c2_membership.1⟩
+  · intro phase hrun
+    exact ReincarnationFive.five_evicted_never_voting hrun
   · intro old phase current hbump
     exact Reincarnation.amnesia_unreachable hbump
 
