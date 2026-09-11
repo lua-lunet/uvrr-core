@@ -421,7 +421,7 @@ struct NodeRunner {
 /// its reopen view with nothing moving, and whether the lever has been
 /// driven.
 struct ForceFeed {
-    /// The view the node reopened fenced at: the wedge shape is
+    /// The view the node reopened fenced at: the stall shape is
     /// standing still there.
     at: ViewId,
     /// Ticks spent fenced at `at` with no progress.
