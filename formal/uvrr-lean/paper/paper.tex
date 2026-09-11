@@ -48,13 +48,73 @@ synchronous disk writes out of normal metadata replication.
 \end{abstract}
 
 \section{Introduction}\label{sec:intro}
-A distributed application may need agreement over a small amount of metadata even when its main workload does not require a replicated transaction log. The design problem is to put that agreement inside the application without making synchronous disk writes part of every metadata update. The motivation for Unbounded Viewstamped Replication Revisited (uVRR) is this small-state, embedded setting~\cite{motivation}. Removing synchronous persistence from the normal replication path removes its storage delay from each update; reincarnation makes replacement of failed processes a membership operation.
+Oki and Liskov introduced Viewstamped Replication in 1988~\cite{vr}.
+In 2012, Liskov and Cowling presented Viewstamped Replication Revisited
+(VRR), eliminating disk writes during both normal processing and view
+changes~\cite{vrr}.
+Replication itself preserved the state needed for agreement.
+This was an attractive foundation for a strongly consistent service: an update
+could complete without waiting for a local disk flush.
+The difficulty lay in bringing a replica back after it had lost that state.
 
-Viewstamped Replication Revisited (VRR) already avoids disk writes during normal processing and view changes~\cite{vrr}. We preserve that property and organise membership changes around the overlap of the quorums on either side of a configuration boundary. Turner shows how a leader that is the sole intersection of an active phase-two quorum and a prospective phase-one quorum can delay its own promise until the other promises arrive~\cite{turner}. That local action lets the active quorum remain usable during preparation.
+Michael \emph{et al.} exposed a safety failure in that recovery mechanism in
+2016~\cite[Sec.~4.2 and App.~A.1]{diskless}.
+A replica can send a view-change commitment, crash, and return in an older view
+having forgotten the commitment.
+It can then help commit an operation that a later leader loses when delayed
+view-change messages arrive.
+Their counterexample breaks linearizability; it also extends to networks whose
+channels preserve message order.
+The authors provide a virtual stable storage construction to support diskless
+crash recovery.
+Their result makes the problem precise: restoring a replica's data must also
+preserve the commitments made by its identity.
 
-The second design choice concerns identity. A process that loses volatile protocol state cannot resume voting as the same acceptor merely because it occupies the same machine. In uVRR a clean stop preserves state for a same-identity restart. An unclean stop permanently ends the old identity; the replacement obtains state and voting authority through membership change. This makes repeated process replacement a reconfiguration problem. ``Diskless'' refers to the normal replication path: startup fencing and clean shutdown still use durable writes.
+Unbounded Viewstamped Replication Revisited (uVRR) repairs this failure by making
+a crash final for the protocol identity.
+The crashed identity never resumes execution.
+The process that replaces it joins under a fresh identity, receives state from
+the cluster, and acquires voting authority through committed membership changes.
+Messages sent before the crash remain messages of the old identity; the new
+process cannot add fresh votes to that identity's history.
+A cleanly stopped process can instead restart under its existing identity because
+it has preserved its protocol state.
+Startup fencing and clean shutdown use durable writes, keeping those writes
+outside normal replication.
+The essential change is that loss of volatile state leads to replacement of a
+member: crash recovery becomes crash-stop reincarnation.
 
-The contributions are a lifecycle and leader-overlap account of this design (Section~\ref{sec:method}); a concrete five-voter replacement schedule and a precise statement of the existing conditional Lean result (Section~\ref{sec:results}); and an application discussion identifying the metadata services this design is intended to support (Section~\ref{sec:discussion}). The name ``unbounded'' follows Turner's treatment of pipelining through reconfiguration: a fixed bound on the number of outstanding slots is not the mechanism that ensures agreement. Fresh identities also allow repeated process replacement, but the concrete five-voter theorem below concerns one replacement schedule.
+Turner's work on unbounded pipelining through reconfiguration supplies the
+construction that connects this lifecycle to continued replication~\cite{turner}.
+Where the leader is the sole intersection of an active decision quorum and the
+next prepare quorum, it can withhold its own promise while collecting the others.
+The active quorum remains usable during that preparation; the leader completes
+the handover with its own local promise.
+We use this leader overlap to organise reincarnation.
+For five unit-weight voters, the replacement schedule has two committed
+configuration batches: remove the old vote and admit the replacement without a
+vote, then enable the replacement's vote.
+The schedule includes a leader-overlap pivot at the second boundary.
+Turner's agreement argument supplies the basis for proving that view changes
+across the schedule preserve decisions.
+
+Together, these ideas retain VRR's diskless normal path while giving failed
+members a route back through fresh identities.
+The intended setting is agreement over small amounts of metadata embedded in a
+distributed application~\cite{motivation}.
+Such a service can coordinate membership or advisory-lock metadata without
+putting synchronous persistence on every update's critical path.
+Its normal replication need not wait for a disk flush or batch updates to
+amortise that flush.
+
+Section~\ref{sec:method} develops the lifecycle and leader-overlap construction.
+Section~\ref{sec:results} gives the five-voter schedule and its Lean proof of
+per-slot agreement from the protocol's history invariants, together with the
+replacement weights, exclusion of the evicted voter and identity nonreuse.
+Section~\ref{sec:discussion} develops the metadata applications, and the appendix
+sets out the mathematical hypotheses and verification evidence.
+The name ``unbounded'' follows Turner's treatment of pipelining through
+reconfiguration: agreement does not depend on a fixed bound on outstanding slots.
 
 \section{Method}\label{sec:method}
 \subsection{Processes, state and identity}
@@ -185,9 +245,9 @@ The worked example replaces one unit-weight voter among five. Other weights or s
 The mechanised result is per-slot agreement. A complete service-level linearizability argument also needs ordered execution, appropriate read semantics and a mapping between client operations and log entries. Lease guarantees require the additional conditions stated above. If all copies of volatile committed state are lost, identity fencing cannot reconstruct that state: the design must stop or obtain an explicitly justified state source. Diskless normal operation does not promise recovery from total state loss.
 
 \section{Related Work}\label{sec:related}
-Viewstamped Replication introduced the organisation of replication around views and a primary~\cite{vr}; VRR revisits that organisation and separates normal operation, view change, recovery and reconfiguration~\cite{vrr}. uVRR's lifecycle distinguishes a clean same-identity restart from an unclean stop followed by a new member. Its intended contribution is this lifecycle combined with a concrete reconfiguration account, rather than a general claim that earlier replication protocols require synchronous disk writes on every operation.
+Viewstamped Replication introduced the organisation of replication around views and a primary~\cite{vr}; VRR revisits that organisation and separates normal operation, view change, recovery and reconfiguration~\cite{vrr}. Michael \emph{et al.} identify the failure of diskless recovery to preserve view-change commitments and construct virtual stable storage~\cite{diskless}. uVRR addresses the failure through membership: its lifecycle distinguishes a clean same-identity restart from an unclean stop followed by a new member. The replacement schedule connects that lifecycle to agreement across configurations.
 
-Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters} supplies the central quorum geometry, era-based agreement argument and casting-vote construction~\cite{turner}. In particular, withholding the leader's own promise is Turner's mechanism. The present work applies it to the five-voter replacement pivot, makes the non-singleton first boundary explicit, and reports a conditional Lean composition for the replacement schedule. The application discussion compares the resulting design with coordination services and CORFU using their own stated semantics and resource context, rather than attributing measured advantages to an unevaluated implementation.
+Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters} supplies the central quorum geometry, era-based agreement argument and casting-vote construction~\cite{turner}. In particular, withholding the leader's own promise is Turner's mechanism. The present work applies it to the five-voter replacement pivot, makes the non-singleton first boundary explicit, and proves agreement for the replacement schedule from the protocol's history invariants. The application discussion places this design alongside coordination services and CORFU, using their stated semantics and resource context.
 
 \paragraph{Author and tool contributions}
 The author supplied the protocol design and application motivation. AI tools assisted with manuscript preparation and proof development; Lean checks the submitted proof terms. Author review of the final claims, references, tool disclosure and conflict-of-interest declaration is required before submission.
@@ -274,15 +334,16 @@ M5: false claim $c_1(5)=1$ & Fail, as required\\
 The contrast between M1 and M2 suggests that supplying library signatures helped composition in these runs. M4's mixed outcome and M3's failure prevent a general reliability claim. M5 supplies a useful false-statement control. None of these observations changes the mathematical hypotheses: the proof generator searches for terms, and Lean checks accepted terms against the submitted statements.
 
 \begin{thebibliography}{10}
-\bibitem{motivation} S. Massey, ``Viewstamped Replication Revisited,'' Aug. 12, 2026. [Online]. Available: \url{https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/}
+\bibitem{vr} B. M. Oki and B. H. Liskov, ``Viewstamped replication: A new primary copy method to support highly-available distributed systems,'' in \emph{ACM PODC}, 1988, pp. 8--17.
 \bibitem{vrr} B. Liskov and J. Cowling, ``Viewstamped Replication Revisited,'' MIT CSAIL, Tech. Rep. MIT-CSAIL-TR-2012-021, 2012. [Online]. Available: \url{https://hdl.handle.net/1721.1/71763}
+\bibitem{diskless} E. Michael, D. R. K. Ports, N. K. Sharma, and A. Szekeres, ``Providing Stable Storage for the Diskless Crash-Recovery Failure Model,'' University of Washington, Tech. Rep. UW-CSE-16-08-02, Aug. 25, 2016. [Online]. Available: \url{https://syslab.cs.washington.edu/papers/diskless-tr16.pdf}
 \bibitem{turner} D. Turner, ``Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters,'' revision 1A9DBA37, Aug. 14, 2017. [Online]. Available: \url{https://github.com/DaveCTurner/paxos-membership}. The proof artifact includes the consulted PDF and its digest.
+\bibitem{motivation} S. Massey, ``Viewstamped Replication Revisited,'' Aug. 12, 2026. [Online]. Available: \url{https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/}
 \bibitem{corfu} M. Balakrishnan, D. Malkhi, J. D. Davis, V. Prabhakaran, M. Wei, and T. Wobber, ``CORFU: A Distributed Shared Log,'' \emph{ACM Trans. Comput. Syst.}, vol. 31, no. 4, Art. 10, Dec. 2013, doi: \href{https://doi.org/10.1145/2535930}{10.1145/2535930}.
 \bibitem{zookeeper} P. Hunt, M. Konar, F. P. Junqueira, and B. Reed, ``ZooKeeper: Wait-free coordination for Internet-scale systems,'' in \emph{USENIX ATC}, 2010. [Online]. Available: \url{https://www.usenix.org/events/usenix10/tech/full_papers/Hunt.pdf}
 \bibitem{etcd-guarantees} etcd authors, ``etcd API guarantees,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/learning/api_guarantees/}
 \bibitem{etcd-hardware} etcd authors, ``Hardware recommendations,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/op-guide/hardware/}
 \bibitem{etcd-embed} etcd authors, ``Embedding etcd in a Go application,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/dev-guide/golang_embed_pkg/}
 \bibitem{artifact} S. Massey, ``uVRR proof artifact,'' commit 352b0bf, 2026. [Online]. Available: \url{https://github.com/lua-lunet/uvrr-core/tree/352b0bf/formal/uvrr-lean}
-\bibitem{vr} B. M. Oki and B. H. Liskov, ``Viewstamped replication: A new primary copy method to support highly-available distributed systems,'' in \emph{ACM PODC}, 1988, pp. 8--17.
 \end{thebibliography}
 \end{document}
