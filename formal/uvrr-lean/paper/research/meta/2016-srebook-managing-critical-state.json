@@ -1,0 +1,46 @@
+{
+  "id": "2016-srebook-managing-critical-state",
+  "title": "Managing Critical State: Distributed Consensus for Reliability",
+  "authors": ["Laura Nolan"],
+  "year": 2016,
+  "venue": "Google, Site Reliability Engineering (O'Reilly), Chapter 22",
+  "venue_type": "book-chapter",
+  "canonical_url": "https://sre.google/sre-book/managing-critical-state/",
+  "source_url": "https://sre.google/sre-book/managing-critical-state/",
+  "provenance_note": "Rendered to PDF from the official HTML chapter; the published full-book PDF no longer resolves (the static.googleusercontent.com target returns 404). The PDF contains the chapter body text only, without figures or tables. Chapter edited by Tim Harvey.",
+  "file": "pdf/2016-srebook-managing-critical-state.pdf",
+  "sha256": "10e2387cbc48cb892add67f9534b1ae1b451ab7525e2bbbbe6cd9b8064cc0be4",
+  "pages": 27,
+  "bytes": 80577,
+  "abstract": "Processes crash or may need to be restarted. Hard drives fail. Natural disasters can take out several datacenters in a region. Site Reliability Engineers need to anticipate these sorts of failures and develop strategies to keep systems running in spite of them. These strategies usually entail running such systems across multiple sites. Geographically distributing a system is relatively straightforward, but also introduces the need to maintain a consistent view of system state, which is a more nuanced and difficult undertaking.",
+  "abstract_source": "opening paragraph (book chapter has no formal abstract)",
+  "terminology_evidence": [
+    {
+      "quote": "In a datastore, disks have purposes other than maintaining logs: system state is generally maintained on disk. Log writes must be flushed directly to disk, but writes for state changes can be written to a memory cache and flushed to disk later, reordered to use the most efficient schedule [Bol11].",
+      "location": "Disk Access section",
+      "terms": ["flushed directly to disk", "flushed to disk later"]
+    },
+    {
+      "quote": "This means that the latency for a single consensus operation involves the following:",
+      "location": "Distributed Consensus Performance and Network Latency section",
+      "note": "The sentence introduces a bulleted list: one disk write on the proposer; parallel messages to the acceptors; parallel disk writes at the acceptors; the return messages.",
+      "terms": ["disk write on the critical operation path"]
+    }
+  ],
+  "ocr": {
+    "mistral": {
+      "model": "mistral-ocr-latest",
+      "transport": "data-uri",
+      "output": "ocr-mistral/2016-srebook-managing-critical-state.md",
+      "pages": 27,
+      "chars": 62792
+    },
+    "tesseract": {
+      "version": "5.5.3",
+      "dpi": 200,
+      "language": "eng",
+      "output": "ocr-tesseract/2016-srebook-managing-critical-state.txt",
+      "chars": 61135
+    }
+  }
+}

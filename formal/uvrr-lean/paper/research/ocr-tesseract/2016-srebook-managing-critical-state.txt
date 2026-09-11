@@ -1,0 +1,1528 @@
+Managing Critical State: Distributed Consensus for Reliability
+
+Written by Laura Nolan
+Edited by Tim Harvey
+
+Processes crash or may need to be restarted. Hard drives fail. Natural disasters
+take out several datacenters in a region. Site Reliability Engineers need to ant
+these sorts of failures and develop strategies to keep systems running in spite
+These strategies usually entail running such systems across multiple sites. |
+eographically distributing a system is relatively straightforward, but also int
+fRe“Seed to maintain a consistent view of system state, which is a more nuanced
+anericult undertaking.
+
+Groups of processes may want to reliably agree on questions such as:
+
+Which process is the leader of a group of processes?
+
+What is the set of processes in a group?
+
+Has a message been successfully committed to a distributed queue?
+
+Does a process hold a lease or not?
+
+What is a value in a datastore for a given key?
+
+We’ve found distributed consensus to be effective in building reliable and highl
+
+avai lable systems that require a consistent view of some system state. The distr
+consensus problem deals with reaching agreement among a group of processes conne
+gn unreliable communications network. For instance, several processes in a distr
+peated may need to be able to form a consistent view of a critical piece of
+configuration, whether or not a distributed lock is held, or if a message on aq
+been poscessed. It is one of the most fundamental concepts in distributed comput
+one ae rely on for virtually every service we offer. Figure 23-1 illustrates a s
+model of how a group of processes can achieve a consistent view of system state
+diserebuted consensus.
+
+Figure 23-1. Distributed consensus: agreement among a group of processes
+
+Whenever you see leader election, critical shared state, or distributed locking,
+we
+
+recommend using distributed consensus systems that have been formally proven and
+teste
+
+thoroughly. Informal approaches to solving this problem can lead to outages, and
+more
+
+insidiously, to subtle and hard-to-fix data consistency problems that may prolon
+g . .
+
+outages in your system unnecessarily.
+
+CAP Theorem
+
+---
+The CAP theorem ([Fox99], [Bre12]) holds that a distributed system cannot simult
+aneous
+have all three of the following properties:
+
+Consistent views of the data at each node
+Availability of the data at each node
+Tolerance to network partitions [Gi102]
+
+The logic is intuitive: if two nodes can’t communicate (because the network is
+
+partitioned), then the system as a whole can either stop serving some or all req
+
+uests at
+
+some on alt nodes (thus reducing availability), or it can serve requests as usua
+WnNLCc
+
+results in inconsistent views of the data at each node.
+
+Because network partitions are inevitable (cables get cut, packets get lost or d
+sue congestion, hardware breaks, networking components become misconfigured,
+onGeedtanding distributed consensus really amounts to understanding how consiste
+ave fability work for your particular application. Commercial pressures often de
+hth levels of availability, and many applications require consistent views on t
+data.
+
+Systems and software engineers are usually familiar with the traditional ACID da
+conantics (Atomicity, Consistency, Isolation, and Durability), but a growing num
+Beret buted datastore technologies provide a different set of semantics known as
+(Bosically Available, Soft state, and Eventual consistency). Datastores that sup
+
+port . . . . .
+
+BASE semantics have useful applications for certain kinds of data and can handle
+arge
+
+volumes of data and transactions that would be much more costly, and perhaps alt
+
+ogether
+
+infeasible, with datastores that support ACID semantics.
+
+Most of these systems that support BASE semantics rely on multimaster replicatio
+neites. can be committed to different processes concurrently, and there is some m
+fo resolve conflicts Coften as simple as "latest timestamp wins"). This approach
+usually known as eventual consistency. However, eventual consistency can lead to
+surprising results [Lu15], particularly in the event of clock drift (which is in
+Se iee te buted systems) or network partitioning [Kin15].112
+
+It is also difficult for developers to design systems that work well with datast
+that support only BASE semantics. Jeff Shute [Shu13], for example, has stated,
+developers spend a significant fraction of their time building extremely complex
+ecror-prone mechanisms to cope with eventual consistency and handle data that ma
+
+“
+
+---
+y be out . a
+of date. We think this is an unacceptable burden to place on developers and that
+consistency problems should be solved at the database level."
+
+System designers cannot sacrifice correctness in order to achieve reliability or
+performance, particularly around critical state. For example, consider a system
+handles financial transactions: reliability or performance requirements don’t pr
+much value if the financial data is not correct. Systems need to be able to reli
+Synchronize critical state across multiple processes. Distributed consensus algo
+provide this functionality.
+
+Motivating the Use of Consensus: Distributed Systems Coordination Failure
+
+Distributed systems are complex and subtle to understand, monitor, and troublesh
+oot.
+
+Engineers running such systems are often surprised by behavior in the presence o
+
+failures. Failures are relatively rare events, and it is not a usual practice to
+systems under these conditions. It is very difficult to reason about system beha
+during failures. Network partitions are particularly challenging-a problem that
+
+to’ be caused by a full partition may instead be the result of:
+
+A very slow network
+Some, but not all, messages being dropped
+Throttle occurring in one direction, but not the other direction
+
+The following sections provide examples of problems that occurred in real-world
+distributed systems and discuss how leader election and distributed consensus al
+gorithms .
+
+could be used to prevent such issues.
+
+Case Study 1: The Split-Brain Problem
+
+A service is a content repository that allows collaboration between multiple use
+ses sets of two replicated file servers in different racks for reliability. The
+needs to avoid writing data simultaneously to both file servers in a set, becaus
+he result in data corruption Cand possibly unrecoverable data).
+
+Each pair of file servers has one leader and one follower. The servers monitor e
+ach
+
+other via heartbeats. If one file server cannot contact its partner, it issues a
+Coheot. The Other Node in the Head) command to its partner node to shut the node
+oo then takes mastership of its files. This practice is an industry standard me
+reducing split-brain instances, although as we shall see, it is conceptually uns
+
+What happens if the network becomes slow, or starts dropping packets? In this sc
+
+---
+file servers exceed their heartbeat timeouts and, as designed, send STONITH comm
+Cher partner nodes and take mastership. However, some commands may not be deliv
+fo the compromised network. File server pairs may now be in a state in which bot
+are. expected to be active for the same resource, or where both are down because
+Potted and received STONITH commands. This results in either corruption or
+unavailability of data.
+
+The problem here is that the system is trying to solve a leader election problem
+using . . . . .
+
+simple timeouts. Leader election is a reformulation of the distributed asynchron
+
+ous
+
+consensus problem, which cannot be solved correctly by using heartbeats.
+
+Case Study 2: Failover Requires Human Intervention
+
+A highly sharded database system has a primary for each shard, which replicates
+
+synchronously to a secondary in another datacenter. An external system checks th
+of the primaries, and, if they are no longer healthy, promotes the secondary to
+
+Tf the primary can’t determine the health of its secondary, it makes itself unav
+and’ escalates to a human in order to avoid the split-brain scenario seen in Case
+1.
+
+This solution doesn’t risk data loss, but it does negatively impact availability
+
+data. It also unnecessarily increases operational load on the engineers who run
+
+oie tem, and human intervention scales poorly. This sort of event, where a primar
+Y codary have problems communicating, is highly likely to occur in the case of
+
+fnfrogtructure problem, when the responding engineers may already be overloaded
+
+Other tasks. If the network is so badly affected that a distributed consensus sy
+cannot elect a master, a human is likely not better positioned to do so.
+
+Case Study 3: Faulty Group-Membership Algorithms
+
+A system has a component that performs indexing and searching services. When sta
+nodes’ use a gossip protocol to discover each other and join the cluster. The clu
+elects a leader, which performs coordination. In the case of a network partition
+splits the cluster, each side (incorrectly) elects a master and accepts writes a
+deletions, leading to a split-brain scenario and data corruption.
+
+The problem of determining a consistent view of group membership across a group
+fo)
+processes is another instance of the distributed consensus problem.
+
+In fact, many distributed systems problems turn out to be different versions of
+
+---
+distributed consensus, including master election, group membership, all kinds of
+distributed locking and leasing, reliable distributed queuing and messaging, and
+
+maintenance of any kind of critical shared state that must be viewed consistentl
+
+y across ; ; ;
+
+a group of processes. All of these problems should be solved only using distribu
+e
+
+consensus algorithms that have been proven formally correct, and whose implement
+ations
+
+have been tested extensively. Ad hoc means of solving these sorts of problems (s
+uch as
+
+heartbeats and gossip protocols) will always have reliability problems in practi
+ce.
+
+How Distributed Consensus Works
+
+The consensus problem has multiple variants. When dealing with distributed softw
+systems, we are interested in asynchronous distributed consensus, which applies
+environments with potentially unbounded delays in message passing. CSynchronous
+consensus applies to real-time systems, in which dedicated hardware means that m
+will always be passed with specific timing guarantees.)
+
+Distributed consensus algorithms may be crash-fail (which assumes that crashed n
+Rover return to the system) or crash-recover. Crash-recover algorithms are much
+useful, because most problems in real systems are transient in nature due toa s
+network, restarts, and so on.
+
+Algorithms may deal with Byzantine or non-Byzantine failures. Byzantine failure
+
+occurs
+
+when a process passes incorrect messages due to a bug or malicious activity, and
+are
+
+comparatively costly to handle, and less often encountered.
+
+Technically, solving the asynchronous distributed consensus problem in bounded t
+impossible. As proven by the Dijkstra Prize-winning FLP impossibility result [Fi
+sSyachronous distributed consensus algorithm can guarantee progress in the prese
+an unreliable network.
+
+In practice, we approach the distributed consensus problem in bounded time by en
+that. the system will have sufficient healthy replicas and network connectivity t
+progress reliably most of the time. In addition, the system should have backoffs
+randomized delays. This setup both prevents retries from causing cascade effects
+anos ds the dueling proposers problem described later in this chapter. The protoc
+Guarantee safety, and adequate redundancy in the system encourages liveness.
+
+The original solution to the distributed consensus problem was Lamport’s Paxos p
+rotoco
+pean but other protocols exist that solve the problem, including Raft [0Ong14
+a
+b]
+
+---
+[Juni1], and Mencius [MaoQ8&]. Paxos itself has many variations intended to incre
+ase
+performance [Zo014]. These usually vary only ina single detail, such as giving
+
+a
+special leader role to one process to streamline the protocol.
+Paxos Overview: An Example Protocol
+
+Paxos operates as a sequence of proposals, which may or may not be accepted by a
+
+majority of the processes in the system. If a proposal isn’t accepted, it fails.
+ac
+
+proposal has a sequence number, which imposes a strict ordering on all of the op
+
+erations
+
+in the system.
+
+In the first phase of the protocol, the proposer sends a sequence number to the
+acceptors. Each acceptor will agree to accept the proposal only if it has not ye
+proposal with a higher sequence number. Proposers can try again with a higher se
+number if necessary. Proposers must use unique sequence numbers Cdrawing from di
+cots or incorporating their hostname into the sequence number, for instance).
+
+tf a proposer receives agreement from a majority of the acceptors, it can commit
+the
+proposal by sending a commit message with a value.
+
+The strict sequencing of proposals solves any problems relating to ordering of m
+int © system. The requirement for a majority to commit means that two different
+connot be committed for the same proposal, because any two majorities will overl
+Teast one node. Acceptors must write a journal on persistent storage whenever th
+to accept a proposal, because the acceptors need to honor these guarantees after
+restarting.
+
+Paxos on its own isn’t that useful: all it Lets you do is to agree on a value an
+
+proposal number once. Because only a quorum of nodes need to agree on a value, a
+
+ny given .
+
+node may not have a complete view of the set of values that have been agreed to.
+is
+
+limitation is true for most distributed consensus algorithms.
+
+System Architecture Patterns for Distributed Consensus
+
+Distributed consensus algorithms are Low-level and primitive: they simply allow
+nodes to agree on a value, once. They don’t map well to real design tasks. What
+distributed consensus useful is the addition of higher-level system components s
+datastores, configuration stores, queues, locking, and leader election services
+provide the practical system functionality that distributed consensus algorithms
+address. Using higher-level components reduces complexity for system designers.
+allows underlying distributed consensus algorithms to be changed if necessary in
+
+---
+response to changes in the environment in which the system runs or changes in
+nonfunctional requirements.
+
+Many systems that successfully use consensus algorithms actually do so as client
+Sone service that implements those algorithms, such as Zookeeper, Consul, and et
+sookeeper [Hun1@] was the first open source consensus system to gain traction in
+industry because it was easy to use, even with applications that weren’t designe
+distributed consensus. The Chubby service fills a similar niche at Google. Its a
+Se ot out [Bur@6] that providing consensus primitives as a service rather than a
+
+libraries that engineers build into their applications frees application maintai
+having’ to deploy their systems in a way compatible with a highly available conse
+service Crunning the right number of replicas, dealing with group membership, de
+with performance, etc.).
+
+Reliable Replicated State Machines
+
+A replicated state machine CRSM) is a system that executes the same set of opera
+tions
+
+in the same order, on several processes. RSMs are the fundamental building block
+fo)
+
+useful distributed systems components and services such as data or configuration
+storage, locking, and leader election (described in more detail later).
+
+The operations on an RSM are ordered globally through a consensus algorithm. Thi
+s isa
+
+powerful concept: several papers C[Agu1@], [Kir@8], [Sch90]}) show that any deter
+ministic
+
+program can be implemented as a highly available replicated service by being imp
+Lemented
+
+as an RSM.
+
+As shown in Figure 23-2, replicated state machines are a system implemented at a
+Layer above the consensus algorithm. The consensus algorithm deals with agreemen
+tC ouencs of operations, and the RSM executes the operations in that order. Becau
+every member of the consensus group is necessarily a member of each consensus qu
+RSMs” may need to synchronize state from peers. As described by Kirsch and Amir [
+you ca use a sliding-window protocol to reconcile state between peer processes
+
+RSM.
+
+Figure 23-2. The relationship between consensus algorithms and replicated state
+machines
+
+Reliable Replicated Datastores and Configuration Stores
+Reliable replicated datastores are an application of replicated state machines.
+
+Replicated datastores use consensus algorithms in the critical path of their wor
+. Thus,
+
+---
+performance, throughput, and the ability to scale are very important in this typ
+Segtan. As with datastores built with other underlying technologies, consensus-b
+Gotastores can provide a variety of consistency semantics for read operations, w
+make a huge difference to how the datastore scales. These trade-offs are discuss
+Distributed Consensus Performance.
+
+Other Cnondistributed-consensus—based) systems often simply rely on timestamps t
+provide bounds on the age of data being returned. Timestamps are highly problema
+distributed systems because it’s impossible to guarantee that clocks are synchro
+nized multiple machines. Spanner [Cor12] addresses this problem by modeling the
+case uncertainty involved and slowing down processing where necessary to resolve
+uncertainty.
+
+Highly Available Processing Using Leader Election
+
+Leader election in distributed systems 1S an equivalent problem to distributed
+consensus. Replicated services that use a single leader to perform some specific
+
+type of
+work in the system are very common; the single leader mechanism is a way of ensu
+ring
+
+mutual exclusion at a coarse level.
+
+This type of design is appropriate where the work of the service Leader can be p
+by one process or is sharded. System designers can construct a highly available
+
+by writing it as though it was a simple program, replicating that process and us
+leader election to ensure that only one leader is working at any point in time (
+tn Pe oure 23-3). Often the work of the leader is that of coordinating some pool
+
+oe ekers in the system. This pattern was used in GFS [GheQ3] (which has been repl
+CSioseys) and the Bigtable key-value store [Chad6].
+
+Figure 23-3. Highly available system using a replicated service for master elect
+ion
+
+in this type of component, unlike the replicated datastore, the consensus algori
+thm is
+
+not in the critical path of the main work the system is doing, so throughput is
+usually
+
+not a major concern.
+
+Distributed Coordination and Locking Services
+
+A barrier in a distributed computation is a primitive that blocks a group of pro
+cesses
+
+from proceeding until some condition is met (for example, until all parts of one
+phase . . . . . .
+
+of a computation are completed). Use of a barrier effectively splits a distribut
+e
+
+---
+computation into logical phases. For instance, as shown in Figure 23-4, a barrie
+r cou
+
+be used in implementing the MapReduce [DeaQ4] model to ensure that the entire Ma
+p phase ;
+
+is completed before the Reduce part of the computation proceeds.
+
+Figure 23-4. Barriers for process coordination in the MapReduce computation
+
+The_barrier could be implemented by a single coordinator process, but this
+
+imp Lementation adds a single point of failure that is usually unacceptable. The
+arrier
+
+can also be implemented as an RSM. The Zookeeper consensus service can implement
+the
+
+barrier pattern: see [Hun10] and [Zo0014].
+
+Locks are another useful coordination primitive that can be implemented as an RS
+Consider a distributed system in which worker processes atomically consume some
+
+flies and write results. Distributed Locks can be used to prevent multiple worke
+proceseing the same input file. In practice, it 1s essential to use renewable le
+with timeouts instead of indefinite locks, because doing so prevents Locks from
+
+held@indefinitely by processes that crash. Distributed locking is beyond the sco
+Pris chapter, but bear in mind that distributed locks are a low-level systems pr
+that should be used with care. Most applications should use a higher-level syste
+Provides distributed transactions.
+
+Reliable Distributed Queuing and Messaging
+
+Queues are a common data structure, often used as a way to distribute tasks betw
+een a
+number of worker processes.
+
+Queuing-based systems can tolerate failure and Loss of worker nodes relatively e
+fowever, the system must ensure that claimed tasks are successfully processed. F
+onrboes, a lease system (discussed earlier in regard to locks) is recommended in
+Sree eel ght removal from the queue. The downside of queuing-based systems is tha
+of the queue prevents the entire system from operating. Implementing the queue a
+Can mnimize the risk, and make the entire system far more robust.
+
+Atomic broadcast is a distributed systems primitive in which messages are receiv
+eeLiably and in the same order by all participants. This is an incredibly powerf
+distributed systems concept and very useful in designing practical systems. A hu
+number of publish-subscribe messaging infrastructures exist for the use of syste
+designers, although not all of them provide atomic guarantees. Chandra and Toueg
+donovecrate the equivalence of atomic broadcast and consensus.
+
+---
+The queuing-as-work-distribution pattern, which uses the queue as a load balanci
+ng . . . . . .
+device, as shown in Figure 23-5, can be considered to be point-to-point messagin
+
+g. . . . .
+
+Messaging systems usually also implement a publish-subscribe queue, where messag
+es may . . .
+
+be consumed by many clients that subscribe to a channel or topic. In this one-to
+“many . . .
+case, the messages on the queue are stored as a persistent ordered list. Publish
+
+subscribe systems can be used for many types of applications that require client
+s to
+
+subscribe to receive notifications of some type of event. Publish-subscribe syst
+ems can
+
+also be used to implement coherent distributed caches.
+
+Figure 23-5. A queue-oriented work distribution system using a reliable consensu
+s-base
+queuing component
+
+Queuing and messaging systems often need excellent throughput, but don’t need ex
+
+tremely
+
+low Latency Cdue to seldom being directly user-facing). However, very high laten
+cies in
+
+Q system like the one just described, which has multiple workers claiming tasks
+rom a
+
+queue, could become a problem if the percentage of processing time for each task
+grew ..
+
+significantly.
+
+Distributed Consensus Performance
+
+Conventional wisdom has generally held that consensus algorithms are too slow an
+focuse Yor many systems that require high throughput and low latency [Bol11]. Th
+conception is simply not true-while implementations can be slow, there are a num
+er ke that can improve performance. Distributed consensus algorithms are at the
+many oF Google’ s critical systems, described in [Ana1i3], [BurQ@6], [Cor12], and [
+ond ehey have proven extremely effective in practice. Google’s scale is not ana
+ere. oe fact, our scale is more of a disadvantage because it introduces two mai
+
+challenges: our datasets tend to be Large and our systems run over a wide geogra
+a stance. Larger datasets multiplied by several replicas represent significant c
+costs. and larger geographical distances increase latency between replicas, whic
+turn reduces performance.
+
+There ts no one "best" distributed consensus and state machine replication algor
+
+ithm for
+
+performance, because performance is dependent on a number of factors relating to
+
+workload, the system’s performance objectives, and how the system is to be deplo
+ed.
+
+White some of the following sections present research, with the aim of increasin
+
+g
+
+---
+understanding of what is possible to achieve with distributed consensus, many of
+the
+systems described are available and are in use now,
+
+Workloads can vary in many ways and understanding how they can vary is critical
+to
+
+discussing performance. In the case of a consensus system, workload may vary in
+terms
+
+of:
+
+Throughput: the number of proposals being made per unit of time at peak Load
+The type of requests: proportion of operations that change state
+
+The consistency semantics required for read operations
+
+Request sizes, if size of data payload can vary
+
+Deployment strategies vary, too. For example:
+
+Is the deployment local area or wide area?
+
+What kinds of quorum are used, and where are the majority of
+processes?
+
+Does the system use sharding, pipelining, and batching?
+
+Many consensus systems use a distinguished leader process and require all reques
+to thi’ special node. As shown in Figure 23-6, as a result, the performance of t
+Oy stem as perceived by clients in different geographic locations may vary consid
+Sinply’ because more distant nodes have Longer round-trip times to the Leader pro
+
+Figure 23-6. The effect of distance from a server process on perceived latency a
+t the
+client
+
+Multi-Paxos: Detailed Message Flow
+
+The Multi-Paxos protocol uses a strong leader process: unless a leader has not y
+Stected or some failure occurs, it requires only one round trip from the propose
+quorum of acceptors to reach consensus. Using a strong leader process is optimal
+terms of the number of messages to be passed, and is typical of many consensus
+protocols.
+
+Figure 23-7 shows an initial state with a new proposer executing the first
+Prepare/Promise phase of the protocol. Executing this phase establishes a new nu
+views or Leader term. On subsequent executions of the protocol, while the view r
+the same, the first phase is unnecessary because the proposer that established t
+an. simply send Accept messages, and consensus is reached once a quorum of respo
+received Cincluding the proposer itself).
+
+---
+Figure 23-7. Basic Multi-Paxos message flow
+
+Another process in the group can assume the proposer role to propose messages at
+time, but changing the proposer has a performance cost. It necessitates the extr
+frip to execute Phase 1 of the protocol, but more importantly, it may cause a du
+cropyser's situation in which proposals repeatedly interrupt each other and no pr
+con be accepted, as shown in Figure 23-8. Because this scenario is a form of a 1
+Eee oe tontinue indefinitely.
+
+Figure 23-8. Dueling proposers in Multi-Paxos
+All practical consensus systems address this issue of collisions, usually either
+
+yo. . . .
+electing a proposer process, which makes all proposals in the system, or by usin
+ga. . .
+rotating proposer that allocates each process particular slots for their proposa
+
+Ss.
+
+For systems that use a leader process, the leader election process must be tuned
+carefully to balance the system unavailability that occurs when no leader is pre
+with the risk of dueling proposers. It’s important to implement the right timeou
+backore strategies. If multiple processes detect that there is no leader and all
+to become leader at the same time, then none of the processes is likely to succe
+
+e
+Cagaan dueling proposers). Introducing randomness is the best approach. Raft [0
+ngi4],
+for example, has a well-thought-out method of approaching the leader election pr
+ocess.
+
+Scaling Read-Heavy Workloads
+
+Scaling read workload is often critical because many workloads are read-heavy.
+Repl icated datastores have the advantage that the data is available in multiple
+places . . . .
+
+meaning that if strong consistency is not required for all reads, data could be
+rea
+
+from any replica. This technique of reading from replicas works well for certain
+applications, such as Google’s Photon system [Ana13], which uses distributed con
+sensus
+
+to, coordinate the work of multiple pipelines. Photon uses an atomic compare-and-
+se
+
+operation for state modification Cinspired by atomic registers), which must be
+
+a sotutely consistent; but read operations may be served from any replica, becau
+se stale
+
+data results in extra work being performed but not incorrect results [Gup15]. Th
+e trade-
+
+off is worthwhile.
+
+In order to guarantee that data being read is up-to-date and consistent with any
+changes
+made before the read is performed, it is necessary to do one of the following:
+
+Perform a read-only consensus operation.
+
+---
+Read the data from a replica that is guaranteed to be the most up-to-date. Ina
+
+system
+
+that uses a Stable leader process (as many distributed consensus implementations
+io
+
+the leader can provide this guarantee.
+
+Use quorum leases, in which some replicas are granted a lease on all or part of
+the data
+
+in the system, allowing strongly consistent local reads at the cost of some writ
+e
+
+performance. This technique is discussed in detail in the following section.
+
+Quorum Leases
+
+Quorum leases [Mor14] are a recently developed distributed consensus performance
+optimization aimed at reducing latency and increasing throughput for read operat
+previously mentioned, in the case of classic Paxos and most other distributed co
+protocols, performing a strongly consistent read (i.e., one that is guaranteed t
+the most up-to-date view of state) requires either a distributed consensus opera
+that reads from a quorum of replicas, or a stable leader replica that is guarant
+have Seen all recent state changing operations. In many systems, read operations
+outnumber writes, so this reliance on either a distributed operation or a single
+harms Latency and system throughput.
+
+The quorum leasing technique simply grants a read lease on some subset of the re
+Batastore’s state to a quorum of replicas. The lease is for a specific Cusually
+
+peru of time. Any operation that changes the state of that data must be acknow
+by all replicas in the read quorum. If any of these replicas becomes unavailable
+data’ cannot be modified until the lease expires.
+
+Quorum leases are particularly useful for read-heavy workloads in which reads fo
+r
+particular subsets of the data are concentrated in a single geographic region.
+
+Distributed Consensus Performance and Network Latency
+
+Consensus systems face two major physical constraints on performance when commit
+ting
+
+state changes. One is network round-trip time and the other is time it takes to
+write
+
+data to persistent storage, which will be examined later.
+
+Network round-trip times vary enormously depending on source and destination loc
+which’ are impacted both by the physical distance between the source and the dest
+and by ‘the amount of congestion on the network. Within a single datacenter, roun
+Cimes’ between machines should be on the order of a millisecond. A typical round-
+time (RTT) within the United States is 45 milliseconds, and from New York to Lon
+
+---
+don is
+7@ milliseconds.
+
+Consensus system performance over a local area network can be comparable to that
+of an
+asynchronous leader-follower replication system [Bol11], such as many traditiona
+
+databases use for replication. However, much of the availability benefits of dis
+ribute
+
+consensus systems require replicas to be "distant" from each other, in order to
+e in
+
+different failure domains.
+
+Many consensus systems use TCP/IP as their communication protocol. TCP/IP is con
+oriented and provides some strong reliability guarantees regarding FIFO sequenci
+nescages. However, setting up a new TCP/IP connection requires a network round t
+perform the three-way handshake that sets up a connection before any data can be
+received. TCP/IP slow start initially Limits the bandwidth of the connection unt
+Limits have been established. Initial TCP/IP window sizes range from 4 to 15 KB.
+
+TCP/IP slow start is probably not an issue for the processes that form a consens
+group: they will establish connections to each other and keep these connections
+
+Coote because they’11 be in frequent communication. However, for systems with a
+
+high number of clients, it may not be practical for all clients to keep a persis
+Connection to the consensus clusters open, because open TCP/IP connections do co
+some resources, e.g., file descriptors, in addition to generating keepalive traf
+This overhead may be an important issue for applications that use very highly sh
+oongensus-based datastores containing thousands of replicas and an even larger n
+of clients. A solution is to use a pool of regional proxies, as shown in Figure
+
+which hold persistent TCP/IP connections to the consensus group in order to avoi
+gotus overhead over long distances. Proxies may also be a good way to encapsulat
+
+e
+sharding and load balancing strategies, as well as discovery of cluster members
+an
+
+leaders.
+
+Figure 23-9. Using proxies to reduce the need for clients to open TCP/IP connect
+ions
+across regions
+
+Reasoning About Performance: Fast Paxos
+
+Fast Paxos [LamQ6] is a version of the Paxos algorithm designed to improve its
+performance over wide area networks. Using Fast Paxos, each client can send Prop
+ose
+
+messages directly to each member of a group of acceptors, instead of through a 1
+eader,
+
+---
+as in Classic Paxos or Multi-Paxos. The idea is to substitute one parallel messa
+e sen
+
+rom the client to all acceptors in Fast Paxos for two message send operations i
+n
+Classic Paxos:
+
+One message from the client to a single proposer
+A parallel message send operation from the proposer to the other replicas
+
+Intuitively, it seems as though Fast Paxos should always be faster than Classic
+However, that’s not true: if the client in the Fast Paxos system has a high RTT
+(round: ne) to the acceptors, and the acceptors have fast connections to each oth
+have substituted N parallel messages across the slower network links Cin Fast Pa
+x0 meecage across the slower link plus N parallel messages across the faster Li
+Classic Paxos). Due to the latency tail effect, the majority of the time, a sin
+obund trip across a slow link with a distribution of latencies is faster than a
+as_ shown in [Jun@7]), and therefore, Fast Paxos is slower than Classic Paxos in
+case.
+
+Many systems batch multiple operations into a single transaction at the acceptor
+increase throughput. Having clients act as proposers also makes it much more dif
+te patch proposals. The reason for this is that proposals arrive independently a
+acceptors so you can’t then batch them in a consistent way.
+
+Stable Leaders
+
+is avs seen how Multi-Paxos elects a stable Leader to improve performance. Zab
+un
+
+and Raft [0ng14] are also examples of protocols that elect a stable leader for
+performance reasons. This approach can allow read optimizations, as the Leader h
+as the
+
+most up-to-date state, but also has several problems:
+
+ALL operations that change state must be sent via the leader, a requirement that
+adds
+network latency for clients that are not located near the leader.
+
+The leader process’s outgoing network bandwidth is a system bottleneck [MaoQ8],
+Phe Leader’ s Accept message contains all of the data related to any proposal, wh
+other messages contain only acknowledgments of a numbered transaction with no da
+payload.
+
+If the leader happens to be on a machine with performance problems, then the thr
+oughput .
+of the entire system will be reduced.
+
+Almost all distributed consensus systems that have been designed with performanc
+
+---
+ein
+
+mind use either the single stable leader pattern or a system of rotating Leaders
+1p in . . . .
+
+Coscn face numbered distributed consensus algorithm is preassigned to a replica
+usually . . . .
+by a simple modulus of the transaction ID). Algorithms that use this approach in
+clude
+
+Mencius [Mao@8] and Egalitarian Paxos [Mor12a].
+
+Over a wide area network with clients spread out geographically and replicas fro
+Congensus group located reasonably near to the clients, such leader election lea
+Tower perceived latency for clients because their network RTT to the nearest rep
+walt, on average, be smaller than that to an arbitrary leader.
+
+Batching
+
+Batching, as described in Reasoning About Performance: Fast Paxos, increases sys
+throughput, but it still leaves replicas idle while they await replies to messag
+have sent. The inefficiencies presented by idle replicas can be solved by pipeli
+which allows multiple proposals to be in-flight at once. This optimization is ve
+
+r
+
+smi Lar to the TCP/IP case, in which the protocol attempts to "keep the pipe ful
+"using . a . . . . .
+
+a sliding-window approach. Pipelining is normally used in combination with batch
+
+ing.
+
+The batches of requests in the pipeline are still globally ordered with a view n
+umber
+
+and a transaction number, so this method does not violate the global ordering pr
+operties . . . - ae
+required to run a replicated state machine. This optimization method is discusse
+
+din
+[Bol11] and [Sani1].
+Disk Access
+
+Logging to persistent storage is required so that a node, having crashed and ret
+the cluster, honors whatever previous commitments it made regarding ongoing cons
+transactions. In the Paxos protocol, for instance, acceptors cannot agree to a p
+nhen they have already agreed to a proposal with a higher sequence number. If de
+cot eed and committed proposals are not logged to persistent storage, then an acc
+me ght violate the protocol if it crashes and is restarted, leading to inconsiste
+Ctate.
+
+The time required to write an entry to a log on disk varies greatly depending on
+what
+
+hardware or virtualized environment is used, but is likely to take between one a
+n
+
+several milliseconds.
+
+---
+The message flow for Multi-Paxos was discussed in Multi-Paxos: Detailed Message
+but this section did not show where the protocol must log state changes to disk.
+write nust happen whenever a process makes a commitment that it must honor. In t
+performance-critical second phase of Multi-Paxos, these points occur before an a
+Sends an Accepted message in response to a proposal, and before the proposer sen
+Accept message, because this Accept message is also an implicit Accepted message
+
+This means that the latency for a single consensus operation involves the follow
+ing:
+
+One disk write on the proposer
+Parallel messages to the acceptors
+Parallel disk writes at the acceptors
+The return messages
+
+There is a version of the Multi-Paxos protocol that’s useful for cases in which
+Anite time dominates: this variant doesn’t consider the proposer’s Accept messag
+an implicit Accepted message. Instead, the proposer writes to disk in parallel w
+other processes and sends an explicit Accept message. Latency then becomes propo
+oe he time taken to send two messages and for a quorum of processes to execute
+synchronous write to disk in parallel.
+
+If latency for performing a small random write to disk is on the order of 10
+
+mi itiseconds, the rate of consensus operations will be Limited to approximately
+per . . . Lo.
+
+second. These times assume that network round-trip times are negligible and the
+
+proposer | . . .
+
+performs its logging in parallel with the acceptors.
+
+As we have seen already, distributed consensus algorithms are often used as the
+Por building a replicated state machine. RSMs also need to keep transaction logs
+regovery purposes (for the same reasons as any datastore). The consensus algorit
+and the RSM’s transaction log can be combined into a single log. Combining these
+avosas the need to constantly alternate between writing to two different physica
+locations on disk [Bol11], reducing the time spent on seek operations. The disks
+sustain more operations per second and therefore, the system as a whole can perf
+orm more.
+
+transactions.
+
+In a datastore, disks have purposes other than maintaining logs: system state is
+generally maintained on disk. Log writes must be flushed directly to disk, but w
+rites
+
+---
+for state changes can be written to a memory cache and flushed to disk later, re
+ordere
+to use the most efficient schedule [Bol1i1].
+
+Another possible optimization is batching multiple client operations together in
+operation at the proposer C[Ana13], [Bol11], [Cha@7], [Jun11], [Mao@8], [Mor12a]
+anortizes the fixed costs of the disk Logging and network latency over the large
+of operations, increasing throughput.
+
+Deploying Distributed Consensus-Based Systems
+
+The most critical decisions system designers must make when deploying a consensu
+s-base
+
+system concern the number of replicas to be deployed and the Location of those r
+eplicas.
+
+Number of Replicas
+
+In general, consensus-based systems operate using majority quorums, i.e., a grou
+t replicas may tolerate f failures Cif Byzantine fault tolerance, in which the
+ieypest stant to replicas returning incorrect results, is required, then 3f +1r
+nay “coLerate f failures [Cas99]}). For non-Byzantine failures, the minimum number
+replicas that can be deployed is three-if two are deployed, then there is no tol
+for failure of any process. Three replicas may tolerate one failure. Most system
+downtime is a result of planned maintenance [Kent?2]: three replicas allow a syst
+operate normally when one replica is down for maintenance (assuming that the rem
+two replicas can handle system Load at an acceptable performance).
+
+If an unplanned failure occurs during a maintenance window, then the consensus s
+becomes unavailable. Unavailability of the consensus system is usually unaccepta
+20 Five replicas should be run, allowing the system to operate with up to two fa
+NO intervention is necessarily required if four out of five replicas in a consen
+systen remain, but if three are left, an additional replica or two should be add
+
+If a consensus system loses so many of its replicas that it cannot form a quorum
+
+en
+
+that system is, in theory, in an unrecoverable state because the durable logs of
+at
+
+least one of the missing replicas cannot be accessed. If no quorum remains, it’s
+possible that a decision that was seen only by the missing replicas was made.
+
+Administrators may be able to force a change in the group membership and add new
+replicas that catch up from the existing one in order to proceed, but the possib
+tLity o
+
+data loss always remains-—a situation that should be avoided if at all possible.
+
+In a disaster, administrators have to decide whether to perform such a forceful
+reconfiguration or to wait for some period of time for machines with system stat
+
+---
+become available. When such decisions are being made, treatment of the system’s
+ond $ton to monitoring) becomes critical. Theoretical papers often point out tha
+Consensus can be used to construct a replicated log, but fail to discuss how to
+ween replicas that may fail and recover Cand thus miss some sequence of consensu
+
+s
+
+decisions) or lag due to slowness. In order to maintain robustness of the system
+it 1s
+
+important that these replicas do catch up.
+
+The replicated log is not always a first-class citizen in distributed consensus
+bue ty is a very important aspect of production systems. Raft describes a method
+managing the consistency of replicated logs [0ng14] explicitly defining how any
+Qreplica’s log are filled. If a five-instance Raft system loses all of its memb
+except for its leader, the leader is still guaranteed to have full knowledge of
+Committed decisions. On the other hand, if the missing majority of members inclu
+teaacr: no strong guarantees can be made regarding how up-to-date the remaining
+replicas
+
+There is a relationship between performance and the number of replicas in a syst
+em that
+do not need to form part of a quorum: a minority of slower replicas may lag behi
+
+atiowing the quorum of better-performing replicas to run faster Cas Long as the
+performs well). If replica performance varies significantly, then every failure
+reduce the performance of the system overall because slow outliers will be requi
+form a quorum. The more failures or lagging replicas a system can tolerate, the
+Pho System’ s performance overall is likely to be.
+
+The issue of cost should also be considered in managing replicas: each replica u
+costly computing resources. If the system in question is a single cluster of pro
+the cost of running replicas is probably not a large consideration. However, the
+tee can be a serious consideration for systems such as Photon [Ana13], whic
+Sharded configuration in which each shard is a full group of processes running a
+consensus algorithm. As the number of shards grows, so does the cost of each add
+replica, because a number of processes equal to the number of shards must be add
+fhe cystem.
+
+The deci ston about the number of replicas for any system is thus a trade-off bet
+ween the
+following factors:
+
+---
+The need for reliability
+
+Frequency of planned maintenance affecting the system
+Risk
+
+Performance
+
+Cost
+
+This calculation will be different for each system: systems have different servi
+ce leve
+
+objectives for availability; some organizations perform maintenance more regular
+y_ than . on,
+others; and organizations use hardware of varying cost, quality, and reliability
+
+Location of Replicas
+
+Decisions about where to deploy the processes that comprise a consensus cluster
+based upon two factors: a trade-off between the failure domains that the system
+handle, ond the Latency requirements for the system. Multiple complex issues are
+in deciding where to locate replicas.
+
+A failure domain is the set of components of a system that can become unavailabl
+eas.a
+result of a single failure. Example failure domains include the following:
+
+A physical machine
+A rack in a datacenter served by a single power supply
+
+Several racks in a datacenter that are served by one piece of networking equipme
+nt
+
+A datacenter that could be rendered unavailable by a fiber optic cable cut
+
+A set. of datacenters in a single geographic area that could all be affected by a
+single
+natural disaster such as a hurricane
+
+In general, as the distance between replicas increases, so does the round-trip t
+ime
+
+between replicas, as well as the size of the failure the system will be able to
+
+tolerate. For most consensus systems, increasing the round-trip time between rep
+icas
+
+will also increase the latency of operations.
+
+The extent to which latency matters, as well as the ability to survive a failure
+particular domain, is very system-dependent. Some consensus system architectures
+require particularly high throughput or low latency: for example, a consensus sy
+that exists in order to provide group membership and leader election services fo
+highly available service probably isn’t heavily loaded, and if the consensus tra
+tine is only a fraction of the leader lease time, then its performance isn’t cri
+
+---
+tical.
+
+Batch oriented systems are also less affected by latency: operation batch sizes
+can be
+
+increased to increase throughput.
+
+It doesn’t always make sense to continually increase the size of the failure dom
+
+ain
+
+whose loss the system can withstand. For instance, if all of the clients using a
+
+cpnsensys system are running within a particular failure domain (say, the New Yo
+
+rk area
+
+and deploying a distributed consensus-based system across a wider geographical a
+
+rea
+
+would allow it to remain serving during outages in that failure domain (say, Hur
+
+ricane
+
+Sandy)
+
+as well . .
+
+6° the system will see no traffic. The extra cost in terms of latency, throughpu
+an
+
+computing resources would give no benefit.
+
+is it worth it? Probably not, because the system’s clients will be down
+
+You should take disaster recovery into account when deciding where to locate you
+r
+
+replicas: in a system that stores critical data, the consensus replicas are also
+essentially online copies of the system data. However, when critical data is at
+
+stake
+
+it’s important to back up regular snapshots elsewhere, even in the case of solid
+consensus-based systems that are deployed in several diverse failure domains. Th
+ere are
+
+two failure domains that you can never escape: the software itself, and human er
+ror on
+
+the part of the system’s administrators. Bugs in software can emerge under unusu
+a
+
+circumstances and cause data loss, while system misconfiguration can have simila
+
+r
+effects. Human operators can also err, or perform sabotage causing data loss.
+
+When making decisions about location of replicas, remember that the most importa
+measure of performance is client perception: ideally, the network round-trip tim
+fhe clients to the consensus system’s replicas should be minimized. Over a wide
+
+network, leaderless protocols Like Mencius or Egalitarian Paxos may have a perfo
+edge, particularly if the consistency constraints of the application mean that 1
+possible to execute read-only operations on any system replica without performin
+consensus operation.
+
+Capacity and Load Balancing
+
+When designing a deployment, you must make sure there is sufficient capacity to
+with load. In the case of sharded deployments, you can adjust capacity by adjust
+ruber of shards. However, for systems that can read from consensus group member
+are not the leader, you can increase read capacity by adding more replicas. Addi
+replicas has a cost: in an algorithm that uses a strong leader, adding replicas
+
+---
+more Load on the leader process, while in a peer-to-peer protocol, adding replic
+as
+imposes more load on all processes. However, if there is ample capacity for writ
+e
+operations, but a read-heavy workload is stressing the system, adding replicas m
+
+ay be
+the best approach.
+
+It should be noted that adding a replica in a majority quorum system can potenti
+Jecrease system availability somewhat Cas shown in Figure 23-10). A typical dep1
+Por Zookeeper or Chubby uses five replicas, so a majority quorum requires three
+replicas. The system will still make progress if two replicas, or 40%, are unava
+With six replicas, a quorum requires four replicas: only 33% of the replicas can
+unavailable if the system is to remain live.
+
+Considerations regarding failure domains therefore apply even more strongly when
+roptica is added: if an organization has five datacenters, and generally runs co
+groups with five processes, one in each datacenter, then loss of one datacenter
+leaves one spare replica in each group. If a sixth replica is deployed in one of
+five datacenters, then an outage in that datacenter removes both of the spare re
+Bn the group, thereby reducing capacity by 33%.
+
+Figure 23-10. Adding an extra replica in one region may reduce system availabili
+ty.
+
+Colocating multiple replicas in a single datacenter may reduce system availabili
+ty:
+
+here, there is a quorum without any redundancy remaining.
+
+If clients are dense in a particular geographic region, it is best to locate rep
+clogs to clients. However, deciding where exactly to Locate replicas may require
+careful thought around load balancing and how a system deals with overload. As s
+Pegure "23-11, if a system simply routes client read requests to the nearest rep1l
+then a large spike in load concentrated in one region may overwhelm the nearest
+ond then the next-closest replica, and so on-this is cascading failure (see Addr
+Cascading Failures). This type of overload can often happen as a result of batch
+begenning, especially if several begin at the same time.
+
+We’ve already seen the reason that many distributed consensus systems use a lead
+process to improve performance. However, it’s important to understand that the 1
+replicas will use more computational resources, particularly outgoing network ca
+Pats 4g because the leader sends proposal messages that include the proposed dat
+Capticas send smaller messages, usually just containing agreement with a particu
+
+---
+consensus transaction ID. Organizations that run highly sharded consensus system
+Sery Large number of processes may find it necessary to ensure that Leader proce
+the diferent shards are balanced relatively evenly across different datacenters
+so prevents the system as a whole from being bottlenecked on outgoing network ca
+Por gust one datacenter, and makes for much greater overall system capacity.
+
+Figure 23-11. Colocating leader processes leads to uneven bandwidth utilization
+
+Another downside of deploying consensus groups in multiple datacenters Cshown by
+23. 1) is the very extreme change in the system that can occur if the datacenter
+the leaders suffers a widespread failure (power, networking equipment failure, o
+Cute for instance). As shown in Figure 23-12, in this failure scenario, all of t
+leaders should fail over to another datacenter, either split evenly or en masse
+datacenter. In either case, the Link between the other two datacenters will sudd
+nective a Lot more network traffic from this system. This would be an inopportun
+fo discover that the capacity on that link is insufficient.
+
+Figure 23-12. When colocated leaders fail over en masse, patterns of network uti
+1zation
+change dramatically
+
+However, this type of deployment could easily be an unintended result of automat
+ic
+processes in the system that have bearing on how leaders are chosen. For instanc
+e:
+
+Clients will experience better latency for any operations handled via the leader
+1f the
+
+Leader is located closest to them. An algorithm that attempts to site leaders ne
+ar_the
+
+bulk of clients could take advantage of this insight.
+
+An algorithm might try to locate Leaders on machines with the best performance.
+pitfall of this approach is that if one of the three datacenters houses faster m
+then’ a disproportionate amount of traffic will be sent to that datacenter, resul
+extreme traffic changes should that datacenter go offline. To avoid this problem
+d.gori thm must also take into account distribution balance against machine capab
+when selecting machines.
+
+A leader election algorithm might favor processes that have been running longer.
+
+onger-
+
+running processes are quite likely to be correlated with location if software re
+eases
+
+are performed on a per-datacenter basis.
+
+---
+Quorum composition
+
+When determining where to locate replicas in a consensus group, it is important
+to
+
+consider the effect of the geographical distribution (Cor, more precisely, the ne
+twor
+
+latencies between replicas) on the performance of the group.
+
+One approach is to spread the replicas as evenly as possible, with similar RTTs
+
+ol esplicas. All other factors being equal (such as workload, hardware, and net
+performance), this arrangement should lead to fairly consistent performance acro
+reasons, regardless of where the group leader is located Cor for each member of
+
+cpasensus group, if a leaderless protocol is in use).
+
+Geography can greatly complicate this approach. This is particularly true for in
+continental versus transpacific and transatlantic traffic. Consider a system tha
+North america and Europe: it is impossible to locate replicas equidistant from e
+other because there will always be a longer lag for transatlantic traffic than f
+intracontinental traffic. No matter what, transactions from one region will need
+a transetlantic round trip in order to reach consensus.
+
+However, as shown in Figure 23-13, in order to try to distribute traffic as even
+y as
+possible, systems designers might choose to site five replicas, with two replica
+
+roughly centrally in the US, one on the east coast, and two in Europe. Such a
+istribution would mean that in the average case, consensus could be achieved in
+Ancrica without waiting for replies from Europe, or that from Europe, consensus
+schieved by exchanging messages only with the east coast replica. The east coast
+octs ae 6 linchpin of sorts, where two possible quorums overlap.
+
+Figure 23-13. Overlapping quorums with one replica acting as a link
+As shown in Figure 23-14, loss of this replica means that system latency is Like
+
+change drastically: instead of being largely influenced by either central US to
+Coast RTT or EU to east coast RTT, latency will be based on EU to central RTT, w
+around 50% higher than EU to east coast RTT. The geographic distance and network
+betneen the nearest possible quorum increases enormously.
+
+Figure 23-14. Loss of the link replica immediately leads to a longer RTT for any
+quorum
+
+This scenario is a key weakness of the simple majority quorum when applied to gr
+oups
+
+composed of replicas with very different RTTs between members. In such cases, a
+hierarchical quorum approach may be useful. As diagrammed in Figure 23-15, nine
+
+---
+replicas
+may be deployed in three groups of three. A quorum may be formed by a majority o
+
+groups, and a group may be included in the quorum if a majority of the group’s m
+embers
+
+are available. This means that a replica may be lost in the central group withou
+incurring a large impact on overall system performance because the central group
+
+ma
+stitl vote on transactions with two of its three replicas.
+
+There is, however, a resource cost associated with running a higher number of re
+plicas.
+
+Ina highly sharded system with a read-heavy workload that is largely fulfillabl
+e
+
+replicas, we might mitigate this cost by using fewer consensus groups. Such a st
+rategy .
+
+means that the overall number of processes in the system may not change.
+
+Figure 23-15. Hierarchical quorums can be used to reduce reliance on the central
+replica
+
+Monitoring Distributed Consensus Systems
+
+As we’ve already seen, distributed consensus algorithms are at the core of many
+Coogle’s critical systems ([Ana13], [Bur@6], [Cori2], [Shu13]). ALl important pr
+systens need monitoring, in order to detect outages or problems and for troubles
+Experience has shown us that there are certain specific aspects of distributed c
+systems that warrant special attention. These are:
+
+The number of members running in each consensus group, and the status of each pr
+
+ocess
+
+Chealthy or not healthy)
+
+prasess may be running but unable to make progress for some (e.g., hardware-re
+ate
+
+reason. . .
+
+persistently lagging replicas . . . .
+
+Heal thy members of a consensus group can still potentially be in multiple differ
+en
+
+states. A group member may be recovering state from peers after startup, or lagg
+
+in
+behing the quorum in the group, or it may be up-to-date and participating fully,
+and 1t
+
+may be the leader. .
+
+Whether or not a leader exists .
+
+: system based on an algorithm such as Multi-Paxos that uses a Leader role must
+e
+
+monitored to ensure that a leader exists, because if the system has no leader, i
+t 1s
+
+totally unavailable.
+
+Number of leader changes =
+
+Ra id changes of leadership impair performance of consensus systems that use a s
+able
+
+leader, so the number of Leader changes should be monitored. Consensus algorithm
+s
+
+usual Ly mark a leadership change with a new term or view number, so this number
+provides
+
+a useful metric to monitor. Too rapid of an increase in Leader changes signals t
+
+---
+hat the
+
+leader is flapping, perhaps due to network connectivity issues. A decrease in th
+e view
+
+number could signal a serious bug.
+
+Consensus transaction number ; ;
+
+Operators need to know whether or not the consensus system is making progress. M
+
+ost
+
+consensus algorithms use an increasing consensus transaction number to indicate
+progress. This number should be seen to be increasing over time if a system is h
+ealthy.
+
+Number of proposals seen; number of proposals agreed upon .
+
+These numbers indicate whether or not the system is operating correctly.
+
+Throughput and Latency . . .
+
+Althougn not specific to distributed consensus systems, these characteristics of
+their
+
+consensus system should be monitored and understood by administrators.
+
+In order to understand system performance and to help troubleshoot performance 1
+ssues
+you might also monitor the following:
+
+Latency distributions for proposal acceptance
+
+Distributions of network latencies observed between parts of the system in diffe
+rent
+Locations
+
+The amount of time acceptors spend on durable logging
+Overall bytes accepted per second in the system
+Conclusion
+
+We explored the definition of the distributed consensus problem, and presented s
+ome
+
+system architecture patterns for distributed-consensus based systems, as well as
+examining the performance characteristics and some of the operational concerns a
+roun
+
+distributed consensus-based systems.
+
+We deliberately avoided an in-depth discussion about specific algorithms, protoc
+Pnplementations in this chapter. Distributed coordination systems and the techno
+underitying them are evolving quickly, and this information would rapidly become
+
+Bae unlike the fundamentals that are discussed here. However, these fundamenta
+aidng with the articles referenced throughout this chapter, will enable you to u
+distributed coordination tools available today, as well as future software.
+
+If you remember nothing else from this chapter, keep in mind the sorts of proble
+ms that
+
+distributed consensus can be used to solve, and the types of problems that can a
+rise
+
+when ad hoc methods such as heartbeats are used instead of distributed consensus
+
+Whenever you see Leader election, critical shared state, or distributed Locking,
+thin
+
+about distributed consensus: any lesser approach is a ticking bomb waiting to ex
+plode in
+
+---
+your systems.
+
+112Kyle Kingsbury has written an extensive series of articles on distributed sys
+correctness, which contain many examples of unexpected and incorrect behavior in
+kinds of datastores. See https://aphyr.com/tags/jepsen.
+
+113In particular, the performance of the original Paxos algorithm is not ideal,
+besn Greatly improved over the years.
+
+Previous
+
+Chapter 22 - Addressing Cascading Failures
+
+Next
+
+Chapter 24 - Distributed Periodic Scheduling with Cron
+
+€°R right © 2017 Google, Inc. Published by O'Reilly Media, Inc. Licensed under C
+
+ND os @
+
+---

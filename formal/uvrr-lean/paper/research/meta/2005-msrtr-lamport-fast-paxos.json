@@ -1,0 +1,44 @@
+{
+  "id": "2005-msrtr-lamport-fast-paxos",
+  "title": "Fast Paxos",
+  "authors": ["Leslie Lamport"],
+  "year": 2005,
+  "venue": "Microsoft Research Technical Report MSR-TR-2005-112 (revised January 2006); also appeared in Distributed Computing 19(2), 2006",
+  "venue_type": "tech-report",
+  "canonical_url": "https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2005-112.pdf",
+  "source_url": "https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2005-112.pdf",
+  "file": "pdf/2005-msrtr-lamport-fast-paxos.pdf",
+  "sha256": "d7d0d6f8c8d7a328e055350b569e853dcb1ee057f4ce271895bd6fac92ffea46",
+  "pages": 43,
+  "bytes": 272086,
+  "abstract": "As used in practice, traditional consensus algorithms require three message delays before any process can learn the chosen value. Fast Paxos is an extension of the classic Paxos algorithm that allows the value to be learned in two message delays. How and why the algorithm works are explained informally, and a TLA+ specification of the algorithm appears as an appendix.",
+  "abstract_source": "paper abstract",
+  "terminology_evidence": [
+    {
+      "quote": "The classic Paxos algorithm [7, 9] is popular because it achieves the optimal delay in the normal case when used in practical systems [12].",
+      "location": "Section 1 (Introduction)",
+      "terms": ["normal case"]
+    },
+    {
+      "quote": "Fast Paxos is a fast consensus algorithm that is a variant of classic Paxos. In the normal case, learning occurs in two message delays when there is no collision and can be guaranteed to occur in three message delays even with a collision.",
+      "location": "Section 1 (overview paragraph)",
+      "terms": ["normal case"]
+    }
+  ],
+  "ocr": {
+    "mistral": {
+      "model": "mistral-ocr-latest",
+      "transport": "data-uri",
+      "output": "ocr-mistral/2005-msrtr-lamport-fast-paxos.md",
+      "pages": 43,
+      "chars": 94179
+    },
+    "tesseract": {
+      "version": "5.5.3",
+      "dpi": 200,
+      "language": "eng",
+      "output": "ocr-tesseract/2005-msrtr-lamport-fast-paxos.txt",
+      "chars": 88170
+    }
+  }
+}

@@ -1,0 +1,169 @@
+{
+  "name": "paper-research-corpus",
+  "title": "Terminology evidence corpus for the paper/research collection",
+  "description": "JSON Table schema for the per-paper metadata files in meta/*.json. Each instance file describes one paper in the corpus: bibliographic details, the retrieved artifact's checksum, its abstract, the terminology evidence quotes extracted from that artifact, and the two OCR passes.",
+  "fields": [
+    {
+      "name": "ID",
+      "path": "/id",
+      "type": "string",
+      "nullable": false,
+      "description": "Stem shared by the pdf, meta, and OCR files. Convention: {year}-{venue}-{firstauthor}-{slug}."
+    },
+    {
+      "name": "Title",
+      "path": "/title",
+      "type": "string",
+      "nullable": false,
+      "description": "Paper title as printed on the retrieved artifact."
+    },
+    {
+      "name": "Authors",
+      "path": "/authors",
+      "type": "array",
+      "nullable": false,
+      "description": "Author list as printed on the retrieved artifact."
+    },
+    {
+      "name": "Year",
+      "path": "/year",
+      "type": "integer",
+      "nullable": false,
+      "description": "Publication year of the retrieved version."
+    },
+    {
+      "name": "Venue",
+      "path": "/venue",
+      "type": "string",
+      "nullable": false,
+      "description": "Full venue of the retrieved version (conference proceedings, journal, technical report, preprint service, or book)."
+    },
+    {
+      "name": "Venue type",
+      "path": "/venue_type",
+      "type": "string",
+      "nullable": false,
+      "description": "One of: conference, journal, tech-report, preprint, book-chapter."
+    },
+    {
+      "name": "Canonical URL",
+      "path": "/canonical_url",
+      "type": "string",
+      "nullable": false,
+      "description": "Publisher or canonical record for the work."
+    },
+    {
+      "name": "Source URL",
+      "path": "/source_url",
+      "type": "string",
+      "nullable": false,
+      "description": "URL the artifact was actually retrieved from."
+    },
+    {
+      "name": "Provenance note",
+      "path": "/provenance_note",
+      "type": "string",
+      "nullable": true,
+      "description": "Mirror, rendering, or other retrieval caveat; absent when the artifact is the publisher's own file."
+    },
+    {
+      "name": "File",
+      "path": "/file",
+      "type": "string",
+      "nullable": false,
+      "description": "Path of the artifact relative to this directory (pdf/<id>.pdf)."
+    },
+    {
+      "name": "SHA-256",
+      "path": "/sha256",
+      "type": "string",
+      "nullable": false,
+      "description": "SHA-256 of the artifact file; the identity the evidence quotes are verified against."
+    },
+    {
+      "name": "Pages",
+      "path": "/pages",
+      "type": "integer",
+      "nullable": false,
+      "description": "Page count of the artifact."
+    },
+    {
+      "name": "Bytes",
+      "path": "/bytes",
+      "type": "integer",
+      "nullable": false,
+      "description": "Size of the artifact file in bytes."
+    },
+    {
+      "name": "Abstract",
+      "path": "/abstract",
+      "type": "string",
+      "nullable": false,
+      "description": "The paper's abstract, transcribed from the retrieved artifact."
+    },
+    {
+      "name": "Abstract source",
+      "path": "/abstract_source",
+      "type": "string",
+      "nullable": false,
+      "description": "Whether the abstract text is the paper's own abstract or a stand-in used because the genre has none."
+    },
+    {
+      "name": "Terminology evidence",
+      "path": "/terminology_evidence",
+      "type": "array",
+      "nullable": false,
+      "description": "Quotes from the artifact that instantiate the corpus's terminology (critical path, normal case/operation, synchronous disk writes, fast/slow path, stable storage). Each entry carries the quote, its location, and the terms it evidences. Every quote is verified against the artifact named by SHA-256."
+    },
+    {
+      "name": "Terminology note",
+      "path": "/terminology_note",
+      "type": "string",
+      "nullable": true,
+      "description": "Caveat on how the paper's terms are used, when needed to prevent misreading (e.g. fast path meaning message rounds rather than disk placement)."
+    },
+    {
+      "name": "Mistral OCR model",
+      "path": "/ocr/mistral/model",
+      "type": "string",
+      "nullable": false,
+      "description": "Model used for the Mistral OCR pass (mistral-ocr-latest, the same model as the paper's own build gate)."
+    },
+    {
+      "name": "Mistral OCR output",
+      "path": "/ocr/mistral/output",
+      "type": "string",
+      "nullable": false,
+      "description": "Path of the Mistral OCR markdown relative to this directory (ocr-mistral/<id>.md)."
+    },
+    {
+      "name": "Mistral OCR chars",
+      "path": "/ocr/mistral/chars",
+      "type": "integer",
+      "nullable": false,
+      "description": "Character count of the Mistral OCR output."
+    },
+    {
+      "name": "Tesseract version",
+      "path": "/ocr/tesseract/version",
+      "type": "string",
+      "nullable": false,
+      "description": "Tesseract release used for the local OCR pass."
+    },
+    {
+      "name": "Tesseract output",
+      "path": "/ocr/tesseract/output",
+      "type": "string",
+      "nullable": false,
+      "description": "Path of the Tesseract OCR text relative to this directory (ocr-tesseract/<id>.txt)."
+    },
+    {
+      "name": "Tesseract chars",
+      "path": "/ocr/tesseract/chars",
+      "type": "integer",
+      "nullable": false,
+      "description": "Character count of the Tesseract OCR output."
+    }
+  ],
+  "missing": ["provenance_note", "terminology_note"]
+}

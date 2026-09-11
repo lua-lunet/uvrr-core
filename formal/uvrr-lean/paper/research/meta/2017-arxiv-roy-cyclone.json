@@ -1,0 +1,39 @@
+{
+  "id": "2017-arxiv-roy-cyclone",
+  "title": "Cyclone: High Availability for Persistent Key Value Stores",
+  "authors": ["Amitabha Roy", "Subramanya R. Dulloor"],
+  "year": 2017,
+  "venue": "arXiv:1711.06964v1 [cs.DC]",
+  "venue_type": "preprint",
+  "canonical_url": "https://arxiv.org/abs/1711.06964",
+  "source_url": "https://arxiv.org/pdf/1711.06964",
+  "file": "pdf/2017-arxiv-roy-cyclone.pdf",
+  "sha256": "8dac77f1c439b91e618dd30686b0d225c2d497a15ae81b344a81a30ef9851965",
+  "pages": 20,
+  "bytes": 724117,
+  "abstract": "Persistent key value stores are an important component of many distributed data serving solutions with innovations targeted at taking advantage of growing flash speeds. Unfortunately their performance is hampered by the need to maintain and replicate a write ahead log to guarantee availability in the face of machine and storage failures. Cyclone is a replicated log plug-in for key value stores that systematically addresses various sources of this bottleneck. It uses a small amount of non-volatile memory directly addressable by the CPU - such as in the form of NVDIMMs or Intel 3DXPoint - to remove block oriented IO devices such as SSDs from the critical path for appending to the log. This enables it to address network overheads using an implementation of the RAFT consensus protocol that is designed around a userspace network stack to relieve the CPU of the burden of data copies. Finally, it provides a way to exploit the parallelism available in commodity NICs. Cyclone is able to replicate millions of small updates per second using only commodity 10 gigabit ethernet adapters. As a practical application, we use it to improve the performance (and availability) of RocksDB, a popular persistent key value store by an order of magnitude when compared to its own write ahead log running over TCP/IP.",
+  "abstract_source": "paper abstract",
+  "terminology_evidence": [
+    {
+      "quote": "It uses a small amount of non-volatile memory directly addressable by the CPU - such as in the form of NVDIMMs or Intel 3DXPoint - to remove block oriented IO devices such as SSDs from the critical path for appending to the log.",
+      "location": "Abstract",
+      "terms": ["critical path"]
+    }
+  ],
+  "ocr": {
+    "mistral": {
+      "model": "mistral-ocr-latest",
+      "transport": "data-uri",
+      "output": "ocr-mistral/2017-arxiv-roy-cyclone.md",
+      "pages": 20,
+      "chars": 64196
+    },
+    "tesseract": {
+      "version": "5.5.3",
+      "dpi": 200,
+      "language": "eng",
+      "output": "ocr-tesseract/2017-arxiv-roy-cyclone.txt",
+      "chars": 67419
+    }
+  }
+}

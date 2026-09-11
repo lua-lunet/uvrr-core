@@ -1,0 +1,39 @@
+{
+  "id": "2024-osdi-tennage-quepaxa",
+  "title": "QuePaxa: Escaping the Tyranny of Timeouts in Consensus",
+  "authors": ["Pasindu Tennage", "Cristina Băsescu", "Lefteris Kokoris-Kogias", "Ewa Syta", "Philipp Jovanovic", "Vero Estrada-Galiñanes", "Bryan Ford"],
+  "year": 2024,
+  "venue": "Proceedings of the 18th USENIX Symposium on Operating Systems Design and Implementation (OSDI '24)",
+  "venue_type": "conference",
+  "canonical_url": "https://www.usenix.org/conference/osdi24/presentation/tennage",
+  "source_url": "https://bford.info/pub/os/quepaxa/quepaxa.pdf",
+  "file": "pdf/2024-osdi-tennage-quepaxa.pdf",
+  "sha256": "cf7ff14f6d9b91f069f523b1d18f3ab0e16928e8edd80bcabe6a0e73358f2ccf",
+  "pages": 27,
+  "bytes": 1175307,
+  "abstract": "Leader-based consensus algorithms are fast and efficient under normal conditions, but lack robustness to adverse conditions due to their reliance on timeouts for liveness. We present QuePaxa, the first protocol offering state-of-the-art normal-case efficiency without depending on timeouts. QuePaxa uses a novel randomized asynchronous consensus core to tolerate adverse conditions such as denial-of-service (DoS) attacks, while a one-round-trip fast path preserves the normal-case efficiency of Multi-Paxos or Raft. By allowing simultaneous proposers without destructive interference, and using short hedging delays instead of conservative timeouts to limit redundant effort, QuePaxa permits rapid recovery after leader failure without risking costly view changes due to false timeouts. By treating leader choice and hedging delay as a multi-armed-bandit optimization, QuePaxa achieves responsiveness to prevalent conditions, and can choose the best leader even if the current one has not failed. Experiments with a prototype confirm that QuePaxa achieves normal-case LAN and WAN performance of 584k and 250k cmd/sec in throughput, respectively, comparable to Multi-Paxos. Under conditions such as DoS attacks, misconfigurations, or slow leaders that severely impact existing protocols, we find that QuePaxa remains live with median latency under 380ms in WAN experiments.",
+  "abstract_source": "paper abstract",
+  "terminology_evidence": [
+    {
+      "quote": "Leader-based consensus algorithms are fast and efficient under normal conditions, but lack robustness to adverse conditions due to their reliance on timeouts for liveness. We present QuePaxa, the first protocol offering state-of-the-art normal-case efficiency without depending on timeouts. QuePaxa uses a novel randomized asynchronous consensus core to tolerate adverse conditions such as denial-of-service (DoS) attacks, while a one-round-trip fast path preserves the normal-case efficiency of Multi-Paxos or Raft.",
+      "location": "Abstract",
+      "terms": ["normal conditions", "normal-case efficiency", "fast path", "view changes"]
+    }
+  ],
+  "ocr": {
+    "mistral": {
+      "model": "mistral-ocr-latest",
+      "transport": "data-uri",
+      "output": "ocr-mistral/2024-osdi-tennage-quepaxa.md",
+      "pages": 27,
+      "chars": 157657
+    },
+    "tesseract": {
+      "version": "5.5.3",
+      "dpi": 200,
+      "language": "eng",
+      "output": "ocr-tesseract/2024-osdi-tennage-quepaxa.txt",
+      "chars": 156819
+    }
+  }
+}

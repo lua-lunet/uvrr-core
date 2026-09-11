@@ -1,0 +1,49 @@
+{
+  "id": "2026-nsdi-shawger-xll",
+  "title": "XLL: Cross-Layer Logging for Data Deduplication in Consensus-Based Storage",
+  "authors": ["John Shawger", "Arnav Jhingran", "Andrea Arpaci-Dusseau", "Remzi Arpaci-Dusseau"],
+  "year": 2026,
+  "venue": "Proceedings of the 23rd USENIX Symposium on Networked Systems Design and Implementation (NSDI '26)",
+  "venue_type": "conference",
+  "canonical_url": "https://www.usenix.org/conference/nsdi26/presentation/shawger",
+  "source_url": "https://www.usenix.org/system/files/nsdi26-shawger.pdf",
+  "file": "pdf/2026-nsdi-shawger-xll.pdf",
+  "sha256": "2ebf411f615a7bdf7fd5ae963678d993878636eee0abd9e5828d738a1bd525f0",
+  "pages": 17,
+  "bytes": 2449992,
+  "abstract": "Modern distributed storage systems exhibit cross-layer data duplication, writing data to disk once during a consensus phase and again during a local database logging phase. The result is poor performance and significant write amplification. To remedy this cross-layer redundancy, we design and implement Cross-Layer Log (XLL), a shared log built upon the principle of key-value separation. We use XLL to deduplicate updates within a distributed key-value store (TiKV), leading to a 5.5x increase in write throughput while reducing write amplification by 73%. We also demonstrate the effectiveness of our crash recovery protocol in maintaining data integrity.",
+  "abstract_source": "paper abstract",
+  "terminology_evidence": [
+    {
+      "quote": "Second, as shown in Figure 1, writing data twice harms the request end-to-end latency observed by clients, two synchronous writes (consensus log, WAL) occur on the critical path.",
+      "location": "Section 1 (Introduction), discussing Figure 1",
+      "terms": ["synchronous writes on the critical path"]
+    },
+    {
+      "quote": "The critical path of a single client Put request is divided into Propose, Commit, and Apply phases. Each phase involves communication and disk writes.",
+      "location": "Figure 1 caption",
+      "terms": ["critical path of a request"]
+    },
+    {
+      "quote": "An implementation goal of the SMARTER [9] Paxos-driven storage system was to minimize the number of critical path writes; the authors observe that a single critical path write would be possible using log-structured storage, but they did not explore this solution.",
+      "location": "Section 2 (background/motivation)",
+      "terms": ["critical path writes"]
+    }
+  ],
+  "ocr": {
+    "mistral": {
+      "model": "mistral-ocr-latest",
+      "transport": "data-uri",
+      "output": "ocr-mistral/2026-nsdi-shawger-xll.md",
+      "pages": 17,
+      "chars": 79711
+    },
+    "tesseract": {
+      "version": "5.5.3",
+      "dpi": 200,
+      "language": "eng",
+      "output": "ocr-tesseract/2026-nsdi-shawger-xll.txt",
+      "chars": 81781
+    }
+  }
+}

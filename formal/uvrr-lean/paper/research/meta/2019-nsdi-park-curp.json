@@ -1,0 +1,39 @@
+{
+  "id": "2019-nsdi-park-curp",
+  "title": "Exploiting Commutativity For Practical Fast Replication",
+  "authors": ["Seo Jin Park", "John Ousterhout"],
+  "year": 2019,
+  "venue": "Proceedings of the 16th USENIX Symposium on Networked Systems Design and Implementation (NSDI '19)",
+  "venue_type": "conference",
+  "canonical_url": "https://www.usenix.org/conference/nsdi19/presentation/park",
+  "source_url": "https://www.usenix.org/system/files/nsdi19-park.pdf",
+  "file": "pdf/2019-nsdi-park-curp.pdf",
+  "sha256": "9bbbee7aefb30eeecf9b3a36e7621b7d7f3d4bbdc32c20269ca94dccff6f7a92",
+  "pages": 19,
+  "bytes": 829839,
+  "abstract": "Traditional approaches to replication require client requests to be ordered before making them durable by copying them to replicas. As a result, clients must wait for two round-trip times (RTTs) before updates complete. In this paper, we show that this entanglement of ordering and durability is unnecessary for strong consistency. The Consistent Unordered Replication Protocol (CURP) allows clients to replicate requests that have not yet been ordered, as long as they are commutative. This strategy allows most operations to complete in 1 RTT (the same as an unreplicated system). We implemented CURP in the Redis and RAMCloud storage systems. In RAMCloud, CURP improved write latency by ~2x (14 us -> 7.1 us) and write throughput by 4x. Compared to unreplicated RAMCloud, CURP's latency overhead for 3-way replication is just 1 us (6.1 us vs 7.1 us). CURP transformed a non-durable Redis cache into a consistent and durable storage system with only a small performance overhead.",
+  "abstract_source": "paper abstract",
+  "terminology_evidence": [
+    {
+      "quote": "Traditional approaches to replication require client requests to be ordered before making them durable by copying them to replicas. As a result, clients must wait for two round-trip times (RTTs) before updates complete. In this paper, we show that this entanglement of ordering and durability is unnecessary for strong consistency.",
+      "location": "Abstract",
+      "terms": ["ordering", "durability", "making durable"]
+    }
+  ],
+  "ocr": {
+    "mistral": {
+      "model": "mistral-ocr-latest",
+      "transport": "data-uri",
+      "output": "ocr-mistral/2019-nsdi-park-curp.md",
+      "pages": 19,
+      "chars": 97229
+    },
+    "tesseract": {
+      "version": "5.5.3",
+      "dpi": 200,
+      "language": "eng",
+      "output": "ocr-tesseract/2019-nsdi-park-curp.txt",
+      "chars": 100491
+    }
+  }
+}

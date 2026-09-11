@@ -1,0 +1,44 @@
+{
+  "id": "2025-pvldb-fan-fleet",
+  "title": "FLEET: High-Performance Durable Replicated State Machines using Scattered and Coordinated Log Entries",
+  "authors": ["Hua Fan", "Hao Tan", "Wenchao Zhou", "Feifei Li"],
+  "year": 2025,
+  "venue": "Proceedings of the VLDB Endowment, Vol. 18(5), pp. 1522-1535",
+  "venue_type": "journal",
+  "canonical_url": "https://doi.org/10.14778/3718057.3718077",
+  "source_url": "https://www.vldb.org/pvldb/vol18/p1522-fan.pdf",
+  "file": "pdf/2025-pvldb-fan-fleet.pdf",
+  "sha256": "d12509140bea6b8932aa59a0604d04c20a291a5bc5d4ae7e6611df139893c80c",
+  "pages": 14,
+  "bytes": 1781062,
+  "abstract": "Distributed coordination services are fundamental components of distributed systems, employing durable replicated state machines (RSMs) to ensure consistency across replicas and prevent data loss, even in the event of all nodes failing. These services typically rely on persistent logs for rapid recovery, as a universally agreed-upon log allows replicas to restore their state by sequentially replaying ordered log entries. However, the requirement for a totally ordered log inherently limits opportunities for parallelism. This paper introduces Fleet, a high-performance durable RSM protocol that combines a hybrid scattered-entry log with an asynchronous ordered log. Our approach integrates synchronous persistence of scattered entries with asynchronous persistence of ordered entries, ensuring both rapid recovery and high levels of parallelism. Additionally, we propose a parallel applying optimization for the etcd database, named pre-apply. Experimental results demonstrate that Fleet significantly outperforms Raft and Scalog in terms of throughput and latency, achieving up to 10x the throughput under specific configurations and scaling effectively across multiple nodes. Additionally, with the pre-apply optimization, Fleet delivers a 10-fold increase in throughput compared to sequential applying on etcd. Although Fleet incurs a 5% overhead in recovery time during leader failure, this delay is tolerable given the rarity of such events.",
+  "abstract_source": "paper abstract",
+  "terminology_evidence": [
+    {
+      "quote": "Importantly, the AP module is not involved in the critical path of Fleet's normal operations.",
+      "location": "Asynchronous Persistence (AP) module discussion",
+      "terms": ["critical path of normal operations", "asynchronous persistence"]
+    },
+    {
+      "quote": "Our approach integrates synchronous persistence of scattered entries with asynchronous persistence of ordered entries, ensuring both rapid recovery and high levels of parallelism.",
+      "location": "Abstract",
+      "terms": ["synchronous persistence", "asynchronous persistence"]
+    }
+  ],
+  "ocr": {
+    "mistral": {
+      "model": "mistral-ocr-latest",
+      "transport": "data-uri",
+      "output": "ocr-mistral/2025-pvldb-fan-fleet.md",
+      "pages": 14,
+      "chars": 87323
+    },
+    "tesseract": {
+      "version": "5.5.3",
+      "dpi": 200,
+      "language": "eng",
+      "output": "ocr-tesseract/2025-pvldb-fan-fleet.txt",
+      "chars": 88237
+    }
+  }
+}

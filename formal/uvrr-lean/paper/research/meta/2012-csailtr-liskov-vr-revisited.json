@@ -1,0 +1,45 @@
+{
+  "id": "2012-csailtr-liskov-vr-revisited",
+  "title": "Viewstamped Replication Revisited",
+  "authors": ["Barbara Liskov", "James Cowling"],
+  "year": 2012,
+  "venue": "MIT Computer Science and Artificial Intelligence Laboratory Technical Report MIT-CSAIL-TR-2012-021",
+  "venue_type": "tech-report",
+  "canonical_url": "https://dspace.mit.edu/bitstream/handle/1721.1/71763/MIT-CSAIL-TR-2012-021.pdf",
+  "source_url": "https://sands.kaust.edu.sa/classes/CS240/F21/papers/vr-revisited.pdf",
+  "provenance_note": "Retrieved from the KAUST-hosted mirror of MIT-CSAIL-TR-2012-021; dspace.mit.edu declined the direct request (HTTP 405). The mirror copy prints 14 pages.",
+  "file": "pdf/2012-csailtr-liskov-vr-revisited.pdf",
+  "sha256": "1b16284a0a443d08992bd0fd0f032587e34e3e81f61f1871d39a4e4a6e22cfa6",
+  "pages": 14,
+  "bytes": 174431,
+  "abstract": "This paper presents an updated version of Viewstamped Replication, a replication technique that handles failures in which nodes crash. It describes how client requests are handled, how the group reorganizes when a replica fails, and how a failed replica is able to rejoin the group. The paper also describes a number of important optimizations and presents a protocol for handling reconfigurations that can change both the group membership and the number of failures the group is able to handle.",
+  "abstract_source": "paper abstract",
+  "terminology_evidence": [
+    {
+      "quote": "However, running the protocol this way is unattractive since it adds a delay to normal case processing: the primary would need to write to disk before sending the PREPARE message, and the other replicas would need to write to disk before sending the PREPAREOK response. Furthermore, it is unnecessary to do the disk write because the state is also stored at the other replicas and can be retrieved from them, using a recovery protocol.",
+      "location": "Section 2 (normal case operation discussion)",
+      "terms": ["normal case processing", "disk write"]
+    },
+    {
+      "quote": "The protocol does not require any disk writes as client requests are processed or even during view changes, yet it allows nodes to recover from failures and rejoin the group.",
+      "location": "Section 9 (Conclusions)",
+      "terms": ["disk writes as client requests are processed", "view changes"]
+    }
+  ],
+  "ocr": {
+    "mistral": {
+      "model": "mistral-ocr-latest",
+      "transport": "data-uri",
+      "output": "ocr-mistral/2012-csailtr-liskov-vr-revisited.md",
+      "pages": 14,
+      "chars": 68658
+    },
+    "tesseract": {
+      "version": "5.5.3",
+      "dpi": 200,
+      "language": "eng",
+      "output": "ocr-tesseract/2012-csailtr-liskov-vr-revisited.txt",
+      "chars": 69279
+    }
+  }
+}

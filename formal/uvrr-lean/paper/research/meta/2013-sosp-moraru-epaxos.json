@@ -1,0 +1,45 @@
+{
+  "id": "2013-sosp-moraru-epaxos",
+  "title": "There Is More Consensus in Egalitarian Parliaments",
+  "authors": ["Iulian Moraru", "David G. Andersen", "Michael Kaminsky"],
+  "year": 2013,
+  "venue": "Proceedings of the 24th ACM Symposium on Operating Systems Principles (SOSP '13)",
+  "venue_type": "conference",
+  "canonical_url": "https://dl.acm.org/doi/10.1145/2517349.2517350",
+  "source_url": "https://www.cs.princeton.edu/courses/archive/fall19/cos418/papers/epaxos.pdf",
+  "file": "pdf/2013-sosp-moraru-epaxos.pdf",
+  "sha256": "4c8a6c44e32ebcca5ed0b182af5ecb8e8b5a7f83d8a732d47869f7314847d0aa",
+  "pages": 15,
+  "bytes": 730272,
+  "abstract": "This paper describes the design and implementation of Egalitarian Paxos (EPaxos), a new distributed consensus algorithm based on Paxos. EPaxos achieves three goals: (1) optimal commit latency in the wide-area when tolerating one and two failures, under realistic conditions; (2) uniform load balancing across all replicas (thus achieving high throughput); and (3) graceful performance degradation when replicas are slow or crash. Egalitarian Paxos is to our knowledge the first protocol to achieve the previously stated goals efficiently — that is, requiring only a simple majority of replicas to be non-faulty, using a number of messages linear in the number of replicas to choose a command, and committing commands after just one communication round (one round trip) in the common case or after at most two rounds in any case. We prove Egalitarian Paxos's properties theoretically and demonstrate its advantages empirically through an implementation running on Amazon EC2.",
+  "abstract_source": "paper abstract",
+  "terminology_evidence": [
+    {
+      "quote": "Commands C1 and C2 (left) do not interfere, so both can commit on the fast path. C3 and C4 (right) interfere, so one (C3) will be committed on the slow path.",
+      "location": "Figure 1 caption",
+      "terms": ["fast path", "slow path"]
+    },
+    {
+      "quote": "Not all phases are executed for every command: a command committed after Phase 1 and Commit was committed on the fast path. The slow path involves the additional Phase 2 (the Paxos-Accept phase).",
+      "location": "Section 4 (commit protocol phases)",
+      "terms": ["fast path", "slow path"]
+    }
+  ],
+  "terminology_note": "In this lineage (Fast Paxos, Generalized Paxos, EPaxos, QuePaxa), \"fast path\" and \"slow path\" denote commit in one message round versus fallback rounds — not the placement of disk writes.",
+  "ocr": {
+    "mistral": {
+      "model": "mistral-ocr-latest",
+      "transport": "data-uri",
+      "output": "ocr-mistral/2013-sosp-moraru-epaxos.md",
+      "pages": 15,
+      "chars": 73690
+    },
+    "tesseract": {
+      "version": "5.5.3",
+      "dpi": 200,
+      "language": "eng",
+      "output": "ocr-tesseract/2013-sosp-moraru-epaxos.txt",
+      "chars": 76630
+    }
+  }
+}

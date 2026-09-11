@@ -1,0 +1,44 @@
+{
+  "id": "2014-osdi-ongaro-raft",
+  "title": "In Search of an Understandable Consensus Algorithm (Extended Version)",
+  "authors": ["Diego Ongaro", "John Ousterhout"],
+  "year": 2014,
+  "venue": "USENIX OSDI 2014 (extended version)",
+  "venue_type": "conference",
+  "canonical_url": "https://www.usenix.org/conference/osdi14/technical-sessions/presentation/ongaro",
+  "source_url": "https://raft.github.io/raft.pdf",
+  "file": "pdf/2014-osdi-ongaro-raft.pdf",
+  "sha256": "5a5c679b6a7c88007faeff8c3eef19a77e9e5caa8bd7390922584fe8ecf0ce1f",
+  "pages": 18,
+  "bytes": 567533,
+  "abstract": "Raft is a consensus algorithm for managing a replicated log. It produces a result equivalent to (multi-)Paxos, and it is as efficient as Paxos, but its structure is different from Paxos; this makes Raft more understandable than Paxos and also provides a better foundation for building practical systems. In order to enhance understandability, Raft separates the key elements of consensus, such as leader election, log replication, and safety, and it enforces a stronger degree of coherency to reduce the number of states that must be considered. Results from a user study with 43 students at two universities show that Raft is significantly easier to understand than Paxos: after learning both algorithms, 33 of these students were able to answer questions about Raft better than questions about Paxos.",
+  "abstract_source": "paper abstract",
+  "terminology_evidence": [
+    {
+      "quote": "Persistent state on all servers: (Updated on stable storage before responding to RPCs)",
+      "location": "Figure 2 (server state)",
+      "terms": ["stable storage", "persist before responding"]
+    },
+    {
+      "quote": "Raft's RPCs typically require the recipient to persist information to stable storage, so the broadcast time may range from 0.5ms to 20ms, depending on storage technology.",
+      "location": "Section 5.6 (timing and availability)",
+      "terms": ["persist information to stable storage"]
+    }
+  ],
+  "ocr": {
+    "mistral": {
+      "model": "mistral-ocr-latest",
+      "transport": "data-uri",
+      "output": "ocr-mistral/2014-osdi-ongaro-raft.md",
+      "pages": 18,
+      "chars": 92264
+    },
+    "tesseract": {
+      "version": "5.5.3",
+      "dpi": 200,
+      "language": "eng",
+      "output": "ocr-tesseract/2014-osdi-ongaro-raft.txt",
+      "chars": 93814
+    }
+  }
+}
