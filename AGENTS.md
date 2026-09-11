@@ -21,6 +21,9 @@
 
 - Documentation must be the timeless target end state. We practice
   markdown-driven development (MDD): the markdown states what the system IS.
+- The local voice is British English. Preserve British spelling and usage in
+  prose, documentation, papers, comments, and user-facing text; do not
+  Americanise it for an external style guide.
 - No project plans, task identifiers, orchestration chatter, or historic
   narrative in documentation or code. Such material is written only when
   explicitly requested by the User or added manually by the User. Dated
