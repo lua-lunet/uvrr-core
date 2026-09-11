@@ -22,7 +22,7 @@
 //!   empty: no store at all — no file is opened, written or fsynced, and
 //!   every construction takes the [`Stability::Volatile`] provision path:
 //!   first boot or kill-nemesis restart alike provisions fenced
-//!   `Recovering` (the genesis ruling, §1.3), and a node becomes `Normal`
+//!   `Restarting` (the genesis ruling, §1.3), and a node becomes `Normal`
 //!   only through the bootstrap adoption (§4). A voter whose volatile
 //!   state vanished while retaining authority is unrepresentable in this
 //!   host: a restarted node rejoins fenced, and the next view change
@@ -68,7 +68,7 @@
 //!   running sentinel (`unflushed`) before `init_ok` is answered.
 //! - **A state file, all four superblock copies `flushed`** — a clean
 //!   shutdown's checkpoint (§2's clean path): `Node::reopen` under the same
-//!   identity. The core fences the node into `Recovering` (§5's boot rule)
+//!   identity. The core fences the node into `Restarting` (§5's boot rule)
 //!   either way; the durable evidence is the honest statement, not an
 //!   authority.
 //! - **A state file, any copy `unflushed`** — the node was operating when
@@ -1247,7 +1247,7 @@ impl NodeRunner {
                 progress.current(),
                 progress.config().current().era,
             );
-            if status == Status::Recovering && current == force.at {
+            if status == Status::Restarting && current == force.at {
                 force.silent += 1;
                 if force.silent >= FORCE_FEED_WINDOWS * PRIMARY_TIMEOUT_TICKS && !force.driven {
                     force.driven = true;

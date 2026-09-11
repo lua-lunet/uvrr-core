@@ -824,7 +824,7 @@ fn committed_state_survives_a_kill_restart_with_the_same_state_dir() {
 
 /// A state dir that holds no state file for the node: the first life. The
 /// provision path is exactly the unpersisted host's — the same fenced
-/// `Recovering` start, the same bootstrap adoption, the same serving —
+/// `Restarting` start, the same bootstrap adoption, the same serving —
 /// and the lifecycle diagnostic names it.
 #[test]
 fn a_fresh_state_dir_provisions_as_today() {

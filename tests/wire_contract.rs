@@ -650,7 +650,7 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
     }
 
     // The whole numbering, including both boundaries of the reserved space.
-    // Discriminants 1, 11 and 12 belonged to the retired recovery-exchange
+    // Discriminants 1, 11 and 12 belonged to the retired restart-exchange
     // tags and the retired client-datagram tags (B2: client traffic is a
     // host concern, never a core datagram); they stay reserved — reuse
     // would collide with deployments that still carry the old numbering on
