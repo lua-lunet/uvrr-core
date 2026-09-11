@@ -211,7 +211,7 @@ The strict-majority construction and one-unit boundaries establish the within-er
 The leader-overlap lemmas establish that preparing members outside the active quorum preserves that quorum's guards, and that adding the leader's promise completes the prospective phase-one quorum.
 
 \subsection{Evidence and reproduction}
-The proof baseline is repository commit \code{352b0bf}~\cite{artifact}, extended here by adding the existing eviction invariant to the final conjunction. It uses Lean 4.33.1 without Mathlib. The source directory is \path{formal/uvrr-lean/UVRR/}. The weighted intersection, era agreement, casting-vote and five-voter modules supply the components of Theorem~\ref{thm:replacement}. Its final statement is \path{ReincarnationSafety.five_safe}, in \path{ReincarnationSafety.lean}, importing \path{ReincarnationAgreement.lean}.
+The complete Lean 4 project is archived at repository commit \code{352b0bf}~\cite{artifact}, extended here by adding the existing eviction invariant to the final conjunction. It uses Lean~4 version~4.33.1~\cite{lean4} without Mathlib. The source directory is \path{formal/uvrr-lean/UVRR/}. The weighted intersection, era agreement, casting-vote and five-voter modules supply the components of Theorem~\ref{thm:replacement}. Its final statement is \path{ReincarnationSafety.five_safe}, in \path{ReincarnationSafety.lean}, importing \path{ReincarnationAgreement.lean}.
 
 From \code{formal/uvrr-lean}, run \code{lake build} and \code{python3 check\_axioms.py}. The checked baseline's axiom audit covers 355 declarations and permits only Lean's standard logical axioms; it rejects proof holes and custom axioms. The recorded rung-26 evidence also exercises a negative control that tries to give the replacement voting weight in $E_1$. Its failure checks that particular erroneous claim, rather than supplying an exhaustive fault-injection campaign. The repository contains the proof-generation transcript; generated proof terms are checked by Lean, and the generator is not part of the trusted proof checker.
 
@@ -343,5 +343,6 @@ The contrast between M1 and M2 suggests that supplying library signatures helped
 \bibitem{etcd-hardware} etcd authors, ``Hardware recommendations,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/op-guide/hardware/}
 \bibitem{etcd-embed} etcd authors, ``Embedding etcd in a Go application,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/dev-guide/golang_embed_pkg/}
 \bibitem{artifact} S. Massey, ``uVRR proof artifact,'' commit 352b0bf, 2026. [Online]. Available: \url{https://github.com/lua-lunet/uvrr-core/tree/352b0bf/formal/uvrr-lean}
+\bibitem{lean4} L. de Moura and S. Ullrich, ``The Lean 4 theorem prover and programming language,'' in \emph{Automated Deduction -- CADE 28}, 2021, pp. 625--635, doi: \href{https://doi.org/10.1007/978-3-030-79876-5_37}{10.1007/978-3-030-79876-5\_37}.
 \end{thebibliography}
 \end{document}

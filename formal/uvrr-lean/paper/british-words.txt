@@ -6,6 +6,7 @@ ATC
 aW
 Balakrishnan
 bV
+CADE
 Comput
 CSAIL
 DBA
@@ -33,6 +34,7 @@ lrrrrrr
 Malkhi
 Mathlib
 md
+Moura
 nodewise
 nonemptiness
 nonnegative
@@ -46,6 +48,7 @@ PODC
 Prabhakaran
 pre
 propext
+prover
 py
 quiesces
 Reconfigurable
@@ -65,6 +68,7 @@ tex
 unevaluated
 UPaxos
 USENIX
+Ullrich
 uVRR
 uvrr
 uVRR's
