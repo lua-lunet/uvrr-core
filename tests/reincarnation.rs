@@ -563,7 +563,7 @@ fn c_leader_crash_mid_sequence_continues_from_the_intermediate_era() {
 }
 
 // ---------------------------------------------------------------------------
-// Leader-kill wedge (issue #13): the LEADER's own reincarnation
+// Leader kill: the LEADER's own reincarnation
 // ---------------------------------------------------------------------------
 
 /// Killing the VOTING PRIMARY survives the bumped identity's forced walk
@@ -574,7 +574,7 @@ fn c_leader_crash_mid_sequence_continues_from_the_intermediate_era() {
 /// ITS first designated view — view 3 of the rejoin era selects the
 /// rejoined identity, the first voter of the old leader's succession
 /// position — installs, and the cluster keeps committing under a leader
-/// that can evaluate the live view. No wedge, no announcement storm.
+/// that can evaluate the live view, with no announcement storm.
 /// Today the reincarnated identity folds only its admitting era (the
 /// `plan_start_view` era gate drops an offer more than one era past its
 /// boot table), so the succession hands the leader role to a
@@ -946,7 +946,7 @@ fn f_learner_acquires_its_admitting_era_and_cannot_influence() {
     );
     assert_eq!(
         status_of(&h, n(3)),
-        Status::Recovering,
+        Status::Restarting,
         "the acquisition runs at the boot fence, never voting"
     );
     // The stream arrives and is processed: the prepare from the leader of

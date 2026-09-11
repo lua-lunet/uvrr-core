@@ -197,7 +197,8 @@ acquisition rule:
   chunk's committed frontier and folds the system operations it covers —
   the fold input is the chunk the suffix ruling already verified against
   the local journal. Two states are this state: the boot fence
-  (`Recovering` at `current == retained`, the reopen state), and the
+  (a fenced entry state — `Restarting` on reopen, `Joining` on provision — at
+  `current == retained`), and the
   reincarnated not-yet-adopted state the forced walk leaves behind
   (`ViewChange` under the higher-view signal's fence, `retained` still
   the boot view whose configuration cannot yet name the node). The node

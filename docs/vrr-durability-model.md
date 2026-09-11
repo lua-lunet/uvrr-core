@@ -57,7 +57,7 @@ The status-dependent relation is:
 Active (`Status::Normal`):
                         current_view = retained_view
 ViewChange:             current_view >= retained_view
-Recovering/Replaying:   current_view is not an authority to participate
+Restarting/Joining/Replaying:   current_view is not an authority to participate
 ```
 
 A replica can enter `current_view = v+1` on a timeout or `StartViewChange(v+1)` while still reporting the history retained from view `v`. It has entered the later view as a fence, but no new view state has yet been selected and installed. Therefore `current_view` alone does not identify the provenance of the reported log.
@@ -812,9 +812,9 @@ The current code contains:
 - the self-inclusive `StartViewChange` quorum condition;
 - a `DoViewChange` quorum and selected-state installation at the new primary;
 - separate accepted, committed, and executed frontiers;
-- explicit `Recovering` and `Replaying` statuses;
+- explicit `Restarting`, `Joining`, and `Replaying` statuses;
 - host strategies for the journal (`Journal`/`JournalView`, with the segmented in-memory implementation) and an explicit stability-completion boundary (`Stability`) gating dependent effects;
-- the provisioning/reopen lifecycle: `provision` establishes the genesis configuration, `reopen` restarts after possible state loss, and both start fenced `Recovering`;
+- the provisioning/reopen lifecycle: `provision` establishes the genesis configuration and joins fenced `Joining`, `reopen` restarts after possible state loss and starts fenced `Restarting`;
 - the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it — the arm a post-genesis cold start's first fence goes through (§5), the boot fence never self-arming from persisted knowledge;
 - the host-supplied `u64` event tick on every input, with recovery nonces derived from it (§6.1);
 - the higher-view normal-message state-transfer behaviour specified by VRR-2012.
@@ -825,7 +825,7 @@ The current code does not provide:
 
 - a normative C ABI transition-ownership contract — no FFI module exists at present; the C ABI is planned work.
 
-The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` and `reopen` both start fenced `Recovering` and become normal only after local restoration establishes adequate state, so the amnesiac-voter path is unrepresentable.
+The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` and `reopen` both start fenced `Restarting` and become normal only after local restoration establishes adequate state, so the amnesiac-voter path is unrepresentable.
 
 ## 15. Minimal proposal
 

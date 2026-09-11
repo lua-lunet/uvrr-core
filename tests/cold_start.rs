@@ -43,7 +43,7 @@
 //!      value commits, both apply (the §11.1 catch-up walk included). A
 //!      real deployment's cluster manager does exactly this.
 //!    - **without the lever**: the same restart stays fenced — both
-//!      nodes `Recovering`, not one datagram under either tick schedule
+//!      nodes `Restarting`, not one datagram under either tick schedule
 //!      (lockstep and phase-shifted), and the client surface the named
 //!      refusal. The fence is the host's to arm.
 
@@ -221,36 +221,36 @@ fn post_genesis_history(h: &mut Harness) -> ViewId {
 /// The full-cluster staggered restart over the post-genesis disks: n(0)
 /// reopens first and ticks alone through several timeout windows — fenced,
 /// silent, the view unmoved — then n(1) reopens. Both nodes end fenced
-/// `Recovering` at the folded view (§5's boot rule).
+/// `Restarting` at the folded view (§5's boot rule).
 fn staggered_reopen(h: &mut Harness, folded: ViewId) {
     h.crash(n(0));
     h.crash(n(1));
     h.restart_with(n(0))
         .expect("n(0) reopens over its recorded disk");
-    assert_eq!(status_of(h, n(0)), Status::Recovering, "fenced at reopen");
+    assert_eq!(status_of(h, n(0)), Status::Restarting, "fenced at reopen");
     assert_eq!(current_era(h, n(0)), Era(2), "the folded era persisted");
 
     // n(0) alone through several timeout windows: no datagram is ever
-    // emitted — a `Recovering` node can neither promote (post-genesis
+    // emitted — a `Restarting` node can neither promote (post-genesis
     // history) nor suspect (suspicion requires `Normal`).
     for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
         h.tick(n(0));
     }
-    assert_eq!(status_of(h, n(0)), Status::Recovering);
+    assert_eq!(status_of(h, n(0)), Status::Restarting);
     assert_eq!(current_view(h, n(0)), folded, "the view did not move");
     assert_eq!(h.queued_len(), 0, "the solo phase emitted nothing");
 
     h.restart_with(n(1))
         .expect("n(1) reopens over its recorded disk");
-    assert_eq!(status_of(h, n(1)), Status::Recovering, "fenced at reopen");
+    assert_eq!(status_of(h, n(1)), Status::Restarting, "fenced at reopen");
 }
 
 /// The boundary property the fenced restart holds: every member
-/// `Recovering` at the folded view it reopened at, the folded era
+/// `Restarting` at the folded view it reopened at, the folded era
 /// persisted, and not one datagram in flight.
 fn assert_fenced_boundary(h: &Harness, folded: ViewId) {
     for id in [n(0), n(1)] {
-        assert_eq!(status_of(h, id), Status::Recovering, "{id:?} stays fenced");
+        assert_eq!(status_of(h, id), Status::Restarting, "{id:?} stays fenced");
         assert_eq!(current_view(h, id), folded, "{id:?} never moved");
         assert_eq!(
             current_era(h, id),
@@ -309,7 +309,7 @@ fn staggered_genesis_start_completes() {
     // serving round, not about the view number settling.
     h.restart_with(n(1))
         .expect("n(1) reopens over the genesis disk");
-    assert_eq!(status_of(&h, n(1)), Status::Recovering, "fenced at birth");
+    assert_eq!(status_of(&h, n(1)), Status::Restarting, "fenced at birth");
     let mut elected = None;
     for _ in 0..8 {
         h.tick_all();
@@ -503,7 +503,7 @@ fn post_genesis_cold_restart_completes_when_the_host_arms_the_first_fence() {
 /// §5's boot fence never self-arms from persisted knowledge. A reopened
 /// member can neither promote (the tick's bootstrap self-promotion is
 /// genesis-only) nor suspect (suspicion requires `Status::Normal`), and
-/// every `Recovering → Normal` route — the §4 bootstrap adoption, the
+/// every `Restarting → Normal` route — the §4 bootstrap adoption, the
 /// §9.1 `StartView` install — needs a sender that already holds a live
 /// primary's authority. A full-cluster cold start has no such sender: no
 /// first datagram ever exists, so the cluster is silent under any tick
@@ -511,7 +511,7 @@ fn post_genesis_cold_restart_completes_when_the_host_arms_the_first_fence() {
 /// completion pin above). A real deployment's cluster manager does
 /// exactly this.
 ///
-/// The pin: both nodes stay `Recovering` at the folded view through
+/// The pin: both nodes stay `Restarting` at the folded view through
 /// lockstep AND lawful phase-shifted windows, the queue holds not one
 /// datagram, and the client surface is the named refusal — `NotPrimary`
 /// naming the view's designated, still-fenced primary.

@@ -95,7 +95,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// learner acquisition rule (`docs/uvrr-reincarnation.md` §10) — of
     /// the responder's current committed configuration, a weight-0
     /// learner included) plus the two statuses whose journal is not
-    /// servable: `Recovering` (the standing ruling — a recovering node's
+    /// servable: the fenced entry states (the standing ruling — a restarting node's
     /// history is not yet proved current) and `Replaying` (the journal is
     /// mid-install, structurally inconsistent). A fenced `ViewChange`
     /// node serves exactly like a `Normal` one, and the request's view is
@@ -153,7 +153,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let frontier = self.progress.accepted();
         if matches!(
             self.progress.status(),
-            Status::Recovering | Status::Replaying
+            Status::Restarting | Status::Joining | Status::Replaying
         ) {
             return self.drop_plan(
                 Diagnostic::TransferNotServed {
@@ -237,7 +237,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the completing ruling: a fenced node's committed frontier waits
     /// for its own path's qualified evidence (the `StartView`) — with
     /// the §10 learner acquisition exception: the boot-fenced node's own
-    /// open fetch is its qualified evidence, so a `Recovering` node at
+    /// open fetch is its qualified evidence, so a fenced entry node at
     /// its boot fence takes the chunk's committed frontier and folds
     /// what it covers (the ruling below).
     #[allow(clippy::too_many_arguments)]
@@ -336,7 +336,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // frontier moves on the current view's own transfer — while the
         // node is fenced, the completing ruling owns it. The one §10
         // exception is the boot-fenced node's OWN acquisition: a node
-        // still at its boot fence (`Recovering` at `current == retained`,
+        // still at its boot fence (a fenced entry state at `current == retained`,
         // the reopen state — it has adopted nothing) that opened this
         // fetch itself may take the chunk's committed frontier and fold
         // the system operations it covers. That is the speculative
@@ -347,7 +347,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // fold input is the same verified history every other fold path
         // reads. The node stays fenced: it adopts no view, its votes are
         // not counted (the membership check at the counting site), and it
-        // serves nothing (`Recovering`). A `ViewChange`-fenced node is
+        // serves nothing while fenced). A `ViewChange`-fenced node is
         // NOT covered: its attempt's completing ruling owns the commit
         // frontier, unchanged.
         let current_view_transfer =
@@ -355,7 +355,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The boot acquisition's take: the node has adopted nothing, and
         // the chunk answers the fetch it opened itself (the transfer
         // qualification above). Two states have adopted nothing: the
-        // boot fence (`Recovering` at `current == retained` — the
+        // boot fence (a fenced entry state at `current == retained` — the
         // reopen state), and the reincarnated not-yet-adopted state the
         // forced walk leaves behind (`ViewChange` under the higher-view
         // signal's fence). The reincarnated state is recognized by its
@@ -377,8 +377,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // whose chunk carries no admission of its own is NOT covered:
         // its attempt's completing ruling owns the commit frontier,
         // unchanged.
-        let boot_fence =
-            self.progress.status() == Status::Recovering && current == self.progress.retained();
+        let boot_fence = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+            && current == self.progress.retained();
         let reincarnated = self.progress.status() == Status::ViewChange
             && entries.iter().any(|entry| {
                 entry.slot > self.progress.committed()
@@ -451,7 +451,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // committed and accepted frontiers stop at the fold's frontier,
         // and the durable view's era walks into the era the folded table
         // established (the view number is preserved — no view change runs
-        // here; the node stays fenced `Recovering` and adopts no history).
+        // here; the node stays fenced at its entry state and adopts no history).
         // The chunk's tail past the fold is re-fetched by the
         // acquisition's next round (the cursor below, or the re-retain's
         // fetch once the stalled ruling re-runs).

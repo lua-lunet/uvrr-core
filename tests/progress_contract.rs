@@ -170,7 +170,7 @@ fn frontier_chain_is_exhaustively_enforced() {
 // ---------------------------------------------------------------------------
 
 /// `Normal` requires `current == retained`; `ViewChange` requires `current >=
-/// retained`. `Recovering` and `Replaying` carry no relation — §1.3 states that in
+/// retained`. `Restarting` and `Replaying` carry no relation — §1.3 states that in
 /// those statuses `current` is not an authority to participate, so constraining it
 /// would forbid states a recovering node legitimately holds.
 #[test]
@@ -204,7 +204,7 @@ fn status_view_relation_is_enforced() {
     assert!(build(view(0, 1), view(0, 0), Status::ViewChange).is_ok());
     assert!(build(view(0, 1), view(0, 1), Status::ViewChange).is_ok());
 
-    assert!(build(view(0, 0), view(0, 1), Status::Recovering).is_ok());
+    assert!(build(view(0, 0), view(0, 1), Status::Restarting).is_ok());
     assert!(build(view(0, 0), view(0, 1), Status::Replaying).is_ok());
 }
 
@@ -245,7 +245,7 @@ fn fault_is_sticky_across_every_transition() {
         expected
     );
     assert_eq!(
-        faulted.with_status(Status::Recovering).unwrap_err(),
+        faulted.with_status(Status::Restarting).unwrap_err(),
         expected
     );
     assert_eq!(faulted.with_config(table_upto(1)).unwrap_err(), expected);
@@ -743,7 +743,7 @@ fn genesis_advertises_view_id_initial_fenced() {
 
     assert_eq!(genesis.current(), ViewId::INITIAL);
     assert_eq!(genesis.retained(), ViewId::INITIAL);
-    assert_eq!(genesis.status(), Status::Recovering);
+    assert_eq!(genesis.status(), Status::Joining);
     assert_eq!(genesis.accepted(), Slot::NONE);
     assert_eq!(genesis.committed(), Slot::NONE);
     assert_eq!(genesis.applied(), Slot::NONE);
@@ -767,13 +767,14 @@ fn snapshot_is_flat_and_decodes() {
     for (status, word) in [
         (Status::Normal, 0),
         (Status::ViewChange, 1),
-        (Status::Recovering, 2),
+        (Status::Restarting, 2),
         (Status::Replaying, 3),
+        (Status::Joining, 4),
     ] {
         assert_eq!(status.to_word(), word);
         assert_eq!(Status::from_word(word), Some(status));
     }
-    assert_eq!(Status::from_word(4), None);
+    assert_eq!(Status::from_word(5), None);
 
     let progress = normal(view(2, 9), 3, 2, 1, 1, 9, &table_upto(2));
     let snapshot = progress.to_snapshot();

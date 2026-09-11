@@ -46,7 +46,7 @@
 //! refused with the named `PlanRefusal::Unsupported`. Normal operation
 //! is live:
 //! `Prepare`/`PrepareOk`/`Commit`, the Propose/Apply/Applied boundary
-//! (§11.1), the bootstrap from the fenced `Recovering` genesis state, view
+//! (§11.1), the bootstrap from the fenced `Restarting` genesis state, view
 //! change, recovery (§6.1), state transfer (§10, §13.1 step 5), the
 //! checkpoint frontier and the lazy reclamation it authorizes (§4, §11,
 //! S1), and the host-forced view change (§14.2).
@@ -1291,7 +1291,7 @@ impl Harness {
     /// (slots 1–2, byte-for-byte what [`Replica::provision`] installs)
     /// journaled, the same genesis fold as the era table, and no progress
     /// beyond it. The node is transport-addressable and fenced
-    /// (`Status::Recovering`) until the primary's stream proves currency;
+    /// (`Status::Restarting`) until the primary's stream proves currency;
     /// it is not a member of any configuration it can name, so a fresh
     /// join converges only through the §10 learner acquisition. The
     /// identity must not be a genesis member: a genesis member
@@ -1340,7 +1340,7 @@ impl Harness {
         let boot = Progress::reconstitute(
             view,
             view,
-            Status::Recovering,
+            Status::Restarting,
             INIT_SLOT,
             INIT_SLOT,
             INIT_SLOT,

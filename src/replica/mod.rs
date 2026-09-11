@@ -45,7 +45,7 @@
 //!
 //! VRR-2012 §4 is live: `Prepare`/`PrepareOk`/`Commit` with
 //! commit-frontier piggybacking (§13.3), the Propose/Apply/Applied boundary
-//! (§11.1), and the bootstrap from the fenced `Recovering` genesis state (the
+//! (§11.1), and the bootstrap from the fenced `Joining` genesis state (the
 //! ruling is on the `plan_tick` handler). Every handler is total: invalid peer
 //! input is dropped with a named [`Diagnostic`] on the observation, never
 //! faults the node; faulting stays reserved for impossible LOCAL transitions
@@ -318,7 +318,8 @@ pub enum PlanRefusal {
     /// candidates.
     Progress(ProgressError),
     /// A proposal reached a node that is not the `Normal` primary of
-    /// its current view (§4): a backup, a fenced `Recovering` node, or the
+    /// its current view (§4): a backup, a fenced entry node (`Restarting` or
+    /// `Joining`), or the
     /// primary of some other view. Carries the node's current view and the
     /// primary of that view (when the configuration can name one) so the
     /// host can redirect the proposer (§13.4's convergence hint applied to
@@ -600,7 +601,7 @@ pub struct PersistedProgress {
     /// The view at which the current logical history was selected (§1.3).
     pub retained: ViewId,
     /// The last observed status. Evidence only: `reopen` fences to
-    /// [`Status::Recovering`] regardless (§5's boot rule).
+    /// [`Status::Restarting`] regardless (§5's boot rule).
     pub status: Status,
     /// The accepted frontier; must agree with the journal's at `reopen`.
     pub accepted: Slot,
@@ -764,7 +765,7 @@ struct Evidence {
 /// Volatile by design: the fence is VRR-2012's volatile `StartViewChange`
 /// exchange (§9.3 — the core never substitutes a persisted view record for
 /// it), so a crash discards the attempt and the node reopens fenced
-/// `Recovering` (§5's boot rule). The durable half is `Progress.current`,
+/// `Restarting` (§5's boot rule). The durable half is `Progress.current`,
 /// which already advanced past every earlier view at entry.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct ViewChangeVolatile {
@@ -1142,7 +1143,7 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// (B1; the §4 handlers' total-drop contract made observable).
     diagnostics: Arc<Observation<Diagnostic>>,
     /// The primary's outstanding and unapplied proposals, keyed by slot.
-    /// Volatile: a node that loses it reopens fenced `Recovering` (§5's
+    /// Volatile: a node that loses it reopens fenced `Restarting` (§5's
     /// boot rule), so the loss can never masquerade as authority.
     proposals: BTreeMap<Slot, Proposal>,
     /// The one outstanding parked transition, if any (§12).
@@ -1198,9 +1199,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `accepted == committed == Slot(2)`; `applied == Slot(2)` (the §11
     /// system-slot ruling: both genesis slots are core-internal and walk
     /// `applied` by themselves) and `checkpoint == Slot(0)`; status
-    /// [`Status::Recovering`] — the genesis ruling (§1.3),
-    /// §5's boot rule made uniform: a fresh node and a reopened node enter
-    /// the protocol the same way, fenced until they prove their state
+    /// [`Status::Joining`] — the genesis ruling (§1.3),
+    /// §5's boot rule made uniform: a provisioned node joins fenced `Joining`
+    /// and a reopened node restarts fenced `Restarting`, both fenced until
+    /// they prove their state
     /// current. Nothing about a fresh cluster is special-cased into `Normal`.
     ///
     /// The quorum gate (Q1) runs here on the genesis configuration: an
@@ -1279,7 +1281,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let progress = Progress::reconstitute(
             view,
             view,
-            Status::Recovering,
+            Status::Joining,
             INIT_SLOT,
             INIT_SLOT,
             INIT_SLOT,
@@ -1298,7 +1300,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// The persisted progress is evidence about the past, not authority over
     /// the present: whatever status was last observed before failure, the
-    /// node reopens in [`Status::Recovering`] (§5's boot rule) and becomes
+    /// node reopens in [`Status::Restarting`] (§5's boot rule) and becomes
     /// normal only after local restoration establishes adequate state. The
     /// persisted fault, if any, is preserved —
     /// faults survive restart because they are part of progress (§5
@@ -1340,7 +1342,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let progress = Progress::reconstitute(
             persisted.current,
             persisted.retained,
-            Status::Recovering,
+            Status::Restarting,
             persisted.accepted,
             persisted.committed,
             persisted.applied,
@@ -1358,7 +1360,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The shared constructor: the observation is born holding the initial
     /// snapshot (B1), and nothing is outstanding. The activity baseline is
     /// the epoch tick: a node starts never-having-heard a primary, and the
-    /// bootstrap's `Recovering` status exempts it from suspicion until it
+    /// bootstrap's fenced entry status exempts it from suspicion until it
     /// first adopts a view.
     fn assemble(
         own: NodeId,
@@ -1516,7 +1518,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The tick (S4): today it drives exactly one protocol decision, the
     /// bootstrap self-promotion of the genesis primary.
     ///
-    /// A `Recovering` node enters `Normal` on a tick when ALL of: its
+    /// A fenced entry node (`Restarting` or `Joining`) enters `Normal` on a
+    /// tick when ALL of: its
     /// journal holds the complete committed genesis (slots 1–2, both
     /// physically present, nothing beyond), `current == retained` at the
     /// genesis view, and it IS `config.primary(View(0))` under its
@@ -1527,7 +1530,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// (`current.view != 0`) or holds post-genesis history (`accepted >
     /// 2`), and both exclude it here; its path is §10 recovery.
     /// The promotion happens on a tick, not in `provision`, so construction
-    /// stays uniform — every node starts fenced `Recovering` — and the
+    /// stays uniform — provision joins fenced `Joining`, reopen restarts
+    /// fenced `Restarting` — and the
     /// promotion is an explicit protocol step the trace shows.
     ///
     /// On promotion the new primary announces its committed frontier to
@@ -1544,11 +1548,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// change. Silence is measured from the last same-view `Prepare` or
     /// `Commit` from the legitimate primary (or the last view adoption);
     /// the primary of the current view never suspects itself, and a
-    /// `Recovering` or already-`ViewChange` node has nothing to suspect —
+    /// fenced entry node or already-`ViewChange` node has nothing to suspect —
     /// a stalled attempt is state transfer's repair (§10), not a fresh timeout.
     fn plan_tick(&self, journal: &J::View, at: Tick) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
-        let promotable = self.progress.status() == Status::Recovering
+        let promotable = matches!(self.progress.status(), Status::Restarting | Status::Joining)
             && current == self.progress.retained()
             && current.view == View::INITIAL
             && self.progress.accepted() == INIT_SLOT

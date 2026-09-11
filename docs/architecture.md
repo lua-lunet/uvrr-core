@@ -78,7 +78,6 @@ the recommendation is documented on `ViewChangeKnobs`.
 | `replica` | types, lifecycle, and the plan/publish/confirm pipeline | §6, §7, §12 |
 | `replica::normal` | `Prepare`/`PrepareOk`/`Commit`; proposal admission | §4, §11.1, §13.3 |
 | `replica::view_change` | `StartViewChange`/`DoViewChange`/`StartView`; the win; admin force | §9, §13.1, §14.2 |
-| `replica::recovery` | `Recovery`/`RecoveryResponse`; completion and re-drive | §10, §6.1 |
 | `replica::transfer` | state transfer sequencing; sizing is the host's | §4, §13.1, W5 |
 | `replica::reconfiguration` | membership and weight change; not yet implemented | §8.7.1–§8.7.8 |
 | `effects` | the output half of the transition, as inert data | §6, §7 |

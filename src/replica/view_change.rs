@@ -422,7 +422,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the selected history.
     ///
     /// The adoption rule: any node the change passed by — `Normal` or
-    /// `Recovering` in an earlier view, or fencing into this very view —
+    /// `Restarting` in an earlier view, or fencing into this very view —
     /// installs the offered history, provided it can VERIFY it: the suffix
     /// must reach back to a slot the node can check (its frontier, or a
     /// shared slot whose entry agrees). A suffix that starts past the
@@ -465,8 +465,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // offered era's establishing operation admits the node (a
             // `Join`, the `Increment` that promotes it, or a batch
             // carrying either). Two states have adopted nothing: the
-            // boot fence (`Recovering` at `current == retained`, the
-            // reopen state), and the reincarnated not-yet-adopted state
+            // boot fence (a fenced entry state — `Restarting` on reopen,
+            // `Joining` on provision — at `current == retained`), and the
+            // reincarnated not-yet-adopted state
             // the forced walk leaves behind (`ViewChange` under the
             // higher-view signal's fence) — recognized there by the
             // same naming test the offer itself carries. The node stays
@@ -487,8 +488,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             )?;
             let next = current.era.next();
-            let boot_fence =
-                self.progress.status() == Status::Recovering && current == self.progress.retained();
+            let boot_fence = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+                && current == self.progress.retained();
             let retainable = if Some(header.view.era) == next {
                 true
             } else {

@@ -645,7 +645,7 @@ fn chunked_transfer_resumes_from_cursor_and_tolerates_reordering() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. The standing refusal: a Recovering node refuses a GetState — its
+// 11. The standing refusal: a Restarting node refuses a GetState — its
 //     history is not yet proved current, so the named drop
 //     TransferNotServed stands and nothing is served.
 // ---------------------------------------------------------------------------
@@ -657,7 +657,7 @@ fn recovering_node_refuses_get_state() {
     commit_one(&mut h, n(0), 1, b"a");
     h.crash(n(2));
     h.restart_with(n(2)).expect("the journal survived");
-    assert_eq!(status_of(&h, n(2)), Status::Recovering);
+    assert_eq!(status_of(&h, n(2)), Status::Restarting);
 
     let request = Message {
         header: Header {

@@ -167,7 +167,7 @@ fn fence_among(h: &mut Harness, live: &[NodeId]) -> ViewId {
         rounds += 1;
         assert!(
             rounds <= 16,
-            "the incumbents' fence wedged after {rounds} rounds\n{}",
+            "the incumbents' fence stalled after {rounds} rounds\n{}",
             h.trace_dump()
         );
         for &id in live {
@@ -232,7 +232,7 @@ fn joined_and_caught_up(h: &mut Harness) -> ViewId {
     );
     assert_eq!(
         status_of(h, n(3)),
-        Status::Recovering,
+        Status::Restarting,
         "the acquisition runs at the boot fence, never voting"
     );
     h.tick(n(3));
@@ -289,7 +289,7 @@ fn catch_up(h: &mut Harness, learner: NodeId) {
         rounds += 1;
         assert!(
             rounds <= 8,
-            "the learner's era-by-era catch-up wedged after {rounds} rounds (last diagnostic {:?})\n{}",
+            "the learner's era-by-era catch-up stalled after {rounds} rounds (last diagnostic {:?})\n{}",
             h.diagnostic(learner),
             h.trace_dump()
         );
@@ -766,7 +766,7 @@ fn a_far_future_offer_that_names_nobody_is_dropped_at_the_boot_fence() {
     );
     assert_eq!(
         status_of(&h, n(3)),
-        Status::Recovering,
+        Status::Restarting,
         "the boot fence stands"
     );
     assert_eq!(current_view(&h, n(3)), boot_view, "nothing was adopted");
@@ -779,7 +779,7 @@ fn a_far_future_offer_that_names_nobody_is_dropped_at_the_boot_fence() {
         h.tick(n(3));
         h.deliver_all();
     }
-    assert_eq!(status_of(&h, n(3)), Status::Recovering, "still fenced");
+    assert_eq!(status_of(&h, n(3)), Status::Restarting, "still fenced");
     assert_eq!(
         current_era(&h, n(3)),
         Era(1),
@@ -958,7 +958,7 @@ fn a_far_future_offer_naming_the_boot_fenced_member_through_a_batch_is_retained(
 /// still holds, and the offer installs. A fetch that stayed on the boot
 /// view would, after the second fold, name the boot era the table has
 /// walked past, and the third chunk would be unevaluable at the very
-/// guard that reads it — the acquisition wedged, the offer stranded.
+/// guard that reads it — the acquisition strands, the offer stranded.
 ///
 /// The staging: `n(3)` joins in era 2 with the announcement staged away;
 /// eras 3 and 4 fold (`Double`, then the `Increment` promoting the
