@@ -12,6 +12,14 @@ Classic VRR's published recovery failure (the DISC'17 Appendix B.1 amnesia class
 Michael et al.) is literature about the classic crash-recover class; uVRR eliminates
 the class by construction rather than repairing it.
 
+The boot decision is the marker transition machine (`docs/vrr-durability-model.md`
+§5.1): a node that completed a controlled shutdown restarts as `Restarting` — a
+member with complete state, no amnesia, ticking the full protocol — and a node
+whose markers prove no controlled shutdown resurrects under a bumped identity as
+`Joining`, broadcasting `evict(old), join(new, [frontier])` to a leader that alone
+answers. No disk flush ever sits on the protocol's hot path: flushes happen only
+in the drain between `Stopping` and `Stopped`.
+
 ## 2. Durable identity contract: the four superblocks
 
 Durable state is **four TigerBeetle-style superblocks**. Node restart reads all four.

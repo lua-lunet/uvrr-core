@@ -156,9 +156,27 @@ The following cross-strategy invariants are mandatory:
 4. a durable frontier must not claim state which the host cannot recover under the same declared durability profile;
 5. after an indeterminate persistence result, `fault` is sticky until explicit recovery establishes a coherent state.
 
-`status` is process control as well as protocol state. A reopened node which has not proved its state current starts fenced/recovering regardless of the last status observed before failure.
+`status` is process control as well as protocol state. The entry state is decided by the superblock marker read at boot, never assumed: a node that completed a controlled shutdown restarts as `Restarting`; a node whose markers prove no controlled shutdown resurrects under a bumped identity as `Joining`.
 
-The boot fence never self-arms from persisted knowledge: a reopened member promotes itself only over the pristine genesis, and only a normal member suspects a silent primary, so a post-genesis full-cluster cold start — every member reopened fenced — emits nothing until the host acts. The host arms the first fence through the host-forced view change (`Input::AdminForceView`, §14.2), which drives the ordinary fence/evidence/install pipeline; a real deployment's cluster manager does exactly this (the Maelstrom host's bounded force-feed on a dirty reopen is the same obligation).
+### 5.1 The marker transition machine — safe crash detection without flushes on the hot path
+
+uVRR performs **no disk flushes on the normal path**. A node ordered to stop instantaneously refuses to send messages, so any disk flush sits outside the protocol's hot path: the client-visible protocol never waits on a disk. This is the fundamental construction over VRR-2012: VRR's recovery protocol exists to repair amnesiac voters, and its cost lands either on the hot path (forced flushes, quorum recovery exchanges) or on the safety edge (an amnesiac voter voting). uVRR removes the class: there is no crash-recover, only a clean-stop restart and a crash-stop-rejoin.
+
+The superblock markers are an ordered transition system — four states, three transitions. The quorum question at boot is *did the transition complete?*, answered by 2-of-4 copies holding the state to the right of the transition (the store's open threshold; the working quorum also resolves the identity, higher-identity-wins, and repairs the remaining copies to 3-of-4 or better):
+
+```text
+Running ──stop──> Stopping ──drain──> Stopped ──boot, 2-of-4──> Restarting
+                  (4x write)  flush     (4x write)              (4x write)
+                              WALs + grids
+Running ──crash──> (markers unchanged) ──boot, no 2-of-4 Stopped──> Joining
+                                                       (bump, 4x write)
+```
+
+- **Stopping→Stopped is the clean-shutdown protocol.** On the stop command the node first writes `Stopping` 4x, then drains — flushes both WALs and the grids — then writes `Stopped` 4x. The drain happens strictly *between* the two marker states, so a `Stopped` marker vouches for the WAL under it: reading 2-of-4 `Stopped` proves the transition completed, which proves the drain completed, which proves **there is no amnesiac risk**. A stop that dies partway still reads as clean on the surviving quorum, correctly, because the flush had already completed before the first `Stopped` write.
+- **Stopped→Restarting is the boot of a controlled shutdown.** The node keeps its identity, writes `Restarting` 4x, and runs the Restarting protocol — identical to the original recovery protocol, renamed because the node completed a controlled shutdown. It is a member with complete state: it ticks the full protocol, and suspects a silent primary like any backup. No `Started` state is written: no safety logic looks for `Started`, it looks for `Stopped` — the extra superblock write buys no safety and is elided.
+- **Anything-else→Joining is the resurrection.** No 2-of-4 `Stopped` — a crash, a torn marker set, or death mid-join — means this identity is dead. The node bumps its identity, writes `Joining` 4x, and broadcasts `evict(old), join(new, [frontier])`. It is not a cluster member: it neither votes nor drives view change, and every node drops its messages by the membership checks. The leader alone answers: it retransmits what the frontier shows the node lacks and keeps streaming `Prepare`/`Commit` while the forced sequence commits — the old identity zeroed, the new zeroed, then voted in — and the new membership announces on the commit.
+
+A node dying mid-join reads no `Stopped` quorum and resurrects again. A running node's markers hold `Restarting` (or `Joining`) from its boot write, so a crash leaves exactly the no-controlled-shutdown evidence the next boot needs. The marker writes themselves are durable-on-write (flushed), which is the only disk traffic outside the stop path.
 
 ## 6. Functional core model
 
@@ -815,7 +833,8 @@ The current code contains:
 - explicit `Restarting`, `Joining`, and `Replaying` statuses;
 - host strategies for the journal (`Journal`/`JournalView`, with the segmented in-memory implementation) and an explicit stability-completion boundary (`Stability`) gating dependent effects;
 - the provisioning/reopen lifecycle: `provision` establishes the genesis configuration and joins fenced `Joining`, `reopen` restarts after possible state loss and starts fenced `Restarting`;
-- the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it — the arm a post-genesis cold start's first fence goes through (§5), the boot fence never self-arming from persisted knowledge;
+- the marker transition machine (§5.1): `Stopping→Stopped` proves the drain, 2-of-4 `Stopped` at boot proves the clean stop, `Restarting` ticks the full protocol, and a missing stopped quorum resurrects as `Joining` under a bumped identity;
+- the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it — a general administrative lever, not a boot obligation;
 - the host-supplied `u64` event tick on every input, with recovery nonces derived from it (§6.1);
 - the higher-view normal-message state-transfer behaviour specified by VRR-2012.
 
