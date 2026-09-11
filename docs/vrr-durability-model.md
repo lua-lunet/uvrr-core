@@ -156,27 +156,9 @@ The following cross-strategy invariants are mandatory:
 4. a durable frontier must not claim state which the host cannot recover under the same declared durability profile;
 5. after an indeterminate persistence result, `fault` is sticky until explicit recovery establishes a coherent state.
 
-`status` is process control as well as protocol state. The entry state is decided by the superblock marker read at boot, never assumed: a node that completed a controlled shutdown restarts as `Restarting`; a node whose markers prove no controlled shutdown resurrects under a bumped identity as `Joining`.
+`status` is process control as well as protocol state. A reopened node which has not proved its state current starts fenced/recovering regardless of the last status observed before failure.
 
-### 5.1 The marker transition machine — safe crash detection without flushes on the hot path
-
-uVRR performs **no disk flushes on the normal path**. A node ordered to stop instantaneously refuses to send messages, so any disk flush sits outside the protocol's hot path: the client-visible protocol never waits on a disk. This is the fundamental construction over VRR-2012: VRR's recovery protocol exists to repair amnesiac voters, and its cost lands either on the hot path (forced flushes, quorum recovery exchanges) or on the safety edge (an amnesiac voter voting). uVRR needs no amnesiac repair, so it does not run the recovery protocol: there is no crash-recover — only the clean-stop Restarting protocol and the Resurrection Protocol. From a client's perspective the messaging is unchanged: this is a refinement of crash detection, not of the protocol.
-
-The superblock markers are an ordered transition system — four states, three transitions. The quorum question at boot is *did the transition complete?*, answered by 2-of-4 copies holding the state to the right of the transition (the store's open threshold; the working quorum also resolves the identity, higher-identity-wins, and repairs the remaining copies to 3-of-4 or better):
-
-```text
-Running ──stop──> Stopping ──drain──> Stopped ──boot, 2-of-4──> Restarting
-                  (4x write)  flush     (4x write)              (4x write)
-                              WALs + grids
-Running ──crash──> (markers unchanged) ──boot, no 2-of-4 Stopped──> Joining
-                                                       (bump, 4x write)
-```
-
-- **Stopping→Stopped is the clean-shutdown protocol.** On the stop command the node first writes `Stopping` 4x, then drains — flushes both WALs and the grids — then writes `Stopped` 4x. The drain happens strictly *between* the two marker states, so a `Stopped` marker vouches for the WAL under it: reading 2-of-4 `Stopped` proves the transition completed, which proves the drain completed, which proves **there is no amnesiac risk**. A stop that dies partway still reads as clean on the surviving quorum, correctly, because the flush had already completed before the first `Stopped` write.
-- **Stopped→Restarting is the boot of a controlled shutdown.** The node keeps its identity, writes `Restarting` 4x, and performs the Restarting protocol to locate the leader and state-sync from it — mechanically identical to the VRR recovery protocol, within the same risks, renamed because the node completed a controlled shutdown. It is a member with complete state: it ticks the full protocol, and suspects a silent primary like any backup. No `Started` state is written: no safety logic looks for `Started`, it looks for `Stopped` — the extra superblock write buys no safety and is elided.
-- **Anything-else→Joining is the Resurrection Protocol.** No 2-of-4 `Stopped` — a crash, a torn marker set, or death mid-join — means this identity is dead. The node reloads its state, bumps its identity, writes `Joining` 4x, and broadcasts `evict(old), join(new, [frontier])`. It is not a cluster member: it neither votes nor drives view change, and every node drops its messages by the membership checks. The leader alone answers: it retransmits what the frontier shows the node lacks and keeps streaming `Prepare`/`Commit` while the forced sequence commits — the old identity zeroed, the new zeroed, then voted in — and the new membership announces on the commit.
-
-A node dying mid-join reads no `Stopped` quorum and resurrects again. A running node's markers hold `Restarting` (or `Joining`) from its boot write, so a crash leaves exactly the no-controlled-shutdown evidence the next boot needs. The marker writes themselves are durable-on-write (flushed), which is the only disk traffic outside the stop path.
+The boot fence never self-arms from persisted knowledge: a reopened member promotes itself only over the pristine genesis, and only a normal member suspects a silent primary, so a post-genesis full-cluster cold start — every member reopened fenced — emits nothing until the host acts. The host arms the first fence through the host-forced view change (`Input::AdminForceView`, §14.2), which drives the ordinary fence/evidence/install pipeline; a real deployment's cluster manager does exactly this (the Maelstrom host's bounded force-feed on a dirty reopen is the same obligation).
 
 ## 6. Functional core model
 
@@ -225,7 +207,6 @@ The host may record progress, journal changes, and application changes in one wi
 
 `TimedInput.at` is an unsigned 64-bit tick supplied by the host. Nanosecond-resolution time is preferred because normal process scheduling makes accidental reuse unlikely. The core treats the value as opaque and does not convert units.
 
-Classic VRR-2012 diskless recovery carries freshness in a recovery nonce: the host tick of each recovery event, with a bounded nonce set per attempt and a delayed response counted iff its echoed nonce is still remembered. That carrier exists because a classic diskless restart keeps its identity and has no durable freshness record. uVRR does not perform that exchange: the freshness carrier is the durable four-superblock incarnation — a dirty node bumps its incarnation (Crash-Stop-Self-Evict), so freshness survives the crash as durable identity rather than as a nonce set. The tick remains the host's observation metadata (S4) and the `(incarnation, sequence)` request identity of the acquisition certificates; the classic-VRR nonce rules above are retained here as literature about the classic design they govern.
 
 ## 7. Transition publication and durability
 
@@ -315,7 +296,7 @@ V_g ⌢ V_g
 
 This self-intersection is not implied by `QI ⌢ QII` alone. It is required by this diskless VRR construction because a recovering replica must encounter the volatile evidence that an earlier view was fenced. A quorum policy is therefore not automatically a valid VRR-2012 policy merely because `QI ⌢ QII` holds.
 
-This section describes classic VRR-2012 diskless recovery (its §4.3) as literature, not uVRR: uVRR replaces the diskless recovery overlap with Crash-Stop-Self-Evict reincarnation. A crashed node — its superblocks prove no controlled shutdown (§5.1) — reopens under a bumped new incarnation, the leader evicts the old identity through the forced weight sequence (exiting 1 to 0, joining at 0, then 0 to 1), and the new identity rejoins as a weight-0 standby — a **standby** is TigerBeetle's term for its non-voting cluster members (older drafts of this document called it a learner): standby nodes have a zero voting weight so cannot form part of any quorum nor actively participate in the VSR algorithm — so no recovery quorum meets a fence family, and the obligation above governs the classic design only.
+This section describes classic VRR-2012 diskless recovery (its §4.3) as literature, not uVRR: uVRR replaces the diskless recovery overlap with Crash-Stop-Self-Evict reincarnation. A crashed node whose superblocks record an unflushed session reopens under a new incarnation, the leader evicts the old identity through the forced weight sequence (exiting 1 to 0, joining at 0, then 0 to 1), and the new identity rejoins as a weight-0 standby — a **standby** is TigerBeetle's term for its non-voting cluster members (older drafts of this document called it a learner): standby nodes have a zero voting weight so cannot form part of any quorum nor actively participate in the VSR algorithm — so no recovery quorum meets a fence family, and the obligation above governs the classic design only.
 
 ### 8.4 Weighted quorums
 
@@ -833,8 +814,7 @@ The current code contains:
 - explicit `Restarting`, `Joining`, and `Replaying` statuses;
 - host strategies for the journal (`Journal`/`JournalView`, with the segmented in-memory implementation) and an explicit stability-completion boundary (`Stability`) gating dependent effects;
 - the provisioning/reopen lifecycle: `provision` establishes the genesis configuration and joins fenced `Joining`, `reopen` restarts after possible state loss and starts fenced `Restarting`;
-- the marker transition machine (§5.1): `Stopping→Stopped` proves the drain, 2-of-4 `Stopped` at boot proves the clean stop, `Restarting` ticks the full protocol, and a missing stopped quorum resurrects as `Joining` under a bumped identity;
-- the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it — a general administrative lever, not a boot obligation;
+- the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it — the arm a post-genesis cold start's first fence goes through (§5), the boot fence never self-arming from persisted knowledge;
 - the host-supplied `u64` event tick on every input, with recovery nonces derived from it (§6.1);
 - the higher-view normal-message state-transfer behaviour specified by VRR-2012.
 
@@ -844,7 +824,7 @@ The current code does not provide:
 
 - a normative C ABI transition-ownership contract — no FFI module exists at present; the C ABI is planned work.
 
-The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` joins fenced `Joining`, `reopen` restarts fenced `Restarting` — the boot decision is the marker read (§5.1) — and each becomes normal only after the protocol establishes adequate state, so the amnesiac-voter path is unrepresentable.
+The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` and `reopen` both start fenced `Restarting` and become normal only after local restoration establishes adequate state, so the amnesiac-voter path is unrepresentable.
 
 ## 15. Minimal proposal
 

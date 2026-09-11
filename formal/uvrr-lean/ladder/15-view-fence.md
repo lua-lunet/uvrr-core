@@ -1,7 +1,7 @@
 # Rung 15: Historical whole-log reports across view fences
 
-*2026-09-06T08:06:30Z by Showboat 0.6.1*
-<!-- showboat-id: 6d3f3ccb-9c5e-460c-a46e-ef3de530025a -->
+*2026-09-11T00:42:06Z by Showboat 0.6.1*
+<!-- showboat-id: ae527d33-d787-4ff7-858f-f62d47a3407f -->
 
 Multi-view local executions derive the selector voter-history premise. A node installs higher views, appends only in normal mode, raises its floor before reporting, and retains immutable vote/reply histories. Every report covers all votes below its target, including future trace votes. Whole-log selection consumes this result. Global provenance, later-view induction, the first view-change message round and diskless recovery remain composition obligations. A concrete post-fence append breaks the historical report; the mutation harness rejects removal of the normal-mode guard.
 
@@ -17,7 +17,7 @@ may replace an uncommitted suffix; appends within that view preserve prefixes.
 Entering view change raises the floor before any reply is emitted. Votes and
 replies are immutable ghost histories. Installation takes an arbitrary log:
 its cross-view safety must come from the global selection theorem, not a guard
-that already assumes agreement. The first view-change round and recovery are
+that already assumes agreement. The first view-change round and restart are
 not yet modeled here; this is the local history projection they must preserve.
 -/
 namespace ViewFence

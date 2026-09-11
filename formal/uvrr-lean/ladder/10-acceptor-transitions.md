@@ -1,7 +1,7 @@
 # Rung 10: Operational promise and acceptance invariants
 
-*2026-09-06T07:36:30Z by Showboat 0.6.1*
-<!-- showboat-id: 8933d5fc-86c6-49fe-bbdb-14d8ab853e11 -->
+*2026-09-11T00:42:01Z by Showboat 0.6.1*
+<!-- showboat-id: 1755a4c6-4d21-426f-b09c-3bb44d28e4d7 -->
 
 Claim: for every finite execution of the single-era acceptor, free promises exclude lower votes forever and reported last votes remain maximal below the promised round. This discharges S2 and S3 for this component. It does not yet prove the proposer, replicated-log view selection, cross-era transitions, or diskless recovery. A concrete bypass of the acceptance watermark violates the invariant.
 
@@ -15,7 +15,7 @@ import UVRR.Synod
 /-! An operational single-era acceptor. Ballots are natural view rounds.
 Votes and emitted replies are append-only ghost histories; floor is the local
 promise watermark. Promise generation reads the most recent accepted ballot.
-This subsystem neither chooses values nor implements diskless recovery.
+This subsystem neither chooses values nor implements diskless restart.
 -/
 namespace Acceptor
 

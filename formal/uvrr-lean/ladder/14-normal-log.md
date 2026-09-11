@@ -1,7 +1,7 @@
 # Rung 14: Normal-log message provenance
 
-*2026-09-06T08:02:30Z by Showboat 0.6.1*
-<!-- showboat-id: c0762881-ce63-421e-858c-56e26fb42175 -->
+*2026-09-11T00:42:06Z by Showboat 0.6.1*
+<!-- showboat-id: e7f53053-46db-4002-a19a-e0ebd647253c -->
 
 Fixed-view operational induction derives comparable report logs and retention of replica prefixes. Prepare wire data is a slot and entry; the pre-send log is ghost evidence. Receivers enforce the next slot without a global agreement test. Delayed and duplicate messages are allowed. An authentic out-of-order delivery witnesses failure when the slot guard is bypassed. Unique primary activation and simulation across view changes and crashes remain open composition obligations.
 
@@ -16,7 +16,7 @@ import UVRR.ViewSelection
 installed log and appends. Prepare.before is ghost send-history evidence;
 the wire projection is (length + 1, entry). Receivers check only the slot.
 StartView installs the base once. Messages persist, allowing arbitrary delay
-and duplication. Crash/recovery and unique primary activation remain explicit
+and duplication. Crash/restart and unique primary activation remain explicit
 composition obligations; no transition tests global prefix agreement.
 -/
 namespace NormalLog
