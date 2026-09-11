@@ -46,7 +46,7 @@ The core performs no clock reads. The transition is
 tick + message + state -> state + list(messages)
 ```
 
-Every input carries the host tick, and for a recovery input that tick is a recovery
+Every input carries the host tick, and for a restart input that tick is a restart
 nonce; the attempt retains a bounded set of them, one per re-drive (§6.1, S4).
 
 Timeout policy is host policy in the same sense, and the core publishes a
@@ -261,7 +261,7 @@ transition.
 **Decision.** The portable `Journal` trait contains no reclamation operation. A host
 implements whatever retention policy it likes without exposing it to the core, provided it
 either satisfies a protocol read or reports the requested history unavailable — at which
-point recovery or state transfer obtains an adequate state elsewhere.
+point restart or state transfer obtains an adequate state elsewhere.
 
 The default `SegmentedLog` reclaims lazily and opportunistically on append, gated on a
 published checkpoint. Few knobs: initial slab capacity, growth factor, shrink hint. A unit
@@ -306,7 +306,7 @@ Only `Indeterminate` sticky-faults the node (§5, invariant 5). `Failed` leaves 
 previously published state visible and observable.
 
 **Rationale.** Collapsing "it definitely did not happen" into "it might have happened"
-discards exactly the information that distinguishes a retry from a recovery. A determinate
+discards exactly the information that distinguishes a retry from a restart. A determinate
 failure is a normal, survivable event; treating it as a fault converts a full disk into an
 outage.
 
@@ -315,14 +315,14 @@ outage.
 resulting divergence is the host's, so this is stated in the trait's documentation and not
 merely assumed.
 
-#### S4 — Externalised clock; the recovery nonce is the host tick
+#### S4 — Externalised clock; the restart nonce is the host tick
 
 **Context.** §6.1 makes `TimedInput.at` an opaque host-supplied `u64` and derives the
-recovery nonce from it. The alpha took a caller-supplied nonce separately from time,
+restart nonce from it. The alpha took a caller-supplied nonce separately from time,
 allowing the two to disagree.
 
 **Decision.** Every input carries the host tick. The core performs no clock reads. For a
-recovery input the tick **is** a recovery nonce, and the attempt retains a bounded set of
+restart input the tick **is** a restart nonce, and the attempt retains a bounded set of
 them, one per re-drive. `Input::Tick` exists as an ordinary
 event.
 
@@ -475,7 +475,7 @@ suppression and result replay for a request/response service shape. A generic
 embeddable core cannot assume that shape: hosts include fire-and-forget producers,
 streamed pipelines, and proxies with their own retry semantics. Modelling clients
 inside consensus couples the protocol to one transport shape and forces table
-propagation through every view-change and recovery message as protocol evidence.
+propagation through every view-change and restart message as protocol evidence.
 
 **Decision.** An operation is `{ id: OperationId, payload: bytes }` where
 `OperationId` is an opaque 128-bit correlation token `{ msb: u64, lsb: u64 }`. The
@@ -502,8 +502,8 @@ tracking, and response formatting remain host extensions.
   `{ slot }` only.
 - Protocol `Request`/`Reply` messages as client transport, `Effect::Reply`, all
   client tables, cached results, merge rules, result re-drive state, and
-  client-table fields in view-change and recovery messages are removed. Correlation
-  identifiers survive view change and recovery because they are part of the log
+  client-table fields in view-change and restart messages are removed. Correlation
+  identifiers survive view change and restart because they are part of the log
   entries themselves; no table is protocol evidence.
 
 **Consequence.** Multiple operations from one host may be in flight concurrently.

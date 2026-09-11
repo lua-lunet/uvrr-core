@@ -67,8 +67,8 @@ A new **reincarnation** message carries the pair `(old identity, new identity)`,
 by the bumped node to the leader. The leader drives the forced sequence of §5. The
 identity pair (old, new) is the freshness carrier where it meets rung 17's fence
 machinery: it **supersedes** the `generation` ghost field of
-`UVRR/RecoveryFence.lean` as the environment freshness abstraction, instantiated by
-the durable superblock incarnation. The RecoveryFence machinery is unaffected;
+`UVRR/RestartFence.lean` as the environment freshness abstraction, instantiated by
+the durable superblock incarnation. The RestartFence machinery is unaffected;
 rung 17 requires no modification.
 
 ## 5. Forced weight sequence
@@ -151,7 +151,7 @@ eviction of the old identity until a stable leader exists to drive it.
 
 ## 9. Relationship to the checked ladder
 
-- Rung 17 (`RecoveryFence`): the recovering replica cannot reply; fresh-episode
+- Rung 17 (`RestartFence`): the restarting replica cannot reply; fresh-episode
   evidence only; stale evidence rejected. This is precisely the ingress rule the
   weight-0 standby obeys and why the leader may safely stream to it. Its `generation`
   ghost is superseded as a carrier by the durable superblock incarnation (§4); the
@@ -162,7 +162,7 @@ eviction of the old identity until a stable leader exists to drive it.
   reincarnated node's streamed-state acquisition must satisfy; its open retention
   premise becomes dischargeable — under reincarnation, retention of incarnation
   knowledge is the durable superblock identity itself.
-- Rung 20 (`RecoveryAcquire`): the echoed `(incarnation, sequence)` request identity
+- Rung 20 (`RestartAcquire`): the echoed `(incarnation, sequence)` request identity
   is the wire-level freshness contract the reincarnation message and standby streaming
   use; `crashed` bumping the incarnation is the formal shape of dirty ⇒ bump.
 - Rungs 1–9 (eras, weights, weighted-general): the forced sequence is a path through
@@ -180,7 +180,7 @@ in general — are that rung's stated proof obligations, for later rungs.
 
 ## 10. Learner acquisition
 
-**Speculative learner recovery:** a zero-weight learner acquires state by
+**Speculative learner acquisition:** a zero-weight learner acquires state by
 streaming while never voting, so that the 0→1 promotion finds the node already
 caught up. The mechanism is the ordinary state transfer, gated by the learner
 acquisition rule:

@@ -136,8 +136,10 @@ pub enum Body {
     /// A reincarnation announcement (`docs/uvrr-reincarnation.md` §4): the
     /// pair of identities the restarted node carries. Sent by the bumped
     /// node to the leader; the leader drives the forced weight sequence of
-    /// §5 in reply. The pair is the freshness carrier: it supersedes the
-    /// `generation` ghost as the freshness carrier.
+    /// §5 in reply. The pair is the freshness carrier where it meets the
+    /// `RestartFence` machinery (§4 of the doc): it supersedes the
+    /// `generation` ghost as the freshness carrier; that machinery is
+    /// untouched.
     Reincarnation {
         /// The identity the node operated under before the volatile loss.
         old: NodeId,

@@ -3,10 +3,10 @@
 *2026-09-06T08:23:38Z by Showboat 0.6.1*
 <!-- showboat-id: 0130e2d4-5baf-48c6-9339-ed94588cd3c3 -->
 
-Starting from a checkpoint where a support quorum is online above a known fence, arbitrary finite crash/recovery sequences preserve that bound for online members of the support. Crashes erase local bounds. Recovering replicas cannot reply. Recovery counts distinct identities from current-episode historical replies, even if a responder has since crashed. Generation is an explicit environment freshness abstraction, not a durable protocol field. This proves a fence projection, not restored logs, first-round view-change composition or liveness. A concrete fresh recovery succeeds; two authentic stale replies would form a quorum and restore zero if episode checking were removed.
+Starting from a checkpoint where a support quorum is online above a known fence, arbitrary finite crash/restart sequences preserve that bound for online members of the support. Crashes erase local bounds. Recovering replicas cannot reply. Recovery counts distinct identities from current-episode historical replies, even if a responder has since crashed. Generation is an explicit environment freshness abstraction, not a durable protocol field. This proves a fence projection, not restored logs, first-round view-change composition or liveness. A concrete fresh recovery succeeds; two authentic stale replies would form a quorum and restore zero if episode checking were removed.
 
 ```bash
-cat UVRR/RecoveryFence.lean
+cat UVRR/RestartFence.lean
 ```
 
 ```output
@@ -16,11 +16,11 @@ import UVRR.NormalLog
 recovering and forbids response generation. A crash erases the local bound.
 Generation is ghost freshness metadata supplied by the environment: it models
 non-reuse of recovery episode nonces, not a protocol counter surviving on disk.
-Responses can be delayed and responders can crash after sending. Recovery uses
+Responses can be delayed and responders can crash after sending. Restarting uses
 historical authenticated replies of the current episode, counted by identity.
 This projection establishes a fence lower bound, not log recovery or liveness.
 -/
-namespace RecoveryFence
+namespace RestartFence
 
 structure Response (A : Type) where
   sender : A
@@ -290,25 +290,25 @@ theorem stale_quorum_breaks_fence :
     omega
 
 end Example
-end RecoveryFence
+end RestartFence
 ```
 
 ```bash
-lake env lean UVRR/RecoveryFence.lean
+lake env lean UVRR/RestartFence.lean
 ```
 
 ```output
 ```
 
 ```bash
-printf 'import UVRR.RecoveryFence\n#print axioms RecoveryFence.run_inv\n#print axioms RecoveryFence.replicated_fence\n#print axioms RecoveryFence.Example.checkpoint_history\n#print axioms RecoveryFence.Example.recovery_run\n#print axioms RecoveryFence.Example.recovery_preserves_fence\n#print axioms RecoveryFence.Example.stale_quorum_breaks_fence\n' | lake env lean --stdin
+printf 'import UVRR.RestartFence\n#print axioms RestartFence.run_inv\n#print axioms RestartFence.replicated_fence\n#print axioms RestartFence.Example.checkpoint_history\n#print axioms RestartFence.Example.recovery_run\n#print axioms RestartFence.Example.recovery_preserves_fence\n#print axioms RestartFence.Example.stale_quorum_breaks_fence\n' | lake env lean --stdin
 ```
 
 ```output
-'RecoveryFence.run_inv' depends on axioms: [propext, Classical.choice, Quot.sound]
-'RecoveryFence.replicated_fence' depends on axioms: [propext, Classical.choice, Quot.sound]
-'RecoveryFence.Example.checkpoint_history' depends on axioms: [propext, Classical.choice, Quot.sound]
-'RecoveryFence.Example.recovery_run' depends on axioms: [propext, Classical.choice, Quot.sound]
-'RecoveryFence.Example.recovery_preserves_fence' depends on axioms: [propext, Classical.choice, Quot.sound]
-'RecoveryFence.Example.stale_quorum_breaks_fence' depends on axioms: [propext, Classical.choice, Quot.sound]
+'RestartFence.run_inv' depends on axioms: [propext, Classical.choice, Quot.sound]
+'RestartFence.replicated_fence' depends on axioms: [propext, Classical.choice, Quot.sound]
+'RestartFence.Example.checkpoint_history' depends on axioms: [propext, Classical.choice, Quot.sound]
+'RestartFence.Example.recovery_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'RestartFence.Example.recovery_preserves_fence' depends on axioms: [propext, Classical.choice, Quot.sound]
+'RestartFence.Example.stale_quorum_breaks_fence' depends on axioms: [propext, Classical.choice, Quot.sound]
 ```

@@ -1,3 +1,15 @@
+# Rung 20: Operational crash-vector acquisition certificates
+
+*2026-09-06T08:58:58Z by Showboat 0.6.1*
+<!-- showboat-id: 3bb19e31-ba24-49c2-9dfa-06cf7f4462b9 -->
+
+Crash, start, emit, answer, collect and finish transitions derive authentic crash-consistent quorum certificates for exact request/incarnation identities. Historical replies originate at operational senders. Crash erases protocol knowledge; a concrete three-node trace completes recovery at incarnation 1. An authentic same-incarnation older-request reply violates freshness when replayed into a new acquisition. Echoed request identity is explicit; mapping it to the concrete nonce contract is open. This is acquisition mechanics, not persistence, a full recovery proof, liveness or a production repair.
+
+```bash
+cat UVRR/RestartAcquire.lean
+```
+
+```output
 import UVRR.CrashVector
 import UVRR.NormalLog
 
@@ -12,7 +24,7 @@ logical incarnation (the host freshness obligation, not a disk write).
 Payload knowledge is ghost set membership, not a prescribed storage format.
 ReadQuorum, liveness, reconstruction fidelity and log integration remain open.
 -/
-namespace RecoveryAcquire
+namespace RestartAcquire
 
 structure Payload (A X : Type) where
   recipient : A
@@ -320,4 +332,31 @@ theorem stale_request_countermodel :
       started, crashed, initial, initialNode, NormalLog.put] at eq
 
 end Example
-end RecoveryAcquire
+end RestartAcquire
+```
+
+```bash
+lake env lean UVRR/RestartAcquire.lean
+```
+
+```output
+```
+
+```bash
+lake env lean --stdin <<'LEAN'
+import UVRR.RestartAcquire
+#print axioms RestartAcquire.completed_certificate
+#print axioms RestartAcquire.response_origin
+#print axioms RestartAcquire.finish_transfers
+#print axioms RestartAcquire.Example.recovery_completes
+#print axioms RestartAcquire.Example.stale_request_countermodel
+LEAN
+```
+
+```output
+'RestartAcquire.completed_certificate' depends on axioms: [propext, Classical.choice, Quot.sound]
+'RestartAcquire.response_origin' depends on axioms: [propext, Classical.choice, Quot.sound]
+'RestartAcquire.finish_transfers' does not depend on any axioms
+'RestartAcquire.Example.recovery_completes' depends on axioms: [propext, Classical.choice, Quot.sound]
+'RestartAcquire.Example.stale_request_countermodel' depends on axioms: [propext, Classical.choice, Quot.sound]
+```

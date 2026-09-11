@@ -21,7 +21,7 @@
 //!    — the `+1` boundary (overlap mode) passes, `+2` is refused at construction;
 //! 7. the seqlock never returns a torn read, under a writer/reader race;
 //! 8. `ViewId::INITIAL` is the genesis view: `Progress::genesis` advertises it,
-//!    fenced and recovering, per §5.
+//!    fenced and restarting, per §5.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -172,7 +172,7 @@ fn frontier_chain_is_exhaustively_enforced() {
 /// `Normal` requires `current == retained`; `ViewChange` requires `current >=
 /// retained`. `Restarting` and `Replaying` carry no relation — §1.3 states that in
 /// those statuses `current` is not an authority to participate, so constraining it
-/// would forbid states a recovering node legitimately holds.
+/// would forbid states a restarting node legitimately holds.
 #[test]
 fn status_view_relation_is_enforced() {
     let table = genesis_table();
@@ -735,7 +735,7 @@ fn observation_never_returns_a_torn_read() {
 /// (see `Configuration::void`), and view 0 is the first primary term once `Init`
 /// commits. It is not "no view": a freshly provisioned node has a real genesis
 /// view, so no `Option<ViewId>` appears anywhere. Per §5 the genesis node is
-/// fenced and recovering until it proves its state current.
+/// fenced and restarting until it proves its state current.
 #[test]
 fn genesis_advertises_view_id_initial_fenced() {
     let table = genesis_table();

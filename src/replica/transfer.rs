@@ -1,4 +1,4 @@
-//! State transfer: bringing a lagging, recovering or newly promoted replica current.
+//! State transfer: bringing a lagging, restarting or newly promoted replica current.
 //!
 //! Spec §4 (unavailable history), §11 (application boundary), §13.1 (bounded view-change
 //! suffix). Decision W5.

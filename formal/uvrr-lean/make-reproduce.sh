@@ -137,10 +137,10 @@ builds and diffs every captured output.
 | 14 | `NormalLog.lean` | Fixed-view message induction: report comparability and replica prefix retention |
 | 15 | `ViewFence.lean` | Voter-report bounds; committed prefixes preserved in later activated views under explicit provenance |
 | 16 | `LogProvenance.lean` | Shared multi-view transition induction: committed-log compatibility, fixed configuration, no crashes |
-| 17 | `RecoveryFence.lean` | A supporting quorum retains a known fence through arbitrary crash/recovery sequences |
+| 17 | `RestartFence.lean` | A supporting quorum retains a known fence through arbitrary crash/restart sequences |
 | 18 | `CrashVector.lean` | Published crash-vector collector: reachable reply sets are incarnation-consistent |
-| 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit recovery provenance; retention discharged by the durable superblock identity |
-| 20 | `RecoveryAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
+| 19 | `AcquisitionOrder.lean` | Temporal acquisition induction under explicit restart provenance; retention discharged by the durable superblock identity |
+| 20 | `RestartAcquire.lean` | Operational acquisition transitions; finished certificates are crash-consistent quorums for exactly their request |
 | 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: two-era forced weight sequence (`crossEra`/`evictEra` batches, R14 one-unit mass rule), reincarnation state machine and continuation commitment; unit-weight three-node era-safety instances; one-era swap refusal with disjoint-majority witness; general theorems listed as proof obligations |
 EOF
 run 'for f in ladder/[0-9][0-9]-*.md; do
@@ -188,7 +188,7 @@ note <<'EOF'
 
 `VrrCoreEras.cfg` is the three-node `inc3` scenario with one command value, maximum log
 length three, two eras and view index zero; `MaxEpoch=0` disables crashes, so this run
-gives no crash-recovery coverage. Breadth-first search with two workers and a 2 GiB heap
+gives no crash-restart coverage. Breadth-first search with two workers and a 2 GiB heap
 takes about two and a half minutes on the recording machine and must complete with no
 error and an empty queue. The generated and distinct state totals are deterministic for a
 completed search; the progress lines with timings are not compared.

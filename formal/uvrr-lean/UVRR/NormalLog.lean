@@ -4,7 +4,7 @@ import UVRR.ViewSelection
 installed log and appends. Prepare.before is ghost send-history evidence;
 the wire projection is (length + 1, entry). Receivers check only the slot.
 StartView installs the base once. Messages persist, allowing arbitrary delay
-and duplication. Crash/recovery and unique primary activation remain explicit
+and duplication. Crash/restart and unique primary activation remain explicit
 composition obligations; no transition tests global prefix agreement.
 -/
 namespace NormalLog

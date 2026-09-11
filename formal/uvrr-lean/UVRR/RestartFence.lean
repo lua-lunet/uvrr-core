@@ -3,12 +3,12 @@ import UVRR.NormalLog
 /-! Replicated fencing knowledge under volatile-state loss. online=None means
 recovering and forbids response generation. A crash erases the local bound.
 Generation is ghost freshness metadata supplied by the environment: it models
-non-reuse of recovery episode nonces, not a protocol counter surviving on disk.
-Responses can be delayed and responders can crash after sending. Recovery uses
+non-reuse of restart episode nonces, not a protocol counter surviving on disk.
+Responses can be delayed and responders can crash after sending. Restarting uses
 historical authenticated replies of the current episode, counted by identity.
-This projection establishes a fence lower bound, not log recovery or liveness.
+This projection establishes a fence lower bound, not log restart or liveness.
 -/
-namespace RecoveryFence
+namespace RestartFence
 
 structure Response (A : Type) where
   sender : A
@@ -140,7 +140,7 @@ theorem respond_inv {A : Type} {support : NSet A} {bound : Nat} {s : State A}
 
 /-- Historical replies count even if their sender has since crashed. Fresh
 recipient episodes, rather than current sender status, exclude stale evidence. -/
-theorem recovery_bound {A : Type} {family : QSys A} {support : NSet A} {bound : Nat} {s : State A}
+theorem restart_bound {A : Type} {family : QSys A} {support : NSet A} {bound : Nat} {s : State A}
     (h : Inv support bound s) (overlap : Frown family family) (supported : family support)
     (a : A) (evidence : List (Response A)) (chosen : Response A)
     (recovering : s.online a = none)
@@ -162,7 +162,7 @@ theorem step_inv {A : Type} {family : QSys A} {support : NSet A} {bound : Nat} {
   | respond r ready other causal => exact respond_inv h r ready causal
   | recover a evidence chosen recovering member quorum valid maximum =>
     exact online_inv h a chosen.bound
-      (recovery_bound h overlap supported a evidence chosen recovering quorum valid maximum)
+      (restart_bound h overlap supported a evidence chosen recovering quorum valid maximum)
 
 theorem run_inv {A : Type} {family : QSys A} {support : NSet A} {bound : Nat} {s t : State A}
     (h : Inv support bound s) (overlap : Frown family family) (supported : family support)
@@ -231,7 +231,7 @@ theorem fresh_quorum : family (fun b => ∃ r ∈ [freshOne, freshTwo], r.sender
   Or.inr (Or.inr ⟨⟨freshOne, List.mem_cons_self, rfl⟩,
     ⟨freshTwo, List.mem_cons_of_mem _ List.mem_cons_self, rfl⟩⟩)
 
-theorem recovery_run : Run family checkpoint recovered := by
+theorem restart_run : Run family checkpoint recovered := by
   have h0 : Run family checkpoint crashed := .step (.refl _) (.crash _ 0)
   have h1 := Run.step h0 (Step.respond _ freshOne
     (by simp [crashed, crash, checkpoint, onlineAt, freshOne, NormalLog.put])
@@ -253,9 +253,9 @@ theorem recovery_run : Run family checkpoint recovered := by
     · subst r; exact Nat.le_refl _
     · have he := List.mem_singleton.mp hr; subst r; decide
 
-/-- A real recovery restores the erased bound using fresh historical replies. -/
-theorem recovery_preserves_fence : Inv support 1 recovered ∧ recovered.online 0 = some 1 :=
-  ⟨run_inv checkpoint_safe overlap supported recovery_run, by simp [recovered, onlineAt]⟩
+/-- A real restart restores the erased bound using fresh historical replies. -/
+theorem restart_preserves_fence : Inv support 1 recovered ∧ recovered.online 0 = some 1 :=
+  ⟨run_inv checkpoint_safe overlap supported restart_run, by simp [recovered, onlineAt]⟩
 
 /-- Reusing the earlier episode's two authentic replies would restore zero.
 They have distinct senders and the right recipient; only freshness rejects them. -/
@@ -278,4 +278,4 @@ theorem stale_quorum_breaks_fence :
     omega
 
 end Example
-end RecoveryFence
+end RestartFence

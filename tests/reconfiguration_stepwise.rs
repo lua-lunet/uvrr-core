@@ -600,7 +600,7 @@ impl Thresholds {
         match role {
             Role::Commit => self.commit,
             Role::ViewChange => self.view_change,
-            Role::Recovery => self.recovery,
+            Role::Restart => self.recovery,
             Role::Fence => self.fence,
         }
     }

@@ -1,9 +1,9 @@
 import UVRR.CrashVector
 
 /-! Temporal acquisition reduction for Michael et al. (2017), Theorem 3.
-This checks the secondary induction, not the whole recovery protocol.
+This checks the secondary induction, not the whole restart protocol.
 The remaining premise is retention of incarnation knowledge by participants
-in earlier recovery certificates. It is stated explicitly in `no_backwards`;
+in earlier restart certificates. It is stated explicitly in `no_backwards`;
 no transition guard tests global value safety.
 -/
 namespace AcquisitionOrder
@@ -13,18 +13,18 @@ abbrev Reply (A : Type) := CrashVector.Reply A Nat
 
 abbrev Consistent {A : Type} (rs : List (Reply A)) : Prop := CrashVector.Consistent rs
 
-/-- If a recovery's participants retain its incarnation knowledge at later
+/-- If a restart's participants retain its incarnation knowledge at later
 reply events, a consistent earlier-incarnation certificate forces every
-intersection participant's recovery response to follow its certificate reply.
-The retention premise must come from the outer recovery induction. -/
+intersection participant's restart response to follow its certificate reply.
+The retention premise must come from the outer restart induction. -/
 theorem no_backwards {A : Type} (rs : List (Reply A)) (consistent : Consistent rs)
     (q r : Reply A) (hq : q ∈ rs) (hr : r ∈ rs)
-    (recoveryReply : Reply A)
+    (restartReply : Reply A)
     (newGeneration : Nat) (newer : q.vector q.sender < newGeneration)
-    (retention : recoveryReply.value ≤ r.value →
+    (retention : restartReply.value ≤ r.value →
       newGeneration ≤ r.vector q.sender) :
-    r.value < recoveryReply.value := by
-  by_cases order : recoveryReply.value ≤ r.value
+    r.value < restartReply.value := by
+  by_cases order : restartReply.value ≤ r.value
   · have lower := retention order
     have upper := consistent r hr q hq
     omega
@@ -36,7 +36,7 @@ structure History (A : Type) where
   online : Nat → A → Prop
   knows : Nat → A → Prop
 
-/-- Local recovery provenance, stated for one historical acquisition.
+/-- Local restart provenance, stated for one historical acquisition.
 An online participant after its witness either retains that witness's
 knowledge, or inherits knowledge from an earlier quorum of response events.
 Each response is strictly earlier than the observation, making induction
@@ -56,7 +56,7 @@ structure Provenance {A : Type} (h : History A) (family : QSys A)
       (∀ b, responders b → h.knows (sent b) b → h.knows t a)
 
 /-- Asynchronous acquisition does not need all participants simultaneously
-online at the witness events. Quorum overlap and forward causal recovery
+online at the witness events. Quorum overlap and forward causal restart
 edges suffice for the secondary induction. This is conditional on Provenance;
 it is not yet a theorem about the Rust implementation or crash-vector protocol. -/
 theorem acquisition {A : Type} (h : History A) (family : QSys A)
@@ -87,7 +87,7 @@ def forgotten : History Unit where
 /-- All replies can be authentic, earlier, online, and from an intersecting
 quorum while still carrying knowledge from before the witness. The ordering
 premise rules out precisely this countermodel of the secondary induction. -/
-theorem backward_recovery_loses_knowledge :
+theorem backward_restart_loses_knowledge :
     family support ∧ forgotten.knows (witness ()) () ∧
     forgotten.online 2 () ∧ ¬ forgotten.knows 2 () ∧
     (0 < 2 ∧ forgotten.online 0 ()) ∧
@@ -95,7 +95,7 @@ theorem backward_recovery_loses_knowledge :
   simp [family, support, forgotten, witness]
 
 /-- The entire origin contract except forward ordering holds in the
-countermodel, not merely one hand-picked recovery event. -/
+countermodel, not merely one hand-picked restart event. -/
 theorem backward_origin : ∀ t a, support a → witness a ≤ t → forgotten.online t a →
     (forgotten.knows (witness a) a → forgotten.knows t a) ∨
     ∃ (responders : NSet Unit) (sent : Unit → Nat), family responders ∧

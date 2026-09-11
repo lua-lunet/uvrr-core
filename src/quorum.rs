@@ -5,7 +5,7 @@
 //! overlap), §8.7.5 (closure). Decision Q1.
 //!
 //! Quorums are named by role, not by size: `C_g` commit, `V_g` view change, `F_g`
-//! `StartViewChange` fence, `R_g` recovery. Distinguishing the roles is what lets a host
+//! `StartViewChange` fence, `R_g` restart. Distinguishing the roles is what lets a host
 //! adopt the §8.5 even-node split (`V_g = k+1`, `C_g = k`) or a §8.4 weighted family
 //! without editing the protocol.
 //!
@@ -52,8 +52,8 @@ pub enum Role {
     Commit,
     /// QI: the view-change family (§8.7.4).
     ViewChange,
-    /// R_g: the recovery family (§8.3).
-    Recovery,
+    /// R_g: the restart family (§8.3).
+    Restart,
     /// F_g: the `StartViewChange` fence family (§8.3).
     Fence,
 }
@@ -150,15 +150,15 @@ pub enum QuorumError {
         /// `first`.
         second: Vec<NodeId>,
     },
-    /// §8.3's `F_g ⌢ R_g` failed: a fence quorum and a recovery quorum of the same
+    /// §8.3's `F_g ⌢ R_g` failed: a fence quorum and a restart quorum of the same
     /// era are disjoint, so a recovering replica could miss the evidence that a view
     /// was fenced.
-    FenceRecoveryViolation {
+    FenceRestartViolation {
         /// A `Role::Fence` quorum under the configuration.
         fence: Vec<NodeId>,
-        /// A `Role::Recovery` quorum under the same configuration, disjoint from
+        /// A `Role::Restart` quorum under the same configuration, disjoint from
         /// `fence`.
-        recovery: Vec<NodeId>,
+        restart: Vec<NodeId>,
     },
     /// A configuration presented to the gate exceeds [`MAX_MEMBERS`]. Unreachable
     /// through the fold — `Init` and `Join` refuse past the cap first — but the gate
@@ -278,7 +278,7 @@ fn check_cap(config: &Configuration) -> Result<(), QuorumError> {
 /// Validates one era's configuration against the within-era obligations (§8.3 +
 /// §8.7.4, Q1): `Commit ⌢ ViewChange` (R1), `ViewChange ⌢ ViewChange`
 /// (self-intersection, required because the fence family equals the view family in
-/// diskless VRR), and `Fence ⌢ Recovery`.
+/// diskless VRR), and `Fence ⌢ Restart`.
 ///
 /// Each named obligation is discharged separately even though they coincide for
 /// [`WeightedMajority`] — where all four roles are the strict majority — because a
@@ -319,13 +319,13 @@ pub fn validate_era(
             second,
         });
     }
-    if let Some((fence, recovery)) = find_disjoint_pair(
+    if let Some((fence, restart)) = find_disjoint_pair(
         strategy,
         (Role::Fence, config),
-        (Role::Recovery, config),
+        (Role::Restart, config),
         &universe,
     ) {
-        return Err(QuorumError::FenceRecoveryViolation { fence, recovery });
+        return Err(QuorumError::FenceRestartViolation { fence, restart });
     }
     Ok(())
 }
@@ -550,9 +550,7 @@ pub struct WeightedMajority;
 impl QuorumStrategy for WeightedMajority {
     fn is_quorum(&self, role: Role, config: &Configuration, members: &[NodeId]) -> bool {
         let threshold = match role {
-            Role::Commit | Role::ViewChange | Role::Recovery | Role::Fence => {
-                config.total() / 2 + 1
-            }
+            Role::Commit | Role::ViewChange | Role::Restart | Role::Fence => config.total() / 2 + 1,
         };
         // Duplicates and unknown members are refused by `weight_of_set`, which is the
         // single copy of that rule — a strategy that deduplicated for itself would
@@ -565,7 +563,7 @@ impl QuorumStrategy for WeightedMajority {
 
     fn threshold(&self, role: Role, config: &Configuration) -> Option<u64> {
         match role {
-            Role::Commit | Role::ViewChange | Role::Recovery | Role::Fence => {
+            Role::Commit | Role::ViewChange | Role::Restart | Role::Fence => {
                 Some(config.total() / 2 + 1)
             }
         }
