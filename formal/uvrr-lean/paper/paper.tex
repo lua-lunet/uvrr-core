@@ -28,9 +28,9 @@
 
 \begin{abstract}
 Small replicated metadata should not require a disk flush on the critical path.
-We present Unbounded Viewstamped Replication Revisited, a protocol design for
-embedding strong consistency that preserves volatile replication while replacing
-crash recovery with crash-stop reincarnation.
+Unbounded Viewstamped Replication Revisited is a protocol design for embedding
+strong consistency with volatile normal-path replication and crash-stop
+reincarnation.
 A cleanly stopped process restarts with its identity and flushed state.
 A crashed process permanently retires its old identity and rejoins under a fresh
 identity, obtaining state and voting authority through reconfiguration.
@@ -43,35 +43,37 @@ configuration batches: first removing the old vote, then enabling the new vote.
 The Lean development proves per-slot agreement across this schedule from the
 protocol's history invariants, verifies the replacement weights, and establishes
 both exclusion of the evicted voter and nonreuse of its identity.
-This gives a precise basis for replacing failed members while keeping
-synchronous disk writes out of normal metadata replication.
+The result is a basis for replacing failed members while keeping synchronous
+disk writes out of normal metadata replication.
 \end{abstract}
+
+\begin{IEEEkeywords}
+Crash-stop, leader overlap, reconfiguration, strong consistency, Viewstamped Replication.
+\end{IEEEkeywords}
 
 \section{Introduction}\label{sec:intro}
 Oki and Liskov introduced Viewstamped Replication in 1988~\cite{vr}.
-In 2012, Liskov and Cowling presented Viewstamped Replication Revisited
-(VRR), eliminating disk writes during both normal processing and view
-changes~\cite{vrr}.
-Replication itself preserved the state needed for agreement.
-This was an attractive foundation for a strongly consistent service: an update
-could complete without waiting for a local disk flush.
-The difficulty lay in bringing a replica back after it had lost that state.
+Liskov and Cowling's 2012 Viewstamped Replication Revisited (VRR) eliminated
+disk writes during normal processing and view changes~\cite{vrr}.
+Replication therefore retained the state needed for agreement without adding a
+local disk flush to each update. The remaining difficulty was how to bring a
+replica back after loss of that state.
 
-Michael \emph{et al.} exposed a safety failure in that recovery mechanism in
-2016~\cite[Sec.~4.2 and App.~A.1]{diskless}.
+Michael \emph{et al.} exposed a safety failure in VRR's recovery mechanism in
+2016~\cite[Sec.~4.2 and Appendix~A.1]{diskless}.
 A replica can send a view-change commitment, crash, and return in an older view
 having forgotten the commitment.
 It can then help commit an operation that a later leader loses when delayed
 view-change messages arrive.
-Their counterexample breaks linearizability; it also extends to networks whose
-channels preserve message order.
+Their counterexample breaks linearizability, including when channels preserve
+message order.
 The authors provide a virtual stable storage construction to support diskless
 crash recovery.
 Their result makes the problem precise: restoring a replica's data must also
 preserve the commitments made by its identity.
 
-Unbounded Viewstamped Replication Revisited (uVRR) repairs this failure by making
-a crash final for the protocol identity.
+Unbounded Viewstamped Replication Revisited (uVRR) repairs this failure by
+making a crash final for the protocol identity.
 The crashed identity never resumes execution.
 The process that replaces it joins under a fresh identity, receives state from
 the cluster, and acquires voting authority through committed membership changes.
@@ -80,12 +82,11 @@ process cannot add fresh votes to that identity's history.
 A cleanly stopped process can instead restart under its existing identity because
 it has preserved its protocol state.
 Startup fencing and clean shutdown use durable writes, keeping those writes
-outside normal replication.
-The essential change is that loss of volatile state leads to replacement of a
-member: crash recovery becomes crash-stop reincarnation.
+outside normal replication. Loss of volatile state therefore leads to replacement
+of a member: crash recovery becomes crash-stop reincarnation.
 
-Turner's work on unbounded pipelining through reconfiguration supplies the
-construction that connects this lifecycle to continued replication~\cite{turner}.
+Turner supplies the construction that connects this lifecycle to continued
+replication~\cite{turner}.
 Where the leader is the sole intersection of an active decision quorum and the
 next prepare quorum, it can withhold its own promise while collecting the others.
 The active quorum remains usable during that preparation; the leader completes
@@ -105,7 +106,7 @@ distributed application~\cite{motivation}.
 Such a service can coordinate membership or advisory-lock metadata without
 putting synchronous persistence on every update's critical path.
 Its normal replication need not wait for a disk flush or batch updates to
-amortise that flush.
+amortise one.
 
 Section~\ref{sec:method} develops the lifecycle and leader-overlap construction.
 Section~\ref{sec:results} gives the five-voter schedule and its Lean proof of
@@ -124,7 +125,7 @@ A clean stop first quiesces protocol processing, then flushes the state required
 
 Without a valid clean-stop marker, startup enters \emph{Joining} under a fresh identity. The old identity is crash-stopped. Cached state may reduce transfer work, but it provides no voting authority. The joiner asks the leader to evict the old incarnation and admit the new one; the leader can send missing state while coordinating the change. A joiner does not vote or initiate a view change. Its authority comes from the committed configuration, never from the fact that it shares a host with a former voter.
 
-The implementation design uses replicated superblock markers and majority interpretation of valid marker copies. This paper abstracts that mechanism as correct clean-stop classification and durable identity fencing. The Lean result below does not establish the physical storage assumptions that make those mechanisms reliable.
+The storage protocol must classify clean stops and durably fence identities before they send protocol messages. This paper abstracts that protocol as correct clean-stop classification and durable identity fencing. The Lean result concerns the resulting lifecycle; it does not model the storage protocol itself.
 
 \subsection{Quorums across eras}
 An era determines the quorum families for a suffix of log slots. Write $\QI_e$ for its phase-one family and $\QII_e$ for its phase-two family. The history model requires the following within-era and adjacent-era intersections:
@@ -149,9 +150,9 @@ Suppose a leader $\ell$ uses ballot $b$ with an active decision quorum $q$. To p
 q\in\QII_e,\qquad q'\in\QI_{e+1},\qquad q\cap q'=\{\ell\}.
 \label{eq:leader}
 \end{equation}
-This is Turner's casting-vote condition~\cite{turner}. The leader first sends prepare requests only to $q'\setminus\{\ell\}$. Their promises do not disable any acceptor in $q$. The leader withholds its own promise and may continue proposing at $b$, provided no other event has invalidated the old ballot's guards.
+This is Turner's casting-vote condition~\cite{turner}. The leader first sends prepare requests only to $q'\setminus\{\ell\}$. Their promises do not disable an acceptor in $q$. The leader withholds its own promise and may continue proposing at $b$, provided no other event invalidates the old ballot's guards.
 
-After receiving those promises, the leader chooses the suffix boundary $k$ and makes its own promise locally. Phase one is then complete without another network exchange for the leader's own response. Proposals at $b'$ must still obey the normal rule for preserving values reported by phase one. Figure~\ref{fig:overlap} illustrates the timing opportunity; it is not a measured execution.
+After receiving those promises, the leader chooses the suffix boundary $k$ and makes its own promise locally. Phase one is then complete without another network exchange for the leader's response. Proposals at $b'$ must still obey the normal rule for preserving values reported by phase one. Figure~\ref{fig:overlap} shows the message order.
 
 Decision quorums follow the era of the \emph{slot}, not simply the era associated with a ballot. Consequently, continuing to decide later-era slots at $b$ also requires a quorum valid for those slots. In the concrete pivot below, the active quorum is a majority in both adjoining eras. The overlap argument alone does not permit an arbitrary old quorum to decide arbitrary later-era slots.
 
@@ -193,32 +194,32 @@ $E_2$ & 0&1&1&1&1&1\\
 
 At the second boundary, $q=\{n_1,n_2,n_3\}$ is a majority in both $E_1$ and $E_2$, and $q'=\{n_3,n_4,n_5\}$ is a majority in $E_2$. Their only common member is $n_3$, which can serve as the leader in~\eqref{eq:leader}. This is the explicit five-node pivot proved by the Lean development.
 
-The first boundary has a different geometry. Any surviving decision quorum in $E_0$ needs at least three of the four survivors, and every majority in $E_1$ also needs three of them. Two such sets share at least two members. Hence there is no singleton leader overlap for this boundary in the unit-weight example. The two batches are safe under the agreement assumptions, but the example does not demonstrate that both batches always proceed without a pause. Nor does ``two batches'' count all network round trips: preparation, state transfer, announcements and retransmission remain protocol work.
+The first boundary has a different geometry. Any surviving decision quorum in $E_0$ needs at least three of the four survivors, and every majority in $E_1$ also needs three of them. Two such sets share at least two members. Hence there is no singleton leader overlap for this boundary in the unit-weight example. The two batches are safe under the agreement assumptions. Preparation, state transfer, announcements and retransmission remain part of the protocol.
 
 \section{Results}\label{sec:results}
 \subsection{The conditional agreement result}
-The final Lean theorem composes an era-based agreement theorem with the concrete replacement weights and an abstract identity lifecycle. Its contract is important. It assumes a well-founded total ballot order, a ballot-to-era map monotone in ballot order, the required ballot/slot era bound, and the history invariants corresponding to Turner's P2--P7~\cite{turner}. Appendix~\ref{app:proof} states the assumptions and reproduction procedure. Those invariants constrain promises, reports of prior acceptances, phase-one justification and value selection, acceptance of proposals, and the quorum evidence for a chosen value. The theorem derives the quorum-intersection obligation from the weight schedule; it does not derive every history invariant from executable code.
+The final Lean theorem composes an era-based agreement theorem with the concrete replacement weights and an abstract identity lifecycle. Its contract assumes a well-founded total ballot order, a ballot-to-era map monotone in ballot order, the required ballot/slot era bound, and the history invariants corresponding to Turner's P2--P7~\cite{turner}. Appendix~\ref{app:proof} states the assumptions and reproduction procedure. Those invariants constrain promises, reports of prior acceptances, phase-one justification and value selection, acceptance of proposals, and quorum evidence for a chosen value. The theorem derives quorum intersection from the weight schedule.
 
 \begin{theorem}[Five-voter replacement, conditional]\label{thm:replacement}
 For a history whose phase-one and phase-two quorum families follow Table~\ref{tab:weights}, assuming the ballot-order, era and history conditions above, any two values chosen for the same slot are equal. In $E_1$, both the failed identity and its replacement have zero weight; in $E_2$, the failed identity has zero weight and its replacement has unit weight. From completion of the crossing era onwards, the old identity has no voting weight in any continuation of the forced configuration run. Separately, along an identity run satisfying the formal lifecycle transitions, an identity that has been superseded by a bump is never again the current identity.
 \end{theorem}
 
 \begin{proof}
-The strict-majority construction and the one-unit boundaries establish the within-era and adjacent-era quorum intersections~\eqref{eq:same}--\eqref{eq:adjacent}, together with quorum nonemptiness. Instantiating the era-based agreement theorem with those families establishes equality of chosen values under the supplied history invariants. Evaluation of the concrete configurations establishes the stated weights. The existing eviction invariant preserves zero weight for the old identity along the forced run. The identity lifecycle transitions preserve monotonic identity growth, which excludes a superseded identity from becoming current again. The final theorem packages these facts; connecting the abstract identity run to a particular implementation history remains an implementation obligation.
+The strict-majority construction and one-unit boundaries establish the within-era and adjacent-era quorum intersections~\eqref{eq:same}--\eqref{eq:adjacent}, together with quorum nonemptiness. Instantiating the era-based agreement theorem with those families establishes equality of chosen values under the supplied history invariants. Evaluation of the concrete configurations establishes the stated weights. The eviction invariant preserves zero weight for the old identity along the forced run. The identity lifecycle transitions preserve monotonic identity growth, excluding a superseded identity from becoming current again.
 \end{proof}
 
-The leader-overlap lemmas establish that preparing members outside the active quorum preserves that quorum's relevant guards, and that adding the leader's promise completes the prospective phase-one quorum. These are safety and guard-preservation statements. They do not assert that promises will arrive, that the leader will remain available, or that a competing higher ballot cannot preempt it.
+The leader-overlap lemmas establish that preparing members outside the active quorum preserves that quorum's guards, and that adding the leader's promise completes the prospective phase-one quorum.
 
 \subsection{Evidence and reproduction}
 The proof baseline is repository commit \code{352b0bf}~\cite{artifact}, extended here by adding the existing eviction invariant to the final conjunction. It uses Lean 4.33.1 without Mathlib. The source directory is \path{formal/uvrr-lean/UVRR/}. The weighted intersection, era agreement, casting-vote and five-voter modules supply the components of Theorem~\ref{thm:replacement}. Its final statement is \path{ReincarnationSafety.five_safe}, in \path{ReincarnationSafety.lean}, importing \path{ReincarnationAgreement.lean}.
 
 From \code{formal/uvrr-lean}, run \code{lake build} and \code{python3 check\_axioms.py}. The checked baseline's axiom audit covers 355 declarations and permits only Lean's standard logical axioms; it rejects proof holes and custom axioms. The recorded rung-26 evidence also exercises a negative control that tries to give the replacement voting weight in $E_1$. Its failure checks that particular erroneous claim, rather than supplying an exhaustive fault-injection campaign. The repository contains the proof-generation transcript; generated proof terms are checked by Lean, and the generator is not part of the trusted proof checker.
 
-These results are deductive. Sample size, confidence intervals and statistical significance are inapplicable. No throughput, latency, memory-footprint or failover measurements are claimed. The concrete theorem covers the displayed replacement schedule with its final configuration retained thereafter; general weighted intersection lemmas have broader scope than this one instantiation.
+The theorem covers the displayed replacement schedule with its final configuration retained thereafter. The general weighted-intersection lemmas have broader scope than this instantiation.
 
 \section{Discussion}\label{sec:discussion}
 \subsection{Applications}
-The intended deployment is an embedded authority for small metadata, with ordinary replication performed in memory. The following uses motivate that design; they are application proposals, not evaluated deployments.
+The intended deployment is an embedded authority for small metadata, with ordinary replication performed in memory.
 
 \paragraph{Short-lived advisory locks and leader leases}
 A replicated state machine can order acquisition, renewal and expiry decisions over a small record containing an owner, generation and expiry policy. An expiry command for an old generation must not revoke a newer grant. If a client uses ownership to control an external resource, that resource may also need to reject stale generations. A real-time leader lease additionally needs explicit clock and timing assumptions. Per-slot agreement supplies the ordering foundation; it does not by itself prove real-time expiry or exclusion at an external service.
@@ -234,28 +235,25 @@ ZooKeeper and etcd are established ways to supply coordination separately from a
 
 A separately operated service also brings deployment and resource costs. For scale, etcd's version 3.6 hardware guide gives a small-cluster example with dedicated two-vCPU, 8 GB AWS machines~\cite{etcd-hardware}. This is workload-specific guidance, not a universal minimum or a measurement of uVRR's savings. etcd can itself be embedded in a Go application~\cite{etcd-embed}; embedding alone is therefore not the distinction. The proposed combination here is small application-owned state, volatile normal-path replication, and replacement through fresh identities and overlapping quorums. A fair resource comparison requires a common workload and equivalent durability and availability requirements.
 
-\subsection{Limitations}
+\subsection{Scope}
 \paragraph{Implementation correspondence}
-The final theorem assumes protocol-history invariants. Their composition with the era-changing operational model is left as an exercise to the reader, as specified in Appendix~\ref{app:proof}. It does not prove that every Rust execution satisfies them, that the superblock mechanism implements its storage abstraction, or that state transfer establishes every condition required before voting. The theorem statement and the executable system must therefore remain distinguishable in any correctness claim.
+The final theorem assumes protocol-history invariants. Their composition with the era-changing operational model is left as an exercise to the reader, as specified in Appendix~\ref{app:proof}. The appendix also identifies the corresponding implementation obligations: clean-stop classification, identity fencing and state transfer before voting.
 
 \paragraph{Scope and availability}
-The worked example replaces one unit-weight voter among five. Other weights or simultaneous failures need an appropriate schedule and available quorums. A higher ballot, an unavailable leader or insufficient surviving voters can interrupt progress. Fresh identities permit repeated replacement in the design, but identity growth alone proves neither liveness nor agreement for every unrestricted reconfiguration history.
+The worked example replaces one unit-weight voter among five. Other weights or simultaneous failures need an appropriate schedule and available quorums. A higher ballot, an unavailable leader or insufficient surviving voters can interrupt progress. Fresh identities permit repeated replacement in the design; the theorem covers the displayed schedule.
 
 \paragraph{Meaning of strong consistency}
-The mechanised result is per-slot agreement. A complete service-level linearizability argument also needs ordered execution, appropriate read semantics and a mapping between client operations and log entries. Lease guarantees require the additional conditions stated above. If all copies of volatile committed state are lost, identity fencing cannot reconstruct that state: the design must stop or obtain an explicitly justified state source. Diskless normal operation does not promise recovery from total state loss.
+The mechanised result is per-slot agreement. A complete service-level linearizability argument also needs ordered execution, appropriate read semantics and a mapping between client operations and log entries. Lease guarantees require the additional conditions stated above. If all copies of volatile committed state are lost, the service requires an explicitly justified state source.
 
 \section{Related Work}\label{sec:related}
-Viewstamped Replication introduced the organisation of replication around views and a primary~\cite{vr}; VRR revisits that organisation and separates normal operation, view change, recovery and reconfiguration~\cite{vrr}. Michael \emph{et al.} identify the failure of diskless recovery to preserve view-change commitments and construct virtual stable storage~\cite{diskless}. uVRR addresses the failure through membership: its lifecycle distinguishes a clean same-identity restart from an unclean stop followed by a new member. The replacement schedule connects that lifecycle to agreement across configurations.
+Viewstamped Replication introduced the organisation of replication around views and a primary~\cite{vr}; VRR revisits that organisation and separates normal operation, view change, recovery and reconfiguration~\cite{vrr}. Michael \emph{et al.} identify the failure of diskless recovery to preserve view-change commitments and construct virtual stable storage~\cite{diskless}. uVRR takes a different route: it makes a crash final for the old identity, then brings the process back as a new member through reconfiguration. The replacement schedule connects that lifecycle to agreement across configurations.
 
-Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters} supplies the central quorum geometry, era-based agreement argument and casting-vote construction~\cite{turner}. In particular, withholding the leader's own promise is Turner's mechanism. The present work applies it to the five-voter replacement pivot, makes the non-singleton first boundary explicit, and proves agreement for the replacement schedule from the protocol's history invariants. The application discussion places this design alongside coordination services and CORFU, using their stated semantics and resource context.
-
-\paragraph{Author and tool contributions}
-The author supplied the protocol design and application motivation. AI tools assisted with manuscript preparation and proof development; Lean checks the submitted proof terms. Author review of the final claims, references, tool disclosure and conflict-of-interest declaration is required before submission.
+Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters} supplies the central quorum geometry, era-based agreement argument and casting-vote construction~\cite{turner}. Withholding the leader's own promise is Turner's mechanism. The present work applies it to the five-voter replacement pivot, makes the non-singleton first boundary explicit, and proves agreement for the replacement schedule from the protocol's history invariants. The application discussion places this design alongside coordination services and CORFU, using their stated semantics and resource context.
 
 
 \appendices
 \section{Proof structure, hypotheses and executable checks}\label{app:proof}
-This appendix separates the mathematical argument, its mechanised components, and the obligations supplied as hypotheses. The term UPaxos below refers to Turner's paper~\cite{turner}. The weighted intersection and rescaling results are consequences of UPaxos Appendix A; they are not new mathematical claims of this work.
+This appendix separates the mathematical argument, its mechanised components, and the obligations supplied as hypotheses. The term UPaxos below refers to Turner's paper~\cite{turner}. The weighted-intersection and rescaling results follow from UPaxos Appendix~A.
 
 \subsection{Weighted overlap, doubling and halving}
 Let $N$ be a finite set of identities, with nonnegative integral weight functions $w,v$. Write $W=\sum_{n\in N}w(n)$ and $w(q)=\sum_{n\in N\cap q}w(n)$. A strict majority has $2w(q)>W$.
@@ -289,15 +287,15 @@ For each slot $i$ and ballot $b$, let $e(i)$ and $e(b)$ be their eras. The contr
 \item P6: every acceptance has a corresponding proposal.
 \item P7: a chosen value has acceptance evidence from a phase-two quorum at the slot era, and $e(i)\leq e(b)+1$.
 \end{enumerate}
-These are history predicates, not assumptions that the desired agreement conclusion already holds. They nevertheless carry real protocol obligations. The fixed-configuration operational components in rungs 13--16 do not constitute a completed composition with the changing era sequence.
+These are history predicates. The fixed-configuration operational components in rungs 13--16 do not constitute a completed composition with the changing era sequence.
 
 \paragraph{Exercise (composition)}
-Construct the mapping from the era-changing operational execution to this history and establish the listed predicates, including preservation of the promise fence, maximal-history selection, and installation across configuration boundaries. This composition is left as an exercise to the reader. It is an explicit hypothesis of the present result, not a completed machine-checked refinement proof. The host must additionally implement clean-stop classification, fresh identity allocation and state transfer before voting. Tests of the planner do not replace a theorem restricting all its executions to the two displayed batches.
+Construct the mapping from the era-changing operational execution to this history and establish the listed predicates, including preservation of the promise fence, maximal-history selection, and installation across configuration boundaries. This composition is left as an exercise to the reader. The host must additionally implement clean-stop classification, fresh identity allocation and state transfer before voting.
 
 \subsection{Composition steps and conclusion}
 First, apply Lemma~\ref{lem:scaled} to each adjacent pair in Table~\ref{tab:weights}, and self-overlap within each era. The case split over era $0$, era $1$, and later eras is \path{ReincarnationAgreement.sequence_p1}; it derives P1 for the sequence. Second, instantiate Turner's Theorem 10 with P1 and the contract above to obtain per-slot agreement. Third, evaluate the four intermediate and final weights in \path{Replacement}. Fourth, apply \path{ReincarnationFive.five_evicted_never_voting}: after the crossing era, the old identity has zero voting authority throughout any continuation of the forced run. Finally, apply \path{Reincarnation.amnesia_unreachable} to exclude reuse of the pre-bump identity in the identity transition system. These are the four conjuncts now exposed by \path{Safe}.
 
-Zero voting authority is a configuration property. It is not a claim that delayed old messages disappear from the network or that an arbitrary implementation counts them correctly. The separate identity and configuration runs are abstract components. The exercise above is where their relationship to a single executable protocol must be supplied. The concrete leader-overlap witness is the $E_1/E_2$ pivot in Figure~\ref{fig:overlap}.
+Zero voting authority is a configuration property. Delayed old messages retain their old identity. The separate identity and configuration runs are abstract components; the exercise above supplies their relationship to a single executable protocol. The concrete leader-overlap witness is the $E_1/E_2$ pivot in Figure~\ref{fig:overlap}.
 
 \subsection{Commands and observed checks}
 From \path{formal/uvrr-lean}, the checks are:
@@ -335,10 +333,10 @@ The contrast between M1 and M2 suggests that supplying library signatures helped
 
 \begin{thebibliography}{10}
 \bibitem{vr} B. M. Oki and B. H. Liskov, ``Viewstamped replication: A new primary copy method to support highly-available distributed systems,'' in \emph{ACM PODC}, 1988, pp. 8--17.
-\bibitem{vrr} B. Liskov and J. Cowling, ``Viewstamped Replication Revisited,'' MIT CSAIL, Tech. Rep. MIT-CSAIL-TR-2012-021, 2012. [Online]. Available: \url{https://hdl.handle.net/1721.1/71763}
-\bibitem{diskless} E. Michael, D. R. K. Ports, N. K. Sharma, and A. Szekeres, ``Providing Stable Storage for the Diskless Crash-Recovery Failure Model,'' University of Washington, Tech. Rep. UW-CSE-16-08-02, Aug. 25, 2016. [Online]. Available: \url{https://syslab.cs.washington.edu/papers/diskless-tr16.pdf}
-\bibitem{turner} D. Turner, ``Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters,'' revision 1A9DBA37, Aug. 14, 2017. [Online]. Available: \url{https://github.com/DaveCTurner/paxos-membership}. The proof artifact includes the consulted PDF and its digest.
-\bibitem{motivation} S. Massey, ``Viewstamped Replication Revisited,'' Aug. 12, 2026. [Online]. Available: \url{https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/}
+\bibitem{vrr} B. Liskov and J. Cowling, ``Viewstamped replication revisited,'' MIT CSAIL, Tech. Rep. MIT-CSAIL-TR-2012-021, 2012. [Online]. Available: \url{https://hdl.handle.net/1721.1/71763}
+\bibitem{diskless} E. Michael, D. R. K. Ports, N. Kr. Sharma, and A. Szekeres, ``Providing stable storage for the diskless crash-recovery failure model,'' University of Washington, Tech. Rep. UW-CSE-16-08-02, Aug. 25, 2016. [Online]. Available: \url{https://syslab.cs.washington.edu/papers/diskless-tr16.pdf}
+\bibitem{turner} D. Turner, ``Unbounded pipelining in dynamically reconfigurable Paxos clusters,'' revision 1A9DBA37, Aug. 14, 2017. [Online]. Available: \url{https://github.com/DaveCTurner/paxos-membership}. The proof artifact includes the consulted PDF and its digest.
+\bibitem{motivation} S. Massey, ``Viewstamped replication revisited,'' Aug. 12, 2026. [Online]. Available: \url{https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/}
 \bibitem{corfu} M. Balakrishnan, D. Malkhi, J. D. Davis, V. Prabhakaran, M. Wei, and T. Wobber, ``CORFU: A Distributed Shared Log,'' \emph{ACM Trans. Comput. Syst.}, vol. 31, no. 4, Art. 10, Dec. 2013, doi: \href{https://doi.org/10.1145/2535930}{10.1145/2535930}.
 \bibitem{zookeeper} P. Hunt, M. Konar, F. P. Junqueira, and B. Reed, ``ZooKeeper: Wait-free coordination for Internet-scale systems,'' in \emph{USENIX ATC}, 2010. [Online]. Available: \url{https://www.usenix.org/events/usenix10/tech/full_papers/Hunt.pdf}
 \bibitem{etcd-guarantees} etcd authors, ``etcd API guarantees,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/learning/api_guarantees/}

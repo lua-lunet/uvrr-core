@@ -54,6 +54,7 @@ ReincarnationFive
 ReincarnationSafety
 rescaling
 retransmission
+reconfigurable
 sep
 serializability
 serializable
