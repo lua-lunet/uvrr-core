@@ -20,6 +20,8 @@ if ! command -v pdftotext >/dev/null 2>&1; then
     exit 127
 fi
 
+./spellcheck.sh
+
 OCR=0
 TECTONIC_ARGS=''
 for arg in "$@"; do

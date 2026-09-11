@@ -15,6 +15,12 @@ This produces `output/pdf/paper.pdf` without publishing a version of record.
 The proof baseline is identified in the manuscript. From `formal/uvrr-lean`,
 `lake build` and `python3 check_axioms.py` check that baseline's Lean sources.
 
+`./spellcheck.sh` checks the TeX prose with Aspell's `en_GB` dictionary and
+fails on an unapproved spelling. `./build.sh` runs the same check before
+typesetting or publishing. Install it on macOS with `brew install aspell`.
+Intentional technical names are listed in `british-words.txt`; ordinary prose
+must use British English.
+
 ## Publication
 
 The editable source is **paper.tex**. `./build.sh` typesets it with Tectonic and
