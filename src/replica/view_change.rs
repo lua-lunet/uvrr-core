@@ -422,7 +422,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the selected history.
     ///
     /// The adoption rule: any node the change passed by — `Normal` or
-    /// `Recovering` in an earlier view, or fencing into this very view —
+    /// `Restarting` in an earlier view, or fencing into this very view —
     /// installs the offered history, provided it can VERIFY it: the suffix
     /// must reach back to a slot the node can check (its frontier, or a
     /// shared slot whose entry agrees). A suffix that starts past the

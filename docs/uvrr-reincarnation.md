@@ -192,8 +192,8 @@ acquisition rule:
   and the era that admitted it is by definition not one of them. Serving is
   read-only retransmission; a node outside the current configuration (a
   foreign identity, a superseded old identity) is refused as before.
-- **Acquisition:** a node still at its boot fence (`Recovering` at
-  `current == retained`, the reopen state) that opened the fetch itself
+- **Acquisition:** a node still at its boot fence (`Restarting` or
+  `Joining` at `current == retained`, the fenced entry state) that opened the fetch itself
   takes the answering chunk's committed frontier and folds the system
   operations it covers — the fold input is the chunk the suffix ruling
   already verified against the local journal. The node stays fenced: it
