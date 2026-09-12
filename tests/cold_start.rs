@@ -588,7 +588,7 @@ fn crash_shape_bumps_and_joins_without_membership() {
             .copies
             .iter()
             .all(|copy| copy.identity == Incarnation(9) && copy.marker == Marker::Joining),
-        "the resurrection wrote `Joining` 4x under the bumped identity"
+        "the reincarnation wrote `Joining` 4x under the bumped identity"
     );
 
     // The harness restart idiom for the bump: the new identity reopens

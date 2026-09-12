@@ -3,7 +3,7 @@
 //!
 //! The corpus covers the §11 test matrix row by row: the batch fold's refusals
 //! (R13–R15, the weight domain R1, the per-op boundaries R7–R12), the reduce-left
-//! partitioner of §5 (the canonical splits: the resurrection four, the reordered
+//! partitioner of §5 (the canonical splits: the reincarnation four, the reordered
 //! stream, the blog grids), the checked `Snapshot` constructor (§9), and the
 //! equivalence "snapshot + WAL fold ≡ flat planned stream" (§9).
 //!
@@ -286,14 +286,14 @@ fn identity_swap_refused_despite_zero_net() {
 // §5: the reduce-left partitioner
 // ---------------------------------------------------------------------------
 
-/// The resurrection four — `[DECREMENT(c), JOIN(d), INCREMENT(d), LEAVE(c)]` —
+/// The reincarnation four — `[DECREMENT(c), JOIN(d), INCREMENT(d), LEAVE(c)]` —
 /// split into exactly two eras: after `DECREMENT(c), JOIN(d)` the mass moved is
 /// 1, so the batch closes; the next era takes `INCREMENT(d), LEAVE(c)` (mass
 /// 1). The canonical two-era form `(a:1,b:1,c:1) → (a:1,b:1,c:0,d:0) →
 /// (a:1,b:1,d:1)` is what the partitioner produces, and every intermediate era
 /// is quorum-safe.
 #[test]
-fn resurrection_four_split_into_exactly_two_eras() {
+fn reincarnation_four_split_into_exactly_two_eras() {
     let genesis = fold_genesis();
     let four = vec![
         SystemOperation::Decrement(n(2)),
@@ -528,14 +528,14 @@ fn leave_refuses_at_positive_weight() {
     );
 }
 
-/// After any legal sequence — the grids, the resurrection eras — every weight
+/// After any legal sequence — the grids, the reincarnation eras — every weight
 /// is still inside {0, 1, 2} (R1): the closure the domain argument rests on.
 #[test]
 fn weights_never_leave_the_domain() {
     for configs in [
         grid_one_configs(),
         grid_two_configs(),
-        resurrection_configs(),
+        reincarnation_configs(),
     ] {
         assert_weight_domain(&configs);
     }
@@ -678,7 +678,7 @@ fn grid_two_is_reproduced_row_by_row() {
     assert_weight_domain(&configs);
 }
 
-/// Grid 1 and Grid 2 and the resurrection two-era form, folded once, for the
+/// Grid 1 and Grid 2 and the reincarnation two-era form, folded once, for the
 /// domain-closure and era-safety helpers.
 fn grid_one_configs() -> Vec<Configuration> {
     let genesis = fold_genesis();
@@ -710,7 +710,7 @@ fn grid_two_configs() -> Vec<Configuration> {
     committed_sequence(&genesis, &steps)
 }
 
-fn resurrection_configs() -> Vec<Configuration> {
+fn reincarnation_configs() -> Vec<Configuration> {
     let genesis = fold_genesis();
     let four = vec![
         SystemOperation::Decrement(n(2)),

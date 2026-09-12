@@ -155,11 +155,11 @@ Recovery without a clean shutdown and a full reload of all durable state is not
 admitted: there is no crash-recovery protocol, because there is no crash to recover
 from. A node that lost volatile state is by construction a different node
 (`docs/uvrr-reincarnation.md` §1) and re-enters through reincarnation, not
-recovery. Nothing in the clean stop/start/sync path or the resurrection path may
+recovery. Nothing in the clean stop/start/sync path or the reincarnation path may
 deviate from that: clean stop/start/sync runs the ordinary restart (all four
-superblocks read `flushed`), resurrection runs the crash-stop-self-evict sequence.
+superblocks read `flushed`), reincarnation runs the crash-stop-self-evict sequence.
 
-### Resurrection: the leader's obligations on hearing the announcement
+### Reincarnation: the leader's obligations on hearing the announcement
 
 A bumped node announces `(old, new)` to **all** nodes; **only the leader
 responds**, and it does so immediately — before it starts the cluster's forced
@@ -170,7 +170,7 @@ membership-discard check, and its votes are never counted.
 - **Immediate ack.** The leader acknowledges the announcement at once and arms
   the forced sequence without waiting for the first era to commit.
 - **Memo streaming.** From that moment the leader sends all phase-1 and phase-2
-  messages to the resurrected node even though it is not in the cluster, so it
+  messages to the reincarnated node even though it is not in the cluster, so it
   stays up to date from the first era of the sequence onward.
 - **Sync from the announcement.** The announcement carries the slot the
   reincarnated node had committed in its past life and what it had prepared; the
@@ -178,7 +178,7 @@ membership-discard check, and its votes are never counted.
   synchronises to the frontier immediately and then stays current by the memo
   stream.
 
-### The resurrected node's obligations
+### The reincarnated node's obligations
 
 In this mode the node does not vote. It has to hear that a cluster
 reconfiguration has committed that puts it in the cluster with a non-zero voting

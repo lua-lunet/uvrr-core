@@ -70,7 +70,7 @@ responds immediately — before it starts the cluster's forced reconfiguration (
 announcement names the slot the reincarnated node had committed in its past life
 and what it had prepared, so the leader pushes exactly the missing range and the
 node synchronises to the frontier at once. From the ack onward the leader memo-
-streams all phase-1 and phase-2 messages to the resurrected node even though it
+streams all phase-1 and phase-2 messages to the reincarnated node even though it
 is not yet in the cluster, so it stays up to date. Answering before the
 reconfiguration is safe because the announcer is a non-member: its messages are
 discarded by §6, and it does not vote until a committed reconfiguration has put

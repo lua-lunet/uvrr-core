@@ -14,7 +14,7 @@
 //!   4-copy domain (4⁴ = 256 assignments) — 2-of-4 `Stopped` ⟺ the clean
 //!   stop, every other assignment bumps, the identity resolved INSIDE the
 //!   working quorum (higher-identity-wins, never across all copies),
-//!   all-`Joining` resurrects again; plus the stop path
+//!   all-`Joining` reincarnates again; plus the stop path
 //!   (`begin_stop`/`finish_stop`, the marker order as the drain's proof)
 //!   and continuation commitment.
 //! * **E** — membership discard: messages from an unknown or superseded
@@ -697,11 +697,11 @@ fn copies(marks: [Marker; 4], identity: u64) -> SuperblockCopies {
 ///   `(identity, Restarting)` 4x — a member with complete state;
 /// * EVERY non-clean assignment bumps: `Bump { old, new }` and
 ///   `(new, Joining)` 4x — a crash, a torn marker set, and death
-///   mid-join all resurrect.
+///   mid-join all reincarnate.
 ///
 /// The mid-join case falls out of the table and is asserted explicitly:
 /// all-`Joining` reads no stopped quorum, bumps, writes `Joining` again,
-/// and the rewritten set resurrects AGAIN — the commitment never wedges.
+/// and the rewritten set reincarnates AGAIN — the commitment never wedges.
 #[test]
 fn d_marker_domain_exhaustive() {
     let states = [
@@ -766,7 +766,7 @@ fn d_marker_domain_exhaustive() {
         }
     }
 
-    // Death mid-join: all-`Joining` resurrects again — and again.
+    // Death mid-join: all-`Joining` reincarnates again — and again.
     let mid_join = copies([Marker::Joining; 4], 7);
     let (decision, rejoined) = mid_join.restart().expect("the bump succeeds");
     assert_eq!(
@@ -776,7 +776,7 @@ fn d_marker_domain_exhaustive() {
             new: Incarnation(8)
         }
     );
-    let (again, resurrected) = rejoined.restart().expect("the second bump succeeds");
+    let (again, reincarnated) = rejoined.restart().expect("the second bump succeeds");
     assert_eq!(
         again,
         RestartDecision::Bump {
@@ -785,7 +785,7 @@ fn d_marker_domain_exhaustive() {
         }
     );
     assert!(
-        resurrected
+        reincarnated
             .copies
             .iter()
             .all(|copy| copy.identity == Incarnation(9) && copy.marker == Marker::Joining)

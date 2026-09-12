@@ -20,7 +20,7 @@
 //! with no lock and no mutation.
 //!
 //! The classic shapes fall out mechanically (§5): a ton of zero-weight joins stays in
-//! one era because each moves no mass (R14); the resurrection four split into the
+//! one era because each moves no mass (R14); the reincarnation four split into the
 //! canonical two; a scaling op forces the next op into a new batch (R13); and a batch
 //! is never nested nor seeded with genesis (R15). A stream operation that is illegal
 //! even alone refuses the plan outright — the partitioner invents no eras around a

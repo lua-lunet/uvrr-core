@@ -12,10 +12,10 @@ Crash-Stop-Self-Evict. The classic VRR-2012 diskless quorum recovery (§4.3)
 and the DISC'17 Appendix B.1 amnesia class it exposes are therefore avoided by
 construction in uVRR; those mechanisms are literature about classic
 crash-recovery designs, not open problems here, and the ladder carries no
-crash-recovery exchange: a resurrected node is a joiner, caught up by ordinary
+crash-recovery exchange: a reincarnated node is a joiner, caught up by ordinary
 state transfer. The protocol specification is [docs/uvrr-reincarnation.md](../../docs/uvrr-reincarnation.md);
 the target theorem is rung 25, agreement across the two-era evict/join of a
-resurrected node under every view schedule.
+reincarnated node under every view schedule.
 
 ## Editing the paper
 

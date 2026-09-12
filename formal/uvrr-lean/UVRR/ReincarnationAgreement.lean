@@ -2,7 +2,7 @@ import UVRR.ReincarnationFive
 
 /-! Agreement across the reincarnation sequence, under every view schedule.
 
-The two forced eras of the resurrection — E0 the cluster before the crash,
+The two forced eras of the reincarnation — E0 the cluster before the crash,
 E1 the crossing batch `DECREMENT(old), JOIN(new)`, E2 the eviction batch
 `INCREMENT(new), LEAVE(old)` — are made the configuration sequence of rung 4's
 era-indexed agreement theorem: in every era the phase-I and phase-II quorum

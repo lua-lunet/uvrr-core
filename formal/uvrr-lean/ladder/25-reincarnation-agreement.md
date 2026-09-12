@@ -3,7 +3,7 @@
 *2026-09-11T00:41:29Z by Showboat 0.6.1*
 <!-- showboat-id: c19ef225-bb12-48f2-821b-0393a14f82d0 -->
 
-This rung proves the target: the two-round evict/join of a resurrected node is
+This rung proves the target: the two-round evict/join of a reincarnated node is
 agreement-safe under every view schedule, the leader-overlap schedule included.
 The forced eras of rung 22 — E0 the cluster before the crash, E1 the crossing
 batch `DECREMENT(old), JOIN(new)`, E2 the eviction batch `INCREMENT(new),
@@ -40,7 +40,7 @@ import UVRR.ReincarnationFive
 
 /-! Agreement across the reincarnation sequence, under every view schedule.
 
-The two forced eras of the resurrection — E0 the cluster before the crash,
+The two forced eras of the reincarnation — E0 the cluster before the crash,
 E1 the crossing batch `DECREMENT(old), JOIN(new)`, E2 the eviction batch
 `INCREMENT(new), LEAVE(old)` — are made the configuration sequence of rung 4's
 era-indexed agreement theorem: in every era the phase-I and phase-II quorum

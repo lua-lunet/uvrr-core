@@ -104,7 +104,7 @@ The classic shapes fall out mechanically:
 - *A ton of zero-weight joins, then a double*: every `JOIN` moves no mass, so the
   reduce keeps taking them; the `DOUBLE` cannot join a batch that has ops (R13), so
   it closes the joins and starts its own solitary era.
-- *The resurrection four* — `[DECREMENT(c), JOIN(d), INCREMENT(d), LEAVE(c)]` —
+- *The reincarnation four* — `[DECREMENT(c), JOIN(d), INCREMENT(d), LEAVE(c)]` —
   **split nicely into two**: after `DECREMENT(c), JOIN(d)` the mass moved is `1`;
   adding `INCREMENT(d)` would move `2`, so the batch closes and the next era takes
   `INCREMENT(d), LEAVE(c)` (mass `1`). The canonical two-era form
@@ -120,7 +120,7 @@ every operation is a pure function `Configuration → Result<Configuration>`, so
 leader evaluates a proposed batch on a clone before proposing it for consensus,
 thread-safely, with no lock and no mutation.
 
-## 6. The resurrection sequence
+## 6. The reincarnation sequence
 
 The leader computes the sequence from the **current committed configuration** and
 the announced `(old, new)` pair; it never stores steps. Each step is a batch, each
@@ -249,7 +249,7 @@ Cluster state is **folded history, never ambient mutation**:
 
 There is no amnesia recovery protocol. A node that loses volatile state is a
 **different node**: it bumps its identity, re-announces `(old, new)`, and the
-leader drives the resurrection sequence of §6 above. Same-identity recovery after
+leader drives the reincarnation sequence of §6 above. Same-identity recovery after
 volatile-state loss is unrepresentable; classic VRR-2012 diskless quorum recovery
 is literature about a design this protocol does not implement.
 
@@ -264,7 +264,7 @@ Every rule has a test that can fail. The matrix:
 | one unit change plus standbys in one era | R14 mass 1 |
 | two unit changes in one era refused (`BatchMassMoved`) | R14 sharpness |
 | the identity swap in one era refused (the `0`-net, mass-`2` batch) | R14, not net-total |
-| the resurrection four split into exactly two eras by the planner | §5, the canonical two-step |
+| the reincarnation four split into exactly two eras by the planner | §5, the canonical two-step |
 | the reordered stream partitions into legal eras | the partitioner, mechanically |
 | `DOUBLE`/`HALVE` solitary: refused with company, split off alone in a stream | R13 |
 | `DOUBLE` with a `2` present refused; `INCREMENT` at `2` refused; `HALVE` with a `1` refused; `DECREMENT` at `0` refused; `LEAVE` at `w > 0` refused; weights never negative or above `2` after any legal sequence | R7–R12 boundaries |

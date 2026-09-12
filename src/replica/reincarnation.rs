@@ -43,7 +43,7 @@
 //!   the same identity and writes `Restarting` 4x — a member with complete
 //!   state, no amnesia, ticking the full protocol; no stopped quorum — a
 //!   crash, a torn marker set, or death mid-join — means the identity is
-//!   dead: the node bumps it and resurrects, writing `Joining` 4x — not a
+//!   dead: the node bumps it and reincarnates, writing `Joining` 4x — not a
 //!   member, no vote, no view change. No `Started` state is written: no
 //!   safety logic looks for `Started`, it looks for `Stopped` — the extra
 //!   superblock write buys no safety and is elided. The marker writes are
@@ -673,7 +673,7 @@ pub struct Incarnation(pub u64);
 
 impl Incarnation {
     /// The bumped identity: exactly one past the current one (the
-    /// resurrect branch of §5.1). Refused at exhaustion — a wrapped
+    /// reincarnate branch of §5.1). Refused at exhaustion — a wrapped
     /// identity would make a superseded one indistinguishable from a
     /// current one.
     ///
@@ -725,7 +725,7 @@ pub enum Marker {
     /// full protocol — suspecting a silent primary like any backup.
     Restarting,
     /// The `crash ──boot, no 2-of-4 Stopped──> Joining` transition
-    /// completed (bump, 4x). The identity was resurrected under a bumped
+    /// completed (bump, 4x). The identity was reincarnated under a bumped
     /// incarnation: NOT a member — it neither votes nor drives view
     /// change — until the forced sequence seats it.
     Joining,
@@ -861,7 +861,7 @@ impl SuperblockCopies {
     ///   shutdown. The node is a member with complete state: it ticks the
     ///   full protocol.
     /// * No stopped quorum → [`RestartDecision::Bump`]; the copies are
-    ///   written `(new, Joining)` 4x — the resurrection. The bumped
+    ///   written `(new, Joining)` 4x — the reincarnation. The bumped
     ///   identity is one past the quorum-resolved identity, checked: an
     ///   identity one bump from `u64` exhaustion refuses rather than
     ///   wraps.
@@ -869,7 +869,7 @@ impl SuperblockCopies {
     /// The uniform 4x write is the repair: every copy that disagreed with
     /// the working quorum is rewritten from the decision — 4-of-4,
     /// satisfying the twin's repair-to-≥3-of-4 behaviour. A node dying
-    /// mid-join reads no stopped quorum and resurrects again — the table
+    /// mid-join reads no stopped quorum and reincarnates again — the table
     /// makes that fall out.
     ///
     /// # Errors
