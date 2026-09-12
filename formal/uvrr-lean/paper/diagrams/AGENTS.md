@@ -80,9 +80,11 @@ Extracted by vision from `../turner/figures/fig-3..5.png` and their
 - SVG is always written and is deterministic (same input → same bytes);
   SVGs are tracked.
 - PNG is a regeneration cache: it is written only when absent and is never
-  regenerated over an existing file. PNGs are gitignored, except
-  `reincarnation.png`: the paper includes it via `\includegraphics`, so the
-  raster is tracked for the paper to publish from a committed tree.
+  regenerated over an existing file. PNGs are gitignored, except the
+  rasters the paper includes via `\includegraphics` — `reincarnation.png`
+  and `weighted-quorum-witness.png` (the latter rendered by
+  `research/weighted-reachability/check.py`, not `msgtrace.py`) — which are
+  tracked for the paper to publish from a committed tree.
   Rasterization uses headless Chrome, falling back to ImageMagick.
 - `make clean` removes both; `make diagram NAME=x` reproduces from clean.
 
