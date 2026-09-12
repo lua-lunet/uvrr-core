@@ -881,6 +881,12 @@ fn a_faulted_replica_refuses_every_input_variant() {
                 view: View(9),
             },
         },
+        Input::SubmitPlan {
+            plan: vrr::plan::Plan {
+                initial: Vec::new(),
+                steps: Vec::new(),
+            },
+        },
     ];
 
     for input in inputs {
@@ -898,6 +904,7 @@ fn a_faulted_replica_refuses_every_input_variant() {
             Input::Reconfigure { .. } => InputKind::Reconfiguration,
             Input::AdminForceView { .. } => InputKind::Admin,
             Input::Reincarnate { .. } => InputKind::Admin,
+            Input::SubmitPlan { .. } => InputKind::Admin,
         };
         assert_eq!(
             replica

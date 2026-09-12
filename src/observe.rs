@@ -246,6 +246,16 @@ pub enum Diagnostic {
     /// ordinary path (§8.7.7). Dropped whole; the wire cannot say which
     /// field lied.
     MalformedViewChange,
+    /// The leader's armed plan-execution machine aborted
+    /// (`docs/weighted-reconfiguration-solver.md`): a step the plan's own
+    /// acceptance validation folded was refused by the reconfiguration
+    /// gates — a plan computed to be legal cannot become illegal, so the
+    /// refusal means the cluster changed underneath the plan. The machine
+    /// cleared; the operator re-plans from the configuration that committed.
+    PlanAborted {
+        /// The zero-based index of the step the gates refused.
+        step: usize,
+    },
 }
 
 /// A single-writer, multi-reader seqlock over a `Copy` snapshot.

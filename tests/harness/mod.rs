@@ -69,11 +69,12 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
-use vrr::effects::{Effect, Stability, StabilityResult};
+use vrr::effects::{Effect, PlanVerdict, Stability, StabilityResult};
 use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::{Journal, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog};
 use vrr::message::Message;
 use vrr::observe::Diagnostic;
+use vrr::plan::Plan;
 use vrr::progress::{Progress, ProgressSnapshot, Status};
 use vrr::quorum::WeightedMajority;
 use vrr::replica::{
@@ -101,6 +102,9 @@ struct Node {
     pending_effects: Vec<Effect>,
     /// The base revision of the parked persistence intent, if any.
     outstanding_intent: Option<u64>,
+    /// The admin verdicts released to the node's admin perimeter, in
+    /// release order.
+    admin_verdicts: Vec<PlanVerdict>,
 }
 
 /// What the harness's "disk" recorded at crash time: the published progress
@@ -566,6 +570,7 @@ impl Harness {
                 observer,
                 pending_effects: Vec::new(),
                 outstanding_intent: None,
+                admin_verdicts: Vec::new(),
             }));
         }
         let mut harness = Harness {
@@ -1127,12 +1132,34 @@ impl Harness {
                         outcome,
                     });
                 }
-                Effect::Send { .. } | Effect::Persist(_) => {
+                Effect::Send { .. } | Effect::Persist(_) | Effect::AdminResponse { .. } => {
                     panic!("only Apply effects are routed to a node's pending list")
                 }
             }
         }
         outcomes
+    }
+
+    /// Submits a reconfiguration plan over the node's admin ingress
+    /// (`docs/weighted-reconfiguration-solver.md`): the verdict or the
+    /// named refusal is the script's to assert. One step.
+    pub fn submit_plan(&mut self, id: NodeId, plan: Plan) -> StepOutcome {
+        self.drive(
+            id,
+            format!("n={} submit-plan ({} steps)", id.0, plan.steps.len()),
+            Input::SubmitPlan { plan },
+        )
+    }
+
+    /// The admin verdicts the node has released to its admin perimeter, in
+    /// release order. Empty if the node is down or answered nothing.
+    #[must_use]
+    pub fn admin_verdicts(&self, id: NodeId) -> &[PlanVerdict] {
+        self.nodes
+            .get(usize::try_from(id.0).expect("node ids are small"))
+            .and_then(Option::as_ref)
+            .map(|node| node.admin_verdicts.as_slice())
+            .unwrap_or(&[])
     }
 
     // ------------------------------------------------------------------
@@ -1411,6 +1438,7 @@ impl Harness {
             observer,
             pending_effects: Vec::new(),
             outstanding_intent: None,
+            admin_verdicts: Vec::new(),
         });
     }
 
@@ -1621,6 +1649,11 @@ impl Harness {
             Effect::Persist(intent) => {
                 if let Some(node) = self.nodes[from].as_mut() {
                     node.outstanding_intent = Some(intent.revision);
+                }
+            }
+            Effect::AdminResponse { verdict } => {
+                if let Some(node) = self.nodes[from].as_mut() {
+                    node.admin_verdicts.push(verdict);
                 }
             }
         }

@@ -66,6 +66,18 @@ configuration fold refuses (`vrr::plan::Plan::validate_against`). A plan that
 was legal when computed but has drifted is rejected, not committed; replan
 from the current configuration to the original target.
 
+An accepted plan is executed by the leader's plan-execution machine: one step
+per era, each proposed through the ordinary reconfiguration gates, until the
+last step commits and the machine clears. A step the gates refuse — the
+cluster changed underneath the plan — aborts the machine with `PlanAborted`
+and the operator re-plans from the configuration that committed. The plan
+arrives on the leader's dedicated admin ingress, and the host polls that
+ingress BEFORE the regular client queue on every selection
+(`docs/architecture.md` §Host obligations): reconfigurations are rare, so the
+poll is usually empty, but a plan never waits behind client traffic. The core
+side is the `Input::SubmitPlan` input and the `Effect::AdminResponse` verdict
+effect.
+
 `plan` computes the schedule with the solver and writes plan JSONL to stdout
 or `--out`. `apply` sends the plan as ONE UDP datagram to the leader's admin
 port, prefixed by the header line `{"kind":"plan_submit","version":1}`; a

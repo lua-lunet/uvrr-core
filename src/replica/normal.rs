@@ -476,6 +476,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // `qI − {L}` — the solicitation rides THIS published transition,
         // while the era-(e+1) client stream continues uninterrupted.
         let (config, solicitation, planned_update) = self.overlap_solicitation(config, committed);
+        // The plan-execution commit hook (the solver doc): a committed
+        // range covering the armed machine's next step's establishing
+        // batch advances it, and the last step's commit clears the
+        // machine (completion).
+        let plan_execution =
+            self.plan_execution_commit(journal, self.progress.committed(), committed);
         let candidate = self.candidate_with(
             Status::Normal,
             self.progress.accepted(),
@@ -490,6 +496,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
             .with_bookkeeping(Bookkeeping {
                 planned: planned_update,
+                plan_execution,
                 ..bookkeeping
             }))
     }

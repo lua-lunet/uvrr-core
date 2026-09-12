@@ -187,6 +187,14 @@ applies to it in both directions: messages FROM it are discarded, messages TO it
 are fine, and its weight of `0` keeps it out of every quorum. This is what makes
 answering the announcement before the reconfiguration safe.
 
+### The leader's admin ingress
+
+A leader exposes its reconfiguration plan ingress on a dedicated admin
+endpoint, separate from regular client traffic. On every message selection
+the host polls the admin ingress BEFORE the regular queue, so a plan never
+waits behind client traffic; the leader-side acceptance and execution rule
+the obligation serves is pinned in `docs/weighted-reconfiguration-solver.md`.
+
 ## Decision record
 
 Each decision states context, decision, consequence. These are rulings, not proposals.

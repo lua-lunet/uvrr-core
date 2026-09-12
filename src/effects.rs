@@ -30,6 +30,22 @@
 use crate::ids::{Era, NodeId, OperationId, Slot};
 use crate::message::Message;
 
+/// The leader's verdict on an admin submission
+/// (`docs/weighted-reconfiguration-solver.md`): accepted, or rejected with
+/// the named reason. The wire/JSON rendering is the host's perimeter; the
+/// core carries the verdict as data.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum PlanVerdict {
+    /// The submission was accepted.
+    Accepted,
+    /// The submission was refused; the reason names why.
+    Rejected {
+        /// The refusal, rendered for the operator (`PlanRejection`'s
+        /// display, or the leader's named precondition).
+        reason: String,
+    },
+}
+
 /// What a published transition asks the host to do. The core performs none of
 /// it (SANS-I/O); the host owns transport, storage, and the application.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -63,6 +79,13 @@ pub enum Effect {
     /// effect an external-stability mode releases at `publish`; everything
     /// else waits for the host's [`StabilityResult`].
     Persist(PersistenceIntent),
+    /// The verdict on a plan submitted over the node's admin ingress
+    /// (`docs/weighted-reconfiguration-solver.md`): the host renders it as
+    /// the one JSON response line back to the operator.
+    AdminResponse {
+        /// The verdict.
+        verdict: PlanVerdict,
+    },
 }
 
 /// Which part of the durable [`crate::progress::Progress`] record a transition

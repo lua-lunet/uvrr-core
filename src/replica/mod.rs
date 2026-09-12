@@ -110,6 +110,7 @@ use crate::invariant::{InputKind, legal};
 use crate::journal::{Journal, JournalError, JournalView, LogEntry, Payload, SegmentedLog};
 use crate::message::{Body, EraProof, EvidenceKind, Message};
 use crate::observe::{Diagnostic, Observation};
+use crate::plan::Plan;
 use crate::progress::{Progress, ProgressError, ProgressSnapshot, Status};
 use crate::quorum::{QuorumError, QuorumStrategy, Role, validate_era};
 use crate::wire::{Header, Pack, Tag};
@@ -117,6 +118,7 @@ use crate::wire::{Header, Pack, Tag};
 pub use crate::quorum::{PivotError, construct_pivot, validate_pivot};
 
 mod normal;
+mod plan_execution;
 mod reconfiguration;
 mod reincarnation;
 mod transfer;
@@ -229,6 +231,17 @@ pub enum Input {
         /// The identity the node operated under before the loss.
         old: NodeId,
     },
+    /// The operator's reconfiguration plan
+    /// (`docs/weighted-reconfiguration-solver.md`), submitted over the
+    /// admin ingress: the leader validates it against its current committed
+    /// configuration and answers with one [`Effect::AdminResponse`] verdict;
+    /// on acceptance the plan-execution machine arms and steps through the
+    /// batches while the cluster keeps running normally.
+    SubmitPlan {
+        /// The plan: the membership it was computed against and one batch
+        /// per era, in commit order.
+        plan: Plan,
+    },
 }
 
 /// The concrete vote sets of a non-stop reconfiguration (§8.7.6–§8.7.7).
@@ -261,6 +274,7 @@ impl Input {
             Input::Reconfigure { .. } => InputKind::Reconfiguration,
             Input::AdminForceView { .. } => InputKind::Admin,
             Input::Reincarnate { .. } => InputKind::Admin,
+            Input::SubmitPlan { .. } => InputKind::Admin,
         }
     }
 }
@@ -889,6 +903,19 @@ enum ReincarnationUpdate {
     Clear,
 }
 
+/// The plan-execution half of [`Bookkeeping`]: what a transition does to
+/// the leader's armed plan machine (`docs/weighted-reconfiguration-solver.md`).
+#[derive(Clone, Debug, Default)]
+enum PlanExecutionUpdate {
+    /// The machine is untouched.
+    #[default]
+    Unchanged,
+    /// Arm (or re-arm) the machine with the accepted plan's batches.
+    Set(plan_execution::PlannedSequence),
+    /// The plan is complete or aborted: the machine clears, never rewinds.
+    Clear,
+}
+
 /// What the new primary's completion attempt produced.
 enum WinOutcome {
     /// The transition to publish (the install, or the declared fault).
@@ -953,6 +980,8 @@ struct Bookkeeping {
     planned: PlannedOverlapUpdate,
     /// The reincarnation-machine update (§5 of the doc).
     reincarnation: ReincarnationUpdate,
+    /// The plan-execution-machine update (the solver doc).
+    plan_execution: PlanExecutionUpdate,
     /// Refresh of the primary-activity baseline (S4): the tick of a
     /// same-view `Prepare`/`Commit` from the legitimate primary, or of a
     /// `StartView` adoption — the new primary has just proved itself alive.
@@ -1017,6 +1046,20 @@ impl PlannedTransition {
     /// proposal records and overlap machine must survive).
     fn with_reincarnation(mut self, update: ReincarnationUpdate) -> PlannedTransition {
         self.bookkeeping.reincarnation = update;
+        self
+    }
+
+    /// Sets the plan-execution-machine update without disturbing the rest
+    /// of the transition's bookkeeping.
+    fn with_plan_execution(mut self, update: PlanExecutionUpdate) -> PlannedTransition {
+        self.bookkeeping.plan_execution = update;
+        self
+    }
+
+    /// Appends `effect` to the transition's released effects (the admin
+    /// verdict riding the transition that decided it).
+    fn with_effect(mut self, effect: Effect) -> PlannedTransition {
+        self.effects.push(effect);
         self
     }
 
@@ -1136,6 +1179,13 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// Volatile like the other attempt state: a leader crash discards it,
     /// and the bumped node re-announces to the stable leader (§8).
     reincarnation: Option<reincarnation::ForcedSequence>,
+    /// The leader's armed plan-execution machine
+    /// (`docs/weighted-reconfiguration-solver.md`): the accepted plan's
+    /// batches. Volatile like every attempt state: a leader crash discards
+    /// it, and the dumb-operator contract hands continuation to the
+    /// operator — the plan is re-solicited against the configuration that
+    /// committed.
+    plan_execution: Option<plan_execution::PlannedSequence>,
 }
 
 // Manual, non-exhaustive: `Observation` is a seqlock with no `Debug` of its
@@ -1346,6 +1396,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             stalled: None,
             planned: None,
             reincarnation: None,
+            plan_execution: None,
         }
     }
 
@@ -1470,6 +1521,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Input::Reincarnate { old } => {
                 self.refuse_if_parked()?;
                 self.plan_reincarnate(journal, *old, input.event.kind())
+            }
+            Input::SubmitPlan { plan } => {
+                self.refuse_if_parked()?;
+                self.plan_submit_plan(journal, plan, input.event.kind())
             }
         }
     }
@@ -1698,6 +1753,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // established a new era; the next waits for the view change into
         // it, which the ordinary suspicion machinery drives.
         if let Some(plan) = self.plan_forced_continuation(journal) {
+            return plan;
+        }
+        // The plan-execution continuation (the solver doc): the armed
+        // leader proposes the next accepted step on an ordinary tick, the
+        // same way — each committed step established a new era, and the
+        // next waits for the view change into it.
+        if let Some(plan) = self.plan_execution_continuation(journal) {
             return plan;
         }
         // The smallest honest transition: no protocol state
@@ -2312,6 +2374,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             ReincarnationUpdate::Unchanged => {}
             ReincarnationUpdate::Set(machine) => self.reincarnation = Some(machine),
             ReincarnationUpdate::Clear => self.reincarnation = None,
+        }
+        match bookkeeping.plan_execution {
+            PlanExecutionUpdate::Unchanged => {}
+            PlanExecutionUpdate::Set(machine) => self.plan_execution = Some(machine),
+            PlanExecutionUpdate::Clear => self.plan_execution = None,
         }
         for (slot, proposal) in bookkeeping.proposals {
             self.proposals.insert(slot, proposal);

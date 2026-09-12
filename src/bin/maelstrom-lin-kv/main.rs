@@ -519,6 +519,9 @@ impl NodeRunner {
                 Effect::Persist(_) => {
                     eprintln!("volatile stability releases no persistence intents")
                 }
+                Effect::AdminResponse { .. } => {
+                    eprintln!("the key-value node receives no admin submissions")
+                }
             }
         }
     }
