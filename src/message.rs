@@ -134,13 +134,24 @@ pub enum Body {
         more: bool,
     },
     /// A reincarnation announcement (`docs/uvrr-reincarnation.md` §4): the
-    /// pair of identities the restarted node carries. Sent by the bumped
-    /// node to the leader; the leader drives the forced weight sequence of
+    /// pair of identities the restarted node carries and the frontiers of
+    /// its past life. Sent by the bumped node to all nodes; only the leader
+    /// responds. The past-life frontiers let the leader's immediate ack push
+    /// exactly the range the node missed, so it synchronises to the frontier
+    /// at once (§4, §7); the leader then memo-streams all phase-1 and
+    /// phase-2 messages to it for as long as it is outside the cluster
+    /// (§7's standby streaming).
     Reincarnation {
         /// The identity the node operated under before the volatile loss.
         old: NodeId,
         /// The bumped identity the node now operates under.
         new: NodeId,
+        /// The slot the node had committed in its past life
+        /// ([`Slot::NONE`] when it had committed nothing).
+        committed: Slot,
+        /// The node's past-life accepted (prepared) frontier — the slot its
+        /// journal held through.
+        prepared: Slot,
     },
 }
 
@@ -326,7 +337,14 @@ impl Pack for Body {
                 committed,
                 more: _,
             } => entries_packed_len(entries) + through.packed_len() + committed.packed_len() + 1,
-            Body::Reincarnation { old, new } => old.packed_len() + new.packed_len(),
+            Body::Reincarnation {
+                old,
+                new,
+                committed,
+                prepared,
+            } => {
+                old.packed_len() + new.packed_len() + committed.packed_len() + prepared.packed_len()
+            }
         };
         1 + fields
     }
@@ -378,9 +396,16 @@ impl Pack for Body {
                 committed.pack(w);
                 w.bool(*more);
             }
-            Body::Reincarnation { old, new } => {
+            Body::Reincarnation {
+                old,
+                new,
+                committed,
+                prepared,
+            } => {
                 old.pack(w);
                 new.pack(w);
+                committed.pack(w);
+                prepared.pack(w);
             }
         }
     }
@@ -442,6 +467,8 @@ impl Unpack for Body {
             Tag::Reincarnation => Body::Reincarnation {
                 old: NodeId::unpack(c)?,
                 new: NodeId::unpack(c)?,
+                committed: Slot::unpack(c)?,
+                prepared: Slot::unpack(c)?,
             },
         };
         Ok(body)

@@ -277,19 +277,27 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         {
             return self.drop_plan(Diagnostic::MalformedTransfer, kind);
         }
-        // Only the open fetch qualifies the chunk (§10): the view and the
-        // responder must be the ones the node asked.
+        // The chunk qualifies as protocol evidence through one of two
+        // routes, both fenced (§10): the node's own open fetch — the view
+        // and the responder must be the ones the node asked — or, for a
+        // node still at its boot fence that opened NO fetch, the leader's
+        // missed-range push (`docs/uvrr-reincarnation.md` §7): the
+        // announcement named the node's past-life frontiers and the
+        // leader's ack pushed what it missed, under the view the
+        // ANNOUNCEMENT carried — the one the node already holds. The
+        // pushed chunk passes the same verification the fetched chunk
+        // does: the suffix ruling below verifies it against the local
+        // journal before anything folds. A boot-fenced node that HAS an
+        // open fetch keeps the fetch route alone: a push whose sender is
+        // not the fetch's responder is not qualified evidence for it.
         let current = self.progress.current();
-        let Some(fetch) = self.transfer else {
-            return self.drop_plan(
-                Diagnostic::StaleTransfer {
-                    sender: from,
-                    view: header.view,
-                },
-                kind,
-            );
+        let boot_fence = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+            && current == self.progress.retained();
+        let qualified = match self.transfer {
+            Some(fetch) => fetch.view == header.view && fetch.to == from,
+            None => boot_fence && header.view == current,
         };
-        if fetch.view != header.view || fetch.to != from {
+        if !qualified {
             return self.drop_plan(
                 Diagnostic::StaleTransfer {
                     sender: from,

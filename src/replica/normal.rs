@@ -77,8 +77,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 committed: self.progress.committed(),
             },
         };
-        let effects = self
-            .backups()
+        let mut recipients = self.backups();
+        // The memo stream (§7 of `docs/uvrr-reincarnation.md`): the
+        // leader's own proposals stream to the announced standby too,
+        // unless ordinary addressing already covers it.
+        if let Some(standby) = self.memo_target() {
+            if !recipients.contains(&standby) {
+                recipients.push(standby);
+            }
+        }
+        let effects: Vec<Effect> = recipients
             .into_iter()
             .map(|to| Effect::Send {
                 to,
@@ -158,10 +166,23 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // A Prepare from the legitimate primary of a HIGHER view is proof
         // the node is stale (§10) — never installation evidence (§13.4):
         // fence into the advertised view and fetch, install only from the
-        // qualified evidence.
+        // qualified evidence. The one §10 exception: a node still at its
+        // boot fence that is OUTSIDE every configuration it can name —
+        // the reincarnated standby (`docs/uvrr-reincarnation.md` §10) —
+        // takes the committed operations the leader-originated stream
+        // carries at its boot fence instead: adopting the advertised
+        // view here would leave the boot fence behind, and the standby's
+        // only route back through it (its own fetch) is lost with the
+        // fence. The slot discipline below keeps the accept honest, the
+        // piggybacked frontier is clamped as ever (§5 invariant 2), and
+        // the node stays fenced: no view adopted, no vote ever counted.
         let current = self.progress.current();
         if header.view > current {
-            return self.plan_higher_view_signal(journal, from, header.view, at, kind);
+            let boot_fence = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+                && current == self.progress.retained();
+            if !boot_fence {
+                return self.plan_higher_view_signal(journal, from, header.view, at, kind);
+            }
         }
         // The message's view must be the node's current view; a fenced
         // entry state (`Restarting` or `Joining`) adopts it (the bootstrap
@@ -182,7 +203,21 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         }
-        let adopt = matches!(self.progress.status(), Status::Restarting | Status::Joining);
+        // The bootstrap rule adopts a fenced entry node that the view's
+        // configuration counts as a member: the fresh cluster has nothing
+        // to recover (§4's own mechanism). A boot-fenced node OUTSIDE
+        // every configuration it can name — the reincarnated standby
+        // (§10 of `docs/uvrr-reincarnation.md`) — takes the committed
+        // operations the stream carries but adopts no view and stays
+        // fenced: it never votes, and the promotion era's committed
+        // reconfiguration is what admits it.
+        let member_of_view = self
+            .progress
+            .config()
+            .record(header.view.era)
+            .is_some_and(|record| record.config.weight_of(self.own).is_some());
+        let adopt = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+            && member_of_view;
         // Era discipline (§8.7.3): era(view) <= era(entry) <= era(view) + 1.
         let era_legal = entry.era == header.view.era || header.view.era.next() == Some(entry.era);
         if !era_legal {
@@ -537,9 +572,18 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let current = self.progress.current();
         // A Commit from the legitimate primary of a HIGHER view: the same
         // qualified staleness signal as a higher-view Prepare (§10) —
-        // fence and fetch, never install from the hint (§13.4).
+        // fence and fetch, never install from the hint (§13.4). The one
+        // §10 exception, as in `plan_prepare`: a boot-fenced standby
+        // outside every configuration it can name takes the commit
+        // frontier the leader-originated stream carries at its boot fence
+        // (`docs/uvrr-reincarnation.md` §10), staying fenced — the
+        // frontier is clamped by the journal as ever (§5 invariant 2).
         if header.view > current {
-            return self.plan_higher_view_signal(journal, from, header.view, at, kind);
+            let boot_fence = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+                && current == self.progress.retained();
+            if !boot_fence {
+                return self.plan_higher_view_signal(journal, from, header.view, at, kind);
+            }
         }
         let eligible = header.view == current
             && match self.progress.status() {
@@ -556,7 +600,18 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             );
         }
-        let status = if matches!(self.progress.status(), Status::Restarting | Status::Joining) {
+        // The same member-gated bootstrap adoption as `plan_prepare`:
+        // a boot-fenced standby outside every configuration it can name
+        // takes the commit frontier the stream carries and stays fenced
+        // (§10 of `docs/uvrr-reincarnation.md`), never adopting a view.
+        let member_of_view = self
+            .progress
+            .config()
+            .record(header.view.era)
+            .is_some_and(|record| record.config.weight_of(self.own).is_some());
+        let status = if matches!(self.progress.status(), Status::Restarting | Status::Joining)
+            && member_of_view
+        {
             Status::Normal
         } else {
             self.progress.status()

@@ -2447,9 +2447,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// A `Commit` datagram for `committed` to every other member of the
-    /// current configuration (§13.3). `Effect::Send.era` is the era under
-    /// which the sending decision was made (W1) — in normal operation, the
-    /// current era.
+    /// current configuration (§13.3), and — while the machine is armed and
+    /// the node is still outside the cluster — a memo-stream copy to the
+    /// reincarnated standby (§7 of `docs/uvrr-reincarnation.md`: the
+    /// leader streams every phase-1 and phase-2 message it ORIGINATES to
+    /// the announced-and-not-yet-member node). `Effect::Send.era` is the
+    /// era under which the sending decision was made (W1) — in normal
+    /// operation, the current era.
     fn broadcast_commit(&self, committed: Slot) -> Vec<Effect> {
         let current = self.progress.current();
         let message = Message {
@@ -2460,7 +2464,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             },
             body: Body::Commit { committed },
         };
-        self.backups()
+        let mut recipients = self.backups();
+        if let Some(standby) = self.memo_target() {
+            if !recipients.contains(&standby) {
+                recipients.push(standby);
+            }
+        }
+        recipients
             .into_iter()
             .map(|to| Effect::Send {
                 to,
@@ -2814,9 +2824,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Body::PlannedViewChange {} => {
                 self.plan_planned_view_change(journal, from, message, kind)
             }
-            Body::Reincarnation { old, new } => {
-                self.plan_reincarnation(journal, from, *old, *new, kind)
-            }
+            Body::Reincarnation { .. } => self.plan_reincarnation(journal, from, message, kind),
         }?;
         Ok(if primary_life {
             plan.with_activity(at)

@@ -52,12 +52,12 @@
 
 use crate::configuration::SystemOperation;
 use crate::effects::Effect;
-use crate::ids::{NodeId, Slot};
-use crate::journal::{JournalView, Payload};
+use crate::ids::{NodeId, Slot, ViewId};
+use crate::journal::{JournalView, LogEntry, Payload};
 use crate::message::{Body, Message};
 use crate::observe::Diagnostic;
 use crate::progress::Status;
-use crate::wire::{Header, Tag};
+use crate::wire::{Header, Pack, Tag};
 
 use super::{
     InputKind, Journal, JournalMutation, PlanRefusal, PlannedTransition, ProgressError,
@@ -81,7 +81,8 @@ pub(in crate::replica) struct ForcedSequence {
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// A `Reincarnation(old, new)` announcement at the leader (§4): arm the
-    /// machine and propose the first remaining forced step.
+    /// machine, answer the announcement at once, and propose the first
+    /// remaining forced step.
     ///
     /// Only the leader of its current view drives the sequence (§5); only
     /// the NEW identity may claim the pair — the announcement's sender is
@@ -91,14 +92,43 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// re-run, and a complete sequence clears the machine. While a step is
     /// in flight the machine arms without proposing; the continuation
     /// re-drives it on a tick.
+    ///
+    /// The immediate ack (§4, §7) rides the SAME transition, ahead of the
+    /// proposal: the missed range — from the announcement's past-life
+    /// prepared frontier up to the leader's committed frontier — as an
+    /// ordinary [`Body::NewState`] chunk addressed to the standby. Messages
+    /// TO a non-member are legal (§6). The chunk's header view is the
+    /// ANNOUNCEMENT's view: the standby evaluates the chunk against the
+    /// view it already holds, exactly as the §10 acquisition route's echoed
+    /// request view does, and its fenced-ingress rules (the §10 boot-fence
+    /// fold) govern what it takes from it.
     pub(in crate::replica) fn plan_reincarnation(
         &self,
         journal: &J::View,
         from: NodeId,
-        old: NodeId,
-        new: NodeId,
+        message: &Message,
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRefusal> {
+        // Only a `Reincarnation` body is dispatched here; the shadow arm
+        // keeps the planner total against the dispatch contract rather
+        // than trusting it.
+        let Body::Reincarnation {
+            old,
+            new,
+            committed: _,
+            prepared,
+        } = &message.body
+        else {
+            return self.drop_plan(
+                Diagnostic::ReincarnationRefused {
+                    sender: from,
+                    view: self.progress.current(),
+                },
+                kind,
+            );
+        };
+        let (old, new, prepared) = (*old, *new, *prepared);
+        let announced_view = message.header.view;
         let current = self.progress.current();
         let is_leader =
             self.progress.status() == Status::Normal && self.primary_of(current) == Some(self.own);
@@ -116,24 +146,144 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .current_record()
             .ok_or(ProgressError::EraSlotDiscipline)
             .map_err(PlanRefusal::Progress)?;
+        // The immediate ack: the missed range, evaluated once per
+        // announcement (§7's streaming order — the ack precedes the first
+        // reconfiguration).
+        let ack = self.missed_range_push(journal, announced_view, new, prepared);
         match forced_steps(&record.config, old, new).into_iter().next() {
-            None => Ok(self
-                .drop_plan(Diagnostic::None, kind)?
-                .with_reincarnation(ReincarnationUpdate::Clear)),
+            None => {
+                let plan = self
+                    .drop_plan(Diagnostic::None, kind)?
+                    .with_reincarnation(ReincarnationUpdate::Clear);
+                Ok(match ack {
+                    Some(effect) => plan.with_effect(effect),
+                    None => plan,
+                })
+            }
             Some(first) => {
                 if self.forced_step_plannable(journal, &first) {
-                    Ok(self
-                        .plan_reconfigure(journal, &first, &None)?
-                        .with_reincarnation(ReincarnationUpdate::Set(machine)))
+                    let mut plan = self.plan_reconfigure(journal, &first, &None)?;
+                    if let Some(effect) = ack {
+                        // The ack precedes the forced step (§7's order).
+                        plan.effects.insert(0, effect);
+                    }
+                    // The ack transition's own establishing prepare is
+                    // leader-originated: the memo stream's first beat
+                    // rides it. The machine arms at install — after
+                    // this emission — so the ordinary emission site
+                    // cannot yet see it; the standby copy is made
+                    // here, addressed to the announced node.
+                    let establishing = plan.effects.iter().find_map(|effect| match effect {
+                        Effect::Send { message, .. } if message.header.tag == Tag::Prepare => {
+                            Some(message.clone())
+                        }
+                        _ => None,
+                    });
+                    if let Some(message) = establishing {
+                        plan.effects.push(Effect::Send {
+                            to: new,
+                            era: announced_view.era,
+                            message,
+                        });
+                    }
+                    Ok(plan.with_reincarnation(ReincarnationUpdate::Set(machine)))
                 } else {
                     // A step is in flight or an era transition awaits the
                     // view change into it: arm, continue on a tick.
-                    Ok(self
+                    let plan = self
                         .drop_plan(Diagnostic::None, kind)?
-                        .with_reincarnation(ReincarnationUpdate::Set(machine)))
+                        .with_reincarnation(ReincarnationUpdate::Set(machine));
+                    Ok(match ack {
+                        Some(effect) => plan.with_effect(effect),
+                        None => plan,
+                    })
                 }
             }
         }
+    }
+
+    /// The missed-range push (§7 step 1): one ordinary [`Body::NewState`]
+    /// chunk covering the slots the announced node's past-life journal
+    /// lacks — from its prepared frontier's successor through the leader's
+    /// committed frontier — addressed to the standby under `view`, the
+    /// view the announcement carried. The chunk is budget-bounded the way
+    /// the §10 serving path bounds one; a range that does not fit one
+    /// chunk marks `more`, and the standby's own §10 fetch resumes the
+    /// remainder from the cursor its install opens. `None` when nothing
+    /// was missed (the standby is already at the leader's committed
+    /// frontier) or the range is unservable.
+    fn missed_range_push(
+        &self,
+        journal: &J::View,
+        view: ViewId,
+        to: NodeId,
+        prepared: Slot,
+    ) -> Option<Effect> {
+        let committed = self.progress.committed();
+        let from = prepared.next()?;
+        if from > committed {
+            return None;
+        }
+        let mut entries: Vec<LogEntry> = Vec::new();
+        let mut bytes = 0usize;
+        let mut cursor = Some(from);
+        while let Some(slot) = cursor {
+            if slot > committed {
+                break;
+            }
+            let Some(entry) = journal.get(slot) else {
+                break;
+            };
+            let Some(total) = bytes.checked_add(entry.packed_len()) else {
+                break;
+            };
+            if total > self.knobs.view_change_budget {
+                break;
+            }
+            entries.push(entry.clone());
+            bytes = total;
+            cursor = slot.next();
+        }
+        let through = entries.last().map(|entry| entry.slot)?;
+        let message = Message {
+            header: Header {
+                tag: Tag::NewState,
+                view,
+                slot: through,
+            },
+            body: Body::NewState {
+                entries,
+                through,
+                committed,
+                more: through < committed,
+            },
+        };
+        Some(Effect::Send {
+            to,
+            era: view.era,
+            message,
+        })
+    }
+
+    /// The memo-stream target (§7): the announced node while the machine
+    /// is armed and it does not yet VOTE — outside the committed
+    /// configuration, or joined at weight 0 (the overlap window's
+    /// ordinary addressing names the old configuration, which does not
+    /// reach a joined standby until the view change into its era). Once
+    /// the promotion commits its non-zero weight, ordinary addressing
+    /// covers it and the memo stops; a leader crash discards the machine
+    /// and the memo with it (§8), and the node re-announces to the stable
+    /// leader.
+    pub(in crate::replica) fn memo_target(&self) -> Option<NodeId> {
+        let machine = self.reincarnation?;
+        let voting = self
+            .progress
+            .config()
+            .current()
+            .config
+            .weight_of(machine.new)
+            .is_some_and(|weight| weight.0 >= 1);
+        if voting { None } else { Some(machine.new) }
     }
 
     /// The tick-driven continuation (§5, §8): the armed leader re-drives
@@ -215,9 +365,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The bumped node's announcement (§4): `Input::Reincarnate` reports
-    /// the pair and the node sends `Reincarnation(old, new)` to the current
-    /// primary — the one message a non-member is entitled to send (§6's
-    /// ingress rule exempts it; it is the entry ticket).
+    /// the pair and the node sends `Reincarnation(old, own)` to every
+    /// member of the configuration it can still name — the one message a
+    /// non-member is entitled to send (§6's ingress rule exempts it; it is
+    /// the entry ticket). The announcement carries the node's PAST-LIFE
+    /// frontiers — what it had committed and what it had prepared — read
+    /// at the send path from the durable state it reopened with: the
+    /// prepared frontier is the journal view's accepted frontier, the
+    /// committed frontier the published record's (§5 invariant 1 holds
+    /// the pair in agreement at `reopen`). The leader's immediate ack
+    /// pushes exactly the range past them.
     ///
     /// A member already voting at weight ≥ 1 has nothing to announce — a
     /// clean life continues (§2's clean path); the transition is the
@@ -225,7 +382,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// re-announcing to a stable leader (§8) — sends.
     pub(in crate::replica) fn plan_reincarnate(
         &self,
-        _journal: &J::View,
+        journal: &J::View,
         old: NodeId,
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRefusal> {
@@ -239,11 +396,26 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if old == self.own || member.is_some_and(|weight| weight.0 >= 1) {
             return self.drop_plan(Diagnostic::None, kind);
         }
+        let prepared = journal.accepted().unwrap_or(Slot::NONE);
+        let committed = self.progress.committed();
         // Self-announcement: the bumped node IS the current primary. The
         // message would come back to itself; the leader-side handler runs
         // directly.
         if self.progress.status() == Status::Normal && self.primary_of(current) == Some(self.own) {
-            return self.plan_reincarnation(_journal, self.own, old, self.own, kind);
+            let announcement = Message {
+                header: Header {
+                    tag: Tag::Reincarnation,
+                    view: current,
+                    slot: Slot::NONE,
+                },
+                body: Body::Reincarnation {
+                    old,
+                    new: self.own,
+                    committed,
+                    prepared,
+                },
+            };
+            return self.plan_reincarnation(journal, self.own, &announcement, kind);
         }
         // The announcement goes to every member of the configuration the
         // node can still name (§4: the leader acts on it; the backups drop
@@ -273,7 +445,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                         view: current,
                         slot: Slot::NONE,
                     },
-                    body: Body::Reincarnation { old, new: self.own },
+                    body: Body::Reincarnation {
+                        old,
+                        new: self.own,
+                        committed,
+                        prepared,
+                    },
                 },
             })
             .collect();

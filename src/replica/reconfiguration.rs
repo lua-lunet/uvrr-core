@@ -235,6 +235,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // order), an unrepresentable `v'` refusing the proposal outright
         // rather than wrapping the view space.
         let mut recipients: Vec<NodeId> = self.backups();
+        // The memo stream (§7 of `docs/uvrr-reincarnation.md`): the
+        // establishing operation is exactly what the announced standby
+        // must hold, so the memo copy rides the forced step's proposal
+        // as well.
+        if let Some(standby) = self.memo_target() {
+            if !recipients.contains(&standby) {
+                recipients.push(standby);
+            }
+        }
         let mut planned = PlannedOverlapUpdate::Unchanged;
         if let Some(pivot) = pivot {
             let next_record = next_table.current();

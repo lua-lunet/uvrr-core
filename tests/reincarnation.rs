@@ -19,8 +19,9 @@
 //!   and continuation commitment.
 //! * **E** — membership discard: messages from an unknown or superseded
 //!   identity ignored by the leader.
-//! * **F** — the reincarnated weight-0 learner: acquires the era that
-//!   admitted it, cannot influence.
+//! * **F** — the reincarnated weight-0 standby: the memo stream keeps it
+//!   current without a fetch; the §10 self-fetch route pinned separately;
+//!   never votes, cannot influence.
 //! * **G** — mutation negative controls: mutated variants are rejected.
 //!
 //! The old amnesia-era corpus (the classic §4.3 recovery tests) was
@@ -32,6 +33,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{ConfigError, Configuration, INIT_SLOT, SystemOperation, VOID_SLOT};
+use vrr::effects::Effect;
 use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
@@ -469,9 +471,10 @@ fn b_backup_crashed_reincarnates_and_rejoins() {
     assert_eq!(current_weights(&h, n(0)), vec![1, 1, 1]);
     // The superseded identity is gone from every configuration the
     // voting members folded (the rejoined node acquires the streamed
-    // history through the §10 learner acquisition and stays fenced until
-    // its own StartView installs — voting authority is a matter for the
-    // committed `Increment`, which this corpus does not exercise).
+    // history through the memo stream's ack, which lands the missed
+    // range and the establishing prepare before the promotion era
+    // commits — voting authority is a matter for the committed
+    // `Increment`, which this corpus does not exercise).
     for id in [n(0), n(1)] {
         assert!(
             h.era_table(id)
@@ -483,6 +486,191 @@ fn b_backup_crashed_reincarnates_and_rejoins() {
             "{id:?} no longer knows the old identity"
         );
     }
+}
+
+/// The announcement carries the past-life frontiers (§4): every member of
+/// the configuration the bumped node can still name receives it, and the
+/// carried `committed`/`prepared` are what the node's durable journal
+/// recorded when it crashed.
+#[test]
+fn b_announcement_carries_past_life_frontiers() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    let outcome = h.propose(n(0), op_id(1), b"x");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    h.crash(n(2));
+    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
+    let outcome = h.reincarnate(n(3), n(2));
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("the announcement publishes: {outcome:?}");
+    };
+    let mut addressed = Vec::new();
+    for effect in effects {
+        let Effect::Send { to, message, .. } = effect else {
+            panic!("announcement effects are sends: {effect:?}");
+        };
+        assert_eq!(message.header.tag, Tag::Reincarnation);
+        let Body::Reincarnation {
+            old,
+            new,
+            committed,
+            prepared,
+        } = &message.body
+        else {
+            unreachable!("the tag names the body");
+        };
+        assert_eq!(*old, n(2), "the pair the node bumped from");
+        assert_eq!(*new, n(3), "the pair the node bumped to");
+        assert_eq!(*committed, Slot(3), "the past-life committed frontier");
+        assert_eq!(*prepared, Slot(3), "the past-life prepared frontier");
+        addressed.push(to);
+    }
+    addressed.sort();
+    assert_eq!(
+        addressed,
+        vec![n(0), n(1), n(2)],
+        "every member of the configuration the node can name is addressed"
+    );
+    h.assert_safety();
+}
+
+/// The leader crashes mid-sequence (§8): the armed machine and the memo
+/// stream die with its volatile state, the standby's answers keep being
+/// discarded, and the cluster must reach a stable leader before anything
+/// resumes. The standby re-announces to that stable leader, whose first
+/// transition is the full ack: the missed-range push and the armed
+/// machine's next forced step, recomputed from the configuration the
+/// observed eras committed, in ONE transition. The memo'd copy lands and
+/// the standby syncs without a fetch.
+#[test]
+fn b_leader_crash_mid_sequence_memo_dies_and_resumes() {
+    let mut h = Harness::with_knobs(
+        5,
+        vrr::replica::ViewChangeKnobs {
+            primary_timeout: TIMEOUT,
+            view_change_budget: usize::MAX,
+        },
+    );
+    bootstrap(&mut h);
+    let outcome = h.propose(n(0), op_id(1), b"x");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    h.crash(n(4));
+    h.restart_as(n(4), n(5)).expect("the bumped node reopens");
+
+    // The leader acks at once and proposes the first forced step.
+    let outcome = h.reincarnate(n(5), n(4));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_to(n(0));
+
+    // The leader dies before the step lands anywhere: the machine and
+    // the memo die with it. Every datagram the ack had put in flight is
+    // dropped, the standby's included.
+    h.crash(n(0));
+    for id in [n(1), n(2), n(3), n(5)] {
+        h.drop_queued(id);
+    }
+    h.assert_safety();
+    assert_eq!(current_era(&h, n(1)), Era(1));
+    assert_eq!(
+        snap(&h, n(5)).committed,
+        3,
+        "the standby stayed at its past life"
+    );
+
+    // The cluster reaches a stable leader (§8): the surviving voters
+    // n(1), n(2), n(3) form every quorum the era needs.
+    for _ in 0..=TIMEOUT {
+        h.tick(n(1));
+    }
+    h.deliver_all();
+    for id in [n(1), n(2), n(3)] {
+        assert_eq!(status_of(&h, id), Status::Normal, "{id:?} installs");
+        assert_eq!(
+            current_view(&h, id).view,
+            View(1),
+            "{id:?} is in the target"
+        );
+    }
+    h.assert_safety();
+
+    // The memo is dead with the machine: the new leader's own proposal
+    // streams to its configuration's members only, and the standby is
+    // not addressed.
+    let outcome = h.propose(n(1), op_id(2), b"z");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert!(
+        !h.step_trace()
+            .iter()
+            .any(|line| line.contains("n1->n5") && line.contains("Prepare")),
+        "the memo died with the machine"
+    );
+    h.assert_safety();
+
+    // The standby re-announces (§8); the stable leader acks and resumes:
+    // the missed range (the commit it missed) and the armed machine's
+    // next forced step, recomputed from the configuration the observed
+    // eras committed, in ONE transition.
+    let outcome = h.reincarnate(n(5), n(4));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    let outcome = h
+        .deliver_to(n(1))
+        .expect("the re-announce reaches the stable leader");
+    let StepOutcome::Published { effects, .. } = outcome.outcome else {
+        panic!("the ack publishes: {:?}", outcome.outcome);
+    };
+    let Effect::Send { to, message, .. } = &effects[0] else {
+        panic!("the ack's effects are sends: {:?}", effects[0]);
+    };
+    assert_eq!(*to, n(5), "the push is addressed to the standby");
+    assert_eq!(message.header.tag, Tag::NewState);
+    let Body::NewState {
+        entries,
+        through,
+        committed: _,
+        more,
+    } = &message.body
+    else {
+        unreachable!("the tag names the body");
+    };
+    assert_eq!(entries.len(), 1, "exactly the missed slot");
+    assert_eq!(
+        entries[0].slot,
+        Slot(4),
+        "the range starts past the standby's prepared frontier"
+    );
+    assert_eq!(*through, Slot(4));
+    assert!(!(*more));
+    // The recompute's first step is the forced schedule's first batch.
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::Send { message, .. }
+                if message.header.tag == Tag::Prepare
+                    && matches!(
+                        &message.body,
+                        Body::Prepare { entry, .. }
+                            if matches!(
+                                &entry.payload,
+                                vrr::journal::Payload::System(
+                                    SystemOperation::Batch(ops)
+                                ) if *ops == vec![SystemOperation::Double]
+                            )
+                    )
+        )),
+        "the recompute's first step is proposed in the same transition"
+    );
+
+    // The pushed range lands first (§7's order); the standby advances
+    // past its past life without a fetch of its own.
+    h.deliver_all();
+    assert!(
+        snap(&h, n(5)).committed >= 4,
+        "the standby advanced past its past life through the ack's push"
+    );
+    h.assert_safety();
 }
 
 // ---------------------------------------------------------------------------
@@ -818,52 +1006,48 @@ fn e_membership_discard() {
 // F. Learner
 // ---------------------------------------------------------------------------
 
-/// The reincarnated weight-0 learner: it acquires the era that admitted it
-/// through its own fetch (§10's learner acquisition), stays fenced — its
-/// OWN vote is discarded before it is ever counted — and quorum outcomes
-/// complete without it.
+/// The reincarnated weight-0 standby: the memo stream keeps it current.
+/// The ack's missed-range push and every leader-originated prepare and
+/// commit land at it (addressed TO a non-member, §6); it folds the
+/// committed operations they carry, adopts no view and stays fenced —
+/// and its own answers are discarded before they are ever counted. The
+/// §10 self-fetch route stays available but is not needed: no fetch is
+/// opened.
 #[test]
-fn f_learner_acquires_its_admitting_era_and_cannot_influence() {
+fn f_standby_streams_current_without_fetch_and_cannot_influence() {
     let mut h = cluster();
     reincarnate_backup(&mut h, Stop::AfterFirstEra);
-    // The era the join committed awaits the ordinary view change (§8.7.4);
-    // the fence view's recipients are the era that includes the learner,
-    // so the StartView reaches it. The era is one past its boot table
-    // (§10): the ruling retains the offer and fetches the missing range
-    // under the boot view, the leader serves the fetch (the learner is a
-    // member of the leader's current configuration), and the boot-fenced
-    // acquisition folds the era that admitted it — the learner never
-    // voted, adopted nothing, and stays fenced.
-    let _ = drive_view_change(&mut h, &[n(0), n(1)]);
+    // Instant sync without a round trip: the ack's missed-range push and
+    // the memo'd establishing prepare and its commit carried the standby
+    // to the leader's committed frontier. The admitting era folded; the
+    // boot fence is intact (the standby adopted no view).
     assert_eq!(
-        current_era(&h, n(3)),
-        Era(2),
-        "the learner folded the era that admitted it"
+        snap(&h, n(3)).committed,
+        snap(&h, n(0)).committed,
+        "the standby synced to the leader's committed frontier"
     );
+    assert_eq!(current_era(&h, n(3)), Era(2), "the admitting era folded");
     assert_eq!(
         status_of(&h, n(3)),
         Status::Restarting,
-        "the acquisition runs at the boot fence, never voting"
+        "the standby stays fenced; the memo'd stream adopts no view"
     );
-    // The stream arrives and is processed: the prepare from the leader of
-    // a higher view is the staleness signal (§10) — the learner fences
-    // into the advertised view, never installation evidence.
-    let outcome = h.propose(n(1), op_id(2), b"y");
-    assert!(matches!(outcome, StepOutcome::Published { .. }));
-    h.deliver_all();
-    assert_eq!(
-        status_of(&h, n(3)),
-        Status::ViewChange,
-        "the learner fenced into the leader's view"
+    assert!(
+        !h.step_trace()
+            .iter()
+            .any(|line| line.contains("net send n3") && line.contains("GetState")),
+        "no fetch was opened: the §10 self-fetch route is not needed here"
     );
-    // The retained offer re-runs on an ordinary tick (§13.1 step 5): the
-    // fetched era makes it evaluable, the install adopts the view, and
-    // the boot fence is discharged by the fetch the learner opened.
-    h.tick(n(3));
+
+    // The era the join committed awaits the ordinary view change
+    // (§8.7.4); the fence view's recipients are the era that includes the
+    // standby, so the StartView reaches it and installs — the standby,
+    // already current, adopts the view through the ordinary install.
+    let _ = drive_view_change(&mut h, &[n(0), n(1)]);
     assert_eq!(
         status_of(&h, n(3)),
         Status::Normal,
-        "the learner is caught up"
+        "the standby is caught up"
     );
     assert_eq!(current_era(&h, n(3)), Era(2));
 
@@ -884,14 +1068,257 @@ fn f_learner_acquires_its_admitting_era_and_cannot_influence() {
     assert_eq!(
         h.diagnostic(n(1)),
         Some(Diagnostic::LearnerSender { sender: n(3) }),
-        "the learner's vote is discarded by name"
+        "the standby's vote is discarded by name"
+    );
+
+    // The quorum outcome is unaffected: the commit lands on the voting
+    // members alone, and the ordinary stream keeps the standby current.
+    let outcome = h.propose(n(1), op_id(2), b"y");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert!(
+        snap(&h, n(1)).committed >= 4,
+        "the operation committed without the standby"
+    );
+    assert_eq!(
+        snap(&h, n(3)).committed,
+        snap(&h, n(1)).committed,
+        "the standby stayed current through the client commit"
+    );
+    h.assert_safety();
+}
+
+/// The §10 self-fetch route stays available: a boot-fenced standby whose
+/// memo'd stream was lost — the ack's establishing prepare and the commit
+/// it rode both dropped — retains the fence view's StartView offer, fetches
+/// the missing range under its boot view, folds the era that admitted it
+/// through the §10 acquisition, and completes the catch-up through the
+/// ordinary install. It never voted and stays fenced throughout.
+#[test]
+fn f_boot_fetch_route_acquires_the_admitting_era() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    let outcome = h.propose(n(0), op_id(1), b"x");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    h.crash(n(2));
+    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
+    // The announcement reaches the leader; the ack's establishing prepare
+    // (the memo stream's first beat) and the commit it rode are then both
+    // dropped, so the standby's only route back is the fetch it opens
+    // itself (§10).
+    let outcome = h.reincarnate(n(3), n(2));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_to(n(0));
+    h.drop_queued(n(3));
+    h.deliver_all();
+    h.drop_queued(n(3));
+    h.assert_safety();
+    assert_eq!(current_era(&h, n(0)), Era(2), "the forced step committed");
+    assert_eq!(snap(&h, n(3)).committed, 3, "the standby heard nothing");
+
+    // The first forced era awaits the ordinary view change (§8.7.4); the
+    // fence view's recipients are the era that includes the standby, so
+    // the StartView reaches it. The era is one past its boot table (§10):
+    // the ruling retains the offer and fetches the missing range under
+    // the boot view, the leader serves the fetch (the standby is a member
+    // of the leader's current committed configuration), and the boot-fenced
+    // acquisition folds the era that admitted it — the standby never
+    // voted, adopted nothing, and stays fenced.
+    let _ = drive_view_change(&mut h, &[n(0), n(1)]);
+    assert_eq!(
+        current_era(&h, n(3)),
+        Era(2),
+        "the standby folded the era that admitted it through the §10 acquisition"
+    );
+    assert_eq!(
+        status_of(&h, n(3)),
+        Status::Restarting,
+        "the acquisition runs at the boot fence, never voting"
+    );
+
+    // The stream arrives and is processed: the standby, boot-fenced and
+    // outside every configuration it can name, takes the committed
+    // operations the leader-originated stream carries at its boot fence
+    // (§10) — no view adopted, no vote ever counted.
+    let outcome = h.propose(n(1), op_id(2), b"y");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(
+        status_of(&h, n(3)),
+        Status::Restarting,
+        "the standby stays fenced through the stream"
+    );
+
+    // The retained offer re-runs on an ordinary tick (§13.1 step 5): the
+    // fetched era makes it evaluable, the install adopts the view, and
+    // the boot fence is discharged by the fetch the standby opened.
+    h.tick(n(3));
+    assert_eq!(
+        status_of(&h, n(3)),
+        Status::Normal,
+        "the standby is caught up"
+    );
+    assert_eq!(current_era(&h, n(3)), Era(2));
+
+    // Its vote is discarded, named, before counting — the weight is still
+    // 0, so no quorum ever counts it.
+    h.inject(
+        n(3),
+        n(1),
+        Message {
+            header: Header {
+                tag: Tag::PrepareOk,
+                view: current_view(&h, n(1)),
+                slot: Slot(4),
+            },
+            body: Body::PrepareOk {},
+        },
+    );
+    assert_eq!(
+        h.diagnostic(n(1)),
+        Some(Diagnostic::LearnerSender { sender: n(3) }),
+        "the standby's vote is discarded by name"
     );
 
     // The quorum outcome is unaffected: the commit lands on the voting
     // members alone.
     assert!(
         snap(&h, n(1)).committed >= 4,
-        "the operation committed without the learner"
+        "the operation committed without the standby"
+    );
+    h.assert_safety();
+}
+
+/// The leader's immediate ack pushes exactly the missed range (§4, §7):
+/// the standby's past-life prepared frontier sat below the leader's
+/// committed frontier, and the FIRST transition answering the fresh
+/// announcement carries the range as one `NewState` addressed to the
+/// standby, alongside the armed machine's first forced step.
+#[test]
+fn b_ack_pushes_missed_range_and_proposes_first_step_in_one_transition() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    let outcome = h.propose(n(0), op_id(1), b"x");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    // A second operation commits without n(2): its prepare is dropped,
+    // so the reincarnated standby's past-life prepared frontier sits
+    // below the leader's committed frontier.
+    let outcome = h.propose(n(0), op_id(2), b"y");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_to(n(1));
+    h.crash(n(2));
+    h.deliver_to(n(0));
+    h.deliver_to(n(1));
+    h.assert_safety();
+    assert_eq!(current_era(&h, n(0)), Era(1));
+    assert_eq!(snap(&h, n(0)).committed, 4);
+
+    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
+    let outcome = h.reincarnate(n(3), n(2));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    // The FIRST transition answering the fresh announcement: the ack.
+    let outcome = h
+        .deliver_to(n(0))
+        .expect("the announcement reaches the leader");
+    let StepOutcome::Published { effects, .. } = outcome.outcome else {
+        panic!("the ack publishes: {:?}", outcome.outcome);
+    };
+    // The missed range, first in release order (§7's streaming order).
+    let Effect::Send { to, message, .. } = &effects[0] else {
+        panic!("the ack's effects are sends: {:?}", effects[0]);
+    };
+    assert_eq!(*to, n(3), "the push is addressed to the standby");
+    assert_eq!(message.header.tag, Tag::NewState);
+    let Body::NewState {
+        entries,
+        through,
+        committed: _,
+        more,
+    } = &message.body
+    else {
+        unreachable!("the tag names the body");
+    };
+    assert_eq!(entries.len(), 1, "exactly the missed slot");
+    assert_eq!(
+        entries[0].slot,
+        Slot(4),
+        "the range starts past the standby's prepared frontier"
+    );
+    assert_eq!(
+        *through,
+        Slot(4),
+        "the chunk ends at the leader's committed frontier"
+    );
+    assert!(!(*more), "the whole missed range fits one chunk");
+    // The armed machine proposes the first forced step in the SAME
+    // transition: no waiting for an era to commit.
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::Send { message, .. }
+                if message.header.tag == Tag::Prepare
+                    && matches!(
+                        &message.body,
+                        Body::Prepare { entry, .. }
+                            if matches!(
+                                &entry.payload,
+                                vrr::journal::Payload::System(
+                                    SystemOperation::Batch(ops)
+                                ) if *ops
+                                    == vec![
+                                        SystemOperation::Decrement(n(2)),
+                                        SystemOperation::Join {
+                                            node: n(3),
+                                            position: 2
+                                        }
+                                    ]
+                            )
+                    )
+        )),
+        "the first forced step is proposed in the same transition"
+    );
+    // A memo'd copy of that establishing prepare is addressed to the
+    // standby too: the memo stream's first beat.
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::Send { to, message, .. }
+                if *to == n(3)
+                    && message.header.tag == Tag::Prepare
+                    && matches!(
+                        &message.body,
+                        Body::Prepare { entry, .. }
+                            if matches!(
+                                &entry.payload,
+                                vrr::journal::Payload::System(
+                                    SystemOperation::Batch(_)
+                                )
+                            )
+                    )
+        )),
+        "the establishing prepare is memo'd to the standby"
+    );
+
+    // Instant sync: the pushed range alone brings the standby to the
+    // leader's committed frontier, with no fetch of its own.
+    let outcome = h.deliver_to(n(3)).expect("the push delivers");
+    assert!(
+        matches!(outcome.outcome, StepOutcome::Published { .. }),
+        "the push installs: {:?}",
+        outcome.outcome
+    );
+    assert_eq!(
+        snap(&h, n(3)).committed,
+        snap(&h, n(0)).committed,
+        "the standby synced to the leader's committed frontier"
+    );
+    assert!(
+        !h.step_trace()
+            .iter()
+            .any(|line| line.contains("net send n3") && line.contains("GetState")),
+        "no fetch was opened"
     );
     h.assert_safety();
 }
@@ -919,10 +1346,16 @@ fn g_mutation_negative_controls() {
         body: Body::Reincarnation {
             old: n(2),
             new: n(3),
+            committed: Slot(3),
+            prepared: Slot(3),
         },
     };
     let encoded = encode(&message);
-    assert_eq!(encoded.len(), 20 + 9, "header + discriminant + two u32s");
+    assert_eq!(
+        encoded.len(),
+        20 + 1 + 4 + 4 + 8 + 8,
+        "header + discriminant + two u32 identities + two u64 slots"
+    );
 
     // Mutating the body discriminant to a reserved value is malformed.
     let mut mutated = encoded.clone();
@@ -950,6 +1383,8 @@ fn g_mutation_negative_controls() {
         body: Body::Reincarnation {
             old: n(1),
             new: n(2),
+            committed: Slot(2),
+            prepared: Slot(2),
         },
     };
     h.inject(n(1), n(0), forged);
@@ -971,6 +1406,8 @@ fn g_mutation_negative_controls() {
         body: Body::Reincarnation {
             old: n(2),
             new: n(2),
+            committed: Slot::NONE,
+            prepared: Slot::NONE,
         },
     };
     h.inject(n(2), n(0), degenerate);
@@ -989,6 +1426,8 @@ fn g_mutation_negative_controls() {
         body: Body::Reincarnation {
             old: n(2),
             new: n(3),
+            committed: Slot(3),
+            prepared: Slot(3),
         },
     };
     h.inject(n(3), n(1), to_backup);
@@ -1015,6 +1454,8 @@ fn g_reincarnation_round_trip() {
         body: Body::Reincarnation {
             old: n(2),
             new: n(3),
+            committed: Slot(3),
+            prepared: Slot(3),
         },
     };
     let encoded = encode(&message);
