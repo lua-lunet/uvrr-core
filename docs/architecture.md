@@ -142,6 +142,51 @@ its boundary and treats the epoch as stalled until state transfer repairs the lo
 an era change is the lawful repair. The core publishes the named diagnostic and runs
 the fetch; the repair decision is the host's.
 
+## Host obligations for correct running
+
+The core performs no clock reads and opens no sockets; a host carries the
+obligations below. Each is stated as the end state — a host that meets them runs
+the protocol correctly.
+
+### Vocabulary: restarting is not crash recovery
+
+The `Restarting` status is classic VRR-2012 recovery, guarded by a clean shutdown.
+Recovery without a clean shutdown and a full reload of all durable state is not
+admitted: there is no crash-recovery protocol, because there is no crash to recover
+from. A node that lost volatile state is by construction a different node
+(`docs/uvrr-reincarnation.md` §1) and re-enters through reincarnation, not
+recovery. Nothing in the clean stop/start/sync path or the resurrection path may
+deviate from that: clean stop/start/sync runs the ordinary restart (all four
+superblocks read `flushed`), resurrection runs the crash-stop-self-evict sequence.
+
+### Resurrection: the leader's obligations on hearing the announcement
+
+A bumped node announces `(old, new)` to **all** nodes; **only the leader
+responds**, and it does so immediately — before it starts the cluster's forced
+reconfiguration — because the announcement is safe to answer at once: the
+announcer is not a member of the cluster, its messages are discarded by the
+membership-discard check, and its votes are never counted.
+
+- **Immediate ack.** The leader acknowledges the announcement at once and arms
+  the forced sequence without waiting for the first era to commit.
+- **Memo streaming.** From that moment the leader sends all phase-1 and phase-2
+  messages to the resurrected node even though it is not in the cluster, so it
+  stays up to date from the first era of the sequence onward.
+- **Sync from the announcement.** The announcement carries the slot the
+  reincarnated node had committed in its past life and what it had prepared; the
+  leader's ack carries the new era and pushes what the node missed, so it
+  synchronises to the frontier immediately and then stays current by the memo
+  stream.
+
+### The resurrected node's obligations
+
+In this mode the node does not vote. It has to hear that a cluster
+reconfiguration has committed that puts it in the cluster with a non-zero voting
+weight before it will vote. Until then every rule of the membership-discard check
+applies to it in both directions: messages FROM it are discarded, messages TO it
+are fine, and its weight of `0` keeps it out of every quorum. This is what makes
+answering the announcement before the reconfiguration safe.
+
 ## Decision record
 
 Each decision states context, decision, consequence. These are rulings, not proposals.

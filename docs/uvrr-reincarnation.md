@@ -63,10 +63,20 @@ per operation as a flush.
 
 ## 4. Wire message
 
-A new **reincarnation** message carries the pair `(old identity, new identity)`, sent
-by the bumped node to the leader. The leader drives the forced sequence of §5. The
-identity pair (old, new) is the freshness carrier where it meets rung 17's fence
-machinery: it **supersedes** the `generation` ghost field of
+A new **reincarnation** message carries the pair `(old identity, new identity)`,
+sent by the bumped node to **all** nodes. **Only the leader responds**, and it
+responds immediately — before it starts the cluster's forced reconfiguration (§5)
+— with an ack that carries the new era and the state the node missed: the
+announcement names the slot the reincarnated node had committed in its past life
+and what it had prepared, so the leader pushes exactly the missing range and the
+node synchronises to the frontier at once. From the ack onward the leader memo-
+streams all phase-1 and phase-2 messages to the resurrected node even though it
+is not yet in the cluster, so it stays up to date. Answering before the
+reconfiguration is safe because the announcer is a non-member: its messages are
+discarded by §6, and it does not vote until a committed reconfiguration has put
+it in the cluster with a non-zero voting weight. The identity pair (old, new) is
+the freshness carrier where it meets rung 17's fence machinery: it **supersedes**
+the `generation` ghost field of
 `UVRR/RecoveryFence.lean` as the environment freshness abstraction, instantiated by
 the durable superblock incarnation. The RecoveryFence machinery is unaffected;
 rung 17 requires no modification.
@@ -134,12 +144,17 @@ of redelivery.
 
 ## 7. Streaming order
 
-The leader stays live for client requests throughout. It streams, in order:
+The leader stays live for client requests throughout. From its immediate ack (§4)
+it **preemptively streams** to the reincarnated node **as a standby** (weight 0;
+messages TO it fine, FROM it discarded via §6) — all phase-1 and phase-2 messages,
+so the node is current before the sequence reaches its promotion. It streams, in
+order:
 
-1. the **first reconfiguration** (the forced sequence of §5),
-2. then **client traffic**,
-3. and **preemptively streams** to the reincarnated node **as a standby**
-   (weight 0; messages TO it fine, FROM it discarded via §6).
+1. the ack with the missed range (the announcement names the committed slot and
+   the prepared slot of the node's past life),
+2. the **first reconfiguration** (the forced sequence of §5), with the memo
+   stream running alongside,
+3. then **client traffic**.
 
 ## 8. Leader-crash ordering
 
