@@ -55,6 +55,8 @@ check:
 	cargo clippy --all-targets -- -D warnings
 	# The Maelstrom adapter binary is feature-gated; the lane must build it.
 	cargo test --features maelstrom
+	# The uvrr-reconfig operator binary is feature-gated; the lane must build it.
+	cargo test --features "maelstrom cli"
 
 clean-state:
 	rm -rf $(STATE_DIR)

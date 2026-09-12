@@ -152,10 +152,10 @@ fn msrv_is_declared() {
 }
 
 #[test]
-fn feature_table_declares_serde_and_maelstrom() {
+fn feature_table_declares_serde_maelstrom_and_cli() {
     let features = table(MANIFEST, "features").expect("[features] table must exist");
 
-    for required in ["default", "serde", "maelstrom"] {
+    for required in ["default", "serde", "maelstrom", "cli"] {
         let declared = features
             .lines()
             .map(str::trim)
@@ -165,6 +165,32 @@ fn feature_table_declares_serde_and_maelstrom() {
             "[features] must declare `{required}`; found table body:\n{features}"
         );
     }
+}
+
+/// The complete set of permitted optional `[dependencies]`, in sorted order.
+///
+/// Every entry is feature-gated and never reaches a `default-features = false`
+/// consumer; the non-optional gate above is what protects the consumer. The
+/// `cli` operator tool added `clap` deliberately (decision P3 amendment): the
+/// `uvrr-reconfig` binary is the operator interface for reconfiguration plans.
+const OPTIONAL_DEPENDENCY_ALLOWLIST: [&str; 3] = ["clap", "serde", "serde_json"];
+
+#[test]
+fn optional_dependency_set_is_exactly_the_allowlist() {
+    let deps = table(MANIFEST, "dependencies")
+        .expect("[dependencies] table must exist, even if every entry is optional");
+
+    let mut declared: Vec<&str> = deps
+        .lines()
+        .filter(|line| is_dependency_line(line))
+        .map(dependency_name)
+        .collect();
+    declared.sort_unstable();
+    assert_eq!(
+        declared, OPTIONAL_DEPENDENCY_ALLOWLIST,
+        "[dependencies] must name exactly the optional allowlist, every entry \
+         optional; a new entry is a decision, not a convenience"
+    );
 }
 
 #[test]

@@ -64,6 +64,7 @@ pub mod invariant;
 pub mod journal;
 pub mod message;
 pub mod observe;
+pub mod plan;
 pub mod progress;
 pub mod quorum;
 pub mod reconfiguration;
