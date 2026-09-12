@@ -4,7 +4,7 @@
 \usepackage[hidelinks]{hyperref}
 \usepackage{fancyhdr,tikz,graphicx}
 \usetikzlibrary{arrows.meta}
-\hypersetup{pdftitle={Unbounded Viewstamped Replication Revisited for Diskless Strong Consistency},pdfauthor={Simon Massey}}
+\hypersetup{pdftitle={Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation},pdfauthor={Simon Massey}}
 \newcommand{\paperrevision}{RESEARCH CHECKPOINT --- 11 SEPTEMBER 2026}
 \newcommand{\paperversion}{DRAFT}
 \IfFileExists{version.tex}{\input{version.tex}}{}
@@ -20,7 +20,29 @@
 \newcommand{\QI}{\mathcal{Q}^{\mathrm I}}
 \newcommand{\QII}{\mathcal{Q}^{\mathrm {II}}}
 \newcommand{\code}[1]{\texttt{#1}}
-\title{Unbounded Viewstamped Replication Revisited\\for Diskless Strong Consistency}
+% Double-blind experiment warning: repeated verbatim at the top and bottom of
+% the experiments section.
+% Reincarnation weight-transition table. Rows are data: \uwrweightrow{era
+% label}{wA}{wB}{wC}{wD} emits one configuration row inside \uwrweightstable,
+% so further eras or scales are added as rows, not as hand-layout. A weight
+% cell '-' typesets as an en dash --- the identity is not a member of the
+% configuration --- while a numeric cell is a weight, '0' being a standby
+% member; the two stay visually distinct by construction of \uwrweightcell.
+\newcommand{\uwrweightcell}[1]{\ifx-#1\textendash\else#1\fi}
+\newcommand{\uwrweightrow}[5]{#1 & \uwrweightcell{#2} & \uwrweightcell{#3} & \uwrweightcell{#4} & \uwrweightcell{#5} \\}
+\newcommand{\uwrweightstable}[1]{%
+  \begin{tabular}{@{}lcccc@{}}
+  \toprule
+  Era & A & B & C & D\\
+  \midrule
+  #1
+  \bottomrule
+  \end{tabular}}
+\newcommand{\expwarning}{%
+\noindent\fcolorbox{black}{yellow!14}{\parbox{\dimexpr\columnwidth-2\fboxsep-2\fboxrule\relax}{\small
+\textbf{WARNING: THIS WORK HAS NOT BEEN DONE.} The experiments below are
+designs; all numbers and charts are placeholders (marked ``dummy'').}}\par}
+\title{Diskless Viewstamped Replication\\with Unbounded Crash-Stop Reincarnation}
 \author{Simon Massey\thanks{Author draft. Correspondence: simon.massey@stenographer.cloud.}}
 \begin{document}
 \maketitle
@@ -217,6 +239,63 @@ Halve & 0&1&1&1&1&1\\
 
 Each boundary preserves cross-era majority intersection by a unit change or exact scaling. Figure~\ref{fig:overlap} illustrates the three-voter promotion boundary. The addendum~\cite{artifact} gives the arithmetic for both schedules and the general construction of available paths and abstract leader overlaps.
 
+The leader stays live for client requests and drives a forced weight sequence from
+the voting-weights rules \cite{votingweights}: the exiting node's weight goes
+$1\to0$ (a Leave), the new identity joins at weight $0$ (a Join), and the new
+identity goes $0\to1$. Each step
+is a unit-weight change, so the strict majorities of consecutive configurations
+overlap by the unit-change overlap argument and every intermediate era is
+quorum-safe on its own; a leader dying mid-sequence leaves only safe eras that a
+new leader can continue. Table~\ref{tab:reincarnationweights} instantiates the
+sequence at unit weight for the three-voter cluster $A,B,C$ with $B$ the leader
+and $C$ the crashed identity that returns as $D$: the start configuration is
+$(1,1,1,\textendash)$; era~1 drives the leader's batch
+\code{DECREMENT(C)}~+~\code{JOIN(D)}, reaching $(1,1,0,0)$; era~2 drives
+\code{INCREMENT(D)}~+~\code{LEAVE(C)}, reaching $(1,1,\textendash,1)$. In the
+table a \textendash{} is not a weight: it marks an identity that is not a member
+of the configuration in that era, whereas $0$ is the weight of a standby member
+that the cluster still holds in its order --- which the reincarnated node is
+between the two eras while it is streamed preemptively. The old identity $C$ is
+evicted by reincarnation, never a recovered amnesiac. If the sequence
+runs in the doubled scale of a weight-doubling
+plan, the return halve is integral only when all weights are even, so the corner
+sequence inserts one extra unit increment on the new identity before the halve. The
+leader streams the first reconfiguration, then client traffic, and preemptively
+streams to the reincarnated node as a weight-0 standby; messages to it are fine and
+messages from it are discarded by the standard membership check. If the leader crashes,
+the cluster must reach a stable leader before the reincarnated node forces its old
+identity's eviction.
+
+Fig.~\ref{fig:reincarnation} shows this forced sequence as a space-time chart
+drawn in the grammar of Turner's message diagrams \cite{turner}: four
+lifelines $A$, $B$ (the leader), $C$, and $D$, time flowing down; a numbered
+diagonal vector per step; the bold cross where $C$ crashes and is fenced,
+with its dead segment dashed below; the open circle where $D$'s lifeline
+begins; the dashed era-1 separator carrying \code{DECREMENT(C)}~+~\code{JOIN(D)},
+with $D$ joining at weight 0 as a standby and receiving the dashed
+preemptive stream; the era-2 separator carrying \code{INCREMENT(D)}~+~\code{LEAVE(C)},
+with $D$ promoted to weight 1 and $C$ leaving at weight 0; and the forming
+quorum $\{A,B\}$ promised in both eras, so no casting-vote pivot is
+exercised on this path. The chart is rendered from the tracked source
+\code{diagrams/reincarnation.svg}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{diagrams/reincarnation.png}
+\caption{The reincarnation forced sequence.}
+\label{fig:reincarnation}
+\end{figure}
+
+\begin{table}[t]
+\centering\small
+\caption{Reincarnation forced weight sequence.}
+\label{tab:reincarnationweights}
+\uwrweightstable{%
+  \uwrweightrow{start}{1}{1}{1}{-}
+  \uwrweightrow{era 1: \code{DECREMENT(C)}~+~\code{JOIN(D)}}{1}{1}{0}{0}
+  \uwrweightrow{era 2: \code{INCREMENT(D)}~+~\code{LEAVE(C)}}{1}{1}{-}{1}}
+\end{table}
+
 \section{Results}\label{sec:results}
 \subsection{Three-voter warm-up}
 The addendum published with the code~\cite{artifact} provides a Lean theorem that composes an era-based agreement theorem with replacement weights and an abstract identity lifecycle. The work builds upon Turner's P2--P7~\cite{turner}: promises preserve their fences, reports identify prior acceptances, proposals preserve the selected history, and chosen values have quorum evidence. A well-founded total ballot order and the ballot/slot era conditions complete the contract. The addendum states each hypothesis and the exercise that connects operational executions to it.
@@ -252,6 +331,9 @@ A replicated state machine can order acquisition, renewal and expiry decisions o
 \paragraph{A membership authority for another algorithm}
 An application whose bulk algorithm uses gossip or another weaker consistency model may still need one agreed version of cluster membership, ownership assignments or configuration changes. An embedded replicated state machine can supply that authority, while the bulk algorithm disseminates or consumes its decisions.
 
+\paragraph{The configuration as replicated state}
+In the Paxos family the configuration itself is replicated consensus state: Lamport, Malkhi and Zhou define a reconfigurable state machine whose configuration is a state component changed only by an executed reconfiguration command~\cite{reconfig-sm}, and Vertical Paxos instead commits each new configuration to an auxiliary configuration master, which determines the set of acceptors of every configuration~\cite{vertical-paxos}. This design keeps that commitment inside the application: reconfiguration batches commit in the same slot stream as client values.
+
 \paragraph{The CORFU precedent}
 CORFU provides a concrete precedent for compact configuration metadata alongside a larger storage system~\cite{corfu}. Its reconfiguration is patterned after Vertical Paxos; Section 2.5 describes storage units acting as acceptors in a Paxos-like protocol. Section 2.6 estimates that adding 0.1\% writes keeps projection metadata below 25 MB for a 1 TB cluster under an adversarial workload. The described implementation uses a shared network drive for agreed projections.
 
@@ -270,6 +352,252 @@ Tables~\ref{tab:three} and~\ref{tab:weights} replace one voter among three and f
 \paragraph{Meaning of strong consistency}
 The mechanised result is per-slot agreement. A complete service-level linearizability argument also needs ordered execution, appropriate read semantics and a mapping between client operations and log entries. Lease guarantees require the additional conditions stated above.
 
+\section{The demonstration: lunet-locks}\label{sec:demo}
+The demonstration is \code{lunet-locks}, a runnable, fixed-membership
+advisory-lock service. It orders lock requests with \code{vrr-core}, the
+sans-IO Viewstamped Replication Revisited core that accompanies this
+formalisation: one total function maps a tick, an input message, and a state
+to a new state and the messages to send, and the host owns time, transport,
+storage, packetisation, threading, and naming. Clients speak
+newline-delimited JSON over TCP; replicas exchange the core's binary
+datagrams over raw UDP; the service process is LuaJIT and libuv (the Lunet
+runtime, version-pinned and hash-verified), and a small Rust adapter drives
+the core and owns the lock state machine.
+
+\subsection{Components}
+The adapter instantiates the concrete core replica over a segmented log with
+weighted-majority quorums, running volatile stability: protocol state lives
+in quorum memory, an empty journal is provisioned at boot, and the only bytes
+the service ever fsyncs locally are the recovery nonce file. The adapter
+retains the tick clock (a monotonic value clamped against wall-clock
+regression), exactly-once reply correlation keyed by the client's message
+identifier, and guard checks that re-validate every replicated operation
+entry --- in Prepare, DoViewChange, StartView, RecoveryResponse, and NewState
+messages --- against the lock service before the entry reaches the core. The
+Teal/Lunet wrapper owns sockets, TCP framing, peer source validation, and
+forwarding; a UDP peer envelope carrying a membership fingerprint guards the
+fixed membership at the transport boundary, so differently configured
+clusters cannot merge. An append-only lock-event journal, a REST/WebSocket
+feed, and a console are observability only: the journal never participates in
+replication or recovery, and a journal error disables journaling without
+affecting the service path.
+
+\subsection{The rejoin path implemented}
+Every boot enters fenced recovery stamped with a fresh durable nonce. The
+nonce file is updated atomically --- write, fsync, rename, parent-directory
+sync --- and the new value is used as the recovery input's tick, so
+per-node monotonicity holds across the two clock sources. Recovery needs a
+live quorum: a restarted node rejoins from quorum memory, installing the
+latest fenced view's history and re-applying its committed suffix. A rolling
+single-node restart therefore recovers from the surviving members, while a
+simultaneous full-cluster loss forfeits whatever the quorum held, and an
+operator re-bootstrapping a lost cluster must do so only after all
+outstanding leases can no longer be valid.
+
+Membership is fixed for one process lifetime, so the reincarnation eviction
+of Section~\ref{sec:method} --- the forced weight sequence that
+replaces the crashed identity with a new one --- is not exercised by this
+service. What the demonstration implements is the classic recovery boundary
+whose amnesia exposure motivates reincarnation, hardened with durable-nonce
+fencing: the fresh nonce is exactly the freshness ingress that the
+reincarnation design's stale-episode rule realises, and a restarting node can
+never complete recovery with a stale identity stamp. Converting the eviction
+sequence into this service is the next integration step.
+
+\subsection{The lock and lease API}
+The client protocol has three operations, one JSON object per line over TCP.
+Every request carries a message identifier, a stable client identifier, an
+increasing request number, and a lock identifier; retries reuse the exact
+envelope, and replication deduplicates by (client, request number), replaying
+the prior reply.
+\code{get} returns the live lease on a lock, or null.
+\code{set} grants or renews a lease --- a lease identifier, a holder
+identifier, and an expiry --- and a lease is live only when its expiry is
+later than the execution time; an expired candidate is rejected, an absent or
+expired incumbent is free, and a live incumbent may be renewed or replaced
+only by the same holder.
+\code{release} removes a live lease only when both holder and lease
+identifier match, and is idempotent for a missing or expired lease. Lease
+expiry is what makes the diskless design safe to operate: a crashed holder's
+locks free themselves when the lease lapses, without any recovery path
+trusting the holder's lost state.
+
+\subsection{Test and hardening status}
+The service is exercised from several directions: a pure-Teal test suite and
+an FFI-boundary test suite for the lock service and cluster configuration; a
+Cerulean format gate and Cyan type checks; the Rust adapter's checks, tests,
+and release build, which depend on the exact pinned \code{vrr-core} git
+revision fetched over HTTPS; a three-process smoke test covering acquire,
+read, contention, release, reacquisition, expiry takeover, and a one-replica
+restart with a live quorum; and a thirty-second, three-datacentre
+lease-failover simulation that kills the observed lease holder every three
+seconds and verifies takeover within five seconds, exiting nonzero on a
+conflicting holder. The same simulation runs against a stable Docker
+cluster. CI runs on Linux for regular changes and a full platform matrix
+with packaged releases for tagged versions.
+
+It is a working implementation under active hardening and testing, not a
+finished demonstration of the reincarnation protocol.
+
+\section{Experimental results: designs, not measurements}\label{sec:experiments}
+\expwarning
+
+The claim under test is diskless low latency: rejoin through reincarnation
+is faster than paying a forced disk flush at the recovery boundary. The
+decision rule for the campaign: if the measured rejoin latency of E1 is
+slower than the forced-flush baseline of E2 at the same sample count, the
+diskless claim collapses --- if recovery is slower than doing disk flushes,
+nothing has been achieved. The system under test for all four designs is the
+\code{lunet-locks} demonstration of Section~\ref{sec:demo}; every number
+below is the placeholder $\mathrm{xxxx}$, to be filled at run time.
+
+\subsection{E1: node-kill rejoin latency}
+The design kills one voting node that is not the leader, rotated across all
+non-leader voting nodes of the three-datacentre \code{lunet-locks} cluster,
+for $k=\mathrm{xxxx}$ kill/rejoin cycles, with continuous competing lock
+traffic at the lease cadence throughout. Each iteration begins only after
+the previous rejoin has completed serving and a soak interval has elapsed,
+so no measurement is contaminated by the previous one. For each iteration
+the harness waits for steady state, kills the node's process --- Crash-Stop:
+volatile state lost, the node is by construction a different node on reopen
+--- and the iteration ends when the reincarnated node has rejoined as a
+weight-0 standby, been walked back to voting weight by the leader's forced
+sequence, and is again a voting, serving replica. The metric is the
+kill-to-rejoin-serving latency, one sample per iteration: p50
+$\mathrm{xxxx}$~ms, p90 $\mathrm{xxxx}$~ms, p99 $\mathrm{xxxx}$~ms, max
+$\mathrm{xxxx}$~ms, mean $\mathrm{xxxx}$~ms, and the count of eras and view
+changes consumed per rejoin, $\mathrm{xxxx}$. Fig.~\ref{fig:e1} shows the
+designed chart: kill iteration on the horizontal axis, rejoin-serving
+latency on the vertical axis, one series per milestone of the forced
+sequence (standby rejoin at weight 0, voting again at weight 1). No data
+points exist yet; the chart is watermarked ``dummy''.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=0.9cm]
+\draw[gray!45,opacity=0.85,rotate around={38:(1.9,1.4)}] (1.9,1.4)
+ node[font=\fontsize{26}{26}\selectfont\bfseries,text=gray]{dummy};
+\draw[-{Stealth},thick] (0,0) -- (4.1,0) node[anchor=west,font=\scriptsize]{kill iteration $1\ldots k$};
+\draw[-{Stealth},thick] (0,0) -- (0,3.1) node[anchor=south,font=\scriptsize,rotate=90]{rejoin-serving latency (ms)};
+\foreach \xx in {0.8,1.6,2.4,3.2}{\draw (\xx,0.05) -- (\xx,-0.05) node[anchor=north,font=\tiny,text=gray]{xxxx};}
+\foreach \yy in {0.8,1.6,2.4}{\draw (0.05,\yy) -- (-0.05,\yy) node[anchor=east,font=\tiny,text=gray]{xxxx};}
+\draw[thick,black!60,dash pattern=on 3pt off 2pt] (0.6,2.7) -- (1.4,2.7);
+\node[anchor=west,font=\scriptsize] at (1.45,2.7) {standby rejoin (weight 0)};
+\draw[thick,black!60] (0.6,2.35) -- (1.4,2.35);
+\node[anchor=west,font=\scriptsize] at (1.45,2.35) {voting again (weight 1)};
+\end{tikzpicture}
+\caption{E1: node-kill rejoin latency.}
+\label{fig:e1}
+\end{figure}
+
+\subsection{E2: disk modes at the recovery boundary}
+What does the diskless default save, in latency, against paying a forced
+flush at the recovery boundary? The design builds custom \code{lunet-locks}
+binaries, identical in every respect other than the durability behaviour at
+the recovery boundary --- the point at which a reincarnating node durably
+records state before rejoining serving:
+\begin{itemize}
+\item \emph{Diskless (the default).} No durable writes at the recovery
+boundary; quorum memory is the only protocol state, and the recovery nonce
+file remains as shipped.
+\item \emph{Naive single write (the latency baseline).} One 4~KiB block
+write followed by \code{fsync} at the recovery boundary. Per the FAST'18
+finding \cite{diskless}, even a single write plus \code{fsync} is not
+fault-safe against real disk faults; the variant is the latency baseline
+only, never a safety claim.
+\item \emph{Double-ring write.} A TigerBeetle-style double write at the
+recovery boundary: one 4~KiB block of data plus a checksum header to the
+first WAL ring, then the header and checksum with no payload to the second
+WAL ring, the two rings spaced apart in separate 4~KiB-sector-aligned zones
+so the two checksum copies sit in different erasure blocks. Both flush
+variants carry fake data only, with no read-back: they measure
+write-and-flush latency and never reconstruct state from what was written.
+\end{itemize}
+Each variant runs E1's procedure exactly, $k=\mathrm{xxxx}$ iterations per
+variant, cold counts. The metrics are the kill-to-rejoin-serving
+distribution per variant (percentiles as in E1) and, for the flush
+variants, the recovery-boundary flush latency itself per iteration. The
+planned report is the rejoin-latency delta: diskless median
+$\mathrm{xxxx}$~ms, naive-flush median $\mathrm{xxxx}$~ms, double-ring
+median $\mathrm{xxxx}$~ms, with tail figures $\mathrm{xxxx}$~ms at the ninth
+decile. The delta is the utility test: if reincarnation is slower than the
+forced flush, the diskless design has achieved nothing.
+Fig.~\ref{fig:e2} shows the designed chart: node restart event on the
+horizontal axis, rejoin-serving latency on the vertical axis, one series per
+build (diskless default, naive single write, double-ring write). No data
+points exist yet; the chart is watermarked ``dummy''.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=0.9cm]
+\draw[gray!45,opacity=0.85,rotate around={38:(1.9,1.4)}] (1.9,1.4)
+ node[font=\fontsize{26}{26}\selectfont\bfseries,text=gray]{dummy};
+\draw[-{Stealth},thick] (0,0) -- (4.1,0) node[anchor=west,font=\scriptsize]{node restart event};
+\draw[-{Stealth},thick] (0,0) -- (0,3.1) node[anchor=south,font=\scriptsize,rotate=90]{rejoin-serving latency (ms)};
+\foreach \xx in {0.8,1.6,2.4,3.2}{\draw (\xx,0.05) -- (\xx,-0.05) node[anchor=north,font=\tiny,text=gray]{xxxx};}
+\foreach \yy in {0.8,1.6,2.4}{\draw (0.05,\yy) -- (-0.05,\yy) node[anchor=east,font=\tiny,text=gray]{xxxx};}
+\draw[thick,black!60,dash pattern=on 3pt off 2pt] (0.6,2.75) -- (1.4,2.75);
+\node[anchor=west,font=\scriptsize] at (1.45,2.75) {diskless default};
+\draw[thick,black!60,dotted] (0.6,2.45) -- (1.4,2.45);
+\node[anchor=west,font=\scriptsize] at (1.45,2.45) {naive single write};
+\draw[thick,black!60] (0.6,2.15) -- (1.4,2.15);
+\node[anchor=west,font=\scriptsize] at (1.45,2.15) {double-ring write};
+\end{tikzpicture}
+\caption{E2: disk modes at the recovery boundary.}
+\label{fig:e2}
+\end{figure}
+
+\subsection{E3: Maelstrom brute force at three and five nodes}
+Does reincarnation hold consistency under brute-force fault injection? Jepsen's Maelstrom drives the cluster under its fault
+profile with reincarnation as the failure model: node crashes with
+volatile-state loss --- the crashed node reincarnates rather than
+crash-recovers --- plus partitions, with a Maelstrom adapter fronting the
+lock service as a compare-and-set register and competing lock clients at
+the lease cadence. The design runs the fault profile at three nodes, then
+at five, $\mathrm{xxxx}$ runs per cluster size. Three checks decide each
+run: Maelstrom's linearizability check passes over the register --- no
+committed operation is lost, and no node rejoins under its old identity to
+overwrite a newer decision; every killed node reincarnates and rejoins
+serving, with no run ending in a permanently lost node; and no read ever
+reports two holders, expiry being judged only in the leader's clock. All
+figures $\mathrm{xxxx}$. A passing campaign supports the case that
+reincarnation eliminates the FAST'18 weakness: consistency under crash with
+successful rejoin, by construction rather than by recovery.
+
+\subsection{E4: cloud repetition}
+E1 and E2 are repeated on commodity cloud virtual machines, the six-node
+cluster laid out over three regions, two machines each --- the
+correlated-infrastructure setting that weighted configurations address.
+Variables, procedure, metrics, and sample counts are E1's and E2's
+unchanged; only the environment differs. The planned report records
+$\mathrm{xxxx}$ kills per configuration and zone-crossing medians of
+$\mathrm{xxxx}$~ms (E1) and $\mathrm{xxxx}$~ms (E2), with $\mathrm{xxxx}$
+availability incidents. Fig.~\ref{fig:e4} shows the designed chart:
+experiment on the horizontal axis (E1 rejoin, E2 flush delta), latency on
+the vertical axis, one series per deployment (local cluster, cloud
+machines). No data points exist yet; the chart is watermarked ``dummy''.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=0.9cm]
+\draw[gray!45,opacity=0.85,rotate around={38:(1.9,1.4)}] (1.9,1.4)
+ node[font=\fontsize{26}{26}\selectfont\bfseries,text=gray]{dummy};
+\draw[-{Stealth},thick] (0,0) -- (4.1,0) node[anchor=west,font=\scriptsize]{experiment (E1 rejoin, E2 flush delta)};
+\draw[-{Stealth},thick] (0,0) -- (0,3.1) node[anchor=south,font=\scriptsize,rotate=90]{latency (ms)};
+\foreach \xx in {1.0,2.2,3.4}{\draw (\xx,0.05) -- (\xx,-0.05) node[anchor=north,font=\tiny,text=gray]{xxxx};}
+\foreach \yy in {0.8,1.6,2.4}{\draw (0.05,\yy) -- (-0.05,\yy) node[anchor=east,font=\tiny,text=gray]{xxxx};}
+\draw[thick,black!60,dash pattern=on 3pt off 2pt] (0.6,2.7) -- (1.4,2.7);
+\node[anchor=west,font=\scriptsize] at (1.45,2.7) {local cluster};
+\draw[thick,black!60] (0.6,2.35) -- (1.4,2.35);
+\node[anchor=west,font=\scriptsize] at (1.45,2.35) {cloud machines, three regions};
+\end{tikzpicture}
+\caption{E4: cloud repetition of E1 and E2.}
+\label{fig:e4}
+\end{figure}
+
+\expwarning
+
+
 \section{Related Work}\label{sec:related}
 Viewstamped Replication introduced the organisation of replication around views and a primary~\cite{vr}; VRR revisits that organisation and separates normal operation, view change, recovery and reconfiguration~\cite{vrr}. Michael \emph{et al.} identify the failure of diskless recovery to preserve view-change commitments and construct virtual stable storage~\cite{diskless}. uVRR takes a different route: it makes a crash final for the old identity, then brings the process back as a new member through reconfiguration. The replacement schedule connects that lifecycle to agreement across configurations.
 
@@ -287,6 +615,14 @@ Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters
 \bibitem{etcd-guarantees} etcd authors, ``etcd API guarantees,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/learning/api_guarantees/}
 \bibitem{etcd-hardware} etcd authors, ``Hardware recommendations,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/op-guide/hardware/}
 \bibitem{etcd-embed} etcd authors, ``Embedding etcd in a Go application,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/dev-guide/golang_embed_pkg/}
+\bibitem{netdisk} simbo1905, ``The network is faster than the disk,'' 12 April
+2024, accessed 7 September 2026.
+\url{https://simbo1905.wordpress.com/2024/04/12/the-network-is-faster-than-the-disk/}
+\bibitem{votingweights} simbo1905, ``Paxos Voting Weights,'' 16 March 2017,
+accessed 7 September 2026.
+\url{https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/}
+\bibitem{reconfig-sm} L. Lamport, D. Malkhi, and L. Zhou, ``Reconfiguring a state machine,'' \emph{ACM SIGACT News}, vol. 41, no. 1, pp. 63--73, 2010, doi: \href{https://doi.org/10.1145/1753171.1753191}{10.1145/1753171.1753191}.
+\bibitem{vertical-paxos} L. Lamport, D. Malkhi, and L. Zhou, ``Vertical Paxos and primary-backup replication,'' in \emph{Proc. 28th ACM Symp. Principles of Distributed Computing (PODC)}, 2009, pp. 312--313, doi: \href{https://doi.org/10.1145/1582716.1582783}{10.1145/1582716.1582783}.
 \bibitem{artifact} S. Massey, ``uVRR code and proof addendum,'' 2026. [Online]. Available: \url{https://github.com/lua-lunet/uvrr-core}
 \bibitem{lean4} L. de Moura and S. Ullrich, ``The Lean 4 theorem prover and programming language,'' in \emph{Automated Deduction -- CADE 28}, 2021, pp. 625--635, doi: \href{https://doi.org/10.1007/978-3-030-79876-5_37}{10.1007/978-3-030-79876-5\_37}.
 \end{thebibliography}
