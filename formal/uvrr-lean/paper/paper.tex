@@ -43,8 +43,8 @@ and halving. A constructive Rust solver also computes paths between arbitrary
 weighted-majority configurations with an available majority at each endpoint.
 The Lean development proves weighted reachability and a phantom-identity
 casting-vote construction, alongside agreement and identity exclusion for a
-simplified replacement instantiation. Appendix B separates these contracts
-and presents executable checks.
+three-voter warm-up and a five-voter replacement. The addendum published
+with the code separates the proof contracts and executable checks.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -92,12 +92,12 @@ next prepare quorum, it can withhold its own promise while collecting the others
 The active quorum remains usable during that preparation; the leader completes
 the handover with its own local promise.
 We use this leader overlap to organise reincarnation.
-For five unit-weight voters, the runtime schedule has six committed batches,
-including exact doubling and halving. The simplified two-batch instantiation
-retained for the concrete lifecycle theorem is stated separately in Appendix A.
-Appendix B supplies a general configuration-path constructor and an abstract
-casting-vote completion using fresh identities. Turner's agreement argument
-supplies the basis for composing safe adjacent configuration boundaries.
+For three unit-weight voters, replacement takes two committed batches.
+For five, the weighted schedule has six, including exact doubling and halving.
+The addendum published with the code~\cite{artifact} gives the proof ladder,
+a general configuration-path constructor and an abstract casting-vote
+completion using fresh identities. Turner's agreement argument supplies the
+basis for composing safe adjacent configuration boundaries.
 
 Together, these ideas retain VRR's diskless normal path while giving failed
 members a route back through fresh identities.
@@ -109,11 +109,11 @@ Its normal replication need not wait for a disk flush or batch updates to
 amortise one.
 
 Section~\ref{sec:method} develops the lifecycle and leader-overlap construction.
-Section~\ref{sec:results} gives the five-voter schedule and its Lean proof of
-per-slot agreement from the protocol's history invariants, together with the
-replacement weights, exclusion of the evicted voter and identity nonreuse.
-Section~\ref{sec:discussion} develops the metadata applications, and the appendix
-sets out the mathematical hypotheses and verification evidence.
+Section~\ref{sec:results} starts with three-voter Crash-Stop-Reincarnation
+and extends the argument to five voters, stating the history invariants needed
+for agreement, exclusion of the evicted voter and identity nonreuse.
+Section~\ref{sec:discussion} develops the metadata applications; the accompanying
+addendum gives the mathematical working and verification evidence.
 The name ``unbounded'' follows Turner's treatment of pipelining through
 reconfiguration: agreement does not depend on a fixed bound on outstanding slots.
 
@@ -159,9 +159,9 @@ Decision quorums follow the era of the \emph{slot}, not simply the era associate
 \begin{figure*}[t]
 \centering
 \begin{tikzpicture}[x=1cm,y=1cm,>=Stealth,font=\small]
-\node at (0,0.45) {$\{n_1,n_2\}$};
-\node at (5,0.45) {leader $\ell=n_3$};
-\node at (10,0.45) {$\{n_4,n_5\}$};
+\node at (0,0.45) {survivor $n_2$};
+\node at (5,0.45) {leader $\ell=n_1$};
+\node at (10,0.45) {replacement $n_3$};
 \foreach \x in {0,5,10} {\draw[gray] (\x,0)--(\x,-5.35);}
 \draw[->] (5,-0.25)--node[above,sloped]{prepare $b'$; own promise withheld}(10,-0.9);
 \draw[->] (5,-1.05)--node[above,sloped]{continue proposals at $b$}(0,-1.7);
@@ -170,12 +170,30 @@ Decision quorums follow the era of the \emph{slot}, not simply the era associate
 \node[draw,fill=white,align=center,inner sep=4pt] at (5,-3.95) {choose suffix $k$; promise locally\\phase one complete};
 \draw[->] (5,-4.5)--node[above,sloped]{proposals at $b'$}(10,-5.15);
 \end{tikzpicture}
-\caption{Leader overlap in the simplified Appendix A schedule at $E_1\rightarrow E_2$: $q=\{n_1,n_2,n_3\}$ and $q'=\{n_3,n_4,n_5\}$. Original schematic of Turner's casting-vote construction~\cite{turner}, specialised to the replacement schedule. Time runs downwards without a scale. Group arrows represent messages to each member; acceptance replies, state transfer and unrelated traffic are omitted.}
+\caption{Three-voter leader overlap at $E_1\rightarrow E_2$: $q=\{n_1,n_2\}$ and $q'=\{n_1,n_3\}$. Each side outside the leader is a one-node minority. Original schematic of Turner's casting-vote construction~\cite{turner}. Time runs downwards without a scale; acceptance replies, state transfer and unrelated traffic are omitted.}
 \label{fig:overlap}
 \end{figure*}
 
-\subsection{Replacing one of five voters}
-Let $n_0$ be the failed incarnation, $n_1,\ldots,n_4$ the other original voters, and $n_5$ its fresh replacement. Table~\ref{tab:weights} gives all six committed boundaries of the five-voter weighted replacement. A join inserts the replacement at zero weight before its first increment; a leave removes the old identity after its final decrement. The three-voter unit-weight case uses two batches. These are distinct schedules, both covered by the Rust tests.
+\subsection{Three voters, then five}
+Table~\ref{tab:three} is the warm-up: $n_0$ is the failed incarnation, $n_1,n_2$ survive, and $n_3$ is the fresh replacement. A join inserts a zero-weight identity; an increment grants its voting weight. A leave removes the old identity after its weight reaches zero.
+
+\begin{table}[t]
+\centering
+\caption{Three-voter Crash-Stop-Reincarnation: two committed batches. Zero denotes voting weight, including absent identities.}
+\label{tab:three}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Stage & $n_0$ & $n_1$ & $n_2$ & $n_3$\\
+\midrule
+Initial & 1&1&1&0\\
+Decrement, join & 0&1&1&0\\
+Increment, leave & 0&1&1&1\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For five original voters, $n_0$ is replaced by $n_5$ while $n_1,\ldots,n_4$ survive. Table~\ref{tab:weights} gives the complete six-batch weighted schedule. Both schedules are exercised by the Rust tests.
 
 \begin{table}[t]
 \centering
@@ -197,28 +215,32 @@ Halve & 0&1&1&1&1&1\\
 \end{tabular}
 \end{table}
 
-Each boundary preserves cross-era majority intersection by a unit change or exact scaling. Figure~1 depicts the pivot of the simplified agreement instantiation retained in Appendix~\ref{app:proof}; it is not a diagram of all six weighted boundaries. A failed witness for a particular pair of quorum sets does not establish failure of reconfiguration reachability. Appendix~\ref{app:solver} constructs paths with an available majority and shows how fresh logical identities supply an abstract singleton leader intersection. Membership weight and receipt of a protocol message remain distinct quantities.
+Each boundary preserves cross-era majority intersection by a unit change or exact scaling. Figure~\ref{fig:overlap} illustrates the three-voter promotion boundary. The addendum~\cite{artifact} gives the arithmetic for both schedules and the general construction of available paths and abstract leader overlaps.
 
 \section{Results}\label{sec:results}
-\subsection{The agreement result}
-The final Lean theorem composes an era-based agreement theorem with the concrete replacement weights and an abstract identity lifecycle. Its contract assumes a well-founded total ballot order, a ballot-to-era map monotone in ballot order, the required ballot/slot era bound, and the history invariants corresponding to Turner's P2--P7~\cite{turner}. Appendix~\ref{app:proof} states the assumptions and reproduction procedure. Those invariants constrain promises, reports of prior acceptances, phase-one justification and value selection, acceptance of proposals, and quorum evidence for a chosen value. The theorem derives quorum intersection from the weight schedule.
+\subsection{Three-voter warm-up}
+The addendum published with the code~\cite{artifact} provides a Lean theorem that composes an era-based agreement theorem with replacement weights and an abstract identity lifecycle. The work builds upon Turner's P2--P7~\cite{turner}: promises preserve their fences, reports identify prior acceptances, proposals preserve the selected history, and chosen values have quorum evidence. A well-founded total ballot order and the ballot/slot era conditions complete the contract. The addendum states each hypothesis and the exercise that connects operational executions to it.
 
-\begin{theorem}[Five-voter replacement]\label{thm:replacement}
-For a history whose phase-one and phase-two quorum families follow the simplified Table~\ref{tab:agreementweights}, assuming the ballot-order, era and history conditions above, any two values chosen for the same slot are equal. In $E_1$, both the failed identity and its replacement have zero weight; in $E_2$, the failed identity has zero weight and its replacement has unit weight. From completion of the crossing era onwards, the old identity has no voting weight in any continuation of the forced configuration run. Separately, along an identity run satisfying the formal lifecycle transitions, an identity that has been superseded by a bump is never again the current identity.
+\begin{theorem}[Three-voter Crash-Stop-Reincarnation]\label{thm:three}
+For a history using Table~\ref{tab:three}, under the stated order, era and history conditions, any two values chosen for the same slot are equal. The first batch reduces the failed identity to zero voting weight and admits the fresh identity at zero; the second grants the fresh identity unit weight. The retired identity remains without voting authority when subsequent configurations preserve its exclusion. Along the stipulated identity lifecycle, a superseded identity never becomes current again. In a unit-weight three-voter configuration, any leader has a casting vote between two equal one-node minorities; at the promotion boundary, the surviving leader is the singleton overlap shown in Figure~\ref{fig:overlap}.
 \end{theorem}
 
 \begin{proof}
-The strict-majority construction and one-unit boundaries establish the within-era and adjacent-era quorum intersections~\eqref{eq:same}--\eqref{eq:adjacent}, together with quorum nonemptiness. Instantiating the era-based agreement theorem with those families establishes equality of chosen values under the supplied history invariants. Evaluation of the concrete configurations establishes the stated weights. The eviction invariant preserves zero weight for the old identity along the forced run. The identity lifecycle transitions preserve monotonic identity growth, excluding a superseded identity from becoming current again.
+The totals in Table~\ref{tab:three} are $3,2,3$, so the majority thresholds are $2,2,2$. Each boundary changes one weight by one; the integral weighted-overlap argument gives the within-era and adjacent-era intersections. Turner's agreement theorem applies to those intersections and P2--P7. The two commands establish the stated weights, and identity fencing supplies nonreuse. At the promotion boundary, $\{n_1,n_2\}$ and $\{n_1,n_3\}$ meet only at leader $n_1$; their nonleader members form the two minorities. The leader can collect the replacement's promise while withholding its own. The addendum gives the complete three-node working, including the abstract witness at the first boundary and the state-acquisition obligation.
 \end{proof}
 
-The leader-overlap lemmas establish that preparing members outside the active quorum preserves that quorum's guards, and that adding the leader's promise completes the prospective phase-one quorum.
+\subsection{Five-voter extension}
+With all five unit voters responding, a leader has the casting pair $\{\ell,a,b\}$ and $\{\ell,c,d\}$. After one voter fails, obtaining the corresponding responding split requires more care. The mechanical transformations in Table~\ref{tab:weights} organise the weighted replacement while preserving the agreement invariant; the addendum supplies their safety argument and the distinction between abstract witnesses and protocol receipts.
 
-\subsection{Evidence and reproduction}
-The Lean 4 project is archived at repository commit \code{352b0bf}~\cite{artifact}, extended here by adding the existing eviction invariant to the final conjunction. It uses Lean~4 version~4.33.1~\cite{lean4} without Mathlib. The source directory is \path{formal/uvrr-lean/UVRR/}. The weighted intersection, era agreement, casting-vote and simplified five-voter modules supply the components of Theorem~\ref{thm:replacement}. Its final statement is \path{ReincarnationSafety.five_safe}, in \path{ReincarnationSafety.lean}, importing \path{ReincarnationAgreement.lean}.
+\begin{theorem}[Five-voter Crash-Stop-Reincarnation]\label{thm:replacement}
+For a history using Table~\ref{tab:weights}, under the same order, era and P2--P7 conditions, any two values chosen for the same slot are equal. After the fourth batch the old identity has zero weight; after the sixth the replacement and all four survivors have unit weight. Preserving exclusion in subsequent configurations and enforcing the identity lifecycle retain the old identity's retirement.
+\end{theorem}
+\begin{proof}
+Doubling and exact halving preserve the majority family. Each of the four intervening boundaries changes one unit of voting mass. The same local intersection argument therefore applies six times. Induction over these boundaries establishes the era intersection invariant, and Turner's theorem gives agreement. Evaluation of the commands gives the stated final weights.
+\end{proof}
 
-From \code{formal/uvrr-lean}, run \code{lake build} and \code{python3 check\_axioms.py}. The checked baseline's axiom audit covers 355 declarations and permits only Lean's standard logical axioms; it rejects proof holes and custom axioms. The recorded rung-26 evidence also exercises a negative control that tries to give the replacement voting weight in $E_1$. Its failure checks that particular erroneous claim. The repository contains the proof-generation transcript; generated proof terms are checked by Lean, and the generator is not part of the trusted proof checker.
-
-Theorem~\ref{thm:replacement} covers the simplified two-batch instantiation with its final configuration retained thereafter. Appendix~\ref{app:solver} supplies the general weighted reachability result and the runtime solver contract. The general weighted-intersection lemmas have broader scope than this instantiation.
+\subsection{Evidence}
+The addendum~\cite{artifact} maps these arguments to Lean~4~\cite{lean4}, bounded exhaustive enumeration, Rust property tests and protocol tests. It includes the existing specialised machine theorem's precise scope, the general lemmas used above, and the reproduction commands. Configuration reachability, abstract casting witnesses and the operational history contract are stated separately so each result can be checked at its own layer.
 
 \section{Discussion}\label{sec:discussion}
 \subsection{Applications}
@@ -240,10 +262,10 @@ A separately operated service also brings deployment and resource costs. For sca
 
 \subsection{Scope}
 \paragraph{Implementation correspondence}
-The final theorem assumes protocol-history invariants. Their composition with the era-changing operational model is left as an exercise to the reader, as specified in Appendix~\ref{app:proof}. The appendix also identifies the corresponding implementation obligations: clean-stop classification, identity fencing and state transfer before voting.
+The theorems assume protocol-history invariants. Their composition with the era-changing operational model is left as an exercise to the reader. The addendum~\cite{artifact} makes that exercise verifiable by stating its mapping, base case and preservation obligations, including clean-stop classification, identity fencing and state transfer before voting.
 
 \paragraph{Scope and availability}
-Table~\ref{tab:weights} replaces one unit-weight voter among five. Appendix~\ref{app:solver} constructs schedules for arbitrary weighted-majority endpoints with available majorities. A higher ballot, an unavailable leader or insufficient surviving voters can interrupt progress. Fresh identities permit repeated replacement in the design; the theorem covers the displayed schedule.
+Tables~\ref{tab:three} and~\ref{tab:weights} replace one voter among three and five respectively. The addendum constructs paths between arbitrary weighted-majority endpoints with available majorities. Agreement follows from the history contract; progress additionally uses available recipients and a stable leader. Fresh identities permit repeated replacement while each committed boundary preserves the invariant.
 
 \paragraph{Meaning of strong consistency}
 The mechanised result is per-slot agreement. A complete service-level linearizability argument also needs ordered execution, appropriate read semantics and a mapping between client operations and log entries. Lease guarantees require the additional conditions stated above.
@@ -253,151 +275,6 @@ Viewstamped Replication introduced the organisation of replication around views 
 
 Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters} supplies the central quorum geometry, era-based agreement argument and casting-vote construction~\cite{turner}. Withholding the leader's own promise is Turner's mechanism. The present work applies it to reincarnation, proves weighted configuration reachability and an abstract casting-vote completion, and proves agreement for a concrete replacement instantiation from the protocol's history invariants. The application discussion places this design alongside coordination services and CORFU, using their stated semantics and resource context.
 
-
-\appendices
-\section{Proof structure, hypotheses and executable checks}\label{app:proof}
-This appendix separates the mathematical argument, its mechanised components, and the obligations supplied as hypotheses. The term UPaxos below refers to Turner's paper~\cite{turner}. The weighted-intersection and rescaling results follow from UPaxos Appendix~A.
-
-\begin{table}[t]
-\centering
-\caption{Simplified two-batch agreement instantiation. A zero records voting weight, not whether a zero-weight membership record is present.}
-\label{tab:agreementweights}
-\begin{tabular}{lrrrrrr}
-\toprule
-Era & $n_0$ & $n_1$ & $n_2$ & $n_3$ & $n_4$ & $n_5$\\
-\midrule
-$E_0$ & 1&1&1&1&1&0\\
-$E_1$ & 0&1&1&1&1&0\\
-$E_2$ & 0&1&1&1&1&1\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Weighted overlap, doubling and halving}
-Let $N$ be a finite set of identities, with nonnegative integral weight functions $w,v$. Write $W=\sum_{n\in N}w(n)$, $V=\sum_{n\in N}v(n)$ and $w(q)=\sum_{n\in N\cap q}w(n)$. A strict majority has $2w(q)>W$.
-\begin{lemma}[Scaled overlap, UPaxos]\label{lem:scaled}
-If positive integers $a,b$ satisfy
-\begin{equation}
-\sum_{n\in N}|a w(n)-b v(n)|\leq 1,
-\label{eq:scaled}
-\end{equation}
-then every strict majority under $w$ intersects every strict majority under $v$.
-\end{lemma}
-\begin{proof}
-Positive scaling preserves strict majority. Suppose majorities $q,r$ are disjoint. Summing the nodewise disjointness bound gives
-\begin{equation}
-2a w(q)+2b v(r)\leq aW+bV+\sum_{n\in N}|a w(n)-b v(n)|.
-\label{eq:bound}
-\end{equation}
-Since all quantities are integral, the two strict majority inequalities make the left side at least $aW+bV+2$. Equations~\eqref{eq:scaled} and~\eqref{eq:bound} contradict that bound. The Lean declarations are \path{WeightedGeneral.disjoint_bound} and \path{WeightedGeneral.scaled_overlap}.
-\end{proof}
-
-Taking $a=b=1$ gives the one-unit change rule. Exact rescaling makes the distance zero: doubling all weights preserves the majority family, as does exact halving when all weights are even. Thus these transformations preserve the required intersections. Arbitrary rounding during halving is not covered by this argument. Lean provides \path{majority_scale} and \path{scaled_equal_overlap} in the same module. Appendix~\ref{app:solver} applies these local closure results to arbitrary finite weighted paths; the concrete lifecycle conjunction below retains its stated two-batch instantiation.
-
-\subsection{Hypotheses of the agreement theorem}
-For each slot $i$ and ballot $b$, let $e(i)$ and $e(b)$ be their eras. The contract of \path{ReincarnationSafety.five_safe} supplies:
-\begin{enumerate}
-\item A well-founded strict total ballot order, with $e(b)$ monotone in that order. A proposed value satisfies $e(b)\leq e(i)$.
-\item Both quorum families equal the strict-majority family of the displayed $E_0,E_1,E_2$ sequence, with $E_2$ retained afterwards.
-\item P2--P3: a free promise for a ballot excludes lower-ballot acceptances for that slot.
-\item P4: a promise reporting a prior acceptance reports the greatest acceptance below its ballot.
-\item P5: a proposal is justified by a phase-one quorum at its ballot era; if that quorum reports prior values, the proposal selects the value at a maximal reported ballot.
-\item P6: every acceptance has a corresponding proposal.
-\item P7: a chosen value has acceptance evidence from a phase-two quorum at the slot era, and $e(i)\leq e(b)+1$.
-\end{enumerate}
-These are history predicates. The fixed-configuration operational components in rungs 13--16 do not constitute a completed composition with the changing era sequence.
-
-\paragraph{Exercise (composition)}
-Construct the mapping from the era-changing operational execution to this history and establish the listed predicates, including preservation of the promise fence, maximal-history selection, and installation across configuration boundaries. This composition is left as an exercise to the reader. The host must additionally implement clean-stop classification, fresh identity allocation and state transfer before voting.
-
-\subsection{Composition steps and conclusion}
-First, apply Lemma~\ref{lem:scaled} to each adjacent pair in Table~\ref{tab:agreementweights}, and self-overlap within each era. The case split over era $0$, era $1$, and later eras is \path{ReincarnationAgreement.sequence_p1}; it derives P1 for the sequence. Second, instantiate Turner's Theorem 10 with P1 and the contract above to obtain per-slot agreement. Third, evaluate the four intermediate and final weights in \path{Replacement}. Fourth, apply \path{ReincarnationFive.five_evicted_never_voting}: after the crossing era, the old identity has zero voting authority throughout any continuation of the forced run. Finally, apply \path{Reincarnation.amnesia_unreachable} to exclude reuse of the pre-bump identity in the identity transition system. These are the four conjuncts now exposed by \path{Safe}.
-
-Zero voting authority is a configuration property. Delayed old messages retain their old identity. The separate identity and configuration runs are abstract components; the exercise above supplies their relationship to a single executable protocol. The concrete leader-overlap witness is the $E_1/E_2$ pivot in Figure~\ref{fig:overlap}.
-
-\subsection{Commands and observed checks}
-From \path{formal/uvrr-lean}, the checks are:
-\begin{quote}\raggedright\ttfamily\small
-lake build\\
-python3 check\_axioms.py\\
-python3 check\_mutations.py\\
-showboat verify \textbackslash\\
-ladder/26-reincarnation-safety.md
-\end{quote}
-The extended build completes 25 jobs. The axiom audit covers 412 declarations; the final theorem depends only on \path{propext}, \path{Classical.choice} and \path{Quot.sound}. The mutation suite checks rejection of an existential quorum checker, an unsafe decision family, an omitted next-slot guard, append after a view-change fence, and cross-view prepare receipt. It also checks detection of \path{sorryAx}, even when the compiler returns success. Rung 26 checks that promoting the replacement prematurely in $E_1$ is rejected.
-
-The Leanstral driver has two offline regressions, run from the repository root with \code{python3} applied to \path{tests/test_leanstral_driver.py}. A mock API forces two concurrent proof loops to finish writing their candidates before either can copy its result, exposing a shared-file race deterministically. A second assertion checks that the prompt preserves project imports. Both failed on the original driver and pass with private per-invocation scratch directories and an import-preserving prompt.
-
-\subsection{Reported adversarial repair experiment}
-Table~\ref{tab:repair} records the externally supplied Fable 5.1 report, not a fresh experiment executed for this revision. The report used Leanstral 1.5, a five-round budget per loop, isolated directories, and byte-identical statement checks on passing repairs. Its initial shared-directory batch was discarded because candidates crossed between jobs. The raw repair transcripts were not supplied with the report, so the table should be read with that provenance.
-\begin{table}[t]
-\centering
-\caption{Reported isolated Leanstral repair outcomes. Failure means no accepted repair within the stated budget.}
-\label{tab:repair}
-\small
-\begin{tabular}{p{0.65\columnwidth}p{0.24\columnwidth}}
-\toprule
-Mutation and supplied context & Outcome\\
-\midrule
-M1: delete final proof; file only & Fail\\
-M2: M1 plus four lemma signatures & Pass, round 4\\
-M3: wrong conjunction projection & Fail\\
-M4: delete sequence P1 proof; signatures supplied & Pass, round 2; repeat failed\\
-M5: false claim $c_1(5)=1$ & Fail, as required\\
-\bottomrule
-\end{tabular}
-\end{table}
-The contrast between M1 and M2 suggests that supplying library signatures helped composition in these runs. M5 supplies a useful false-statement control. 
-
-
-\section{Constructive weighted reconfiguration and operator solver}\label{app:solver}
-This second appendix gives the general construction. Its universe is a finite set of logical identities, including identities at weight zero. A configuration is a function $w:N\to\{0,1,2\}$. Let $L\subseteq N$ be the identities available to answer protocol messages, $A=w(L)$, and $D=w(N\setminus L)$. Availability means $A>D$. Correctness concerns intersection of quorum families; tolerance of a further host or datacentre failure is a separate property of each configuration.
-
-\subsection{Reachability and the operation schedule}
-\begin{theorem}[Available-majority reachability]\label{thm:reachability}
-For finite weight profiles $s,t$ with the same availability set, an available strict majority at each endpoint, and a retained leader of positive weight at both endpoints, there is a finite path of single-identity increments and decrements from $s$ to $t$. Every intermediate profile stays in $\{0,1,2\}$, retains that leader and an available strict majority, and consecutive strict-majority quorum families intersect.
-\end{theorem}
-\begin{proof}
-Decrease unavailable coordinates towards their targets, then increase available coordinates towards theirs. Each operation increases the available-minus-unavailable margin. Next decrease available coordinates towards their targets, then increase unavailable coordinates towards theirs. In these latter phases the margin is at least the positive target margin. Every coordinate moves monotonically between its endpoints; in particular the retained leader remains positive. Exactly $\sum_n|s(n)-t(n)|$ unit edits occur, the minimum possible using unit edits. Consecutive vectors differ in one unit, so Lemma~\ref{lem:scaled} discharges cross-era intersection. Zero-weight joins and leaves preserve quorum families; exact doubling and halving provide additional shortcuts.
-\end{proof}
-The Lean module \path{WeightedReachability.lean} proves \path{zero_one_two_connected} using an available leader of weight one as an intermediate profile. It also proves \path{UnitStep.overlap}, linking actual identity-indexed unit steps to the weighted quorum theorem. The shorter four-phase construction above is implemented in Rust and independently checked in Python; the Lean path is an existence proof, not a proof that the Rust program is the shortest-path implementation.
-
-When membership identities or succession order differ, the Rust constructor uses the available one-voter intermediate. It removes zero-weight records, transfers authority to an available target voter if necessary, inserts the requested identities at zero weight in target order, and restores available target mass before unavailable target mass. The transfer has a two-voter stage before the former anchor loses its vote. Each membership edit is a separate boundary, keeping each endpoint union within the implementation's 16-identity enumeration cap even when the source and target memberships are disjoint. This cap bounds implementation cost; the mathematical result is finite-size general. The one-voter intermediate retains availability but reduces tolerance of additional failures.
-
-\subsection{Abstract casting votes with fresh identities}
-Fix an available leader of weight $l>0$ and an available preparing quorum $P$ of mass $p$, containing the leader. Let $T=A+D$. Add fresh identities outside $P$ with total weight
-\begin{equation}
-\delta=\max(0,\,2p-2l+1-T).
-\end{equation}
-Then $P$ and $(N\setminus P)\cup\{\text{leader}\}$ are strict majorities in the enlarged universe and their intersection is exactly the leader. Indeed $2p>T+\delta$ and $2(T+\delta-p+l)>T+\delta$. The first inequality follows from the original majority and $l\geq1$; the second is precisely the lower bound defining $\delta$. Every prefix of the added mass keeps $P$ a majority. Only identities in $P$ are required to answer preparation; fresh abstract identities are not counted as received promises.
-
-Choose $P$ by starting with the leader and adding available identities until its mass first exceeds $T/2$. Since each weight is at most two, $p\leq\lfloor T/2\rfloor+2$, whence $\delta\leq3$. Two fresh identities, with weights at most two each, suffice. The bound is sharp: available weights $(1,2,2)$ with the weight-one leader and unavailable weight one require three added units. Lean proves the prefix selection and this bound in \path{cap_two_phantom_construction}, the arithmetic minimality for a chosen $P$, and the set-intersection statement. This is an abstract quorum witness, not an assertion that absent hardware responds to messages. The ordinary prepare and acceptance history obligations still govern its protocol use.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.94\textwidth]{diagrams/weighted-quorum-witness.png}
-\caption{Sharp phantom-mass example, generated by the Python checker. The preparing quorum uses available identities; its abstract companion includes fresh identities. Both have weight five out of nine and intersect only at the leader. Fresh identities do not supply message receipts.}
-\label{fig:phantom}
-\end{figure*}
-
-\subsection{Equal total mass and datacentre resilience}
-Equal total mass alone does not imply cross-era intersection. For $(1,2,1,2)\to(2,1,2,1)$ on $(A,B,C,D)$, $\{B,D\}$ is an old majority and $\{A,C\}$ a disjoint new majority. The solver instead returns
-\[
-(1,2,1,2)\to(2,2,1,2)\to(2,2,2,2)
-\]
-\[
-\to(2,1,2,2)\to(2,1,2,1).
-\]
-Each of these four boundaries is safe. For datacentres holding $(A,B)$ and $(C,D)$ at weights $(1,1,2,2)$, loss of the second leaves mass two out of six; loss of the first leaves mass four. This asymmetry can be deliberate. Four unit voters split two per datacentre can use flexible phase-two quorums of two with phase-one quorums of three: local decisions and local leader election have different availability conditions. The solver's guarantee is for strict weighted majorities; a flexible quorum policy must pass the core's role-specific intersection gates separately.
-
-\subsection{Executable interface and validation}
-The dependency-free Rust module \path{src/solver.rs} exposes \path{solve} and \path{solve_replacement}. Results are ordered \path{EraStep} batches with the resulting configurations; the target era is ignored and eras advance from the committed source. A request without an available majority at either endpoint returns the available and total masses. The replacement entrypoint prefers the complete standard schedule when its intermediate configurations remain available and its endpoint matches; otherwise it invokes the general constructor. The three-unit-voter schedule has two batches and the five-unit-voter schedule has all six batches in Table~\ref{tab:weights}. Replanning uses the current committed configuration.
-
-The command-line binary \path{reconfiguration-solver} accepts ordered \code{id:weight} lists, a target list or \code{--replace old:new}, and an available-identity list. Each output row states the batch, resulting weights and available mass. State acquisition precedes promotion. If a different leader is needed, the existing \path{next_view_selecting} and administrative view-change input select a later ballot directly; the ordinary quorum-backed view-change exchange still establishes leadership. A local era increment does not constitute that exchange.
-
-Rust property tests sample arbitrary six-identity source and target weights in $\{0,1,2\}$ subject to available majorities, replay every batch, and check every boundary with the exhaustive quorum gate. Deterministic tests cover the equal-mass counterexample, all 36 original-leader/failed-host combinations for two nodes in each of three datacentres, exact standard schedule lengths, and disjoint 16-member endpoints. The protocol test drives all 36 unit-weight cases through leader timeout when required, reincarnation announcements, view changes and client commits. Datacentre-loss assertions describe the restored uniform configuration, not every intermediate schedule.
-
-The independent Python checker and generated figures are in \path{research/weighted-reachability/}. Its exhaustive run covers 310,007 symmetry representatives through ten identities (14,541,815 labelled profiles) and 774,159 endpoint-pair representatives through six identities (3,939,756 labelled pairs), with zero failed checks. These finite counts are computational evidence; the general claim rests on the proof above and the separately stated Lean theorems. Reproduce the Rust checks with \code{cargo test --test reconfiguration\_solver --test reconfiguration\_stepwise}, and the proof checks with \code{lake build} and \code{python3 check\_axioms.py} in the Lean project. The Leanstral driver's \code{check} command also accepts the module without proof holes or compiled-decision shortcuts.
 
 \begin{thebibliography}{10}
 \bibitem{vr} B. M. Oki and B. H. Liskov, ``Viewstamped replication: A new primary copy method to support highly-available distributed systems,'' in \emph{ACM PODC}, 1988, pp. 8--17.
@@ -410,7 +287,7 @@ The independent Python checker and generated figures are in \path{research/weigh
 \bibitem{etcd-guarantees} etcd authors, ``etcd API guarantees,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/learning/api_guarantees/}
 \bibitem{etcd-hardware} etcd authors, ``Hardware recommendations,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/op-guide/hardware/}
 \bibitem{etcd-embed} etcd authors, ``Embedding etcd in a Go application,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/dev-guide/golang_embed_pkg/}
-\bibitem{artifact} S. Massey, ``uVRR proof artifact,'' commit 352b0bf, 2026. [Online]. Available: \url{https://github.com/lua-lunet/uvrr-core/tree/352b0bf/formal/uvrr-lean}
+\bibitem{artifact} S. Massey, ``uVRR code and proof addendum,'' 2026. [Online]. Available: \url{https://github.com/lua-lunet/uvrr-core}
 \bibitem{lean4} L. de Moura and S. Ullrich, ``The Lean 4 theorem prover and programming language,'' in \emph{Automated Deduction -- CADE 28}, 2021, pp. 625--635, doi: \href{https://doi.org/10.1007/978-3-030-79876-5_37}{10.1007/978-3-030-79876-5\_37}.
 \end{thebibliography}
 \end{document}

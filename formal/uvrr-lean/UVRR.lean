@@ -15,6 +15,7 @@ import UVRR.ViewFence
 import UVRR.LogProvenance
 import UVRR.Reincarnation
 import UVRR.ReincarnationGeneral
+import UVRR.ReincarnationThree
 import UVRR.CastingVoteReincarnation
 import UVRR.ReincarnationFive
 import UVRR.ReincarnationAgreement
