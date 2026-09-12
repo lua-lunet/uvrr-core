@@ -1,0 +1,7 @@
+identities,ordered_representative_pairs,ordered_labelled_pairs,maximum_path,failures
+1,4,4,1,0
+2,45,45,3,0
+3,536,732,5,0
+4,6071,12331,7,0
+5,66188,212824,9,0
+6,701315,3713820,11,0

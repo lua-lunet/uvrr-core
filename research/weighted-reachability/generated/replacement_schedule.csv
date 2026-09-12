@@ -1,0 +1,4 @@
+stage,operation,Leader,A,B,C,Old,New,total,majority,available_weight,unavailable_weight,margin,responding_quorum
+0,initial,1,1,1,1,1,0,5,3,4,1,3,"Leader, A, B"
+1,decrement n4,1,1,1,1,0,0,4,3,4,0,4,"Leader, A, B"
+2,increment n5,1,1,1,1,0,1,5,3,5,0,5,"Leader, A, B"

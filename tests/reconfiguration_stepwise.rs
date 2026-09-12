@@ -875,3 +875,183 @@ fn void_and_init_outside_genesis_are_refused() {
     assert!(h.journal_entry(n(1), Slot(3)).is_none());
     h.assert_safety();
 }
+
+/// Five-node replacement commits all six weighted eras. A leader failure
+/// after doubling leaves five batches, recomputed by the next leader. These
+/// are ordinary view changes; the test does not assert uninterrupted service.
+#[test]
+fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
+    let mut h = Harness::provision(5);
+    bootstrap(&mut h);
+    h.crash(n(4));
+    h.restart_as(n(4), n(5)).expect("the bumped node reopens");
+    let initial = h.era_table(n(0)).unwrap().current().config.clone();
+    let steps = vrr::replica::forced_steps(&initial, n(4), n(5));
+    assert_eq!(
+        steps.len(),
+        6,
+        "five-node replacement includes both scaling eras"
+    );
+    let mut expected = initial;
+    for (index, step) in steps.iter().enumerate() {
+        let leader = if index == 0 { n(0) } else { n(1) };
+        assert!(matches!(
+            h.reincarnate(n(5), n(4)),
+            StepOutcome::Published { .. }
+        ));
+        h.deliver_all();
+        expected = expected.apply(step, Slot(3 + index as u64)).unwrap().into();
+        for id in [n(1), n(2), n(3)] {
+            let table = h.era_table(id).unwrap();
+            assert_eq!(
+                table.current().config,
+                expected,
+                "committed row {} at {id:?}",
+                index + 1
+            );
+            assert_eq!(
+                h.journal_entry(id, table.current().established_by)
+                    .unwrap()
+                    .payload,
+                vrr::journal::Payload::System(step.clone())
+            );
+        }
+        assert_eq!(
+            vrr::replica::forced_steps(&expected, n(4), n(5)),
+            steps[index + 1..]
+        );
+        if index == 0 {
+            h.crash(leader);
+        }
+        // Keep the live n1 as primary using the public administrative input;
+        // the ordinary fence/evidence/install exchange still runs in full.
+        let current = current_view(&h, n(1));
+        let target = ViewId {
+            era: expected.era(),
+            view: vrr::ids::next_view_selecting(
+                current.view,
+                1,
+                expected.order().iter().filter(|m| m.weight.0 > 0).count() as u32,
+            )
+            .unwrap(),
+        };
+        assert!(matches!(
+            h.force_view(n(1), target),
+            StepOutcome::Published { .. }
+        ));
+        h.deliver_all();
+        assert_eq!(current_view(&h, n(1)), target);
+        assert_eq!(status_of(&h, n(1)), Status::Normal);
+        let before = snap(&h, n(1)).committed;
+        assert!(matches!(
+            h.propose(n(1), op_id(100 + index as u64), b"between eras"),
+            StepOutcome::Published { .. }
+        ));
+        h.deliver_all();
+        assert_eq!(snap(&h, n(1)).committed, before + 1);
+        h.assert_safety();
+    }
+    assert_eq!(current_era(&h, n(1)), Era(7));
+    assert_eq!(
+        h.era_table(n(1))
+            .unwrap()
+            .current()
+            .config
+            .order()
+            .iter()
+            .map(|m| m.node)
+            .collect::<Vec<_>>(),
+        vec![n(0), n(1), n(2), n(3), n(5)]
+    );
+    assert_eq!(current_weights(&h, n(1)), vec![1, 1, 1, 1, 1]);
+}
+
+/// Every initial primary and failed host in the 3-by-2 topology runs the
+/// solver's replacement through messages, state acquisition and committed eras.
+#[test]
+fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
+    for original_leader in 0..6 {
+        for killed in 0..6 {
+            let mut h = Harness::with_knobs(
+                6,
+                ViewChangeKnobs {
+                    primary_timeout: TIMEOUT,
+                    view_change_budget: usize::MAX,
+                },
+            );
+            bootstrap(&mut h);
+            if original_leader != 0 {
+                h.force_view(n(original_leader), view(original_leader));
+                h.deliver_all();
+            }
+            assert_eq!(status_of(&h, n(original_leader)), Status::Normal);
+            h.crash(n(killed));
+            let leader = if original_leader == killed {
+                let successor = (killed + 1) % 6;
+                for _ in 0..=TIMEOUT {
+                    h.tick(n(successor));
+                }
+                h.deliver_all();
+                successor
+            } else {
+                original_leader
+            };
+            assert_eq!(status_of(&h, n(leader)), Status::Normal);
+            h.restart_as(n(killed), n(6)).unwrap();
+            let start = h.era_table(n(leader)).unwrap().current().config.clone();
+            let live: Vec<_> = (0..7).filter(|&id| id != killed).map(n).collect();
+            let steps = vrr::solver::solve_replacement(&start, n(killed), n(6), &live).unwrap();
+            for (index, step) in steps.iter().enumerate() {
+                h.reincarnate(n(6), n(killed));
+                h.deliver_all();
+                assert_eq!(
+                    h.era_table(n(leader)).unwrap().current().config,
+                    step.config.clone().into(),
+                    "leader {original_leader}, failed {killed}, step {index}"
+                );
+                let voters: Vec<_> = step
+                    .config
+                    .order()
+                    .iter()
+                    .filter(|m| m.weight.0 > 0)
+                    .map(|m| m.node)
+                    .collect();
+                let target = ViewId {
+                    era: step.config.era(),
+                    view: vrr::ids::next_view_selecting(
+                        current_view(&h, n(leader)).view,
+                        voters.iter().position(|&id| id == n(leader)).unwrap() as u32,
+                        voters.len() as u32,
+                    )
+                    .unwrap(),
+                };
+                h.force_view(n(leader), target);
+                h.deliver_all();
+                // Complete the retained StartView after its state fetch before
+                // offering subsequent traffic or promoting the learner.
+                h.tick(n(6));
+                h.deliver_all();
+                assert_eq!(status_of(&h, n(6)), Status::Normal);
+                assert_eq!(status_of(&h, n(leader)), Status::Normal);
+                let before = snap(&h, n(leader)).committed;
+                h.propose(n(leader), op_id(900 + index as u64), b"solver replacement");
+                h.deliver_all();
+                assert_eq!(snap(&h, n(leader)).committed, before + 1);
+                h.assert_safety();
+            }
+            assert_eq!(current_weights(&h, n(leader)), vec![1; 6]);
+            assert!(
+                h.era_table(n(leader))
+                    .unwrap()
+                    .current()
+                    .config
+                    .weight_of(n(killed))
+                    .is_none()
+            );
+            assert_eq!(
+                h.era_table(n(6)).unwrap().current().config.order(),
+                h.era_table(n(leader)).unwrap().current().config.order()
+            );
+        }
+    }
+}

@@ -1,0 +1,7 @@
+stage,operation,Leader,A,B,Unavailable,Phantom X,Phantom Y,total,majority,available_weight,unavailable_weight,margin,responding_quorum
+0,initial,1,2,2,1,0,0,6,4,5,1,4,"Leader, A, B"
+1,join phantom n4,1,2,2,1,0,0,6,4,5,1,4,"Leader, A, B"
+2,increment phantom n4,1,2,2,1,1,0,7,4,5,2,3,"Leader, A, B"
+3,increment phantom n4,1,2,2,1,2,0,8,5,5,3,2,"Leader, A, B"
+4,join phantom n5,1,2,2,1,2,0,8,5,5,3,2,"Leader, A, B"
+5,increment phantom n5,1,2,2,1,2,1,9,5,5,4,1,"Leader, A, B"

@@ -1,0 +1,252 @@
+{
+  "max_n": 10,
+  "pair_max_n": 6,
+  "profiles": [
+    {
+      "identities": 1,
+      "representative_profiles": 2,
+      "labelled_profiles": 2,
+      "failures": 0,
+      "maximum_phantom_weight": 0,
+      "maximum_hub_path": 1
+    },
+    {
+      "identities": 2,
+      "representative_profiles": 9,
+      "labelled_profiles": 9,
+      "failures": 0,
+      "maximum_phantom_weight": 2,
+      "maximum_hub_path": 3
+    },
+    {
+      "identities": 3,
+      "representative_profiles": 36,
+      "labelled_profiles": 50,
+      "failures": 0,
+      "maximum_phantom_weight": 2,
+      "maximum_hub_path": 5
+    },
+    {
+      "identities": 4,
+      "representative_profiles": 135,
+      "labelled_profiles": 287,
+      "failures": 0,
+      "maximum_phantom_weight": 3,
+      "maximum_hub_path": 7
+    },
+    {
+      "identities": 5,
+      "representative_profiles": 486,
+      "labelled_profiles": 1672,
+      "failures": 0,
+      "maximum_phantom_weight": 3,
+      "maximum_hub_path": 9
+    },
+    {
+      "identities": 6,
+      "representative_profiles": 1701,
+      "labelled_profiles": 9818,
+      "failures": 0,
+      "maximum_phantom_weight": 3,
+      "maximum_hub_path": 11
+    },
+    {
+      "identities": 7,
+      "representative_profiles": 5832,
+      "labelled_profiles": 57932,
+      "failures": 0,
+      "maximum_phantom_weight": 3,
+      "maximum_hub_path": 13
+    },
+    {
+      "identities": 8,
+      "representative_profiles": 19683,
+      "labelled_profiles": 342945,
+      "failures": 0,
+      "maximum_phantom_weight": 3,
+      "maximum_hub_path": 15
+    },
+    {
+      "identities": 9,
+      "representative_profiles": 65610,
+      "labelled_profiles": 2034844,
+      "failures": 0,
+      "maximum_phantom_weight": 3,
+      "maximum_hub_path": 17
+    },
+    {
+      "identities": 10,
+      "representative_profiles": 216513,
+      "labelled_profiles": 12094256,
+      "failures": 0,
+      "maximum_phantom_weight": 3,
+      "maximum_hub_path": 19
+    }
+  ],
+  "pairs": [
+    {
+      "identities": 1,
+      "ordered_representative_pairs": 4,
+      "ordered_labelled_pairs": 4,
+      "maximum_path": 1,
+      "failures": 0
+    },
+    {
+      "identities": 2,
+      "ordered_representative_pairs": 45,
+      "ordered_labelled_pairs": 45,
+      "maximum_path": 3,
+      "failures": 0
+    },
+    {
+      "identities": 3,
+      "ordered_representative_pairs": 536,
+      "ordered_labelled_pairs": 732,
+      "maximum_path": 5,
+      "failures": 0
+    },
+    {
+      "identities": 4,
+      "ordered_representative_pairs": 6071,
+      "ordered_labelled_pairs": 12331,
+      "maximum_path": 7,
+      "failures": 0
+    },
+    {
+      "identities": 5,
+      "ordered_representative_pairs": 66188,
+      "ordered_labelled_pairs": 212824,
+      "maximum_path": 9,
+      "failures": 0
+    },
+    {
+      "identities": 6,
+      "ordered_representative_pairs": 701315,
+      "ordered_labelled_pairs": 3713820,
+      "maximum_path": 11,
+      "failures": 0
+    }
+  ],
+  "phantom_weight_histogram": [
+    11121924,
+    3085515,
+    198419,
+    135957
+  ],
+  "controls": {
+    "controls_passed": 6,
+    "scale_profiles_checked": 254
+  },
+  "independent_cross_checks": 250,
+  "example": {
+    "phantom_weight": 3,
+    "live_names": [
+      "Leader",
+      "A",
+      "B"
+    ],
+    "promise_quorum": "Leader, A, B",
+    "abstract_quorum": "Leader, Unavailable, Phantom X, Phantom Y",
+    "intersection": "Leader",
+    "schedule": [
+      {
+        "stage": 0,
+        "operation": "initial",
+        "Leader": 1,
+        "A": 2,
+        "B": 2,
+        "Unavailable": 1,
+        "Phantom X": 0,
+        "Phantom Y": 0,
+        "total": 6,
+        "majority": 4,
+        "available_weight": 5,
+        "unavailable_weight": 1,
+        "margin": 4,
+        "responding_quorum": "Leader, A, B"
+      },
+      {
+        "stage": 1,
+        "operation": "join phantom n4",
+        "Leader": 1,
+        "A": 2,
+        "B": 2,
+        "Unavailable": 1,
+        "Phantom X": 0,
+        "Phantom Y": 0,
+        "total": 6,
+        "majority": 4,
+        "available_weight": 5,
+        "unavailable_weight": 1,
+        "margin": 4,
+        "responding_quorum": "Leader, A, B"
+      },
+      {
+        "stage": 2,
+        "operation": "increment phantom n4",
+        "Leader": 1,
+        "A": 2,
+        "B": 2,
+        "Unavailable": 1,
+        "Phantom X": 1,
+        "Phantom Y": 0,
+        "total": 7,
+        "majority": 4,
+        "available_weight": 5,
+        "unavailable_weight": 2,
+        "margin": 3,
+        "responding_quorum": "Leader, A, B"
+      },
+      {
+        "stage": 3,
+        "operation": "increment phantom n4",
+        "Leader": 1,
+        "A": 2,
+        "B": 2,
+        "Unavailable": 1,
+        "Phantom X": 2,
+        "Phantom Y": 0,
+        "total": 8,
+        "majority": 5,
+        "available_weight": 5,
+        "unavailable_weight": 3,
+        "margin": 2,
+        "responding_quorum": "Leader, A, B"
+      },
+      {
+        "stage": 4,
+        "operation": "join phantom n5",
+        "Leader": 1,
+        "A": 2,
+        "B": 2,
+        "Unavailable": 1,
+        "Phantom X": 2,
+        "Phantom Y": 0,
+        "total": 8,
+        "majority": 5,
+        "available_weight": 5,
+        "unavailable_weight": 3,
+        "margin": 2,
+        "responding_quorum": "Leader, A, B"
+      },
+      {
+        "stage": 5,
+        "operation": "increment phantom n5",
+        "Leader": 1,
+        "A": 2,
+        "B": 2,
+        "Unavailable": 1,
+        "Phantom X": 2,
+        "Phantom Y": 1,
+        "total": 9,
+        "majority": 5,
+        "available_weight": 5,
+        "unavailable_weight": 4,
+        "margin": 1,
+        "responding_quorum": "Leader, A, B"
+      }
+    ],
+    "replacement_steps": 2,
+    "replacement_note": "This is a safe/live reachability path, not a claim of simultaneous disjoint responding quorums."
+  }
+}

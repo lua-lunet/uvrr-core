@@ -1,0 +1,11 @@
+identities,representative_profiles,labelled_profiles,failures,maximum_phantom_weight,maximum_hub_path
+1,2,2,0,0,1
+2,9,9,0,2,3
+3,36,50,0,2,5
+4,135,287,0,3,7
+5,486,1672,0,3,9
+6,1701,9818,0,3,11
+7,5832,57932,0,3,13
+8,19683,342945,0,3,15
+9,65610,2034844,0,3,17
+10,216513,12094256,0,3,19
