@@ -78,7 +78,7 @@ rules (`docs/uvrr-reconfiguration-rules.md`: the operation alphabet `DOUBLE`, `H
 `INCREMENT`, `DECREMENT`, `JOIN`, `LEAVE`; each reconfiguration commits a legal batch,
 one era). One reconfiguration commits a batch, and a batch either moves at most one
 unit of per-node voting mass (standbys at weight 0 move none) or is one solitary
-scaling op. Unit-weight special case, evicting `N2` and reincarnating it as `N2′` —
+scaling op. Three-node unit-weight special case, evicting `N2` and reincarnating it as `N2′` —
 **two eras**, each a batch:
 
 | Era | Batch | Weights (N0, N1, N2, N2′) | Mass moved |
@@ -94,6 +94,16 @@ doc), so consecutive majority families intersect and **every intermediate era is
 quorum-safe on its own**: a leader dying mid-sequence leaves only safe membership
 eras, and a new leader recomputes the remaining eras from the configuration that
 committed.
+
+**Five-node replacement.** A unit-weight five-node cluster commits six batches:
+`DOUBLE`; `JOIN(new), INCREMENT(new)`; `DECREMENT(old)`;
+`DECREMENT(old), LEAVE(old)`; `INCREMENT(new)`; `HALVE`. The complete weight table
+and availability conditions are in §6 of `docs/uvrr-reconfiguration-rules.md`.
+Recomputation includes every remaining batch, including promotion and halving after
+the old member leaves. Ordinary view changes separate these forced batches.
+The broader identity-weight space also admits phantom completion of an abstract
+leader overlap and available-majority paths between arbitrary admissible endpoints;
+see the [weighted reachability proofs](../research/weighted-reachability/README.md).
 
 **Doubled-weights corner.** If the reincarnation happens while the cluster sits in the
 doubled state of the blog's safe-replacement plan, the sequence runs at the doubled

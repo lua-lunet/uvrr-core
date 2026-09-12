@@ -285,7 +285,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 /// The forced weight sequence the leader must still commit (§5; rules §6), read
 /// from the CURRENT committed configuration: each element is ONE era's
 /// establishing operation — a [`SystemOperation::Batch`] — and the sequence is
-/// the §6 table computed for the old identity's observed state:
+/// the §6 schedule computed for the observed configuration.
+///
+/// A five-node unit cluster uses six eras: `Double`, `Join + Increment(new)`,
+/// `Decrement(old)`, `Decrement(old) + Leave(old)`, `Increment(new)`, `Halve`.
+/// Four unchanged weight-2 survivors identify its intermediate rows, so a
+/// recomputation also includes the final promotion and halving after departure.
+/// The three-node unit cluster retains the two-era schedule below; other
+/// configurations use the same unit-decrement fallback:
 ///
 /// | Old identity's state | Remaining eras |
 /// |---|---|
@@ -296,9 +303,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 ///
 /// The new identity joins at weight 0 in the old identity's succession position
 /// (appended when the old identity is already gone — a leader-crash intermediate
-/// era that removed before adding), then is promoted. Each era is a unit batch or
-/// a zero-mass batch under the era rule R14 — the subtract-one / add-one /
-/// weight-0-join steps move at most one unit of per-node mass — so every
+/// era that removed before adding), then is promoted. Apart from the solitary
+/// scaling eras, each era is a unit batch or a zero-mass batch under R14.
+/// Subtract-one, add-one and weight-0-join steps move at most one unit of
+/// per-node mass, so every
 /// intermediate era is quorum-safe (§6's invariant; the checked weighted-overlap
 /// result covers each step).
 ///
@@ -316,6 +324,9 @@ pub fn forced_steps(
     let mut eras = Vec::new();
     if old == new {
         return eras;
+    }
+    if let Some(steps) = five_node_weighted_steps(config, old, new) {
+        return steps;
     }
     let old_weight = config.weight_of(old).map(|weight| weight.0);
     let new_weight = config.weight_of(new).map(|weight| weight.0);
@@ -412,6 +423,67 @@ pub fn forced_steps(
         }
     }
     eras
+}
+
+/// The five-node unit cluster and the intermediate rows of its weighted
+/// replacement are recognised from the four unchanged survivors. Scaling
+/// preserves quorum families; it does not establish a live pivot after a crash.
+fn five_node_weighted_steps(
+    config: &crate::configuration::Configuration,
+    old: NodeId,
+    new: NodeId,
+) -> Option<Vec<SystemOperation>> {
+    let survivors: Vec<_> = config
+        .order()
+        .iter()
+        .filter(|member| member.node != old && member.node != new)
+        .collect();
+    if survivors.len() != 4 {
+        return None;
+    }
+    let mut old_weight = config.weight_of(old).map(|weight| weight.0);
+    let mut new_weight = config.weight_of(new).map(|weight| weight.0);
+    let mut ops = Vec::new();
+    if survivors.iter().all(|member| member.weight.0 == 1)
+        && old_weight == Some(1)
+        && new_weight.is_none()
+    {
+        ops.push(SystemOperation::Double);
+        old_weight = Some(2);
+    } else if !survivors.iter().all(|member| member.weight.0 == 2) {
+        return None;
+    }
+    if new_weight.is_none() {
+        ops.push(SystemOperation::Join {
+            node: new,
+            position: config.index_of(old).unwrap_or(config.len()),
+        });
+        new_weight = Some(0);
+    }
+    if new_weight == Some(0) {
+        ops.push(SystemOperation::Increment(new));
+        new_weight = Some(1);
+    }
+    if let Some(weight) = old_weight {
+        for _ in 0..weight {
+            ops.push(SystemOperation::Decrement(old));
+        }
+        ops.push(SystemOperation::Leave(old));
+    }
+    if new_weight == Some(1) {
+        ops.push(SystemOperation::Increment(new));
+    }
+    ops.push(SystemOperation::Halve);
+    // The ordinary partitioner owns the unit-mass and solitary-scaling rules.
+    // Recomputing from any committed row gives the remaining batches only.
+    Some(
+        config
+            .plan(&ops)
+            .ok()?
+            .into_iter()
+            .map(|step| SystemOperation::Batch(step.ops))
+            .collect(),
+    )
 }
 
 // ---------------------------------------------------------------------------

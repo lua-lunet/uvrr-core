@@ -183,7 +183,7 @@ fn joined_and_caught_up(h: &mut Harness) -> ViewId {
     );
     assert_eq!(
         status_of(h, n(3)),
-        Status::Recovering,
+        Status::Restarting,
         "the acquisition runs at the boot fence, never voting"
     );
     h.tick(n(3));

@@ -20,6 +20,7 @@ use vrr::configuration::{
 };
 use vrr::ids::{Era, NodeId, Slot};
 use vrr::quorum::{QuorumStrategy, Role, WeightedMajority};
+use vrr::replica::forced_steps;
 
 fn n(id: u32) -> NodeId {
     NodeId(id)
@@ -962,4 +963,98 @@ fn op_strategy() -> impl Strategy<Value = SystemOperation> {
         1 => Just(SystemOperation::Double),
         1 => Just(SystemOperation::Halve),
     ]
+}
+
+/// A five-node replacement uses Turner's weighted schedule: scaling is an
+/// era of its own at both ends, and every unit of vote transfer is visible.
+/// Re-announcement after any committed row must produce exactly its suffix.
+#[test]
+fn five_node_forced_replacement_has_all_six_weighted_steps() {
+    let mut config = Configuration::void()
+        .apply(&SystemOperation::Void, VOID_SLOT)
+        .unwrap()
+        .apply(
+            &SystemOperation::Init {
+                order: (0..5).map(n).collect(),
+            },
+            INIT_SLOT,
+        )
+        .unwrap();
+    let old = n(4);
+    let new = n(5);
+    let batches = vec![
+        vec![SystemOperation::Double],
+        vec![
+            SystemOperation::Join {
+                node: new,
+                position: 4,
+            },
+            SystemOperation::Increment(new),
+        ],
+        vec![SystemOperation::Decrement(old)],
+        vec![SystemOperation::Decrement(old), SystemOperation::Leave(old)],
+        vec![SystemOperation::Increment(new)],
+        vec![SystemOperation::Halve],
+    ];
+    let expected: Vec<_> = batches.into_iter().map(SystemOperation::Batch).collect();
+    // Fixed identity columns: old, new, then the four survivors.
+    let rows = [
+        [1, 0, 1, 1, 1, 1],
+        [2, 0, 2, 2, 2, 2],
+        [2, 1, 2, 2, 2, 2],
+        [1, 1, 2, 2, 2, 2],
+        [0, 1, 2, 2, 2, 2],
+        [0, 2, 2, 2, 2, 2],
+        [0, 1, 1, 1, 1, 1],
+    ];
+    let mut configs = vec![config.clone()];
+    for (index, row) in rows.iter().enumerate() {
+        assert_eq!(
+            [old, new, n(0), n(1), n(2), n(3)]
+                .map(|id| config.weight_of(id).map_or(0, |weight| weight.0)),
+            *row,
+            "row {index}"
+        );
+        assert_eq!(
+            forced_steps(&config, old, new),
+            expected[index..],
+            "remaining steps at row {index}"
+        );
+        if let Some(op) = expected.get(index) {
+            config = config
+                .apply(op, Slot(3 + index as u64))
+                .expect("the batch folds");
+            configs.push(config.clone());
+        }
+    }
+    assert_eq!(config.era(), Era(7));
+    assert_eq!(
+        config.order().iter().map(|m| m.node).collect::<Vec<_>>(),
+        vec![n(0), n(1), n(2), n(3), new]
+    );
+    assert_era_safe(&configs);
+}
+
+/// The three-node unit replacement remains two committed batches.
+#[test]
+fn three_node_forced_replacement_has_two_steps() {
+    let genesis = fold_genesis();
+    let expected = [
+        SystemOperation::Batch(vec![SystemOperation::Decrement(n(2)), join(n(3), 2)]),
+        SystemOperation::Batch(vec![
+            SystemOperation::Increment(n(3)),
+            SystemOperation::Leave(n(2)),
+        ]),
+    ];
+    let mut config = genesis;
+    for index in 0..=expected.len() {
+        assert_eq!(forced_steps(&config, n(2), n(3)), expected[index..]);
+        if let Some(op) = expected.get(index) {
+            let next = config.apply(op, Slot(3 + index as u64)).unwrap();
+            assert_era_safe(&[config, next.clone()]);
+            config = next;
+        }
+    }
+    assert_eq!(config.era(), Era(3));
+    assert_eq!(shape(&config), vec![(n(0), 1), (n(1), 1), (n(3), 1)]);
 }

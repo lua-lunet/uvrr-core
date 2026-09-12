@@ -93,9 +93,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// sender is a member of the requested era's configuration or — the
     /// learner acquisition rule (`docs/uvrr-reincarnation.md` §10) — of
     /// the responder's current committed configuration, a weight-0
-    /// learner included) plus the two statuses whose journal is not
-    /// servable: `Recovering` (the standing ruling — a recovering node's
-    /// history is not yet proved current) and `Replaying` (the journal is
+    /// learner included) plus the statuses whose journal is not servable:
+    /// `Restarting` or `Joining` (the node's history is not yet proved
+    /// current) and `Replaying` (the journal is
     /// mid-install, structurally inconsistent). A fenced `ViewChange`
     /// node serves exactly like a `Normal` one, and the request's view is
     /// a correlation token (like the recovery nonce), not a serving
@@ -152,7 +152,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let frontier = self.progress.accepted();
         if matches!(
             self.progress.status(),
-            Status::Recovering | Status::Replaying
+            Status::Restarting | Status::Joining | Status::Replaying
         ) {
             return self.drop_plan(
                 Diagnostic::TransferNotServed {
@@ -236,8 +236,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the completing ruling: a fenced node's committed frontier waits
     /// for its own path's qualified evidence (the `StartView`) — with
     /// the §10 learner acquisition exception: the boot-fenced node's own
-    /// open fetch is its qualified evidence, so a `Recovering` node at
-    /// its boot fence takes the chunk's committed frontier and folds
+    /// open fetch is its qualified evidence, so a fenced entry node
+    /// (`Restarting` or `Joining`) at its boot fence takes the chunk's committed frontier and folds
     /// what it covers (the ruling below).
     #[allow(clippy::too_many_arguments)]
     pub(in crate::replica) fn plan_new_state(
@@ -353,8 +353,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // frontier moves on the current view's own transfer — while the
         // node is fenced, the completing ruling owns it. The one §10
         // exception is the boot-fenced node's OWN acquisition: a node
-        // still at its boot fence (`Recovering` at `current == retained`,
-        // the reopen state — it has adopted nothing) that opened this
+        // still at its boot fence (`Restarting` or `Joining` with
+        // `current == retained` — it has adopted nothing) that opened this
         // fetch itself may take the chunk's committed frontier and fold
         // the system operations it covers. That is the speculative
         // learner recovery `docs/uvrr-reincarnation.md` §10 states: the
@@ -364,14 +364,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // fold input is the same verified history every other fold path
         // reads. The node stays fenced: it adopts no view, its votes are
         // not counted (the membership check at the counting site), and it
-        // serves nothing (`Recovering`). A `ViewChange`-fenced node is
-        // NOT covered: its attempt's completing ruling owns the commit
+        // serves nothing (`Restarting` or `Joining`). A `ViewChange`-fenced
+        // node is NOT covered: its attempt's completing ruling owns the commit
         // frontier, unchanged.
         let new_accepted = accepted.max(through);
         let current_view_transfer =
             header.view == current && self.progress.status() == Status::Normal;
         let boot_acquisition = header.view == current
-            && self.progress.status() == Status::Recovering
+            && matches!(self.progress.status(), Status::Restarting | Status::Joining)
             && current == self.progress.retained();
         // The §10 learner acquisition's take: the answering chunk's
         // committed frontier, CAPPED by a retained gap-ruled offer's own

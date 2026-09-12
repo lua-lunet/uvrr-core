@@ -127,6 +127,9 @@ the announced `(old, new)` pair; it never stores steps. Each step is a batch, ea
 batch commits one era, and recomputation is idempotent: a leader crash mid-sequence
 leaves a legal intermediate era from which the next leader recomputes the remainder.
 
+For a three-node unit cluster the replacement is two eras. The general
+unit-decrement fallback is:
+
 | Old identity's state | Remaining eras |
 |---|---|
 | weight `w ≥ 2` | `w−1` solitary `DECREMENT` eras, then `[DECREMENT(old), JOIN(new)]`, then `[INCREMENT(new), LEAVE(old)]` |
@@ -134,10 +137,42 @@ leaves a legal intermediate era from which the next leader recomputes the remain
 | weight `0` | `[JOIN(new), LEAVE(old)]`, then `[INCREMENT(new)]` |
 | already evicted | `[JOIN(new)]`, then `[INCREMENT(new)]` |
 
-The unit-scale two-era form is the blog's Table D compressed to its era endpoints;
-the doubled-scale corner (§7 below) needs the extra unit steps to keep every halve
-integral. Every intermediate era is quorum-safe on its own, so a leader dying at any
-point of the sequence is harmless.
+A five-node unit cluster uses the weighted replacement below. The columns keep
+identities fixed; zero includes an identity that is not a member. `JOIN(new)` uses
+the old identity's succession position, and `LEAVE(old)` removes its zero-weight
+membership.
+
+| Stage | Batch | Old | New | Each of four survivors |
+|---|---|---|---|---|
+| Initial | — | 1 | 0 | 1 |
+| Double | `DOUBLE` | 2 | 0 | 2 |
+| Introduce | `JOIN(new), INCREMENT(new)` | 2 | 1 | 2 |
+| Reduce old | `DECREMENT(old)` | 1 | 1 | 2 |
+| Remove old | `DECREMENT(old), LEAVE(old)` | 0 | 1 | 2 |
+| Increase new | `INCREMENT(new)` | 0 | 2 | 2 |
+| Halve | `HALVE` | 0 | 1 | 1 |
+
+These are six transitions and seven configurations. The four unchanged survivors
+identify the doubled scale during recomputation, including after the old identity
+has left: promotion to two and halving remain part of the sequence. Every row
+recomputes exactly its uncommitted suffix.
+
+This extends [Turner's weighted three-node example](https://github.com/DaveCTurner/paxos-membership/blob/raft-like-reconfiguration/paxos-reconf.tex)
+to five nodes; the tests check this particular schedule's quorum arithmetic.
+The finite schedule does not characterise the full space of legal reconfigurations.
+
+With available weight `A > D` (unavailable weight) and a positive live leader,
+adding phantom weight `A-D-1` produces total `2A-1`. The available identities and
+the unavailable identities plus the leader are abstract majority quorums whose
+intersection is exactly the leader; all preparing-quorum promises come from the
+available side. Choosing a smaller preparing quorum bounds the required padding
+to three vote units on at most two phantom identities in the `{0,1,2}` palette.
+More generally, any two configurations with an available weighted majority and
+a positive retained live leader admit a finite sequence of legal unit edits
+preserving availability and adjacent quorum intersection. These are properties of
+the identity-weight space; phantom membership is not a received acknowledgement.
+The [constructive proofs and generated checks](../research/weighted-reachability/README.md)
+state the exact predicates and cover arbitrary finite cluster sizes.
 
 ## 7. The worked schedules (the blog grids)
 
@@ -234,6 +269,6 @@ Every rule has a test that can fail. The matrix:
 | `DOUBLE`/`HALVE` solitary: refused with company, split off alone in a stream | R13 |
 | `DOUBLE` with a `2` present refused; `INCREMENT` at `2` refused; `HALVE` with a `1` refused; `DECREMENT` at `0` refused; `LEAVE` at `w > 0` refused; weights never negative or above `2` after any legal sequence | R7–R12 boundaries |
 | Grid 1 and Grid 2 reproduced row-by-row by the planner, every era passing `validate_transition` | §7, the blog grids |
-| the resurrection two-era sequence folded, era-safe, idempotent recompute, leader-crash continuation | §6 |
+| three-node two-era and five-node six-era replacement, every row folded, exact suffix recomputation, leader-crash continuation, and availability distinct from intersection safety | §6 |
 | snapshot serde round-trip; tampered snapshot refused at inflation | §9 |
 | snapshot + WAL fold ≡ folding the flat planned stream | §9 |

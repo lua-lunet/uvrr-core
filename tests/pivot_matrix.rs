@@ -451,3 +451,130 @@ fn plan_reconfigure_accepts_valid_pivot() {
         "a valid pivot on a legal transition plans: {outcome:?}"
     );
 }
+
+/// Enumerates both quorum families through their public predicates. The next
+/// configuration may admit or remove an identity, so unknown members must be
+/// rejected by the predicates rather than treated as zero-weight members.
+fn legal_boundary_quorum_pairs(current: &Configuration, next: &Configuration) -> Vec<Pivot> {
+    let mut members: Vec<_> = current
+        .order()
+        .iter()
+        .chain(next.order())
+        .map(|member| member.node)
+        .collect();
+    members.sort();
+    members.dedup();
+    let subsets: Vec<Vec<NodeId>> = (0..(1usize << members.len()))
+        .map(|mask| {
+            members
+                .iter()
+                .enumerate()
+                .filter(|(bit, _)| mask & (1 << bit) != 0)
+                .map(|(_, node)| *node)
+                .collect()
+        })
+        .collect();
+    let mut pairs = Vec::new();
+    for q_i in &subsets {
+        if !WeightedMajority.is_quorum(Role::ViewChange, current, q_i) {
+            continue;
+        }
+        for q_ii in &subsets {
+            if WeightedMajority.is_quorum(Role::Commit, current, q_ii)
+                && WeightedMajority.is_quorum(Role::Commit, next, q_ii)
+            {
+                pairs.push(Pivot {
+                    q_i: q_i.clone(),
+                    q_ii: q_ii.clone(),
+                });
+            }
+        }
+    }
+    pairs
+}
+
+fn minimum_overlap_without(pairs: &[Pivot], failed: NodeId) -> Option<usize> {
+    pairs
+        .iter()
+        .filter(|pair| !pair.q_i.contains(&failed) && !pair.q_ii.contains(&failed))
+        .map(|pair| {
+            pair.q_i
+                .iter()
+                .filter(|node| pair.q_ii.contains(node))
+                .count()
+        })
+        .min()
+}
+
+/// Turner gives the seven weighted rows for a three-node replacement:
+/// https://github.com/DaveCTurner/paxos-membership/blob/raft-like-reconfiguration/paxos-reconf.tex#L1260-L1304
+/// This checks their five-node extension against this crate's pivot contract:
+/// qI is legal in the current era; qII is legal in both eras. Safety of all
+/// six boundaries is distinct from availability of a live singleton split.
+/// In particular, doubling cannot restore such a split after the old node
+/// fails: both quorums still need three of the four original survivors.
+#[test]
+fn five_node_weighted_replacement_checks_safety_and_live_pivots_at_every_boundary() {
+    let old = n(4);
+    let new = n(5);
+    let survivors = [n(0), n(1), n(2), n(3)];
+    let initial = config_with_weights(&[n(0), n(1), n(2), n(3), old], &[]);
+    let steps = vrr::replica::forced_steps(&initial, old, new);
+    assert_eq!(
+        steps.len(),
+        6,
+        "the full weighted replacement has six boundaries"
+    );
+
+    let mut current = initial.clone();
+    let mut slot = vrr::configuration::INIT_SLOT;
+    let expected_failed_overlap = [2, 2, 2, 2, 1, 1];
+    for (boundary, step) in steps.iter().enumerate() {
+        slot = slot.next().expect("slot space");
+        let next = current.apply(step, slot).expect("the weighted step folds");
+        vrr::quorum::validate_transition(&WeightedMajority, &current, &next)
+            .expect("every weighted boundary preserves agreement safety");
+        let pairs = legal_boundary_quorum_pairs(&current, &next);
+        for leader in survivors {
+            let valid_count = pairs
+                .iter()
+                .filter(|pivot| {
+                    vrr::replica::validate_pivot(&WeightedMajority, &current, &next, leader, pivot)
+                        .is_ok()
+                })
+                .count();
+            assert!(
+                valid_count > 0,
+                "healthy survivor {leader:?} has a singleton split at boundary {boundary}"
+            );
+        }
+        assert_eq!(
+            minimum_overlap_without(&pairs, old),
+            Some(expected_failed_overlap[boundary]),
+            "minimum live overlap after old fails at boundary {boundary}"
+        );
+        current = next;
+    }
+
+    // The shortened unit schedule is safe too, but its first boundary has
+    // the same obstruction: no singleton split among the four survivors.
+    let shortened = initial
+        .apply(
+            &SystemOperation::Batch(vec![
+                SystemOperation::Decrement(old),
+                SystemOperation::Join {
+                    node: new,
+                    position: 4,
+                },
+            ]),
+            vrr::configuration::INIT_SLOT.next().expect("slot space"),
+        )
+        .expect("the shortened first boundary folds");
+    vrr::quorum::validate_transition(&WeightedMajority, &initial, &shortened)
+        .expect("the shortened first boundary preserves agreement safety");
+    assert_eq!(
+        minimum_overlap_without(&legal_boundary_quorum_pairs(&initial, &shortened), old),
+        Some(2),
+        "safety alone does not establish a live singleton split"
+    );
+}
