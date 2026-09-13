@@ -5,14 +5,15 @@
   "exit_code": 12,
   "expected_verdict": "violation",
   "violated_invariant": "MassRule",
-  "elapsed_seconds": 0.75,
+  "violated": "MassRule",
+  "elapsed_seconds": 0.71,
   "wall_limit_seconds": 120,
   "java_heap_limit": "2g",
   "workers": 1,
-  "states_generated": 442,
-  "states_distinct": 123,
+  "states_generated": 26,
+  "states_distinct": 9,
   "sha256": {
-    "VrrCoreReincarnation.tla": "54f919e62328240def9d1672cc2388b34ccfb90bafa8b92044f7a1b1fa8e56d2",
-    "VrrCoreReincarnationM1.cfg": "a853edaf0b7d6a9e926d5eccefbc2291cd11286b25bc8f85d53076871f6d5f81"
+    "VrrCoreReincarnation.tla": "822c76cd5508817cd111b659498e462dc92401f9117b475a00ef05884732d43b",
+    "VrrCoreReincarnationM1.cfg": "894f0f5d93947e23e863d7b66767aff40aeb88fbf5019ad00c0616350a237cfa"
   }
 }

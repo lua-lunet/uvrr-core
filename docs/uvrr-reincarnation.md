@@ -65,11 +65,9 @@ per operation as a flush.
 
 A new **reincarnation** message carries the pair `(old identity, new identity)`, sent
 by the bumped node to the leader. The leader drives the forced sequence of §5. The
-identity pair (old, new) is the freshness carrier where it meets rung 17's fence
-machinery: it **supersedes** the `generation` ghost field of
-`UVRR/RestartFence.lean` as the environment freshness abstraction, instantiated by
-the durable superblock incarnation. The RestartFence machinery is unaffected;
-rung 17 requires no modification.
+identity pair (old, new) is the freshness carrier: the durable superblock incarnation
+is the only freshness abstraction, and a later incarnation of a node supersedes every
+message of the earlier one.
 
 ## 5. Forced weight sequence
 
@@ -127,10 +125,8 @@ carrying `EvidenceKind::Planned` for the armed machine's transition view, from a
 member the machine's pivot names in `qI`; every other guard of the planned-evidence
 path re-fires at the counting site, and a non-member's ordinary traffic — and its
 state-transfer requests — stay refused by name. This is good practice
-independent of reincarnation; the crash-vector collector's
-`old_reply_rejected` (rung 18) is the same primitive: once a later incarnation is
-known for a node, replies from the old identity never regain eligibility, regardless
-of redelivery.
+independent of reincarnation: once a later incarnation is known for a node, replies
+from the old identity never regain eligibility, regardless of redelivery.
 
 ## 7. Streaming order
 
@@ -151,32 +147,34 @@ eviction of the old identity until a stable leader exists to drive it.
 
 ## 9. Relationship to the checked ladder
 
-- Rung 17 (`RestartFence`): the restarting replica cannot reply; fresh-episode
-  evidence only; stale evidence rejected. This is precisely the ingress rule the
-  weight-0 standby obeys and why the leader may safely stream to it. Its `generation`
-  ghost is superseded as a carrier by the durable superblock incarnation (§4); the
-  machinery stays.
-- Rung 18 (`CrashVector`): `old_reply_rejected` is the membership-discard check for
-  the old identity (§6).
-- Rung 19 (`AcquisitionOrder`): the acquisition-order induction is what the
-  reincarnated node's streamed-state acquisition must satisfy; its open retention
-  premise becomes dischargeable — under reincarnation, retention of incarnation
-  knowledge is the durable superblock identity itself.
-- Rung 20 (`RestartAcquire`): the echoed `(incarnation, sequence)` request identity
-  is the wire-level freshness contract the reincarnation message and standby streaming
-  use; `crashed` bumping the incarnation is the formal shape of dirty ⇒ bump.
-- Rungs 1–9 (eras, weights, weighted-general): the forced sequence is a path through
-  the existing weighted-era space; each step's safety is the weighted-overlap
-  argument.
+- Rungs 3, 4, 6, 9 (`Synod`, `Eras`, `CastingVote`, `WeightedGeneral`): the forced
+  sequence is a path through the weighted-era space; each step's safety is the
+  weighted-overlap argument, and the leader-overlap round is rung 6's casting vote.
+- Rung 22 (`Reincarnation.lean`, `ReincarnationGeneral.lean`): the definitions and
+  state machine above, with the four general theorems discharged at arbitrary scale —
+  bumped-identity non-membership from eviction on (`evicted_never_voting`), quorum
+  safety of every intermediate era (`forced_sequence_era_safe`), unreachability of
+  the classic amnesia trace (`amnesia_unreachable`), and continuation commitment
+  (`forced_run_committed`, `forced_run_terminal_flushed`).
+- Rung 23 (`CastingVoteReincarnation.lean`): the casting vote on the reincarnation
+  eras — the two-node leader-overlap case and the three-node degenerate negative.
+- Rung 24 (`ReincarnationFive.lean`): the five-voter instance — computed majority
+  families, era safety by the general discharge, the E1/E2 pivot at `n3`.
+- Rung 25 (`ReincarnationAgreement.lean`): agreement across the forced sequence
+  under every view schedule. The era family `E0, E1, E2, E2, …` satisfies P1 at
+  arbitrary scale (`sequence_p1`), so rung 4's Theorem 10 instantiates: any two
+  chosen ballots of one instance agree for every history satisfying P2–P7
+  (`sequence_agreement`, `five_agreement`). View changes — within an era, across the
+  two boundaries, the leader-overlap schedule included — are ballots of that history
+  and change nothing. What a view change can do is take the majority away: with the
+  victim dead, three survivors form one quorum that is a majority in every era and two
+  survivors form none (`five_majority_boundary`); the sequence stalls until a majority
+  is live, and no disagreement is reachable.
 
-The reincarnation formalization is ladder rung 22 (`formal/uvrr-lean/UVRR/Reincarnation.lean`):
-the definitions and state machine above, with kernel-checked structural lemmas and finite
-instances (the unit-scale forced sequence's two consecutive eras are quorum-safe; the
-startup classification is exhaustive; the bumped identity is never a voter again; the
-forced sequence is monotone and cannot abort). The four general theorems — bumped-identity
-non-membership in every view ≥ eviction, quorum safety of every intermediate era at
-arbitrary scale, unreachability of the classic amnesia trace, and continuation commitment
-in general — are that rung's stated proof obligations, for later rungs.
+The TLC counterpart is `formal/VrrCoreReincarnation.tla`: the two-era sequence with
+variable leadership, view changes mid-sequence, crash-stop identities, and per-era
+acknowledgement quorums, checked exhaustively at five nodes with the leader-loss and
+majority-loss configurations.
 
 ## 10. Learner acquisition
 

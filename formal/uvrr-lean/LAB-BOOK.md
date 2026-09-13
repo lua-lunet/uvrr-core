@@ -763,3 +763,71 @@ paper were due. The paper rebuilds with zero errors and no overfull boxes (8 pag
 The reincarnation formalization itself is a future ladder rung (planned next as the
 post-deletion ladder's successor rung); this entry banks documentation only, and no
 git operations were performed.
+
+## 2026-09-11 Q — the ladder cut to the reincarnation target; rung 25
+
+The target theorem is stated and proved: a leader-overlap reconfiguration of a
+five-node cluster evicts and joins a resurrected node in two eras, and no
+schedule of view changes reaches disagreement. Rung 25
+(`UVRR/ReincarnationAgreement.lean`, `ladder/25-reincarnation-agreement.md`)
+makes the forced eras E0, E1, E2 the configuration sequence of rung 4's
+Theorem 10, with every era's phase-I and phase-II family the weighted strict
+majority of its configuration. P1 is discharged at arbitrary scale
+(`sequence_p1`: rung 9's `self_overlap` within an era, rung 22G's
+`forced_sequence_era_safe` across both boundaries, the configuration constant
+from E2 on); `majority_nonempty` supplies the phase-II nonemptiness; Theorem 10
+instantiates as `sequence_agreement`, and the five-node instance is
+`five_agreement`, with the E1/E2 pivot at `n3` (`five_leader_overlap`) and the
+majority boundary (`five_majority_boundary`: three survivors form one quorum
+that is a majority in every era, two form none). The module compiled on its
+first build. Its hypotheses are P2–P7 over the abstract history; the
+refinement of the Rust view-change machinery to those invariants remains the
+implementation obligation, and liveness is not claimed.
+
+The classic crash-recover rungs are removed: `RestartFence`, `CrashVector`,
+`AcquisitionOrder`, `RestartAcquire` (ladder 17–20), their evidence
+directories, and their mutation controls. They formalised the VRR-2012 §4.3
+recovery exchange and the DISC'17 crash-vector collector, which uVRR
+eliminates by construction: a crashed identity is dead, the resurrected node
+is a joiner caught up by ordinary state transfer, and no nonce or acquisition
+certificate exists in the protocol. The Apalache experiment files under
+`formal/` and `evidence/apalache` are removed with them; the record stays in
+`research/apalache-smoke.md`. The four rungs' retro-fitted mapping in
+`docs/uvrr-reincarnation.md` §4, §6 and §9 is replaced by the mapping to rungs
+22–25 and the TLC counterpart. The reincarnation announcement's doc comment in
+`src/message.rs` loses its reference to the fence ghost.
+
+Replays: `lake build` passes with 23 jobs; the axiom audit accepts 352
+declarations with only standard axioms; the trimmed mutation controls pass.
+Rungs 10, 13, 14, 15 and 16 did not replay at the inherited tip: the
+vocabulary-rename commit edited one comment line in each of their modules
+without regenerating the transcripts. They and rung 12 (which prints the
+mutation script) were regenerated from their own extracted recipes; no Lean
+source changed in the regeneration. All twenty rungs replay. The Rust gates
+pass. `REPRODUCE.md` is the release-time artifact of `make-reproduce.sh
+--full` and is stale until that run; its rung table and mutation text in the
+generator are updated. The paper's sections on recovery fencing, crash-vector
+collection and acquisition ordering, and its evidence list, still describe the
+removed rungs; that is the author's edit, not made here.
+
+The TLC counterpart, `formal/VrrCoreReincarnation.tla`, gains what the theorem
+abstracts: leadership is a variable, a view change hands the role to a live
+positive-weight unfenced member, the leader may die, a dead leader is always
+replaceable, acknowledgements are gathered per leader and per era, and a dirty
+identity never becomes clean again (the `RestartFlush` action, the model's
+crash-recover leftover, is removed). The committing leader is recorded per era
+and `NoStandbyVote` names it. Every prior configuration reruns green or red on
+its named invariant with the per-era ack filter (the five-node fixed-leader
+search drops from 271,552 to 3,406 distinct states once identities cannot
+toggle dirty and clean). The new checks at five nodes: `FiveViews`, one
+voluntary view change plus unrationed replacement of a dead leader, the victim
+and one more identity dead — green, 17,394,566 distinct states, depth 32,
+27m34s; `FiveCompletes`, weak fairness with at most two dead — `<>(era = 2)`
+holds, 126,301 distinct states; `FiveStall`, at most three dead — the
+property fails as it must: the victim, the first leader and a third voter dead
+leave two live voters, no strict majority, and the sequence stutters at era 0
+with every safety invariant intact. Two voluntary view changes are out of
+exhaustive reach at 2 GiB (9.9 million distinct states and a growing queue at
+570 seconds with only the victim dying). Evidence pairs are in
+`evidence/tlc/`; the README's reincarnation section describes the model and
+the runs.

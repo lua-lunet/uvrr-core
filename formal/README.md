@@ -200,76 +200,134 @@ reports `aarch64`. Worker count remains capped at two for thermal control.
 ## Reincarnation design model
 
 `VrrCoreReincarnation.tla` verifies the Crash-Stop-Self-Evict forced sequence in
-isolation from the era-transition model. A member crashes with a dirty
-superblock, is fenced (bumped to weight 0, recorded in `bumped`, never to vote
-again), and reopens under the new identity `d` at weight 0. Two committed eras
-follow the reincarnation announcement: era 1 batches `DECREMENT(Victim)+JOIN(d)`
-and era 2 batches `INCREMENT(d)+LEAVE(Victim)`, matching
-`src/replica/reincarnation.rs` `forced_steps`.
+isolation from the era-transition model, under leader replacement. Identities
+crash-stop: an identity marked dirty is dead under that identity forever and
+sends nothing afterwards. The victim crashes, is fenced (bumped to weight 0,
+recorded in `bumped`, never to vote again), and the node reopens under the new
+identity `d` at weight 0. Two committed eras follow the reincarnation
+announcement: era 1 batches `DECREMENT(Victim)+JOIN(d)` and era 2 batches
+`INCREMENT(d)+LEAVE(Victim)`, matching `src/replica/reincarnation.rs`
+`forced_steps`.
 
-The quorum rule is the design rule: support is the leader plus replies from
-identities whose current weight is positive, and a commit requires a strict
-majority over the current weight table (`2*SumWt(s) > SumWt(Members)`). Replies
-from weight-0 standbys are discarded at ingress (`StandbyDiscard`) and never
-enter the monotone message set. Both commit actions are guarded by a commit
-quorum and `Assert` the per-node mass bound (at most mass 1 per node per era);
-the bound is asserted, not assumed. The commit actions assign their effects from
-current state rather than accumulate, so after a mid-sequence leader crash the
-remaining eras are recomputed idempotently by the same guarded actions — the
-§8 leader-crash rule with the leader role resuming.
+Leadership is a variable. The initial leader is `a`; a view change hands the
+role to a live positive-weight member that has not been fenced, and the leader
+may itself die. Replacing a live leader is rationed by `MaxViews`; replacing a
+dead leader is never rationed, because that is the view-change protocol's
+liveness obligation, and it is bounded anyway since each such change consumes a
+leader death and deaths are bounded by `MaxDead`. Acknowledgements are gathered
+per leader and per era: an ack answers one announcement, is addressed to the
+announcing leader, is stamped with the announced era, and is counted only by
+that leader while that era is current. A successor leader therefore announces
+and gathers its own acks; stale acks addressed to an earlier leader or era are
+never counted, and a recorded ack stays valid regardless of the sender's later
+status (the sender's marks are not rechecked at the counting site).
+
+The quorum rule is the design rule: support is the current leader plus counted
+acks from identities whose current weight is positive, and a commit requires a
+live leader and a strict majority over the current weight table
+(`2*SumWt(s) > SumWt(Members)`). Replies from weight-0 standbys are discarded at
+ingress (`StandbyDiscard`) and never enter the monotone message set. Both commit
+actions `Assert` the per-node mass bound (at most mass 1 per node per era); the
+bound is asserted, not assumed. Each commit records its quorum in `quorums[e]`
+and its committing leader in `leaders[e]`. The commit actions assign their
+effects from current state rather than accumulate, so after a leader crash the
+remaining era is recomputed idempotently by the successor through the same
+guarded actions — the §8 leader-crash rule of `docs/uvrr-reincarnation.md`.
+
+A stall is a legitimate terminal state, not a defect: when the live voters no
+longer hold a strict majority, no commit is enabled and the sequence waits.
+Deadlock checking is therefore off in every configuration (`CHECK_DEADLOCK
+FALSE`), and completion is checked separately as the liveness property
+`Completes == <>(era = 2)` under `FairSpec == Spec /\ WF_vars(Next)`. Because
+every state-changing action increases a bounded monotone quantity (marks,
+messages, views, eras), a fair behaviour reaches a terminal state, so the
+property holds exactly when every terminal state has committed era 2.
 
 | Element | Obligation |
 |---|---|
-| `Bump`, `Announce`, `Ack`, `StandbyDiscard` | fencing, reincarnation announcement, standby ingress discard |
-| `LeaderCommitEra1` | crossing batch `DECREMENT(Victim)+JOIN(d)`, strict-majority quorum, mass ≤ 1 asserted |
-| `LeaderCommitEra2` | promotion batch `INCREMENT(d)+LEAVE(Victim)`, idempotent recompute |
-| `LeaderCrashMid` | leader crash between eras; recovery via the same guarded commits |
+| `Crash` | crash-stop: a dead identity stays dead and sends nothing; the victim's crash opens the scenario, further deaths are bounded by `MaxDead`; a leader death raises `crashed` |
+| `ViewChange` | a live, positive-weight, unfenced member takes the leader role; rationed by `MaxViews` only while the leader is alive |
+| `Bump`, `Announce`, `Ack`, `StandbyDiscard` | fencing, per-era reincarnation announcement by the current leader, per-leader per-era acks from live voters, standby ingress discard |
+| `LeaderCommitEra1` | crossing batch `DECREMENT(Victim)+JOIN(d)`, live leader, strict-majority quorum of the leader's own acks for the current era, mass ≤ 1 asserted, leader recorded |
+| `LeaderCommitEra2` | promotion batch `INCREMENT(d)+LEAVE(Victim)`, same discipline, idempotent recompute by whichever live leader holds the role |
 | `FrownChain` | every committed quorum is a strict majority over current weights; consecutive committed eras overlap |
 | `EvictedNeverVoter` | every bumped identity stays at weight 0 |
-| `NoStandbyVote` | no identity is counted in a committed quorum without a current positive-weight ack on file |
+| `NoStandbyVote` | every quorum member other than the committing leader has on file an ack addressed to that leader for the era the commit was gathered in, and holds positive weight |
 | `MassRule` | each committed era moved at most mass 1 per node (mass is the weight delta the era produces) |
 | `RebornAfterFence` | the reborn identity may hold weight only once the victim identity has been fenced |
 | `SequenceCompletes` | a committed forced sequence is never abandoned before its final era commits |
+| `LeaderIsVoter` | a live leader has positive weight and is not fenced; a dead leader holds the role only until replaced and commits nothing |
+| `Completes` | liveness under weak fairness: the sequence reaches era 2 while the live voters keep a strict majority |
 
 Scenario constants: `Members` (original voting identities), `Victim` (the
-member that crashes dirty), `StartWt` (initial weight of each original member;
-the reborn identity always starts at 0), and `CrashFirst` (when TRUE, era 1 may
-commit only before a mid-sequence leader crash and era 2 only after one,
-forcing the crash-between-eras path). The `Defect` constant weakens exactly one
-guard per mutation config (`"none"` is the intact design): mass is the weight
-delta an era produces on each node.
+member that crashes and is fenced), `StartWt` (initial weight of each original
+member; the reborn identity always starts at 0), `CrashFirst` (when TRUE, era 1
+may commit only before a leader crash and era 2 only after one, forcing the
+crash-between-eras path onto a successor leader), `MaxViews` (bound on view
+changes that replace a live leader), and `MaxDead` (bound on dead identities,
+the victim included). The `Defect` constant weakens exactly one guard per
+mutation config (`"none"` is the intact design): mass is the weight delta an era
+produces on each node.
 
 ### Configurations and measured runs
 
 | Configuration | Method | Result |
 |---|---|---|
-| `VrrCoreReincarnation3.cfg` | exhaustive, 3 nodes (a:1, b:1, c:1), happy path | green: 1,264 distinct / 13,345 generated, depth 17, 1.0s |
-| `VrrCoreReincarnation2.cfg` | exhaustive, 2 nodes (a:1, b:1), b crashes and reincarnates as d | green: 344 distinct / 2,373 generated, depth 13, 0.7s |
-| `VrrCoreReincarnationDouble.cfg` | exhaustive, 3 nodes at double scale (a:2, b:2, c:2) | green: 1,264 distinct / 13,345 generated, depth 17, 0.8s |
-| `VrrCoreReincarnationCrash.cfg` | exhaustive, leader crash forced between the two eras | green: 752 distinct / 7,633 generated, depth 18, 0.8s |
-| `VrrCoreReincarnationFive.cfg` | exhaustive, 5 nodes (a:1, b:1, c:1, e:1, f:1), f crashes and reincarnates as d, all invariants | green: 271,552 distinct / 4,595,361 generated, depth 25, 12.2s |
+| `VrrCoreReincarnation3.cfg` | exhaustive, 3 nodes (a:1, b:1, c:1), fixed leader, no further deaths | green: 28 distinct / 221 generated, depth 14, 0.7s |
+| `VrrCoreReincarnation2.cfg` | exhaustive, 2 nodes (a:1, b:1), b crashes and reincarnates as d | green: 35 distinct / 162 generated, depth 11, 0.8s |
+| `VrrCoreReincarnationDouble.cfg` | exhaustive, 3 nodes at double scale (a:2, b:2, c:2) | green: 28 distinct / 221 generated, depth 14, 0.7s |
+| `VrrCoreReincarnationFive.cfg` | exhaustive, 5 nodes (a:1, b:1, c:1, e:1, f:1), f crashes and reincarnates as d, fixed leader | green: 3,406 distinct / 53,078 generated, depth 20, 1.1s |
+| `VrrCoreReincarnationCrash.cfg` | exhaustive, 5 nodes, leader crash forced between the two eras (`CrashFirst`), one view change, two deaths | green: 1,253,444 distinct / 26,308,632 generated, depth 31, 1m48s |
+| `VrrCoreReincarnationFiveViews.cfg` | exhaustive, 5 nodes, `MaxViews = 1`, `MaxDead = 2`: one replacement of a live leader, unrationed replacement of a dead one, the victim plus one further death, all invariants | green: 17,394,566 distinct / 371,140,753 generated, depth 32, 27m34s |
+| `VrrCoreReincarnationFiveCompletes.cfg` | liveness under `FairSpec`, `PROPERTY Completes`, `MaxViews = 0`, `MaxDead = 2`: the leader may die and is replaced, all invariants | green: 126,301 distinct / 2,318,131 generated, depth 26, 19.0s; `Completes` checked over the complete state graph |
+| `VrrCoreReincarnationFiveStall.cfg` | expected failure: as FiveCompletes with `MaxDead = 3` | red by `Completes`: stall reached at 59,666 distinct / 426,526 generated, 3.8s; the trace ends stuttering at `era = 0` with two live voters holding weight 2 of 4 |
 | `VrrCoreReincarnationM1.cfg` | mutation: era 1 skips the decrement, era 2 leaves the victim at weight 2 | red by `MassRule`: the leave moves 2 units, counterexample records `moved[2][c] = 2` |
 | `VrrCoreReincarnationM2.cfg` | mutation: one-era swap, the unfenced victim evicted and d promoted in one era | red by `MassRule`: the swap evicts at full weight, counterexample records `moved[1][c] = 2` |
 | `VrrCoreReincarnationFiveM1.cfg` | mutation at 5 nodes (a:1, b:1, c:1, e:1, f:1): era 1 skips the decrement, era 2 leaves the victim at weight 2 | red by `MassRule`: the leave moves 2 units, counterexample records `moved[2][f] = 2` |
 | `VrrCoreReincarnationFiveM2.cfg` | mutation at 5 nodes: one-era swap, the unfenced victim evicted and d promoted in one era | red by `MassRule`: the swap evicts at full weight, counterexample records `moved[1][f] = 2` |
-| `VrrCoreReincarnationM3.cfg` | mutation: the sequence runs without the fence (dirty restart, no bump) | red by `RebornAfterFence`: d holds weight 1 while `bumped = {}` |
+| `VrrCoreReincarnationM3.cfg` | mutation: the sequence runs without the fence (no bump) | red by `RebornAfterFence`: d holds weight 1 while `bumped = {}` |
 | `VrrCoreReincarnationM4.cfg` | mutation: the sequence aborts after era 1, era 2 never proposed | red by `SequenceCompletes`: `aborted = TRUE` with `quorums[2] = {}` |
-| `VrrCoreReincarnationM5.cfg` | mutation: weight-0 identities' replies counted in quorums | red by `NoStandbyVote`: a weight-0 identity's reply is counted in `quorums[1]` |
+| `VrrCoreReincarnationM5.cfg` | mutation: weight-0 identities' replies counted in quorums | red by `NoStandbyVote`: the weight-0 identity d is counted in `quorums[1]` |
 
 The 2-node run is the load-bearing case: after b is fenced, the total member
 weight is 1, so the crossing batch commits under the leader's casting vote
 alone (E1). The double-scale run checks the majority arithmetic at weight 2,
 where the leader alone (weight 2 over total 4 after the fence) is no longer a
-strict majority and the second member's ack is required. The five mutation runs
-use one worker (a multi-worker search stops at a nondeterministic point after
-the first violation, so only the violated invariant is compared). All runs used
-the hash-pinned TLC 2.19 jar (`sha256 936a2620…`), 2g heap; green searches with
-2 workers, mutations with 1. Evidence logs and digests are in
+strict majority and the second member's ack is required. The fixed-leader runs
+(`MaxViews = 0`, `MaxDead = 1`) admit only the victim's death, so the leader
+never changes and every era is committed by `a`.
+
+The crash-between-eras run needs five voters: at three, the victim's fence and
+the leader's death leave one live voter of a remaining weight 2, which is no
+strict majority, so era 2 cannot commit under crash-stop at that scale. At five
+the leader `a` commits era 1, dies, the successor gathers its own era-1 acks
+from the three remaining voters and commits era 2. `FiveViews` is the main
+safety check: any interleaving of a live leader's replacement, a leader death
+with its unrationed replacement, and the victim's fence during the two rounds
+preserves every safety invariant, stale acks to the earlier leader or era
+included. Its state graph is dominated by the monotone message set: each
+leader tenure per era adds an announcement round and up to sixteen ack
+subsets, so the product over tenures grows by more than an order of magnitude
+per additional rationed view change; `MaxViews = 1` is the largest bound the
+search completes at this scale. `FiveCompletes` checks completion with view
+changes that replace only a dead leader: three live voters remain in every
+terminal state, a strict majority over the post-fence weight 4, so the
+sequence finishes despite the leader's death. `FiveStall` is the intentionally
+failing witness: with `MaxDead = 3` two voters can be left holding weight 2 of
+4, no strict majority exists, and TLC reports `Completes` violated with a trace
+that ends stuttering in the stalled state. The witness is the existence proof
+that the model stalls rather than committing without a majority.
+
+The seven mutation runs use one worker (a multi-worker search stops at a
+nondeterministic point after the first violation, so only the violated
+invariant is compared). All runs used the hash-pinned TLC 2.19 jar
+(`sha256 936a2620…`), 2g heap; green and liveness searches with 2 workers,
+mutations with 1. Evidence logs and digests are in
 `formal/uvrr-lean/evidence/tlc/`.
 
-The five-node run holds the model unchanged: `Leader = "a"` and `Reborn = "d"`
-are fixed definitions, so the fifth voter is `f` (the leader `a` stays in the
-voter set, `d` remains outside it) and the recursion/majority machinery
-generalizes to any member count. The five-node config was also offered to the
-symbolic checker Apalache, which rejected the model outright; that outcome is
-recorded in `research/apalache-smoke.md`.
+`InitialLeader = "a"` and `Reborn = "d"` are fixed definitions, so the fifth
+voter is `f` (`a` starts in the leader role, `d` remains outside the voter set
+and is never eligible for it) and the recursion/majority machinery generalizes
+to any member count. The five-node config was also offered to the symbolic
+checker Apalache, which rejected the model outright; that outcome is recorded
+in `research/apalache-smoke.md`.

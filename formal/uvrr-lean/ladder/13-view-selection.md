@@ -1,7 +1,7 @@
 # Rung 13: Whole-log selection by last-normal view
 
-*2026-09-06T07:55:14Z by Showboat 0.6.1*
-<!-- showboat-id: 6c4775f7-8141-482b-95d6-5932ca853bb9 -->
+*2026-09-11T00:42:06Z by Showboat 0.6.1*
+<!-- showboat-id: 82af4ebb-b165-4d5b-880e-613ba4e6d656 -->
 
 Claim: the nonempty-report selector returns a member of maximal (last-normal view, log length) rank. Quorum intersection and explicit voter-history, same-view comparability and strictly later-view preservation premises yield committed-prefix preservation. These temporal premises still need an operational proof. The selector checks only rank. The bounded scalar rank in the TLA model is proved equivalent; controls show a length-only selector loses a newer committed prefix and omission of the scalar length bound misranks reports.
 
@@ -16,7 +16,7 @@ import UVRR.Synod
 log length. The preservation theorem is the view-induction step. It explicitly
 requires same-view log comparability, quorum coverage, surviving voter history,
 and preservation by strictly later normal views. Deriving those premises from
-the complete message/recovery transition system remains a separate obligation.
+the complete message/restart transition system remains a separate obligation.
 No global prefix-agreement check is used in the selection algorithm.
 -/
 namespace ViewSelection

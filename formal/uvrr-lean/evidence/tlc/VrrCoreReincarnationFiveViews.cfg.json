@@ -1,0 +1,17 @@
+{
+  "config": "VrrCoreReincarnationFiveViews.cfg",
+  "model": "VrrCoreReincarnation.tla",
+  "status": "exited",
+  "exit_code": 0,
+  "elapsed_seconds": 1655.51,
+  "wall_limit_seconds": 1800,
+  "java_heap_limit": "2g",
+  "workers": 2,
+  "states_generated": 371140753,
+  "states_distinct": 17394566,
+  "search_depth": 32,
+  "sha256": {
+    "VrrCoreReincarnation.tla": "822c76cd5508817cd111b659498e462dc92401f9117b475a00ef05884732d43b",
+    "VrrCoreReincarnationFiveViews.cfg": "ea0f82aef09e1b215f2e54078aae220c038c9d2865d1d9bec17034ad1bd00ae6"
+  }
+}

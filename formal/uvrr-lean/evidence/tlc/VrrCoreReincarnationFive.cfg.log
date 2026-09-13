@@ -1,8 +1,8 @@
 TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
 Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector by passing the "-XX:+UseParallelGC" property.
 (Use the -nowarning option to disable this warning.)
-Running breadth-first search Model-Checking with fp 30 and seed -8724065344833712851 with 2 workers on 10 cores with 2048MB heap and 64MB offheap memory [pid: 58173] (Mac OS X 26.6.2 aarch64, Homebrew 26.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
-Parsing file /Users/Shared/lua-lunet/vrr-core/.tmp/tlc-five/five/VrrCoreReincarnation.tla
+Running breadth-first search Model-Checking with fp 64 and seed -3734272381928850834 with 2 workers on 10 cores with 2048MB heap and 64MB offheap memory [pid: 92075] (Mac OS X 26.6.2 aarch64, Homebrew 26.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/opencode/uvrr-wtF/formal/VrrCoreReincarnation.tla
 Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/FiniteSets.tla
 Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/Naturals.tla
 Parsing file /private/var/folders/55/fc4y6_3n0zzcmdns1zrh26tc0000gt/T/TLC.tla
@@ -12,16 +12,14 @@ Semantic processing of module Sequences
 Semantic processing of module FiniteSets
 Semantic processing of module TLC
 Semantic processing of module VrrCoreReincarnation
-Starting... (2026-09-08 17:02:34)
+Starting... (2026-09-11 01:46:55)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-09-08 17:02:34.
-Progress(16) at 2026-09-08 17:02:37: 1,168,823 states generated (1,168,823 s/min), 125,900 distinct states found (125,900 ds/min), 49,649 states left on queue.
+Finished computing initial states: 1 distinct state generated at 2026-09-11 01:46:55.
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
-  calculated (optimistic):  val = 6.4E-8
-  based on the actual fingerprints:  val = 4.3E-11
-4595361 states generated, 271552 distinct states found, 0 states left on queue.
-The depth of the complete state graph search is 25.
-The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 7 and the 95th percentile is 4).
-Finished in 11s at (2026-09-08 17:02:45)
+  calculated (optimistic):  val = 9.2E-12
+53078 states generated, 3406 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 20.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 8 and the 95th percentile is 4).
+Finished in 00s at (2026-09-11 01:46:55)

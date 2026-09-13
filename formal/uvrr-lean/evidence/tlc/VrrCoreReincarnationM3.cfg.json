@@ -5,14 +5,15 @@
   "exit_code": 12,
   "expected_verdict": "violation",
   "violated_invariant": "RebornAfterFence",
-  "elapsed_seconds": 0.74,
+  "violated": "RebornAfterFence",
+  "elapsed_seconds": 0.71,
   "wall_limit_seconds": 120,
   "java_heap_limit": "2g",
   "workers": 1,
-  "states_generated": 325,
-  "states_distinct": 95,
+  "states_generated": 160,
+  "states_distinct": 38,
   "sha256": {
-    "VrrCoreReincarnation.tla": "54f919e62328240def9d1672cc2388b34ccfb90bafa8b92044f7a1b1fa8e56d2",
-    "VrrCoreReincarnationM3.cfg": "5ef0357aac0b44d316f0594c89a9a364aa65fbd0c1f87721594a5adc279fa53b"
+    "VrrCoreReincarnation.tla": "822c76cd5508817cd111b659498e462dc92401f9117b475a00ef05884732d43b",
+    "VrrCoreReincarnationM3.cfg": "51fc7760ce48d9a1bdff45d664616bb8370ed84a58cc054f2c49860ef4a328e3"
   }
 }
