@@ -80,7 +80,12 @@ batch travels as an ordinary `Prepare` and needs no envelope):
    establishing `Prepare` passes, run on the batch the envelope packs.
 2. Register one proposal record per packed slot; the leader's own vote is
    implicit, as in the ordinary path.
-3. Each `FuseOk` element feeds its slot's majority bookkeeping, elementwise.
+3. One `FuseOk` is ONE atomic vote (§2): the leader counts the sender
+   once, cumulatively onto every outstanding slot the header slot covers —
+   the header slot is the batch's last slot as the acceptor stamps it, so
+   the vouch spans the batch whole. Majority is computed on the first
+   message in batch and the remaining slots telescope. The `acks` body is
+   the acceptor's wire evidence and is not examined for counting.
 4. When every packed slot holds a quorum, the commit cascade commits the
    batch whole: the packed schedule folds as the ONE establishing batch it
    is — a maximal run of consecutive system entries in the journal — and

@@ -608,7 +608,152 @@ fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. The reproduction: one commit transition folding across the two
+// 7. The pin: a `FuseOk` is ONE atomic vote; the leader counts the sender
+//    on the first message in batch and telescopes (§2, §4 step 3).
+// ---------------------------------------------------------------------------
+
+/// THE PIN (`docs/uvrr-fuse.md` §2): majority is computed on the first
+/// message in batch. A `FuseOk` is one atomic vote vouching for the whole
+/// envelope — a node processes the full datagram before reading any other
+/// message, so a partial or staggered acks body is wire evidence the
+/// leader never examines for counting. The backup `n(1)` HAS accepted the
+/// batch (its journal holds both packed slots); only its reply's acks
+/// body names a proper SUBSET of the batch's slots, with the header slot
+/// the last slot of the batch as the acceptor stamps. The leader must
+/// count `n(1)` once, cumulatively onto every outstanding slot the header
+/// covers: when the next backup's genuine `FuseOk` lands, both packed
+/// slots hold quorum and the commit fires. The elementwise counter would
+/// mark "just those slots" — slot 4 never holds `n(1)`'s vote, and the
+/// batch never commits — the Red result this test is named after.
+#[test]
+fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
+    // Four nodes: the commit quorum is three, so the forged subset vote
+    // alone leaves the round in flight and the next genuine vote decides.
+    let mut h = Harness::provision(4);
+    bootstrap(&mut h);
+
+    let plan = Plan {
+        initial: vec![member(0, 1), member(1, 1), member(2, 1), member(3, 1)],
+        steps: vec![vec![
+            SystemOperation::Join {
+                node: n(4),
+                position: 4,
+            },
+            SystemOperation::Increment(n(4)),
+        ]],
+    };
+    let outcome = h.submit_plan(n(0), plan);
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    let ops = vec![
+        SystemOperation::Join {
+            node: n(4),
+            position: 4,
+        },
+        SystemOperation::Increment(n(4)),
+    ];
+
+    // Two of the three backups accept the envelope; their genuine FuseOks
+    // are queued at the leader. The third backup's envelope stays queued.
+    h.deliver_tag(n(1), Tag::Fuse);
+    h.deliver_tag(n(2), Tag::Fuse);
+    assert_eq!(h.snapshot(n(1)).expect("live").accepted, 4);
+    assert_eq!(h.snapshot(n(2)).expect("live").accepted, 4);
+
+    // The forged subset: `n(1)` HAS accepted (the journal above), but its
+    // reply names only the batch's first slot — the header slot the last,
+    // exactly as the acceptor stamps. One atomic vote, whatever the body
+    // says.
+    let subset = Message {
+        header: Header {
+            tag: Tag::FuseOk,
+            view: current_view(),
+            slot: Slot(4),
+        },
+        body: Body::FuseOk {
+            acks: vec![Slot(3)],
+        },
+    };
+    let outcome = h.inject(n(1), n(0), subset);
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "the subset vote publishes, not {outcome:?}\n{}",
+        h.trace_dump()
+    );
+    assert_eq!(
+        h.snapshot(n(0)).expect("live").committed,
+        2,
+        "one vote of three leaves the round in flight"
+    );
+
+    // The leader re-delivers `n(1)`'s genuine FuseOk: the sender is
+    // already counted on the header slot's coverage — a harmless but
+    // named duplicate, exactly the ordinary rule's repeat handling.
+    let outcome = h
+        .deliver_tag(n(0), Tag::FuseOk)
+        .expect("the genuine ack is queued");
+    assert!(matches!(outcome.outcome, StepOutcome::Published { .. }));
+
+    // The next backup's genuine FuseOk completes the quorum on BOTH
+    // packed slots — the header-slot vouch telescoped the batch — and
+    // the commit fires: the cascade commits the batch whole.
+    let outcome = h
+        .deliver_tag(n(0), Tag::FuseOk)
+        .expect("the second ack is queued");
+    assert!(
+        matches!(outcome.outcome, StepOutcome::Published { .. }),
+        "the ack publishes: {:?}\n{}",
+        outcome.outcome,
+        h.trace_dump()
+    );
+    let snapshot = h.snapshot(n(0)).expect("live");
+    assert_eq!(
+        snapshot.committed, 4,
+        "the ONE atomic vote covers the batch: both packed slots hold quorum"
+    );
+
+    // The per-era commit emission and the era table: the batch established
+    // ONE era at its first slot (§4 step 4).
+    for to in [n(1), n(2), n(3)] {
+        let message = h
+            .peek_queued(to, Tag::CommitBatch)
+            .unwrap_or_else(|| panic!("n{to:?} holds the batch, {:?}", h.trace_dump()));
+        let Body::CommitBatch { committed } = &message.body else {
+            panic!("the body is CommitBatch, not {:?}", message.body);
+        };
+        assert_eq!(
+            committed,
+            &vec![Slot(3), Slot(4)],
+            "one committed frontier per packed slot, in batch order"
+        );
+    }
+    let table = h.era_table(n(0)).expect("live");
+    let record = table.record(Era(2)).expect("era 2 is recorded");
+    assert_eq!(record.established_by, Slot(3), "the batch's first slot");
+    assert_eq!(
+        record.establishing_operation,
+        SystemOperation::Batch(ops),
+        "the era's establishing operation is the batch the envelope packed"
+    );
+    assert_eq!(
+        record.config.order(),
+        [
+            member(0, 1),
+            member(1, 1),
+            member(2, 1),
+            member(3, 1),
+            member(4, 1),
+        ],
+        "the era table advanced through the whole schedule"
+    );
+
+    // The third backup's envelope lands late; its FuseOk arrives to a
+    // committed header slot and is dropped as harmless-but-named.
+    quiesce(&mut h);
+    h.assert_safety();
+}
+
+// ---------------------------------------------------------------------------
+// 8. The reproduction: one commit transition folding across the two
 //    era-establishing slots of a packed schedule.
 // ---------------------------------------------------------------------------
 

@@ -2835,9 +2835,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // The acceptor's fuse transition (`docs/uvrr-fuse.md` §3): the
             // envelope folds whole with the ordinary prepare perimeter.
             Body::Fuse { ops } => self.plan_fuse(journal, from, message, ops, at, kind),
-            // The leader's fuse acks (`docs/uvrr-fuse.md` §4): the
-            // elementwise quorum and the per-era commit emission.
-            Body::FuseOk { acks } => self.plan_fuse_ok(journal, from, message, acks, kind),
+            // The leader's fuse acks (`docs/uvrr-fuse.md` §4 step 3, §2):
+            // one FuseOk is ONE atomic vote; the leader counts the sender
+            // once on the first message in batch — the header slot's
+            // coverage, the acks body never examined — and emits the
+            // per-era commit.
+            Body::FuseOk { .. } => self.plan_fuse_ok(journal, from, message, kind),
             // The backups already learn commitment through the ordinary
             // commit announcement; the batch is the leader's per-era
             // emission, received by name and dropped (`docs/uvrr-fuse.md`

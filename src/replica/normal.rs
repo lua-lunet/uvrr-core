@@ -781,26 +781,33 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         effects
     }
 
-    /// The primary's `FuseOk` handler (`docs/uvrr-fuse.md` §4). The guards
-    /// mirror `plan_prepare_ok` — `Normal`, own is the primary of the
-    /// current view, the view matches, the sender is a member voting with
-    /// weight ≥ 1, every acknowledged slot outstanding, the sender not
-    /// already counted — with the fuse vocabulary's one named outcome
-    /// (`Diagnostic::FuseRefusal`). Each `acks` element then feeds its own
-    /// slot's proposal record, elementwise, no ranges.
+    /// The primary's `FuseOk` handler (`docs/uvrr-fuse.md` §4 step 3,
+    /// §2): one `FuseOk` is ONE atomic vote vouching for the whole
+    /// envelope — a node processes the full datagram before reading any
+    /// other message, so the leader counts a majority response on the
+    /// FIRST message in batch and telescopes the remaining slots. The
+    /// guards mirror `plan_prepare_ok` — `Normal`, own is the primary of
+    /// the current view, the view matches, the sender is a member voting
+    /// with weight ≥ 1, the HEADER slot an outstanding proposal slot (a
+    /// delayed duplicate of a committed slot is harmless but named), the
+    /// sender not already counted on that record — with the fuse
+    /// vocabulary's one named outcome (`Diagnostic::FuseRefusal`). The
+    /// `acks` body is the acceptor's wire evidence and is never examined
+    /// for counting: the sender is vouched cumulatively onto every
+    /// outstanding slot the header slot covers, the same bookkeeping
+    /// `plan_prepare_ok` feeds.
     ///
-    /// The commit cascade is `plan_prepare_ok`'s, segment-atomic: when the
-    /// last needed element lands and every packed slot holds quorum, the
-    /// establishing batch commits whole — ONE era, the batch it is — the
-    /// commit cascade runs in slot order, and the per-era `CommitBatch`
-    /// joins the ordinary commit announcement. The leader's own ack is
-    /// implicit, as today.
+    /// The commit cascade is `plan_prepare_ok`'s, segment-atomic: the
+    /// packed schedule's slots share their ackers (§2), so the batch's
+    /// quorum lands whole — the establishing batch commits as the ONE era
+    /// it is, the commit cascade runs in slot order, and the per-era
+    /// `CommitBatch` joins the ordinary commit announcement. The
+    /// leader's own ack is implicit, as today.
     pub(in crate::replica) fn plan_fuse_ok(
         &self,
         journal: &J::View,
         from: NodeId,
         message: &Message,
-        acks: &[Slot],
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
@@ -824,25 +831,37 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             Some(_) => {}
         }
-        // Every acknowledged slot must be an outstanding proposal slot:
-        // the elementwise feed has nothing to feed otherwise, and a
-        // delayed duplicate of a committed slot is harmless but named.
-        for &slot in acks {
-            if slot <= self.progress.committed() || !self.proposals.contains_key(&slot) {
-                return self.drop_plan(Diagnostic::FuseRefusal, kind);
-            }
+        // The header slot must be an outstanding proposal slot: the ONE
+        // atomic vote is counted against the coverage the header names,
+        // and a delayed duplicate of a committed slot is harmless but
+        // named — `plan_prepare_ok`'s stale handling.
+        let slot = header.slot;
+        let proposal = if slot <= self.progress.committed() {
+            None
+        } else {
+            self.proposals.get(&slot)
+        };
+        let Some(proposal) = proposal else {
+            return self.drop_plan(Diagnostic::FuseRefusal, kind);
+        };
+        if proposal.oks.contains(&from) {
+            return self.drop_plan(Diagnostic::FuseRefusal, kind);
         }
-        // The sender is counted once per slot, elementwise.
-        for &slot in acks {
-            if self
-                .proposals
-                .get(&slot)
-                .is_some_and(|proposal| proposal.oks.contains(&from))
-            {
-                return self.drop_plan(Diagnostic::FuseRefusal, kind);
+        // The sender is vouched cumulatively onto every outstanding slot
+        // the header slot covers — `plan_prepare_ok`'s bookkeeping pairs,
+        // driven by the header's coverage (§2: majority is computed on
+        // the first message in batch; the remaining slots telescope).
+        let mut oks: Vec<(Slot, NodeId)> = Vec::new();
+        let mut covered = self.progress.committed();
+        while let Some(next) = covered.next() {
+            if next > slot {
+                break;
             }
+            if self.proposals.contains_key(&next) {
+                oks.push((next, from));
+            }
+            covered = next;
         }
-        let oks: Vec<(Slot, NodeId)> = acks.iter().map(|&slot| (slot, from)).collect();
         // The cascade over the contiguous accepted tail, segment-atomic:
         // the packed schedule's slots share their ackers (the envelope is
         // atomic, §2), so the batch's quorum lands whole.
