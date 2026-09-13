@@ -168,7 +168,6 @@ The weighted proof establishes the requisite intersections when successive confi
 
 
 \section{Three-node Crash-Stop-Reincarnation}\label{sec:results}
-\subsection{The leader as the overlap}
 Suppose a leader $\ell$ uses ballot $b$ with an active decision quorum $q$. To prepare ballot $b'>b$ for the next era, it chooses a prospective phase-one quorum $q'$ with
 \begin{equation}
 q\in\QII_e,\qquad q'\in\QI_{e+1},\qquad q\cap q'=\{\ell\}.
@@ -198,28 +197,9 @@ Decision quorums follow the era of the \emph{slot}, not simply the era associate
 \label{fig:overlap}
 \end{figure*}
 
-\subsection{The committed batches}
-Table~\ref{tab:three} is the three-node schedule: $n_0$ fails and is replaced by its fresh identity $n_3$, while $n_1,n_2$ survive. A join inserts a zero-weight identity; an increment grants its voting weight. A leave removes the old identity after its weight reaches zero.
-
-\begin{table}[t]
-\centering
-\caption{Three-node Crash-Stop-Reincarnation: two committed batches. Zero denotes voting weight, including absent identities.}
-\label{tab:three}
-\small
-\begin{tabular}{lrrrr}
-\toprule
-Stage & $n_0$ & $n_1$ & $n_2$ & $n_3$\\
-\midrule
-Initial & 1&1&1&0\\
-Decrement, join & 0&1&1&0\\
-Increment, leave & 0&1&1&1\\
-\bottomrule
-\end{tabular}
-\end{table}
+Table~\ref{tab:reincarnationweights} is the three-node schedule: $n_0$ fails and is replaced by its fresh identity $n_3$, while $n_1,n_2$ survive. A join inserts a zero-weight identity; an increment grants its voting weight. A leave removes the old identity after its weight reaches zero.
 
 Each boundary preserves cross-era majority intersection by a unit change or exact scaling. Figure~\ref{fig:overlap} illustrates the promotion boundary.
-
-\subsection{The forced sequence}
 
 The leader stays live for client requests and drives a forced weight sequence from
 the voting-weights rules \cite{votingweights}: the exiting node's weight goes
@@ -281,11 +261,11 @@ exercised on this path. The chart is rendered from the tracked source
 The addendum published with the code~\cite{artifact} provides a Lean theorem that composes an era-based agreement theorem with replacement weights and an abstract identity lifecycle. The work builds upon Turner's P2--P7~\cite{turner}: promises preserve their fences, reports identify prior acceptances, proposals preserve the selected history, and chosen values have quorum evidence. A well-founded total ballot order and the ballot/slot era conditions complete the contract. The addendum states each hypothesis and the exercise that connects operational executions to it.
 
 \begin{theorem}[Three-voter Crash-Stop-Reincarnation]\label{thm:three}
-For a history using Table~\ref{tab:three}, under the stated order, era and history conditions, any two values chosen for the same slot are equal. The first batch reduces the failed identity to zero voting weight and admits the fresh identity at zero; the second grants the fresh identity unit weight. The retired identity remains without voting authority when subsequent configurations preserve its exclusion. Along the stipulated identity lifecycle, a superseded identity never becomes current again. In a unit-weight three-voter configuration, any leader has a casting vote between two equal one-node minorities; at the promotion boundary, the surviving leader is the singleton overlap shown in Figure~\ref{fig:overlap}.
+For a history using Table~\ref{tab:reincarnationweights}, under the stated order, era and history conditions, any two values chosen for the same slot are equal. The first batch reduces the failed identity to zero voting weight and admits the fresh identity at zero; the second grants the fresh identity unit weight. The retired identity remains without voting authority when subsequent configurations preserve its exclusion. Along the stipulated identity lifecycle, a superseded identity never becomes current again. In a unit-weight three-voter configuration, any leader has a casting vote between two equal one-node minorities; at the promotion boundary, the surviving leader is the singleton overlap shown in Figure~\ref{fig:overlap}.
 \end{theorem}
 
 \begin{proof}
-The totals in Table~\ref{tab:three} are $3,2,3$, so the majority thresholds are $2,2,2$. Each boundary changes one weight by one; the integral weighted-overlap argument gives the within-era and adjacent-era intersections. Turner's agreement theorem applies to those intersections and P2--P7. The two commands establish the stated weights, and identity fencing supplies nonreuse. At the promotion boundary, $\{n_1,n_2\}$ and $\{n_1,n_3\}$ meet only at leader $n_1$; their nonleader members form the two minorities. The leader can collect the replacement's promise while withholding its own. The addendum gives the complete three-node working, including the abstract witness at the first boundary and the state-acquisition obligation.
+The totals in Table~\ref{tab:reincarnationweights} are $3,2,3$, so the majority thresholds are $2,2,2$. Each boundary changes one weight by one; the integral weighted-overlap argument gives the within-era and adjacent-era intersections. Turner's agreement theorem applies to those intersections and P2--P7. The two commands establish the stated weights, and identity fencing supplies nonreuse. At the promotion boundary, $\{n_1,n_2\}$ and $\{n_1,n_3\}$ meet only at leader $n_1$; their nonleader members form the two minorities. The leader can collect the replacement's promise while withholding its own. The addendum gives the complete three-node working, including the abstract witness at the first boundary and the state-acquisition obligation.
 \end{proof}
 
 \section{Five-node Crash-Stop-Reincarnation}\label{sec:five-node-reincarnation}
@@ -353,7 +333,7 @@ A separately operated service also brings deployment and resource costs. For sca
 The theorems assume protocol-history invariants. Their composition with the era-changing operational model is left as an exercise to the reader. The addendum~\cite{artifact} makes that exercise verifiable by stating its mapping, base case and preservation obligations, including clean-stop classification, identity fencing and state transfer before voting.
 
 \paragraph{Scope and availability}
-Tables~\ref{tab:three} and~\ref{tab:weights} replace one voter among three and five respectively. The addendum constructs paths between arbitrary weighted-majority endpoints with available majorities. Agreement follows from the history contract; progress additionally uses available recipients and a stable leader. Fresh identities permit repeated replacement while each committed boundary preserves the invariant.
+Tables~\ref{tab:reincarnationweights} and~\ref{tab:weights} replace one voter among three and five respectively. The addendum constructs paths between arbitrary weighted-majority endpoints with available majorities. Agreement follows from the history contract; progress additionally uses available recipients and a stable leader. Fresh identities permit repeated replacement while each committed boundary preserves the invariant.
 
 \paragraph{Meaning of strong consistency}
 The mechanised result is per-slot agreement. A complete service-level linearizability argument also needs ordered execution, appropriate read semantics and a mapping between client operations and log entries. Lease guarantees require the additional conditions stated above.
