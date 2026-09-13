@@ -151,9 +151,9 @@ impl Node {
         let _ = self.child.wait();
     }
 
-    /// A clean shutdown: stdin closes, the node's EOF arm writes the
-    /// flushed checkpoint, and the process exits on its own. Panics when
-    /// the exit is not clean or does not come.
+    /// A clean stop: stdin closes, the node's EOF arm walks the marker
+    /// machine's T1 (Stopping → drain → Stopped), and the process exits
+    /// on its own. Panics when the exit is not clean or does not come.
     fn eof(self) {
         let mut node = self;
         node.to_node = None;
@@ -249,8 +249,8 @@ impl Node {
 
 impl Drop for Node {
     fn drop(&mut self) {
-        // Closing stdin first gives a live node its clean EOF path (§2's
-        // flushed checkpoint); a dead process cannot take it, and the kill
+        // Closing stdin first gives a live node its clean EOF path (the
+        // T1 clean stop); a dead process cannot take it, and the kill
         // below reaps whatever remains.
         self.to_node = None;
         for _ in 0..20 {
@@ -621,11 +621,13 @@ fn membership_verbs_make_and_unmake_a_member() {
 }
 
 // ---------------------------------------------------------------------------
-// Persistence: the state dir, the write-through barrier, and the restart
-// decision (§2 of docs/uvrr-reincarnation.md). A kill-restart must become
-// an honest `Node::reopen` — the bumped identity re-enters through the
-// core's reincarnation machinery — and a fresh or cleanly shut-down node
-// must behave exactly as its §2 classification says.
+// Persistence: the state dir, the write-through barrier, and the marker
+// machine's boot decision (the core's own restart table: a stopped
+// quorum continues under the same identity, anything else resurrects
+// under a bumped one). A kill-restart must become an honest
+// `Node::reopen` — the bumped identity re-enters through the core's
+// reincarnation machinery — and a fresh or cleanly stopped node must
+// behave exactly as its markers say.
 // ---------------------------------------------------------------------------
 
 /// A fresh, uniquely named state directory for one test.
@@ -773,10 +775,12 @@ fn committed_state_survives_a_kill_restart_with_the_same_state_dir() {
     );
     assert_reply(&cluster.recv_client(), 4, "write_ok");
 
-    // The restart against the same state dir. The node was operating when
-    // it died, so the file holds the running sentinel: the dirty path.
-    // The stderr diagnostic is the test-visible reopen evidence — the
-    // bumped identity, announced, the forced sequence to follow.
+    // The restart against the same state dir. The node was operating
+    // when it died, so the file holds its boot write — no stopped
+    // quorum — and the marker machine's boot decision is the resurrect
+    // (T3): the bump. The stderr diagnostic is the test-visible reopen
+    // evidence — the bumped identity, announced, the forced sequence to
+    // follow.
     let mut n2 = Node::spawn_with(Some(&dir.to_string_lossy()));
     n2.init("n2", &["n0", "n1", "n2"]);
     let diagnostic = n2.stderr_containing("reopens dirty");
@@ -824,7 +828,7 @@ fn committed_state_survives_a_kill_restart_with_the_same_state_dir() {
 
 /// A state dir that holds no state file for the node: the first life. The
 /// provision path is exactly the unpersisted host's — the same fenced
-/// `Restarting` start, the same bootstrap adoption, the same serving —
+/// `Joining` start, the same bootstrap adoption, the same serving —
 /// and the lifecycle diagnostic names it.
 #[test]
 fn a_fresh_state_dir_provisions_as_today() {
@@ -857,10 +861,11 @@ fn a_fresh_state_dir_provisions_as_today() {
     );
 }
 
-/// A clean shutdown (stdin EOF) writes the flushed checkpoint: the next
-/// init under the same state dir reopens CLEANLY, under the same identity
-/// — the §2 clean path, no bump, no announcement. The committed history
-/// survives, and the reopener rejoins the live cluster's serving.
+/// A clean stop (stdin EOF) walks the marker machine's T1 — `Stopping`,
+/// the drain, `Stopped` — so the next init under the same state dir
+/// reads the stopped quorum and reopens CLEANLY, under the same identity
+/// (T2): no bump, no announcement. The committed history survives, and
+/// the reopener rejoins the live cluster's serving.
 #[test]
 fn a_clean_shutoff_reopens_under_the_same_identity() {
     if binary().is_none() {
@@ -886,27 +891,28 @@ fn a_clean_shutoff_reopens_under_the_same_identity() {
     );
     assert_reply(&cluster.recv_client(), 2, "write_ok");
 
-    // The clean shutoff: stdin closes (the relay's sender is detached
+    // The clean stop: stdin closes (the relay's sender is detached
     // first — it was the last one holding the pipe open), the node's EOF
-    // arm flushes the checkpoint, and the process exits on its own.
+    // arm walks the T1 marker writes, and the process exits on its own.
     cluster.detach("n2");
     n2.eof();
 
-    // The respawn reopens the flushed state under the same identity — the
-    // clean path, no bump — and rejoins the live cluster's serving view.
+    // The respawn reads the stopped quorum and reopens under the same
+    // identity — the clean path (T2), no bump — and rejoins the live
+    // cluster's serving view.
     let mut n2 = Node::spawn_with(Some(&dir.to_string_lossy()));
     n2.init("n2", &["n0", "n1", "n2"]);
     let diagnostic = n2.stderr_containing("reopens cleanly");
     cluster.relay("n2", &mut n2);
     assert!(
         !diagnostic.contains("bumps"),
-        "a flushed state file continues under the same identity: {diagnostic}"
+        "a stopped state file continues under the same identity: {diagnostic}"
     );
     let body = client_ok(&cluster, &n2, "c2", "n2", "read", json!({"key": 5}));
     assert_eq!(
         body.get("value"),
         Some(&Value::from(7)),
-        "the flushed history serves the committed read: {body}"
+        "the stopped history serves the committed read: {body}"
     );
 }
 

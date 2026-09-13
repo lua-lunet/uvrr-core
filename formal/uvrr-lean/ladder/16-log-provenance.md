@@ -3,7 +3,7 @@
 *2026-09-11T00:42:07Z by Showboat 0.6.1*
 <!-- showboat-id: 2a2aaeb5-6768-432e-8330-3e8a4538f9f5 -->
 
-A shared transition model joins authentic prepare histories to local fencing, report emission and certified view activation. Its inductive invariant discharges same-view comparability and installed-base extension. Strong view induction proves committed-log compatibility and equal-length equality without a global agreement guard. Scope: one quorum family, arbitrary log length and view count, no crashes. Unique source activation is an explicit unused-view guard; concrete primary/wire refinement, restart, membership changes, clients and progress remain open. A nonempty two-view execution and delayed wrong-view prepare control check the model interface.
+A shared transition model joins authentic prepare histories to local fencing, report emission and certified view activation. Its inductive invariant discharges same-view comparability and installed-base extension. Strong view induction proves committed-log compatibility and equal-length equality without a global agreement guard. Scope: one quorum family, arbitrary log length and view count, no crashes. Unique source activation is an explicit unused-view guard; concrete primary/wire refinement, recovery, membership changes, clients and progress remain open. A nonempty two-view execution and delayed wrong-view prepare control check the model interface.
 
 ```bash
 cat UVRR/LogProvenance.lean

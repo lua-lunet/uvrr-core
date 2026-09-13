@@ -709,7 +709,7 @@ impl Unpack for ViewId {
 /// absence of a message is a message cannot report a framing bug.
 ///
 /// Discriminants `1`, `11` and `12` are retired: they belonged to the deleted
-/// classic restart-exchange tags and the client-datagram tags,
+/// classic recovery-exchange tags and the client-datagram tags,
 /// which left the wire when the client boundary became a host concern (§11.1, B2).
 /// They stay reserved — reassigning them would collide with any deployment still
 /// carrying the old numbering on a wire.
@@ -766,7 +766,7 @@ pub enum Tag {
     /// leader, which drives the forced weight sequence in reply.
     ///
     /// Discriminant 13, not 11: discriminants 11 and 12 belonged to the
-    /// deleted classic restart-exchange tags (the amnesia protocol this
+    /// deleted classic recovery-exchange tags (the amnesia protocol this
     /// protocol exists to have eliminated) and stay retired.
     Reincarnation = 13,
 }

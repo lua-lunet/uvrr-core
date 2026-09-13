@@ -3,7 +3,7 @@
 *2026-09-11T00:42:06Z by Showboat 0.6.1*
 <!-- showboat-id: ae527d33-d787-4ff7-858f-f62d47a3407f -->
 
-Multi-view local executions derive the selector voter-history premise. A node installs higher views, appends only in normal mode, raises its floor before reporting, and retains immutable vote/reply histories. Every report covers all votes below its target, including future trace votes. Whole-log selection consumes this result. Global provenance, later-view induction, the first view-change message round and diskless restart remain composition obligations. A concrete post-fence append breaks the historical report; the mutation harness rejects removal of the normal-mode guard.
+Multi-view local executions derive the selector voter-history premise. A node installs higher views, appends only in normal mode, raises its floor before reporting, and retains immutable vote/reply histories. Every report covers all votes below its target, including future trace votes. Whole-log selection consumes this result. Global provenance, later-view induction, the first view-change message round and diskless recovery remain composition obligations. A concrete post-fence append breaks the historical report; the mutation harness rejects removal of the normal-mode guard.
 
 ```bash
 cat UVRR/ViewFence.lean

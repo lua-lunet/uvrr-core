@@ -77,11 +77,12 @@ test-kill: build
 	$(call run_maelstrom,--nemesis kill --nemesis-interval $(INTERVAL))
 
 # The resurrection lane: the kill nemesis against PERSISTED nodes —
-# dirty reopens bump identities and the core's reincarnation machinery
-# walks them back in, with the host's §14.2 first-fence lever arming the
-# boot fence a no-live-primary restart cannot self-arm. The state dir is
-# this lane's own, cleaned first so every run starts from first life and
-# passed explicitly; the volatile lanes above are untouched.
+# every kill leaves the boot write (no stopped quorum), so the reopen
+# bumps the identity (T3) and the core's reincarnation machinery walks
+# the bumped node back in: the announcement, the forced sequence, the
+# era folds. The state dir is this lane's own, cleaned first so every
+# run starts from first life and passed explicitly; the volatile lanes
+# above are untouched.
 RESURRECT_STATE ?= $(CURDIR)/.tmp/state-resurrect
 
 test-resurrect: build

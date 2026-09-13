@@ -2,7 +2,7 @@
 //! under (`docs/uvrr-reincarnation.md` §2), carried in the host's own
 //! store.
 //!
-//! # Shape (format 2, bench-internal; no cross-version compatibility)
+//! # Shape (format 3, bench-internal; no cross-version compatibility)
 //!
 //! One file per node under the state dir, keyed by the node's Maelstrom
 //! id:
@@ -82,13 +82,19 @@ use vrr::wire::{Pack, Unpack};
 /// a committed header.
 const MAGIC: u32 = u32::from_be_bytes(*b"UVRS");
 /// Format version. Bench-internal: an unknown version is a refusal,
-/// not a compatibility surface.
-const VERSION: u32 = 2;
+/// not a compatibility surface. Format 3 renumbers the marker words to
+/// the core's four-state marker transition machine; a format-2 file's
+/// words would misread, so it refuses rather than decodes.
+const VERSION: u32 = 3;
 
 /// Marker words, stated as a table so reordering this source cannot
-/// renumber the file (the core's `Status::to_word` discipline).
-const MARKER_FLUSHED: u8 = 0;
-const MARKER_UNFLUSHED: u8 = 1;
+/// renumber the file (the core's `Status::to_word` discipline). The
+/// four states of the core's marker transition machine, numbered in
+/// [`vrr::replica::Marker`]'s declaration order.
+const MARKER_STOPPING: u8 = 0;
+const MARKER_STOPPED: u8 = 1;
+const MARKER_RESTARTING: u8 = 2;
+const MARKER_JOINING: u8 = 3;
 
 /// Fault-word table, same discipline. `0` is "no fault"; the variants
 /// are numbered in declaration order of [`vrr::ids::Fault`].
@@ -481,6 +487,24 @@ impl Store {
         log.bytes = cursor;
         Ok(())
     }
+
+    /// The clean stop's drain (the marker machine's T1: the host flushes
+    /// WALs and grids strictly between the `Stopping` and `Stopped`
+    /// writes). This store's WAL is the journal region and its grid is
+    /// the header slot — one file — and every commit already fsyncs both,
+    /// so the drain is the file's own fsync: the flush that lets a
+    /// `Stopped` copy vouch for the state under it.
+    ///
+    /// # Errors
+    ///
+    /// The file cannot be flushed — the stop cannot prove its drain, so
+    /// the caller must not write `Stopped`.
+    pub fn drain(&mut self) -> Result<(), String> {
+        let log = self.log.as_mut().ok_or("drain on an unarmed store")?;
+        log.file
+            .sync_all()
+            .map_err(|error| format!("the state file cannot drain: {error}"))
+    }
 }
 
 /// Why the reopen decision could not read the durable evidence.
@@ -577,8 +601,10 @@ impl SlotBytes {
         for (index, copy) in self.copies.copies.iter().enumerate() {
             put_u64(buf, AT_COPIES + index * 9, copy.identity.0);
             buf[AT_COPIES + index * 9 + 8] = match copy.marker {
-                Marker::Flushed => MARKER_FLUSHED,
-                Marker::Unflushed => MARKER_UNFLUSHED,
+                Marker::Stopping => MARKER_STOPPING,
+                Marker::Stopped => MARKER_STOPPED,
+                Marker::Restarting => MARKER_RESTARTING,
+                Marker::Joining => MARKER_JOINING,
             };
         }
         put_u32(buf, AT_ROSTER, self.roster.len() as u32);
@@ -623,8 +649,10 @@ impl SlotBytes {
         for index in 0..4 {
             let identity = Incarnation(get_u64(buf, AT_COPIES + index * 9));
             let marker = match buf[AT_COPIES + index * 9 + 8] {
-                MARKER_FLUSHED => Marker::Flushed,
-                MARKER_UNFLUSHED => Marker::Unflushed,
+                MARKER_STOPPING => Marker::Stopping,
+                MARKER_STOPPED => Marker::Stopped,
+                MARKER_RESTARTING => Marker::Restarting,
+                MARKER_JOINING => Marker::Joining,
                 _ => return None,
             };
             copies.push(vrr::replica::CopyState { identity, marker });

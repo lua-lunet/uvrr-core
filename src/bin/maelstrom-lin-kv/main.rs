@@ -22,19 +22,20 @@
 //!   empty: no store at all — no file is opened, written or fsynced, and
 //!   every construction takes the [`Stability::Volatile`] provision path:
 //!   first boot or kill-nemesis restart alike provisions fenced
-//!   `Restarting` (the genesis ruling, §1.3), and a node becomes `Normal`
+//!   `Joining` (the genesis ruling, §1.3), and a node becomes `Normal`
 //!   only through the bootstrap adoption (§4). A voter whose volatile
 //!   state vanished while retaining authority is unrepresentable in this
 //!   host: a restarted node rejoins fenced, and the next view change
 //!   deposes any stale primary. A kill loses the process's state; the
 //!   survivors inside the fault bound keep serving.
 //! - **Persisted — opt-in.** `MAELSTROM_VRR_STATE_DIR` set: the state dir
-//!   is the persistence home, and the write-through barrier and the §2
-//!   restart decision below govern it. The state file carries exactly
+//!   is the persistence home, and the write-through barrier and the
+//!   marker machine below govern it. The state file carries exactly
 //!   what the core considers durable: the §5 persisted progress record,
-//!   the journal's retained history, and the §2 restart model. A kill
-//!   loses at most the in-flight input; every effect the client or a peer
-//!   ever observed rests on a file the host fsynced first.
+//!   the journal's retained history, and the §2 four-superblock
+//!   identity the marker machine transitions. A kill loses at most the
+//!   in-flight input; every effect the client or a peer ever observed
+//!   rests on a file the host fsynced first.
 //!
 //! # The persisted mode's write-through (§7)
 //!
@@ -59,57 +60,50 @@
 //! above: same ordering, enforced where the effects become observable.
 //! (Reported core limitation, not papered over; see the repository report.)
 //!
-//! # The restart decision (§2 of `docs/uvrr-reincarnation.md`)
+//! # The marker machine (the persisted mode's restart discipline)
 //!
-//! In the persisted mode the state dir is the persistence home. On `init`:
+//! In the persisted mode the state dir is the persistence home, and the
+//! state file's four superblock copies are the core's marker transition
+//! machine — the host invents no rule, it writes the markers exactly
+//! where the machine puts them (startup and shutdown only; the
+//! write-through below carries them untouched in between):
 //!
-//! - **No state file** — the first life: `Node::provision` exactly as the
-//!   genesis ruling prescribes, then the state file is written with the
-//!   running sentinel (`unflushed`) before `init_ok` is answered.
-//! - **A state file, all four superblock copies `flushed`** — a clean
-//!   shutdown's checkpoint (§2's clean path): `Node::reopen` under the same
-//!   identity. The core fences the node into `Restarting` (§5's boot rule)
-//!   either way; the durable evidence is the honest statement, not an
-//!   authority.
-//! - **A state file, any copy `unflushed`** — the node was operating when
-//!   it died (every Jepsen kill): the §2 dirty path. The host bumps the
-//!   identity (§2: the bumped node's identity is one incarnation past the
-//!   highest recorded, checked), reopens under the bumped identity, writes
-//!   the bump before announcing it, and reports `Input::Reincarnate { old
-//!   }` — from which point the core's reincarnation machinery owns the
-//!   restart: the announcement (§4), the leader's forced weight sequence
-//!   (§5, one era per batch), and the re-announce this host re-drives on
-//!   every tick until the identity is a voting member again (§8).
+//! - **T1, a clean stop (stdin EOF):** [`SuperblockCopies::begin_stop`]
+//!   writes `Stopping` 4x, durable; the host then drains — flushes the
+//!   WALs and grids, this store's one state file its own WAL and grid,
+//!   so the drain is the file's fsync — strictly between the marker
+//!   writes; [`SuperblockCopies::finish_stop`] writes `Stopped` 4x. The
+//!   marker order is the drain's proof: a `Stopped` copy vouches for the
+//!   WAL under it.
+//! - **T2, a clean restart.** A boot whose quorum read (the core's
+//!   [`SuperblockCopies::restart`]) sees 2-of-4 `Stopped` has the
+//!   transition's proof — the drain completed, no amnesiac risk — so
+//!   the node continues under the same identity and the boot writes
+//!   `Restarting` 4x.
+//! - **T3, a resurrect.** No stopped quorum — a crash, a torn marker
+//!   set, or death mid-join — means the identity is dead: the machine
+//!   bumps it and the boot writes `Joining` 4x. The host reopens under
+//!   the bumped identity and reports `Input::Reincarnate { old }` —
+//!   from which point the core's reincarnation machinery owns the
+//!   restart: the announcement (§4), the leader's forced weight
+//!   sequence (§5, one era per batch), and the re-announce this host
+//!   re-drives on every tick until the identity is a voting member
+//!   again (§8).
 //!
-//! The bump is durable before it is announced: the state file is rewritten
-//! with the new incarnation before the announcement is driven, so a crash
-//! between the bump and the announcement replays the same bump — the
-//! decision carries the pair (§2's continuation commitment).
+//! A first life writes its boot markers (`Joining`, the genesis
+//! incarnation) before `init_ok` is answered, and a running node's
+//! markers hold its boot write until the next clean stop — so a kill
+//! leaves exactly the no-controlled-shutdown evidence the next boot
+//! needs. The bump is durable before it is announced: the write-through
+//! commits the rewritten copies before the announcement's effects
+//! route, so a crash between the bump and the announcement replays the
+//! same bump — the decision carries the pair (§2's continuation
+//! commitment).
 //!
 //! Torn or corrupt state files are crash artifacts, not inputs: the host
 //! refuses the reopen by name (the core's [`LifecycleRefusal`] path),
-//! answers `error`, and exits nonzero so Jepsen restarts the node. Never a
-//! panic.
-//!
-//! # The first fence (§14.2, the host's obligation)
-//!
-//! The boot fence never self-arms from persisted knowledge: the tick's
-//! bootstrap self-promotion is the genesis view's own (post-genesis
-//! history excludes it), tick suspicion requires `Normal` (the boot
-//! fence excludes that), and every install route needs a live primary's
-//! datagram — so a reopened node with no live primary to adopt from
-//! stands silent forever; no first datagram ever exists. The host arms
-//! the first fence, exactly as a real deployment's cluster manager
-//! does: a dirty reopen first takes the ordinary path (a live primary's
-//! traffic adopts it, the leader's forced sequence readmits it); if the
-//! node is still fenced at its reopen view after
-//! [`FORCE_FEED_WINDOWS`] primary-timeout windows of silence — a
-//! bounded, deterministic tick count, no clock — the host drives the
-//! core's [`Input::AdminForceView`] once, targeting the view the
-//! core's own suspicion would pick, and the ordinary
-//! fence/evidence/install pipeline owns the view from there. Once per
-//! life: the lever arms the first fence; it never babysits the
-//! protocol's own view changes.
+//! answers `error`, and exits nonzero so Jepsen restarts the node. Never
+//! a panic.
 //!
 //! # Identity mapping (host-side, transparent to Maelstrom)
 //!
@@ -176,7 +170,7 @@ use std::time::Duration;
 use serde_json::Value;
 use vrr::configuration::{SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, Stability};
-use vrr::ids::{Era, NodeId, Operation, OperationId, Slot, Tick, ViewId};
+use vrr::ids::{Era, NodeId, Operation, OperationId, Slot, Tick};
 use vrr::journal::{Journal, LogEntry, Payload, SegmentedLog};
 use vrr::message::{Body, Message};
 use vrr::progress::Status;
@@ -197,15 +191,11 @@ const TICK: Duration = Duration::from_millis(100);
 /// the next view (W5: the knob is host policy, uniform across the cluster).
 /// With client traffic flowing, the primary's `Prepare`/`Commit` stream is
 /// the activity evidence and suspicion never fires; the knob only decides
-/// how quickly a genuinely dead primary is deposed.
+/// how quickly a genuinely dead primary is deposed. A `Restarting` node —
+/// the marker machine's clean-reopen boot — suspects through the same
+/// knob like any backup (the core's plan-tick ruling), so the host arms
+/// no first fence of its own.
 const PRIMARY_TIMEOUT_TICKS: u64 = 25;
-/// Fenced timeout windows a dirty reopen waits before the host drives the
-/// §14.2 force-view (see the module docs' first-fence section): three
-/// windows of the primary timeout above. A live cluster that is going to
-/// adopt the node does so inside a couple of windows (its own suspicion
-/// fence fires at one); three silent windows is the no-live-primary
-/// signature. A tick count, never a clock.
-const FORCE_FEED_WINDOWS: u64 = 3;
 
 /// The replica this host runs: the default journal and the default quorum
 /// strategy, exactly as the test harness provisions them.
@@ -254,12 +244,13 @@ fn main() {
         match event {
             Event::Message(message) => node.on_message(message),
             Event::Tick => node.on_tick(),
-            // A clean shutdown (§2, persisted mode): the state file
-            // becomes a flushed checkpoint — the next init under the same
-            // state dir reopens cleanly, under the same identity. A kill
-            // leaves the running sentinel in the file: the next init
-            // reads dirty and bumps. The volatile mode has nothing to
-            // flush; EOF is just exit.
+            // A clean stop (the marker machine's T1, persisted mode):
+            // the markers walk `Stopping` → drain → `Stopped`, so the
+            // next init under the same state dir reads the stopped
+            // quorum and reopens cleanly under the same identity (T2).
+            // A kill leaves the boot write in the file: the next init
+            // reads no stopped quorum and resurrects (T3). The volatile
+            // mode has nothing to stop; EOF is just exit.
             Event::Eof => {
                 node.clean_shutdown();
                 return;
@@ -411,23 +402,6 @@ struct NodeRunner {
     /// and re-announced on every tick (§8) until the identity is a voting
     /// member again. `None` on a fresh provision or a clean reopen.
     announce: Option<NodeId>,
-    /// A dirty reopen's first-fence countdown (the module docs'
-    /// first-fence section): armed only on the bump path, disarmed by
-    /// any progress, and spent once.
-    force_feed: Option<ForceFeed>,
-}
-
-/// The §14.2 lever's bookkeeping: how long the node has stood fenced at
-/// its reopen view with nothing moving, and whether the lever has been
-/// driven.
-struct ForceFeed {
-    /// The view the node reopened fenced at: the stall shape is
-    /// standing still there.
-    at: ViewId,
-    /// Ticks spent fenced at `at` with no progress.
-    silent: u64,
-    /// Whether the lever has been driven this life.
-    driven: bool,
 }
 
 impl NodeRunner {
@@ -447,8 +421,9 @@ impl NodeRunner {
     /// The init handshake: parse the roster, take the durability mode the
     /// environment selects (volatile default, persisted opt-in), and — in
     /// the persisted mode — decide the restart (§2): provision a first
-    /// life, or reopen the durable evidence — cleanly (flushed) under the
-    /// same identity, or dirty (unflushed) under the bumped identity,
+    /// life, or reopen the durable evidence — cleanly (the stopped
+    /// quorum, T2) under the same identity, or dirty (no stopped
+    /// quorum, T3) under the bumped identity,
     /// whose restart the core's reincarnation machinery then owns. A
     /// state file the host cannot vouch for is the reopen refusal path:
     /// named, answered `error`, exit nonzero.
@@ -529,7 +504,8 @@ impl NodeRunner {
                 // A first life — and the volatile default's every life:
                 // the genesis ruling, exactly as the unpersisted host ran
                 // it. In the persisted mode the state file is written with
-                // the running sentinel before `init_ok` is answered.
+                // the first life's boot markers (`Joining`, the genesis
+                // incarnation) before `init_ok` is answered.
                 let own = Identity::genesis(index);
                 match Node::provision(
                     own,
@@ -545,7 +521,7 @@ impl NodeRunner {
                         );
                         self.replica = Some(replica);
                         if self.store.is_some() {
-                            self.copies = Some(fresh_copies().start_operating());
+                            self.copies = Some(fresh_copies());
                         }
                     }
                     Err(reason) => {
@@ -579,9 +555,10 @@ impl NodeRunner {
             }
         }
 
-        // Start of operating (§2, persisted mode): the running sentinel,
-        // durable before the node answers anything. The volatile mode has
-        // no file to write.
+        // The boot write, durable before the node answers anything: the
+        // first life's `Joining`, or the marker machine's boot markers the
+        // reopen decision below returned. The volatile mode has no file
+        // to write.
         if let Err(reason) = self.write_state() {
             self.refuse_node(message, format!("the state file is unwritable: {reason}"));
         }
@@ -590,11 +567,15 @@ impl NodeRunner {
         }
     }
 
-    /// The reopen decision on durable evidence (§2): rebuild the journal,
-    /// the era table and the application from the file, classify the
-    /// superblocks, and reopen — cleanly under the persisted identity, or
-    /// dirty under the bumped identity, announcing. Every refusal is the
-    /// reopen refusal path: named, answered `error`, exit nonzero.
+    /// The boot decision on durable evidence — the marker machine's own
+    /// ruling, not the host's (§2's superblocks; the machine's T2/T3):
+    /// rebuild the journal, the era table and the application from the
+    /// file, hand the four copies to [`SuperblockCopies::restart`], and
+    /// reopen as the decision table says — a stopped quorum continues
+    /// under the same identity (`Restarting`, no announcement), anything
+    /// else resurrects under the bumped identity (`Joining`,
+    /// announcing). Every refusal is the reopen refusal path: named,
+    /// answered `error`, exit nonzero.
     fn reopen_node(
         &mut self,
         message: &Incoming,
@@ -602,30 +583,62 @@ impl NodeRunner {
         index: usize,
         knobs: ViewChangeKnobs,
     ) {
-        let persisted_incarnation = state.copies.read_identity().0;
-        let (decision, rewritten) = state.copies.restart().unwrap_or_else(|incarnation| {
-            self.refuse_node(
+        let (decision, rewritten) = match state.copies.restart() {
+            Ok((decision, rewritten)) => (decision, rewritten),
+            Err(vrr::replica::RestartRefusal::QuorumLost) => self.refuse_node(
                 message,
-                format!("the identity space is spent at incarnation {incarnation:?}"),
-            )
-        });
-        let (own_incarnation, bumped) = match &decision {
-            vrr::replica::RestartDecision::Continue { identity } => (identity.0, false),
-            vrr::replica::RestartDecision::Bump { .. } => (rewritten.read_identity().0, true),
-        };
-        let crashed = match Identity::of(persisted_incarnation, u32::try_from(index).expect("a roster position fits")) {
-            Some(crashed) => crashed,
-            None => self.refuse_node(
+                "the marker set is torn: no identity cohort reaches the open threshold".into(),
+            ),
+            Err(vrr::replica::RestartRefusal::Exhausted(incarnation)) => self.refuse_node(
                 message,
-                format!("the persisted incarnation {persisted_incarnation} is outside the identity space"),
+                format!(
+                    "the identity space is spent at incarnation {}",
+                    incarnation.0
+                ),
             ),
         };
-        let own = match Identity::of(own_incarnation, u32::try_from(index).expect("a roster position fits")) {
-            Some(own) => own,
-            None => self.refuse_node(
-                message,
-                format!("the identity space is spent: incarnation {own_incarnation} exceeds the u32 identity space"),
-            ),
+        let position = u32::try_from(index).expect("a roster position fits");
+        let (own, crashed) = match decision {
+            vrr::replica::RestartDecision::Continue { identity } => {
+                // T2: the stopped quorum proved the drain — the same
+                // identity continues, complete state, no amnesia.
+                let own = match Identity::of(identity.0, position) {
+                    Some(own) => own,
+                    None => self.refuse_node(
+                        message,
+                        format!(
+                            "the persisted incarnation {} is outside the identity space",
+                            identity.0
+                        ),
+                    ),
+                };
+                (own, None)
+            }
+            vrr::replica::RestartDecision::Bump { old, new } => {
+                // T3: no stopped quorum — the identity is dead, the bump
+                // is the machine's, and the announcement follows.
+                let own = match Identity::of(new.0, position) {
+                    Some(own) => own,
+                    None => self.refuse_node(
+                        message,
+                        format!(
+                            "the identity space is spent: incarnation {} exceeds the u32 identity space",
+                            new.0
+                        ),
+                    ),
+                };
+                let crashed = match Identity::of(old.0, position) {
+                    Some(crashed) => crashed,
+                    None => self.refuse_node(
+                        message,
+                        format!(
+                            "the superseded incarnation {} is outside the identity space",
+                            old.0
+                        ),
+                    ),
+                };
+                (own, Some(crashed))
+            }
         };
         let mut journal = SegmentedLog::new();
         if let Some(first) = state.entries.first() {
@@ -671,35 +684,22 @@ impl NodeRunner {
         ) {
             Ok(replica) => {
                 self.replica = Some(replica);
-                self.copies = Some(rewritten.start_operating());
-                if bumped {
+                // The boot write the machine returned: `Restarting` 4x on
+                // the continue path, the bumped `Joining` 4x on the bump
+                // path. The write-through below makes it durable before
+                // `init_ok` is answered — and, on the bump path, before
+                // the announcement routes (§2's continuation commitment).
+                self.copies = Some(rewritten);
+                if let Some(crashed) = crashed {
                     eprintln!(
                         "vrr-init: node {} reopens dirty: identity bumps {} -> {} (the core's reincarnation machinery owns the restart)",
                         self.id, crashed.0, own.0
                     );
-                    // The §2 continuation commitment, durable before it is
-                    // announced: the bump is written by the write-through
-                    // below, before `init_ok` is answered.
                     self.announce = Some(crashed);
-                    // The §14.2 lever arms (the module docs' first-fence
-                    // section): the fence view this life reopened at, the
-                    // countdown standing still until the ordinary path
-                    // moves it or the bound runs out.
-                    let at = self
-                        .replica
-                        .as_ref()
-                        .expect("the replica just opened")
-                        .progress()
-                        .current();
-                    self.force_feed = Some(ForceFeed {
-                        at,
-                        silent: 0,
-                        driven: false,
-                    });
                     self.drive(Input::Reincarnate { old: crashed });
                 } else {
                     eprintln!(
-                        "vrr-init: node {} reopens cleanly (flushed state, identity {})",
+                        "vrr-init: node {} reopens cleanly (the stopped quorum proved the drain; identity {})",
                         self.id, own.0
                     );
                 }
@@ -766,19 +766,53 @@ impl NodeRunner {
         }
     }
 
-    /// A clean shutdown (§2): the flushed marker. The write's failure is
-    /// logged, not fatal — the running sentinel it fails to replace is
-    /// exactly the honest reading the next init will take (dirty, bump).
+    /// A clean stop — the marker machine's T1: [`SuperblockCopies::begin_stop`]
+    /// writes `Stopping` 4x, the drain flushes the WALs and grids
+    /// strictly between the marker writes, and
+    /// [`SuperblockCopies::finish_stop`] writes `Stopped` 4x — the
+    /// drain's proof, so a `Stopped` copy vouches for the WAL under it.
+    /// Any failure is logged, not fatal: the markers keep the honest
+    /// reading (the boot write, no stopped quorum) and the next init
+    /// resurrects (T3) — never a `Stopped` claim the drain did not earn.
+    /// The volatile mode carries no markers; EOF is just exit.
     fn clean_shutdown(&mut self) {
         if self.replica.is_none() {
             return;
         }
-        if let Some(copies) = &self.copies {
-            self.copies = Some(copies.clean_shutdown());
-        }
+        let Some(copies) = self.copies else {
+            return;
+        };
+        // T1a: the `Stopping` write, durable before the drain.
+        self.copies = Some(copies.begin_stop());
         if let Err(reason) = self.write_state() {
-            eprintln!("vrr-init: the clean shutdown did not flush: {reason}");
+            eprintln!("vrr-init: the clean stop did not write the stopping marker: {reason}");
+            return;
         }
+        // T1b: the drain — the WALs and grids flushed between the two
+        // marker writes.
+        if let Err(reason) = self.drain() {
+            eprintln!("vrr-init: the clean stop did not drain: {reason}");
+            return;
+        }
+        // T1c: the `Stopped` write, the drain's proof.
+        self.copies = Some(copies.finish_stop());
+        if let Err(reason) = self.write_state() {
+            eprintln!("vrr-init: the clean stop did not write the stopped marker: {reason}");
+        }
+    }
+
+    /// The T1 drain: the WALs and grids flushed. This store's one state
+    /// file is its own WAL and grid, so the drain is the file's fsync —
+    /// the store's own method, never a marker write.
+    ///
+    /// # Errors
+    ///
+    /// The file cannot be flushed: the caller must not write `Stopped`.
+    fn drain(&mut self) -> Result<(), String> {
+        let Some(store) = self.store.as_mut() else {
+            return Ok(());
+        };
+        store.drain()
     }
 
     fn on_peer(&mut self, message: &Incoming) {
@@ -804,9 +838,12 @@ impl NodeRunner {
         // is attributed to the new identity, and the superseded one's
         // replies can never regain eligibility.
         let from = match &decoded.body {
-            Body::Reincarnation { old, new } if self.identity.remap(&message.src, *old, *new) => {
-                *new
-            }
+            Body::Reincarnation {
+                old,
+                new,
+                committed: _,
+                prepared: _,
+            } if self.identity.remap(&message.src, *old, *new) => *new,
             _ => match self.identity.attributed(&message.src) {
                 Some(from) => from,
                 None => {
@@ -1229,59 +1266,6 @@ impl NodeRunner {
                 self.announce = None;
             }
         }
-        // The §14.2 lever (the module docs' first-fence section): a dirty
-        // reopen standing fenced at its reopen view is the no-self-arm
-        // stall. After FORCE_FEED_WINDOWS silent windows the host arms the
-        // first fence itself — once. Any progress, an adoption or a fence
-        // someone else's datagram started, disarms the countdown for
-        // good: the lever arms the first fence, it never babysits the
-        // protocol's own machinery.
-        if let Some(mut force) = self.force_feed.take() {
-            let Some(replica) = self.replica.as_ref() else {
-                self.force_feed = Some(force);
-                return;
-            };
-            let progress = replica.progress();
-            let (status, current, established) = (
-                progress.status(),
-                progress.current(),
-                progress.config().current().era,
-            );
-            if status == Status::Restarting && current == force.at {
-                force.silent += 1;
-                if force.silent >= FORCE_FEED_WINDOWS * PRIMARY_TIMEOUT_TICKS && !force.driven {
-                    force.driven = true;
-                    let target = if Some(established) == current.era.next() {
-                        current.next_in_next_era()
-                    } else {
-                        current.next_in_era()
-                    };
-                    eprintln!(
-                        "vrr-force: node {} stood fenced for {} windows at {:?}: arming the first fence via the §14.2 force-view (the boot fence never self-arms from persisted knowledge; a deployment's cluster manager does exactly this)",
-                        self.id, FORCE_FEED_WINDOWS, force.at
-                    );
-                    match target {
-                        Some(target) => match self.step(Input::AdminForceView { target }) {
-                            Ok(effects) => self.route(effects),
-                            Err(refusal) => {
-                                eprintln!(
-                                    "vrr-force: node {}'s force-view was refused: {refusal:?}",
-                                    self.id
-                                );
-                            }
-                        },
-                        None => eprintln!(
-                            "vrr-force: node {} cannot name a view past {:?}: the view space is spent",
-                            self.id, current
-                        ),
-                    }
-                }
-                self.force_feed = Some(force);
-            }
-            // Else: the fence view or the status moved — the ordinary
-            // machinery owns the node from here, and the countdown stays
-            // disarmed.
-        }
     }
 
     /// Whether this node is the `Normal` primary of its current view — the
@@ -1400,6 +1384,14 @@ impl NodeRunner {
                 }
                 Effect::Persist(_) => {
                     eprintln!("volatile stability releases no persistence intents")
+                }
+                Effect::AdminResponse { .. } => {
+                    // The admin ingress is the operator CLI's
+                    // (`Input::SubmitPlan`); the bench host submits no
+                    // plans, so no verdict can arrive here. The arm keeps
+                    // the match exhaustive; a verdict that somehow
+                    // arrives is dropped, loudly.
+                    eprintln!("the bench host renders no admin verdicts");
                 }
             }
         }
@@ -1521,14 +1513,17 @@ impl NodeRunner {
     }
 }
 
-/// A fresh four-superblock set (§2): the genesis incarnation, flushed — a
-/// provisioned node's state file is born a self-consistent checkpoint, and
-/// the running sentinel below marks it dirty for the next restart.
+/// A fresh four-superblock set (§2): the genesis incarnation carrying
+/// the provision's boot write — `Joining`, the state of a node that is
+/// not yet seated by any transition. A first life's file is born with
+/// it, and a crash before any clean stop reads exactly the
+/// no-controlled-shutdown evidence the next boot needs: no stopped
+/// quorum, so the identity resurrects (T3).
 fn fresh_copies() -> SuperblockCopies {
     SuperblockCopies {
         copies: std::array::from_fn(|_| vrr::replica::CopyState {
             identity: vrr::replica::Incarnation(0),
-            marker: vrr::replica::Marker::Flushed,
+            marker: vrr::replica::Marker::Joining,
         }),
     }
 }

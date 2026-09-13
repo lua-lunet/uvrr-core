@@ -3,7 +3,7 @@
 *2026-09-11T00:42:01Z by Showboat 0.6.1*
 <!-- showboat-id: 1755a4c6-4d21-426f-b09c-3bb44d28e4d7 -->
 
-Claim: for every finite execution of the single-era acceptor, free promises exclude lower votes forever and reported last votes remain maximal below the promised round. This discharges S2 and S3 for this component. It does not yet prove the proposer, replicated-log view selection, cross-era transitions, or diskless restart. A concrete bypass of the acceptance watermark violates the invariant.
+Claim: for every finite execution of the single-era acceptor, free promises exclude lower votes forever and reported last votes remain maximal below the promised round. This discharges S2 and S3 for this component. It does not yet prove the proposer, replicated-log view selection, cross-era transitions, or diskless recovery. A concrete bypass of the acceptance watermark violates the invariant.
 
 ```bash
 cat UVRR/Acceptor.lean
