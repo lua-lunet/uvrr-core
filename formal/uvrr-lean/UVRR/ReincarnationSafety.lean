@@ -30,16 +30,17 @@ def Replacement : Prop :=
   ReincarnationFive.c2 0 = 0 ∧ ReincarnationFive.c2 5 = 1
 
 /-- No two decisions for one slot disagree; the replacement obeys the two
-weight steps; no continuation after a bump uses the pre-bump identity.
-These are safety statements even for executions that stop forever. -/
+weight steps; no continuation after the reincarnation's boot uses the
+pre-bump identity. These are safety statements even for executions that
+stop forever. -/
 def Safe {B V : Type} (P : Paxos Nat B V) : Prop :=
   (∀ i b c, P.chosen i b → P.chosen i c → P.v i b = P.v i c) ∧
   Replacement ∧
-  (∀ phase, Reincarnation.ForcedRun .bumped phase →
+  (∀ phase, Reincarnation.ForcedRun .crossed phase →
     ¬ Reincarnation.voting
       (Reincarnation.eraConfig 0 5 ReincarnationFive.unit5 phase) 0) ∧
   (∀ old phase current,
-    Reincarnation.IdentRun .bumped (Reincarnation.bump old) phase current →
+    Reincarnation.IdentRun .joining (Reincarnation.bump old) phase current →
     current ≠ old)
 
 /-- Five-voter crash-stop reincarnation is safe across the two committed

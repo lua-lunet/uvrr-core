@@ -2,12 +2,17 @@
 
 ## Crash-stop eviction (reincarnation)
 
-uVRR forbids the classic crash-recover class: a node whose durable superblocks
-record an unflushed session reopens with a NEW identity (an incarnation bump),
-sends the leader a reincarnation message, and rejoins as a weight-0 standby —
+uVRR forbids the classic crash-recover class: a node whose four superblock
+markers read no 2-of-4 `Stopped` quorum at boot — a crash, a torn marker set,
+or death mid-join — has no controlled shutdown behind it, so the identity is
+dead: it reopens under a NEW identity (an incarnation bump), sends the leader
+a reincarnation message, and rejoins as a weight-0 standby —
 (a **standby** is TigerBeetle's term for its non-voting cluster members; this
 README's older drafts called it a learner. Standby nodes have a zero voting weight
 so cannot form part of any quorum nor actively participate in the VSR algorithm.)
+A 2-of-4 `Stopped` quorum instead proves the clean stop — the drain is behind
+the marker order — and the node continues under the same identity, writing
+`Restarting`.
 Crash-Stop-Self-Evict. The classic VRR-2012 diskless quorum recovery (§4.3)
 and the DISC'17 Appendix B.1 amnesia class it exposes are therefore avoided by
 construction in uVRR; those mechanisms are literature about classic
@@ -56,7 +61,7 @@ draft, rather than a proved theorem. The current ladder is:
 | 14 | `NormalLog.lean` | Fixed-view message induction derives report comparability and replica prefix retention; out-of-order delivery fault control |
 | 15 | `ViewFence.lean` | Multi-view local history derives voter-report bounds; strong induction preserves committed prefixes in later activated views under explicit global provenance conditions |
 | 16 | `LogProvenance.lean` | Shared multi-view transition induction proves committed-log compatibility for a fixed configuration without crashes; concrete trace and cross-view delivery control |
-| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: two-era forced weight sequence (`crossEra`/`evictEra` batches, R14 one-unit mass rule), flushed/unflushed/dirty/bumped/reincarnating state machine, continuation commitment, unit-weight three-node era-safety instances, one-era swap refusal with disjoint-majority witness; general obligations discharged in `ReincarnationGeneral.lean` — arbitrary-scale mass bounds and era safety (`forced_sequence_era_safe`), bumped-identity non-membership (`evicted_never_voting`), amnesia unreachability (`amnesia_unreachable`), continuation commitment (`forced_run_committed`, `forced_run_terminal_flushed`) |
+| 22 | `Reincarnation.lean` | Crash-Stop-Self-Evict spec rung: two-era forced weight sequence (`crossEra`/`evictEra` batches, R14 one-unit mass rule), the marker transition machine (`Mark` = `stopping`/`stopped`/`restarting`/`joining`, the 4x writes `beginStop`/`finishStop` with the drain strictly between, the 2-of-4 `stoppedQuorum` boot test, `classify`/`restart` decision table — `Restarting` under the same identity, `Joining` under the bumped identity, no `started` state), continuation commitment, unit-weight three-node era-safety instances, one-era swap refusal with disjoint-majority witness; general obligations discharged in `ReincarnationGeneral.lean` — arbitrary-scale mass bounds and era safety (`forced_sequence_era_safe`), bumped-identity non-membership (`evicted_never_voting`), amnesia unreachability (`amnesia_unreachable`), continuation commitment (`forced_run_committed`, `forced_run_terminal_evicted`) |
 | 23 | `CastingVoteReincarnation.lean` | Rung 6's casting vote instantiated on the reincarnation eras: two-node leader-overlap case (`{0,1}` → `{0}` meeting in the leader alone, every E0/E1 quorum pair decisive at the leader, boundary overlap through the casting-vote structure) and the honest three-node degenerate negative (forming quorums coincide, no pivot needed, none exercised); leader-contained quorum families and leader-alone phase-I quorum as general shapes |
 | 24 | `ReincarnationFive.lean` | The five-voter unit-scale reincarnation rung: victim `0` returns as identity `5` through the two-era batch form; majority families computed at the concrete configs (3-of-5 strictness, dead-victim three-of-four survivor bounds, the forming quorum `{1,2,3}` a majority in all three eras); era safety by rung 22G's general discharge instantiated (`forced_sequence_era_safe`, `evicted_never_voting`); the split casting-vote verdict — E0/E1 degenerate (every formable pair meets in ≥ 2 survivors, no pivot, none needed), E1/E2 pivot genuine (`{1,2,3}` and `{3,4,5}` meet in `3` alone); doubled victim survives one legal crossing era, motivating the iterated two-unit obligation |
 | 25 | `ReincarnationAgreement.lean` | Agreement across the forced sequence under every view schedule: the era family `E0, E1, E2, E2, …` satisfies P1 at arbitrary scale (`sequence_p1`: rung 9's self-overlap within an era, rung 22G's `forced_sequence_era_safe` across the two boundaries), rung 4's Theorem 10 instantiates (`sequence_agreement`); the five-node instance (`five_agreement`) with the E1/E2 leader-overlap pivot (`five_leader_overlap`) and the majority boundary — three survivors form one quorum that is a majority in every era, two form none (`five_majority_boundary`) |

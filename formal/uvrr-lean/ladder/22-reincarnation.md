@@ -1,45 +1,54 @@
 # Rung 22: uVRR reincarnation — Crash-Stop-Self-Evict (spec-only)
 
-*2026-09-08T01:10:02Z by Showboat 0.6.1*
+*2026-09-13T10:31:49Z by Showboat 0.6.1*
 <!-- showboat-id: 2156e12c-9168-45d2-a9e2-bf26bb086bef -->
 
-This rung fixes the reincarnation specification as definitions: the four-superblock
-durable identity contract (`Mark`, `allFlushed`, `dirtyStartup`), the incarnation bump
-(`bump`, `bump_supersedes`), the identity-to-weight configuration map (`Config`, `voting`),
-the two-era forced weight sequence (`crossEra` — one batch of `DECREMENT(old), JOIN(new)`,
-the crossing era; `evictEra` — one batch of `INCREMENT(new), LEAVE(old)`, the eviction era;
-built on the unit steps `step0`/`step1`/`step2`), the
-flushed/unflushed/dirty/bumped/reincarnating state machine (`Phase`, `Transition`), the
-higher-identity-wins read rule (`adopt`), and continuation commitment (`committedPhase`,
-`ForcedStep`, `ForcedRun`, `forced_prefix`, `forced_monotone`).
+This rung fixes the reincarnation specification as definitions: the marker
+transition machine of `docs/vrr-durability-model.md` §5.1 — the durable marker
+of one superblock copy (`Mark`: `stopping`, `stopped`, `restarting`, `joining`;
+no `started` state is written), the stop path's two uniform 4x writes
+(`beginStop`, `finishStop`; the host drains — flushes WALs and grids — strictly
+between them, so `stopped` vouches for the WAL under it:
+`begin_stop_vouches_nothing`, `finish_stop_proves_drain`,
+`stopped_sole_entry`), the 2-of-4 boot test (`stoppedCount`, `stoppedQuorum`,
+`boot_verdict`), the quorum read and decision table (`classify`,
+`RestartDecision`, `restart_continue`, `restart_bump`), the incarnation bump
+(`bump`, `bump_supersedes`), the identity-to-weight configuration map
+(`Config`, `voting`), the two-era forced weight sequence (`crossEra` — one
+batch of `DECREMENT(old), JOIN(new)`, the crossing era; `evictEra` — one batch
+of `INCREMENT(new), LEAVE(old)`, the eviction era; built on the unit steps
+`step0`/`step1`/`step2`), the episode machine over marker states plus the two
+era states (`Phase`, `Transition`, `rank`), the higher-identity-wins read rule
+(`adopt`), and continuation commitment (`committedPhase`, `ForcedStep`,
+`ForcedRun`, `forced_prefix`, `forced_monotone`).
 
-**Marker-machine note (post-dating the rung's transcript):** the governing boot rule is
-now the marker transition machine (`docs/vrr-durability-model.md` §5.1) —
-`Stopping→Stopped` proves the drain, a 2-of-4 `Stopped` quorum at boot is the clean stop
-whose `Restarting` node is a member with complete state ticking the full protocol, and a
-missing stopped quorum bumps the identity and enters `Joining`, not a member. The
-definitions below (`Mark`, `dirtyStartup`, `Phase`) encode the older
-all-`flushed`/any-`unflushed` classification as a simplified twin of the machine's closed
-4-copy domain; their re-statement over the machine is the release-gate regeneration, not
-a re-proof made here. The transcript below is the rung's dated evidence and is left as
-recorded.
+**Re-statement note (post-dating the rung's earlier transcript):** the
+definitions of this transcript are the rung's Mark/Phase vocabulary re-stated
+over the shipped marker transition machine — the module documentation of
+`src/replica/reincarnation.rs` (`Marker`, `begin_stop`, `finish_stop`,
+`classify`, `restart`) with the historical §5.1 text — replacing the older
+all-`flushed`/any-`unflushed` startup classification (`allFlushed`,
+`dirtyStartup`, the `flushed`/`unflushed`/`dirty` phases). The machine is
+stated, not narrated: four `stopping` copies, the drain strictly between, four
+`stopped` copies, the 2-of-4 `stopped` boot test, `restarting` under the same
+identity, `joining` under the bumped identity.
 
 The admitted content is
-kernel-checked structural lemmas plus `decide`/`simp`-enumerated finite instances of the
-unit-weight three-node reincarnation: the two consecutive eras of the forced sequence are
+kernel-checked structural lemmas plus `decide`/`simp`-enumerated finite
+instances of the unit-weight three-node reincarnation: the two consecutive eras of the forced sequence are
 pairwise quorum-safe (`e0_e1_safe`, `e1_e2_safe`), and each era moves exactly ONE unit of
 per-node voting mass — the R14 mass rule the fold and the planner enforce before any op is
 proposed (`e1_mass`, `e2_mass`). The one-era alternative the two-era form replaces —
 `LEAVE(old)` and `INCREMENT(new)` applied to the BASELINE in a single batch — is refused:
 it moves two units (`swap_mass`), so the era rule rejects it (`swap_rejected`), and its
-endpoint majority families are genuinely disjoint (`swap_unsafe`). The startup
-classification is exhaustive over the sixteen mark combinations (`startup_cases`), and the
+endpoint majority families are genuinely disjoint (`swap_unsafe`). The boot
+verdict is exhaustive over the closed four-copy domain (`boot_verdict`), and the
 old identity is never again a voter after the crossing era (`step1_not_voting`). This is a
 SPEC-ONLY rung: no general-protocol theorem is admitted. The general theorems —
 bumped-identity non-membership in every view at or after the crossing era, quorum safety of
 every intermediate era at arbitrary scale, unreachability of the classic amnesia trace, and
-continuation commitment in general — are listed as proof obligations below, to be proved by
-later rungs.
+continuation commitment in general — are discharged in
+`UVRR/ReincarnationGeneral.lean` (rung 22G).
 
 ```bash
 cat UVRR/Reincarnation.lean
@@ -51,18 +60,27 @@ import UVRR.WeightedGeneral
 /-! uVRR reincarnation: the Crash-Stop-Self-Evict protocol (spec-only rung).
 A node whose volatile state was lost is a different node: it reopens under a
 new identity obtained by bumping its incarnation, and its old identity is
-evicted from the voting configuration by the forced weight sequence. Durable
-state is four superblocks whose marks classify the startup; any `unflushed`
-mark makes the node dirty, and a dirty node must bump. The leader drives the
-forced sequence of the Paxos Voting Weights rules; every consecutive pair of
-eras overlaps, so each intermediate era is quorum-safe on its own. Once the
-Crash-Stop-Eviction is initiated it must continue: the forced sequence is
-never aborted mid-way. This module fixes definitions, the state machine and
-kernel-checked structural lemmas plus `decide`/`simp`-verified finite
-instances of the unit-weight three-node eviction. General protocol theorems
-over arbitrary configurations, arbitrary weight scales and the wire protocol
-are proof obligations recorded in the ladder rung, not claims made here.
--/
+evicted from the voting configuration by the forced weight sequence. The
+governing boot rule is the marker transition machine
+(`docs/vrr-durability-model.md` §5.1; the pure Rust twin is
+`src/replica/reincarnation.rs` — `Marker`, `begin_stop`, `finish_stop`,
+`classify`, `restart`): the stop command writes `stopping` 4x, the host
+drains — flushes WALs and grids — strictly between the two marker writes,
+and `stopped` 4x is the drain's proof, so a `stopped` copy vouches for the
+WAL under it; at boot 2-of-4 copies holding `stopped` is the clean stop
+whose `restarting` node is a member with complete state ticking the full
+protocol, and no stopped quorum — a crash, a torn marker set, or death
+mid-join — is the dead identity the node bumps, exactly one past, into
+`joining`, not a member; no `started` state is written. The leader drives
+the forced sequence of the Paxos Voting Weights rules; every consecutive
+pair of eras overlaps, so each intermediate era is quorum-safe on its own.
+Once the Crash-Stop-Eviction is initiated it must continue: the forced
+sequence is never aborted mid-way. This module fixes definitions, the
+marker machine and kernel-checked structural lemmas plus
+`decide`/`simp`-verified finite instances of the unit-weight three-node
+eviction. General protocol theorems over arbitrary configurations,
+arbitrary weight scales and the wire protocol are discharged in
+`ReincarnationGeneral.lean`. -/
 namespace Reincarnation
 
 /-- Node identity on the finite model: identities are totally ordered and a
@@ -180,108 +198,289 @@ theorem adopt_sup_observed (known observed : Ident) :
 theorem adopt_example :
     adopt 2 5 = 5 ∧ adopt 5 2 = 5 ∧ adopt 3 3 = 3 := by decide
 
-/-! ### The four superblocks and the startup classification -/
+/-! ### The marker transition machine (`docs/vrr-durability-model.md` §5.1)
 
-/-- Durable mark of one superblock. -/
+The four superblock markers are an ordered transition system; each state
+names the transition that must have completed for it to exist:
+
+    running ──stop──> stopping ──drain──> stopped ──boot, 2-of-4 stopped──> restarting
+                      (4x write)  flush    (4x write)                     (4x write)
+                                  WALs + grids
+    running ──crash──> (markers unchanged) ──boot, no 2-of-4 stopped──> joining
+                                                                        (bump, 4x write)
+
+uVRR performs no disk flushes on the protocol's hot path: the stop command
+writes `stopping` 4x, the host drains — flushes WALs and grids — strictly
+between the two marker writes, and the `stopped` write is the drain's
+proof, so a `stopped` copy vouches for the WAL under it. At boot the
+quorum read answers one question — did the transition complete? — with
+2-of-4 copies holding `stopped` (the twin's open threshold); the working
+quorum resolves the identity higher-identity-wins inside the quorum, and
+over the machine's uniform 4x writes the winner cohort is all four copies.
+No `started` state is written: no safety logic looks for `started`, it
+looks for `stopped` — the extra superblock write buys no safety and is
+elided. -/
+
+/-- Durable marker of one superblock copy (§5.1): one state of the ordered
+marker transition system. Each state names the transition that must have
+completed for it to exist; no `started` state is written. -/
 inductive Mark where
-  | flushed
-  | unflushed
+  | stopping
+  | stopped
+  | restarting
+  | joining
+  deriving DecidableEq
 
-/-- All four superblocks read `flushed`: the ordinary CR-free path. -/
-def allFlushed (a b c d : Mark) : Prop :=
-  a = .flushed ∧ b = .flushed ∧ c = .flushed ∧ d = .flushed
+/-- All four copies rewritten with one marker (§5.1): every marker write is
+a uniform 4x write, so the copies of a live node always agree and the
+winner cohort is all four copies. -/
+def written4 (m : Mark) : Mark × Mark × Mark × Mark := (m, m, m, m)
 
-/-- Any of the four reads `unflushed`: the node is dirty. -/
-def dirtyStartup (a b c d : Mark) : Prop :=
-  a = .unflushed ∨ b = .unflushed ∨ c = .unflushed ∨ d = .unflushed
+/-- The stop command (§5.1): the copies read `stopping` 4x. The node has
+stopped sending — no disk flush sits on the protocol's hot path; the drain
+has not yet been proven, so this state vouches for nothing. -/
+def beginStop (_a _b _c _d : Mark) : Mark × Mark × Mark × Mark :=
+  written4 Mark.stopping
 
-/-- Exhaustive sixteen-case enumeration of the startup classification. -/
-theorem startup_cases (a b c d : Mark) :
-    allFlushed a b c d ∨ dirtyStartup a b c d := by
-  cases a <;> cases b <;> cases c <;> cases d <;> simp [allFlushed, dirtyStartup]
+/-- The drain's proof (§5.1): the copies read `stopped` 4x — callable only
+after the host drained, the flushes of WALs and grids strictly between the
+`stopping` write and this one. The marker order is the drain's proof, so a
+`stopped` copy vouches for the WAL under it. -/
+def finishStop (_a _b _c _d : Mark) : Mark × Mark × Mark × Mark :=
+  written4 Mark.stopped
 
-/-! ### The reincarnation state machine
+/-- How many of the four copies hold `stopped`. -/
+def stoppedCount (cs : Mark × Mark × Mark × Mark) : Nat :=
+  (if cs.1 = Mark.stopped then 1 else 0) +
+    (if cs.2.1 = Mark.stopped then 1 else 0) +
+    (if cs.2.2.1 = Mark.stopped then 1 else 0) +
+    (if cs.2.2.2 = Mark.stopped then 1 else 0)
 
-Marker states: `flushed` (durable checkpoint), `unflushed` (running
-sentinel), `dirty` (restart observed any-`unflushed`; eviction must begin),
-`bumped` (incarnation incremented, four superblocks rewritten), and
-`reincarnating` (wire phase: old identity pending eviction, new identity a
-weight-0 standby). -/
+/-- The 2-of-4 boot test (§5.1; the twin's open threshold): did the
+`stopping ──drain──> stopped` transition complete? -/
+def stoppedQuorum (cs : Mark × Mark × Mark × Mark) : Prop := 2 ≤ stoppedCount cs
+
+/-- `stopping` vouches for nothing: the stop command's 4x write holds no
+`stopped` copy, so no stopped quorum — the drain, not the stop command, is
+what the `stopped` marker proves. -/
+theorem begin_stop_vouches_nothing (a b c d : Mark) :
+    ¬ stoppedQuorum (beginStop a b c d) := by
+  simp [stoppedQuorum, stoppedCount, beginStop, written4]
+
+/-- The drain's proof is uniform: the `stopped` 4x write holds the quorum
+on all four copies. A stop that died partway still reads clean on the
+surviving quorum, correctly — the flush had already completed before the
+first `stopped` write. -/
+theorem finish_stop_proves_drain (a b c d : Mark) :
+    stoppedQuorum (finishStop a b c d) := by
+  simp [stoppedQuorum, stoppedCount, finishStop, written4]
+
+/-- The restart decision (§5.1's decision table): a stopped quorum
+continues under the same identity; no stopped quorum — a crash, a torn
+marker set, or death mid-join — means the identity is dead and is bumped,
+exactly one past the quorum-resolved identity. -/
+inductive RestartDecision where
+  | cont (i : Ident)
+  | bump (old new : Ident)
+
+/-- The quorum read (§5.1; the twin's `open`): the boot question — did the
+`stopping ──drain──> stopped` transition complete? — answered by 2-of-4
+copies holding `stopped`. The working quorum resolves the identity
+higher-identity-wins inside the quorum; over the machine's uniform 4x
+writes the copies carry one identity, so the resolved identity is the
+node's own. -/
+def classify (a b c d : Mark) (i : Ident) : RestartDecision :=
+  if 2 ≤ stoppedCount (a, b, c, d) then RestartDecision.cont i
+  else RestartDecision.bump i (bump i)
+
+theorem classify_cont {a b c d : Mark} {i : Ident} (h : stoppedQuorum (a, b, c, d)) :
+    classify a b c d i = .cont i := by
+  unfold classify
+  exact if_pos h
+
+theorem classify_bump {a b c d : Mark} {i : Ident}
+    (h : ¬ stoppedQuorum (a, b, c, d)) :
+    classify a b c d i = .bump i (bump i) := by
+  unfold classify
+  exact if_neg h
+
+theorem classify_cont_resolves {a b c d : Mark} {i j : Ident}
+    (h : classify a b c d i = .cont j) : j = i := by
+  by_cases hq : 2 ≤ stoppedCount (a, b, c, d)
+  · rw [classify, if_pos hq] at h
+    injection h with h1
+    exact h1.symm
+  · rw [classify, if_neg hq] at h
+    exact absurd h (by simp)
+
+theorem classify_bump_resolves {a b c d : Mark} {i o n : Ident}
+    (h : classify a b c d i = .bump o n) : o = i ∧ n = bump i := by
+  by_cases hq : 2 ≤ stoppedCount (a, b, c, d)
+  · rw [classify, if_pos hq] at h
+    exact absurd h (by simp)
+  · rw [classify, if_neg hq] at h
+    injection h with h1 h2
+    exact ⟨h1.symm, h2.symm⟩
+
+/-- A restart (§5.1's decision table): the quorum read, the decision, and
+the 4x marker write the decision leaves on disk. The uniform write is the
+repair: every copy is rewritten from the decision. -/
+def restart (a b c d : Mark) (i : Ident) :
+    RestartDecision × Mark × Mark × Mark × Mark :=
+  (classify a b c d i,
+    if 2 ≤ stoppedCount (a, b, c, d) then written4 Mark.restarting
+    else written4 Mark.joining)
+
+/-- The boot of a controlled shutdown: a stopped quorum continues under
+the same identity and the copies read `restarting` 4x — a member with
+complete state, no amnesia, ticking the full protocol, suspecting a silent
+primary like any backup. -/
+theorem restart_continue {a b c d : Mark} {i : Ident}
+    (h : stoppedQuorum (a, b, c, d)) :
+    restart a b c d i = (.cont i, written4 Mark.restarting) := by
+  unfold restart
+  rw [classify_cont h]
+  exact congrArg (fun cs => (RestartDecision.cont i, cs))
+    (if_pos (c := 2 ≤ stoppedCount (a, b, c, d)) h)
+
+/-- The reincarnation's boot: no stopped quorum means the identity is dead;
+the node bumps it, exactly one past, and the copies read `joining` 4x —
+not a member: no vote, no view change, until the forced sequence seats the
+new identity. -/
+theorem restart_bump {a b c d : Mark} {i : Ident}
+    (h : ¬ stoppedQuorum (a, b, c, d)) :
+    restart a b c d i = (.bump i (bump i), written4 Mark.joining) := by
+  unfold restart
+  rw [classify_bump h]
+  exact congrArg (fun cs => (RestartDecision.bump i (bump i), cs))
+    (if_neg (c := 2 ≤ stoppedCount (a, b, c, d)) h)
+
+/-- Exhaustive boot verdict: the closed four-copy domain decides the boot
+question, and the two outcomes are exactly `restarting` (same identity)
+and `joining` (bumped). -/
+theorem boot_verdict (a b c d : Mark) :
+    stoppedQuorum (a, b, c, d) ∨ ¬ stoppedQuorum (a, b, c, d) := by
+  rcases Nat.lt_or_ge (stoppedCount (a, b, c, d)) 2 with h | h
+  · exact Or.inr (Nat.not_le.mpr h)
+  · exact Or.inl h
+
+/-- The written markers are exactly the four: no `started` state exists —
+no safety logic looks for `started`, it looks for `stopped`; the extra
+superblock write buys no safety and is elided. -/
+theorem marker_states (m : Mark) :
+    m = .stopping ∨ m = .stopped ∨ m = .restarting ∨ m = .joining := by
+  cases m <;> simp
+
+/-! ### The reincarnation episode machine
+
+The machine's phases: the marker states the four copies hold (§5.1) plus
+the two eras of the forced sequence the leader commits while the copies
+hold `joining`. `running` is the pre-stop state the stop command rewrites;
+a crash leaves the markers unchanged. The forced sequence carries the
+configurations: the baseline at `joining`, the crossed configuration after
+the crossing era, the evicted configuration after the eviction era — the
+new identity then votes. A node dying mid-join holds its `joining`
+markers, reads no stopped quorum at its next boot, and re-enters
+`joining` under a further bump: the reincarnation repeats. -/
 
 inductive Phase where
-  | flushed
-  | unflushed
-  | dirty
-  | bumped
-  | reincarnating
+  | running
+  | stopping
+  | stopped
+  | restarting
+  | joining
+  | crossed
+  | evicted
 
 def rank : Phase → Nat
-  | .flushed => 0
-  | .unflushed => 1
-  | .dirty => 2
-  | .bumped => 3
-  | .reincarnating => 4
+  | .running => 0
+  | .stopping => 1
+  | .stopped => 2
+  | .restarting => 3
+  | .joining => 3
+  | .crossed => 4
+  | .evicted => 5
 
+/-- The episode machine's transitions. The four marker edges are §5.1's
+diagram: `begin_stop` and `finish_stop` are the stop path's two 4x writes
+(the drain sits strictly between them), `boot_restart` is the clean
+stop's boot under the same identity, `boot_join` is the reincarnation's
+boot with the bump. The two era edges are configuration commits the
+leader makes while the copies hold `joining`; they are not marker
+writes. -/
 inductive Transition : Phase → Phase → Prop
-  | start_op : Transition .flushed .unflushed
-  | observe_dirty : Transition .unflushed .dirty
-  | bump_write : Transition .dirty .bumped
-  | enter_wire : Transition .bumped .reincarnating
-  | complete : Transition .reincarnating .flushed
+  | begin_stop : Transition .running .stopping
+  | finish_stop : Transition .stopping .stopped
+  | boot_restart : Transition .stopped .restarting
+  | boot_join : Transition .running .joining
+  | cross : Transition .joining .crossed
+  | evict : Transition .crossed .evicted
 
-/-- A phase inside the forced reincarnation: eviction initiated. -/
-def committedPhase (p : Phase) : Prop :=
-  p = .dirty ∨ p = .bumped ∨ p = .reincarnating
-
-/-- Continuation commitment, step level: once eviction is initiated, the
-only exit from a committed phase is completion of the forced sequence
-(`reincarnating → flushed`, the new identity's clean checkpoint); the
-sequence is never aborted back to an uncommitted running state. -/
-theorem step_commitment {s t : Phase} (h : Transition s t) (hs : committedPhase s) :
-    committedPhase t ∨ (s = .reincarnating ∧ t = .flushed) := by
+/-- The drain sits strictly between the two marker writes: the sole edge
+into `stopped` departs `stopping` — `stopped` names the transition that
+must have completed for it to exist. -/
+theorem stopped_sole_entry {s t : Phase} (h : Transition s t) (ht : t = .stopped) :
+    s = .stopping := by
   cases h with
-  | start_op => exact absurd hs (by simp [committedPhase])
-  | observe_dirty => exact absurd hs (by simp [committedPhase])
-  | bump_write => exact Or.inl (by simp [committedPhase])
-  | enter_wire => exact Or.inl (by simp [committedPhase])
-  | complete => exact Or.inr ⟨rfl, rfl⟩
+  | finish_stop => rfl
+  | begin_stop => exact absurd ht (by simp)
+  | boot_restart => exact absurd ht (by simp)
+  | boot_join => exact absurd ht (by simp)
+  | cross => exact absurd ht (by simp)
+  | evict => exact absurd ht (by simp)
 
-/-- The forced sequence itself, once initiated: exactly the monotone chain
-dirty → bumped → reincarnating → flushed, with no intermediate exit. -/
+/-- A phase inside the forced reincarnation: the bump is written and the
+sequence is owed or underway. -/
+def committedPhase (p : Phase) : Prop :=
+  p = .joining ∨ p = .crossed
+
+/-- Continuation commitment, step level: from a committed phase the only
+exits are the next era of the forced sequence; the sequence is never
+aborted back to an uncommitted state. -/
+theorem step_commitment {s t : Phase} (h : Transition s t) (hs : committedPhase s) :
+    committedPhase t ∨ (s = .crossed ∧ t = .evicted) := by
+  cases h with
+  | begin_stop => exact absurd hs (by simp [committedPhase])
+  | finish_stop => exact absurd hs (by simp [committedPhase])
+  | boot_restart => exact absurd hs (by simp [committedPhase])
+  | boot_join => exact absurd hs (by simp [committedPhase])
+  | cross => exact Or.inl (by simp [committedPhase])
+  | evict => exact Or.inr ⟨rfl, rfl⟩
+
+/-- The forced sequence itself, once initiated: exactly the era walk
+`joining → crossed → evicted`, with no intermediate exit. -/
 inductive ForcedStep : Phase → Phase → Prop
-  | bump_write : ForcedStep .dirty .bumped
-  | enter_wire : ForcedStep .bumped .reincarnating
-  | complete : ForcedStep .reincarnating .flushed
+  | cross : ForcedStep .joining .crossed
+  | evict : ForcedStep .crossed .evicted
 
 inductive ForcedRun : Phase → Phase → Prop
   | refl (p : Phase) : ForcedRun p p
   | step {p q t : Phase} : ForcedRun p q → ForcedStep q t → ForcedRun p t
 
 /-- Every forced step before completion strictly advances the phase. -/
-theorem forced_monotone {s t : Phase} (h : ForcedStep s t) (hnc : t ≠ .flushed) :
+theorem forced_monotone {s t : Phase} (h : ForcedStep s t) (hnc : t ≠ .evicted) :
     rank s < rank t := by
   cases h with
-  | bump_write => decide
-  | enter_wire => decide
-  | complete => exact absurd rfl hnc
+  | cross => decide
+  | evict => exact absurd rfl hnc
 
-/-- Continuation commitment: a forced run started at `dirty` either is still
-inside a committed phase or has completed to the new identity's `flushed`.
-No other phase is reachable, so the sequence cannot abort mid-way. -/
-theorem forced_prefix {t : Phase} (h : ForcedRun .dirty t) :
-    committedPhase t ∨ t = .flushed := by
+/-- Continuation commitment: a forced run started at `joining` either is
+still inside a committed phase or has completed to `evicted` — the new
+identity votes. No other phase is reachable, so the sequence cannot abort
+mid-way. -/
+theorem forced_prefix {t : Phase} (h : ForcedRun .joining t) :
+    committedPhase t ∨ t = .evicted := by
   induction h with
   | refl => exact Or.inl (by simp [committedPhase])
   | step _ st _ =>
     cases st with
-    | bump_write => exact Or.inl (by simp [committedPhase])
-    | enter_wire => exact Or.inl (by simp [committedPhase])
-    | complete => exact Or.inr rfl
+    | cross => exact Or.inl (by simp [committedPhase])
+    | evict => exact Or.inr rfl
 
 /-- The complete forced sequence is exactly this run. -/
-theorem forced_sequence : ForcedRun .dirty .flushed :=
-  (((ForcedRun.step (ForcedRun.refl .dirty) ForcedStep.bump_write).step
-    ForcedStep.enter_wire).step ForcedStep.complete)
+theorem forced_sequence : ForcedRun .joining .evicted :=
+  ((ForcedRun.step (ForcedRun.refl .joining) ForcedStep.cross).step
+    ForcedStep.evict)
 
 /-! ### Worked scenario: the unit-weight three-node reincarnation (docs §5)
 
@@ -420,7 +619,17 @@ import UVRR.Reincarnation
 #print axioms Reincarnation.adopt_sup_known
 #print axioms Reincarnation.adopt_sup_observed
 #print axioms Reincarnation.adopt_example
-#print axioms Reincarnation.startup_cases
+#print axioms Reincarnation.begin_stop_vouches_nothing
+#print axioms Reincarnation.finish_stop_proves_drain
+#print axioms Reincarnation.classify_cont
+#print axioms Reincarnation.classify_bump
+#print axioms Reincarnation.classify_cont_resolves
+#print axioms Reincarnation.classify_bump_resolves
+#print axioms Reincarnation.restart_continue
+#print axioms Reincarnation.restart_bump
+#print axioms Reincarnation.boot_verdict
+#print axioms Reincarnation.marker_states
+#print axioms Reincarnation.stopped_sole_entry
 #print axioms Reincarnation.step_commitment
 #print axioms Reincarnation.forced_monotone
 #print axioms Reincarnation.forced_prefix
@@ -456,7 +665,17 @@ LEAN
 'Reincarnation.adopt_sup_known' depends on axioms: [propext]
 'Reincarnation.adopt_sup_observed' depends on axioms: [propext]
 'Reincarnation.adopt_example' does not depend on any axioms
-'Reincarnation.startup_cases' depends on axioms: [propext]
+'Reincarnation.begin_stop_vouches_nothing' depends on axioms: [propext]
+'Reincarnation.finish_stop_proves_drain' depends on axioms: [propext]
+'Reincarnation.classify_cont' does not depend on any axioms
+'Reincarnation.classify_bump' does not depend on any axioms
+'Reincarnation.classify_cont_resolves' depends on axioms: [propext]
+'Reincarnation.classify_bump_resolves' depends on axioms: [propext]
+'Reincarnation.restart_continue' does not depend on any axioms
+'Reincarnation.restart_bump' does not depend on any axioms
+'Reincarnation.boot_verdict' does not depend on any axioms
+'Reincarnation.marker_states' depends on axioms: [propext]
+'Reincarnation.stopped_sole_entry' depends on axioms: [propext]
 'Reincarnation.step_commitment' depends on axioms: [propext]
 'Reincarnation.forced_monotone' does not depend on any axioms
 'Reincarnation.forced_prefix' depends on axioms: [propext]
@@ -487,7 +706,7 @@ batch forms hold for arbitrary configurations at arbitrary scale, so rung 9's
 quorum-safe. The old identity's weight never increases along a forced run and
 never returns to a voter once zero, the bumped identity never reverts to the
 pre-bump identity, and a forced run from any committed phase completes: no
-reachable terminal phase other than `flushed`. -/
+reachable terminal phase other than `evicted`. -/
 
 namespace Reincarnation
 
@@ -639,28 +858,31 @@ theorem forced_sequence_era_safe {A : Type} [DecidableEq A] {old new : A}
 
 /-! ### The configuration carried by the forced run
 
-The forced run walks the phases with the baseline configuration at `dirty`,
-the crossed configuration from `bumped` on, and the evicted configuration at
-`flushed`. -/
+The forced run walks the phases with the baseline configuration at
+`joining`, the crossed configuration from `crossed` on, and the evicted
+configuration at `evicted`. The marker phases carry no configuration
+change: the markers are the §5.1 boot machine, the forced sequence is the
+configuration walk the `joining` node's leader commits. -/
 
 def eraConfig {A : Type} [DecidableEq A] (old new : A) (w : Config A) :
     Phase → Config A
-  | .flushed => evictEra new (crossEra old new w)
-  | .unflushed => w
-  | .dirty => w
-  | .bumped => crossEra old new w
-  | .reincarnating => crossEra old new w
+  | .running => w
+  | .stopping => w
+  | .stopped => w
+  | .restarting => w
+  | .joining => w
+  | .crossed => crossEra old new w
+  | .evicted => evictEra new (crossEra old new w)
 
 theorem eraConfig_old_step {A : Type} [DecidableEq A] {old new : A} (hne : old ≠ new)
     (w : Config A) {q t : Phase} (hst : ForcedStep q t) :
     eraConfig old new w t old ≤ eraConfig old new w q old := by
   cases hst with
-  | bump_write =>
+  | cross =>
     show crossEra old new w old ≤ w old
     simp only [crossEra]
     exact Nat.sub_le _ _
-  | enter_wire => exact Nat.le_refl _
-  | complete =>
+  | evict =>
     show evictEra new (crossEra old new w) old ≤ crossEra old new w old
     simp only [evictEra, if_neg hne]
     exact Nat.le_refl _
@@ -682,18 +904,18 @@ theorem forced_run_old_zero {A : Type} [DecidableEq A] {old new : A} (hne : old 
   exact Nat.le_antisymm
     (Nat.le_trans (forced_run_old_mono hne w hrun) (Nat.le_of_eq h0)) (Nat.zero_le _)
 
-/-- Bumped-identity non-membership: from `bumped` on — the crossing era
-completed — the old identity is never a voter again in any subsequent
+/-- Bumped-identity non-membership: from `crossed` on — the crossing era
+committed — the old identity is never a voter again in any subsequent
 configuration of the forced run. The crossing era drives the old identity to
 weight zero exactly when it starts at or below one unit; at a larger scale
 the crossing era iterates, and the scale-independent invariants above
 (`forced_run_old_mono`, `forced_run_old_zero`) carry the argument through
 each iteration. -/
 theorem evicted_never_voting {A : Type} [DecidableEq A] {old new : A} (hne : old ≠ new)
-    (w : Config A) (hw : w old ≤ 1) {t : Phase} (hrun : ForcedRun .bumped t) :
+    (w : Config A) (hw : w old ≤ 1) {t : Phase} (hrun : ForcedRun .crossed t) :
     ¬ voting (eraConfig old new w t) old := by
   have hwn : (w old : Nat) ≤ 1 := hw
-  have h0n : (eraConfig old new w Phase.bumped old : Nat) = 0 := by
+  have h0n : (eraConfig old new w Phase.crossed old : Nat) = 0 := by
     show (crossEra old new w old : Nat) = 0
     have h1 : crossEra old new w old = w old - 1 := by simp [crossEra]
     rw [h1]
@@ -707,16 +929,18 @@ theorem evicted_never_voting {A : Type} [DecidableEq A] {old new : A} (hne : old
 /-! ### The amnesia trace is unreachable
 
 The identity-carrying run pairs each phase with the identity the node
-operates under; the bump step replaces the identity with its strictly higher
-incarnation and no step ever lowers it. -/
+operates under; the reincarnation's boot (`boot_join`, no 2-of-4 `stopped`
+at boot) replaces the identity with its strictly higher incarnation and no
+edge ever lowers it. -/
 
 inductive IdentRun : Phase → Ident → Phase → Ident → Prop
   | refl (p : Phase) (i : Ident) : IdentRun p i p i
-  | start_op (i : Ident) : IdentRun .flushed i .unflushed i
-  | observe_dirty (i : Ident) : IdentRun .unflushed i .dirty i
-  | bump_write (i : Ident) : IdentRun .dirty i .bumped (bump i)
-  | enter_wire (i : Ident) : IdentRun .bumped i .reincarnating i
-  | complete (i : Ident) : IdentRun .reincarnating i .flushed i
+  | begin_stop (i : Ident) : IdentRun .running i .stopping i
+  | finish_stop (i : Ident) : IdentRun .stopping i .stopped i
+  | boot_restart (i : Ident) : IdentRun .stopped i .restarting i
+  | boot_join (i : Ident) : IdentRun .running i .joining (bump i)
+  | cross (i : Ident) : IdentRun .joining i .crossed i
+  | evict (i : Ident) : IdentRun .crossed i .evicted i
   | trans {p q t : Phase} {i j k : Ident} :
       IdentRun p i q j → IdentRun q j t k → IdentRun p i t k
 
@@ -724,30 +948,32 @@ inductive IdentRun : Phase → Ident → Phase → Ident → Prop
 theorem ident_mono {p q : Phase} {i j : Ident} (h : IdentRun p i q j) : i ≤ j := by
   induction h with
   | refl => exact Nat.le_refl _
-  | start_op => exact Nat.le_refl _
-  | observe_dirty => exact Nat.le_refl _
-  | bump_write i => exact Nat.le_succ i
-  | enter_wire => exact Nat.le_refl _
-  | complete => exact Nat.le_refl _
+  | begin_stop => exact Nat.le_refl _
+  | finish_stop => exact Nat.le_refl _
+  | boot_restart => exact Nat.le_refl _
+  | boot_join i => exact Nat.le_succ i
+  | cross => exact Nat.le_refl _
+  | evict => exact Nat.le_refl _
   | trans _ _ ih1 ih2 => exact Nat.le_trans ih1 ih2
 
-/-- No transition from a committed phase re-enters a pre-eviction phase:
-once the eviction is initiated the machine cannot go back to running the
-startup path. -/
-theorem no_predirty_return {s t : Phase} (h : Transition s t) (hs : committedPhase s) :
-    t = .bumped ∨ t = .reincarnating ∨ t = .flushed := by
+/-- No transition from a committed phase re-enters a pre-join phase: once
+the bump is written the machine cannot go back to the states before it. -/
+theorem no_prejoining_return {s t : Phase} (h : Transition s t) (hs : committedPhase s) :
+    t = .crossed ∨ t = .evicted := by
   cases h with
-  | start_op => exact absurd hs (by simp [committedPhase])
-  | observe_dirty => exact absurd hs (by simp [committedPhase])
-  | bump_write => exact Or.inl rfl
-  | enter_wire => exact Or.inr (Or.inl rfl)
-  | complete => exact Or.inr (Or.inr rfl)
+  | begin_stop => exact absurd hs (by simp [committedPhase])
+  | finish_stop => exact absurd hs (by simp [committedPhase])
+  | boot_restart => exact absurd hs (by simp [committedPhase])
+  | boot_join => exact absurd hs (by simp [committedPhase])
+  | cross => exact Or.inl rfl
+  | evict => exact Or.inr rfl
 
-/-- The classic amnesia trace is unreachable: from the bumped phase, under
-the bumped identity, no continuation of the machine ever operates under the
-pre-bump identity again — the identity only grows past it. -/
+/-- The classic amnesia trace is unreachable: from the `joining` marker —
+the bump written — under the bumped identity, no continuation of the
+machine ever operates under the pre-bump identity again — the identity only
+grows past it. -/
 theorem amnesia_unreachable {q : Phase} {j i₀ : Ident}
-    (h : IdentRun .bumped (bump i₀) q j) : j ≠ i₀ := by
+    (h : IdentRun .joining (bump i₀) q j) : j ≠ i₀ := by
   intro hcon
   have hm : (bump i₀ : Nat) ≤ (j : Nat) := ident_mono h
   rw [hcon] at hm
@@ -756,18 +982,17 @@ theorem amnesia_unreachable {q : Phase} {j i₀ : Ident}
 /-! ### Continuation commitment in general -/
 
 /-- A forced run started at any committed phase stays inside the committed
-phases until it completes to the new identity's `flushed`. -/
+phases until it completes to `evicted` — the new identity votes. -/
 theorem forced_run_committed {p t : Phase} (hp : committedPhase p)
     (hrun : ForcedRun p t) :
-    committedPhase t ∨ t = .flushed := by
+    committedPhase t ∨ t = .evicted := by
   induction hrun with
   | refl => exact Or.inl hp
   | step _ st ih =>
     rcases ih with hq | hq
     · cases st with
-      | bump_write => exact Or.inl (Or.inr (Or.inl rfl))
-      | enter_wire => exact Or.inl (Or.inr (Or.inr rfl))
-      | complete => exact Or.inr rfl
+      | cross => exact Or.inl (by simp [committedPhase])
+      | evict => exact Or.inr rfl
     · subst hq
       cases st
 
@@ -775,19 +1000,16 @@ theorem forced_run_committed {p t : Phase} (hp : committedPhase p)
 def terminal (t : Phase) : Prop := ¬ ∃ u, ForcedStep t u
 
 /-- The only terminal phase reachable by a forced run from a committed phase
-is `flushed`: the forced run cannot end in `dirty`, `bumped` or
-`reincarnating` — each of those has a forced step out, so completion is
-mandatory. -/
-theorem forced_run_terminal_flushed {p t : Phase} (hrun : ForcedRun p t)
-    (hp : committedPhase p) (hterm : terminal t) : t = .flushed := by
+is `evicted`: the forced run cannot end in `joining` or `crossed` — each of
+those has a forced step out, so completion is mandatory. -/
+theorem forced_run_terminal_evicted {p t : Phase} (hrun : ForcedRun p t)
+    (hp : committedPhase p) (hterm : terminal t) : t = .evicted := by
   rcases forced_run_committed hp hrun with hc | hc
-  · rcases hc with hc | hc | hc
+  · rcases hc with hc | hc
     · subst hc
-      exact absurd (⟨.bumped, ForcedStep.bump_write⟩ : ∃ u, ForcedStep .dirty u) hterm
+      exact absurd (⟨.crossed, ForcedStep.cross⟩ : ∃ u, ForcedStep .joining u) hterm
     · subst hc
-      exact absurd (⟨.reincarnating, ForcedStep.enter_wire⟩ : ∃ u, ForcedStep .bumped u) hterm
-    · subst hc
-      exact absurd (⟨.flushed, ForcedStep.complete⟩ : ∃ u, ForcedStep .reincarnating u) hterm
+      exact absurd (⟨.evicted, ForcedStep.evict⟩ : ∃ u, ForcedStep .crossed u) hterm
   · exact hc
 
 end Reincarnation
@@ -816,11 +1038,12 @@ import UVRR.ReincarnationGeneral
 #print axioms Reincarnation.forced_run_old_zero
 #print axioms Reincarnation.evicted_never_voting
 #print axioms Reincarnation.ident_mono
-#print axioms Reincarnation.no_predirty_return
+#print axioms Reincarnation.no_prejoining_return
 #print axioms Reincarnation.amnesia_unreachable
 #print axioms Reincarnation.forced_run_committed
-#print axioms Reincarnation.forced_run_terminal_flushed
+#print axioms Reincarnation.forced_run_terminal_evicted
 LEAN
+
 ```
 
 ```output
@@ -837,10 +1060,10 @@ LEAN
 'Reincarnation.forced_run_old_zero' depends on axioms: [propext]
 'Reincarnation.evicted_never_voting' depends on axioms: [propext]
 'Reincarnation.ident_mono' does not depend on any axioms
-'Reincarnation.no_predirty_return' depends on axioms: [propext]
+'Reincarnation.no_prejoining_return' depends on axioms: [propext]
 'Reincarnation.amnesia_unreachable' does not depend on any axioms
-'Reincarnation.forced_run_committed' does not depend on any axioms
-'Reincarnation.forced_run_terminal_flushed' does not depend on any axioms
+'Reincarnation.forced_run_committed' depends on axioms: [propext]
+'Reincarnation.forced_run_terminal_evicted' depends on axioms: [propext]
 ```
 
 ## Proof obligations
@@ -852,16 +1075,17 @@ No statement was weakened to pass; the side conditions are the preconditions und
 stated general claim is true, and they are the ones the protocol satisfies.
 
 **(a) Bumped-identity non-membership after the crossing era — DISCHARGED.** The forced run
-carries a configuration through the phases (`eraConfig`): the baseline at `dirty`, the crossed
-configuration from `bumped` on, the evicted configuration at `flushed`. The old identity's
-weight never increases along a forced run (`forced_run_old_mono`) and once zero stays zero
-(`forced_run_old_zero`); from `bumped` on — the crossing era completed — the old identity is
-never a voter again in any subsequent configuration (`evicted_never_voting`). Side condition:
-the single crossing era drives the old identity to weight zero exactly when it starts at or
-below one unit (`w old ≤ 1`, the `step1_not_voting` generalization); at a larger scale the
-crossing era iterates — each iteration still moves one unit per `crossEra_mass` — and the
-scale-independent invariants `forced_run_old_mono`/`forced_run_old_zero` carry the argument
-through every iteration. The two-era `Phase` machine of this rung encodes one crossing.
+carries a configuration through the phases (`eraConfig`): the baseline at `joining`, the
+crossed configuration from `crossed` on, the evicted configuration at `evicted`. The old
+identity's weight never increases along a forced run (`forced_run_old_mono`) and once zero
+stays zero (`forced_run_old_zero`); from `crossed` on — the crossing era committed — the old
+identity is never a voter again in any subsequent configuration (`evicted_never_voting`).
+Side condition: the single crossing era drives the old identity to weight zero exactly when
+it starts at or below one unit (`w old ≤ 1`, the `step1_not_voting` generalization); at a
+larger scale the crossing era iterates — each iteration still moves one unit per
+`crossEra_mass` — and the scale-independent invariants `forced_run_old_mono`/
+`forced_run_old_zero` carry the argument through every iteration. The two-era `Phase`
+machine of this rung encodes one crossing.
 Axiom footprints: `eraConfig_old_step` and `forced_run_old_mono` and `forced_run_old_zero` and
 `evicted_never_voting` depend on `[propext]`.
 
@@ -879,21 +1103,22 @@ scale. Axiom footprints: `crossEra_mass`, `evictEra_mass`, `step0_mass` depend o
 `[propext, Quot.sound]`; `forced_sequence_era_safe` on `[propext, Classical.choice, Quot.sound]`.
 
 **(c) Unreachability of the classic amnesia trace — DISCHARGED.** The identity-carrying run
-(`IdentRun`) pairs each phase with the identity the node operates under; the bump step replaces
-the identity with its strictly higher incarnation. The operating identity never decreases along
-any run (`ident_mono`); no transition re-enters a pre-eviction phase from a committed one
-(`no_predirty_return`, from `step_commitment`); and from the bumped phase, under the bumped
-identity, no continuation of the machine ever operates under the pre-bump identity again
-(`amnesia_unreachable` — the identity only grows strictly past it). Together with (a) this
+(`IdentRun`) pairs each phase with the identity the node operates under; the reincarnation's
+boot edge (`boot_join` — no 2-of-4 `stopped` at boot) replaces the identity with its strictly
+higher incarnation. The operating identity never decreases along any run (`ident_mono`); no
+transition re-enters a pre-join phase from a committed one (`no_prejoining_return`, from
+`step_commitment`); and from the `joining` marker, under the bumped identity, no continuation
+of the machine ever operates under the pre-bump identity again (`amnesia_unreachable` — the
+identity only grows strictly past it). Together with (a) this
 rules out the trace: a node that lost volatile state cannot regain voting eligibility under its
-old identity. Axiom footprints: `ident_mono` and `amnesia_unreachable` and
-`no_predirty_return` depend on `[propext]` (ident_mono and amnesia_unreachable on none).
+old identity. Axiom footprints: `no_prejoining_return` depends on `[propext]`
+(ident_mono and amnesia_unreachable on none).
 
 **(d) Continuation commitment in general — DISCHARGED.** A forced run started at any
-committed phase — not only `dirty` — stays inside the committed phases until it completes to
-the new identity's `flushed` (`forced_run_committed`); and `flushed` is the only terminal
-phase such a run can reach (`forced_run_terminal_flushed`, with `terminal` the no-forced-step-
-out predicate): the forced sequence cannot end in `dirty`, `bumped` or `reincarnating`, since
-each of those has a forced step out. Whichever era a leader crash lands in is a legal,
+committed phase — not only `joining` — stays inside the committed phases until it completes
+to `evicted` (`forced_run_committed`); and `evicted` is the only terminal
+phase such a run can reach (`forced_run_terminal_evicted`, with `terminal` the
+no-forced-step-out predicate): the forced sequence cannot end in `joining` or `crossed`,
+since each of those has a forced step out. Whichever era a leader crash lands in is a legal,
 quorum-safe starting era by obligation (b). Axiom footprints: `forced_run_committed` and
-`forced_run_terminal_flushed` depend on `[propext]` (forced_run_committed on none).
+`forced_run_terminal_evicted` depend on `[propext]` (forced_run_committed on none).

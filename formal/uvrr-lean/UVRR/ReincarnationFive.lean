@@ -112,10 +112,10 @@ theorem five_forced_safe :
     (by simp [unit5]) (by simp [unit5]) (by decide)
 
 /-- Rung 22G's non-membership invariant at the five-node support: from the
-bumped phase on, the victim's old identity never votes again in any later
+crossed era on, the victim's old identity never votes again in any later
 configuration of the forced run. -/
 theorem five_evicted_never_voting {t : Reincarnation.Phase}
-    (hrun : Reincarnation.ForcedRun .bumped t) :
+    (hrun : Reincarnation.ForcedRun .crossed t) :
     ¬ Reincarnation.voting (Reincarnation.eraConfig 0 5 unit5 t) 0 := by
   apply Reincarnation.evicted_never_voting (by decide) unit5 (by simp [unit5]) hrun
 

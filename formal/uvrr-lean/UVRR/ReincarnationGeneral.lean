@@ -7,7 +7,7 @@ batch forms hold for arbitrary configurations at arbitrary scale, so rung 9's
 quorum-safe. The old identity's weight never increases along a forced run and
 never returns to a voter once zero, the bumped identity never reverts to the
 pre-bump identity, and a forced run from any committed phase completes: no
-reachable terminal phase other than `flushed`. -/
+reachable terminal phase other than `evicted`. -/
 
 namespace Reincarnation
 
@@ -159,28 +159,31 @@ theorem forced_sequence_era_safe {A : Type} [DecidableEq A] {old new : A}
 
 /-! ### The configuration carried by the forced run
 
-The forced run walks the phases with the baseline configuration at `dirty`,
-the crossed configuration from `bumped` on, and the evicted configuration at
-`flushed`. -/
+The forced run walks the phases with the baseline configuration at
+`joining`, the crossed configuration from `crossed` on, and the evicted
+configuration at `evicted`. The marker phases carry no configuration
+change: the markers are the §5.1 boot machine, the forced sequence is the
+configuration walk the `joining` node's leader commits. -/
 
 def eraConfig {A : Type} [DecidableEq A] (old new : A) (w : Config A) :
     Phase → Config A
-  | .flushed => evictEra new (crossEra old new w)
-  | .unflushed => w
-  | .dirty => w
-  | .bumped => crossEra old new w
-  | .reincarnating => crossEra old new w
+  | .running => w
+  | .stopping => w
+  | .stopped => w
+  | .restarting => w
+  | .joining => w
+  | .crossed => crossEra old new w
+  | .evicted => evictEra new (crossEra old new w)
 
 theorem eraConfig_old_step {A : Type} [DecidableEq A] {old new : A} (hne : old ≠ new)
     (w : Config A) {q t : Phase} (hst : ForcedStep q t) :
     eraConfig old new w t old ≤ eraConfig old new w q old := by
   cases hst with
-  | bump_write =>
+  | cross =>
     show crossEra old new w old ≤ w old
     simp only [crossEra]
     exact Nat.sub_le _ _
-  | enter_wire => exact Nat.le_refl _
-  | complete =>
+  | evict =>
     show evictEra new (crossEra old new w) old ≤ crossEra old new w old
     simp only [evictEra, if_neg hne]
     exact Nat.le_refl _
@@ -202,18 +205,18 @@ theorem forced_run_old_zero {A : Type} [DecidableEq A] {old new : A} (hne : old 
   exact Nat.le_antisymm
     (Nat.le_trans (forced_run_old_mono hne w hrun) (Nat.le_of_eq h0)) (Nat.zero_le _)
 
-/-- Bumped-identity non-membership: from `bumped` on — the crossing era
-completed — the old identity is never a voter again in any subsequent
+/-- Bumped-identity non-membership: from `crossed` on — the crossing era
+committed — the old identity is never a voter again in any subsequent
 configuration of the forced run. The crossing era drives the old identity to
 weight zero exactly when it starts at or below one unit; at a larger scale
 the crossing era iterates, and the scale-independent invariants above
 (`forced_run_old_mono`, `forced_run_old_zero`) carry the argument through
 each iteration. -/
 theorem evicted_never_voting {A : Type} [DecidableEq A] {old new : A} (hne : old ≠ new)
-    (w : Config A) (hw : w old ≤ 1) {t : Phase} (hrun : ForcedRun .bumped t) :
+    (w : Config A) (hw : w old ≤ 1) {t : Phase} (hrun : ForcedRun .crossed t) :
     ¬ voting (eraConfig old new w t) old := by
   have hwn : (w old : Nat) ≤ 1 := hw
-  have h0n : (eraConfig old new w Phase.bumped old : Nat) = 0 := by
+  have h0n : (eraConfig old new w Phase.crossed old : Nat) = 0 := by
     show (crossEra old new w old : Nat) = 0
     have h1 : crossEra old new w old = w old - 1 := by simp [crossEra]
     rw [h1]
@@ -227,16 +230,18 @@ theorem evicted_never_voting {A : Type} [DecidableEq A] {old new : A} (hne : old
 /-! ### The amnesia trace is unreachable
 
 The identity-carrying run pairs each phase with the identity the node
-operates under; the bump step replaces the identity with its strictly higher
-incarnation and no step ever lowers it. -/
+operates under; the reincarnation's boot (`boot_join`, no 2-of-4 `stopped`
+at boot) replaces the identity with its strictly higher incarnation and no
+edge ever lowers it. -/
 
 inductive IdentRun : Phase → Ident → Phase → Ident → Prop
   | refl (p : Phase) (i : Ident) : IdentRun p i p i
-  | start_op (i : Ident) : IdentRun .flushed i .unflushed i
-  | observe_dirty (i : Ident) : IdentRun .unflushed i .dirty i
-  | bump_write (i : Ident) : IdentRun .dirty i .bumped (bump i)
-  | enter_wire (i : Ident) : IdentRun .bumped i .reincarnating i
-  | complete (i : Ident) : IdentRun .reincarnating i .flushed i
+  | begin_stop (i : Ident) : IdentRun .running i .stopping i
+  | finish_stop (i : Ident) : IdentRun .stopping i .stopped i
+  | boot_restart (i : Ident) : IdentRun .stopped i .restarting i
+  | boot_join (i : Ident) : IdentRun .running i .joining (bump i)
+  | cross (i : Ident) : IdentRun .joining i .crossed i
+  | evict (i : Ident) : IdentRun .crossed i .evicted i
   | trans {p q t : Phase} {i j k : Ident} :
       IdentRun p i q j → IdentRun q j t k → IdentRun p i t k
 
@@ -244,30 +249,32 @@ inductive IdentRun : Phase → Ident → Phase → Ident → Prop
 theorem ident_mono {p q : Phase} {i j : Ident} (h : IdentRun p i q j) : i ≤ j := by
   induction h with
   | refl => exact Nat.le_refl _
-  | start_op => exact Nat.le_refl _
-  | observe_dirty => exact Nat.le_refl _
-  | bump_write i => exact Nat.le_succ i
-  | enter_wire => exact Nat.le_refl _
-  | complete => exact Nat.le_refl _
+  | begin_stop => exact Nat.le_refl _
+  | finish_stop => exact Nat.le_refl _
+  | boot_restart => exact Nat.le_refl _
+  | boot_join i => exact Nat.le_succ i
+  | cross => exact Nat.le_refl _
+  | evict => exact Nat.le_refl _
   | trans _ _ ih1 ih2 => exact Nat.le_trans ih1 ih2
 
-/-- No transition from a committed phase re-enters a pre-eviction phase:
-once the eviction is initiated the machine cannot go back to running the
-startup path. -/
-theorem no_predirty_return {s t : Phase} (h : Transition s t) (hs : committedPhase s) :
-    t = .bumped ∨ t = .reincarnating ∨ t = .flushed := by
+/-- No transition from a committed phase re-enters a pre-join phase: once
+the bump is written the machine cannot go back to the states before it. -/
+theorem no_prejoining_return {s t : Phase} (h : Transition s t) (hs : committedPhase s) :
+    t = .crossed ∨ t = .evicted := by
   cases h with
-  | start_op => exact absurd hs (by simp [committedPhase])
-  | observe_dirty => exact absurd hs (by simp [committedPhase])
-  | bump_write => exact Or.inl rfl
-  | enter_wire => exact Or.inr (Or.inl rfl)
-  | complete => exact Or.inr (Or.inr rfl)
+  | begin_stop => exact absurd hs (by simp [committedPhase])
+  | finish_stop => exact absurd hs (by simp [committedPhase])
+  | boot_restart => exact absurd hs (by simp [committedPhase])
+  | boot_join => exact absurd hs (by simp [committedPhase])
+  | cross => exact Or.inl rfl
+  | evict => exact Or.inr rfl
 
-/-- The classic amnesia trace is unreachable: from the bumped phase, under
-the bumped identity, no continuation of the machine ever operates under the
-pre-bump identity again — the identity only grows past it. -/
+/-- The classic amnesia trace is unreachable: from the `joining` marker —
+the bump written — under the bumped identity, no continuation of the
+machine ever operates under the pre-bump identity again — the identity only
+grows past it. -/
 theorem amnesia_unreachable {q : Phase} {j i₀ : Ident}
-    (h : IdentRun .bumped (bump i₀) q j) : j ≠ i₀ := by
+    (h : IdentRun .joining (bump i₀) q j) : j ≠ i₀ := by
   intro hcon
   have hm : (bump i₀ : Nat) ≤ (j : Nat) := ident_mono h
   rw [hcon] at hm
@@ -276,18 +283,17 @@ theorem amnesia_unreachable {q : Phase} {j i₀ : Ident}
 /-! ### Continuation commitment in general -/
 
 /-- A forced run started at any committed phase stays inside the committed
-phases until it completes to the new identity's `flushed`. -/
+phases until it completes to `evicted` — the new identity votes. -/
 theorem forced_run_committed {p t : Phase} (hp : committedPhase p)
     (hrun : ForcedRun p t) :
-    committedPhase t ∨ t = .flushed := by
+    committedPhase t ∨ t = .evicted := by
   induction hrun with
   | refl => exact Or.inl hp
   | step _ st ih =>
     rcases ih with hq | hq
     · cases st with
-      | bump_write => exact Or.inl (Or.inr (Or.inl rfl))
-      | enter_wire => exact Or.inl (Or.inr (Or.inr rfl))
-      | complete => exact Or.inr rfl
+      | cross => exact Or.inl (by simp [committedPhase])
+      | evict => exact Or.inr rfl
     · subst hq
       cases st
 
@@ -295,19 +301,16 @@ theorem forced_run_committed {p t : Phase} (hp : committedPhase p)
 def terminal (t : Phase) : Prop := ¬ ∃ u, ForcedStep t u
 
 /-- The only terminal phase reachable by a forced run from a committed phase
-is `flushed`: the forced run cannot end in `dirty`, `bumped` or
-`reincarnating` — each of those has a forced step out, so completion is
-mandatory. -/
-theorem forced_run_terminal_flushed {p t : Phase} (hrun : ForcedRun p t)
-    (hp : committedPhase p) (hterm : terminal t) : t = .flushed := by
+is `evicted`: the forced run cannot end in `joining` or `crossed` — each of
+those has a forced step out, so completion is mandatory. -/
+theorem forced_run_terminal_evicted {p t : Phase} (hrun : ForcedRun p t)
+    (hp : committedPhase p) (hterm : terminal t) : t = .evicted := by
   rcases forced_run_committed hp hrun with hc | hc
-  · rcases hc with hc | hc | hc
+  · rcases hc with hc | hc
     · subst hc
-      exact absurd (⟨.bumped, ForcedStep.bump_write⟩ : ∃ u, ForcedStep .dirty u) hterm
+      exact absurd (⟨.crossed, ForcedStep.cross⟩ : ∃ u, ForcedStep .joining u) hterm
     · subst hc
-      exact absurd (⟨.reincarnating, ForcedStep.enter_wire⟩ : ∃ u, ForcedStep .bumped u) hterm
-    · subst hc
-      exact absurd (⟨.flushed, ForcedStep.complete⟩ : ∃ u, ForcedStep .reincarnating u) hterm
+      exact absurd (⟨.evicted, ForcedStep.evict⟩ : ∃ u, ForcedStep .crossed u) hterm
   · exact hc
 
 end Reincarnation
