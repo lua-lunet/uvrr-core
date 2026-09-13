@@ -113,6 +113,7 @@ use crate::observe::{Diagnostic, Observation};
 use crate::plan::Plan;
 use crate::progress::{Progress, ProgressError, ProgressSnapshot, Status};
 use crate::quorum::{QuorumError, QuorumStrategy, Role, validate_era};
+use crate::reconfiguration::{Abdication, AbdicationRefusal, validate_abdication};
 use crate::wire::{Header, Pack, Tag};
 
 pub use crate::quorum::{PivotError, construct_pivot, validate_pivot};
@@ -242,6 +243,16 @@ pub enum Input {
         /// per era, in commit order.
         plan: Plan,
     },
+    /// The administrator's abdication message (rules §12 of
+    /// `docs/uvrr-reconfiguration-rules.md`): the CAS pair naming the view
+    /// the cluster is in and the view it should move to, arriving at the
+    /// node that is (claimed to be) the leader. A valid abdication emits the
+    /// standard view-change messages for the target view and steps the
+    /// leader down in the same transition — no new wire message exists.
+    Abdicate {
+        /// The abdication message.
+        message: Abdication,
+    },
 }
 
 /// The concrete vote sets of a non-stop reconfiguration (§8.7.6–§8.7.7).
@@ -275,6 +286,7 @@ impl Input {
             Input::AdminForceView { .. } => InputKind::Admin,
             Input::Reincarnate { .. } => InputKind::Admin,
             Input::SubmitPlan { .. } => InputKind::Admin,
+            Input::Abdicate { .. } => InputKind::Admin,
         }
     }
 }
@@ -339,6 +351,10 @@ pub enum PlanRefusal {
         /// The primary of `view` under its era's configuration.
         primary: Option<NodeId>,
     },
+    /// An [`Input::Abdicate`] the §12 validation refused: the CAS, the
+    /// receiver-is-primary check, or the delta rule. Bad input, never a
+    /// fault — the message turns into no protocol traffic.
+    Abdication(AbdicationRefusal),
     /// An [`Input::Applied`] the node could not accept: a duplicate, an
     /// out-of-order completion, or a completion for a slot that is not yet
     /// committed. `expected` is the slot the node could accept an `Applied`
@@ -1525,6 +1541,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Input::SubmitPlan { plan } => {
                 self.refuse_if_parked()?;
                 self.plan_submit_plan(journal, plan, input.event.kind())
+            }
+            Input::Abdicate { message } => {
+                self.refuse_if_parked()?;
+                self.plan_abdicate(journal, message, input.at)
             }
         }
     }

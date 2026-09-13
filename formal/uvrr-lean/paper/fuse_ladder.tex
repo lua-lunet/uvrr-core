@@ -169,10 +169,15 @@ replaces a separate proof for every schedule length. It does not assume the
 inductive step merely because the first case succeeds.
 
 \subsection{Prior art and executable evidence}
-Lamport's phase-two decision rule uses acceptances from a quorum for a single
-proposal~\cite{fuse-paxos}. Applying that rule separately to each packed slot
-is the decision-certificate step above. Turner supplies the era-history
-conditions and the weighted reconfiguration setting~\cite{turner}. The present
+Lamport states the same induction as ``A newly chosen leader executes phase 1 for
+infinitely many instances of the consensus algorithm \ldots\ Using the same
+proposal number for all instances''~\cite{fuse-paxos}, where the ballot $b$ of a
+standard message is defined to apply to all future slots until the leader is
+interrupted. The fuse telescoping theorem is the same inductive logic in that the
+fuse header ballot number is both a Phase~1 and Phase~2 for all commands in the
+fused batch. As the messages are processed as a slab they cannot be interrupted.
+Turner supplies the era-history conditions and the weighted reconfiguration
+setting~\cite{turner}. The present
 telescoping argument combines those obligations with a common response set;
 it does not attribute a datagram-atomicity theorem to either source.
 

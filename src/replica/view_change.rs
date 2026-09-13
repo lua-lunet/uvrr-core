@@ -104,6 +104,49 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         self.enter_view_change(journal, target, BTreeSet::new(), at, InputKind::Admin)
     }
 
+    /// The administrator's abdication (rules §12 of
+    /// `docs/uvrr-reconfiguration-rules.md`): the validation function names
+    /// the standard view-change emission or the refusal, and a valid
+    /// abdication arms the emission and the leader's step-down in the SAME
+    /// transition — the node enters the target view's ordinary view change
+    /// carrying exactly the validated emission, so its further messages are
+    /// discarded by the standard membership and fence checks of that view
+    /// and the successor its schedule names resumes as primary. The
+    /// emission is the validation function's, never a re-derivation.
+    pub(in crate::replica) fn plan_abdicate(
+        &self,
+        journal: &J::View,
+        message: &Abdication,
+        at: Tick,
+    ) -> Result<PlannedTransition, PlanRefusal> {
+        let record = self
+            .current_record()
+            .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
+        let emission =
+            validate_abdication(message, &record.config, self.progress.current(), self.own)
+                .map_err(PlanRefusal::Abdication)?;
+        let candidate = self
+            .progress
+            .with_view_change(emission.view)
+            .map_err(PlanRefusal::Progress)?;
+        let mut fences = BTreeSet::new();
+        fences.insert(self.own);
+        let attempt = ViewChangeVolatile {
+            target: emission.view,
+            fences,
+            evidence: BTreeMap::new(),
+            selected: None,
+        };
+        self.continue_view_change(
+            journal,
+            candidate,
+            attempt,
+            emission.messages,
+            at,
+            InputKind::Admin,
+        )
+    }
+
     /// Runs the attempt forward after its volatile state changed: fence
     /// quorum first (§9.1's ordering — evidence follows the fence), then,
     /// at the designated new primary, the evidence quorum (`Role::View
