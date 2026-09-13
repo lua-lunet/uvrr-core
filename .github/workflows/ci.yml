@@ -31,16 +31,10 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          # Regular lane: Linux amd64 + arm64 only (the fast stuff).
-          LINUX='{"include":[{"os":"ubuntu-24.04","target_key":"linux-amd64"},{"os":"blacksmith-4vcpu-ubuntu-2404-arm","target_key":"linux-arm64"}]}'
-          # Tagged lane: everything, adding macOS.
+          # The lane: Linux amd64 + arm64 + macOS — the branch rules require the macos status check on every run.
           ALL='{"include":[{"os":"ubuntu-24.04","target_key":"linux-amd64"},{"os":"blacksmith-4vcpu-ubuntu-2404-arm","target_key":"linux-arm64"},{"os":"macos-latest","target_key":"macos"}]}'
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "matrix=$ALL" >> "$GITHUB_OUTPUT"
-          else
-            echo "matrix=$LINUX" >> "$GITHUB_OUTPUT"
-          fi
 
+          echo "matrix=$ALL" >> "$GITHUB_OUTPUT"
   gate:
     name: ${{ matrix.target_key }}
     needs: setup-matrix
