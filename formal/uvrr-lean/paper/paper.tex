@@ -166,6 +166,8 @@ Our concrete schedule uses the same strict weighted-majority family for both pha
 \end{equation}
 The weighted proof establishes the requisite intersections when successive configurations differ by at most one unit of total absolute weight. Membership records for zero-weight nodes may change in the same batch without altering~\eqref{eq:majority}. A crash itself does not change any weight; only committed configuration commands do.
 
+
+\section{Three-node Crash-Stop-Reincarnation}\label{sec:results}
 \subsection{The leader as the overlap}
 Suppose a leader $\ell$ uses ballot $b$ with an active decision quorum $q$. To prepare ballot $b'>b$ for the next era, it chooses a prospective phase-one quorum $q'$ with
 \begin{equation}
@@ -196,7 +198,7 @@ Decision quorums follow the era of the \emph{slot}, not simply the era associate
 \label{fig:overlap}
 \end{figure*}
 
-\subsection{Three-node Crash-Stop-Reincarnation}
+\subsection{The committed batches}
 Table~\ref{tab:three} is the three-node schedule: $n_0$ fails and is replaced by its fresh identity $n_3$, while $n_1,n_2$ survive. A join inserts a zero-weight identity; an increment grants its voting weight. A leave removes the old identity after its weight reaches zero.
 
 \begin{table}[t]
@@ -217,30 +219,7 @@ Increment, leave & 0&1&1&1\\
 
 Each boundary preserves cross-era majority intersection by a unit change or exact scaling. Figure~\ref{fig:overlap} illustrates the promotion boundary.
 
-\subsection{Five-node Crash-Stop-Reincarnation}
-For five original voters, $n_0$ is replaced by $n_5$ while $n_1,\ldots,n_4$ survive. Table~\ref{tab:weights} gives the complete six-batch weighted schedule, including exact doubling and halving.
-
-\begin{table}[t]
-\centering
-\caption{Five-node Crash-Stop-Reincarnation: six committed batches. Zero denotes voting weight, including identities absent from membership.}
-\label{tab:weights}
-\small
-\begin{tabular}{lrrrrrr}
-\toprule
-Stage & $n_0$ & $n_1$ & $n_2$ & $n_3$ & $n_4$ & $n_5$\\
-\midrule
-Initial & 1&1&1&1&1&0\\
-Double & 2&2&2&2&2&0\\
-Join, increment & 2&2&2&2&2&1\\
-Decrement old & 1&2&2&2&2&1\\
-Decrement, leave & 0&2&2&2&2&1\\
-Increment new & 0&2&2&2&2&2\\
-Halve & 0&1&1&1&1&1\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Both schedules are exercised by the Rust tests, and the addendum~\cite{artifact} gives the arithmetic for both schedules and the general construction of available paths and abstract leader overlaps.
+\subsection{The forced sequence}
 
 The leader stays live for client requests and drives a forced weight sequence from
 the voting-weights rules \cite{votingweights}: the exiting node's weight goes
@@ -299,7 +278,6 @@ exercised on this path. The chart is rendered from the tracked source
   \uwrweightrow{era 2: \code{INCREMENT(D)}~+~\code{LEAVE(C)}}{1}{1}{-}{1}}
 \end{table}
 
-\section{Three-node Crash-Stop-Reincarnation}\label{sec:results}
 The addendum published with the code~\cite{artifact} provides a Lean theorem that composes an era-based agreement theorem with replacement weights and an abstract identity lifecycle. The work builds upon Turner's P2--P7~\cite{turner}: promises preserve their fences, reports identify prior acceptances, proposals preserve the selected history, and chosen values have quorum evidence. A well-founded total ballot order and the ballot/slot era conditions complete the contract. The addendum states each hypothesis and the exercise that connects operational executions to it.
 
 \begin{theorem}[Three-voter Crash-Stop-Reincarnation]\label{thm:three}
@@ -311,6 +289,32 @@ The totals in Table~\ref{tab:three} are $3,2,3$, so the majority thresholds are 
 \end{proof}
 
 \section{Five-node Crash-Stop-Reincarnation}\label{sec:five-node-reincarnation}
+\subsection{The six-batch schedule}
+
+For five original voters, $n_0$ is replaced by $n_5$ while $n_1,\ldots,n_4$ survive. Table~\ref{tab:weights} gives the complete six-batch weighted schedule, including exact doubling and halving.
+
+\begin{table}[t]
+\centering
+\caption{Five-node Crash-Stop-Reincarnation: six committed batches. Zero denotes voting weight, including identities absent from membership.}
+\label{tab:weights}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+Stage & $n_0$ & $n_1$ & $n_2$ & $n_3$ & $n_4$ & $n_5$\\
+\midrule
+Initial & 1&1&1&1&1&0\\
+Double & 2&2&2&2&2&0\\
+Join, increment & 2&2&2&2&2&1\\
+Decrement old & 1&2&2&2&2&1\\
+Decrement, leave & 0&2&2&2&2&1\\
+Increment new & 0&2&2&2&2&2\\
+Halve & 0&1&1&1&1&1\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Both schedules are exercised by the Rust tests, and the addendum~\cite{artifact} gives the arithmetic for both schedules and the general construction of available paths and abstract leader overlaps.
+
 With all five unit voters responding, a leader has the casting pair $\{\ell,a,b\}$ and $\{\ell,c,d\}$. After one voter fails, obtaining the corresponding responding split requires more care. The mechanical transformations in Table~\ref{tab:weights} organise the weighted replacement while preserving the agreement invariant; the addendum supplies their safety argument and the distinction between abstract witnesses and protocol receipts.
 
 \begin{theorem}[Five-voter Crash-Stop-Reincarnation]\label{thm:replacement}
