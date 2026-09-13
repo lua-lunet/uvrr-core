@@ -72,6 +72,14 @@ pub(in crate::replica) enum CommitFold {
     /// journal (§5 invariant 1) — surfaced exactly like the applied
     /// walk's same finding.
     Unavailable(Slot),
+    /// The commit frontier would land in the INTERIOR of an establishing
+    /// batch: the maximal run of consecutive system entries the fold
+    /// recognised extends past the advance. A batch commits whole or not
+    /// at all — its era is established by the whole fold — so a split
+    /// advance is refused, never partially folded. Unreachable while every
+    /// commit-frontier advance is segment-atomic; stated so the fold stays
+    /// total.
+    SplitBatch,
     /// A committed system operation the §8.7.2 preconditions refuse: the
     /// journal and the configuration history disagree about a COMMITTED
     /// slot — the same class of breach as a committed-slot conflict
@@ -84,6 +92,16 @@ pub(in crate::replica) enum CommitFold {
     },
 }
 
+/// The envelope budget of the fuse builder (`docs/uvrr-fuse.md` §2, §4
+/// step 5): the packed operation count above which an armed schedule's
+/// establishing batch falls back to the ordinary per-op `Prepare` path. A
+/// full-cluster reconfiguration is at most seven operations, and the whole
+/// envelope travels well under the nominal 1300-byte payload checked in
+/// `tests/wire_contract.rs`; the codec carries no size constant (W5), so
+/// the cap is a build-site policy, and both paths are the same sequence of
+/// logical accepts.
+pub const FUSE_MAX_OPS: usize = 7;
+
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The era table after folding the system operations the
     /// commit-frontier advance `(from, through]` newly covers (§8.7.1).
@@ -91,6 +109,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// picture, exactly as in [`Replica::applied_walk`]. Returns the
     /// receiver's own table when the advance covers no system operation —
     /// the fold is the identity, no allocation.
+    ///
+    /// A maximal run of two or more CONSECUTIVE system entries folds as
+    /// the ONE establishing batch it is (`docs/uvrr-fuse.md` §1: the
+    /// packed schedule a fuse envelope carried, one op per consecutive
+    /// slot): the run's operations fold through the batch applier at the
+    /// run's first slot and establish exactly one era — the same history
+    /// the ordinary per-op `Prepare` path journals for the same batch.
+    /// The genesis pair (`Void`, `Init`) is the one run the batch applier
+    /// refuses (R15), and it folds per entry as it always has; a batch
+    /// refusal on any other run is the per-entry fallback's only other
+    /// caller, and the era discipline the candidate carries names it.
+    /// A run the advance would SPLIT is refused
+    /// ([`CommitFold::SplitBatch`]): a batch commits whole or not at all.
     pub(in crate::replica) fn fold_committed(
         &self,
         journal: &J::View,
@@ -109,15 +140,112 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 None => journal.get(next).ok_or(CommitFold::Unavailable(next))?,
             };
             if let Payload::System(op) = &entry.payload {
+                // The run's full extent in the journal — not bounded by
+                // `through`, so a partially covered advance is named
+                // rather than half-folded.
+                let mut ops = vec![op.clone()];
+                let mut end = next;
+                let mut cursor = next;
+                while let Some(follow) = cursor.next() {
+                    let follow_entry = match overlay.iter().find(|entry| entry.slot == follow) {
+                        Some(entry) => entry,
+                        None => match journal.get(follow) {
+                            Some(entry) => entry,
+                            None => break,
+                        },
+                    };
+                    match &follow_entry.payload {
+                        Payload::System(follow_op) => {
+                            ops.push(follow_op.clone());
+                            end = follow;
+                            cursor = follow;
+                        }
+                        _ => break,
+                    }
+                }
+                if ops.len() >= 2 {
+                    if end > through {
+                        return Err(CommitFold::SplitBatch);
+                    }
+                    if let Ok(folded) = table.extend(&SystemOperation::Batch(ops), next) {
+                        table = Arc::new(folded);
+                        slot = end;
+                        continue;
+                    }
+                }
                 table = Arc::new(
                     table
                         .extend(op, next)
                         .map_err(|error| CommitFold::Breach { slot: next, error })?,
                 );
+                slot = next;
+            } else {
+                slot = next;
             }
-            slot = next;
         }
         Ok(table)
+    }
+
+    /// The reconfiguration gates every proposal path runs, shared by the
+    /// ordinary establishing `Prepare` and the fuse envelope: one era
+    /// transition at a time (gate 3), one establishing operation at a time
+    /// (gate 4), the §8.7.2 preconditions of the fold itself (gate 5), and
+    /// the closed intersection obligations (gate 6, Q1) — R2 across the
+    /// boundary FIRST, then R1 / self-intersection / fence-recovery within
+    /// the resulting era. Returns the validated successor table.
+    fn reconfigure_gates(
+        &self,
+        journal: &J::View,
+        op: &SystemOperation,
+        slot: Slot,
+    ) -> Result<EraTable, PlanRefusal> {
+        // Gate 3: one era transition in flight at a time. The table's
+        // newest era is at most one past the current view's (the gate
+        // itself is what keeps the relation closed), so equality is the
+        // only state in which a new operation may be gated.
+        let current = self.progress.current();
+        let established = self.progress.config().current().era;
+        if established != current.era {
+            return Err(PlanRefusal::EraTransitionOutstanding {
+                view: current.era,
+                established,
+            });
+        }
+        // Gate 4: one establishing operation in flight at a time.
+        let mut tail = self.progress.committed();
+        while let Some(next) = tail.next() {
+            if next > self.progress.accepted() {
+                break;
+            }
+            let entry = journal
+                .get(next)
+                .ok_or(PlanRefusal::JournalEntryUnavailable { slot: next })?;
+            if matches!(entry.payload, Payload::System(_)) {
+                return Err(PlanRefusal::ReconfigureOutstanding { slot: next });
+            }
+            tail = next;
+        }
+        // Gate 5: the fold's preconditions (§8.7.2) — the operation is
+        // tried against the current configuration at the slot it would
+        // occupy.
+        let next_table = self
+            .progress
+            .config()
+            .extend(op, slot)
+            .map_err(PlanRefusal::Reconfigure)?;
+        // Gate 6: the closed intersection obligations (§8.7.4, Q1). R2
+        // across the boundary runs first so a cross-era refusal names the
+        // cross-era witness; the within-era obligations follow. The pivot
+        // never substitutes for this gate: an operation the gate refuses
+        // is refused with or without a pivot.
+        let record = self
+            .current_record()
+            .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
+        validate_transition(&self.strategy, &record.config, &next_table.current().config)
+            .map_err(PlanRefusal::ReconfigureQuorum)?;
+        validate_era(&self.strategy, &next_table.current().config)
+            .map_err(PlanRefusal::ReconfigureQuorum)?;
+        Ok(next_table)
     }
 
     /// The stop-the-world reconfiguration (§8.7.4): the `Normal` primary
@@ -166,44 +294,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 primary: record.config.primary(current.view),
             });
         }
-        // Gate 3: one era transition in flight at a time. The table's
-        // newest era is at most one past the current view's (the gate
-        // itself is what keeps the relation closed), so equality is the
-        // only state in which a new operation may be gated.
-        let established = self.progress.config().current().era;
-        if established != current.era {
-            return Err(PlanRefusal::EraTransitionOutstanding {
-                view: current.era,
-                established,
-            });
-        }
-        // Gate 4: one establishing operation in flight at a time.
-        let mut tail = self.progress.committed();
-        while let Some(next) = tail.next() {
-            if next > self.progress.accepted() {
-                break;
-            }
-            let entry = journal
-                .get(next)
-                .ok_or(PlanRefusal::JournalEntryUnavailable { slot: next })?;
-            if matches!(entry.payload, Payload::System(_)) {
-                return Err(PlanRefusal::ReconfigureOutstanding { slot: next });
-            }
-            tail = next;
-        }
         let slot = self
             .progress
             .accepted()
             .next()
             .ok_or(PlanRefusal::SlotSpaceExhausted)?;
-        // Gate 5: the fold's preconditions (§8.7.2) — the operation is
-        // tried against the current configuration at the slot it would
-        // occupy.
-        let next_table = self
-            .progress
-            .config()
-            .extend(op, slot)
-            .map_err(PlanRefusal::Reconfigure)?;
+        // Gates 3–6, shared with the fuse envelope's builder.
+        let next_table = self.reconfigure_gates(journal, op, slot)?;
         // Gate 1 (deferred): the pivot, when `Some`, satisfies the
         // §8.7.6 pivot condition. The check runs after the fold so the
         // next configuration is available for the qII-under-both leg.
@@ -217,15 +314,6 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             )
             .map_err(PlanRefusal::ReconfigurePivot)?;
         }
-        // Gate 6: the closed intersection obligations (§8.7.4, Q1). R2
-        // across the boundary runs first so a cross-era refusal names the
-        // cross-era witness; the within-era obligations follow. The pivot
-        // never substitutes for this gate: an operation the gate refuses
-        // is refused with or without a pivot.
-        validate_transition(&self.strategy, &record.config, &next_table.current().config)
-            .map_err(PlanRefusal::ReconfigureQuorum)?;
-        validate_era(&self.strategy, &next_table.current().config)
-            .map_err(PlanRefusal::ReconfigureQuorum)?;
         // The recipients and the overlap machine (§8.7.6–§8.7.7). Without
         // a pivot the establishing Prepare goes to every backup and the
         // era awaits the ordinary view change. With a pivot it goes only
@@ -325,6 +413,299 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 false,
             )
             .with_bookkeeping(bookkeeping))
+    }
+
+    /// The proposal of an armed schedule's establishing batch
+    /// (`docs/uvrr-fuse.md` §4): the fuse envelope when the batch packs at
+    /// least two operations within the envelope budget
+    /// ([`FUSE_MAX_OPS`]), the ordinary establishing `Prepare` otherwise —
+    /// the fallback IS the ordinary path, unchanged. Both machines that
+    /// arm a schedule propose through here.
+    pub(in crate::replica) fn plan_step_proposal(
+        &self,
+        journal: &J::View,
+        batch: &SystemOperation,
+    ) -> Result<PlannedTransition, PlanRefusal> {
+        match batch {
+            SystemOperation::Batch(ops) if ops.len() >= 2 && ops.len() <= FUSE_MAX_OPS => {
+                self.plan_fuse_batch(journal, ops)
+            }
+            _ => self.plan_reconfigure(journal, batch, &None),
+        }
+    }
+
+    /// The fuse builder (`docs/uvrr-fuse.md` §4): the leader-side emission
+    /// of an armed schedule's establishing batch of at least two
+    /// operations. One `Fuse` per recipient backup — header `first_slot` =
+    /// the next unsent slot, body = the batch's operations in plan order —
+    /// one proposal record per packed slot (the leader's own vote is
+    /// implicit, as in the ordinary path), and one journaled entry per
+    /// packed slot, each stamped with the ballot's era (§1). The gates are
+    /// the shared reconfiguration gates run on the WHOLE batch: the fold
+    /// validates the batch applier's preconditions (R13–R15) and the
+    /// closed intersection obligations for the one era the batch
+    /// establishes, so the envelope's acceptance implies the batch's
+    /// legality at every packed slot. Nothing commits here: the era table
+    /// folds at commit (§8.7.1), so the candidate carries the published
+    /// configuration unchanged.
+    pub(in crate::replica) fn plan_fuse_batch(
+        &self,
+        journal: &J::View,
+        ops: &[SystemOperation],
+    ) -> Result<PlannedTransition, PlanRefusal> {
+        let current = self.progress.current();
+        let record = self
+            .current_record()
+            .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
+        // Gate 2: the proposer is the view's primary — the same ruling as
+        // an ordinary proposal's.
+        let is_primary = self.progress.status() == Status::Normal
+            && record.config.primary(current.view) == Some(self.own);
+        if !is_primary {
+            return Err(PlanRefusal::NotPrimary {
+                view: current,
+                primary: record.config.primary(current.view),
+            });
+        }
+        let first_slot = self
+            .progress
+            .accepted()
+            .next()
+            .ok_or(PlanRefusal::SlotSpaceExhausted)?;
+        // Gates 3–6, run on the whole batch: the batch fold validates the
+        // packed schedule at the slot its first op occupies.
+        let batch = SystemOperation::Batch(ops.to_vec());
+        self.reconfigure_gates(journal, &batch, first_slot)?;
+        // One journaled entry per packed slot, each stamped with the
+        // ballot's era (§1, ruling 3): the envelope is the equivalent
+        // sequence of `Prepare`s at the same ballot.
+        let mut entries = Vec::with_capacity(ops.len());
+        let mut cursor = Some(first_slot);
+        for op in ops {
+            let slot = cursor.ok_or(PlanRefusal::SlotSpaceExhausted)?;
+            entries.push(LogEntry {
+                slot,
+                era: current.era,
+                payload: Payload::System(op.clone()),
+            });
+            cursor = slot.next();
+        }
+        let last = entries
+            .last()
+            .expect("the caller admits no empty batch")
+            .slot;
+        let fuse = Message {
+            header: Header {
+                tag: Tag::Fuse,
+                view: current,
+                slot: first_slot,
+            },
+            body: Body::Fuse { ops: ops.to_vec() },
+        };
+        let mut recipients = self.backups();
+        // The memo stream (§7 of `docs/uvrr-reincarnation.md`): the
+        // establishing batch is exactly what the announced standby must
+        // hold, so the envelope reaches it too.
+        if let Some(standby) = self.memo_target() {
+            if !recipients.contains(&standby) {
+                recipients.push(standby);
+            }
+        }
+        let effects = recipients
+            .into_iter()
+            .map(|to| Effect::Send {
+                to,
+                era: current.era,
+                message: fuse.clone(),
+            })
+            .collect();
+        let bookkeeping = Bookkeeping {
+            proposals: entries
+                .iter()
+                .map(|entry| (entry.slot, Proposal { oks: Vec::new() }))
+                .collect(),
+            ..Bookkeeping::default()
+        };
+        let candidate = self.candidate_with(
+            self.progress.status(),
+            last,
+            self.progress.committed(),
+            self.progress.applied(),
+            Arc::clone(self.progress.config()),
+        )?;
+        Ok(self
+            .candidate_plan(
+                candidate,
+                JournalMutation::Accept(entries),
+                effects,
+                InputKind::Reconfiguration,
+                false,
+            )
+            .with_bookkeeping(bookkeeping))
+    }
+
+    /// A `Fuse` envelope's acceptor transition (`docs/uvrr-fuse.md` §3).
+    /// The envelope is ATOMIC (§2): the packed schedule folds whole or the
+    /// whole envelope is refused — there is no partial fold and no wire
+    /// nack. Receiving a `Fuse` is defined as receiving the equivalent
+    /// sequence of `Prepare`s at the same ballot, one per slot, in batch
+    /// order, so the header guards are `plan_prepare`'s, run once, and the
+    /// per-op perimeter is the ordinary system-op fold.
+    ///
+    /// The guards, in `plan_prepare`'s order: era evaluable, sender is the
+    /// primary of the message's view, the higher-view staleness signal, view
+    /// eligibility, and the boot-adoption carve-outs. A self-addressed
+    /// envelope (the recipient IS the message view's primary) is dropped:
+    /// the leader's own proposals are journaled at the builder
+    /// ([`Self::plan_fuse_batch`]), never delivered back to itself.
+    ///
+    /// The explode: `first_slot` must be the accept frontier's successor;
+    /// each packed op then folds against the schedule's own fold chain —
+    /// the validation runs on the clone, exactly as `plan_prepare` folds an
+    /// arriving system entry — and the frontier advances per op. The
+    /// journaled entries are stamped with the ballot's era (`docs/uvrr-fuse.md`
+    /// §1: the header carries the ballot shared by every packed op), which is
+    /// also what any retransmission of a packed slot's `Prepare` must carry.
+    /// Nothing commits: the era table folds at commit (§8.7.1), so the
+    /// candidate carries the published configuration unchanged. All ops
+    /// accepted: one `FuseOk` to the sender, its header slot the LAST
+    /// accepted slot, its acks one accepted slot per op in batch order —
+    /// no range encodings. Any refusal drops the envelope with the one
+    /// named outcome, zero effects.
+    pub(in crate::replica) fn plan_fuse(
+        &self,
+        journal: &J::View,
+        from: NodeId,
+        message: &Message,
+        ops: &[SystemOperation],
+        at: Tick,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRefusal> {
+        let header = message.header;
+        // The era must be evaluable: outside the retention window the
+        // configuration that would judge the message is gone.
+        if self.progress.config().record(header.view.era).is_none() {
+            return self.drop_plan(Diagnostic::FuseRefusal, kind);
+        }
+        // The sender must be the primary of the message's view under that
+        // view's era configuration (§1.2).
+        if self.primary_of(header.view) != Some(from) {
+            return self.drop_plan(Diagnostic::FuseRefusal, kind);
+        }
+        // The primary addressed by its own envelope: the leader's fuse
+        // handling is a later item, so the envelope drops here.
+        if self.primary_of(header.view) == Some(self.own) {
+            return self.drop_plan(Diagnostic::FuseRefusal, kind);
+        }
+        // A Fuse from the legitimate primary of a HIGHER view is the same
+        // staleness proof a higher-view `Prepare` is (§10): fence and fetch,
+        // never install from the envelope (§13.4). The boot-fence carve-out
+        // is `plan_prepare`'s, unchanged.
+        let current = self.progress.current();
+        if header.view > current {
+            let boot_fence = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+                && current == self.progress.retained();
+            if !boot_fence {
+                return self.plan_higher_view_signal(journal, from, header.view, at, kind);
+            }
+        }
+        // The message's view must be the node's current view; a fenced
+        // entry state (`Restarting` or `Joining`) adopts it, exactly as a
+        // `Prepare`'s bootstrap rule does.
+        let eligible = header.view == current
+            && match self.progress.status() {
+                Status::Normal => true,
+                Status::Restarting | Status::Joining => current == self.progress.retained(),
+                Status::ViewChange | Status::Replaying => false,
+            };
+        if !eligible {
+            return self.drop_plan(Diagnostic::FuseRefusal, kind);
+        }
+        // The bootstrap adoption counts the view's configuration as its
+        // members do (§4's own mechanism); a boot-fenced node outside every
+        // configuration it can name stays fenced and never votes.
+        let member_of_view = self
+            .progress
+            .config()
+            .record(header.view.era)
+            .is_some_and(|record| record.config.weight_of(self.own).is_some());
+        let status = if matches!(self.progress.status(), Status::Restarting | Status::Joining)
+            && member_of_view
+        {
+            Status::Normal
+        } else {
+            self.progress.status()
+        };
+        // Slot discipline: the batch must begin at the accept frontier's
+        // successor (§3 step 3); each subsequent op occupies the next slot,
+        // which the cursor walk below makes contiguous by construction.
+        let accepted = self.progress.accepted();
+        let Some(first_slot) = accepted.next() else {
+            return Err(PlanRefusal::SlotSpaceExhausted);
+        };
+        if header.slot != first_slot {
+            return self.drop_plan(Diagnostic::FuseRefusal, kind);
+        }
+        // The explode: the schedule folds on the clone, one op at its own
+        // slot, each precondition judged at its point in the sequence — the
+        // same perimeter an individual `Prepare`'s system entry meets. A
+        // refusal anywhere refuses the whole envelope (§3 step 4: never a
+        // partial fold). The folded table is the validation's witness; the
+        // candidate carries the published configuration, because the era
+        // advances only at commit (§8.7.1).
+        let mut folded = self.progress.config().current().config.as_ref().clone();
+        let mut entries = Vec::with_capacity(ops.len());
+        let mut cursor = Some(first_slot);
+        for op in ops {
+            let slot = cursor.ok_or(PlanRefusal::SlotSpaceExhausted)?;
+            // A fold refusal names the envelope's one outcome (§3 step 4):
+            // the whole batch drops, never a partial fold.
+            folded = match folded.apply(op, slot) {
+                Ok(folded) => folded,
+                Err(_error) => return self.drop_plan(Diagnostic::FuseRefusal, kind),
+            };
+            entries.push(LogEntry {
+                slot,
+                era: header.view.era,
+                payload: Payload::System(op.clone()),
+            });
+            cursor = slot.next();
+        }
+        // All ops accepted: one `FuseOk` to the sender, the header slot the
+        // LAST accepted slot, the acks every packed slot in batch order.
+        let last = entries
+            .last()
+            .expect("the codec admits no empty batch")
+            .slot;
+        let fuse_ok = Message {
+            header: Header {
+                tag: Tag::FuseOk,
+                view: current,
+                slot: last,
+            },
+            body: Body::FuseOk {
+                acks: entries.iter().map(|entry| entry.slot).collect(),
+            },
+        };
+        let effects = vec![Effect::Send {
+            to: from,
+            era: header.view.era,
+            message: fuse_ok,
+        }];
+        let candidate = self.candidate_with(
+            status,
+            last,
+            self.progress.committed(),
+            self.progress.applied(),
+            Arc::clone(self.progress.config()),
+        )?;
+        Ok(self.candidate_plan(
+            candidate,
+            JournalMutation::Accept(entries),
+            effects,
+            kind,
+            false,
+        ))
     }
 
     /// §8.7.7 steps 1 and 4, at the commit of the establishing operation:

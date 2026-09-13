@@ -801,6 +801,32 @@ The host may batch journal writes, defer a flush, or apply several committed ope
 
 Weighted quorums and the even-sized configuration described in §8 reduce steady-state acknowledgements or permit controlled membership evolution. They are selected quorum strategies with explicit intersection proofs, not transport hints. The planned Unbounded VSR generation-transition protocol is specified in §8.7.
 
+### 13.8 Fuse: packed reconfiguration Phase2s
+
+Fuse packs the per-slot `Prepare` messages of one reconfiguration schedule into
+one datagram: the shared ballot in the envelope header, `first_slot` in the
+header slot, and `count × SystemOperation` in the body, one op per consecutive
+slot. Receiving a `Fuse` is defined as receiving the equivalent sequence of
+`Prepare` messages at the same ballot; per-op safety is the ordinary accept
+path and no new quorum family, configuration state, or era rule exists. The
+full statement is `docs/uvrr-fuse.md`.
+
+Its load-bearing property is the atomic batch: the envelope is a single
+checksummed datagram of cache-line scale, so loss or interruption inside a
+batch is impossible. The first operation in the batch decides the whole batch,
+majority is computed on the first op, and "first accepts ⇒ all accept" is a
+finite induction over the schedule, not a proof over interruption points
+mid-sequence. The acceptor replies `FuseOk` (one accepted slot per op, no
+range encoding); on quorum the primary commits the packed schedule whole —
+the commit fold recognises the run of consecutive system entries as the one
+establishing batch it is, one era — and the commit emission is per era: one
+`CommitBatch` per establishing batch committed, one committed frontier per
+slot of that batch, no range encoding, broadcast the instant the batch's
+quorum completes. Client operations never fuse and are not blocked by the
+fuse round. Fuse slots are ordinary journal slots under the durability
+profile in force; Fuse changes message count, not commit semantics — the
+same sanction as §13.3, applied to the reconfiguration path.
+
 ## 14. Current implementation assessment
 
 ### 14.1 Present mechanisms

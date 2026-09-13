@@ -35,13 +35,15 @@
 //! and total coverage is strictly stronger than any number of random draws.
 
 use proptest::prelude::*;
+use vrr::configuration::SystemOperation;
 use vrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
+use vrr::message::{Body, Message};
 use vrr::wire::{Header, Malformed, Pack, PackError, Tag, Unpack, UnpackCursor, UnpackError};
 
 /// Every `Tag`, in discriminant order. Used by the round-trip and exhaustiveness
 /// groups. Kept as an explicit list rather than derived from a `Tag::ALL` constant so
 /// that the test agrees with the brief's table independently of the implementation.
-const ALL_TAGS: [Tag; 10] = [
+const ALL_TAGS: [Tag; 13] = [
     Tag::Prepare,
     Tag::PrepareOk,
     Tag::Commit,
@@ -52,6 +54,9 @@ const ALL_TAGS: [Tag; 10] = [
     Tag::GetState,
     Tag::NewState,
     Tag::Reincarnation,
+    Tag::Fuse,
+    Tag::FuseOk,
+    Tag::CommitBatch,
 ];
 
 /// Encodes `value` into a fresh `Vec` sized by `packed_len()` and asserts the write
@@ -402,11 +407,11 @@ fn tag_zero_is_reserved() {
     );
 }
 
-/// Every discriminant outside `1..=13` is an unknown tag, reported with the offending
-/// value so a host can log what it dropped.
+/// Every discriminant outside the allocated space is an unknown tag, reported with the
+/// offending value so a host can log what it dropped.
 #[test]
 fn unknown_tags_are_rejected() {
-    for candidate in [0u32, 14, 15, 100, u32::MAX] {
+    for candidate in [0u32, 1, 11, 12, 17, 100, u32::MAX] {
         let bytes = candidate.to_be_bytes();
         assert_eq!(
             Tag::unpack_from(&bytes),
@@ -635,6 +640,9 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
             Tag::GetState => 9,
             Tag::NewState => 10,
             Tag::Reincarnation => 13,
+            Tag::Fuse => 14,
+            Tag::FuseOk => 15,
+            Tag::CommitBatch => 16,
         };
         assert_eq!(
             tag.as_u32(),
@@ -664,6 +672,10 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
         Some(Tag::Reincarnation),
         "13 is the reincarnation tag"
     );
+    for candidate in 14u32..=16 {
+        let tag = Tag::from_u32(candidate).expect("14..=16 are all tags");
+        assert_eq!(tag.as_u32(), candidate);
+    }
     assert_eq!(Tag::from_u32(0), None, "0 is reserved, not a tag");
     assert_eq!(Tag::from_u32(1), None, "1 is retired, not a tag");
     assert_eq!(Tag::from_u32(11), None, "11 is retired, not a tag");
@@ -678,7 +690,268 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. serde round trip
+// 11. Fuse bodies (`docs/uvrr-fuse.md`, decision W6)
+// ---------------------------------------------------------------------------
+
+/// The header of a `Fuse` whose batch begins at `first_slot`.
+fn fuse_header(first_slot: Slot) -> Header {
+    Header {
+        tag: Tag::Fuse,
+        view: ViewId {
+            era: Era(1),
+            view: View(0),
+        },
+        slot: first_slot,
+    }
+}
+
+/// The representative op set for round-trip coverage: every
+/// membership-command shape the codec must carry one slot at a time.
+fn representative_ops() -> Vec<SystemOperation> {
+    vec![
+        SystemOperation::Join {
+            node: NodeId(5),
+            position: 2,
+        },
+        SystemOperation::Increment(NodeId(5)),
+        SystemOperation::Decrement(NodeId(5)),
+        SystemOperation::Double,
+        SystemOperation::Halve,
+        SystemOperation::Leave(NodeId(5)),
+    ]
+}
+
+/// Byte-for-byte golden vector of a two-op `Fuse` at `first_slot = 42`.
+///
+/// The header is the unchanged 20-byte W1 header with `Fuse = 14`; the body is
+/// the discriminant byte, a `u32` count, then the packed operations in batch
+/// order. No range encodings: count, then the things, one slot at a time.
+#[test]
+fn fuse_golden_vector() {
+    let message = Message {
+        header: fuse_header(Slot(42)),
+        body: Body::Fuse {
+            ops: vec![SystemOperation::Double, SystemOperation::Halve],
+        },
+    };
+
+    let bytes = encode(&message);
+
+    let expected = vec![
+        // tag: Fuse = 14
+        0x00, 0x00, 0x00, 0x0e, //
+        // era, view (W1 header order)
+        0x00, 0x00, 0x00, 0x01, //
+        0x00, 0x00, 0x00, 0x00, //
+        // first_slot
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2a, //
+        // body discriminant: Fuse = 14
+        0x0e, //
+        // count
+        0x00, 0x00, 0x00, 0x02, //
+        // Double = 5, Halve = 6, in batch order
+        0x05, 0x06,
+    ];
+    assert_eq!(
+        bytes.len(),
+        27,
+        "20-byte header, 1-byte discriminant, 4-byte count, one byte per slot-free op"
+    );
+    assert_eq!(bytes, expected);
+    assert_eq!(Message::unpack_from(&bytes), Ok(message));
+}
+
+/// The representative op set round-trips through the whole `Message`, header
+/// included: decoding is the identity, and the header slot carries
+/// `first_slot` unchanged.
+#[test]
+fn fuse_round_trip_representative_ops() {
+    let message = Message {
+        header: fuse_header(Slot(7)),
+        body: Body::Fuse {
+            ops: representative_ops(),
+        },
+    };
+    let bytes = encode(&message);
+    assert_eq!(Message::unpack_from(&bytes), Ok(message));
+
+    // And one op at a time is what the body carries: no range encodings.
+    if let Body::Fuse { ops } = &Message::unpack_from(&bytes)
+        .expect("a self-produced encoding must decode")
+        .body
+    {
+        assert_eq!(ops, &representative_ops());
+    } else {
+        panic!("decoded body must be Fuse");
+    }
+}
+
+/// `FuseOk` and `CommitBatch` round-trip their per-slot lists in batch order.
+#[test]
+fn fuseok_and_commitbatch_round_trip() {
+    let fuseok = Message {
+        header: Header {
+            tag: Tag::FuseOk,
+            view: ViewId {
+                era: Era(1),
+                view: View(0),
+            },
+            slot: Slot(12),
+        },
+        body: Body::FuseOk {
+            acks: vec![Slot(7), Slot(8), Slot(9)],
+        },
+    };
+    let commit_batch = Message {
+        header: Header {
+            tag: Tag::CommitBatch,
+            view: ViewId {
+                era: Era(1),
+                view: View(0),
+            },
+            slot: Slot(12),
+        },
+        body: Body::CommitBatch {
+            committed: vec![Slot(7), Slot(8), Slot(9)],
+        },
+    };
+
+    for message in [fuseok, commit_batch] {
+        let bytes = encode(&message);
+        assert_eq!(
+            Message::unpack_from(&bytes),
+            Ok(message),
+            "round trip must be the identity"
+        );
+    }
+}
+
+/// A zero-count envelope is meaningless (`docs/uvrr-fuse.md` §1): a batch
+/// names its operations, and naming none is not a batch. Decode of count 0 is
+/// `Malformed` for all three fuse bodies.
+#[test]
+fn fuse_zero_count_is_malformed() {
+    for tag in [Tag::Fuse, Tag::FuseOk, Tag::CommitBatch] {
+        let header = Header {
+            tag,
+            view: ViewId::INITIAL,
+            slot: Slot(3),
+        };
+        let mut bytes = encode(&header);
+        // Body: discriminant (the tag number, a u8), then count 0.
+        bytes.push(u8::try_from(tag.as_u32()).expect("fuse discriminants fit in a u8"));
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+
+        assert_eq!(
+            Message::unpack_from(&bytes),
+            Err(UnpackError::Malformed(Malformed::OutOfDomain)),
+            "count 0 must be malformed for {tag:?}"
+        );
+    }
+}
+
+/// A count that disagrees with the payload the envelope actually carries is
+/// refused, not guessed at. A count below the ops present leaves trailing
+/// bytes (`Malformed`); a count above them runs off the end (`Incomplete` —
+/// the established distinction of this codec, group 5: a fragment may still be
+/// arriving, so a short supply is unsatisfied, not garbage). Neither decode
+/// accepts a mismatched envelope.
+#[test]
+fn fuse_count_mismatch_is_refused() {
+    let message = Message {
+        header: fuse_header(Slot(7)),
+        body: Body::Fuse {
+            ops: vec![SystemOperation::Double, SystemOperation::Halve],
+        },
+    };
+    let bytes = encode(&message);
+
+    // The count field sits at header (20) + body discriminant (1).
+    let at = Header::LEN + 1;
+
+    // Count 1, two ops on the wire: trailing bytes, malformed.
+    let mut short = bytes.clone();
+    short[at..at + 4].copy_from_slice(&1u32.to_be_bytes());
+    assert_eq!(
+        Message::unpack_from(&short),
+        Err(UnpackError::Malformed(Malformed::TrailingBytes {
+            unread: 1
+        })),
+        "a count below the ops present must be refused, never trimmed"
+    );
+
+    // Count 3, two ops on the wire: the third op is unsatisfied.
+    let mut long = bytes;
+    long[at..at + 4].copy_from_slice(&3u32.to_be_bytes());
+    match Message::unpack_from(&long) {
+        Err(UnpackError::Incomplete { needed }) => {
+            assert!(needed > long.len(), "needed is a total requirement");
+        }
+        other => panic!("a count above the ops present must be refused, got {other:?}"),
+    }
+}
+
+/// A `SystemOperation` discriminant outside the alphabet is `Malformed`
+/// (`OutOfDomain`), so a fuse envelope cannot smuggle an unnamed command past
+/// the codec.
+#[test]
+fn fuse_unknown_op_discriminant_is_malformed() {
+    for op_byte in [0u8, 10, 255] {
+        let mut bytes = encode(&Message {
+            header: fuse_header(Slot(7)),
+            body: Body::Fuse {
+                ops: vec![SystemOperation::Double],
+            },
+        });
+        // The first op's discriminant sits at header (20) + body discriminant
+        // (1) + count (4).
+        bytes[Header::LEN + 5] = op_byte;
+
+        assert_eq!(
+            Message::unpack_from(&bytes),
+            Err(UnpackError::Malformed(Malformed::OutOfDomain)),
+            "op discriminant {op_byte} is outside the alphabet"
+        );
+    }
+}
+
+/// The cache-line-scale claim (`docs/uvrr-fuse.md` §2): a full-cluster
+/// reconfiguration is at most seven operations, and the whole envelope —
+/// header included — travels well under a nominal 1300-byte payload. The
+/// codec carries no size constant (W5); this is a property of the encoded
+/// shape, checked here rather than assumed.
+#[test]
+fn fuse_full_cluster_shape_is_well_under_the_payload_budget() {
+    let ops: Vec<SystemOperation> = (0..7)
+        .map(|i| SystemOperation::Join {
+            node: NodeId(u32::try_from(i + 1).expect("seven members fit a u32")),
+            position: u32::try_from(i).expect("seven positions fit a u32"),
+        })
+        .collect();
+
+    let message = Message {
+        header: fuse_header(Slot(100)),
+        body: Body::Fuse { ops },
+    };
+
+    // `encode` asserts packed_len() equals the bytes written (W3), so the
+    // comparison below is against the exact encoded size.
+    let bytes = encode(&message);
+    assert_eq!(
+        Message::unpack_from(&bytes),
+        Ok(message),
+        "round trip must be the identity"
+    );
+    assert!(
+        bytes.len() < 1300,
+        "a full-cluster fuse of {} bytes must stay well under the \
+         nominal 1300-byte payload",
+        bytes.len()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 12. serde round trip
 // ---------------------------------------------------------------------------
 
 /// Serde is for hosts that want their own encoding and for the debug bridge; it is never

@@ -265,6 +265,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     Err(CommitFold::Unavailable(slot)) => {
                         return Err(PlanRefusal::JournalEntryUnavailable { slot });
                     }
+                    // The commit frontier would split an establishing
+                    // batch (`docs/uvrr-fuse.md`): refused by name, the
+                    // gap rule's fetch is the repair.
+                    Err(CommitFold::SplitBatch) => {
+                        return self.drop_plan(Diagnostic::FuseRefusal, kind);
+                    }
                     Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
                 };
             let candidate = self.candidate_with(
@@ -319,6 +325,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Ok(config) => config,
             Err(CommitFold::Unavailable(slot)) => {
                 return Err(PlanRefusal::JournalEntryUnavailable { slot });
+            }
+            // The commit frontier would split an establishing batch
+            // (`docs/uvrr-fuse.md`): refused by name, the gap rule's
+            // fetch is the repair.
+            Err(CommitFold::SplitBatch) => {
+                return self.drop_plan(Diagnostic::FuseRefusal, kind);
             }
             Err(CommitFold::Breach { slot, error }) if slot == entry.slot => {
                 return self.drop_plan(
@@ -462,26 +474,43 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // commits when its Commit quorum lands (the strategy decides —
         // Q1), and commits pull every earlier quorum-holding slot with
         // them (§4). The in-flight vote counts for the whole covered
-        // range, because it vouches for the whole range.
+        // range, because it vouches for the whole range. The cascade is
+        // SEGMENT-ATOMIC: a maximal run of consecutive system entries is
+        // the one establishing batch a fuse envelope packed
+        // (`docs/uvrr-fuse.md` §1) and commits whole or not at all — an
+        // establishing batch's era is established by the whole fold.
         let mut committed = self.progress.committed();
         while let Some(next) = committed.next() {
             if next > self.progress.accepted() {
                 break;
             }
-            let mut members: Vec<NodeId> = vec![self.own];
-            if let Some(outstanding) = self.proposals.get(&next) {
-                members.extend(outstanding.oks.iter().copied());
+            let segment = self.commit_segment(journal, next, self.progress.accepted());
+            let mut holds = true;
+            let mut cursor = segment.0;
+            while cursor <= segment.1 {
+                let mut members: Vec<NodeId> = vec![self.own];
+                if let Some(outstanding) = self.proposals.get(&cursor) {
+                    members.extend(outstanding.oks.iter().copied());
+                }
+                if cursor <= slot && !members.contains(&from) {
+                    members.push(from);
+                }
+                if !self
+                    .strategy
+                    .is_quorum(Role::Commit, &record.config, &members)
+                {
+                    holds = false;
+                    break;
+                }
+                match cursor.next() {
+                    Some(follow) if follow <= segment.1 => cursor = follow,
+                    _ => break,
+                }
             }
-            if next <= slot && !members.contains(&from) {
-                members.push(from);
-            }
-            if !self
-                .strategy
-                .is_quorum(Role::Commit, &record.config, &members)
-            {
+            if !holds {
                 break;
             }
-            committed = next;
+            committed = segment.1;
         }
         let bookkeeping = Bookkeeping {
             oks,
@@ -502,6 +531,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Ok(config) => config,
             Err(CommitFold::Unavailable(slot)) => {
                 return Err(PlanRefusal::JournalEntryUnavailable { slot });
+            }
+            // The cascade is segment-atomic, so this is unreachable;
+            // stated so the match stays total (`docs/uvrr-fuse.md`).
+            Err(CommitFold::SplitBatch) => {
+                return self.drop_plan(Diagnostic::FuseRefusal, kind);
             }
             Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
         };
@@ -526,6 +560,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         )?;
         let mut effects = self.apply_effects(journal, self.progress.committed(), committed)?;
         effects.extend(self.broadcast_commit(committed));
+        // The per-era commit emission (`docs/uvrr-fuse.md` §4): an
+        // establishing batch the advance committed — the packed schedule a
+        // fuse envelope carried — is announced as one `CommitBatch` naming
+        // its slots' committed frontiers, no ranges.
+        effects.extend(self.commit_batch_effects(journal, self.progress.committed(), committed));
         effects.extend(solicitation);
         Ok(self
             .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
@@ -641,6 +680,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
+                // The commit frontier would split an establishing batch
+                // (`docs/uvrr-fuse.md`): refused by name, the ordinary
+                // stream's catch-up is the repair.
+                Err(CommitFold::SplitBatch) => {
+                    return self.drop_plan(Diagnostic::FuseRefusal, kind);
+                }
                 Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
             };
         let candidate = self.candidate_with(
@@ -652,6 +697,241 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         )?;
         let effects = self.apply_effects(journal, self.progress.committed(), new_committed)?;
         Ok(self.candidate_plan(candidate, JournalMutation::None, effects, kind, false))
+    }
+
+    /// The commit cascade's atomic segment beginning at `next`: a maximal
+    /// run of consecutive system entries — the establishing batch a fuse
+    /// envelope packed (`docs/uvrr-fuse.md` §1) — commits whole, and any
+    /// other slot commits alone. The run is bounded by the accepted
+    /// frontier, which is where the journal's system tail ends.
+    fn commit_segment(&self, journal: &J::View, next: Slot, accepted: Slot) -> (Slot, Slot) {
+        let mut end = next;
+        let mut cursor = next;
+        while let Some(follow) = cursor.next() {
+            if follow > accepted {
+                break;
+            }
+            match journal.get(follow) {
+                Some(entry) if matches!(entry.payload, Payload::System(_)) => {
+                    end = follow;
+                    cursor = follow;
+                }
+                _ => break,
+            }
+        }
+        (next, end)
+    }
+
+    /// The per-era commit emission (`docs/uvrr-fuse.md` §4 step 4): ONE
+    /// `CommitBatch` per establishing batch the advance `(from, through]`
+    /// committed — a maximal run of two or more consecutive system
+    /// entries, the packed schedule a fuse envelope carried. Each batch's
+    /// message lists the committed frontier after each of its slots, in
+    /// batch order, no ranges, and travels to every backup (and the memo
+    /// standby) as a broadcast — the commit is not a round trip. The
+    /// ordinary singleton establishing batch keeps the plain `Commit`
+    /// announcement it has always had.
+    fn commit_batch_effects(&self, journal: &J::View, from: Slot, through: Slot) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        let mut slot = from;
+        while let Some(next) = slot.next() {
+            if next > through {
+                break;
+            }
+            let Some(entry) = journal.get(next) else {
+                break;
+            };
+            if let Payload::System(_) = &entry.payload {
+                let segment = self.commit_segment(journal, next, through);
+                if segment.1 > segment.0 {
+                    let mut committed = Vec::new();
+                    let mut cursor = Some(segment.0);
+                    while let Some(slot) = cursor {
+                        committed.push(slot);
+                        if slot == segment.1 {
+                            break;
+                        }
+                        cursor = slot.next();
+                    }
+                    let message = Message {
+                        header: Header {
+                            tag: Tag::CommitBatch,
+                            view: self.progress.current(),
+                            slot: segment.1,
+                        },
+                        body: Body::CommitBatch { committed },
+                    };
+                    let mut recipients = self.backups();
+                    if let Some(standby) = self.memo_target() {
+                        if !recipients.contains(&standby) {
+                            recipients.push(standby);
+                        }
+                    }
+                    effects.extend(recipients.into_iter().map(|to| Effect::Send {
+                        to,
+                        era: self.progress.current().era,
+                        message: message.clone(),
+                    }));
+                }
+                slot = segment.1;
+            } else {
+                slot = next;
+            }
+        }
+        effects
+    }
+
+    /// The primary's `FuseOk` handler (`docs/uvrr-fuse.md` §4). The guards
+    /// mirror `plan_prepare_ok` — `Normal`, own is the primary of the
+    /// current view, the view matches, the sender is a member voting with
+    /// weight ≥ 1, every acknowledged slot outstanding, the sender not
+    /// already counted — with the fuse vocabulary's one named outcome
+    /// (`Diagnostic::FuseRefusal`). Each `acks` element then feeds its own
+    /// slot's proposal record, elementwise, no ranges.
+    ///
+    /// The commit cascade is `plan_prepare_ok`'s, segment-atomic: when the
+    /// last needed element lands and every packed slot holds quorum, the
+    /// establishing batch commits whole — ONE era, the batch it is — the
+    /// commit cascade runs in slot order, and the per-era `CommitBatch`
+    /// joins the ordinary commit announcement. The leader's own ack is
+    /// implicit, as today.
+    pub(in crate::replica) fn plan_fuse_ok(
+        &self,
+        journal: &J::View,
+        from: NodeId,
+        message: &Message,
+        acks: &[Slot],
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRefusal> {
+        let header = message.header;
+        let current = self.progress.current();
+        let is_primary =
+            self.progress.status() == Status::Normal && self.primary_of(current) == Some(self.own);
+        if !is_primary {
+            return self.drop_plan(Diagnostic::FuseRefusal, kind);
+        }
+        if header.view != current {
+            return self.drop_plan(Diagnostic::FuseRefusal, kind);
+        }
+        // The §6 membership-discard rule (`docs/uvrr-reincarnation.md`),
+        // as `plan_prepare_ok` runs it: a sender outside the configuration
+        // is unknown; a weight-0 sender is a learner contributing nothing.
+        let record = self.progress.config().current();
+        match record.config.weight_of(from) {
+            None => return self.drop_plan(Diagnostic::FuseRefusal, kind),
+            Some(weight) if weight.0 == 0 => {
+                return self.drop_plan(Diagnostic::FuseRefusal, kind);
+            }
+            Some(_) => {}
+        }
+        // Every acknowledged slot must be an outstanding proposal slot:
+        // the elementwise feed has nothing to feed otherwise, and a
+        // delayed duplicate of a committed slot is harmless but named.
+        for &slot in acks {
+            if slot <= self.progress.committed() || !self.proposals.contains_key(&slot) {
+                return self.drop_plan(Diagnostic::FuseRefusal, kind);
+            }
+        }
+        // The sender is counted once per slot, elementwise.
+        for &slot in acks {
+            if self
+                .proposals
+                .get(&slot)
+                .is_some_and(|proposal| proposal.oks.contains(&from))
+            {
+                return self.drop_plan(Diagnostic::FuseRefusal, kind);
+            }
+        }
+        let oks: Vec<(Slot, NodeId)> = acks.iter().map(|&slot| (slot, from)).collect();
+        // The cascade over the contiguous accepted tail, segment-atomic:
+        // the packed schedule's slots share their ackers (the envelope is
+        // atomic, §2), so the batch's quorum lands whole.
+        let mut committed = self.progress.committed();
+        while let Some(next) = committed.next() {
+            if next > self.progress.accepted() {
+                break;
+            }
+            let segment = self.commit_segment(journal, next, self.progress.accepted());
+            let mut holds = true;
+            let mut cursor = segment.0;
+            while cursor <= segment.1 {
+                let mut members: Vec<NodeId> = vec![self.own];
+                if let Some(outstanding) = self.proposals.get(&cursor) {
+                    members.extend(outstanding.oks.iter().copied());
+                }
+                if cursor <= header.slot && !members.contains(&from) {
+                    members.push(from);
+                }
+                if !self
+                    .strategy
+                    .is_quorum(Role::Commit, &record.config, &members)
+                {
+                    holds = false;
+                    break;
+                }
+                match cursor.next() {
+                    Some(follow) if follow <= segment.1 => cursor = follow,
+                    _ => break,
+                }
+            }
+            if !holds {
+                break;
+            }
+            committed = segment.1;
+        }
+        let bookkeeping = Bookkeeping {
+            oks,
+            ..Bookkeeping::default()
+        };
+        if committed == self.progress.committed() {
+            let candidate = self.identity_candidate()?;
+            return Ok(self
+                .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
+                .with_bookkeeping(bookkeeping));
+        }
+        // §8.7.1: the commit frontier moved — fold the system operations
+        // the advance newly covers. The packed schedule folds as the ONE
+        // establishing batch it is; a fold refusal is committed history
+        // the configuration cannot hold — the breach faults.
+        let config = match self.fold_committed(journal, &[], self.progress.committed(), committed) {
+            Ok(config) => config,
+            Err(CommitFold::Unavailable(slot)) => {
+                return Err(PlanRefusal::JournalEntryUnavailable { slot });
+            }
+            Err(CommitFold::SplitBatch) => {
+                return self.drop_plan(Diagnostic::FuseRefusal, kind);
+            }
+            Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+        };
+        // §8.7.7 steps 1 and 4, as `plan_prepare_ok` runs them: an armed
+        // non-stop machine whose establishing operation this advance
+        // committed records its pivot and solicits the planned evidence.
+        let (config, solicitation, planned_update) = self.overlap_solicitation(config, committed);
+        // The plan-execution commit hook (the solver doc): a committed
+        // range covering the armed machine's next step's establishing
+        // batch advances it, and the last step's commit clears the
+        // machine (completion).
+        let plan_execution =
+            self.plan_execution_commit(journal, self.progress.committed(), committed);
+        let candidate = self.candidate_with(
+            Status::Normal,
+            self.progress.accepted(),
+            committed,
+            self.applied_walk(journal, &[], self.progress.applied(), committed)?,
+            config,
+        )?;
+        let mut effects = self.apply_effects(journal, self.progress.committed(), committed)?;
+        effects.extend(self.broadcast_commit(committed));
+        // The per-era commit emission (`docs/uvrr-fuse.md` §4 step 4).
+        effects.extend(self.commit_batch_effects(journal, self.progress.committed(), committed));
+        effects.extend(solicitation);
+        Ok(self
+            .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
+            .with_bookkeeping(Bookkeeping {
+                planned: planned_update,
+                plan_execution,
+                ..bookkeeping
+            }))
     }
 }
 

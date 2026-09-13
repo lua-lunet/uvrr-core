@@ -128,6 +128,9 @@ impl HeaderSlotRole {
 /// | `GetState` | `Frontier` | the requester's accepted frontier; the fetch resumes one past it (§4, §13.1 step 5) |
 /// | `NewState` | `Frontier` | the last slot the chunk covers; `more` on a partial answer resumes from the requester's cursor (§4, §13.1 step 5) |
 /// | `Reincarnation` | `Absent` | names two identities, no history claim (`docs/uvrr-reincarnation.md` §4) |
+/// | `Fuse` | `Operation` | `first_slot`, the slot of the first packed op; each subsequent op occupies `first_slot + i` (`docs/uvrr-fuse.md` §1) |
+/// | `FuseOk` | `Operation` | the last accepted slot of the batch (`docs/uvrr-fuse.md` §3) |
+/// | `CommitBatch` | `Frontier` | the last committed frontier of the batch, mirroring `Commit` (`docs/uvrr-fuse.md` §4) |
 ///
 /// A `match` rather than a lookup table, on the codebase's standing reasoning: the
 /// compiler checks that every tag has a rule, and a tag added to `wire` without a
@@ -145,6 +148,9 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
         Tag::GetState => HeaderSlotRole::Frontier,
         Tag::NewState => HeaderSlotRole::Frontier,
         Tag::Reincarnation => HeaderSlotRole::Absent,
+        Tag::Fuse => HeaderSlotRole::Operation,
+        Tag::FuseOk => HeaderSlotRole::Operation,
+        Tag::CommitBatch => HeaderSlotRole::Frontier,
     }
 }
 
@@ -255,6 +261,11 @@ fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) ->
             | Tag::PlannedViewChange
             | Tag::GetState
             | Tag::Reincarnation => false,
+            // The fuse envelopes are ordinary accept-path packing
+            // (`docs/uvrr-fuse.md`): receiving a `Fuse` is defined as
+            // receiving the equivalent sequence of `Prepare`s at the same
+            // ballot, and none of the three reselects a retained history.
+            Tag::Fuse | Tag::FuseOk | Tag::CommitBatch => false,
         },
         InputKind::ClientRequest
         | InputKind::Tick

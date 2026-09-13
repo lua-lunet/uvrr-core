@@ -120,6 +120,13 @@ every operation is a pure function `Configuration → Result<Configuration>`, so
 leader evaluates a proposed batch on a clone before proposing it for consensus,
 thread-safely, with no lock and no mutation.
 
+The planner's output is what travels on the wire. Under Fuse
+(`docs/uvrr-fuse.md`) a schedule of at least two operations is packed —
+one datagram per recipient, the shared ballot in the envelope header, each op
+at its own consecutive slot. The planner certifies the sequence once; the
+envelope is delivered atomically; the first op in the batch decides the whole
+batch.
+
 ## 6. The reincarnation sequence
 
 The leader computes the sequence from the **current committed configuration** and

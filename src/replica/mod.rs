@@ -124,6 +124,7 @@ mod reincarnation;
 mod transfer;
 mod view_change;
 
+pub use reconfiguration::FUSE_MAX_OPS;
 pub use reincarnation::{
     CopyState, Incarnation, Marker, RestartClass, RestartDecision, RestartRefusal,
     SuperblockCopies, forced_steps,
@@ -2773,6 +2774,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     && self.primary_of(current) == Some(self.own)
                     && !self.stop_the_world_transition_outstanding()
             }
+            // A same-view Fuse from the legitimate primary: the equivalent
+            // sequence of `Prepare`s (`docs/uvrr-fuse.md` §1) — the
+            // primary is alive (a backup's baseline).
+            Body::Fuse { .. } => {
+                header.view == current && self.primary_of(header.view) == Some(from)
+            }
             // A same-view transfer chunk from the legitimate primary: the
             // view it answers a fetch under is alive.
             Body::NewState { .. } => {
@@ -2825,6 +2832,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 self.plan_planned_view_change(journal, from, message, kind)
             }
             Body::Reincarnation { .. } => self.plan_reincarnation(journal, from, message, kind),
+            // The acceptor's fuse transition (`docs/uvrr-fuse.md` §3): the
+            // envelope folds whole with the ordinary prepare perimeter.
+            Body::Fuse { ops } => self.plan_fuse(journal, from, message, ops, at, kind),
+            // The leader's fuse acks (`docs/uvrr-fuse.md` §4): the
+            // elementwise quorum and the per-era commit emission.
+            Body::FuseOk { acks } => self.plan_fuse_ok(journal, from, message, acks, kind),
+            // The backups already learn commitment through the ordinary
+            // commit announcement; the batch is the leader's per-era
+            // emission, received by name and dropped (`docs/uvrr-fuse.md`
+            // §4).
+            Body::CommitBatch { .. } => self.drop_plan(Diagnostic::FuseRefusal, kind),
         }?;
         Ok(if primary_life {
             plan.with_activity(at)
@@ -2837,7 +2855,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// history (§9.1): an installed slot carries no `PrepareOk` votes yet,
     /// and a `PrepareOk` for a HIGHER slot vouches for it (acceptance is
     /// prefix-contiguous) — without the record, an installed tail could
-    /// never commit.
+    /// never commit. Every installed uncommitted slot is seeded, operation
+    /// and system alike: a committed-but-unapplied system operation the
+    /// view change carries is re-committed by the next commit cascade
+    /// (§8.7.4), and the cascade counts the votes the record accumulates.
     fn installed_proposals(
         &self,
         journal: &J::View,
@@ -2856,7 +2877,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 None => journal.get(cursor),
             };
             if let Some(entry) = entry {
-                if let Payload::Operation { .. } = &entry.payload {
+                if matches!(
+                    entry.payload,
+                    Payload::Operation { .. } | Payload::System(_)
+                ) {
                     proposals.push((cursor, Proposal { oks: Vec::new() }));
                 }
             }
