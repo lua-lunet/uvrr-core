@@ -196,12 +196,12 @@ Decision quorums follow the era of the \emph{slot}, not simply the era associate
 \label{fig:overlap}
 \end{figure*}
 
-\subsection{Three voters, then five}
-Table~\ref{tab:three} is the warm-up: $n_0$ is the failed incarnation, $n_1,n_2$ survive, and $n_3$ is the fresh replacement. A join inserts a zero-weight identity; an increment grants its voting weight. A leave removes the old identity after its weight reaches zero.
+\subsection{Three-node Crash-Stop-Reincarnation}
+Table~\ref{tab:three} is the warm-up: $n_0$ fails and is replaced by its fresh identity $n_3$, while $n_1,n_2$ survive. A join inserts a zero-weight identity; an increment grants its voting weight. A leave removes the old identity after its weight reaches zero.
 
 \begin{table}[t]
 \centering
-\caption{Three-voter Crash-Stop-Reincarnation: two committed batches. Zero denotes voting weight, including absent identities.}
+\caption{Three-node Crash-Stop-Reincarnation: two committed batches. Zero denotes voting weight, including absent identities.}
 \label{tab:three}
 \small
 \begin{tabular}{lrrrr}
@@ -215,11 +215,14 @@ Increment, leave & 0&1&1&1\\
 \end{tabular}
 \end{table}
 
-For five original voters, $n_0$ is replaced by $n_5$ while $n_1,\ldots,n_4$ survive. Table~\ref{tab:weights} gives the complete six-batch weighted schedule. Both schedules are exercised by the Rust tests.
+Each boundary preserves cross-era majority intersection by a unit change or exact scaling. Figure~\ref{fig:overlap} illustrates the promotion boundary.
+
+\subsection{Five-node Crash-Stop-Reincarnation}
+For five original voters, $n_0$ is replaced by $n_5$ while $n_1,\ldots,n_4$ survive. Table~\ref{tab:weights} gives the complete six-batch weighted schedule, including exact doubling and halving.
 
 \begin{table}[t]
 \centering
-\caption{Full five-voter replacement: six committed batches. Zero denotes voting weight, including identities absent from membership.}
+\caption{Five-node Crash-Stop-Reincarnation: six committed batches. Zero denotes voting weight, including identities absent from membership.}
 \label{tab:weights}
 \small
 \begin{tabular}{lrrrrrr}
@@ -237,7 +240,7 @@ Halve & 0&1&1&1&1&1\\
 \end{tabular}
 \end{table}
 
-Each boundary preserves cross-era majority intersection by a unit change or exact scaling. Figure~\ref{fig:overlap} illustrates the three-voter promotion boundary. The addendum~\cite{artifact} gives the arithmetic for both schedules and the general construction of available paths and abstract leader overlaps.
+Both schedules are exercised by the Rust tests, and the addendum~\cite{artifact} gives the arithmetic for both schedules and the general construction of available paths and abstract leader overlaps.
 
 The leader stays live for client requests and drives a forced weight sequence from
 the voting-weights rules \cite{votingweights}: the exiting node's weight goes
