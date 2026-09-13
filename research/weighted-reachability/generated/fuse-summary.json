@@ -1,0 +1,88 @@
+{
+  "three": {
+    "boundaries": 2,
+    "cross_quorum_pairs": 64,
+    "retired_excluding_start_quorums": 2,
+    "totals": [
+      3,
+      2,
+      3
+    ]
+  },
+  "five": {
+    "boundaries": 6,
+    "cross_quorum_pairs": 5760,
+    "retired_excluding_start_quorums": 10,
+    "totals": [
+      5,
+      10,
+      11,
+      10,
+      9,
+      10,
+      5
+    ]
+  },
+  "common_response_paths": {
+    "identities": 4,
+    "weights": [
+      0,
+      1,
+      2
+    ],
+    "paths": 29690,
+    "unit_edges": 99352
+  },
+  "negative_control": {
+    "rows": [
+      [
+        1,
+        2,
+        1,
+        2
+      ],
+      [
+        2,
+        2,
+        1,
+        2
+      ],
+      [
+        2,
+        1,
+        1,
+        2
+      ],
+      [
+        2,
+        1,
+        2,
+        2
+      ],
+      [
+        2,
+        1,
+        2,
+        1
+      ]
+    ],
+    "responders": [
+      "B",
+      "D"
+    ],
+    "masses": [
+      4,
+      4,
+      3,
+      3,
+      2
+    ],
+    "quorums": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  }
+}
