@@ -2,16 +2,26 @@
 //! TigerBeetle 0.17.9 IO + superblock stack (zig/ — see zig/PATCH_MANIFEST.md
 //! and README.md for the build).
 //!
-//! Demonstrated over TB's actual code paths:
+//! The marker transition machine (docs/vrr-durability-model.md §5.1; the
+//! Rust twin src/replica/reincarnation.rs), demonstrated over TB's actual
+//! code paths:
 //!   * the data file is opened through TB's per-OS direct block-IO layer
 //!     (darwin: O_DSYNC + F_NOCACHE + flock + F_FULLFSYNC flush; linux would
 //!     use O_DIRECT — see the fact-check notes in zig/PATCH_MANIFEST.md);
-//!   * four superblock copies, TB checksum scheme and 2-of-4 open quorum;
-//!   * `uvrr_flushed` mark; any valid copy unflushed ⇒ dirty restart;
-//!   * dirty ⇒ bump the incarnation (hash-chained `parent`, advanced
-//!     `sequence`), write the new identity to all four copies; higher
-//!     identity wins on subsequent reads;
-//!   * clean shutdown ⇒ flushed mark on all four copies through TB's sync path;
+//!   * four superblock copies, TB checksum scheme and 2-of-4 open quorum
+//!     over the sequence hash-chain;
+//!   * T1: `uvrr_begin_stop` writes `stopping` 4x, the host drain sits
+//!     strictly between, `uvrr_finish_stop` writes `stopped` 4x — the
+//!     marker order is the drain's proof, so a `stopped` copy vouches for
+//!     the WAL under it (this demo's WAL and checkpoint writes are already
+//!     durable-on-write through the direct-IO layer, so the drain has
+//!     nothing left to flush);
+//!   * T2: a boot reading 2-of-4 `stopped` is the clean stop — continue
+//!     under the same identity, write `restarting` 4x;
+//!   * T3: a boot reading no stopped quorum — a crash (the running state's
+//!     `restarting` markers), death mid-join (`joining` markers) — bumps
+//!     the identity and writes `joining` 4x: the reincarnation;
+//!   * no `started` state is written: no safety logic looks for it;
 //!   * membership ops (add_one/remove_one/double/halve) through the ops WAL,
 //!     checkpointed into one 4 KiB block, replayed on reopen.
 //!
@@ -35,16 +45,15 @@ unsafe extern "C" {
         cluster_lo: u64,
         cluster_hi: u64,
     ) -> c_int;
-    fn uvrr_clean_shutdown() -> c_int;
-    fn uvrr_dirty_restart() -> c_int;
+    fn uvrr_begin_stop() -> c_int;
+    fn uvrr_finish_stop() -> c_int;
     fn uvrr_op(op: c_int, identity_lo: u64, identity_hi: u64, weight: u16, learner: c_int)
     -> c_int;
     fn uvrr_checkpoint() -> c_int;
     fn uvrr_sequence() -> u64;
     fn uvrr_incarnation() -> u64;
-    fn uvrr_flushed() -> c_int;
+    fn uvrr_marker() -> c_int;
     fn uvrr_member_count() -> u32;
-    fn uvrr_simulate_dirty_copy(index: u32) -> c_int;
     fn uvrr_member(
         index: u32,
         identity_lo: *mut u64,
@@ -66,7 +75,20 @@ const OP_REMOVE_ONE: c_int = 1;
 const OP_DOUBLE: c_int = 2;
 const OP_HALVE: c_int = 3;
 
+const MARKER_STOPPING: c_int = 0;
+const MARKER_STOPPED: c_int = 1;
+const MARKER_RESTARTING: c_int = 2;
+const MARKER_JOINING: c_int = 3;
+
 const CLUSTER: u128 = 0xBEEF;
+
+fn marker() -> c_int {
+    unsafe { uvrr_marker() }
+}
+
+fn incarnation() -> u64 {
+    unsafe { uvrr_incarnation() }
+}
 
 fn main() {
     let dir = std::env::temp_dir().join("uvrr-reincarnation-demo");
@@ -75,6 +97,12 @@ fn main() {
     std::fs::remove_file(&path_buf).ok();
     let dir_c = CString::new(dir.to_str().expect("utf8 dir")).expect("nul-free");
     let file_c = CString::new("uvrr-data.bin").expect("nul-free");
+    let open = |dir_c: &CString, file_c: &CString| {
+        check(
+            unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
+            "open",
+        );
+    };
 
     println!("== format: 4 superblock copies + ops WAL + one 4KiB checkpoint block (TB direct IO)");
     check(
@@ -83,15 +111,13 @@ fn main() {
     );
     unsafe { uvrr_close() };
 
-    println!("== CLEAN PATH: open; all copies flushed => clean => continue same identity");
-    check(
-        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
-        "open",
+    println!(
+        "== T2 boot: the pristine stopped copyset reads clean at 2-of-4 => continue identity 1"
     );
-    assert_eq!(unsafe { uvrr_sequence() }, 0);
-    assert_eq!(unsafe { uvrr_flushed() }, 1, "fresh format must be flushed");
-    let identity = unsafe { uvrr_incarnation() };
-    println!("   continuation commitment: identity {identity} continues unchanged");
+    open(&dir_c, &file_c);
+    assert_eq!(incarnation(), 1, "the clean stop continues the identity");
+    assert_eq!(marker(), MARKER_RESTARTING, "the boot writes restarting 4x");
+    println!("   continuation commitment: identity 1 continues unchanged");
 
     println!("== membership: add_one/remove_one/double/halve through the ops WAL");
     member_add(1, 1);
@@ -108,68 +134,59 @@ fn main() {
     println!("   members now: {}", unsafe { uvrr_member_count() });
     check(unsafe { uvrr_checkpoint() }, "checkpoint");
 
-    println!("== clean shutdown: flushed mark written to all four copies, TB sync path");
-    check(unsafe { uvrr_clean_shutdown() }, "clean_shutdown");
+    println!("== T1 stop: begin_stop writes stopping 4x; the drain; finish_stop writes stopped 4x");
+    let seq_before = unsafe { uvrr_sequence() };
+    check(unsafe { uvrr_begin_stop() }, "begin_stop");
+    assert_eq!(marker(), MARKER_STOPPING, "the stop command is written 4x");
+    assert_eq!(
+        unsafe { uvrr_sequence() },
+        seq_before + 1,
+        "each marker write is a new parent-chained copyset"
+    );
+    // The drain: flush the WALs and the grids. This demo's writes are
+    // durable-on-write through TB's direct-IO layer, so nothing is left to
+    // flush — the marker order still IS the proof discipline.
+    check(unsafe { uvrr_finish_stop() }, "finish_stop");
+    assert_eq!(marker(), MARKER_STOPPED, "the drain's proof is written 4x");
+    assert_eq!(unsafe { uvrr_sequence() }, seq_before + 2);
     unsafe { uvrr_close() };
 
-    check(
-        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
-        "reopen after clean shutdown",
-    );
-    assert_eq!(unsafe { uvrr_flushed() }, 1, "clean store reopens flushed");
+    println!("== T2 boot again: the stopped copyset is the clean stop => identity 1 continues");
+    open(&dir_c, &file_c);
+    assert_eq!(incarnation(), 1);
+    assert_eq!(marker(), MARKER_RESTARTING);
     assert_eq!(unsafe { uvrr_member_count() }, 5, "membership replayed");
     drop_members();
     unsafe { uvrr_close() };
+    // The crash while running: the node's markers hold `restarting` from
+    // the boot above and it died without stopping. The next open IS the
+    // boot that reads them.
 
-    println!("== DIRTY PATH: crash with unflushed state (simulated torn shutdown)");
-    check(
-        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
-        "open",
-    );
-    // A crash that left copy 0 recorded unflushed (consistent header, flushed=0).
-    check(
-        unsafe { uvrr_simulate_dirty_copy(0) },
-        "simulate_dirty_copy",
-    );
+    println!("== T3 boot: the crash left the restarting markers => the identity is dead, bump");
+    open(&dir_c, &file_c);
+    assert_eq!(incarnation(), 2, "the crash bumps the identity");
+    assert_eq!(marker(), MARKER_JOINING, "the bump writes joining 4x");
+    println!("   REINCARNATION: identity 1 -> 2 (not a member until the forced sequence seats it)");
     unsafe { uvrr_close() };
 
-    check(
-        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
-        "open dirty",
-    );
-    assert_eq!(unsafe { uvrr_flushed() }, 1, "3-of-4 flushed still wins");
-    let old_identity = unsafe { uvrr_incarnation() };
+    println!("== T3 boot again: death mid-join (joining markers) reincarnates again");
+    open(&dir_c, &file_c);
+    assert_eq!(incarnation(), 3, "the identity only moves forward");
+    assert_eq!(marker(), MARKER_JOINING);
 
-    println!("== dirty => bump incarnation, rewrite all four copies");
-    check(unsafe { uvrr_dirty_restart() }, "dirty_restart");
+    println!("== the reincarnated node stops cleanly: T1 then T2 continues identity 3");
+    check(unsafe { uvrr_begin_stop() }, "begin_stop");
+    check(unsafe { uvrr_finish_stop() }, "finish_stop");
     unsafe { uvrr_close() };
-
-    check(
-        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
-        "reopen after bump",
-    );
-    let new_identity = unsafe { uvrr_incarnation() };
-    assert_eq!(new_identity, old_identity + 1, "incarnation bumped");
-    assert_eq!(
-        unsafe { uvrr_flushed() },
-        0,
-        "bumped copies start unflushed"
-    );
-    println!("   REINCARNATION: identity {old_identity} -> {new_identity} (higher identity wins)");
-    check(unsafe { uvrr_clean_shutdown() }, "clean_shutdown");
-    unsafe { uvrr_close() };
-
-    println!("== membership replay across restart: reopen replays checkpoint + WAL suffix");
-    check(
-        unsafe { uvrr_open(dir_c.as_ptr(), file_c.as_ptr(), CLUSTER as u64, 0) },
-        "reopen",
-    );
+    open(&dir_c, &file_c);
+    assert_eq!(incarnation(), 3, "the bumped identity continues");
+    assert_eq!(marker(), MARKER_RESTARTING);
     assert_eq!(unsafe { uvrr_member_count() }, 5, "membership intact");
     drop_members();
     unsafe { uvrr_close() };
 
     println!(
-        "DEMO OK: clean path continued identity {identity}; dirty path reincarnated {old_identity} -> {new_identity}; membership replayed through the WAL"
+        "DEMO OK: T1 proved the drain (stopped 4x), T2 continued identities 1 and 3, T3 reincarnated 1 -> 2 -> 3; membership replayed through the WAL"
     );
 }
 

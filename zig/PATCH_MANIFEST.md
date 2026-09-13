@@ -51,17 +51,19 @@ byte-identical to upstream `src/*` except where listed below.
   `monotonic()` patched to the same view/commit_max/log_view rules over the
   slimmed struct.
 - New fields: `uvrr_incarnation: u64` (reincarnation identity, checksummed)
-  and `uvrr_flushed: u8` (+ explicit `uvrr_flushed_padding [3]u8`) — the
-  reincarnation `flushed`/`unflushed` state as declared fields
+  and `uvrr_marker: u8` (+ explicit `uvrr_marker_padding [3]u8`) — the
+  four-state reincarnation marker `stopping`/`stopped`/`restarting`/
+  `joining` of `docs/vrr-durability-model.md` §5.1, as declared fields
   (`flags` stays zero as TB asserts).
-- `calculate_checksum`: patched to mask `uvrr_flushed` before hashing, so all
-  copies of one sequence share one checksum (the flushed mark is per-copy
-  durability state like `copy`; unmasked, an unflushed copy would read as a
-  fork in TB's quorum logic).
+- `calculate_checksum`: patched to mask `uvrr_marker` before hashing, so all
+  copies of one sequence share one checksum (the marker is per-copy
+  durability state like `copy`; unmasked, the machine's legal torn marker
+  writes — one copyset holding two marker states — would read as a fork in
+  TB's quorum logic).
 - `set_checksum`: drops `assert(copy == 0)` (TB stamps `copy` at write time
   in its async path; our sync store computes one checksum per copyset);
   keeps every other assert verbatim (flags==0, version, reserved zeroed…).
-- `equal`: patched to also mask `uvrr_flushed` (same reason).
+- `equal`: patched to also mask `uvrr_marker` (same reason).
 - Layout: `reserved` size computed for our prefix (view_headers_all stays at
   offset 4096 = sector_size; header = 8192 = 2 sectors); copy padding
   removed (no view-change traffic); `data_file_size_min` = superblock zone +
@@ -79,6 +81,10 @@ byte-identical to upstream `src/*` except where listed below.
   field each so statsd name-casting still compiles.
 - `vsr.Peer` → local two-value enum; `CommitStage` → u8; grid/LSM cardinality
   constants → placeholders.
+- Removed the two `slot doesn't have collisions` test blocks: they enumerate
+  the emptied builders through `testing/exhaustigen.zig` and cannot compile
+  in the patched closure (same treatment as the test blocks removed from
+  `trace.zig`/`queue.zig`/`time.zig` below).
 
 ### zig/trace.zig, zig/queue.zig, zig/time.zig (PATCHED, imports only)
 - Removed `test` blocks importing `testing/fixtures.zig` / `testing/fuzz.zig`
@@ -95,11 +101,19 @@ byte-identical to upstream `src/*` except where listed below.
   ONE 4 KiB checkpoint block (compile-time size assert; entries
   {identity u128, weight u16, learner u8}; capacity 12 members), checkpoint
   before WAL wrap or every N ops (N = host param), replay on open.
-- `uvrr/store.zig` — sync driver: format / open (2-of-4 quorum + higher-
-  identity-wins + repair), clean shutdown (flushed mark on all four copies
-  through the IO layer's F_FULLFSYNC/O_DSYNC path), dirty restart (bump
-  incarnation + sequence, clear flushed, rewrite all four), membership ops,
-  checkpoint, WAL replay.
+- `uvrr/store.zig` — sync driver and the marker transition machine (§5.1 of
+  `docs/vrr-durability-model.md`; the twin of `src/replica/reincarnation.rs`):
+  format (pristine `stopped` copyset), open = the boot (TB's 2-of-4 open
+  quorum over the sequence hash-chain, higher-identity-wins inside the
+  working quorum, the 2-of-4 `stopped` verdict, and the T2/T3 decision's
+  uniform 4x write — `.restarting` under the continued identity, `.joining`
+  under a bumped one — which is also the repair, 4-of-4), `begin_stop` /
+  `finish_stop` (T1: `stopping` 4x, the host drain strictly between,
+  `stopped` 4x; each marker write a new parent-chained copyset, durable
+  through the IO layer's F_FULLFSYNC/O_DSYNC path), membership ops,
+  checkpoint, WAL replay. Tests in-module: the exhaustive 4⁴ marker-
+  assignment corpus over the pure machine (modelled on the Rust twin's
+  `tests/reincarnation.rs`) plus the T1/T2/T3 disk paths.
 - `uvrr/capi.zig` — `pub export fn … callconv(.C)` surface.
 - `root.zig` — build root. `zig/README.md`.
 

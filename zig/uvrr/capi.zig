@@ -30,7 +30,8 @@ pub export fn uvrr_superblock_copies() callconv(.C) u32 {
     return constants.superblock_copies;
 }
 
-/// Format a fresh data file. `incarnation` seeds the reincarnation identity.
+/// Format a fresh data file: the pristine drained copyset (marker
+/// `stopped`) at `incarnation`, which seeds the reincarnation identity.
 /// Returns 0 on success, -1 on error.
 pub export fn uvrr_format(
     dir_path: [*:0]const u8,
@@ -46,7 +47,12 @@ pub export fn uvrr_format(
     return 0;
 }
 
-/// Open an existing data file (checkpoint + WAL replay). Returns 0 on success.
+/// Open an existing data file: THE BOOT (§5.1 of
+/// `docs/vrr-durability-model.md`). The working quorum at the open
+/// threshold (2-of-4) resolves the identity; 2-of-4 `stopped` is the
+/// clean stop and continues under the same identity, writing `restarting`
+/// 4x; anything else bumps the identity and writes `joining` 4x. Returns
+/// 0 on success.
 pub export fn uvrr_open(
     dir_path: [*:0]const u8,
     file_name: [*:0]const u8,
@@ -62,26 +68,21 @@ pub export fn uvrr_open(
     return 0;
 }
 
-/// Clean shutdown: flushed mark on all four copies, TB sync/flush path.
-pub export fn uvrr_clean_shutdown() callconv(.C) i32 {
+/// T1's first half: the stop command — `stopping` 4x. The host drain
+/// (flush WALs and grids) sits strictly between this and
+/// `uvrr_finish_stop`.
+pub export fn uvrr_begin_stop() callconv(.C) i32 {
     const s = &store.?;
-    s.clean_shutdown() catch return -1;
+    s.begin_stop() catch return -1;
     return 0;
 }
 
-/// Demo helper: simulate a crash that left copy `index` recorded UNFLUSHED
-/// (a consistent header — checksummed — with uvrr_flushed = 0, like a real
-/// unclean shutdown's last copyset member). Written through the IO layer.
-pub export fn uvrr_simulate_dirty_copy(index: u32) callconv(.C) i32 {
+/// T1's second half: the drain's proof — `stopped` 4x, callable only
+/// after the host drain completed. The marker order is the drain's proof:
+/// a `stopped` copy vouches for the WAL under it.
+pub export fn uvrr_finish_stop() callconv(.C) i32 {
     const s = &store.?;
-    s.simulate_dirty_copy(index) catch return -1;
-    return 0;
-}
-
-/// Dirty restart: bump incarnation, rewrite all four copies.
-pub export fn uvrr_dirty_restart() callconv(.C) i32 {
-    const s = &store.?;
-    s.dirty_restart() catch return -1;
+    s.finish_stop() catch return -1;
     return 0;
 }
 
@@ -121,9 +122,11 @@ pub export fn uvrr_incarnation() callconv(.C) u64 {
     return (store orelse return 0).working.uvrr_incarnation;
 }
 
-pub export fn uvrr_flushed() callconv(.C) i32 {
+/// The working copyset's marker tag (§5.1): 0 `stopping`, 1 `stopped`,
+/// 2 `restarting`, 3 `joining`.
+pub export fn uvrr_marker() callconv(.C) i32 {
     const s = &store.?;
-    return @intFromBool(s.working.uvrr_flushed == 1);
+    return @as(i32, s.working.uvrr_marker);
 }
 
 pub export fn uvrr_member_count() callconv(.C) u32 {
