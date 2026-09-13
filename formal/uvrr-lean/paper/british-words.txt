@@ -141,3 +141,5 @@ Proc
 Reconfiguring
 SIGACT
 simbo
+CAS
+Paxos's
