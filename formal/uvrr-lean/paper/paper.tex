@@ -65,7 +65,7 @@ and halving. A constructive Rust solver also computes paths between arbitrary
 weighted-majority configurations with an available majority at each endpoint.
 The Lean development proves weighted reachability and a phantom-identity
 casting-vote construction, alongside agreement and identity exclusion for a
-three-voter warm-up and a five-voter replacement. The addendum published
+three-node schedule and its five-voter extension. The addendum published
 with the code separates the proof contracts and executable checks.
 \end{abstract}
 
@@ -197,7 +197,7 @@ Decision quorums follow the era of the \emph{slot}, not simply the era associate
 \end{figure*}
 
 \subsection{Three-node Crash-Stop-Reincarnation}
-Table~\ref{tab:three} is the warm-up: $n_0$ fails and is replaced by its fresh identity $n_3$, while $n_1,n_2$ survive. A join inserts a zero-weight identity; an increment grants its voting weight. A leave removes the old identity after its weight reaches zero.
+Table~\ref{tab:three} is the three-node schedule: $n_0$ fails and is replaced by its fresh identity $n_3$, while $n_1,n_2$ survive. A join inserts a zero-weight identity; an increment grants its voting weight. A leave removes the old identity after its weight reaches zero.
 
 \begin{table}[t]
 \centering
@@ -299,8 +299,7 @@ exercised on this path. The chart is rendered from the tracked source
   \uwrweightrow{era 2: \code{INCREMENT(D)}~+~\code{LEAVE(C)}}{1}{1}{-}{1}}
 \end{table}
 
-\section{Results}\label{sec:results}
-\subsection{Three-voter warm-up}
+\section{Three-node Crash-Stop-Reincarnation}\label{sec:results}
 The addendum published with the code~\cite{artifact} provides a Lean theorem that composes an era-based agreement theorem with replacement weights and an abstract identity lifecycle. The work builds upon Turner's P2--P7~\cite{turner}: promises preserve their fences, reports identify prior acceptances, proposals preserve the selected history, and chosen values have quorum evidence. A well-founded total ballot order and the ballot/slot era conditions complete the contract. The addendum states each hypothesis and the exercise that connects operational executions to it.
 
 \begin{theorem}[Three-voter Crash-Stop-Reincarnation]\label{thm:three}
@@ -311,7 +310,7 @@ For a history using Table~\ref{tab:three}, under the stated order, era and histo
 The totals in Table~\ref{tab:three} are $3,2,3$, so the majority thresholds are $2,2,2$. Each boundary changes one weight by one; the integral weighted-overlap argument gives the within-era and adjacent-era intersections. Turner's agreement theorem applies to those intersections and P2--P7. The two commands establish the stated weights, and identity fencing supplies nonreuse. At the promotion boundary, $\{n_1,n_2\}$ and $\{n_1,n_3\}$ meet only at leader $n_1$; their nonleader members form the two minorities. The leader can collect the replacement's promise while withholding its own. The addendum gives the complete three-node working, including the abstract witness at the first boundary and the state-acquisition obligation.
 \end{proof}
 
-\subsection{Five-voter extension}
+\section{Five-node Crash-Stop-Reincarnation}\label{sec:five-node-reincarnation}
 With all five unit voters responding, a leader has the casting pair $\{\ell,a,b\}$ and $\{\ell,c,d\}$. After one voter fails, obtaining the corresponding responding split requires more care. The mechanical transformations in Table~\ref{tab:weights} organise the weighted replacement while preserving the agreement invariant; the addendum supplies their safety argument and the distinction between abstract witnesses and protocol receipts.
 
 \begin{theorem}[Five-voter Crash-Stop-Reincarnation]\label{thm:replacement}
@@ -321,7 +320,7 @@ For a history using Table~\ref{tab:weights}, under the same order, era and P2--P
 Doubling and exact halving preserve the majority family. Each of the four intervening boundaries changes one unit of voting mass. The same local intersection argument therefore applies six times. Induction over these boundaries establishes the era intersection invariant, and Turner's theorem gives agreement. Evaluation of the commands gives the stated final weights.
 \end{proof}
 
-\subsection{Evidence}
+\section{Evidence}\label{sec:evidence}
 The addendum~\cite{artifact} maps these arguments to Lean~4~\cite{lean4}, bounded exhaustive enumeration, Rust property tests and protocol tests. It includes the existing specialised machine theorem's precise scope, the general lemmas used above, and the reproduction commands. Configuration reachability, abstract casting witnesses and the operational history contract are stated separately so each result can be checked at its own layer.
 
 \section{Discussion}\label{sec:discussion}
