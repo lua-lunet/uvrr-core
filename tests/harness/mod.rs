@@ -77,6 +77,7 @@ use vrr::observe::Diagnostic;
 use vrr::plan::Plan;
 use vrr::progress::{Progress, ProgressSnapshot, Status};
 use vrr::quorum::WeightedMajority;
+use vrr::reconfiguration::Abdication;
 use vrr::replica::{
     Input, LifecycleRefusal, Observer, PersistedProgress, Pivot, PlanRefusal, PublishOutcome,
     PublishRefusal, Replica, TimedInput, ViewChangeKnobs,
@@ -630,6 +631,21 @@ impl Harness {
                 id.0, target.era.0, target.view.0
             ),
             Input::AdminForceView { target },
+        )
+    }
+
+    /// The administrator's abdication (rules §12 of
+    /// `docs/uvrr-reconfiguration-rules.md`): `Input::Abdicate` through the
+    /// ordinary step machinery — the named refusal or the standard
+    /// view-change emission's publication is the script's to assert.
+    pub fn abdicate(&mut self, id: NodeId, message: Abdication) -> StepOutcome {
+        self.drive(
+            id,
+            format!(
+                "n={} abdicate e{}v{}->v{}",
+                id.0, message.current.era.0, message.current.view.0, message.target.0
+            ),
+            Input::Abdicate { message },
         )
     }
 

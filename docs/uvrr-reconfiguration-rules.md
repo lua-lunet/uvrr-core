@@ -48,7 +48,7 @@ than the membership cap, and standbys may come and go.
 
 ## 3. The operation alphabet
 
-`DOUBLE`, `HALVE`, `INCREMENT(n)`, `DECREMENT(n)`, `JOIN(n, position)`,
+`ABDICATE`, `DOUBLE`, `HALVE`, `INCREMENT(n)`, `DECREMENT(n)`, `JOIN(n, position)`,
 `LEAVE(n)` — plus the two genesis operations `VOID` and `INIT` (genesis is not
 plannable; see §6). Each operation has its own refusal, and refusals are total:
 nothing saturates, nothing rounds, no partial application.
@@ -272,3 +272,52 @@ Every rule has a test that can fail. The matrix:
 | three-node two-era and five-node six-era replacement, every row folded, exact suffix recomputation, leader-crash continuation, and availability distinct from intersection safety | §6 |
 | snapshot serde round-trip; tampered snapshot refused at inflation | §9 |
 | snapshot + WAL fold ≡ folding the flat planned stream | §9 |
+
+## 12. The abdication message
+
+`ABDICATE` is the administration verb of the alphabet. It is a reconfiguration
+message sent by an administrator to the leader; it is not a folded batch
+operation and it never changes a weight. Its two fields are the CAS pair: the
+era the sender believes the cluster is in, and the era the cluster should move
+to.
+
+**Obligations of the sender.** The message names both eras and is addressed to
+the current leader. The sender performs no protocol participation: the
+validation function below is the only thing that turns an abdication into
+protocol traffic.
+
+**The validation function.** A pure function takes the abdication message and
+the cluster membership and returns the standard protocol messages to send, or a
+named refusal. It checks, in order:
+
+1. the CAS: the cluster is in the era the message names;
+2. the receiver is the primary of that era;
+3. the delta rule: `0 < (target - current) <= N`, where `N` is the member count
+   of the current configuration.
+
+The delta rule bounds the bump from both sides. The primary schedule advances
+one node per era along the membership's order, so a legitimate relocation skips
+the intervening members: moving the leader from `DC1:a` to `DC3:a` in a cluster
+holding `a,b` per site is a bump of `+4` past `DC1:b`, `DC2:a`, `DC2:b`. The
+upper bound `N` keeps that arithmetic honest: a bump larger than the total set —
+era `1234` asked to become era `2^32` — would waste the era-number space the
+schedule depends on, so it is refused. A non-positive delta is refused: eras do
+not move backwards.
+
+**The transition.** On a valid abdication the leader emits the standard
+view-change messages for the target era — no new wire message exists; the
+abdication is answered by exactly the protocol messages the ordinary era change
+would run. The leader stops being the primary at the same instant: any further
+message it sends is ignored, discarded by the standard membership and fence
+checks of the new era. The successor named by the target era's schedule resumes
+as primary.
+
+**No new proof is owed.** The transition is composed entirely of standard
+protocol messages, so the standard era-change argument governs it; the
+obligations above are validation and test obligations, not proof obligations.
+
+**Test obligations.** Each refusal is checked by one named test through the
+public interface: the CAS failure, the non-primary receiver, the non-positive
+delta, the delta above `N`, and the valid relocation path — the leader's
+emission is the standard view-change set, and its own subsequent messages are
+discarded.

@@ -307,7 +307,12 @@ The addendum~\cite{artifact} maps these arguments to Lean~4~\cite{lean4}, bounde
 
 \section{Discussion}\label{sec:discussion}
 \subsection{Applications}
-The intended deployment is an embedded authority for small metadata, with ordinary replication performed in memory.
+An application of strong consistency is the replication of small state by
+consensus: the configuration authority Lamport, Malkhi and Zhou
+describe~\cite{reconfig-sm}, and Vertical Paxos's auxiliary configuration
+master~\cite{vertical-paxos}, are the precedents. This design embeds such an
+authority in the application --- for small metadata, with ordinary replication
+performed in memory.
 
 \paragraph{Short-lived advisory locks and leader leases}
 A replicated state machine can order acquisition, renewal and expiry decisions over a small record containing an owner, generation and expiry policy. An expiry command for an old generation must not revoke a newer grant. If a client uses ownership to control an external resource, that resource may also need to reject stale generations. A real-time leader lease additionally needs explicit clock and timing assumptions.
@@ -579,6 +584,17 @@ machines). No data points exist yet; the chart is watermarked ``dummy''.
 \label{fig:e4}
 \end{figure}
 
+\subsection{E5: planned failover by abdication}
+Abdication is the planned handover that node maintenance uses: the
+administrator's message names the current era and the target era, the leader
+validates the CAS and the bounded delta, and the standard view change carries
+the handover. No new protocol message and no new safety obligation exist; the
+correctness is the standard era-change argument. The designed experiment
+measures the planned-takeover latency under the two durability profiles E2
+compares: without disk --- the diskless path normal operation runs --- and
+with simulated disk flushes injected at the recovery boundary. The counted
+placeholders follow the section's convention: p50 $\mathrm{xxxx}$~ms, p90
+$\mathrm{xxxx}$~ms, mean $\mathrm{xxxx}$~ms per profile.
 \expwarning
 
 
