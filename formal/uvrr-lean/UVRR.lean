@@ -21,3 +21,4 @@ import UVRR.ReincarnationFive
 import UVRR.ReincarnationAgreement
 import UVRR.ReincarnationSafety
 import UVRR.WeightedReachability
+import UVRR.Fuse

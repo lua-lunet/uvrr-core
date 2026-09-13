@@ -1,0 +1,203 @@
+\section{Three voters: both transitions, then Fuse}\label{sec:fuse}
+This proof ladder starts with the smallest replacement. Let the identities be
+$(o,\ell,a,r)$: the retired process, surviving leader, other survivor and fresh
+replacement. The complete two-transition schedule is
+\[
+ (1,1,1,0)\longrightarrow(0,1,1,0)\longrightarrow(0,1,1,1).
+\]
+The commands that install a configuration are decided under the configuration
+governing their slots. For clarity, the calculations below check every row,
+including the final row governing subsequent commands; this also covers either
+side of each boundary.
+
+\subsection{The base case and the second transition}
+For $w:N\to\mathbb N$, write $T(w)=\sum_{n\in N}w(n)$ and
+$M_w(R)=\sum_{n\in R}w(n)$. A strict majority satisfies $2M_w(R)>T(w)$.
+At the first boundary any old quorum contains two of $o,\ell,a$, while every
+intermediate quorum contains both $\ell,a$. Hence they meet. At the second
+boundary every intermediate quorum contains $\ell,a$, and any final quorum
+contains two of $\ell,a,r$. Hence they meet too. This proves the cross-era
+intersection obligation for both transitions, not just the final one.
+
+For the response set $R=\{\ell,a\}$, the masses are $2,2,2$ and the totals
+are $3,2,3$. Thus exactly the same two responding identities are a majority
+throughout. Adding the replacement's acknowledgement cannot invalidate that
+fact. Abstract singleton-intersection witnesses are
+$\{o,\ell\}\cap\{\ell,a\}=\{\ell\}$ at the first boundary and
+$\{\ell,a\}\cap\{\ell,r\}=\{\ell\}$ at the second.
+These geometric witnesses and the responding quorum serve different purposes:
+the fused decision certificate uses $\{\ell,a\}$ and does not ask the retired
+identity to reply. The existing module \path{ReincarnationThree.lean} records
+both intersections and both casting witnesses.
+
+\subsection{What a fused acknowledgement certifies}
+Fuse carries a shared header, a count, and the ordered commands for consecutive
+slots. FuseOk carries the individual slot acknowledgements; CommitBatch carries
+the individual commits. None of these needs a range encoding. Logical slots,
+configuration boundaries and their quorum families remain distinct.
+
+Let $F=(b,s,[c_0,\ldots,c_{k-1}])$. An acknowledgement of $F$ certifies that
+the sender accepted every specified command at ballot $b$ and its specified
+slot. The leader matches the ballot, first slot, count and slot contents to its
+pending envelope, counts each identity once, and checks its own eligibility
+when adding its own acknowledgement. Let $R$ be that set of acknowledgers.
+Then one collection of replies gives acceptance evidence at every packed slot.
+It gives decision evidence at slot $i$ precisely when $R\in\QII_i$.
+
+\begin{theorem}[Fuse telescoping]\label{thm:fuse}
+Suppose the certified schedule preserves the invariant $R\in\QII_i$ at each
+step, the first slot has $R\in\QII_0$, and every member of $R$ acknowledges
+all the packed slots. Every packed slot has a phase-two decision certificate.
+If the expanded history satisfies Turner's protocol invariants, the ordinary
+era-based agreement theorem applies to each certificate.
+\end{theorem}
+\begin{proof}
+Induct on the slot index. The base is the first quorum. Preservation gives
+$R\in\QII_{i+1}$ from $R\in\QII_i$. The fused acknowledgements supply every
+acceptance required by that quorum at slot $i+1$. Thus every slot has both a
+quorum and its acceptance evidence. Expanding the envelope into those logical
+events leaves the evidence unchanged; the existing agreement theorem supplies
+uniqueness under its history assumptions. In-order application then advances
+the committed prefix through the schedule.
+\end{proof}
+For three voters, the masses above discharge preservation for both steps.
+The leader can collect one FuseOk from $a$, complete its own all-slot
+acceptance, and issue the two commits in one CommitBatch. This is one successful
+request--reply round followed by commit notification, provided the envelope's
+acceptance preconditions are already established.
+
+\section{Five voters and arbitrary solver schedules}\label{sec:fuse-five}
+\subsection{The first and second transitions}
+For the complete six-transition weighted replacement, let $R$ contain any
+three surviving original voters and exclude $o$. The initial total is $5$ and
+$M(R)=3$. Doubling gives total $10$ and mass $6$: the first boundary preserves
+every quorum exactly. Introducing the replacement's unit vote gives total $11$
+and mass at least $6$. The strict inequality $12>11$ proves the second
+boundary's responding-quorum condition explicitly.
+
+The remaining rows have totals $10,9,10,5$ and response masses at least
+$6,6,6,3$. Each inequality stays strict. These numbers cover the full schedule
+with doubling and halving, not the shorter five-voter specialisation in
+\path{ReincarnationSafety.lean}. Any larger initial responding quorum excluding
+the retired identity contains such a triple and therefore also qualifies.
+Theorem~\ref{thm:fuse} now telescopes the same replies across all six
+transitions. The ordinary cross-era intersections follow from exact scaling
+at the ends and the four unit changes between them. There is no need to list
+another five-voter replacement table here.
+
+\subsection{The solver's induction invariant}
+For arbitrary endpoints, use a response set $R$ that is a strict majority at
+both endpoints. Define its margin $\mu_w(R)=2M_w(R)-T(w)$. The constructive
+path first decreases coordinates outside $R$, then increases coordinates
+inside $R$, moving only towards their targets. These edits increase the
+margin. It then decreases coordinates inside $R$ and increases coordinates
+outside $R$ towards their targets. Throughout these latter phases the margin
+is at least the strictly positive final margin. Thus $\mu_w(R)>0$ everywhere.
+Each unit edit also preserves cross-era intersection; exact scaling preserves
+quorum families. Zero-weight membership edits have no effect on either proof.
+
+This supplies a useful runtime certificate: compute the path with $R$ as the
+availability set, certify the preserved margin, and use the same fused replies
+at every slot. The existing operator solver and its general reachability proof
+provide the construction; a Fuse integration must retain its response-set
+certificate. Merely knowing that some available majority exists in each row
+does not establish that every subset which replied first qualifies in all rows.
+If only a larger available set $L$ was certified, the leader can use per-slot
+quorum accounting on the packed acknowledgements, or wait for a response set
+which satisfies the common certificate. Neither requires another wire round
+when those responses arrive in the original round.
+
+The necessity is visible in the proposed equal-total swap
+$(1,2,1,2)\to(2,1,2,1)$. The response set $\{B,D\}$ has mass $4$ initially
+and $2$ finally, with total $6$ at both endpoints. The same replies cannot be
+counted as a final majority. Even expanding the swap into legal unit edits
+does not alter that endpoint calculation. This is a negative control for the
+certificate, not an obstacle to solving the reconfiguration using a suitable
+common response set or successive certificates. Phantom identities remain
+available for the overlap construction in Appendix~\ref{app:solver}; an
+identity which sends no acknowledgement contributes no acceptance evidence.
+
+\section{The atomicity and agreement obligations}\label{sec:fuse-refinement}
+The useful state-space reduction is local: one receiver either refuses the
+envelope or acknowledges its entire accepted sequence. It removes network
+loss between the commands inside that envelope. Different recipients may
+still receive different envelopes, and a leader may change while replies or
+commits are in flight. The existing agreement proof covers such histories
+when its invariants hold.
+
+An indivisible datagram does not itself make execution of the receiver's
+handler indivisible. The refinement obligation is therefore to validate the
+whole fold before exposing its effects, acknowledge only after all accepts
+are recorded, and ensure that interruption before acknowledgement leaves a
+state admitted by the ordinary recovery or crash-stop-reincarnation model.
+Checksums establish neither a transaction over memory nor a journal
+transaction. Under an atomic handler model, expansion is a finite sequence of
+ordinary accept actions with no intervening local action. Under a finer model,
+its unacknowledged prefixes must also refine ordinary accept histories.
+
+The induction for local acceptance needs its own invariant: the next slot is
+consecutive; every command is legal in the accumulated configuration; the
+promise still permits its ballot; and the slot's era permits that proposal.
+A certified sequence plus preservation of these guards proves that accepting
+the first permits accepting the rest. A shared header can hoist repeated
+fields out of the wire encoding; it cannot discharge a changing era guard.
+In particular, Turner's multi-era argument includes phase-one and value
+selection obligations. A Phase2-only envelope must inherit those obligations
+from established state or prove the corresponding refinement; the quorum
+telescoping theorem alone does not perform phase one.
+
+Concretely, the current ordinary accept path in
+\path{src/replica/normal.rs} requires the entry era to equal the ballot era
+or its successor. If a shared ballot has era $e$ and expanded entries have
+eras $e,e+1,\ldots,e+k$, this guard implies $k\leq1$.
+\path{Fuse.same_ballot_era_guard} checks that arithmetic in Lean.
+Thus a multi-era Fuse needs an explicit account of its logical entry eras and
+phase-one authority before it can be claimed to refine that accept path.
+
+The proof dependencies are consequently:
+\[
+\begin{gathered}
+\text{legal schedule + preserved response quorum}\\
+{}+\text{ all-slot acceptance certificate}\\
+\Longrightarrow\text{ decision certificates for all slots};\\
+\text{certificates + era history invariants}\\
+\Longrightarrow\text{ agreement under reconfiguration}.
+\end{gathered}
+\]
+This is the precise sense in which proving a base case and a preservation rule
+replaces a separate proof for every schedule length. It does not assume the
+inductive step merely because the first case succeeds.
+
+\subsection{Prior art and executable evidence}
+Lamport's phase-two decision rule uses acceptances from a quorum for a single
+proposal~\cite{fuse-paxos}. Applying that rule separately to each packed slot
+is the decision-certificate step above. Turner supplies the era-history
+conditions and the weighted reconfiguration setting~\cite{turner}. The present
+telescoping argument combines those obligations with a common response set;
+it does not attribute a datagram-atomicity theorem to either source.
+
+The standard-library Python checker
+\path{research/weighted-reachability/check_fuse.py} enumerates all identity
+subsets, including zero-weight identities. It checks both three-voter
+boundaries (64 qualifying cross-quorum pairs), all six five-voter boundaries
+(5,760 pairs), and every initial quorum excluding the retired identity
+(respectively 2 and 10 sets, counting inclusion of the replacement).
+It also checks 29,690 ordered endpoint/response-set combinations for all four
+identity profiles in $\{0,1,2\}^4$, covering 99,352 unit edges of the monotone
+construction. The equal-total swap is a required negative control. Its output
+is \path{research/weighted-reachability/generated/fuse-summary.json}.
+
+These are exhaustive statements about their finite domains. The inductive
+argument supplies arbitrary finite schedule length. Lean checks the formal
+implication and its stated hypotheses; property tests check the implementation
+of packing, validation and commit application. TLA+ can model envelope delivery
+as one receiver action after the refinement obligation is discharged.
+Maelstrom remains useful for implementation faults involving replies, client
+histories, recovery and networking. None of these tools needs to re-prove a
+finite arithmetic domain already exhausted by an independent checker, but
+each must test the layer for which it supplies evidence.
+
+To replay the arithmetic from the repository root, run \code{python3} on
+\path{research/weighted-reachability/check_fuse.py}.
+The Lean module is \path{UVRR/Fuse.lean}; its proof
+generation and kernel-check evidence are recorded beside the proof ladder.
