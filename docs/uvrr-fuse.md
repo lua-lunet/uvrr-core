@@ -148,3 +148,56 @@ into one datagram.
 - The oversized schedule falls back to ordinary `Prepare`s.
 - The existing reconfiguration, reincarnation, and cold-start corpora pass
   unmodified: Fuse changes the wire, not the machine.
+
+## 8. Fuse is transport
+
+The ruling this document closes on: Fuse is a wire format and a transport-layer
+optimisation — nothing more. The algorithm never knows it is talking to a
+batch.
+
+**The wire shape.** One datagram: the 20-byte header carrying the shared
+ballot once and `first_slot`, then the body — `count`, then `count ×
+SystemOperation`, in batch order. The reply is `count` + the accepted slots;
+the commit emission is `count` + one committed frontier per slot. No range
+encodings anywhere on the fuse surface: the count names the things and the
+things follow, one element at a time.
+
+**The one-unpack explode.** The acceptor unpacks the envelope once at the
+codec boundary and never re-encodes. The explode is a struct copy: the shared
+header is carried alongside each packed op — the data off the wire is exactly
+what sending N individual `Prepare`s would have produced, minus the N
+datagrams. No per-message `Message` value is constructed and no per-message
+codec work runs; the reply is the single `FuseOk` the whole batch earns.
+
+**The explicit algorithm loop.** The acceptor's only fuse-aware site is the
+explode loop itself: for each `i`, the op at `first_slot + i` — the explicit
+per-element step, one `Slot::next()` per element — folds through the
+ordinary system-op perimeter, the same guards per op, the same journal
+accept batch, the frontier advancing per op. There is no fuse-specific branch
+inside the per-slot logic beyond the loop: every op is judged exactly as an
+individually-arrived `Prepare` at its own slot would be. The leader side is
+symmetric: the builder packs the schedule's ops with the shared ballot —
+transport only — and the proposal bookkeeping is what N individual proposals
+would register, one record and one journal entry per packed slot.
+
+**The no-ranged-actions rule.** No range arithmetic and no span computation
+exists anywhere on the fuse surface: no range types, no span arithmetic, no
+chunking or windowing over fused slots. Every slot a fuse datagram touches is
+named explicitly, either by the envelope header's `first_slot` plus the
+explode loop's per-element step or by an element of the body's list.
+
+**The equivalence claim.** A fused batch of N ops produces the same accepts,
+journal entries, acks, and commits as the same N ops arriving as N individual
+`Prepare`s at consecutive slots; only the datagram count differs. The wire
+carries the shared ballot once where N messages would carry it N times, and
+the acceptor's explode loop reconstructs the identical per-slot sequence.
+
+**The proposal vehicles.** The fuse path's proposal vehicle is the plan-execution
+machine (§4): an accepted plan steps one batch per era, each proposed through
+the shared step-proposal router that emits the envelope when the batch packs
+at least two operations within the budget and the ordinary establishing
+`Prepare` otherwise. The forced-reincarnation machine proposes the same
+schedules' batches as ordinary establishing `Prepare`s — one `Batch` entry
+per era, the ordinary pipeline — and its memo-stream copy is the establishing
+`Prepare` itself. Both machines commit the batch as the ONE establishing
+operation it is; the wire shape differs, the machine does not.

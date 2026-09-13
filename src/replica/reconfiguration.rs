@@ -419,8 +419,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// (`docs/uvrr-fuse.md` §4): the fuse envelope when the batch packs at
     /// least two operations within the envelope budget
     /// ([`FUSE_MAX_OPS`]), the ordinary establishing `Prepare` otherwise —
-    /// the fallback IS the ordinary path, unchanged. Both machines that
-    /// arm a schedule propose through here.
+    /// the fallback IS the ordinary path, unchanged. The plan-execution
+    /// machine proposes through here (§8 of the fuse doc); the
+    /// forced-reincarnation machine proposes its steps through
+    /// [`Self::plan_reconfigure`] — one `Batch` entry per era, the
+    /// ordinary pipeline.
     pub(in crate::replica) fn plan_step_proposal(
         &self,
         journal: &J::View,
@@ -592,8 +595,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if self.primary_of(header.view) != Some(from) {
             return self.drop_plan(Diagnostic::FuseRefusal, kind);
         }
-        // The primary addressed by its own envelope: the leader's fuse
-        // handling is a later item, so the envelope drops here.
+        // The primary addressed by its own envelope: the leader's own
+        // proposals are journaled at the builder
+        // ([`Self::plan_fuse_batch`]), never delivered back to itself, so
+        // a self-addressed envelope is foreign and drops.
         if self.primary_of(header.view) == Some(self.own) {
             return self.drop_plan(Diagnostic::FuseRefusal, kind);
         }

@@ -9,8 +9,9 @@
 //! era, each proposed through [`plan_step_proposal`] — the fuse envelope
 //! when the step packs at least two operations within the envelope budget,
 //! the ordinary establishing `Prepare` otherwise
-//! (`docs/uvrr-fuse.md` §4) — exactly as `plan_forced_continuation` drives
-//! the forced sequence.
+//! (`docs/uvrr-fuse.md` §4). The forced-reincarnation machine steps its own
+//! sequence the same way — one step per era on a tick — through
+//! [`plan_reconfigure`] (§8 of the fuse doc).
 //!
 //! The machine is volatile like every attempt state: a leader crash discards
 //! it, and the dumb-operator contract hands continuation to the operator — a
