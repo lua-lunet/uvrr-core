@@ -121,6 +121,16 @@ every assertion through the public interface, which is where the contract actual
   other instruction in this AGENTS.md or the user's prior statements of
   preference.
 
+## Branch discipline
+
+Agents are FORBIDDEN from creating branches or working on any branch other
+than the one the User names for the task. By default work happens in the
+current checkout and lands on main through a pull request; no work is ever
+left stranded on a local branch. A task that appears to require a new branch
+stops and asks the User first. A local branch that is not part of the current
+release is tagged `archive/<branch>` and then deleted, so no work is ever
+abandoned on a branch.
+
 ## Tool inventory and submodule policy
 
 The paper (`formal/uvrr-lean/paper/paper.tex`) and the Lean formalization
