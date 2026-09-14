@@ -278,10 +278,12 @@ Every rule has a test that can fail. The matrix:
 `ABDICATE` is the administration verb of the alphabet. It is a reconfiguration
 message sent by an administrator to the leader; it is not a folded batch
 operation and it never changes a weight. Its two fields are the CAS pair: the
-era the sender believes the cluster is in, and the era the cluster should move
-to.
+view the sender believes the cluster is in, and the view the cluster should
+move to. The CAS pair is in succession terms: the succession order over the
+configuration's members names each view's primary, so the target view names
+the successor the administrator wants.
 
-**Obligations of the sender.** The message names both eras and is addressed to
+**Obligations of the sender.** The message names both views and is addressed to
 the current leader. The sender performs no protocol participation: the
 validation function below is the only thing that turns an abdication into
 protocol traffic.
@@ -290,22 +292,22 @@ protocol traffic.
 the cluster membership and returns the standard protocol messages to send, or a
 named refusal. It checks, in order:
 
-1. the CAS: the cluster is in the era the message names;
-2. the receiver is the primary of that era;
+1. the CAS: the cluster is in the view the message names;
+2. the receiver is the primary of that view;
 3. the delta rule: `0 < (target - current) <= N`, where `N` is the member count
    of the current configuration.
 
 The delta rule bounds the bump from both sides. The primary schedule advances
-one node per era along the membership's order, so a legitimate relocation skips
+one node per view along the succession order, so a legitimate relocation skips
 the intervening members: moving the leader from `DC1:a` to `DC3:a` in a cluster
 holding `a,b` per site is a bump of `+4` past `DC1:b`, `DC2:a`, `DC2:b`. The
 upper bound `N` keeps that arithmetic honest: a bump larger than the total set —
-era `1234` asked to become era `2^32` — would waste the era-number space the
-schedule depends on, so it is refused. A non-positive delta is refused: eras do
+view `1234` asked to become view `2^32` — would waste the succession space the
+schedule depends on, so it is refused. A non-positive delta is refused: views do
 not move backwards.
 
 **The transition.** On a valid abdication the leader emits the standard
-view-change messages for the target era — no new wire message exists; the
+view-change messages for the target view — no new wire message exists; the
 abdication is answered by exactly the protocol messages the ordinary era change
 would run. The leader stops being the primary at the same instant: any further
 message it sends is ignored, discarded by the standard membership and fence
