@@ -153,6 +153,31 @@ pub enum Body {
         /// journal held through.
         prepared: Slot,
     },
+    /// The packed Phase2s of one reconfiguration schedule
+    /// (`docs/uvrr-fuse.md` §1): the body carries `count`, then
+    /// `count × SystemOperation` in batch order, while the header carries the
+    /// shared ballot and `first_slot`. Receiving a `Fuse` is defined as
+    /// receiving the equivalent sequence of `Prepare`s at the same ballot.
+    /// No range encodings: count, then the things, one slot at a time.
+    Fuse {
+        /// The schedule's operations, in batch order; the `i`th occupies
+        /// slot `first_slot + i`.
+        ops: Vec<SystemOperation>,
+    },
+    /// An acceptor's acknowledgement of a [`Body::Fuse`]
+    /// (`docs/uvrr-fuse.md` §3): `count`, then one accepted slot per packed
+    /// op, in batch order. No range encodings.
+    FuseOk {
+        /// The accepted slots, in batch order.
+        acks: Vec<Slot>,
+    },
+    /// One committed frontier per packed slot, in batch order
+    /// (`docs/uvrr-fuse.md` §4): `count`, then `count × Slot`. No range
+    /// encodings.
+    CommitBatch {
+        /// The committed frontiers, in batch order.
+        committed: Vec<Slot>,
+    },
 }
 
 /// Whether view-change evidence is ordinary or planned (§8.7.7).
@@ -205,17 +230,20 @@ impl Body {
             Body::GetState { .. } => Tag::GetState,
             Body::NewState { .. } => Tag::NewState,
             Body::Reincarnation { .. } => Tag::Reincarnation,
+            Body::Fuse { .. } => Tag::Fuse,
+            Body::FuseOk { .. } => Tag::FuseOk,
+            Body::CommitBatch { .. } => Tag::CommitBatch,
         }
     }
 
     /// The wire discriminant: the tag's numbering narrowed to one byte.
     ///
     /// The `expect` is unreachable by construction: [`Tag::as_u32`] yields
-    /// 2..=11, and the conversion is a `try_from` rather than a cast because
+    /// 2..=16, and the conversion is a `try_from` rather than a cast because
     /// the crate forbids `as` between integer widths — a tag added past 255
     /// fails loudly here instead of truncating onto the wire.
     fn discriminant(&self) -> u8 {
-        u8::try_from(self.tag().as_u32()).expect("tag discriminants are 2..=11")
+        u8::try_from(self.tag().as_u32()).expect("tag discriminants fit in a u8 (2..=16)")
     }
 }
 
@@ -249,6 +277,44 @@ fn unpack_entries(c: &mut UnpackCursor<'_>) -> Result<Vec<LogEntry>, UnpackError
         entries.push(LogEntry::unpack(c)?);
     }
     Ok(entries)
+}
+
+/// Encoded length of a `u32`-counted sequence of packable things.
+fn counted_packed_len<T: Pack>(items: &[T]) -> usize {
+    // A `Vec` cannot hold enough variable-width items for the sum to overflow
+    // `usize`: each item occupies at least the bytes of the same memory.
+    4 + items.iter().map(Pack::packed_len).sum::<usize>()
+}
+
+/// Writes a `u32` count and then each thing.
+fn pack_counted<T: Pack>(items: &[T], w: &mut PackWriter<'_>) {
+    let count =
+        u32::try_from(items.len()).expect("a sequence beyond u32::MAX items cannot be framed");
+    w.u32(count);
+    for item in items {
+        item.pack(w);
+    }
+}
+
+/// Reads a `u32`-counted sequence in which a zero count is malformed.
+///
+/// A fuse envelope names its things, and naming none is not a batch
+/// (`docs/uvrr-fuse.md` §1): a zero-count envelope is meaningless, so the
+/// decode refuses it rather than yielding an empty batch. No
+/// `with_capacity(count)`: the count is untrusted input, and reserving
+/// against it would let a four-byte prefix demand an unbounded allocation.
+/// Growth is bounded by the bytes actually present, because every item decode
+/// consumes input or fails.
+fn unpack_counted<T: Unpack>(c: &mut UnpackCursor<'_>) -> Result<Vec<T>, UnpackError> {
+    let count = c.u32()?;
+    if count == 0 {
+        return Err(UnpackError::Malformed(Malformed::OutOfDomain));
+    }
+    let mut items = Vec::new();
+    for _ in 0..count {
+        items.push(T::unpack(c)?);
+    }
+    Ok(items)
 }
 
 impl Pack for EraProof {
@@ -345,6 +411,9 @@ impl Pack for Body {
             } => {
                 old.packed_len() + new.packed_len() + committed.packed_len() + prepared.packed_len()
             }
+            Body::Fuse { ops } => counted_packed_len(ops),
+            Body::FuseOk { acks } => counted_packed_len(acks),
+            Body::CommitBatch { committed } => counted_packed_len(committed),
         };
         1 + fields
     }
@@ -407,6 +476,9 @@ impl Pack for Body {
                 committed.pack(w);
                 prepared.pack(w);
             }
+            Body::Fuse { ops } => pack_counted(ops, w),
+            Body::FuseOk { acks } => pack_counted(acks, w),
+            Body::CommitBatch { committed } => pack_counted(committed, w),
         }
     }
 }
@@ -428,6 +500,9 @@ impl Unpack for Body {
             9 => Tag::GetState,
             10 => Tag::NewState,
             13 => Tag::Reincarnation,
+            14 => Tag::Fuse,
+            15 => Tag::FuseOk,
+            16 => Tag::CommitBatch,
             _ => return Err(UnpackError::Malformed(Malformed::OutOfDomain)),
         };
         let body = match tag {
@@ -469,6 +544,15 @@ impl Unpack for Body {
                 new: NodeId::unpack(c)?,
                 committed: Slot::unpack(c)?,
                 prepared: Slot::unpack(c)?,
+            },
+            Tag::Fuse => Body::Fuse {
+                ops: unpack_counted(c)?,
+            },
+            Tag::FuseOk => Body::FuseOk {
+                acks: unpack_counted(c)?,
+            },
+            Tag::CommitBatch => Body::CommitBatch {
+                committed: unpack_counted(c)?,
             },
         };
         Ok(body)

@@ -429,6 +429,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
+                // The chunk's committed frontier would split an
+                // establishing batch (`docs/uvrr-fuse.md`): the chunk is
+                // malformed, dropped by name — the fetch cursor resumes
+                // the range.
+                Err(CommitFold::SplitBatch) => {
+                    return self.drop_plan(Diagnostic::FuseRefusal, kind);
+                }
                 Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
             };
         let candidate = self.candidate_with(

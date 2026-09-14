@@ -612,6 +612,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
+                // The installed frontier would split an establishing
+                // batch (`docs/uvrr-fuse.md`): the offer is malformed,
+                // dropped by name — the stalled-offer machinery is the
+                // repair.
+                Err(CommitFold::SplitBatch) => {
+                    return self.drop_plan(Diagnostic::FuseRefusal, kind);
+                }
                 Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
             };
         let candidate =
@@ -717,6 +724,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Ok(config) => config,
             Err(CommitFold::Unavailable(slot)) => {
                 return Err(PlanRefusal::JournalEntryUnavailable { slot });
+            }
+            // The selected frontier would split an establishing batch
+            // (`docs/uvrr-fuse.md`): the evidence is malformed, the
+            // attempt installs nothing — the offer is dropped by name
+            // and the node stays fenced for a fresh attempt.
+            Err(CommitFold::SplitBatch) => {
+                return Ok(WinOutcome::Installed(Box::new(
+                    self.drop_plan(Diagnostic::FuseRefusal, kind)?,
+                )));
             }
             Err(CommitFold::Breach { .. }) => {
                 return Ok(WinOutcome::Installed(Box::new(self.breach_plan(kind)?)));
