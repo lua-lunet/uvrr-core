@@ -13,43 +13,177 @@
 //! channel; a single core thread owns all state and is the only writer to
 //! stdout, so there is no lock around the replica.
 //!
-//! # Durability stance (§7)
+//! # Durability: two modes, one host
 //!
-//! The node runs [`Stability::Volatile`] and persists nothing. That is safe
-//! because of the genesis ruling (§1.3): every construction — first boot or
-//! kill-nemesis restart alike — starts fenced (`Joining` on provision,
-//! `Restarting` on reopen), and a node
-//! becomes `Normal` only through the bootstrap adoption (§4). A voter whose
-//! volatile state vanished while retaining authority is unrepresentable in
-//! this host: a restarted node rejoins fenced, and the next view change
-//! deposes any stale primary.
+//! The bench host has two durability modes, fixed by the environment at
+//! init:
+//!
+//! - **Volatile — the default.** `MAELSTROM_VRR_STATE_DIR` unset or
+//!   empty: no store at all — no file is opened, written or fsynced, and
+//!   every construction takes the [`Stability::Volatile`] provision path:
+//!   first boot or kill-nemesis restart alike provisions fenced
+//!   `Joining` (the genesis ruling, §1.3), and a node becomes `Normal`
+//!   only through the bootstrap adoption (§4). A voter whose volatile
+//!   state vanished while retaining authority is unrepresentable in this
+//!   host: a restarted node rejoins fenced, and the next view change
+//!   deposes any stale primary. A kill loses the process's state; the
+//!   survivors inside the fault bound keep serving.
+//! - **Persisted — opt-in.** `MAELSTROM_VRR_STATE_DIR` set: the state dir
+//!   is the persistence home, and the write-through barrier and the
+//!   marker machine below govern it. The state file carries exactly
+//!   what the core considers durable: the §5 persisted progress record,
+//!   the journal's retained history, and the §2 four-superblock
+//!   identity the marker machine transitions. A kill loses at most the
+//!   in-flight input; every effect the client or a peer ever observed
+//!   rests on a file the host fsynced first.
+//!
+//! # The persisted mode's write-through (§7)
+//!
+//! In both modes the node runs [`Stability::Volatile`] — the core's
+//! statement that effects release at `publish`. In the persisted mode the
+//! host enforces the durability ordering itself, between publish and
+//! observability: after every published transition the host rewrites the
+//! node's state file (temp file, fsync, atomic rename, fsync of the
+//! directory — the §7 `Forced` barrier shape) and only then routes any
+//! released effect.
+//!
+//! The stability handshake stays `Volatile` because it is the only level
+//! whose contract this host can discharge honestly: every other level parks
+//! each transition behind an [`Effect::Persist`] intent, and the parked
+//! transition — the would-be durable state the host would have to write —
+//! is not observable through the core's public surface (the plan's candidate
+//! and journal mutation are consumed by `publish`; `PublishOutcome::Parked`
+//! releases only the intent's revision and ranges). A host outside the
+//! crate cannot build the state it would be confirming, so the core's
+//! parked protocol cannot be selected without confirming a barrier the host
+//! cannot actually build. The honest equivalent is the host-side barrier
+//! above: same ordering, enforced where the effects become observable.
+//! (Reported core limitation, not papered over; see the repository report.)
+//!
+//! # The marker machine (the persisted mode's restart discipline)
+//!
+//! In the persisted mode the state dir is the persistence home, and the
+//! state file's four superblock copies are the core's marker transition
+//! machine — the host invents no rule, it writes the markers exactly
+//! where the machine puts them (startup and shutdown only; the
+//! write-through below carries them untouched in between):
+//!
+//! - **T1, a clean stop (stdin EOF):** [`SuperblockCopies::begin_stop`]
+//!   writes `Stopping` 4x, durable; the host then drains — flushes the
+//!   WALs and grids, this store's one state file its own WAL and grid,
+//!   so the drain is the file's fsync — strictly between the marker
+//!   writes; [`SuperblockCopies::finish_stop`] writes `Stopped` 4x. The
+//!   marker order is the drain's proof: a `Stopped` copy vouches for the
+//!   WAL under it.
+//! - **T2, a clean restart.** A boot whose quorum read (the core's
+//!   [`SuperblockCopies::restart`]) sees 2-of-4 `Stopped` has the
+//!   transition's proof — the drain completed, no amnesiac risk — so
+//!   the node continues under the same identity and the boot writes
+//!   `Restarting` 4x.
+//! - **T3, a resurrect.** No stopped quorum — a crash, a torn marker
+//!   set, or death mid-join — means the identity is dead: the machine
+//!   bumps it and the boot writes `Joining` 4x. The host reopens under
+//!   the bumped identity and reports `Input::Reincarnate { old }` —
+//!   from which point the core's reincarnation machinery owns the
+//!   restart: the announcement (§4), the leader's forced weight
+//!   sequence (§5, one era per batch), and the re-announce this host
+//!   re-drives on every tick until the identity is a voting member
+//!   again (§8).
+//!
+//! A first life writes its boot markers (`Joining`, the genesis
+//! incarnation) before `init_ok` is answered, and a running node's
+//! markers hold its boot write until the next clean stop — so a kill
+//! leaves exactly the no-controlled-shutdown evidence the next boot
+//! needs. The bump is durable before it is announced: the write-through
+//! commits the rewritten copies before the announcement's effects
+//! route, so a crash between the bump and the announcement replays the
+//! same bump — the decision carries the pair (§2's continuation
+//! commitment).
+//!
+//! Torn or corrupt state files are crash artifacts, not inputs: the host
+//! refuses the reopen by name (the core's [`LifecycleRefusal`] path),
+//! answers `error`, and exits nonzero so Jepsen restarts the node. Never
+//! a panic.
+//!
+//! # Identity mapping (host-side, transparent to Maelstrom)
+//!
+//! The core's `NodeId` space is the identity space the bump moves in; the
+//! Maelstrom transport names a fixed roster. The host maps between them
+//! ([`Identity`]): a genesis identity is its sorted-roster position, a
+//! bumped identity is `incarnation * STRIDE + position`, and the low bits
+//! always resolve a core identity back to the Maelstrom node string it
+//! reincarnated under. A `Reincarnation(old, new)` announcement remaps the
+//! sender's transport id onto the announced new identity (§6's attribution
+//! rule, enforced host-side); before an announcement arrives, traffic from
+//! a restarted node is attributed to its genesis identity — the boot fence
+//! and the durable identity the node carries make that the same stance the
+//! provision-fresh host already took, and the announcement closes it.
 //!
 //! # Time (S4)
 //!
 //! The core reads no clock; the host owns time. This host's clock is a
 //! single `u64` counter, bumped once per driven input and carried as
 //! [`TimedInput::at`].
+//!
+//! # Membership verbs (§8.7)
+//!
+//! Four Maelstrom message kinds drive cluster making through the core's
+//! public [`Input::Reconfigure`] path — the §8.7.2 pre-proposal gates are
+//! the core's, and every core refusal becomes a named Maelstrom `error`,
+//! never a crash:
+//!
+//! - `join {node_id}` — admit an already-running bench node at weight 0
+//!   ([`SystemOperation::Join`], stop-the-world). The bench roster is fixed
+//!   by `node_ids`, so a join naming an id outside the roster is refused by
+//!   the host (`malformed-request`, code 12) before the core is touched; a
+//!   join of a member the configuration already holds is refused by the
+//!   fold itself.
+//! - `promote {node_id}` — one weight step toward voting
+//!   ([`SystemOperation::Increment`]); takes the §8.7.6 pivot when one
+//!   exists for this leader, and falls back to stop-the-world when the
+//!   leader is non-pivotal — a latency outcome, not an error.
+//! - `demote {node_id}` — one weight step down ([`SystemOperation::Decrement`],
+//!   stop-the-world).
+//! - `leave {node_id}` — remove a weight-0 member ([`SystemOperation::Leave`],
+//!   stop-the-world); the canonical departure is `demote` to 0 then `leave`
+//!   of the same node.
+//!
+//! A verb is a client RPC like any other: a node that does not lead
+//! forwards it once, exactly as the lin-kv path does. The reply is not the
+//! proposal's: it leaves when the establishing operation COMMITS and the
+//! era folds on this node (§8.7.1), and every reply — `*_ok` or `error` —
+//! echoes the node's current configuration view: the established era, the
+//! current view, and the member order with weights. A refusal is definite
+//! (the gates run before the proposal; the operation never entered the
+//! log); a verb whose establishing operation dies uncommitted in a view
+//! change gets no reply at all, which is the honest indeterminate.
 
 mod kv;
 mod proto;
+mod store;
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, Write};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use serde_json::Value;
+use vrr::configuration::{SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, Stability};
-use vrr::ids::{NodeId, Operation, OperationId, Tick};
-use vrr::journal::{Journal, SegmentedLog};
-use vrr::message::Message;
+use vrr::ids::{Era, NodeId, Operation, OperationId, Slot, Tick};
+use vrr::journal::{Journal, LogEntry, Payload, SegmentedLog};
+use vrr::message::{Body, Message};
 use vrr::progress::Status;
 use vrr::quorum::WeightedMajority;
-use vrr::replica::{Input, PlanRefusal, PublishOutcome, Replica, TimedInput, ViewChangeKnobs};
+use vrr::replica::{
+    Input, PlanRefusal, PublishOutcome, Replica, SuperblockCopies, TimedInput, ViewChangeKnobs,
+    construct_pivot,
+};
 use vrr::wire::{Pack, Unpack};
 
 use crate::kv::Kv;
 use crate::proto::{Incoming, KvRequest, KvResponse, Outgoing, error, from_hex, to_hex};
+use crate::store::{NodeState, Store};
 
 /// Scheduler granularity. Everything below is expressed in ticks.
 const TICK: Duration = Duration::from_millis(100);
@@ -57,7 +191,10 @@ const TICK: Duration = Duration::from_millis(100);
 /// the next view (W5: the knob is host policy, uniform across the cluster).
 /// With client traffic flowing, the primary's `Prepare`/`Commit` stream is
 /// the activity evidence and suspicion never fires; the knob only decides
-/// how quickly a genuinely dead primary is deposed.
+/// how quickly a genuinely dead primary is deposed. A `Restarting` node —
+/// the marker machine's clean-reopen boot — suspects through the same
+/// knob like any backup (the core's plan-tick ruling), so the host arms
+/// no first fence of its own.
 const PRIMARY_TIMEOUT_TICKS: u64 = 25;
 
 /// The replica this host runs: the default journal and the default quorum
@@ -107,8 +244,98 @@ fn main() {
         match event {
             Event::Message(message) => node.on_message(message),
             Event::Tick => node.on_tick(),
-            Event::Eof => return,
+            // A clean stop (the marker machine's T1, persisted mode):
+            // the markers walk `Stopping` → drain → `Stopped`, so the
+            // next init under the same state dir reads the stopped
+            // quorum and reopens cleanly under the same identity (T2).
+            // A kill leaves the boot write in the file: the next init
+            // reads no stopped quorum and resurrects (T3). The volatile
+            // mode has nothing to stop; EOF is just exit.
+            Event::Eof => {
+                node.clean_shutdown();
+                return;
+            }
         }
+    }
+}
+
+/// The stride between one node's consecutive identities. A genesis identity
+/// is its sorted-roster position; a bumped identity is
+/// `incarnation * STRIDE + position`, so identities never collide across
+/// nodes and never wrap — the bump is checked, and an identity past the
+/// `u32` space is a named refusal (§2's bump refuses rather than wraps).
+const STRIDE: u32 = 1 << 24;
+
+/// The host-side identity map: the core's `NodeId` space is the space the
+/// identity bump moves in; the Maelstrom transport names a fixed roster.
+/// Transparent to Maelstrom: a bumped internal identity resolves to the
+/// same Maelstrom node string it reincarnated under, and traffic from a
+/// node string resolves to the identity the host currently attributes to
+/// it (the genesis position until a `Reincarnation` announcement remaps
+/// it, §4, §6).
+#[derive(Default)]
+struct Identity {
+    /// The sorted genesis roster, fixed by `node_ids` (§8.7.2's genesis
+    /// order); the low bits of every core identity name a position in it.
+    roster: Vec<String>,
+    /// The transport attribution the host currently holds per Maelstrom
+    /// id, learned at each observed announcement.
+    current: HashMap<String, NodeId>,
+}
+
+impl Identity {
+    /// The genesis identity of the node at roster position `index`.
+    fn genesis(index: usize) -> NodeId {
+        NodeId(u32::try_from(index).expect("a roster position fits the identity space"))
+    }
+
+    /// The identity the node at roster position `position` carries in
+    /// incarnation `incarnation` (genesis is incarnation 0). Checked:
+    /// the identity space is refused, never wrapped.
+    fn of(incarnation: u64, position: u32) -> Option<NodeId> {
+        let incarnations = u64::from(u32::MAX / STRIDE);
+        if incarnation > incarnations {
+            return None;
+        }
+        let base = u32::try_from(incarnation).ok()?.checked_mul(STRIDE)?;
+        Some(NodeId(base.checked_add(position)?))
+    }
+
+    /// The Maelstrom node string a core identity resolves to: the roster
+    /// position carried in the low bits. Total over every identity the
+    /// core can name — genesis and bumped alike — and `None` for an
+    /// identity outside the roster's reach, which the transport drops.
+    fn string_of(&self, id: NodeId) -> Option<&str> {
+        self.roster
+            .get((id.0 % STRIDE) as usize)
+            .map(String::as_str)
+    }
+
+    /// The identity the host's transport attributes an incoming datagram
+    /// to: what it last learned for the sender, else the sender's genesis
+    /// position.
+    fn attributed(&self, src: &str) -> Option<NodeId> {
+        self.current.get(src).copied().or_else(|| {
+            self.roster
+                .iter()
+                .position(|member| member == src)
+                .map(Identity::genesis)
+        })
+    }
+
+    /// The transport remap a `Reincarnation(old, new)` announcement
+    /// carries (§6): the restarted node announced the pair from its
+    /// transport id, so the transport id now names `new`. Refused when
+    /// the announcement's `old` does not resolve to the sender's own
+    /// transport id — the host does not move another node's traffic on
+    /// the announcer's word.
+    fn remap(&mut self, src: &str, old: NodeId, new: NodeId) -> bool {
+        let speaks_for = self.string_of(old).is_some_and(|string| string == src);
+        if !speaks_for {
+            return false;
+        }
+        self.current.insert(src.to_owned(), new);
+        true
     }
 }
 
@@ -127,10 +354,26 @@ enum Waiter {
     },
 }
 
+/// A membership verb proposed and accepted, whose answer still waits: the
+/// establishing operation commits only through a quorum, and the era folds
+/// exactly there (§8.7.1). The request names the successor era it watches
+/// and the slot its establishing operation accepted; the reply leaves when
+/// that era's record names that slot.
+struct PendingMembership {
+    /// The era the establishing operation establishes once it commits.
+    watch_era: Era,
+    /// The slot the proposal accepted.
+    slot: Slot,
+    /// Where the answer goes.
+    waiter: Waiter,
+    /// The reply body's type: the verb's `*_ok`.
+    reply_kind: String,
+}
+
 #[derive(Default)]
 struct NodeRunner {
     id: String,
-    members: Vec<String>,
+    identity: Identity,
     replica: Option<Node>,
     kv: Kv,
     next_msg_id: u64,
@@ -142,6 +385,23 @@ struct NodeRunner {
     /// exactly this pair, so an `Effect::Apply` correlates back to the
     /// Maelstrom client that is waiting.
     waiting: HashMap<(u64, u64), Waiter>,
+    /// Membership verbs proposed but not yet committed: the establishing
+    /// operation's slot and the era to watch for its fold.
+    pending: Vec<PendingMembership>,
+    /// The persistence home, when the node opts in:
+    /// `MAELSTROM_VRR_STATE_DIR` set at init. `None` is the volatile
+    /// default — no store, no file I/O; the provision path is the
+    /// historical one, and no write is ever issued.
+    store: Option<Store>,
+    /// The §2 four-superblock copies this node carries, written on every
+    /// persist. `None` before the first init completes — and always in
+    /// the volatile mode, which carries no restart model and writes
+    /// nothing.
+    copies: Option<SuperblockCopies>,
+    /// The old identity of a dirty restart whose bump is announced (§4)
+    /// and re-announced on every tick (§8) until the identity is a voting
+    /// member again. `None` on a fresh provision or a clean reopen.
+    announce: Option<NodeId>,
 }
 
 impl NodeRunner {
@@ -152,10 +412,21 @@ impl NodeRunner {
             "proxy" => self.on_proxy(&message),
             "proxy_reply" => self.on_proxy_reply(&message),
             "read" | "write" | "cas" => self.on_client(&message),
+            "join" | "promote" | "demote" | "leave" => self.on_membership(&message),
             other => eprintln!("ignoring unsupported message type {other}"),
         }
+        self.flush_membership();
     }
 
+    /// The init handshake: parse the roster, take the durability mode the
+    /// environment selects (volatile default, persisted opt-in), and — in
+    /// the persisted mode — decide the restart (§2): provision a first
+    /// life, or reopen the durable evidence — cleanly (the stopped
+    /// quorum, T2) under the same identity, or dirty (no stopped
+    /// quorum, T3) under the bumped identity,
+    /// whose restart the core's reincarnation machinery then owns. A
+    /// state file the host cannot vouch for is the reopen refusal path:
+    /// named, answered `error`, exit nonzero.
     fn on_init(&mut self, message: &Incoming) {
         let node_id = message
             .field("node_id")
@@ -175,6 +446,50 @@ impl NodeRunner {
         // The genesis order is the sorted membership; the node's own
         // `NodeId` is its position in that array.
         members.sort();
+        self.id = node_id.clone();
+        self.identity = Identity {
+            roster: members.clone(),
+            current: HashMap::new(),
+        };
+        let Some(index) = members.iter().position(|member| member == &node_id) else {
+            eprintln!("cannot provision replica for {node_id}");
+            if let Some(msg_id) = message.msg_id() {
+                self.reply(
+                    &message.src,
+                    msg_id,
+                    serde_json::json!({
+                        "type": "error",
+                        "code": error::TEMPORARILY_UNAVAILABLE,
+                        "text": "membership rejected",
+                    }),
+                );
+            }
+            return;
+        };
+        // The mode selection: a set, non-empty `MAELSTROM_VRR_STATE_DIR`
+        // opts the node into the persisted mode; unset or empty is the
+        // volatile default — no store, no file I/O, the provision path
+        // below.
+        self.store = match std::env::var("MAELSTROM_VRR_STATE_DIR") {
+            Ok(dir) if !dir.is_empty() => match Store::open(std::path::Path::new(&dir), &node_id) {
+                Ok(store) => Some(store),
+                Err(reason) => self.refuse_node(
+                    message,
+                    format!("the state dir {dir} is unusable: {reason}"),
+                ),
+            },
+            // Unset or empty: the volatile default. No store is opened and
+            // no file is ever touched; the absent-evidence arm below takes
+            // the historical provision path.
+            _ => None,
+        };
+        let loaded = match self.store.as_mut() {
+            Some(store) => store.load(),
+            None => Err(store::StoreError::Absent),
+        };
+        let genesis_order = (0..members.len())
+            .map(Identity::genesis)
+            .collect::<Vec<_>>();
 
         let knobs = ViewChangeKnobs {
             primary_timeout: PRIMARY_TIMEOUT_TICKS,
@@ -183,64 +498,324 @@ impl NodeRunner {
             // never a correctness input.
             view_change_budget: usize::MAX,
         };
-        let built = members
-            .iter()
-            .position(|member| member == &node_id)
-            .and_then(|index| {
-                let own = NodeId(u32::try_from(index).ok()?);
-                let genesis_order = (0..members.len())
-                    .map(|i| u32::try_from(i).map(NodeId).ok())
-                    .collect::<Option<Vec<_>>>()?;
-                Some((own, genesis_order))
-            })
-            .and_then(|(own, genesis_order)| {
-                // Always `provision`, never `reopen`: this host persists
-                // nothing, and the fenced `Joining` start is the honest
-                // statement of that (see the module docs).
-                Node::provision(
+
+        match loaded {
+            Err(store::StoreError::Absent) => {
+                // A first life — and the volatile default's every life:
+                // the genesis ruling, exactly as the unpersisted host ran
+                // it. In the persisted mode the state file is written with
+                // the first life's boot markers (`Joining`, the genesis
+                // incarnation) before `init_ok` is answered.
+                let own = Identity::genesis(index);
+                match Node::provision(
                     own,
                     genesis_order,
                     WeightedMajority,
                     SegmentedLog::new(),
                     Stability::Volatile,
                     knobs,
-                )
-                .ok()
-            });
-
-        match built {
-            Some(replica) => {
-                self.id = node_id;
-                self.members = members;
-                self.replica = Some(replica);
+                ) {
+                    Ok(replica) => {
+                        eprintln!(
+                            "vrr-init: node {node_id} provisions a fresh identity (no persisted state)"
+                        );
+                        self.replica = Some(replica);
+                        if self.store.is_some() {
+                            self.copies = Some(fresh_copies());
+                        }
+                    }
+                    Err(reason) => {
+                        self.refuse_node(message, format!("provision refused: {reason:?}"))
+                    }
+                }
             }
-            None => {
-                eprintln!("cannot provision replica for {node_id}");
-                if let Some(msg_id) = message.msg_id() {
-                    self.reply(
-                        &message.src,
-                        msg_id,
-                        serde_json::json!({
-                            "type": "error",
-                            "code": error::TEMPORARILY_UNAVAILABLE,
-                            "text": "membership rejected",
-                        }),
+            Ok(state) => {
+                // The durable evidence names a cluster: it must name THIS
+                // one, or the reopen would reconstruct a configuration the
+                // roster cannot answer.
+                if state.roster != members {
+                    self.refuse_node(
+                        message,
+                        format!(
+                            "the persisted state names roster {:?}, not the init's {:?}",
+                            state.roster, members
+                        ),
                     );
                 }
-                return;
+                self.reopen_node(message, state, index, knobs);
+            }
+            Err(store::StoreError::Corrupt(reason)) => {
+                // A torn or corrupt file is a crash artifact: the core's
+                // reopen refusal path — a named refusal, answered `error`,
+                // nonzero exit so Jepsen restarts the node.
+                self.refuse_node(
+                    message,
+                    format!("the persisted state is unreadable: {reason}"),
+                );
             }
         }
 
+        // The boot write, durable before the node answers anything: the
+        // first life's `Joining`, or the marker machine's boot markers the
+        // reopen decision below returned. The volatile mode has no file
+        // to write.
+        if let Err(reason) = self.write_state() {
+            self.refuse_node(message, format!("the state file is unwritable: {reason}"));
+        }
         if let Some(msg_id) = message.msg_id() {
             self.reply(&message.src, msg_id, serde_json::json!({"type": "init_ok"}));
         }
     }
 
-    fn on_peer(&mut self, message: &Incoming) {
-        let Some(from) = self.index_of(&message.src) else {
-            eprintln!("peer message from unknown node {}", message.src);
+    /// The boot decision on durable evidence — the marker machine's own
+    /// ruling, not the host's (§2's superblocks; the machine's T2/T3):
+    /// rebuild the journal, the era table and the application from the
+    /// file, hand the four copies to [`SuperblockCopies::restart`], and
+    /// reopen as the decision table says — a stopped quorum continues
+    /// under the same identity (`Restarting`, no announcement), anything
+    /// else resurrects under the bumped identity (`Joining`,
+    /// announcing). Every refusal is the reopen refusal path: named,
+    /// answered `error`, exit nonzero.
+    fn reopen_node(
+        &mut self,
+        message: &Incoming,
+        state: NodeState,
+        index: usize,
+        knobs: ViewChangeKnobs,
+    ) {
+        let (decision, rewritten) = match state.copies.restart() {
+            Ok((decision, rewritten)) => (decision, rewritten),
+            Err(vrr::replica::RestartRefusal::QuorumLost) => self.refuse_node(
+                message,
+                "the marker set is torn: no identity cohort reaches the open threshold".into(),
+            ),
+            Err(vrr::replica::RestartRefusal::Exhausted(incarnation)) => self.refuse_node(
+                message,
+                format!(
+                    "the identity space is spent at incarnation {}",
+                    incarnation.0
+                ),
+            ),
+        };
+        let position = u32::try_from(index).expect("a roster position fits");
+        let (own, crashed) = match decision {
+            vrr::replica::RestartDecision::Continue { identity } => {
+                // T2: the stopped quorum proved the drain — the same
+                // identity continues, complete state, no amnesia.
+                let own = match Identity::of(identity.0, position) {
+                    Some(own) => own,
+                    None => self.refuse_node(
+                        message,
+                        format!(
+                            "the persisted incarnation {} is outside the identity space",
+                            identity.0
+                        ),
+                    ),
+                };
+                (own, None)
+            }
+            vrr::replica::RestartDecision::Bump { old, new } => {
+                // T3: no stopped quorum — the identity is dead, the bump
+                // is the machine's, and the announcement follows.
+                let own = match Identity::of(new.0, position) {
+                    Some(own) => own,
+                    None => self.refuse_node(
+                        message,
+                        format!(
+                            "the identity space is spent: incarnation {} exceeds the u32 identity space",
+                            new.0
+                        ),
+                    ),
+                };
+                let crashed = match Identity::of(old.0, position) {
+                    Some(crashed) => crashed,
+                    None => self.refuse_node(
+                        message,
+                        format!(
+                            "the superseded incarnation {} is outside the identity space",
+                            old.0
+                        ),
+                    ),
+                };
+                (own, Some(crashed))
+            }
+        };
+        let mut journal = SegmentedLog::new();
+        if let Some(first) = state.entries.first() {
+            if first.slot != VOID_SLOT {
+                self.refuse_node(
+                    message,
+                    format!(
+                        "the persisted history begins at slot {}, not the genesis anchor {}",
+                        first.slot.0, VOID_SLOT.0
+                    ),
+                );
+            }
+            if let Err(reason) = journal.install_suffix(first.slot, &state.entries) {
+                self.refuse_node(
+                    message,
+                    format!("the persisted history is not contiguous: {reason:?}"),
+                );
+            }
+        }
+        let table = match fold_table(&state.entries, state.progress.committed) {
+            Ok(table) => Arc::new(table),
+            Err(reason) => self.refuse_node(message, reason),
+        };
+        // The application state the applied frontier names is rebuilt from
+        // the persisted history (replay-safe: `kv.rs`); the core re-emits
+        // the committed-but-unapplied upcalls itself.
+        for entry in &state.entries {
+            if entry.slot > state.progress.applied {
+                break;
+            }
+            if let Payload::Operation { id, payload } = &entry.payload {
+                let _ = self.execute(*id, payload);
+            }
+        }
+        match Node::reopen(
+            own,
+            WeightedMajority,
+            journal,
+            state.progress,
+            table,
+            Stability::Volatile,
+            knobs,
+        ) {
+            Ok(replica) => {
+                self.replica = Some(replica);
+                // The boot write the machine returned: `Restarting` 4x on
+                // the continue path, the bumped `Joining` 4x on the bump
+                // path. The write-through below makes it durable before
+                // `init_ok` is answered — and, on the bump path, before
+                // the announcement routes (§2's continuation commitment).
+                self.copies = Some(rewritten);
+                if let Some(crashed) = crashed {
+                    eprintln!(
+                        "vrr-init: node {} reopens dirty: identity bumps {} -> {} (the core's reincarnation machinery owns the restart)",
+                        self.id, crashed.0, own.0
+                    );
+                    self.announce = Some(crashed);
+                    self.drive(Input::Reincarnate { old: crashed });
+                } else {
+                    eprintln!(
+                        "vrr-init: node {} reopens cleanly (the stopped quorum proved the drain; identity {})",
+                        self.id, own.0
+                    );
+                }
+            }
+            Err(reason) => self.refuse_node(message, format!("reopen refused: {reason:?}")),
+        }
+    }
+
+    /// A restart this node cannot honestly enter: the named refusal path —
+    /// the diagnostic on stderr, `error` to the init request, nonzero exit
+    /// so Jepsen restarts the node. Never a panic.
+    fn refuse_node(&mut self, message: &Incoming, why: String) -> ! {
+        eprintln!("vrr-init: node {} refuses to start: {why}", self.id);
+        if let Some(msg_id) = message.msg_id() {
+            self.reply(
+                &message.src,
+                msg_id,
+                serde_json::json!({
+                    "type": "error",
+                    "code": error::TEMPORARILY_UNAVAILABLE,
+                    "text": format!("node refuses to start: {why}"),
+                }),
+            );
+        }
+        std::process::exit(1);
+    }
+
+    /// The write-through barrier: the file carries the state the core just
+    /// published BEFORE any released effect is routed — the invariant that
+    /// makes a kill lose at most the in-flight input. A failure is
+    /// determinate: the node stops (exit nonzero, Jepsen restarts it from
+    /// the last good file) rather than serving on a store it cannot vouch
+    /// for.
+    fn persist(&mut self) {
+        if self.store.is_none() || self.replica.is_none() {
+            return;
+        }
+        if let Err(reason) = self.write_state() {
+            eprintln!("vrr-init: the state file failed write-through: {reason}");
+            std::process::exit(1);
+        }
+    }
+
+    /// Builds the snapshot and writes it: the first life creates the
+    /// whole file; an armed store commits the delta — the new entries
+    /// append, then the header slot rewrites (the store's own barrier).
+    fn write_state(&mut self) -> Result<(), String> {
+        let Some(store) = self.store.as_mut() else {
+            return Ok(());
+        };
+        let Some(replica) = &self.replica else {
+            return Ok(());
+        };
+        let Some(copies) = self.copies else {
+            return Ok(());
+        };
+        let progress = vrr::replica::PersistedProgress::from(replica.progress());
+        let view = replica.journal().view();
+        if store.armed() {
+            store.commit(copies, progress, &view)
+        } else {
+            let state = NodeState::snapshot(copies, self.identity.roster.clone(), progress, &view)?;
+            store.create(&state)
+        }
+    }
+
+    /// A clean stop — the marker machine's T1: [`SuperblockCopies::begin_stop`]
+    /// writes `Stopping` 4x, the drain flushes the WALs and grids
+    /// strictly between the marker writes, and
+    /// [`SuperblockCopies::finish_stop`] writes `Stopped` 4x — the
+    /// drain's proof, so a `Stopped` copy vouches for the WAL under it.
+    /// Any failure is logged, not fatal: the markers keep the honest
+    /// reading (the boot write, no stopped quorum) and the next init
+    /// resurrects (T3) — never a `Stopped` claim the drain did not earn.
+    /// The volatile mode carries no markers; EOF is just exit.
+    fn clean_shutdown(&mut self) {
+        if self.replica.is_none() {
+            return;
+        }
+        let Some(copies) = self.copies else {
             return;
         };
+        // T1a: the `Stopping` write, durable before the drain.
+        self.copies = Some(copies.begin_stop());
+        if let Err(reason) = self.write_state() {
+            eprintln!("vrr-init: the clean stop did not write the stopping marker: {reason}");
+            return;
+        }
+        // T1b: the drain — the WALs and grids flushed between the two
+        // marker writes.
+        if let Err(reason) = self.drain() {
+            eprintln!("vrr-init: the clean stop did not drain: {reason}");
+            return;
+        }
+        // T1c: the `Stopped` write, the drain's proof.
+        self.copies = Some(copies.finish_stop());
+        if let Err(reason) = self.write_state() {
+            eprintln!("vrr-init: the clean stop did not write the stopped marker: {reason}");
+        }
+    }
+
+    /// The T1 drain: the WALs and grids flushed. This store's one state
+    /// file is its own WAL and grid, so the drain is the file's fsync —
+    /// the store's own method, never a marker write.
+    ///
+    /// # Errors
+    ///
+    /// The file cannot be flushed: the caller must not write `Stopped`.
+    fn drain(&mut self) -> Result<(), String> {
+        let Some(store) = self.store.as_mut() else {
+            return Ok(());
+        };
+        store.drain()
+    }
+
+    fn on_peer(&mut self, message: &Incoming) {
         let Some(wire) = message
             .field("wire")
             .and_then(Value::as_str)
@@ -251,10 +826,31 @@ impl NodeRunner {
         };
         let decoded = match Message::unpack_from(&wire) {
             Ok(decoded) => decoded,
-            Err(error) => {
-                eprintln!("peer message failed the VRR codec: {error:?}");
+            Err(reason) => {
+                eprintln!("peer message failed the VRR codec: {reason:?}");
                 return;
             }
+        };
+        // Transport attribution. A `Reincarnation(old, new)` announcement
+        // (§4) is attributed to the identity it names: the announcement's
+        // sender is the transport-attributed restarted node, and the pair
+        // is the transport remap (§6) — from here on, the sender's traffic
+        // is attributed to the new identity, and the superseded one's
+        // replies can never regain eligibility.
+        let from = match &decoded.body {
+            Body::Reincarnation {
+                old,
+                new,
+                committed: _,
+                prepared: _,
+            } if self.identity.remap(&message.src, *old, *new) => *new,
+            _ => match self.identity.attributed(&message.src) {
+                Some(from) => from,
+                None => {
+                    eprintln!("peer message from unknown node {}", message.src);
+                    return;
+                }
+            },
         };
         self.drive(Input::Peer {
             from,
@@ -314,6 +910,9 @@ impl NodeRunner {
     /// nothing to verify.
     fn submit(&mut self, client_id: u64, request_num: u64, op: &Value, waiter: Waiter) {
         let kind = op.get("type").and_then(Value::as_str).unwrap_or("");
+        if matches!(kind, "join" | "promote" | "demote" | "leave") {
+            return self.submit_membership(kind, op, waiter);
+        }
         let key = op.get("key").cloned().unwrap_or(Value::Null);
         let request = match kind {
             "read" => KvRequest::Read {
@@ -346,7 +945,7 @@ impl NodeRunner {
             // cannot start a forwarding loop.
             let primary = self
                 .primary()
-                .and_then(|id| self.members.get(id.0 as usize).cloned());
+                .and_then(|id| self.identity.string_of(id).map(str::to_owned));
             match (&waiter, primary) {
                 (Waiter::Client { node, msg_id }, Some(primary)) if primary != self.id => {
                     let body = serde_json::json!({
@@ -368,8 +967,8 @@ impl NodeRunner {
 
         let payload = match serde_json::to_vec(&request) {
             Ok(payload) => payload,
-            Err(error) => {
-                eprintln!("cannot encode kv request: {error}");
+            Err(reason) => {
+                eprintln!("cannot encode kv request: {reason}");
                 return;
             }
         };
@@ -400,14 +999,273 @@ impl NodeRunner {
         }
     }
 
+    /// One membership verb, addressed by a client. The verb targets a node
+    /// by `node_id`; the answering path is the KV path's: the addressed
+    /// node submits, a backup forwards once to the primary.
+    fn on_membership(&mut self, message: &Incoming) {
+        let Some(msg_id) = message.msg_id() else {
+            eprintln!("membership verb without msg_id");
+            return;
+        };
+        let waiter = Waiter::Client {
+            node: message.src.clone(),
+            msg_id,
+        };
+        self.submit_membership(message.kind(), &message.body, waiter);
+    }
+
+    /// Submits one membership verb, direct or forwarded. The host's own
+    /// pre-gates run before the core is touched: a verb without a
+    /// `node_id`, or naming an id outside the bench roster (fixed by
+    /// `node_ids`), is a definite malformed request. At the primary the
+    /// verb becomes `Input::Reconfigure` — `Join`/`Decrement`/`Leave` stop
+    /// the world (`pivot: None`), `Increment` takes the §8.7.6 pivot when
+    /// one exists for this leader. The reply is not the proposal's: it
+    /// leaves at the era fold (§8.7.1), so a primary death or a view
+    /// change that drops the uncommitted establishing operation leaves
+    /// the request unanswered — the honest indeterminate. Every core
+    /// refusal is answered as a named Maelstrom error carrying the
+    /// refusal diagnostic, never a crash.
+    fn submit_membership(&mut self, kind: &str, request: &Value, waiter: Waiter) {
+        let Some(target) = request.get("node_id").and_then(Value::as_str) else {
+            self.membership_error(
+                &waiter,
+                error::MALFORMED_REQUEST,
+                "membership verb without a node_id".to_string(),
+            );
+            return;
+        };
+        let Some(node) = self.identity.attributed(target) else {
+            self.membership_error(
+                &waiter,
+                error::MALFORMED_REQUEST,
+                format!("membership verb names {target}, which is not a bench node"),
+            );
+            return;
+        };
+        if !self.leads() {
+            // Forward once. The same ruling as the KV path: a node that
+            // received a forward and still does not lead refuses rather
+            // than bouncing it on.
+            let primary = self
+                .primary()
+                .and_then(|id| self.identity.string_of(id).map(str::to_owned));
+            match (&waiter, primary) {
+                (Waiter::Client { node, msg_id }, Some(primary)) if primary != self.id => {
+                    let body = serde_json::json!({
+                        "type": "proxy",
+                        "client": node,
+                        "client_msg_id": msg_id,
+                        "op": request,
+                    });
+                    self.send(&primary, body);
+                }
+                _ => self.refuse(&waiter, "not the primary"),
+            }
+            return;
+        }
+        let replica = self.replica.as_ref().expect("leads() held a live replica");
+        // A join appends a learner at the end of the succession sequence:
+        // position <= len() is the fold's R11 precondition, and len() of
+        // the current configuration is the only position that appends.
+        let position = replica.progress().config().current().config.len();
+        let operation = match kind {
+            "join" => SystemOperation::Join { node, position },
+            "promote" => SystemOperation::Increment(node),
+            "demote" => SystemOperation::Decrement(node),
+            "leave" => SystemOperation::Leave(node),
+            _ => unreachable!("the dispatch match admits four membership kinds"),
+        };
+        let pivot = match &operation {
+            SystemOperation::Increment(_) => self.pivot_for(&operation),
+            _ => None,
+        };
+        let stepped = self.step(Input::Reconfigure {
+            op: operation.clone(),
+            pivot: pivot.clone(),
+        });
+        let stepped = match (&pivot, stepped) {
+            (Some(_), Err(PlanRefusal::ReconfigureViewExhausted { .. })) => {
+                // The named `v'` is not representable (§8.7.3 forbids
+                // wraparound); the stop-the-world path names no `v'` —
+                // retry without the pivot.
+                self.step(Input::Reconfigure {
+                    op: operation,
+                    pivot: None,
+                })
+            }
+            (_, stepped) => stepped,
+        };
+        match stepped {
+            Ok(effects) => {
+                self.route(effects);
+                let replica = self
+                    .replica
+                    .as_ref()
+                    .expect("an accepted proposal implies a live replica");
+                let progress = replica.progress();
+                let watch_era = progress
+                    .current()
+                    .era
+                    .next()
+                    .expect("an accepted establishing operation has a successor era");
+                self.pending.push(PendingMembership {
+                    watch_era,
+                    slot: progress.accepted(),
+                    waiter,
+                    reply_kind: format!("{kind}_ok"),
+                });
+            }
+            Err(rejection) => {
+                eprintln!("reconfiguration refused: {rejection:?}");
+                self.membership_error(
+                    &waiter,
+                    error::TEMPORARILY_UNAVAILABLE,
+                    format!("reconfiguration refused: {rejection:?}"),
+                );
+            }
+        }
+    }
+
+    /// The concrete pivot for this leader under the fold of `operation`,
+    /// when one exists (§8.7.6). A leader with no legal split gets `None`:
+    /// the stop-the-world fallback is a latency outcome, not an error.
+    fn pivot_for(&self, operation: &SystemOperation) -> Option<vrr::replica::Pivot> {
+        let replica = self.replica.as_ref()?;
+        let progress = replica.progress();
+        let current = progress.config().current();
+        let slot = progress.accepted().next()?;
+        let next = progress.config().extend(operation, slot).ok()?;
+        construct_pivot(
+            &WeightedMajority,
+            &current.config,
+            &next.current().config,
+            replica.own(),
+        )
+    }
+
+    /// A membership refusal: a named Maelstrom error carrying the core's
+    /// refusal diagnostic, echoing the node's current configuration view
+    /// — the same shape the KV path's definite failures answer with.
+    fn membership_error(&mut self, waiter: &Waiter, code: u32, text: String) {
+        let body = serde_json::json!({
+            "type": "error",
+            "code": code,
+            "text": text,
+            "config": self.config_view(),
+        });
+        self.answer(waiter, body);
+    }
+
+    /// Answers every membership request whose establishing operation has
+    /// committed and folded (§8.7.1): the watched era's record names the
+    /// proposal's slot. Runs after every driven input, because the commit
+    /// cascade rides ordinary peer traffic and ticks. An establishing
+    /// operation a view change replaced never establishes anything here —
+    /// whether it committed elsewhere is unknowable from this node, so
+    /// the request gets no answer and the pending entry is dropped.
+    fn flush_membership(&mut self) {
+        if self.pending.is_empty() {
+            return;
+        }
+        let Some(table) = self
+            .replica
+            .as_ref()
+            .map(|replica| Arc::clone(replica.progress().config()))
+        else {
+            self.pending.clear();
+            return;
+        };
+        let view = self.config_view();
+        let mut answered: Vec<(Waiter, String, Value)> = Vec::new();
+        let mut settled: Vec<usize> = Vec::new();
+        for (index, pending) in self.pending.iter().enumerate() {
+            match table.record(pending.watch_era) {
+                Some(record) if record.established_by == pending.slot => {
+                    answered.push((
+                        pending.waiter.clone(),
+                        pending.reply_kind.clone(),
+                        view.clone(),
+                    ));
+                    settled.push(index);
+                }
+                Some(_) => {
+                    eprintln!("membership verb lost: its establishing operation never committed");
+                    settled.push(index);
+                }
+                None => {}
+            }
+        }
+        for index in settled.iter().rev() {
+            self.pending.remove(*index);
+        }
+        for (waiter, reply_kind, config) in answered {
+            let body = serde_json::json!({
+                "type": reply_kind,
+                "config": config,
+            });
+            self.answer(&waiter, body);
+        }
+    }
+
+    /// The node's current configuration view (§8.7.1), read through the
+    /// same public surface the KV path drives: the published progress and
+    /// its era table's newest record — the member order in succession
+    /// sequence, each with its weight, with the current view and era.
+    fn config_view(&self) -> Value {
+        let Some(replica) = self.replica.as_ref() else {
+            return serde_json::json!({ "era": 0, "view_era": 0, "view": 0, "members": [] });
+        };
+        let progress = replica.progress();
+        let current = progress.current();
+        let established = progress.config().current();
+        let members = established
+            .config
+            .order()
+            .iter()
+            .map(|member| {
+                serde_json::json!({
+                    "node": self.identity.string_of(member.node),
+                    "weight": member.weight.0,
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::json!({
+            "era": established.era.0,
+            "view_era": current.era.0,
+            "view": current.view.0,
+            "members": members,
+        })
+    }
+
     fn on_tick(&mut self) {
         let Some(_replica) = &self.replica else {
             return;
         };
 
-        // The tick drives the genesis-primary bootstrap and the view-change
-        // suspicion timeout (S4).
+        // The tick drives the bootstrap promotion path's decisions and the
+        // view-change suspicion timeout (S4).
         self.drive(Input::Tick);
+        // The §8 re-announce: a bumped identity that is not yet a voting
+        // member re-announces on every tick until the forced sequence
+        // promotes it (or a stable leader exists to finish it). The
+        // announcement is idempotent at the leader (§4).
+        if let Some(old) = self.announce {
+            let voting = self.replica.as_ref().is_some_and(|replica| {
+                replica
+                    .progress()
+                    .config()
+                    .current()
+                    .config
+                    .weight_of(replica.own())
+                    .is_some_and(|weight| weight.0 >= 1)
+            });
+            if !voting {
+                self.drive(Input::Reincarnate { old });
+            } else {
+                self.announce = None;
+            }
+        }
     }
 
     /// Whether this node is the `Normal` primary of its current view — the
@@ -445,11 +1303,13 @@ impl NodeRunner {
         }
     }
 
-    /// One plan/publish interval (§7, §12): plan against the published
-    /// state and a journal view, publish the planned transition, hand the
-    /// released effects back. `Volatile` stability always publishes; the
-    /// parked outcome exists for the external-stability modes this host
-    /// never selects.
+    /// One plan/publish interval (§7, §12), closed by the host's own
+    /// write-through barrier: the published state reaches the state file
+    /// (fsynced) BEFORE the released effects are returned for routing, so
+    /// no effect — a peer datagram, an applied answer to a client — is
+    /// observable before what supports it is durable. `Volatile` always
+    /// publishes; the parked outcome cannot arise at `Stability::Volatile`
+    /// and is refused loudly rather than absorbed.
     fn step(&mut self, input: Input) -> Result<Vec<Effect>, PlanRefusal> {
         let Some(replica) = &mut self.replica else {
             return Ok(Vec::new());
@@ -461,7 +1321,10 @@ impl NodeRunner {
         };
         let planned = replica.plan(&timed, &replica.journal().view())?;
         match replica.publish(planned) {
-            Ok(PublishOutcome::Published { effects, .. }) => Ok(effects),
+            Ok(PublishOutcome::Published { effects, .. }) => {
+                self.persist();
+                Ok(effects)
+            }
             Ok(PublishOutcome::Parked { .. }) => {
                 eprintln!("volatile stability never parks a transition");
                 Ok(Vec::new())
@@ -486,9 +1349,12 @@ impl NodeRunner {
                     // The effect's route era is a transport-visible fact
                     // (W1) that matters under overlap mode; this cluster
                     // runs a single era, so routing needs only the
-                    // recipient.
-                    if let Some(peer) = self.members.get(to.0 as usize).cloned() {
-                        self.send_peer(&peer, &message);
+                    // recipient. A core identity the roster's reach cannot
+                    // resolve is a host defect: dropped, loudly.
+                    let peer = self.identity.string_of(to).map(str::to_owned);
+                    match peer {
+                        Some(peer) => self.send_peer(&peer, &message),
+                        None => eprintln!("effect names identity {} outside the roster", to.0),
                     }
                 }
                 Effect::Apply {
@@ -520,7 +1386,12 @@ impl NodeRunner {
                     eprintln!("volatile stability releases no persistence intents")
                 }
                 Effect::AdminResponse { .. } => {
-                    eprintln!("the key-value node receives no admin submissions")
+                    // The admin ingress is the operator CLI's
+                    // (`Input::SubmitPlan`); the bench host submits no
+                    // plans, so no verdict can arrive here. The arm keeps
+                    // the match exhaustive; a verdict that somehow
+                    // arrives is dropped, loudly.
+                    eprintln!("the bench host renders no admin verdicts");
                 }
             }
         }
@@ -539,11 +1410,11 @@ impl NodeRunner {
                 code: error::TEMPORARILY_UNAVAILABLE,
                 text: "replication envelope does not match payload".into(),
             },
-            Err(error) => KvResponse::Failed {
+            Err(reason) => KvResponse::Failed {
                 client_id,
                 request_num,
                 code: error::TEMPORARILY_UNAVAILABLE,
-                text: format!("undecodable payload: {error}"),
+                text: format!("undecodable payload: {reason}"),
             },
         }
     }
@@ -608,7 +1479,7 @@ impl NodeRunner {
                 let body = serde_json::json!({"type": "vrr", "wire": to_hex(&bytes)});
                 self.send(peer, body);
             }
-            Err(error) => eprintln!("cannot encode VRR message: {error:?}"),
+            Err(reason) => eprintln!("cannot encode VRR message: {reason:?}"),
         }
     }
 
@@ -637,17 +1508,52 @@ impl NodeRunner {
                 }
                 let _ = stdout.flush();
             }
-            Err(error) => eprintln!("cannot encode outgoing envelope: {error}"),
+            Err(reason) => eprintln!("cannot encode outgoing envelope: {reason}"),
         }
     }
+}
 
-    fn index_of(&self, node: &str) -> Option<NodeId> {
-        self.members
-            .iter()
-            .position(|member| member == node)
-            .and_then(|index| u32::try_from(index).ok())
-            .map(NodeId)
+/// A fresh four-superblock set (§2): the genesis incarnation carrying
+/// the provision's boot write — `Joining`, the state of a node that is
+/// not yet seated by any transition. A first life's file is born with
+/// it, and a crash before any clean stop reads exactly the
+/// no-controlled-shutdown evidence the next boot needs: no stopped
+/// quorum, so the identity resurrects (T3).
+fn fresh_copies() -> SuperblockCopies {
+    SuperblockCopies {
+        copies: std::array::from_fn(|_| vrr::replica::CopyState {
+            identity: vrr::replica::Incarnation(0),
+            marker: vrr::replica::Marker::Joining,
+        }),
     }
+}
+
+/// The era table a reopen needs, rebuilt from the persisted journal: the
+/// core folds a committed system operation exactly when the commit frontier
+/// covers it (§8.7.1), so replaying every system entry at or below the
+/// persisted committed frontier, in slot order, reproduces the table — the
+/// construction `Node::reopen`'s own documentation prescribes ("the host
+/// reconstructs it from the journal it also persists"). A fold refusal is
+/// persisted history the core would refuse: the reopen refusal path, named.
+fn fold_table(
+    entries: &[LogEntry],
+    committed: Slot,
+) -> Result<vrr::configuration::EraTable, String> {
+    let mut table = vrr::configuration::EraTable::genesis();
+    for entry in entries {
+        if entry.slot > committed {
+            break;
+        }
+        if let vrr::journal::Payload::System(operation) = &entry.payload {
+            table = table.extend(operation, entry.slot).map_err(|reason| {
+                format!(
+                    "the persisted history does not fold at slot {}: {reason:?}",
+                    entry.slot.0
+                )
+            })?;
+        }
+    }
+    Ok(table)
 }
 
 /// `c7` -> 7. Maelstrom client node IDs are `c` followed by an integer.

@@ -18,8 +18,10 @@
 //! real.
 
 use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -34,12 +36,21 @@ fn binary() -> Option<&'static str> {
 /// generous.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// How long a whole scripted cluster may keep serving client traffic.
+/// The membership lifecycle serializes its verbs through the
+/// stop-the-world gate (§8.7.8), so each verb polls through the era
+/// transition in flight — roughly `PRIMARY_TIMEOUT_TICKS` ticks per verb.
+const CLUSTER_TIMEOUT: Duration = Duration::from_secs(90);
+
 /// A spawned node process. Lines for the node go to `to_node`; lines the
-/// node emits arrive parsed on `out`, which a relay may take over.
+/// node emits arrive parsed on `out`, which a relay may take over. Stderr
+/// is either discarded (the default lanes) or relayed onto a channel the
+/// test polls for the host's named lifecycle diagnostics.
 struct Node {
     child: Child,
-    to_node: Sender<String>,
+    to_node: Option<Sender<String>>,
     out: Option<Receiver<Value>>,
+    stderr: Option<Receiver<String>>,
 }
 
 impl Node {
@@ -47,12 +58,50 @@ impl Node {
     // not see through the struct escape, so it is silenced at the spawn site.
     #[allow(clippy::zombie_processes)]
     fn spawn() -> Node {
-        let mut child = Command::new(binary().expect("spawn called with the binary present"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("the adapter binary spawns");
+        Node::spawn_with(None)
+    }
+
+    // `Drop` kills and waits the child; see `spawn`.
+    #[allow(clippy::zombie_processes)]
+    fn spawn_with(state_dir: Option<&str>) -> Node {
+        let mut command = Command::new(binary().expect("spawn called with the binary present"));
+        command.stdin(Stdio::piped()).stdout(Stdio::piped());
+        match state_dir {
+            Some(dir) => {
+                command.env("MAELSTROM_VRR_STATE_DIR", dir);
+                command.stderr(Stdio::piped());
+            }
+            None => {
+                command.stderr(Stdio::null());
+            }
+        }
+        Node::start(command, state_dir.is_some())
+    }
+
+    // `Drop` kills and waits the child; see `spawn`.
+    #[allow(clippy::zombie_processes)]
+    fn spawn_volatile(tmp: &Path) -> Node {
+        let mut command = Command::new(binary().expect("spawn called with the binary present"));
+        command.stdin(Stdio::piped()).stdout(Stdio::piped());
+        // The volatile default, made observable: no state dir reaches the
+        // child (an inherited one is removed), and the system temp root the
+        // node would fall back to is a private directory the test inspects.
+        command.env_remove("MAELSTROM_VRR_STATE_DIR");
+        command.env("TMPDIR", tmp);
+        command.stderr(Stdio::piped());
+        Node::start(command, true)
+    }
+
+    /// Spawns the node process and starts its transport threads. When
+    /// `pipe_stderr` is set, the host's lifecycle diagnostics arrive on a
+    /// channel the test polls.
+    ///
+    /// `zombie_processes` is allowed: the writer and reader threads return
+    /// early on pipe failure by design, and the child's reaping belongs to
+    /// the `Node` lifecycle paths, not to this constructor.
+    #[allow(clippy::zombie_processes)]
+    fn start(mut command: Command, pipe_stderr: bool) -> Node {
+        let mut child = command.spawn().expect("the adapter binary spawns");
         let mut stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
         let (to_node, inbound) = channel::<String>();
@@ -78,16 +127,99 @@ impl Node {
                 }
             }
         });
+        let stderr = pipe_stderr.then(|| {
+            let pipe = child.stderr.take().expect("piped stderr");
+            let (lines, stderr) = channel::<String>();
+            std::thread::spawn(move || {
+                for line in BufReader::new(pipe).lines() {
+                    let Ok(line) = line else { break };
+                    if lines.send(line).is_err() {
+                        return;
+                    }
+                }
+            });
+            stderr
+        });
         Node {
             child,
-            to_node,
+            to_node: Some(to_node),
             out: Some(out),
+            stderr,
+        }
+    }
+
+    /// A kill the way the nemesis does it: SIGKILL, stdin closed, the
+    /// process reaped — the volatile state is lost, the state dir is not.
+    fn kill(&mut self) {
+        self.to_node = None;
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+
+    /// A clean stop: stdin closes, the node's EOF arm walks the marker
+    /// machine's T1 (Stopping → drain → Stopped), and the process exits
+    /// on its own. Panics when the exit is not clean or does not come.
+    fn eof(self) {
+        let mut node = self;
+        node.to_node = None;
+        let deadline = Instant::now() + REPLY_TIMEOUT;
+        while Instant::now() < deadline {
+            match node.child.try_wait() {
+                Ok(Some(status)) => {
+                    assert!(
+                        status.success(),
+                        "the node exited cleanly on stdin EOF: {status}"
+                    );
+                    return;
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                Err(reason) => panic!("the node's exit status is unreadable: {reason}"),
+            }
+        }
+        let _ = node.child.kill();
+        let _ = node.child.wait();
+        panic!("the node did not exit on stdin EOF");
+    }
+
+    /// The first stderr line containing `needle`, within the reply
+    /// timeout. The host's lifecycle diagnostics are the test-visible
+    /// evidence of how an init decided (provision / clean reopen / dirty
+    /// bump).
+    fn stderr_containing(&self, needle: &str) -> String {
+        let stderr = self.stderr.as_ref().expect("this node pipes stderr");
+        let deadline = Instant::now() + REPLY_TIMEOUT;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(remaining > Duration::ZERO, "stderr never said {needle:?}");
+            match stderr.recv_timeout(remaining) {
+                Ok(line) if line.contains(needle) => return line,
+                Ok(_) => {}
+                Err(reason) => panic!("stderr never said {needle:?}: {reason}"),
+            }
+        }
+    }
+
+    /// Waits for the process to exit and returns its status. The refusal
+    /// path exits nonzero right after answering `error`.
+    fn wait_exit(&mut self, timeout: Duration) -> std::process::ExitStatus {
+        let deadline = Instant::now() + timeout;
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(status)) => return status,
+                Ok(None) => {
+                    assert!(Instant::now() < deadline, "the node did not exit in time");
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(reason) => panic!("the node's exit status is unreadable: {reason}"),
+            }
         }
     }
 
     fn send(&self, src: &str, dest: &str, body: Value) {
         let line = json!({"src": src, "dest": dest, "body": body});
         self.to_node
+            .as_ref()
+            .expect("the node accepts input until it is killed")
             .send(line.to_string())
             .expect("the node's writer thread lives");
     }
@@ -122,6 +254,16 @@ impl Node {
 
 impl Drop for Node {
     fn drop(&mut self) {
+        // Closing stdin first gives a live node its clean EOF path (the
+        // T1 clean stop); a dead process cannot take it, and the kill
+        // below reaps whatever remains.
+        self.to_node = None;
+        for _ in 0..20 {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -144,10 +286,18 @@ fn assert_reply(reply: &Value, in_reply_to: u64, kind: &str) -> Value {
     body
 }
 
+/// One peer's input channel: the live end of a spawned node's stdin, and
+/// the label the relay routes peer traffic by.
+type PeerSender = (String, Sender<String>);
+
 /// The scripted transport for a small cluster: relays each node's emitted
-/// lines to the addressee, collecting client replies for assertion.
+/// lines to the addressee, collecting client replies for assertion. A node
+/// the nemesis killed rejoins the transport through [`RelayedCluster::relay`]
+/// under the same label, exactly as Maelstrom re-attaches a restarted node.
 struct RelayedCluster {
     collected: Receiver<Value>,
+    collector: Sender<Value>,
+    senders: Arc<Mutex<Vec<PeerSender>>>,
     deadline: Instant,
 }
 
@@ -155,42 +305,74 @@ impl RelayedCluster {
     /// Starts the relay threads over the nodes' emitted-line streams. Node
     /// ids are `n0`..`n{k-1}` in slice order.
     fn start(nodes: &mut [&mut Node]) -> RelayedCluster {
-        let (client_replies, collected) = channel::<Value>();
-        let relays: Vec<(String, Receiver<Value>)> = nodes
-            .iter_mut()
-            .enumerate()
-            .map(|(index, node)| (format!("n{index}"), node.take_out()))
-            .collect();
-        let senders: Vec<(String, Sender<String>)> = nodes
-            .iter()
-            .enumerate()
-            .map(|(index, node)| (format!("n{index}"), node.to_node.clone()))
-            .collect();
-        for (_, out) in relays {
-            let senders = senders.clone();
-            let clients = client_replies.clone();
-            std::thread::spawn(move || {
-                while let Ok(message) = out.recv() {
-                    let dest = message
-                        .get("dest")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default();
-                    if dest.starts_with('c') {
-                        let _ = clients.send(message);
-                    } else if let Some((_, to_node)) =
-                        senders.iter().find(|(label, _)| label == dest)
-                    {
-                        // Peer traffic carries the hex-encoded binary
-                        // datagrams.
-                        let _ = to_node.send(message.to_string());
+        let (collector, collected) = channel::<Value>();
+        let senders = Arc::new(Mutex::new(
+            nodes
+                .iter()
+                .enumerate()
+                .map(|(index, node)| {
+                    (
+                        format!("n{index}"),
+                        node.to_node.clone().expect("a live node accepts input"),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        ));
+        let cluster = RelayedCluster {
+            collected,
+            collector,
+            senders,
+            deadline: Instant::now() + CLUSTER_TIMEOUT,
+        };
+        for (index, node) in nodes.iter_mut().enumerate() {
+            cluster.relay(&format!("n{index}"), node);
+        }
+        cluster
+    }
+
+    /// One relay thread for a (re)spawned node: its emitted lines go to
+    /// the addressee, and client-addressed lines join the shared
+    /// collector. Peer traffic carries the hex-encoded binary datagrams.
+    fn relay(&self, label: &str, node: &mut Node) {
+        let out = node.take_out();
+        let to_node = node.to_node.clone().expect("a live node accepts input");
+        let senders = Arc::clone(&self.senders);
+        let clients = self.collector.clone();
+        let mut map = senders.lock().expect("the peer map is not poisoned");
+        map.retain(|(peer, _)| peer != label);
+        map.push((label.to_owned(), to_node));
+        drop(map);
+        std::thread::spawn(move || {
+            while let Ok(message) = out.recv() {
+                let dest = message
+                    .get("dest")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if dest.starts_with('c') {
+                    let _ = clients.send(message);
+                } else {
+                    let sender = senders
+                        .lock()
+                        .expect("the peer map is not poisoned")
+                        .iter()
+                        .find(|(peer, _)| peer == dest)
+                        .map(|(_, sender)| sender.clone());
+                    if let Some(sender) = sender {
+                        let _ = sender.send(message.to_string());
                     }
                 }
-            });
-        }
-        RelayedCluster {
-            collected,
-            deadline: Instant::now() + REPLY_TIMEOUT,
-        }
+            }
+        });
+    }
+
+    /// Removes a node from the peer map, so its stdin closes (the relay's
+    /// cloned sender was the last one holding it open) and the process
+    /// sees EOF — the clean-shutdown path's trigger.
+    fn detach(&self, label: &str) {
+        self.senders
+            .lock()
+            .expect("the peer map is not poisoned")
+            .retain(|(peer, _)| peer != label);
     }
 
     /// The next client reply within the deadline.
@@ -296,4 +478,535 @@ fn two_node_cluster_replicates_a_forwarded_write() {
     assert_eq!(reply.get("dest").and_then(Value::as_str), Some("c2"));
     let body = assert_reply(&reply, 7, "read_ok");
     assert_eq!(body.get("value"), Some(&Value::from(9)));
+}
+
+/// The host's membership pre-gate runs before the core is touched: a join
+/// naming an id outside the bench roster (fixed by `node_ids`) is a
+/// definite malformed request, answered with Maelstrom's own
+/// `malformed-request` code — the core is never touched.
+#[test]
+fn join_refuses_an_id_outside_the_bench_roster() {
+    if binary().is_none() {
+        eprintln!("maelstrom feature off; no adapter binary to drive");
+        return;
+    }
+    let node = Node::spawn();
+    node.init("n0", &["n0"]);
+    assert_reply(&node.recv(), 1, "init_ok");
+    node.send(
+        "c1",
+        "n0",
+        json!({"type": "join", "msg_id": 2, "node_id": "n9"}),
+    );
+    let body = assert_reply(&node.recv(), 2, "error");
+    assert_eq!(
+        body.get("code").and_then(Value::as_u64),
+        Some(12),
+        "the refusal is the roster gate, not the core: {body}"
+    );
+    // Every membership reply echoes the node's configuration view.
+    assert!(
+        body.get("config").and_then(Value::as_object).is_some(),
+        "the refusal echoes the configuration view: {body}"
+    );
+}
+
+/// The member order and weights of an echoed configuration view.
+fn members_of(body: &Value) -> Vec<(String, u64)> {
+    body.get("config")
+        .and_then(|config| config.get("members"))
+        .and_then(Value::as_array)
+        .expect("every membership reply echoes a configuration view")
+        .iter()
+        .map(|member| {
+            (
+                member
+                    .get("node")
+                    .and_then(Value::as_str)
+                    .expect("a member names its node")
+                    .to_string(),
+                member
+                    .get("weight")
+                    .and_then(Value::as_u64)
+                    .expect("a member carries its weight"),
+            )
+        })
+        .collect()
+}
+
+/// One membership RPC, retried until the cluster answers `*_ok`. A
+/// refusal is definite — the core's gates ran before the proposal, the
+/// operation never entered the log — so a retry after one is honest, and
+/// it is also how the stop-the-world gate (§8.7.4, §8.7.8: one era
+/// transition outstanding at a time, the next verb waits for the view
+/// change into the established era) is driven. An unanswered verb whose
+/// establishing operation died uncommitted is the honest indeterminate;
+/// the deadline asserts only the healthy path.
+fn membership_ok(
+    cluster: &RelayedCluster,
+    node: &Node,
+    client: &str,
+    msg_id: &mut u64,
+    kind: &str,
+    target: &str,
+) -> Value {
+    let deadline = Instant::now() + CLUSTER_TIMEOUT;
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "{kind} {target} committed within the cluster timeout"
+        );
+        *msg_id += 1;
+        let request = *msg_id;
+        node.send(
+            client,
+            "n0",
+            json!({"type": kind, "msg_id": request, "node_id": target}),
+        );
+        let body = loop {
+            let reply = cluster.recv_client();
+            let seen = reply
+                .get("body")
+                .and_then(|body| body.get("in_reply_to"))
+                .and_then(Value::as_u64);
+            if seen == Some(request) {
+                break reply.get("body").cloned().expect("a reply carries a body");
+            }
+        };
+        if body.get("type").and_then(Value::as_str) == Some(&format!("{kind}_ok")) {
+            return body;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// The full membership lifecycle over the scripted transport: demote a
+/// voter to a learner, leave it out of the configuration entirely, join
+/// it back at weight 0, and promote it to a voter again. Every `*_ok`
+/// reply echoes the answering primary's current configuration view, and
+/// the echoes are the membership-convergence evidence the checker later
+/// rules on.
+#[test]
+fn membership_verbs_make_and_unmake_a_member() {
+    if binary().is_none() {
+        eprintln!("maelstrom feature off; no adapter binary to drive");
+        return;
+    }
+    let mut n0 = Node::spawn();
+    let mut n1 = Node::spawn();
+    let mut n2 = Node::spawn();
+    n0.init("n0", &["n0", "n1", "n2"]);
+    n1.init("n1", &["n0", "n1", "n2"]);
+    n2.init("n2", &["n0", "n1", "n2"]);
+    let cluster = RelayedCluster::start(&mut [&mut n0, &mut n1, &mut n2]);
+    std::thread::sleep(Duration::from_millis(500));
+
+    let mut msg_id = 1u64;
+    let demoted = membership_ok(&cluster, &n0, "c1", &mut msg_id, "demote", "n2");
+    assert!(
+        members_of(&demoted).contains(&("n2".into(), 0)),
+        "the demoted member is a learner: {demoted}"
+    );
+    let left = membership_ok(&cluster, &n0, "c1", &mut msg_id, "leave", "n2");
+    assert!(
+        !members_of(&left).iter().any(|(name, _)| name == "n2"),
+        "the left member is out of the configuration: {left}"
+    );
+    let joined = membership_ok(&cluster, &n0, "c1", &mut msg_id, "join", "n2");
+    assert_eq!(
+        members_of(&joined),
+        vec![("n0".into(), 1), ("n1".into(), 1), ("n2".into(), 0)],
+        "the join appends the learner: {joined}"
+    );
+    let promoted = membership_ok(&cluster, &n0, "c1", &mut msg_id, "promote", "n2");
+    assert!(
+        members_of(&promoted).contains(&("n2".into(), 1)),
+        "the promoted member votes again: {promoted}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Persistence: the state dir, the write-through barrier, and the marker
+// machine's boot decision (the core's own restart table: a stopped
+// quorum continues under the same identity, anything else resurrects
+// under a bumped one). A kill-restart must become an honest
+// `Node::reopen` — the bumped identity re-enters through the core's
+// reincarnation machinery — and a fresh or cleanly stopped node must
+// behave exactly as its markers say.
+// ---------------------------------------------------------------------------
+
+/// A fresh, uniquely named state directory for one test.
+fn state_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("uvrr-maelstrom-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the state dir creates");
+    dir
+}
+
+/// The configuration view a definite membership refusal echoes, polled
+/// until it names exactly `wanted`. `join` of a member the configuration
+/// already holds never enters the log, so the reply is immediate and
+/// carries the answering node's current view — the convergence evidence
+/// of a reincarnation cycle, read through the public surface.
+fn converged_members(
+    cluster: &RelayedCluster,
+    node: &Node,
+    wanted: Vec<(String, u64)>,
+) -> Vec<(String, u64)> {
+    let deadline = Instant::now() + CLUSTER_TIMEOUT;
+    let mut msg_id = 10_000u64;
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "the configuration converged to {wanted:?} in time"
+        );
+        msg_id += 1;
+        let request = msg_id;
+        node.send(
+            "c9",
+            "n0",
+            json!({"type": "join", "msg_id": request, "node_id": "n1"}),
+        );
+        let reply = cluster.recv_client();
+        let body = reply.get("body").cloned().expect("a reply carries a body");
+        if body.get("in_reply_to").and_then(Value::as_u64) != Some(request) {
+            continue;
+        }
+        if body.get("type").and_then(Value::as_str) != Some("error") {
+            continue;
+        }
+        if let Some(config) = body.get("config").cloned() {
+            let members = members_of(&json!({"config": config}));
+            if members == wanted {
+                return members;
+            }
+        }
+    }
+}
+
+/// One lin-kv client op retried until the cluster answers `ok_type`. A
+/// refusal is definite — the operation provably never entered the log —
+/// so a retry after one is honest, and it is also how a reopener still
+/// catching up (fenced, or naming a stale view) is driven. The deadline
+/// asserts only the healthy path.
+fn client_ok(
+    cluster: &RelayedCluster,
+    node: &Node,
+    client: &str,
+    target: &str,
+    kind: &str,
+    fields: Value,
+) -> Value {
+    let deadline = Instant::now() + CLUSTER_TIMEOUT;
+    let mut msg_id = 20_000u64;
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "{kind} answered within the cluster timeout"
+        );
+        msg_id += 1;
+        let request = msg_id;
+        let mut body = json!({"type": kind, "msg_id": request});
+        if let (Some(target), Some(extra)) = (body.as_object_mut(), fields.as_object()) {
+            for (name, value) in extra {
+                target.insert(name.clone(), value.clone());
+            }
+        }
+        node.send(client, target, body);
+        let body = loop {
+            let reply = cluster.recv_client();
+            let seen = reply
+                .get("body")
+                .and_then(|body| body.get("in_reply_to"))
+                .and_then(Value::as_u64);
+            if seen == Some(request) {
+                break reply.get("body").cloned().expect("a reply carries a body");
+            }
+        };
+        if body.get("type").and_then(Value::as_str) == Some(&format!("{kind}_ok")) {
+            return body;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// Three nodes, a fresh state dir, a committed write, and then the nemesis:
+/// `n2` is killed mid-life and respawned against the SAME state dir. The
+/// restart must be a dirty `Node::reopen` (the stderr diagnostic names the
+/// bump — reopen, not provision), the core's reincarnation machinery must
+/// walk the forced sequence until the bumped identity is a voter again
+/// (the announcement, the forced batches, the era transitions between
+/// them), the superseded identity must be gone, and the committed history
+/// must serve through the reopener.
+#[test]
+fn committed_state_survives_a_kill_restart_with_the_same_state_dir() {
+    if binary().is_none() {
+        eprintln!("maelstrom feature off; no adapter binary to drive");
+        return;
+    }
+    let dir = state_dir("kill-restart");
+    let mut n0 = Node::spawn_with(Some(dir.to_str().expect("a utf-8 path")));
+    let mut n1 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    let mut n2 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    n0.init("n0", &["n0", "n1", "n2"]);
+    n1.init("n1", &["n0", "n1", "n2"]);
+    n2.init("n2", &["n0", "n1", "n2"]);
+    n0.stderr_containing("provisions a fresh identity");
+    n1.stderr_containing("provisions a fresh identity");
+    n2.stderr_containing("provisions a fresh identity");
+    let cluster = RelayedCluster::start(&mut [&mut n0, &mut n1, &mut n2]);
+    std::thread::sleep(Duration::from_millis(500));
+
+    // The write commits (quorum 2 of 3) and is answered — from this
+    // moment it is durable in every node's state file, written through
+    // before the reply left the proposing node.
+    n0.send(
+        "c1",
+        "n0",
+        json!({"type": "write", "msg_id": 2, "key": 7, "value": 42}),
+    );
+    assert_reply(&cluster.recv_client(), 2, "write_ok");
+    n1.send("c1", "n1", json!({"type": "read", "msg_id": 3, "key": 7}));
+    assert_reply(&cluster.recv_client(), 3, "read_ok");
+
+    // The kill: n2 dies mid-life, the way the nemesis kills it.
+    n2.kill();
+
+    // The cluster keeps serving inside its fault bound (2 of 3 survive).
+    n0.send(
+        "c1",
+        "n0",
+        json!({"type": "write", "msg_id": 4, "key": 8, "value": 64}),
+    );
+    assert_reply(&cluster.recv_client(), 4, "write_ok");
+
+    // The restart against the same state dir. The node was operating
+    // when it died, so the file holds its boot write — no stopped
+    // quorum — and the marker machine's boot decision is the resurrect
+    // (T3): the bump. The stderr diagnostic is the test-visible reopen
+    // evidence — the bumped identity, announced, the forced sequence to
+    // follow.
+    let mut n2 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    n2.init("n2", &["n0", "n1", "n2"]);
+    let diagnostic = n2.stderr_containing("reopens dirty");
+    cluster.relay("n2", &mut n2);
+    assert!(
+        !diagnostic.contains("provisions"),
+        "a kill-restart with a state dir reopens, it does not provision: {diagnostic}"
+    );
+
+    // The reincarnation completes on ticks: the forced batches commit one
+    // era each, the era transitions ride the suspicion timeout, and the
+    // configuration ends at three voters with the bumped identity in
+    // n2's seat and the superseded identity evicted.
+    let members = converged_members(
+        &cluster,
+        &n0,
+        vec![("n0".into(), 1), ("n1".into(), 1), ("n2".into(), 1)],
+    );
+    assert_eq!(
+        members,
+        vec![("n0".into(), 1), ("n1".into(), 1), ("n2".into(), 1)],
+        "the reincarnated identity votes again"
+    );
+
+    // The committed history serves through the reopener, and the lane
+    // accepts fresh traffic through it: the re-established member
+    // participates. The reopener catches up (its own view may trail the
+    // eras the forced sequence committed), so the ops retry past the
+    // definite refusals its stale view produces.
+    let body = client_ok(&cluster, &n2, "c2", "n2", "read", json!({"key": 7}));
+    assert_eq!(
+        body.get("value"),
+        Some(&Value::from(42)),
+        "the write committed before the kill survives the restart: {body}"
+    );
+    client_ok(
+        &cluster,
+        &n2,
+        "c2",
+        "n2",
+        "write",
+        json!({"key": 7, "value": 43}),
+    );
+}
+
+/// A state dir that holds no state file for the node: the first life. The
+/// provision path is exactly the unpersisted host's — the same fenced
+/// `Joining` start, the same bootstrap adoption, the same serving —
+/// and the lifecycle diagnostic names it.
+#[test]
+fn a_fresh_state_dir_provisions_as_today() {
+    if binary().is_none() {
+        eprintln!("maelstrom feature off; no adapter binary to drive");
+        return;
+    }
+    let dir = state_dir("fresh");
+    let mut n0 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    let mut n1 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    n0.init("n0", &["n0", "n1"]);
+    n1.init("n1", &["n0", "n1"]);
+    n0.stderr_containing("provisions a fresh identity");
+    n1.stderr_containing("provisions a fresh identity");
+    let cluster = RelayedCluster::start(&mut [&mut n0, &mut n1]);
+    std::thread::sleep(Duration::from_millis(500));
+    client_ok(
+        &cluster,
+        &n0,
+        "c1",
+        "n0",
+        "write",
+        json!({"key": 3, "value": 9}),
+    );
+    let body = client_ok(&cluster, &n1, "c1", "n1", "read", json!({"key": 3}));
+    assert_eq!(
+        body.get("value"),
+        Some(&Value::from(9)),
+        "the fresh lane serves the value it wrote: {body}"
+    );
+}
+
+/// A clean stop (stdin EOF) walks the marker machine's T1 — `Stopping`,
+/// the drain, `Stopped` — so the next init under the same state dir
+/// reads the stopped quorum and reopens CLEANLY, under the same identity
+/// (T2): no bump, no announcement. The committed history survives, and
+/// the reopener rejoins the live cluster's serving.
+#[test]
+fn a_clean_shutoff_reopens_under_the_same_identity() {
+    if binary().is_none() {
+        eprintln!("maelstrom feature off; no adapter binary to drive");
+        return;
+    }
+    let dir = state_dir("clean-restart");
+    let mut n0 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    let mut n1 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    let mut n2 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    n0.init("n0", &["n0", "n1", "n2"]);
+    n1.init("n1", &["n0", "n1", "n2"]);
+    n2.init("n2", &["n0", "n1", "n2"]);
+    n0.stderr_containing("provisions a fresh identity");
+    n1.stderr_containing("provisions a fresh identity");
+    n2.stderr_containing("provisions a fresh identity");
+    let cluster = RelayedCluster::start(&mut [&mut n0, &mut n1, &mut n2]);
+    std::thread::sleep(Duration::from_millis(500));
+    n0.send(
+        "c1",
+        "n0",
+        json!({"type": "write", "msg_id": 2, "key": 5, "value": 7}),
+    );
+    assert_reply(&cluster.recv_client(), 2, "write_ok");
+
+    // The clean stop: stdin closes (the relay's sender is detached
+    // first — it was the last one holding the pipe open), the node's EOF
+    // arm walks the T1 marker writes, and the process exits on its own.
+    cluster.detach("n2");
+    n2.eof();
+
+    // The respawn reads the stopped quorum and reopens under the same
+    // identity — the clean path (T2), no bump — and rejoins the live
+    // cluster's serving view.
+    let mut n2 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    n2.init("n2", &["n0", "n1", "n2"]);
+    let diagnostic = n2.stderr_containing("reopens cleanly");
+    cluster.relay("n2", &mut n2);
+    assert!(
+        !diagnostic.contains("bumps"),
+        "a stopped state file continues under the same identity: {diagnostic}"
+    );
+    let body = client_ok(&cluster, &n2, "c2", "n2", "read", json!({"key": 5}));
+    assert_eq!(
+        body.get("value"),
+        Some(&Value::from(7)),
+        "the stopped history serves the committed read: {body}"
+    );
+}
+
+/// A torn state file is a crash artifact, not an input: the host refuses
+/// the reopen by name, answers `error`, and exits nonzero so Jepsen
+/// restarts the node — never a panic.
+#[test]
+fn a_corrupt_state_file_refuses_to_start() {
+    if binary().is_none() {
+        eprintln!("maelstrom feature off; no adapter binary to drive");
+        return;
+    }
+    let dir = state_dir("corrupt");
+    let n0 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    n0.init("n0", &["n0"]);
+    assert_reply(&n0.recv(), 1, "init_ok");
+    let file = dir.join("n0.uvrr-state");
+    let bytes = std::fs::read(&file).expect("the state file is written at init");
+    std::fs::write(&file, &bytes[..bytes.len() / 2]).expect("the file truncates");
+
+    // The respawn against the torn file: the named refusal, then the
+    // nonzero exit.
+    let mut n0 = Node::spawn_with(Some(&dir.to_string_lossy()));
+    n0.init("n0", &["n0"]);
+    let reply = n0.recv();
+    let body = assert_reply(&reply, 1, "error");
+    assert_eq!(
+        body.get("code").and_then(Value::as_u64),
+        Some(11),
+        "the refusal is a definite error, not a crash: {body}"
+    );
+    let status = n0.wait_exit(REPLY_TIMEOUT);
+    assert!(
+        !status.success(),
+        "the refused node exits nonzero: {status}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The volatile default: `MAELSTROM_VRR_STATE_DIR` unset means no store at
+// all. The node provisions the historical `Stability::Volatile` way and
+// serves lin-kv traffic without one byte of file I/O.
+// ---------------------------------------------------------------------------
+
+/// The volatile default is the absence of a store, observed from the
+/// outside: nodes spawned without the env, with the system temp root they
+/// would fall back to pointed at a private directory, provision and serve
+/// committed traffic while that directory stays empty — no state file is
+/// opened, written or fsynced anywhere.
+#[test]
+fn the_volatile_default_serves_with_no_file_io() {
+    if binary().is_none() {
+        eprintln!("maelstrom feature off; no adapter binary to drive");
+        return;
+    }
+    let tmp = std::env::temp_dir().join(format!("uvrr-maelstrom-volatile-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).expect("the private temp root creates");
+
+    let mut n0 = Node::spawn_volatile(&tmp);
+    let mut n1 = Node::spawn_volatile(&tmp);
+    n0.init("n0", &["n0", "n1"]);
+    n1.init("n1", &["n0", "n1"]);
+    n0.stderr_containing("provisions a fresh identity");
+    n1.stderr_containing("provisions a fresh identity");
+    let cluster = RelayedCluster::start(&mut [&mut n0, &mut n1]);
+    std::thread::sleep(Duration::from_millis(500));
+
+    client_ok(
+        &cluster,
+        &n0,
+        "c1",
+        "n0",
+        "write",
+        json!({"key": 3, "value": 9}),
+    );
+    let body = client_ok(&cluster, &n1, "c1", "n1", "read", json!({"key": 3}));
+    assert_eq!(
+        body.get("value"),
+        Some(&Value::from(9)),
+        "the volatile lane serves committed traffic: {body}"
+    );
+
+    let written = std::fs::read_dir(&tmp)
+        .expect("the private temp root reads")
+        .filter_map(Result::ok)
+        .count();
+    assert_eq!(
+        written, 0,
+        "the volatile default writes nothing — not even a fallback store"
+    );
 }

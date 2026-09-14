@@ -6,14 +6,24 @@ Drives the vendored TigerBeetle 0.17.9 IO + superblock stack (`zig/` — see
 
 ## Paths demonstrated
 
-1. **Clean shutdown** — flushed mark written to all four superblock copies
-   through TB's IO layer (darwin: `O_DSYNC` + `F_NOCACHE` + `F_FULLFSYNC`
-   flush; linux: `O_DIRECT`), sequence hash-chain advanced, 3-of-4 verify
-   quorum.
-2. **Dirty restart** — a crash that left a copy recorded unflushed (any valid
-   unflushed copy ⇒ dirty); the incarnation is bumped, all four copies are
-   rewritten, and the higher identity wins on subsequent reads.
-3. **Membership replay** — voting-weights ops (`add_one`, `remove_one`,
+The marker transition machine (§5.1 of `docs/vrr-durability-model.md`; the
+Rust twin `src/replica/reincarnation.rs`), over TB's actual code paths
+(darwin: `O_DSYNC` + `F_NOCACHE` + `F_FULLFSYNC` flush; linux: `O_DIRECT`):
+
+1. **T1 — the stop** — `uvrr_begin_stop` writes `stopping` 4x; the host
+   drain (flush WALs and grids) sits strictly between; `uvrr_finish_stop`
+   writes `stopped` 4x. The marker order IS the drain's proof: a `stopped`
+   copy vouches for the WAL under it. Each marker write is a new
+   parent-chained copyset.
+2. **T2 — the clean stop boots** — `uvrr_open` reads the working quorum at
+   the 2-of-4 open threshold; 2-of-4 `stopped` proves the controlled
+   shutdown, so the node continues under the same identity and writes
+   `restarting` 4x (the boot's uniform write is also the repair).
+3. **T3 — the reincarnation** — a boot reading no stopped quorum (a crash
+   that left the running state's `restarting` markers, or death mid-join
+   with `joining` markers) bumps the identity and writes `joining` 4x; the
+   identity only moves forward, and no `started` state is ever written.
+4. **Membership replay** — voting-weights ops (`add_one`, `remove_one`,
    `double`, `halve`) appended to the ops WAL (checksum hash-chain,
    direct-IO writes), checkpointed into one 4 KiB block before the WAL wraps
    or every N ops, and replayed (checkpoint + WAL suffix) on reopen.

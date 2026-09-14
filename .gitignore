@@ -16,8 +16,8 @@ Cargo.lock
 # Vendored dependencies (regenerable via lake build)
 research/lean-solve-auto/duper/
 
-# Zig build cache (regenerable via zig/build.sh)
-.zigcache/
+# Zig build cache (regenerable via zig/build.sh); zig test's tmpDir root
+.zig-cache/
 
 # Promptfoo config and cache (panel review)
 .promptfoo/

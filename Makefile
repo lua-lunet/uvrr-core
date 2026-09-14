@@ -8,7 +8,6 @@
 #   make e2e           # build Docker image and run all Maelstrom tests
 
 BIN        := $(CURDIR)/target/release/maelstrom-lin-kv
-STATE_DIR  ?= $(CURDIR)/.state
 LEIN       := mise exec -- lein
 
 # K=5 gives f=2, so a nemesis that kills two nodes stays inside the protocol's
@@ -21,7 +20,7 @@ RATE       ?= 20
 INTERVAL   ?= 10
 WORKLOAD   ?= lin-kv
 
-.PHONY: help build check test clean-state test-clean test-partition test-kill test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local
+.PHONY: help build check test test-clean test-partition test-kill test-resurrect test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local
 
 help:
 	@echo "make test            - the Rust test suite"
@@ -30,6 +29,7 @@ help:
 	@echo "make test-clean      - lin-kv, no faults (plumbing + baseline linearizability)"
 	@echo "make test-partition  - lin-kv under network partitions"
 	@echo "make test-kill       - lin-kv under process kill/restart"
+	@echo "make test-resurrect  - lin-kv, persisted nodes under kill (in-place reincarnation)"
 	@echo "make test-all        - lin-kv under partition + kill + pause"
 	@echo "make serve           - browse past results at http://localhost:8080"
 	@echo "make e2e             - Docker: build image and run all Maelstrom tests"
@@ -58,27 +58,42 @@ check:
 	# The uvrr-reconfig operator binary is feature-gated; the lane must build it.
 	cargo test --features "maelstrom cli"
 
-clean-state:
-	rm -rf $(STATE_DIR)
-	mkdir -p $(STATE_DIR)
-
+# The lanes run the node's volatile default: no state dir, no file I/O.
+# Persistence is opt-in — `MAELSTROM_VRR_STATE_DIR`, set per invocation.
 define run_maelstrom
-	cd maelstrom && MAELSTROM_VRR_STATE_DIR=$(STATE_DIR) $(LEIN) run test \
+	cd maelstrom && $(LEIN) run test \
 		-w $(WORKLOAD) --bin $(BIN) \
 		--node-count $(NODES) --time-limit $(TIME_LIMIT) \
 		--rate $(RATE) --concurrency 2n $(1)
 endef
 
-test-clean: build clean-state
+test-clean: build
 	$(call run_maelstrom,)
 
-test-partition: build clean-state
+test-partition: build
 	$(call run_maelstrom,--nemesis partition --nemesis-interval $(INTERVAL))
 
-test-kill: build clean-state
+test-kill: build
 	$(call run_maelstrom,--nemesis kill --nemesis-interval $(INTERVAL))
 
-test-all: build clean-state
+# The resurrection lane: the kill nemesis against PERSISTED nodes —
+# every kill leaves the boot write (no stopped quorum), so the reopen
+# bumps the identity (T3) and the core's reincarnation machinery walks
+# the bumped node back in: the announcement, the forced sequence, the
+# era folds. The state dir is this lane's own, cleaned first so every
+# run starts from first life and passed explicitly; the volatile lanes
+# above are untouched.
+RESURRECT_STATE ?= $(CURDIR)/.tmp/state-resurrect
+
+test-resurrect: build
+	rm -rf $(RESURRECT_STATE)
+	mkdir -p $(RESURRECT_STATE)
+	cd maelstrom && MAELSTROM_VRR_STATE_DIR=$(RESURRECT_STATE) $(LEIN) run test \
+		-w $(WORKLOAD) --bin $(BIN) \
+		--node-count $(NODES) --time-limit $(TIME_LIMIT) \
+		--rate $(RATE) --concurrency 2n --nemesis kill --nemesis-interval $(INTERVAL)
+
+test-all: build
 	$(call run_maelstrom,--nemesis partition,kill,pause --nemesis-interval $(INTERVAL))
 
 serve:

@@ -10,12 +10,14 @@
 //!   * sizes/shapes for the tiny UVRR data file: no TB WAL ring buffers, no
 //!     512KiB LSM grid, no client-replies zone; VSRState slimmed to the
 //!     membership fields the reincarnation protocol needs.
-//!   * `uvrr_incarnation` (u64) and `uvrr_flushed` (u8): the reincarnation
-//!     `flushed`/`unflushed` state as declared fields, covered by the checksum
-//!     (checksum discipline holds; TB's reserved `flags` stays 0 and is still
-//!     asserted zero in set_checksum).
-//!   * identity/sequence bumps per the reincarnation protocol
-//!     (`open_highest_identity`: higher identity wins among equal sequences).
+//!   * `uvrr_incarnation` (u64) and `uvrr_marker` (u8, the four-state
+//!     reincarnation marker `stopping`/`stopped`/`restarting`/`joining` of
+//!     `docs/vrr-durability-model.md` §5.1) as declared fields; the marker
+//!     is masked out of the checksum like `copy` (torn marker writes must
+//!     not fork the checksum; see calculate_checksum).
+//!   * the identity bump and the marker transitions live in the synchronous
+//!     store (zig/uvrr/store.zig), the twin of
+//!     `src/replica/reincarnation.rs`.
 //!   * the async SuperBlockType(Storage) state machine is replaced by the
 //!     synchronous store in zig/uvrr/store.zig (callbacks remain in quorums).
 
@@ -61,8 +63,8 @@ const SuperBlockHeaderFixedPrefix = extern struct {
     vsr_state: VSRState,
     flags: u64 = 0,
     uvrr_incarnation: u64 = 0,
-    uvrr_flushed: u8 = 0,
-    uvrr_flushed_padding: [3]u8 = @splat(0),
+    uvrr_marker: u8 = 0,
+    uvrr_marker_padding: [3]u8 = @splat(0),
     view_headers_count: u32,
 };
 
@@ -157,15 +159,21 @@ pub const SuperBlockHeader = extern struct {
     /// Reserved for future minor features (kept zero; see set_checksum).
     flags: u64 = 0,
 
-    /// PATCH: the reincarnation identity. Bumped on a dirty restart; among
-    /// copies with the same sequence, the highest identity wins on read.
+    /// PATCH: the reincarnation identity. Bumped at a boot that reads no
+    /// stopped quorum; among copies with the same sequence, the highest
+    /// identity wins on read.
     uvrr_incarnation: u64 = 0,
 
-    /// PATCH: the reincarnation `flushed` mark. Set (1) only by the clean
-    /// shutdown path, after the flush has reached every copy.
-    uvrr_flushed: u8 = 0,
+    /// PATCH: the reincarnation marker (§5.1 of
+    /// `docs/vrr-durability-model.md`; the Rust twin
+    /// `src/replica/reincarnation.rs`): one of the four ordered states
+    /// `stopping`, `stopped`, `restarting`, `joining`. The marker is
+    /// per-copy durability state like `copy` — masked out of the checksum
+    /// so the four copies of one copyset share one checksum even when a
+    /// torn marker write leaves them holding different states.
+    uvrr_marker: u8 = 0,
     /// Explicit alignment padding (declared, to keep no_padding honest).
-    uvrr_flushed_padding: [3]u8 = @splat(0),
+    uvrr_marker_padding: [3]u8 = @splat(0),
 
     /// The number of headers in view_headers_all.
     view_headers_count: u32 = 0,
@@ -201,13 +209,14 @@ pub const SuperBlockHeader = extern struct {
 
         const ignore_size = checksum_size + checksum_padding_size + copy_size;
 
-        // PATCH: `uvrr_flushed` is excluded from the checksum by masking (all
-        // copies of one sequence share one checksum; the flushed mark is a
-        // per-copy durability bit, like `copy`). Without the mask, a copy whose
-        // flushed write was lost would form a second checksum at the same
-        // sequence, and TB's quorum logic reports that as a fork.
+        // PATCH: `uvrr_marker` is excluded from the checksum by masking (all
+        // copies of one sequence share one checksum; the marker is a
+        // per-copy durability state, like `copy`). Without the mask, a torn
+        // marker write — the machine's legal crash points, one copyset
+        // holding two marker states — would form a second checksum at the
+        // same sequence, and TB's quorum logic reports that as a fork.
         var masked: SuperBlockHeader = superblock.*;
-        masked.uvrr_flushed = 0;
+        masked.uvrr_marker = 0;
         return vsr.checksum(std.mem.asBytes(&masked)[ignore_size..]);
     }
 
@@ -245,10 +254,10 @@ pub const SuperBlockHeader = extern struct {
         var y = b.*;
         x.copy = 0;
         y.copy = 0;
-        // PATCH: uvrr_flushed is per-copy durability state (not covered by the
+        // PATCH: uvrr_marker is per-copy durability state (not covered by the
         // checksum), so copies of one sequence may differ in it.
-        x.uvrr_flushed = 0;
-        y.uvrr_flushed = 0;
+        x.uvrr_marker = 0;
+        y.uvrr_marker = 0;
         return std.mem.eql(u8, std.mem.asBytes(&x), std.mem.asBytes(&y));
     }
 };
@@ -284,14 +293,18 @@ comptime {
 
 /// The sequence number progression of the SuperBlock's headers (TB table,
 /// unchanged): format writes a copyset for the first sequence, open verifies
-/// the read quorum (2/4), writes repair to 3/4 (verify quorum).
+/// the read quorum (2/4) and its boot write repairs to 4/4 (the verify
+/// quorum is 3/4).
 ///
-/// PATCH (reincarnation protocol):
-///   * clean shutdown: bump nothing; set uvrr_flushed=1 on all four copies.
-///   * dirty restart: read the working quorum; bump sequence by 1 and
-///     uvrr_incarnation by 1; clear uvrr_flushed; write all four copies.
-///   * open: among copies with the highest valid sequence, the highest
-///     uvrr_incarnation wins (higher-identity-wins read rule).
+/// PATCH (the marker transition machine, §5.1 of
+/// `docs/vrr-durability-model.md`; the Rust twin
+/// `src/replica/reincarnation.rs`): every marker transition is a new
+/// copyset — sequence advanced, `parent` hash-chained — written to all four
+/// copies. `begin_stop` writes `stopping`, the host drains strictly between,
+/// `finish_stop` writes `stopped`; the boot reads the working quorum and
+/// writes `restarting` (a 2-of-4 `stopped` quorum continues under the same
+/// identity) or `joining` (anything else bumps the identity). Among copies
+/// with the same sequence, the highest `uvrr_incarnation` wins on read.
 pub fn copy_offset(copy_index: u32) u64 {
     assert(copy_index < constants.superblock_copies);
     return superblock_copy_size * copy_index;
