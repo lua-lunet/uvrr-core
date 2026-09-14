@@ -8,17 +8,15 @@ body { font-family: Georgia, serif; max-width: 46em; margin: 2em auto; padding: 
 table { border-collapse: collapse; width: 100%; }
 th, td { border-bottom: 1px solid #ccc; text-align: left; padding: 0.3em 0.6em 0.3em 0; }
 th { font-variant: small-caps; }
-.draft { color: #8a4b00; }
 </style>
 </head>
 <body>
 <h1>uVRR papers — published versions</h1>
-<p>Each entry is an immutable version of record, built by
-<code>formal/uvrr-lean/paper/build.sh</code> from the committed sources its
-identifier names. A version is stamped <code>YYYYMMDD-&lt;short-sha&gt;</code>;
-the stamp is asserted in the PDF footer at publication time. An entry marked
-<em>draft review</em> is staged for review against its named base commit and is
-republished from the merge commit on landing.</p>
+<p>Each entry is an immutable version of record, built from the committed
+sources its identifier names. A version is stamped
+<code>YYYYMMDD-&lt;short-sha&gt;</code>; the stamp is asserted in the PDF
+footer at publication time. Superseded records are removed on request; the
+git history retains them.</p>
 <table>
 <thead>
 <tr><th>Version</th><th>Document</th><th>Status</th></tr>
@@ -27,32 +25,7 @@ republished from the merge commit on landing.</p>
 <tr>
 <td><a href="ladder-20260914-e158704.pdf">ladder-20260914-e158704</a></td>
 <td>Addendum: proof ladder, weighted reconfiguration and the operator solver</td>
-<td class="draft">draft review — <a href="../../../../docs/review/reincarnation-phase1-da32516/index.html">review notes</a></td>
-</tr>
-<tr>
-<td><a href="20260913-9d72c10.pdf">20260913-9d72c10</a></td>
-<td>Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation</td>
-<td>record</td>
-</tr>
-<tr>
-<td><a href="20260913-53d014e.pdf">20260913-53d014e</a></td>
-<td>Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation</td>
-<td>record</td>
-</tr>
-<tr>
-<td><a href="20260913-239c5f2.pdf">20260913-239c5f2</a></td>
-<td>Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation</td>
-<td>record</td>
-</tr>
-<tr>
-<td><a href="20260912-d771a8b.pdf">20260912-d771a8b</a></td>
-<td>Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation</td>
-<td>record</td>
-</tr>
-<tr>
-<td><a href="20260912-8269e6d.pdf">20260912-8269e6d</a></td>
-<td>Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation</td>
-<td>record</td>
+<td>record — <a href="../../../../docs/review/reincarnation-phase1-da32516/index.html">review notes</a></td>
 </tr>
 </tbody>
 </table>
