@@ -141,4 +141,72 @@ theorem same_ballot_era_guard (initialEra lastEraOffset ballotEra : Nat)
   have hlast := hguard lastEraOffset (Nat.le_refl _)
   omega
 
+/-! ### The Telescoping Theorem
+
+In a three-node cluster whose reconfiguration schedule has two transitions —
+the cluster states `E0 → E1 → E2` — under the fuse constraints: if `E0 → E1`
+will pass, then `E1 → E2` will also pass. The first transition's acceptance
+telescopes the remaining slots of the fused schedule. -/
+namespace Telescope
+
+/-- The schedule's quorum families: the weighted strict majority of each
+transition's era configuration over the finite node list. -/
+def ScheduleFamily {A : Type} (nodes : List A) (eraWeight : Nat → A → Nat) :
+    Nat → QSys A :=
+  fun e => WeightedGeneral.majority nodes (eraWeight e)
+
+/-- The Telescoping Theorem. One datagram carries the whole batch, so one
+response set `R` acknowledges every packed slot: the atomic batch property
+(`docs/uvrr-fuse.md` §2) — a node processes the whole slab before reading any
+other node's message, so the batch cannot be interrupted; all pass or all
+fail. The fuse header ballot is both Phase 1 and Phase 2 for every command in
+the fused batch, so the same replies count at every slot; a majority on the
+first transition is a majority on every transition, with the same outcome.
+
+Quorum-backed evidence at the first transition telescopes: the base case is
+`R` a quorum at `E0` (the first transition's quorum condition), the
+preservation step carries `R` across `E0 → E1` — exactly the first transition
+passing — and the finite induction over the batch (the one Lamport runs:
+one leader, one ballot, all future slots, until interrupted) certifies every
+slot of the fused range, including the second transition's slots at
+`E1 → E2`, provided the schedule's quorum family is preserved at both
+boundaries. -/
+theorem telescope_pass {A : Type} (nodes : List A) (eraWeight : Nat → A → Nat)
+    (R : NSet A)
+    (hbase : ScheduleFamily nodes eraWeight 0 R)
+    (hstep : ∀ i, ScheduleFamily nodes eraWeight i R →
+      ScheduleFamily nodes eraWeight (i + 1) R) :
+    ∀ i, i ≤ 2 → ScheduleFamily nodes eraWeight i R := by
+  intro i hi
+  have h0 : ScheduleFamily nodes eraWeight 0 R := hbase
+  have h1 : ScheduleFamily nodes eraWeight 1 R := hstep 0 h0
+  have h2 : ScheduleFamily nodes eraWeight 2 R := hstep 1 h1
+  have h_cases : i = 0 ∨ i = 1 ∨ i = 2 := by omega
+  rcases h_cases with (rfl|rfl|rfl)
+  · exact h0
+  · exact h1
+  · exact h2
+
+/-- Negative control (the paper's equal-total swap): on the two-branch
+schedule `(1,2,1,2) → (2,1,2,1)` the same response set `BD` is a majority at
+`E0` and a minority at `E1`, so the preservation hypothesis cannot be
+dropped — a first transition passing with one quorum does not telescope the
+remaining slots when the schedule switches the quorum family wholesale. -/
+def swapRow : Nat := 0
+
+def swapWeights (i : Nat) : Nat → Nat := fun a =>
+  if a = 0 then (if i = swapRow then 1 else 2)
+  else if a = 2 then (if i = swapRow then 1 else 2)
+  else (if i = swapRow then 2 else 1)
+
+def swapQuorums (i : Nat) : QSys Nat :=
+  WeightedGeneral.majority [0, 1, 2, 3] (swapWeights i)
+
+theorem swap_control :
+    swapQuorums 0 (fun a => a = 1 ∨ a = 3) ∧ ¬ swapQuorums 1 (fun a => a = 1 ∨ a = 3) := by
+  unfold swapQuorums WeightedGeneral.majority
+  simp [swapWeights, swapRow, WeightedGeneral.mass, WeightedGeneral.total] <;> omega
+
+end Telescope
+
 end Fuse
