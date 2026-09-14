@@ -5,7 +5,6 @@
 set -euo pipefail
 
 BIN="/usr/local/bin/maelstrom-lin-kv"
-STATE_DIR="/tmp/maelstrom-state"
 WORKLOAD="lin-kv"
 
 # Default values (can be overridden by env vars)
@@ -13,12 +12,6 @@ NODES=${NODES:-5}
 TIME_LIMIT=${TIME_LIMIT:-180}
 RATE=${RATE:-20}
 INTERVAL=${INTERVAL:-10}
-
-# Clean state
-clean_state() {
-    rm -rf "$STATE_DIR"
-    mkdir -p "$STATE_DIR"
-}
 
 # Build the binary (if not already built)
 build_binary() {
@@ -29,11 +22,13 @@ build_binary() {
     fi
 }
 
-# Run maelstrom test
+# Run maelstrom test. The node runs its volatile default: no state dir,
+# no file I/O. Persistence is opt-in (MAELSTROM_VRR_STATE_DIR, set per
+# invocation).
 run_maelstrom() {
     local nemesis_args="$1"
     cd /usr/src/vrr-core/maelstrom
-    MAELSTROM_VRR_STATE_DIR="$STATE_DIR" lein run test \
+    lein run test \
         -w "$WORKLOAD" --bin "$BIN" \
         --node-count "$NODES" --time-limit "$TIME_LIMIT" \
         --rate "$RATE" --concurrency 2n \
@@ -42,22 +37,18 @@ run_maelstrom() {
 
 case "$1" in
     test-clean)
-        clean_state
         build_binary
         run_maelstrom ""
         ;;
     test-partition)
-        clean_state
         build_binary
         run_maelstrom "--nemesis partition --nemesis-interval $INTERVAL"
         ;;
     test-kill)
-        clean_state
         build_binary
         run_maelstrom "--nemesis kill --nemesis-interval $INTERVAL"
         ;;
     test-all)
-        clean_state
         build_binary
         run_maelstrom "--nemesis partition,kill,pause --nemesis-interval $INTERVAL"
         ;;

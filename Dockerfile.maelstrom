@@ -44,7 +44,6 @@ USER testuser
 WORKDIR /home/testuser
 
 # Set environment variables
-ENV MAELSTROM_VRR_STATE_DIR=/tmp/maelstrom-state
 ENV PATH="/usr/local/bin:${PATH}"
 ENV NODES=5
 ENV TIME_LIMIT=180
