@@ -206,3 +206,134 @@ To replay the arithmetic from the repository root, run \code{python3} on
 \path{research/weighted-reachability/check_fuse.py}.
 The Lean module is \path{UVRR/Fuse.lean}; its proof
 generation and kernel-check evidence are recorded beside the proof ladder.
+
+\section{A phantom slot: phase one of a five-node
+reincarnation}\label{sec:phantom}
+The telescoping certificate of Section~\ref{sec:fuse} is stated against quorum
+families, not against the lifecycle that changes them. This section records the
+first phase of a five-node reincarnation in \systemname{}: the initial
+configuration with its preallocated phantom slot, the serving leader's declared
+overlap, the crash, and the resurrection of the crashed identity into the
+phantom slot, with the quorum arithmetic stated at each step. The later phases
+--- the forced weight sequence that grants the fresh identity its vote and
+retires the old one --- are named where they arise and are not written here.
+
+\begin{definition}[Phantom slot]\label{def:phantom}
+A \emph{phantom slot} is a member record of the committed configuration held at
+voting weight zero: a preallocated future slot for a resurrection. A phantom
+contributes no mass to any quorum; messages from it are discarded by the
+membership check, while messages to it are delivered.\footnote{The standby of
+the reincarnation design: zero voting weight, streamed the leader's traffic,
+and voting only after a committed increment grants it weight.}
+\end{definition}
+
+Let $N=\{n_1,\dotsc,n_6\}$ carry the committed weights $(1,1,1,1,1,0)$: five
+unit voters $n_1,\dotsc,n_5$ and $n_6$ a phantom slot, preallocated so that a
+resurrection finds its record ready, and drawn from the start so that the
+figures can name it. The total is $T=5$ and the old view's quorum family is the
+strict-majority family of the weights: $R$ qualifies exactly when
+$2M_w(R)>5$, that is when $M_w(R)\geq3$ --- a majority of five is three. The
+phantom's zero weight decides no membership: $M_w(R\cup\{n_6\})=M_w(R)$ for
+every $R$.
+
+The leader is $n_3$, and it declares its overlap as in
+Figure~\ref{fig:overlap}: an active decision quorum $q=\{n_1,n_2,n_3\}$ of the
+old view and a prospective phase-one quorum $q'=\{n_3,n_4,n_5\}$ for the next,
+meeting the casting-vote condition $q\cap q'=\{n_3\}$ of~\eqref{eq:leader}.
+While it collects the promises of $q'\setminus\{n_3\}$, the leader services the
+current view: its beacon proposal and its own vote are carried forward across
+the preparation.\footnote{``Beacon proposal'' is the operator's term for the
+leader's continued proposal traffic at the current ballot while its own promise
+is withheld; the declared overlap is that proposal together with the leader's
+vote.}
+
+Then $n_5$ crashes. A crash changes no weight: only committed configuration
+commands do. The committed configuration stays $(1,1,1,1,1,0)$, so the old
+view's quorum family is unchanged by the crash; what changes is availability.
+Four unit voters survive against one unavailable: the available mass is $A=4$,
+the unavailable mass is $D=1$, and $A>D$.
+
+The crashed process restarts dirty and bumps its own identity: it reincarnates
+as $n_6=n_5{+}1$, the own-id-increments rule of the reincarnation wire
+(\path{Reincarnation.bump} in the Lean development), and announces the pair
+$(n_5,n_6)$ to all; only the leader responds. The fresh identity lands in the
+preallocated phantom slot --- which is why the slot was preallocated --- and
+lights it up as a live standby of weight zero. Until a committed membership
+change assigns it weight, $n_6$ votes nowhere.
+
+\begin{proposition}[Phase-one quorum arithmetic]\label{prop:phantom}
+Throughout phase one the configured total stays $T=5$ and the majority
+threshold stays $3$: the crash removes availability, not weight, and the
+phantom adds zero. Explicitly: the old view's quorum family is
+$\{R\subseteq N:2M_w(R)>5\}$ computed on $w=(1,1,1,1,1,0)$; the live mass is
+$5-1+0=4$, a majority of five minus the crashed vote plus the phantom's zero
+weight, and $2\cdot4>5$; any three of the four survivors form a quorum, since
+$2\cdot3=6>5$; and the declared overlap pair still meets in exactly
+$\{n_3\}$.
+\end{proposition}
+\begin{proof}
+Each clause is arithmetic on the displayed $w$. The family clause restates the
+strict-majority definition; a crash edits no weight, so the family is
+unaffected. The phantom clause is $w(n_6)=0$. The live-mass clause sums the
+four surviving unit weights; the strict inequality $2M>T$ holds at $M=4$ and at
+$M=3$. The overlap clause is set intersection:
+$\{n_1,n_2,n_3\}\cap\{n_3,n_4,n_5\}=\{n_3\}$. Any other prepare quorum drawn
+from the survivors still meets every old decision quorum, because two subsets
+each of mass at least $3$ out of a total of $5$ must share a member.
+\end{proof}
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,>=Stealth,font=\small]
+\node at (0,0.45) {$n_1$};
+\node at (1.8,0.45) {$n_2$};
+\node[fill=green!30,inner sep=2pt] at (3.6,0.45) {leader $n_3$};
+\node at (5.4,0.45) {$n_4$};
+\node at (7.2,0.45) {$n_5$};
+\node[draw,gray,dashed,inner sep=2pt] at (9,0.45) {$n_6$};
+\draw[gray] (0,0)--(0,-4.9);
+\draw[gray] (1.8,0)--(1.8,-4.9);
+\draw[green!55!black] (3.6,0)--(3.6,-4.9);
+\draw[gray] (5.4,0)--(5.4,-4.9);
+\draw[gray] (7.2,0)--(7.2,-2.2);
+\draw[gray,dashed] (7.2,-2.2)--(7.2,-4.9);
+\draw[gray,dashed] (9,0)--(9,-3.4);
+\draw[gray] (9,-3.4)--(9,-4.9);
+\draw[->,green!55!black,dashed] (3.6,-0.3)--(3.6,-1.75);
+\draw[dashed,gray] (-0.8,-1.1)--(9.8,-1.1);
+\node[anchor=west,align=left,text width=6.9cm] at (10.2,-1.1) {initial
+configuration $(1,1,1,1,1,0)$; $n_3$ declares its leader overlap,
+$q\cap q'=\{n_3\}$, and services the current view: beacon proposal and own
+vote carried forward};
+\draw[red,very thick] (7.05,-2.35)--(7.35,-2.05) (7.05,-2.05)--(7.35,-2.35);
+\node[anchor=west,align=left,text width=6.9cm] at (10.2,-2.2) {$n_5$ crashes;
+a crash changes no weight};
+\draw[->,gray,dashed] (7.2,-2.5) .. controls (8.1,-2.95) .. (9,-3.3)
+node[midway,above,sloped] {$(n_5,n_6)$};
+\draw[dashed,gray] (-0.8,-3.4)--(9.8,-3.4);
+\node[anchor=west,align=left,text width=6.9cm] at (10.2,-3.4) {resurrection
+announced as $n_6=n_5{+}1$; the preallocated slot lights up at weight $0$};
+\node[anchor=west,align=left,text width=6.9cm] at (10.2,-4.55) {phase one
+complete: live mass $4$, the old view's family unchanged, $n_6$ a live standby
+of weight $0$};
+\end{tikzpicture}
+\caption{Phase one of a five-node reincarnation with a preallocated phantom
+slot. Six membership slots $n_1,\dotsc,n_6$; the phantom $n_6$ is drawn grey
+and dashed from the start at weight $0$ and lights up when the crashed $n_5$
+resurrects into it. The leader $n_3$ (filled) declares its overlap --- beacon
+proposal and own vote carried forward, dashed --- and services the current view
+throughout. A crash changes no weight: the configured total stays $5$ and the
+majority threshold stays $3$; the live mass is $5-1+0=4$. Time runs downwards
+without a scale.}
+\label{fig:phantom-phase-one}
+\end{figure*}
+
+\begin{remark}[The later phases, named]\label{rem:later-phases}
+Phase two is the leader's forced weight sequence over the six-slot membership
+of Table~\ref{tab:weights} --- the doubling, the join and increment that grant
+$n_6$ its vote, the decrements that retire $n_5$, and the halve back to unit
+weights --- with the leader's memo-stream keeping the standby current
+throughout. Phase three is the completion: $n_5$ leaves the membership and the
+cluster returns to five unit voters, now with $n_6$ among them. Neither is
+written here.
+\end{remark}

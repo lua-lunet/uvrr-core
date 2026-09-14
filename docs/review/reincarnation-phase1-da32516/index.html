@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Review — reincarnation phase one (addendum), base da32516</title>
+<style>
+body { font-family: Georgia, serif; max-width: 60em; margin: 2em auto; padding: 0 1em; color: #111; }
+table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+th, td { border: 1px solid #ccc; text-align: left; padding: 0.3em 0.5em; vertical-align: top; }
+th { font-variant: small-caps; }
+.ok { color: #1a6b1a; }
+pre { background: #f6f6f3; border: 1px solid #ddd; padding: 0.6em; overflow-x: auto; font-size: 0.85em; }
+h2 { border-bottom: 1px solid #999; padding-bottom: 0.2em; }
+code { font-size: 0.92em; }
+</style>
+</head>
+<body>
+<h1>Review: reincarnation phase one in the addendum</h1>
+<p>Branch <code>20260914-reincarnation-addendum</code>, base commit
+<code>da32516</code> (main). Two work items: a static check of the dependency
+ladder claimed by <code>formal/uvrr-lean/paper/fuse-proof.md</code>, and a new
+addendum section writing phase one of a five-node reincarnation with a
+preallocated phantom slot. Rendered artifact:
+<a href="../../../../formal/uvrr-lean/paper/papers/ladder-20260914-e158704.pdf">papers/ladder-20260914-e158704.pdf</a>
+(draft review; see <a href="#builds">build notes</a>).</p>
+
+<h2 id="verdict">Ladder-check verdict</h2>
+<p>Each claim in <code>fuse-proof.md</code> was checked against the repository
+by static reading only; no builds were run for the check. Verdict:
+<strong>every claim verified; no correction to <code>fuse-proof.md</code> was
+required</strong>, and the document is unchanged. Read in order, the ladder —
+premises, atomicity licence, Lamport induction, the certificate, scope — is a
+coherent explanation of the solution.</p>
+<table>
+<thead>
+<tr><th>Claim</th><th>file:line</th><th>Status</th><th>Fix</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>Theorem verbatim, <code>Fuse.Telescope.telescope_pass</code></td>
+<td><code>formal/uvrr-lean/UVRR/Fuse.lean:174</code></td>
+<td class="ok">verified — the statement quoted in the doc matches lines
+174–179 byte-for-byte; namespaces <code>Fuse</code> (line 10) and
+<code>Telescope</code> (line 150)</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Atomic batch property, the governing design statement</td>
+<td><code>docs/uvrr-fuse.md</code> §2 (lines 26–46); §4 line 86</td>
+<td class="ok">verified — checksummed cache-line-scale datagram, arrival whole
+or not at all, first operation decides the batch, shared header ballot with a
+promise to all future accepts of that ballot, majority computed on the first
+message in batch: all present</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Addendum theorem statement</td>
+<td><code>formal/uvrr-lean/paper/fuse_ladder.tex:47</code></td>
+<td class="ok">verified — <code>\begin{theorem}[Fuse telescoping]</code> at
+line 47; the quoted premise phrases are at lines 48–49</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Lamport quote with <code>bibitem{fuse-paxos}</code></td>
+<td><code>fuse_ladder.tex:172–180</code>; bibitem at
+<code>paper_ladder.tex:405</code></td>
+<td class="ok">verified — the quotation (lines 172–174) matches
+<em>Paxos Made Simple</em> §3 verbatim with the marked elision;
+<code>\cite{fuse-paxos}</code> present; the bibitem is in the including
+document's bibliography</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>swap_control</code> negative control</td>
+<td><code>UVRR/Fuse.lean:205</code></td>
+<td class="ok">verified — encodes the equal-total swap
+(1,2,1,2)&nbsp;→&nbsp;(2,1,2,1); {B,D} is a majority at row 0 (2·4&nbsp;&gt;&nbsp;6)
+and a minority at row 1 (2·2&nbsp;≯&nbsp;6)</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Rung 28 transcript, Showboat-verified, source hash <code>b0bf2f9</code></td>
+<td><code>formal/uvrr-lean/ladder/28-fuse-telescoping.md:1–6</code></td>
+<td class="ok">verified — "Rung 28", Showboat 0.6.1, "source based on
+<code>b0bf2f9</code>"; <code>b0bf2f9</code> is on main's history</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Check-protocol numbers: <code>lake build</code> 27 jobs;
+<code>check_axioms.py</code> 450 declarations;
+<code>[propext, Classical.choice, Quot.sound]</code></td>
+<td><code>ladder/28-fuse-telescoping.md:70–80</code>;
+<code>formal/uvrr-lean/check_axioms.py:13,58</code></td>
+<td class="ok">verified — the rung records 27 Lake jobs and 450 declarations;
+a static count of the declaration lines under <code>UVRR/*.lean</code> is 450;
+the recorded axiom list equals the checker's <code>ALLOWED</code> set</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Scope caveats (no phase one; not a refinement proof of the executable
+system; Rust corpus owns the implementation)</td>
+<td><code>fuse_ladder.tex:147</code> and 128–136;
+<code>ladder/28-fuse-telescoping.md:85–96</code>; <code>tests/fuse.rs</code></td>
+<td class="ok">verified — the addendum states the phase-one caveat and the open
+refinement obligation; the rung's Scope section repeats them;
+<code>tests/fuse.rs</code> exists</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Supporting claims: commit <code>68e44f1</code> (PR #32) on main, branch
+head <code>d0812c3</code>, tag <code>v0.6.0</code>,
+<code>lake-manifest.json</code> packages empty, no
+<code>sorry</code>/<code>native_decide</code>, internal imports only</td>
+<td>git history; <code>formal/uvrr-lean/lake-manifest.json</code>;
+<code>UVRR/Fuse.lean</code></td>
+<td class="ok">verified — <code>68e44f1</code> is PR #32 on main and an
+ancestor of tag <code>v0.6.0</code>; <code>d0812c3</code> is the drafting head;
+<code>"packages": []</code>; ripgrep finds no
+<code>sorry</code>/<code>native_decide</code>; the sole import is
+<code>UVRR.WeightedGeneral</code>; the Leanstral provenance (five failed
+rounds, pass on round seven, the <code>type</code>-error and
+<code>interval_cases</code> quirks) matches the rung transcript</td>
+<td>none</td>
+</tr>
+</tbody>
+</table>
+
+<h2>Change hunks, before and after</h2>
+
+<h3 id="hunk-preamble">Hunk 1 — <code>paper_ladder.tex</code> preamble</h3>
+<p>The addendum idiom declares <code>definition</code>, <code>proposition</code>,
+<code>remark</code> and <code>example</code> environments beside the existing
+<code>theorem</code>/<code>lemma</code>, and <code>\systemname</code> for naming
+the system. No existing text changes.</p>
+<p>Before (lines 18–22):</p>
+<pre>\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newcommand{\QI}{\mathcal{Q}^{\mathrm I}}
+\newcommand{\QII}{\mathcal{Q}^{\mathrm {II}}}
+\newcommand{\code}[1]{\texttt{#1}}</pre>
+<p>After:</p>
+<pre>\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+\newtheorem{example}{Example}
+\newcommand{\systemname}{uVRR}
+\newcommand{\QI}{\mathcal{Q}^{\mathrm I}}
+\newcommand{\QII}{\mathcal{Q}^{\mathrm {II}}}
+\newcommand{\code}[1]{\texttt{#1}}</pre>
+
+<h3 id="hunk-phantom-section">Hunk 2 — <code>fuse_ladder.tex</code>: the new section</h3>
+<p>Before: the file ended with the replay pointer of the atomicity section —
+"The Lean module is <code>\path{UVRR/Fuse.lean}</code>; its proof generation
+and kernel-check evidence are recorded beside the proof ladder." After: that
+text stands, followed by the new section (sentence-case heading, the declared
+environments, footnote glosses, <code>\systemname{}</code>, the six-slot
+figure):</p>
+<pre>\section{A phantom slot: phase one of a five-node
+reincarnation}\label{sec:phantom}
+The telescoping certificate of Section~\ref{sec:fuse} is stated against quorum
+families, not against the lifecycle that changes them. This section records the
+first phase of a five-node reincarnation in \systemname{}: the initial
+configuration with its preallocated phantom slot, the serving leader's declared
+overlap, the crash, and the resurrection of the crashed identity into the
+phantom slot, with the quorum arithmetic stated at each step. The later phases
+--- the forced weight sequence that grants the fresh identity its vote and
+retires the old one --- are named where they arise and are not written here.
+
+\begin{definition}[Phantom slot]\label{def:phantom}
+A \emph{phantom slot} is a member record of the committed configuration held at
+voting weight zero: a preallocated future slot for a resurrection. A phantom
+contributes no mass to any quorum; messages from it are discarded by the
+membership check, while messages to it are delivered.\footnote{The standby of
+the reincarnation design: zero voting weight, streamed the leader's traffic,
+and voting only after a committed increment grants it weight.}
+\end{definition}
+
+Let $N=\{n_1,\dotsc,n_6\}$ carry the committed weights $(1,1,1,1,1,0)$: five
+unit voters $n_1,\dotsc,n_5$ and $n_6$ a phantom slot, preallocated so that a
+resurrection finds its record ready, and drawn from the start so that the
+figures can name it. The total is $T=5$ and the old view's quorum family is the
+strict-majority family of the weights: $R$ qualifies exactly when
+$2M_w(R)&gt;5$, that is when $M_w(R)\geq3$ --- a majority of five is three. The
+phantom's zero weight decides no membership: $M_w(R\cup\{n_6\})=M_w(R)$ for
+every $R$.
+
+The leader is $n_3$, and it declares its overlap as in
+Figure~\ref{fig:overlap}: an active decision quorum $q=\{n_1,n_2,n_3\}$ of the
+old view and a prospective phase-one quorum $q'=\{n_3,n_4,n_5\}$ for the next,
+meeting the casting-vote condition $q\cap q'=\{n_3\}$ of~\eqref{eq:leader}.
+While it collects the promises of $q'\setminus\{n_3\}$, the leader services the
+current view: its beacon proposal and its own vote are carried forward across
+the preparation.\footnote{``Beacon proposal'' is the operator's term for the
+leader's continued proposal traffic at the current ballot while its own promise
+is withheld; the declared overlap is that proposal together with the leader's
+vote.}
+
+Then $n_5$ crashes. A crash changes no weight: only committed configuration
+commands do. The committed configuration stays $(1,1,1,1,1,0)$, so the old
+view's quorum family is unchanged by the crash; what changes is availability.
+Four unit voters survive against one unavailable: the available mass is $A=4$,
+the unavailable mass is $D=1$, and $A&gt;D$.
+
+The crashed process restarts dirty and bumps its own identity: it reincarnates
+as $n_6=n_5{+}1$, the own-id-increments rule of the reincarnation wire
+(\path{Reincarnation.bump} in the Lean development), and announces the pair
+$(n_5,n_6)$ to all; only the leader responds. The fresh identity lands in the
+preallocated phantom slot --- which is why the slot was preallocated --- and
+lights it up as a live standby of weight zero. Until a committed membership
+change assigns it weight, $n_6$ votes nowhere.
+
+\begin{proposition}[Phase-one quorum arithmetic]\label{prop:phantom}
+Throughout phase one the configured total stays $T=5$ and the majority
+threshold stays $3$: the crash removes availability, not weight, and the
+phantom adds zero. Explicitly: the old view's quorum family is
+$\{R\subseteq N:2M_w(R)&gt;5\}$ computed on $w=(1,1,1,1,1,0)$; the live mass is
+$5-1+0=4$, a majority of five minus the crashed vote plus the phantom's zero
+weight, and $2\cdot4&gt;5$; any three of the four survivors form a quorum, since
+$2\cdot3=6&gt;5$; and the declared overlap pair still meets in exactly
+$\{n_3\}$.
+\end{proposition}
+\begin{proof}
+Each clause is arithmetic on the displayed $w$. The family clause restates the
+strict-majority definition; a crash edits no weight, so the family is
+unaffected. The phantom clause is $w(n_6)=0$. The live-mass clause sums the
+four surviving unit weights; the strict inequality $2M&gt;T$ holds at $M=4$ and at
+$M=3$. The overlap clause is set intersection:
+$\{n_1,n_2,n_3\}\cap\{n_3,n_4,n_5\}=\{n_3\}$. Any other prepare quorum drawn
+from the survivors still meets every old decision quorum, because two subsets
+each of mass at least $3$ out of a total of $5$ must share a member.
+\end{proof}
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,&gt;=Stealth,font=\small]
+\node at (0,0.45) {$n_1$};
+\node at (1.8,0.45) {$n_2$};
+\node[fill=green!30,inner sep=2pt] at (3.6,0.45) {leader $n_3$};
+\node at (5.4,0.45) {$n_4$};
+\node at (7.2,0.45) {$n_5$};
+\node[draw,gray,dashed,inner sep=2pt] at (9,0.45) {$n_6$};
+\draw[gray] (0,0)--(0,-4.9);
+\draw[gray] (1.8,0)--(1.8,-4.9);
+\draw[green!55!black] (3.6,0)--(3.6,-4.9);
+\draw[gray] (5.4,0)--(5.4,-4.9);
+\draw[gray] (7.2,0)--(7.2,-2.2);
+\draw[gray,dashed] (7.2,-2.2)--(7.2,-4.9);
+\draw[gray,dashed] (9,0)--(9,-3.4);
+\draw[gray] (9,-3.4)--(9,-4.9);
+\draw[-&gt;,green!55!black,dashed] (3.6,-0.3)--(3.6,-1.75);
+\draw[dashed,gray] (-0.8,-1.1)--(9.8,-1.1);
+\node[anchor=west,align=left,text width=6.9cm] at (10.2,-1.1) {initial
+configuration $(1,1,1,1,1,0)$; $n_3$ declares its leader overlap,
+$q\cap q'=\{n_3\}$, and services the current view: beacon proposal and own
+vote carried forward};
+\draw[red,very thick] (7.05,-2.35)--(7.35,-2.05) (7.05,-2.05)--(7.35,-2.35);
+\node[anchor=west,align=left,text width=6.9cm] at (10.2,-2.2) {$n_5$ crashes;
+a crash changes no weight};
+\draw[-&gt;,gray,dashed] (7.2,-2.5) .. controls (8.1,-2.95) .. (9,-3.3)
+node[midway,above,sloped] {$(n_5,n_6)$};
+\draw[dashed,gray] (-0.8,-3.4)--(9.8,-3.4);
+\node[anchor=west,align=left,text width=6.9cm] at (10.2,-3.4) {resurrection
+announced as $n_6=n_5{+}1$; the preallocated slot lights up at weight $0$};
+\node[anchor=west,align=left,text width=6.9cm] at (10.2,-4.55) {phase one
+complete: live mass $4$, the old view's family unchanged, $n_6$ a live standby
+of weight $0$};
+\end{tikzpicture}
+\caption{Phase one of a five-node reincarnation with a preallocated phantom
+slot. Six membership slots $n_1,\dotsc,n_6$; the phantom $n_6$ is drawn grey
+and dashed from the start at weight $0$ and lights up when the crashed $n_5$
+resurrects into it. The leader $n_3$ (filled) declares its overlap --- beacon
+proposal and own vote carried forward, dashed --- and services the current view
+throughout. A crash changes no weight: the configured total stays $5$ and the
+majority threshold stays $3$; the live mass is $5-1+0=4$. Time runs downwards
+without a scale.}
+\label{fig:phantom-phase-one}
+\end{figure*}
+
+\begin{remark}[The later phases, named]\label{rem:later-phases}
+Phase two is the leader's forced weight sequence over the six-slot membership
+of Table~\ref{tab:weights} --- the doubling, the join and increment that grant
+$n_6$ its vote, the decrements that retire $n_5$, and the halve back to unit
+weights --- with the leader's memo-stream keeping the standby current
+throughout. Phase three is the completion: $n_5$ leaves the membership and the
+cluster returns to five unit voters, now with $n_6$ among them. Neither is
+written here.
+\end{remark}</pre>
+<p>Rendered: the section is §IV of the compiled addendum; the figure floats as
+Figure 1 on page 5; the existing leader-overlap schematic is referenced as
+Figure 2 and its <code>\ref</code> targets are unchanged.</p>
+
+<h3 id="hunk-papers-index">Hunk 3 — <code>papers/index.html</code> (new)</h3>
+<p>No papers index existed in the repository; this change establishes it. The
+page lists every published version, newest first, and marks
+<code>20260914-da32516</code> as <em>draft review</em> with a link back to this
+review page; the five earlier versions are marked <em>record</em>.</p>
+
+<h3 id="hunk-pdf">Hunk 4 — <code>papers/ladder-20260914-e158704.pdf</code> (new, binary)</h3>
+<p>The built addendum (11 pages), stamped <code>20260914-da32516</code> in every
+page footer via the generated, gitignored <code>version.tex</code>; the footer
+identifier was asserted in the PDF text at publication time.</p>
+
+<h2 id="builds">Build and gate notes</h2>
+<ul>
+<li><code>tectonic --keep-logs paper_ladder.tex</code>, run twice consecutively
+with <code>SOURCE_DATE_EPOCH=1757116800</code>: both green (exit 0), byte-stable
+output (247.95&nbsp;KiB), no errors and no undefined references; the only warnings
+are the pre-existing underfull-hbox notices in the earlier sections and
+bibliography.</li>
+<li><code>bash spellcheck.sh</code> (paper.tex) and
+<code>./spellcheck.sh paper_ladder.tex</code>: both PASS British-English
+(en_GB); no additions to <code>british-words.txt</code> were needed.</li>
+<li><code>bash build.sh</code> stands by the committed-state rule and refused
+(exit 1): "REFUSED: tracked sources under paper/ differ from HEAD &hellip; The
+paper publishes only from committed sources, and the id 20260914-da32516 names
+HEAD." Because this work is delivered uncommitted for review, the draft PDF was
+published by hand in build.sh's manner (stamp <code>version.tex</code>, build,
+copy to <code>papers/ladder-20260914-e158704.pdf</code>, assert the footer identifier)
+and is marked <em>draft review</em> in the index. On landing, rerun
+<code>bash build.sh</code> from the merge commit to mint the immutable record.</li>
+</ul>
+</body>
+</html>
