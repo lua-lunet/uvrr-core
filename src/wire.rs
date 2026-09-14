@@ -769,6 +769,20 @@ pub enum Tag {
     /// deleted classic recovery-exchange tags (the amnesia protocol this
     /// protocol exists to have eliminated) and stay retired.
     Reincarnation = 13,
+    /// One datagram packing the per-slot `Prepare` messages of one
+    /// reconfiguration schedule (`docs/uvrr-fuse.md` §1): the shared ballot
+    /// in the header, `first_slot` in the header slot, and `count` then
+    /// `count × SystemOperation` in the body. Receiving a `Fuse` is defined
+    /// as receiving the equivalent sequence of `Prepare`s at the same ballot.
+    Fuse = 14,
+    /// An acceptor's acknowledgement of a `Fuse` (`docs/uvrr-fuse.md` §3):
+    /// `count`, then one accepted slot per packed op, in batch order. No
+    /// range encodings.
+    FuseOk = 15,
+    /// One committed frontier per packed slot, in batch order
+    /// (`docs/uvrr-fuse.md` §4): `count`, then `count × Slot`. No range
+    /// encodings.
+    CommitBatch = 16,
 }
 
 impl Tag {
@@ -790,6 +804,9 @@ impl Tag {
             Tag::GetState => 9,
             Tag::NewState => 10,
             Tag::Reincarnation => 13,
+            Tag::Fuse => 14,
+            Tag::FuseOk => 15,
+            Tag::CommitBatch => 16,
         }
     }
 
@@ -813,6 +830,9 @@ impl Tag {
             9 => Some(Tag::GetState),
             10 => Some(Tag::NewState),
             13 => Some(Tag::Reincarnation),
+            14 => Some(Tag::Fuse),
+            15 => Some(Tag::FuseOk),
+            16 => Some(Tag::CommitBatch),
             _ => None,
         }
     }

@@ -6,9 +6,12 @@
 //! configuration ([`Plan::validate_against`]) and answers with one verdict;
 //! on acceptance the [`PlannedSequence`] machine is armed and steps through
 //! the plan's batches while the cluster keeps running normally: one step per
-//! era, each proposed through the ordinary reconfiguration pipeline
-//! ([`plan_reconfigure`]), exactly as `plan_forced_continuation` drives the
-//! forced sequence.
+//! era, each proposed through [`plan_step_proposal`] — the fuse envelope
+//! when the step packs at least two operations within the envelope budget,
+//! the ordinary establishing `Prepare` otherwise
+//! (`docs/uvrr-fuse.md` §4). The forced-reincarnation machine steps its own
+//! sequence the same way — one step per era on a tick — through
+//! [`plan_reconfigure`] (§8 of the fuse doc).
 //!
 //! The machine is volatile like every attempt state: a leader crash discards
 //! it, and the dumb-operator contract hands continuation to the operator — a
@@ -19,6 +22,7 @@
 //! — the machine clears and [`Diagnostic::PlanAborted`] names it.
 //!
 //! [`plan_reconfigure`]: super::Replica::plan_reconfigure
+//! [`plan_step_proposal`]: super::Replica::plan_step_proposal
 
 use crate::configuration::SystemOperation;
 use crate::effects::{Effect, PlanVerdict};
@@ -103,7 +107,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 let batch = SystemOperation::Batch(step.clone());
                 if self.plan_step_plannable(journal, &batch) {
                     Ok(self
-                        .plan_reconfigure(journal, &batch, &None)?
+                        .plan_step_proposal(journal, &batch)?
                         .with_effect(Effect::AdminResponse {
                             verdict: PlanVerdict::Accepted,
                         })
@@ -155,7 +159,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         if self.plan_step_plannable(journal, &batch) {
             Some(
-                self.plan_reconfigure(journal, &batch, &None)
+                self.plan_step_proposal(journal, &batch)
                     .map(|plan| plan.with_plan_execution(PlanExecutionUpdate::Set(machine))),
             )
         } else {
@@ -170,6 +174,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the machine clears. A foreign establishing operation advances
     /// nothing; the continuation re-gates the pending step against the
     /// configuration that changed underneath it.
+    ///
+    /// The journal shape of one establishing batch is either a single
+    /// `Batch` entry (the ordinary `Prepare` path) or a maximal run of
+    /// consecutive system entries — the packed schedule a fuse envelope
+    /// carried, one op per consecutive slot (`docs/uvrr-fuse.md` §1). Both
+    /// fold as the one batch they are, so the hook matches both: a run of
+    /// two or more system entries compares as `Batch(ops)`; a singleton
+    /// compares only when its payload is itself a `Batch`, exactly as
+    /// before.
     pub(in crate::replica) fn plan_execution_commit(
         &self,
         journal: &J::View,
@@ -189,10 +202,46 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             let Some(entry) = journal.get(cursor) else {
                 break;
             };
-            if let Payload::System(SystemOperation::Batch(ops)) = &entry.payload {
-                if next < machine.steps.len() && *ops == machine.steps[next] {
+            if let Payload::System(op) = &entry.payload {
+                // The run's extent within the advance: the cascade is
+                // segment-atomic, so an establishing batch never straddles
+                // the frontier.
+                let mut ops = vec![op.clone()];
+                let mut end = cursor;
+                let mut walk = cursor;
+                while let Some(follow) = walk.next() {
+                    if follow > through {
+                        break;
+                    }
+                    match journal.get(follow) {
+                        Some(entry) if matches!(entry.payload, Payload::System(_)) => {
+                            if let Payload::System(follow_op) = &entry.payload {
+                                ops.push(follow_op.clone());
+                            }
+                            end = follow;
+                            walk = follow;
+                        }
+                        _ => break,
+                    }
+                }
+                let batch = if ops.len() >= 2 {
+                    Some(SystemOperation::Batch(ops))
+                } else {
+                    match op {
+                        SystemOperation::Batch(ops) => Some(SystemOperation::Batch(ops.clone())),
+                        _ => None,
+                    }
+                };
+                let matches_step = match &batch {
+                    Some(SystemOperation::Batch(ops)) => {
+                        next < machine.steps.len() && *ops == machine.steps[next]
+                    }
+                    _ => false,
+                };
+                if matches_step {
                     next += 1;
                 }
+                slot = end;
             }
         }
         if next == machine.next {

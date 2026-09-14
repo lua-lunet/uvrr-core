@@ -256,6 +256,10 @@ pub enum Diagnostic {
         /// The zero-based index of the step the gates refused.
         step: usize,
     },
+    /// A fuse envelope (`docs/uvrr-fuse.md`) the transition dropped whole:
+    /// never a partial fold (§3), so the envelope is either applied in its
+    /// entirety or refused with this one named outcome.
+    FuseRefusal,
 }
 
 /// A single-writer, multi-reader seqlock over a `Copy` snapshot.

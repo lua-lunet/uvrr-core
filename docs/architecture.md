@@ -301,6 +301,27 @@ handle, and every decode site distinguishes "malformed" from "incomplete". More 
 area in the codec API, in exchange for a core that cannot be wrong about an MTU it was
 never told.
 
+#### W6 — Fuse is a wire shape, not a protocol semantic
+
+**Context.** A multi-era reconfiguration schedule was proposed slot by slot, so a
+three-node reincarnation paid one round trip per era transition. The temptation was a
+new message family with its own state machine.
+
+**Decision.** Fuse is message packing. One datagram carries the schedule's per-slot
+`Prepare` messages: shared ballot in the header, `first_slot`, `count ×
+SystemOperation`. Receiving a `Fuse` is defined as receiving the equivalent sequence of
+`Prepare`s at the same ballot; per-op safety is the ordinary accept path. Replies are
+`FuseOk` and `CommitBatch` batches of slots, never ranges. The envelope is atomic in
+transport (single checksummed datagram, cache-line scale), so the first op in the batch
+decides the whole batch and no proof over interruptions mid-reconfiguration is owed.
+The builder caps the schedule (`FUSE_MAX_OPS`, a build-site policy) and falls back to
+ordinary per-op `Prepare`s; the codec itself keeps no size constant, per W5. Full
+statement: `docs/uvrr-fuse.md`.
+
+**Consequence.** Three new tags and a build-site guard instead of a parallel protocol.
+The reconfiguration machine is untouched; the wire contract gains three golden
+vectors.
+
 ### Durability & stability
 
 #### S1 — Journal reclamation is host policy and is absent from the trait
