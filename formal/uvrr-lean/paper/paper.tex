@@ -584,20 +584,6 @@ machines). No data points exist yet; the chart is watermarked ``dummy''.
 \label{fig:e4}
 \end{figure}
 
-\subsection{E5: planned failover by abdication}
-Abdication is the planned handover that node maintenance uses: the
-administrator's message names the current era and the target era, the leader
-validates the CAS and the bounded delta, and the standard view change carries
-the handover. No new protocol message and no new safety obligation exist; the
-correctness is the standard era-change argument. The designed experiment
-measures the planned-takeover latency under the two durability profiles E2
-compares: without disk --- the diskless path normal operation runs --- and
-with simulated disk flushes injected at the recovery boundary. The counted
-placeholders follow the section's convention: p50 $\mathrm{xxxx}$~ms, p90
-$\mathrm{xxxx}$~ms, mean $\mathrm{xxxx}$~ms per profile.
-\expwarning
-
-
 \section{Related Work}\label{sec:related}
 Viewstamped Replication introduced the organisation of replication around views and a primary~\cite{vr}; VRR revisits that organisation and separates normal operation, view change, recovery and reconfiguration~\cite{vrr}. Michael \emph{et al.} identify the failure of diskless recovery to preserve view-change commitments and construct virtual stable storage~\cite{diskless}. uVRR takes a different route: it makes a crash final for the old identity, then brings the process back as a new member through reconfiguration. The replacement schedule connects that lifecycle to agreement across configurations.
 
