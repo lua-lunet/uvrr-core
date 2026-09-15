@@ -32,29 +32,17 @@
 \thispagestyle{fancy}
 
 \begin{abstract}
-Small replicated metadata should not require a disk flush on the critical path.
-Unbounded Viewstamped Replication Revisited is a protocol design for embedding
-strong consistency with volatile normal-path replication and crash-stop
-reincarnation.
-A cleanly stopped process restarts with its identity and flushed state.
-A crashed process permanently retires its old identity and rejoins under a fresh
-identity, obtaining state and voting authority through reconfiguration.
-Its organising mechanism is leader overlap: where the leader is the sole
-intersection of the active decision quorum and the next prepare quorum, it
-withholds its own promise so that preparation can proceed while the active
-quorum remains usable.
-Five-voter replacement uses six committed batches, including exact doubling
-and halving. A constructive Rust solver also computes paths between arbitrary
-weighted-majority configurations with an available majority at each endpoint.
-The Lean development proves weighted reachability and a phantom-identity
-casting-vote construction, alongside agreement and identity exclusion for a
-simplified replacement instantiation. Appendix B separates these contracts
-and presents executable checks.
+This document is an addendum to \emph{Diskless Viewstamped Replication with
+Unbounded Crash-Stop Reincarnation}; the parent paper's abstract and keywords
+are not repeated here. The addendum contributes what the paper does not
+contain: the fuse transport with its telescoping theorem and the Lamport
+induction it instantiates; the phantom-slot construction for phase one of a
+five-node reincarnation; and the notational appendices for weighted
+reconfiguration, the casting-vote completion with fresh identities, and the
+operator solver. The parent paper supplies the method, the five-voter
+schedule and the agreement result; nothing here modifies them. A companion
+addendum, \emph{Experimental results}, reports the measured findings.
 \end{abstract}
-
-\begin{IEEEkeywords}
-Crash-stop, leader overlap, reconfiguration, strong consistency, Viewstamped Replication.
-\end{IEEEkeywords}
 
 \input{fuse_ladder.tex}
 
