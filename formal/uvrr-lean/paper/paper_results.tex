@@ -50,13 +50,11 @@ controls, in TLA+, in the Lean mutation harness and inside the proof-ladder
 rungs (Section~\ref{sec:mutations}); the Showboat-verified rung transcripts
 13--28 (Section~\ref{sec:rungs}); the independent exhaustive checker's counts
 for weighted reachability and the fused batch (Section~\ref{sec:exhaustive});
-the dated Lean axiom audits (Section~\ref{sec:axioms}); the abdication
-experiment (Section~\ref{sec:abdication}); and the stress bench, the Zig twin
-and the Maelstrom harness (Section~\ref{sec:bench}).
+the dated Lean axiom audits (Section~\ref{sec:axioms}); and the stress
+bench, the Zig twin and the Maelstrom harness (Section~\ref{sec:bench}).
 
-Two intended measurements have no recorded numbers anywhere in the repository
-and are marked \tobemeasured{} throughout: the abdication latency
-percentiles (Section~\ref{sec:abdication}) and the stress-bench lane figures
+One intended measurement has no recorded numbers anywhere in the repository
+and is marked \tobemeasured{} throughout: the stress-bench lane figures
 beyond those preserved in the merge record
 (Section~\ref{sec:bench}). This report stands alone; the parent paper
 \cite{parent} supplies the method and the design, and the proof-ladder
@@ -301,21 +299,6 @@ only the permitted axioms; \path{Fuse.Telescope.telescope_pass} and
 No audit count is recorded at this addendum's HEAD; the three counts above
 are the dated records the repository holds. Reproduction: \code{lake build}
 then \code{python3 check\_axioms.py} from \path{formal/uvrr-lean}.
-
-\section{Abdication measurements}\label{sec:abdication}
-The abdication mechanism --- the administrator's message naming the current
-and target eras, the leader validating the compare-and-swap and the bounded
-delta, and the standard view change carrying the handover --- is landed and
-exercised functionally (\path{tests/abdicate.rs}; the rung 28 record quotes
-the full corpus green). The parent paper's Section V-E5 states the
-measurement contract: the planned-takeover latency is to be measured under
-the two durability profiles --- without disk (the diskless normal path) and
-with simulated disk flushes injected at the recovery boundary --- reporting
-p50, p90 and mean per profile. The recorded draft carries counted
-placeholders for all six figures, and the experiment-design note
-(\path{docs/uvrr-experiment-design.md}) states that none of the programme's
-timings have been executed. \textbf{Findings: \tobemeasured.} No abdication
-latency number is recorded anywhere in this repository.
 
 \section{Stress bench, Zig twin and Maelstrom harness}\label{sec:bench}
 \subsection{The Maelstrom stress bench}
