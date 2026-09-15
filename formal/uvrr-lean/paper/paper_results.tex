@@ -1,0 +1,400 @@
+\RequirePackage[T1]{fontenc}
+\documentclass[10pt,journal,letterpaper]{IEEEtran}
+\usepackage{amsmath,amssymb,amsthm,booktabs,array,microtype}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr,tikz,graphicx}
+\usetikzlibrary{arrows.meta}
+\hypersetup{pdftitle={Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation --- Addendum: Experimental Results},pdfauthor={Simon Massey}}
+\newcommand{\paperrevision}{RESEARCH CHECKPOINT --- 15 SEPTEMBER 2026}
+\newcommand{\paperversion}{ADDENDUM --- RESULTS}
+\IfFileExists{version.tex}{\input{version.tex}}{}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{\footnotesize\thepage}
+\fancyfoot[C]{\scriptsize\paperrevision\ --- \paperversion}
+\renewcommand{\headrulewidth}{0pt}
+\setlength{\emergencystretch}{1em}
+\raggedbottom
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}{Definition}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\tobemeasured}{\emph{to be measured}}
+
+\title{Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation\\--- Addendum: experimental results}
+\author{Simon Massey\thanks{Author draft. Correspondence: simon.massey@stenographer.cloud.}}
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+This document is an addendum to \emph{Diskless Viewstamped Replication with
+Unbounded Crash-Stop Reincarnation}; the parent paper's abstract and keywords
+are not repeated here. This companion reports only measured and checked
+findings, each with its observed numbers, its evidence path in the repository
+and the command that reproduces it. It adds no method and changes nothing in
+the parent paper or in the proof-ladder addendum; where the repository records
+no measurement, the experiment's contract is stated and its findings are
+marked \tobemeasured.
+\end{abstract}
+
+\section{Scope of this report}
+Every entry below is a result the repository evidence records: a model-check
+log, a kernel-checked proof transcript, a checker's summarised counts, a dated
+audit, or a merge record. No experiment was executed for this report, and no
+number is inferred, extrapolated or invented. Each finding carries its
+provenance path and, in the appendix, the command that reproduces it.
+
+The evidence classes are: TLC model checking of the era and reincarnation
+design models (Section~\ref{sec:modelchecking}); mutation and negative
+controls, in TLA+, in the Lean mutation harness and inside the proof-ladder
+rungs (Section~\ref{sec:mutations}); the Showboat-verified rung transcripts
+13--28 (Section~\ref{sec:rungs}); the independent exhaustive checker's counts
+for weighted reachability and the fused batch (Section~\ref{sec:exhaustive});
+the dated Lean axiom audits (Section~\ref{sec:axioms}); the abdication
+experiment (Section~\ref{sec:abdication}); and the stress bench, the Zig twin
+and the Maelstrom harness (Section~\ref{sec:bench}).
+
+Two intended measurements have no recorded numbers anywhere in the repository
+and are marked \tobemeasured{} throughout: the abdication latency
+percentiles (Section~\ref{sec:abdication}) and the stress-bench lane figures
+beyond those preserved in the merge record
+(Section~\ref{sec:bench}). This report stands alone; the parent paper
+\cite{parent} supplies the method and the design, and the proof-ladder
+addendum \cite{ladder} supplies the mathematical statements that the
+transcripts below check.
+
+\section{Model checking}\label{sec:modelchecking}
+The TLA+ models are \path{formal/VrrCoreEras.tla} (the era-transition design
+model) and \path{formal/VrrCoreReincarnation.tla} (the Crash-Stop-Self-Evict
+forced sequence). The archived campaign ran TLC 2.19 (rev.~5a47802) from a
+jar pinned by SHA-256 in the toolchain manifest
+(\code{936a2620\ldots}), breadth-first with two workers on a 2\,GB heap.
+Each run's wall limit, worker count and elapsed time are recorded beside its
+log as a JSON digest in \path{evidence/tlc/} within the Lean project.
+Table~\ref{tab:tlcgreen} quotes the archived green runs;
+Table~\ref{tab:tlcred} the expected rejections. All logs and digests live
+under \path{formal/uvrr-lean/evidence/tlc/}.
+
+\begin{table*}[t]
+\centering
+\caption{Archived TLC 2.19 runs, green; the \code{.cfg} suffix is implied. States are reported as distinct / generated. Elapsed times are the wrapper's recorded wall time.}
+\label{tab:tlcgreen}
+\footnotesize
+\begin{tabular}{lp{0.31\textwidth}rrrr}
+\toprule
+Configuration & What was checked & Distinct & Generated & Depth & Elapsed\\
+\midrule
+\path{VrrCoreEras} & Era model, three nodes, exhaustive; no crash & 837{,}204 & 2{,}743{,}933 & 32 & 137.7\,s\\
+\path{VrrCoreReincarnation2} & Two-node forced sequence; \code{b} crashes, reincarnates as \code{d} & 35 & 162 & 11 & 0.76\,s\\
+\path{VrrCoreReincarnation3} & Three-node forced sequence, fixed leader & 28 & 221 & 14 & 0.72\,s\\
+\path{VrrCoreReincarnationDouble} & Three nodes at double weight (all weights 2) & 28 & 221 & 14 & 0.71\,s\\
+\path{VrrCoreReincarnationFive} & Five-node forced sequence, fixed leader; \code{f} reincarnates as \code{d} & 3{,}406 & 53{,}078 & 20 & 1.07\,s\\
+\path{VrrCoreReincarnationCrash} & Five nodes, leader crash forced between the two eras, one view change, two deaths & 1{,}253{,}444 & 26{,}308{,}632 & 31 & 108.5\,s\\
+\path{VrrCoreReincarnationFiveViews} & Five nodes, one live-leader replacement plus unrationed dead-leader replacement, all invariants & 17{,}394{,}566 & 371{,}140{,}753 & 32 & 27\,m\,35\,s\\
+\path{VrrCoreReincarnationFiveCompletes} & Liveness: \code{Completes} under \code{FairSpec}, leader may die and be replaced & 126{,}301 & 2{,}318{,}131 & 26 & 19.0\,s\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\caption{Archived TLC 2.19 runs, expected rejections and the stall witness; the \code{.cfg} suffix is implied. Mutation runs use one worker; the violated invariant is the checked rejection. States at the counterexample are reported as distinct / generated.}
+\label{tab:tlcred}
+\footnotesize
+\begin{tabular}{lp{0.365\textwidth}lrr}
+\toprule
+Configuration & Defect checked & Violated & States\\
+\midrule
+\path{VrrCoreErasM1} & Era 1 drops the transferred tail entry while reporting its frontier & \code{FrontiersOrdered} & 2{,}111 / 5{,}425\\
+\path{VrrCoreReincarnationM1} & Era 1 skips the decrement; era 2 leaves the victim at weight 2 & \code{MassRule} & 9 / 26\\
+\path{VrrCoreReincarnationM2} & One-era swap: the unfenced victim evicted and the joiner promoted in one era & \code{MassRule} & 11 / 22\\
+\path{VrrCoreReincarnationM3} & The sequence runs without the fence (no bump) & \code{RebornAfterFence} & 38 / 160\\
+\path{VrrCoreReincarnationM4} & The sequence aborts after era 1; era 2 never proposed & \code{SequenceCompletes} & 8 / 19\\
+\path{VrrCoreReincarnationM5} & Weight-0 identities' replies counted in quorums & \code{NoStandbyVote} & 9 / 31\\
+\path{VrrCoreReincarnationFiveM1} & The M1 defect at five nodes & \code{MassRule} & 61 / 268\\
+\path{VrrCoreReincarnationFiveM2} & The M2 defect at five nodes & \code{MassRule} & 29 / 81\\
+\path{VrrCoreReincarnationFiveStall} & Intentionally failing witness: three deaths leave two live voters with weight 2 of 4 & \code{Completes} & 59{,}666 / 426{,}526\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The reincarnation model's invariant set is recorded in
+\path{formal/README.md}: \code{FrownChain} (every committed quorum is a strict
+majority and consecutive committed eras overlap), \code{EvictedNeverVoter},
+\code{MassRule} (at most mass one per node per committed era),
+\code{NoStandbyVote}, \code{RebornAfterFence}, \code{SequenceCompletes},
+\code{LeaderIsVoter}, and the liveness property \code{Completes}. The stall
+witness is the intentionally failing run: with three deaths, two live voters
+hold weight 2 of 4, no strict majority exists, and TLC reports \code{Completes}
+violated by a trace that ends stuttering in the stalled state --- the recorded
+existence proof that the model stalls rather than committing without a
+majority.
+
+Two discrepancies between records are noted rather than hidden. First,
+\path{formal/README.md} records \path{VrrCoreEras.cfg} as
+``837{,}204 distinct / 3{,}358{,}487 generated, depth 32, 3m24s'', while the
+archived log records 837{,}204 distinct / 2{,}743{,}933 generated, depth 32,
+137.7\,s: the distinct-state counts and depth agree, the generated totals and
+the generated totals and elapsed times differ between the two records, and
+this report quotes the archived
+log. Second, \path{formal/README.md} additionally records an era-model campaign
+whose raw logs are not archived under \path{evidence/tlc/}: the even-split
+four-node exhaustive run (green, 290{,}474 distinct / 1{,}571{,}856 generated,
+depth 30), the fixed-seed simulation runs (10{,}000 depth-40 crash traces,
+900{,}119 checked states; and 100{,}000 depth-60 traces, seed 1,
+26{,}793{,}084 checked states, 1\,h56\,m), the two intentionally false
+witness invariants (reached in 207 and 125 distinct states), the
+no-pivot-guard experiment (green, 837{,}204 distinct states), and the era
+mutations M2, M4, M5 (\code{CommittedLogsAgree}) and M7, M8 (refused by the
+named startup gates, zero states). Their provenance is
+\path{formal/README.md} and their reproduction commands are the
+\code{make tla} family in the appendix.
+
+\section{Mutation controls}\label{sec:mutations}
+Three independent control suites are recorded; each rejection is a checked
+result, not a review observation.
+
+\subsection{The Lean mutation harness}
+\path{formal/uvrr-lean/check_mutations.py} compiles temporary mutants and
+requires Lean to reject each. Its recorded design and outcome
+(the proof-ladder addendum's appendix states the suite's five rejections and
+the hole detection):
+an existential quorum checker (\code{Q2.all} replaced by \code{Q2.any}); an
+unsafe four-node decision family (the 3-of-4 subsets replaced by
+\code{[[3]]}); an omitted next-slot guard in \code{NormalLog}; an append
+after the view-change fence in \code{ViewFence}; and a cross-view prepare
+receipt in \code{LogProvenance}. The suite additionally checks that a
+\code{sorry} is detected through \code{sorryAx} in the axiom query even when
+the compiler exits zero. Reproduction: \code{python3 check\_mutations.py} from
+\path{formal/uvrr-lean}.
+
+\subsection{The TLC defect regressions}
+The nine expected rejections of Table~\ref{tab:tlcred} (one era-model mutant,
+five three-node mutants, two five-node mutants, one stall witness) each
+enable exactly one weakened perimeter through the \code{Defect} constant and
+must exit nonzero on the named invariant; the configuration-to-obligation
+mapping is recorded in \path{formal/README.md}, and the \code{make
+tla-mutations} lane requires both the failure and the exact violated-invariant
+text. The era-model mutations M2, M4, M5, M7 and M8 are recorded in
+\path{formal/README.md} as above.
+
+\subsection{Negative controls inside the rungs}
+The rung transcripts record their own controls alongside the verified
+results: rung 13's length-only selector loses a newer committed prefix and an
+omitted scalar length bound misranks reports; rung 14's authentic
+out-of-order delivery witnesses failure when the slot guard is bypassed;
+rung 15's concrete post-fence append breaks the historical report; rung 16's
+delayed wrong-view prepare control checks the model interface; rung 23 states
+the honest three-node degenerate negative (the forming quorums coincide, so
+no pivot exists and none is exercised); rung 24's casting-vote verdict splits
+by boundary (degenerate across E0/E1, genuine pivot across E1/E2); rung 26's
+premature promotion of the replacement (claiming weight one in the
+intermediate era) is rejected by Lean with an application type mismatch; and
+rung 28's hand-written \code{swap\_control} kernel-checks that the
+equal-total swap $(1,2,1,2)\to(2,1,2,1)$ makes $\{B,D\}$ a majority at $E_0$
+and a minority at $E_1$ --- the preservation hypothesis of the telescoping
+theorem is not free. Rung 27's transcript additionally records that both
+Leanstral generation rounds for \code{Fuse.lean} failed and that the accepted
+proof bodies were repaired locally: the successful result is the repaired
+file, not an unassisted generator success.
+
+\section{Proof-ladder rungs}\label{sec:rungs}
+Table~\ref{tab:rungs} records what each Showboat-verified rung transcript
+actually checked. The transcripts live in
+\path{formal/uvrr-lean/ladder/<NN>-<name>.md}; the numbering runs 13--16 and
+22--28 (no transcripts 17--21 exist). Each transcript embeds its Showboat
+identifier, the module source and the observed check output; the replay
+command is \code{showboat verify ladder/<NN>-<name>.md} from
+\path{formal/uvrr-lean} after \code{lake build}.
+
+\begin{table*}[t]
+\centering
+\caption{The rung transcripts 13--28: what each verified run checked, as recorded in the transcript. All results are kernel-checked by Lean 4.33.1 without Mathlib.}
+\label{tab:rungs}
+\small
+\begin{tabular}{lp{0.78\textwidth}}
+\toprule
+Rung & Verified finding as recorded\\
+\midrule
+13 & Whole-log selection by last-normal view: the executable selector returns a member of maximal (view, length) rank, and quorum intersection with the stated temporal premises yields committed-prefix preservation; the bounded scalar rank is proved equivalent to the TLA model's.\\
+14 & Normal-log message provenance: fixed-view operational induction derives comparable report logs and retention of replica prefixes; receivers enforce the next slot without any global agreement test.\\
+15 & Historical whole-log reports across view fences: multi-view local executions derive the selector's voter-history premise; a node raises its floor before reporting and retains immutable vote and reply histories.\\
+16 & Shared multi-view committed-log compatibility: the inductive invariant discharges same-view comparability and installed-base extension; strong view induction proves committed-log compatibility for a fixed configuration without crashes.\\
+22 & The reincarnation specification fixed as definitions: the durable identity contract, the incarnation bump, the two-era forced weight sequence, the phase machine, the higher-identity-wins read rule and continuation commitment. (The transcript carries a dated note that the governing boot rule is now the marker transition machine; the transcript is left as recorded.)\\
+23 & The casting vote instantiated on the reincarnation eras: at two nodes every E0/E1 quorum pair is decisive at the leader and the boundary overlap holds through the casting-vote structure; the three-node case is the recorded degenerate negative.\\
+24 & The five-voter reincarnation rung: majority families computed (not axiomatised) at the concrete configurations; era safety by the general one-unit discharge; the casting-vote verdict splits by boundary.\\
+25 & Agreement across the forced sequence under every view schedule: \code{sequence\_p1} derives P1, \code{sequence\_agreement} instantiates the era-indexed agreement theorem, and the five-node instance carries the E1/E2 leader-overlap pivot.\\
+26 & The final composition \code{ReincarnationSafety.five\_safe}: agreement, replacement weights, eviction from voting authority along the forced run, and identity non-reuse, from the existing history contract. The composition was generator-supplied in two bounded rounds, kernel-checked, then shortened without changing the statement. Observed: build 24 jobs; axiom audit PASS 355 declarations.\\
+27 & Fuse: finite response-quorum telescoping: \code{eligible\_through}, \code{chosen\_all}, \code{decide\_all}, and the concrete eligibility calculations for the three-transition three-voter and seven-transition five-voter schedules; first-quorum negative control. Generation failed twice; the accepted bodies were repaired locally.\\
+28 & The Telescoping Theorem \code{Fuse.Telescope.telescope\_pass}: for a three-node schedule with two transitions under the fuse constraints, the first transition passing telescopes the remaining slots. The \code{swap\_control} negative control is hand-written; the theorem's proof body is generator-drafted and kernel-checked unchanged. Observed at integration: 27 Lake jobs; axiom audit 450 declarations; the Rust corpus green, 33 suites, no inline test modules under \path{src/}.\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+One tooling control is recorded beside the rungs (the proof-ladder addendum's
+appendix): \path{tests/test\_leanstral\_driver.py} has two offline
+regressions. A mock API forces two concurrent proof loops to finish writing
+their candidates before either copies its result, exposing the shared-file
+race deterministically, and a second assertion checks that the prompt
+preserves project imports. Both failed on the original driver and pass with
+per-invocation scratch directories and an import-preserving prompt.
+
+\section{Exhaustive checker coverage}\label{sec:exhaustive}
+The independent Python checker
+(\path{research/weighted-reachability/check.py}, standard library only)
+records its exact coverage counts in
+\path{research/weighted-reachability/generated/summary.json}, and the
+repository's written record states the headline totals
+(\path{research/weighted-reachability/README.md}).
+
+\subsection{Weighted reachability}
+Every weight vector and availability count with a positive live leader
+through ten existing identities: 310{,}007 symmetry-representative profiles,
+covering 14{,}541{,}815 labelled weight/availability profiles, with zero
+failed checks. The maximum phantom weight added is 3 (matching the proved
+bound $\delta\leq 3$), and the maximum hub path is 19 unit edits. Every
+source/target pair satisfying the premises through six identities:
+774{,}159 representative pairs, covering 3{,}939{,}756 ordered labelled pairs,
+zero failed checks, every constructed path shortest in unit edits (maximum
+path 11). The per-identity breakdown is preserved in
+\path{generated/summary.json} and rendered in \path{generated/report.html}.
+The same summary records 250 independent cross-checks of the powerset
+intersection rule, and separate negative controls that reject an unsafe
+two-vote jump, a missing live majority, excessive phantom weight, and
+counting the abstract companion as a received quorum.
+
+\subsection{The fused batch}
+\path{research/weighted-reachability/check_fuse.py} records
+(\path{generated/fuse-summary.json}): the three-voter fused schedule checks
+2 boundaries and 64 cross-quorum majority pairs; the five-voter schedule
+checks 6 boundaries and 5{,}760 pairs; over four identities with weights in
+$\{0,1,2\}$, all 29{,}690 common-response endpoint pairs admit a
+monotone unit-edit path (99{,}352 unit edges) that keeps a responding
+majority at every step and is shortest; and the negative control walks the
+equal-total swap $(1,2,1,2)\to(2,1,2,1)$ through unit edits, recording
+responder masses $4,4,3,3,2$ and quorum flags
+true, true, false, false, false --- the responding quorum is not preserved
+along a legal unit-step path.
+
+Reproduction for both checkers is in the appendix. These finite counts are
+computational evidence; the general claims rest on the Lean proofs and the
+mathematical note recorded in the same directory.
+
+\section{Axiom audits}\label{sec:axioms}
+\path{formal/uvrr-lean/check\_axioms.py} queries every named theorem,
+definition and abbreviation in the compiled project and permits only
+\code{propext}, \code{Quot.sound} and \code{Classical.choice}. Three dated
+audit outcomes are recorded in the repository:
+\begin{enumerate}
+\item The rung 26 transcript (11 September 2026): the build completed 24 jobs
+and the audit passed 355 declarations; direct queries record that
+\path{ReincarnationSafety.five_safe} and
+\path{ReincarnationAgreement.five_leader_overlap} depend only on the three
+standard axioms.
+\item The proof-ladder addendum's appendix: the extended build completes 25
+jobs and the audit covers 412 declarations.
+\item The rung 28 transcript (14 September 2026, recorded against the
+pre-addendum source): 27 Lake jobs, the audit covered 450 declarations with
+only the permitted axioms; \path{Fuse.Telescope.telescope_pass} and
+\path{Fuse.Telescope.swap_control} both report the three standard axioms.
+\end{enumerate}
+No audit count is recorded at this addendum's HEAD; the three counts above
+are the dated records the repository holds. Reproduction: \code{lake build}
+then \code{python3 check\_axioms.py} from \path{formal/uvrr-lean}.
+
+\section{Abdication measurements}\label{sec:abdication}
+The abdication mechanism --- the administrator's message naming the current
+and target eras, the leader validating the compare-and-swap and the bounded
+delta, and the standard view change carrying the handover --- is landed and
+exercised functionally (\path{tests/abdicate.rs}; the rung 28 record quotes
+the full corpus green). The parent paper's Section V-E5 states the
+measurement contract: the planned-takeover latency is to be measured under
+the two durability profiles --- without disk (the diskless normal path) and
+with simulated disk flushes injected at the recovery boundary --- reporting
+p50, p90 and mean per profile. The recorded draft carries counted
+placeholders for all six figures, and the experiment-design note
+(\path{docs/uvrr-experiment-design.md}) states that none of the programme's
+timings have been executed. \textbf{Findings: \tobemeasured.} No abdication
+latency number is recorded anywhere in this repository.
+
+\section{Stress bench, Zig twin and Maelstrom harness}\label{sec:bench}
+\subsection{The Maelstrom stress bench}
+The bench's contract is the \code{make} lane set in the \path{Makefile}: the
+Maelstrom lin-kv workload against five nodes ($f=2$), 180-second runs at
+rate 20 with nemesis interval 10, one lane per fault profile ---
+\code{test-clean} (no faults), \code{test-partition},
+\code{test-kill}, and \code{test-resurrect} (the kill nemesis against
+persisted nodes, where every kill reopens with no stopped quorum and the boot
+bumps the identity, a T3 reincarnation). The linearizability verdict is
+Maelstrom's own Knossos check; the adapter tests
+(\path{tests/maelstrom\_adapter.rs}) assert the node's end of the transport
+against a scripted relay, and the recorded note is that the vendored harness
+is SIGKILL-only, so no clean-stop lane exists --- the T1--T2 clean-stop
+discipline is pinned by the adapter test
+\path{tests/maelstrom_adapter.rs} case
+\path{a_clean_shutoff_reopens_under_the_same_identity}.
+
+The recorded lane results are preserved in the merge record of the stress
+bench's restoration (commit \code{b0bf2f9}, 14 September 2026, and its
+landed twin \code{44da48e}): ``Lanes: test-clean 0.7407, test-partition
+0.2415/0.2710, test-kill 0.5813, test-resurrect 19 dirty T3 bumps --- all
+\code{:valid? :true}.'' Every lane's linearizability check passed; the
+resurrection lane recorded 19 dirty T3 identity bumps across its kills. The
+decimal figures are recorded in the merge message without further
+elaboration, and the raw Maelstrom run artefacts are not committed (the
+store and state directories are gitignored); the merge message is the
+recorded provenance. Lane figures beyond that record are \tobemeasured.
+
+\subsection{The Zig twin}
+The vendored TigerBeetle 0.17.9 storage stack (\path{zig/}, every patched
+line recorded in \path{zig/PATCH\_MANIFEST.md}) drives the marker transition
+machine over real direct-IO paths, compiled with the pinned Zig 0.14.1. The
+recorded outcome (the same merge records): 19 of 19 Zig tests pass with the
+pinned toolchain, including the exhaustive $4^4$ marker-assignment test over
+the pure machine noted in \path{zig/README.md}. The demo consumer is
+\path{examples/uvrr-reincarnation/} (feature \code{uvrr}), which runs the
+T1/T2/T3 transitions and membership replay over the vendored IO.
+
+\subsection{The Rust corpus gate}
+The rung 28 transcript records the corpus gate at its date:
+\code{cargo test --features maelstrom} green, 33 suites, and no inline test
+modules under \path{src/}. The repository gate (\code{make check}) adds the
+format check, clippy at \code{-D warnings}, and the \code{cli}-featured run.
+
+\section{Reproduction commands}\label{app:repro}
+From the repository root unless stated. The TLC lanes use the hash-pinned
+jar recorded in \path{formal/uvrr-lean/evidence/tlc/toolchain.json}.
+
+\begin{quote}\raggedright\ttfamily\footnotesize
+make check\\
+make test-clean\\
+make test-partition\\
+make test-kill\\
+make test-resurrect\\[4pt]
+zig test -lc --dep stdx\\
+\hspace*{2em}-Mroot=zig/root.zig -Mstdx=zig/stdx/stdx.zig\\[4pt]
+python3 research/weighted-reachability/check.py\\
+\hspace*{2em}--max-n 10 --pair-max-n 6\\
+python3 research/weighted-reachability/check\_fuse.py\\[4pt]
+cd formal/uvrr-lean \&\& lake build\\
+\hspace*{2em}\&\& python3 check\_axioms.py\\
+python3 check\_mutations.py\\
+for f in ladder/[0-9][0-9]-*.md; do\\
+\hspace*{2em}showboat verify "\$f" || exit; done\\[4pt]
+make tla \ \ \# era model, Docker\\
+make tla-mutations\\
+make tla-local TLA2TOOLS\_JAR=<tla2tools.jar>\\
+java -XX:+UseParallelGC -Xmx2g\\
+\hspace*{2em}-jar /path/to/tla2tools.jar -workers 2\\
+\hspace*{2em}-config <config>.cfg VrrCoreReincarnation.tla
+\end{quote}
+
+The spellcheck gate for this document is the repository's:
+\code{paper/spellcheck.sh paper\_results.tex} (Aspell, \code{en\_GB}).
+
+\begin{thebibliography}{9}
+\bibitem{parent} S. Massey, ``Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation,'' manuscript, 2026. [Online]. Available: \url{https://github.com/lua-lunet/uvrr-core}
+\bibitem{ladder} S. Massey, ``Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation --- Addendum: proof ladder, weighted reconfiguration and the operator solver,'' manuscript, 2026. [Online]. Available: \url{https://github.com/lua-lunet/uvrr-core}
+\bibitem{artifact} S. Massey, ``uVRR code and proof artifact,'' 2026. [Online]. Available: \url{https://github.com/lua-lunet/uvrr-core}
+\end{thebibliography}
+\end{document}
