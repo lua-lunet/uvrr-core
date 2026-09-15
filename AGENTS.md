@@ -129,6 +129,31 @@ not negotiable. It is forbidden to do a branch then a todo — you must
 do a todo and then the branch. Laptops crash, plans pivot, and far too
 much work has been misplaced to the fury of the user.
 
+## Worktree discipline
+
+A git worktree is a branch with a checkout attached, so every branch rule
+applies to it with double force — the branch rule AND a cleanup rule.
+
+- You are FORBIDDEN from creating a git worktree unless the User explicitly
+  asked for one in the current task. "Do it in parallel", "fork an agent", or
+  delegation alone is NOT permission to create a worktree: an orchestrator
+  delegating scratch work must ask the User first, or work in the existing
+  checkout / an explicitly named scratch directory.
+- Before creating a worktree you MUST add TWO todo items, in this order: (1)
+  check the worktree's branch has been merged, (2) check the worktree has been
+  removed (`git worktree remove`). It is forbidden to create the worktree then
+  the todos — todos first, worktree second, exactly as with branches.
+- A worktree used for read-only work still counts: read-only work does not
+  need a worktree at all. Read from the existing checkout, or use `git show
+  <ref>:<path>` / `git log` — those cannot lose data, a worktree can.
+- By the end of the task, `git worktree list` must contain nothing you
+  created. A worktree left behind after its branch is merged is a violation;
+  a worktree orphaned by a deleted branch is a violation and a data-loss risk
+  the user will hunt you for.
+- Read-only subagents (investigation, audit, survey) MUST NOT be given a
+  worktree unless the User said so; they read the existing checkout and the
+  git history.
+
 ## Tool inventory and submodule policy
 
 The paper (`formal/uvrr-lean/paper/paper.tex`) and the Lean formalization
