@@ -302,6 +302,67 @@ For a history using Table~\ref{tab:weights}, under the same order, era and P2--P
 Doubling and exact halving preserve the majority family. Each of the four intervening boundaries changes one unit of voting mass. The same local intersection argument therefore applies six times. Induction over these boundaries establishes the era intersection invariant, and Turner's theorem gives agreement. Evaluation of the commands gives the stated final weights.
 \end{proof}
 
+\section{Rejoin gossip and witnesses}\label{sec:rejoin-gossip}
+The replacement schedules of Sections~\ref{sec:results}
+and~\ref{sec:five-node-reincarnation} return a failed member to voting
+weight through committed batches. They presume the replacement can reach a
+fence: it must know an era the cluster has committed before its engine sees
+a message. A node whose durable state is lost returns blank; a node that
+reincarnates under a fresh identity holds no roster entry at all. Neither
+can guess an era, and the one-era recovery window drops what it cannot
+span. The rejoin path closes this with a gossip layer outside the voting
+protocol; the addendum~\cite{artifact} gives its full construction, its
+worked scenarios and the kernel-checked safety conditions. Three properties
+carry the design, none of which touches a quorum rule.
+
+\paragraph{The join gossip}
+A node outside the cluster never assumes the cluster will come to it. It
+broadcasts a join request to every node it knows, carrying its frontiers,
+under the deployment's authenticated transport. Any node that hears the
+request answers with the (era, membership) pair it has committed locally;
+era advances only when a committed batch is applied, so no honest response
+names an era the cluster has not committed. The joiner adopts the maximum
+reported era with that response's membership, flushes the pair to durable
+storage whenever the adoption changes, and keeps its own retransmission
+loop: a request lost in flight is re-sent naming the current frontiers, and
+the resend loop is the gossip's own reliability rather than a separate
+discovery path. The joiner never assumes it has heard the latest era, so it
+always sends to all nodes it knows.
+
+\paragraph{The gossip-witness list}
+Every node that hears a join request records the sender on an operator
+visible witness list; the leader alone acts on the list. It replays the
+contiguous suffix of its journal from the advertised frontier, in order,
+each entry through the ordinary accept path --- there is no
+witness-specific accept path --- and then streams every subsequent phase-2
+and commit to the witness. The witness never votes: quorum membership is
+decided by the configuration alone. Because the list rides at every node,
+a successor leader resumes the stream on election without waiting for a
+re-announcement, so failover does not interrupt keep-up. When a committed
+batch makes the witness a member, every node removes the entry; delivery
+as both voter and witness in the window between the commit and the removal
+is covered by deduplication and merely wastes IO. A node registered as a
+witness in the startup configuration is never purged: it is an append-only
+audit tape of everything the cluster committed, and a disaster-recovery
+sink in another region costs exactly the stream that reincarnation already
+needs, under every leader in turn.
+
+\paragraph{Why the stream is safe}
+The stream telescopes a promise: per Lamport, a promise at ballot $b$
+covers every lower ballot, so a phase-2 accepted at view $v$ raises the
+witness's promise floor to $v$ exactly as if a prepare at $v$ had arrived
+first. The witness forfeits nothing by raising the floor --- its promises
+are counted in no quorum --- and the leader's right to send at $v$ was
+earned from members by the ordinary phase one. The addendum states this
+as five construction rules, H1--H5, and proves the consequence in Lean:
+the adopted era never exceeds the committed era; once the leader answers,
+it equals it; a journal extended by the in-order contiguous suffix
+reconstructs the leader's prefix; and the promoted witness's committed
+prefix is indistinguishable from a member that caught up by ordinary state
+transfer. A node that rejoins through this path arrives at its first fence
+at the cluster's current era, having seen a commit, which makes the
+one-era recovery gate unreachable by construction rather than widened.
+
 \section{Evidence}\label{sec:evidence}
 The addendum~\cite{artifact} maps these arguments to Lean~4~\cite{lean4}, bounded exhaustive enumeration, Rust property tests and protocol tests. It includes the existing specialised machine theorem's precise scope, the general lemmas used above, and the reproduction commands. Configuration reachability, abstract casting witnesses and the operational history contract are stated separately so each result can be checked at its own layer.
 
@@ -382,6 +443,14 @@ single-node restart therefore recovers from the surviving members, while a
 simultaneous full-cluster loss forfeits whatever the quorum held, and an
 operator re-bootstrapping a lost cluster must do so only after all
 outstanding leases can no longer be valid.
+
+A node outside the cluster --- a lost durable state or a fresh identity ---
+rejoins through the gossip path of
+Section~\ref{sec:rejoin-gossip}: the join gossip to every known node, the
+witness list acted on by the leader, and the streamed keep-up to the first
+fence. The wire carries the gossip as its own message type, and the
+explicit-message tests pin the whole exchange; the section's safety
+argument is the contract those tests hold the implementation to.
 
 Membership is fixed for one process lifetime, so the reincarnation eviction
 of Section~\ref{sec:method} --- the forced weight sequence that
