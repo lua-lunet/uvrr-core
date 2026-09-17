@@ -16,6 +16,7 @@
 
 use super::reconfiguration::CommitFold;
 use super::*;
+use crate::trace;
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// Enters the view change for `target` (VRR-2012 §5, spec §9.1): the
@@ -513,6 +514,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 },
                 kind,
             )?;
+            trace!("OFFER: era={:?} current=({:?},{:?}) record_present={} status={:?}",
+                header.view.era, current.era, current.view,
+                self.progress.config().record(header.view.era).is_some(),
+                self.progress.status());
             if Some(header.view.era) == current.era.next() {
                 let mut plan = plan.with_stalled_offer(from, message.clone());
                 if self.transfer.is_none() {

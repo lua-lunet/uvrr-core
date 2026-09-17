@@ -74,6 +74,11 @@ clap = { version = "4", features = ["derive"], optional = true }
 [features]
 # Gates examples/uvrr-reincarnation only; no dependencies behind it.
 uvrr = []
+# Compile-time trace logging of the protocol's internal state at the top and
+# the bottom of processing (the step boundary and every planner decision
+# path). When the feature is off the macro expands to nothing — zero
+# production overhead. Enable with --features trace.
+trace = []
 default = []
 serde = ["dep:serde", "dep:serde_json"]
 maelstrom = ["serde", "dep:serde_json"]

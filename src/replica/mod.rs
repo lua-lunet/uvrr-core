@@ -113,6 +113,7 @@ use crate::observe::{Diagnostic, Observation};
 use crate::plan::Plan;
 use crate::progress::{Progress, ProgressError, ProgressSnapshot, Status};
 use crate::quorum::{QuorumError, QuorumStrategy, Role, validate_era};
+use crate::trace;
 use crate::reconfiguration::{Abdication, AbdicationRefusal, validate_abdication};
 use crate::wire::{Header, Pack, Tag};
 
@@ -1489,6 +1490,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         input: &TimedInput,
         journal: &J::View,
     ) -> Result<PlannedTransition, PlanRefusal> {
+        trace!("PLAN in: event={:?} at={:?} | self: current=({:?},{:?}) retained=({:?},{:?}) accepted={:?} committed={:?} applied={:?} status={:?} table_era={:?} revision={:?}",
+            input.event, input.at,
+            self.progress.current().era, self.progress.current().view,
+            self.progress.retained().era, self.progress.retained().view,
+            self.progress.accepted(), self.progress.committed(), self.progress.applied(),
+            self.progress.status(), self.progress.config().current().era, self.progress.revision());
         // Stickiness precedes everything (§5 invariant 5): a faulted node
         // refuses every input variant, and reports the fault it already holds.
         if let Some(fault) = self.progress.fault() {
@@ -2312,6 +2319,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 planned.bookkeeping,
                 planned.diagnostic,
             )?;
+            trace!("PLAN out: published | self: current=({:?},{:?}) retained=({:?},{:?}) accepted={:?} committed={:?} applied={:?} status={:?} table_era={:?} revision={:?}",
+                self.progress.current().era, self.progress.current().view,
+                self.progress.retained().era, self.progress.retained().view,
+                self.progress.accepted(), self.progress.committed(), self.progress.applied(),
+                self.progress.status(), self.progress.config().current().era, self.progress.revision());
             return Ok(PublishOutcome::Published {
                 revision: self.progress.revision(),
                 effects: planned.effects,
@@ -2321,6 +2333,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             return Err(PublishRefusal::TransitionOutstanding);
         }
         let intent = planned.intent;
+        trace!("PLAN out: parked | self: current=({:?},{:?}) accepted={:?} committed={:?} status={:?} revision={:?}",
+            self.progress.current().era, self.progress.current().view,
+            self.progress.accepted(), self.progress.committed(),
+            self.progress.status(), planned.base);
         self.parked = Some(ParkedTransition {
             base: planned.base,
             candidate: planned.candidate,
