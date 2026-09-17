@@ -114,6 +114,7 @@ use crate::plan::Plan;
 use crate::progress::{Progress, ProgressError, ProgressSnapshot, Status};
 use crate::quorum::{QuorumError, QuorumStrategy, Role, validate_era};
 use crate::reconfiguration::{Abdication, AbdicationRefusal, validate_abdication};
+#[allow(unused_imports)]
 use crate::trace;
 use crate::wire::{Header, Pack, Tag};
 

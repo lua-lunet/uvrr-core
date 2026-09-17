@@ -12,52 +12,43 @@ Classic VRR's published recovery failure (the DISC'17 Appendix B.1 amnesia class
 Michael et al.) is literature about the classic crash-recover class; uVRR eliminates
 the class by construction rather than repairing it.
 
-## 2. Durable identity contract: the marker transition machine
+## 2. Durable identity contract: the four superblocks
 
-Durable state is **four TigerBeetle-style superblocks**. Every marker
-transition is a new copyset — sequence advanced, `parent` hash-chained —
-written to all four copies, and the marker writes are **forced to be crash
-durable** (durable-on-write; they are the only disk traffic outside the stop
-path). The marker is an ordered transition system
-(`docs/vrr-durability-model.md` §5.1; the code twins:
-`src/replica/reincarnation.rs`, `zig/vsr/superblock.zig`):
+Durable state is **four TigerBeetle-style superblocks**. Node restart reads all four.
 
-```
-Running ──stop──> Stopping ──drain──> Stopped ──boot, 2-of-4 Stopped──> Restarting
-Running ──crash──> (markers unchanged) ──boot, no 2-of-4 Stopped──> Joining
-```
+**Marker semantics**:
 
-- `Stopping` = the stop command answered: the host drains — flushes WALs and
-  grids — strictly between the two marker writes, and the marker order is
-  the drain's proof, so a `Stopped` copy vouches for the WAL under it.
-- `Stopped` = the drain completed and the durable state is a self-consistent
-  checkpoint of identity X. Written 4× by `finish_stop`.
-- `Restarting` = the boot read a **2-of-4 `Stopped` quorum**: the clean
-  stop continues under the same identity — a member with complete state, no
-  amnesia, ticking the full protocol.
-- `Joining` = the boot read **no stopped quorum** — a crash, a torn marker
-  set, or death mid-join — so the identity is dead: the node bumps it and
-  reincarnates. `Joining` is the bumped identity's wire-phase marker: **not
-  a member** (weight-0 standby), no vote, no view change.
-- `Running` is **never written**: no safety logic looks for `Running`, it
-  looks for `Stopped` — the extra superblock write buys no safety and is
-  elided.
+- `flushed` = "my on-disk state is a self-consistent checkpoint of identity X".
+  Written at **clean shutdown** (node stopped responding, flushed all writes, fsynced)
+  and at the **bump** (after rewriting all four superblocks as the new identity).
+- `unflushed` = running state, written when a node **starts** operating.
 
-**The identity lifecycle applies to every identity start, the bumped one
-included.** The bump write claims (X+1, `Joining`) — a full crash-durable
-copyset — as the identity's wire-phase marker; it claims no `Stopped`
-checkpoint, because the bumped identity has no WAL under it to vouch for.
-A crash mid-wire-phase then reads `Joining` copies — no stopped quorum —
-and bumps again (X+2), restarting the eviction of every stale identity.
-Same-identity recovery after volatile-state loss stays **unrepresentable by
-construction**, in the wire-phase window included.
+Startup classification:
 
-**Read rule (higher-identity-wins):** any read of the superblocks may observe
-a higher identity than the reader last knew; the reader adopts the higher
-identity. Among copies with the same sequence, the highest identity wins.
+1. All four read `flushed` → mark `unflushed`, continue normally. This is the
+   ordinary CR-free path: no recovery protocol runs.
+2. Any of the four reads `unflushed` → the node is **dirty**.
 
-**Continuation commitment:** once Crash-Stop-Eviction is initiated it MUST
-continue; the forced sequence of §5 is never aborted mid-way.
+**Dirty path:** bump the incarnation (new identity), write new identity + `flushed`
+to all four superblocks, then enter the wire phase (§4). The state machine is:
+
+| State | Meaning |
+|---|---|
+| `flushed` | durable checkpoint of identity X; written at clean shutdown and after the bump |
+| `unflushed` | running sentinel; written at start of operating |
+| `dirty` | restart observed any-`unflushed`; eviction must begin |
+| `bumped` | incarnation incremented; all four superblocks rewritten as (new identity, `flushed`) |
+| `reincarnating` | wire phase: old identity pending eviction, new identity a weight-0 standby |
+
+A **standby** is TigerBeetle's term for its non-voting cluster members (this document's
+older drafts called it a learner). Standby nodes have a zero voting weight so cannot
+form part of any quorum nor actively participate in the VSR algorithm.
+
+**Read rule (higher-identity-wins):** any read of the superblocks may observe a higher
+identity than the reader last knew; the reader adopts the higher identity.
+
+**Continuation commitment:** once Crash-Stop-Eviction is initiated it MUST continue;
+the forced sequence of §5 is never aborted mid-way.
 
 ## 3. Economic rationale: the network is faster than the disk
 
@@ -66,9 +57,9 @@ Reincarnation takes advantage of "The network is faster than the disk"
 For nano-state that fits in memory, disk flushes can be **deferred**: the forced
 reconfiguration rounds of §5 are network round trips, which are cheaper than fsyncs.
 The four-superblock mark is **one fsync amortized over the whole epoch**, not
-per-operation durability. The stopped-quorum check is therefore paid once per
-restart, and the correctness cost of same-identity amnesia is avoided entirely
-instead of being paid per operation as a flush.
+per-operation durability. The dirty check is therefore paid once per restart, and the
+correctness cost of same-identity amnesia is avoided entirely instead of being paid
+per operation as a flush.
 
 ## 4. Wire message
 
@@ -221,9 +212,20 @@ acquisition rule:
   takes the answering chunk's committed frontier and folds the system
   operations it covers — the fold input is the chunk the suffix ruling
   already verified against the local journal. The node stays fenced: it
-  adopts no view, its votes are never counted, and it serves nothing. The
-  admitting era folds exactly there, which makes the leader's `StartView`
-  evaluable and the ordinary install completes the catch-up.
+  adopts no view, its votes are never counted, and it serves nothing.
+  The admitting era folds exactly there, which makes the leader's
+  `StartView` evaluable and the ordinary install completes the catch-up.
+- **Era-by-era catch-up:** a boot-fenced member admitted several eras
+  past its boot table catches up era by era, one fold per stalled-ruling
+  re-run: an offer more than one era past is retained when it NAMES the
+  node (the era's establishing operation — a `Join`, the `Increment`
+  that promotes it, or a batch carrying either), the acquisition's fold
+  is capped at one era past the view it carries (the §8.7.3 era window),
+  each ordinary tick re-runs the retained ruling, the walked view carries
+  the next round's fetch, and the offer installs — the ordinary install —
+  once its era is evaluable. The member never votes in an era it has not
+  folded, and the walked view never adopts: the node is `Recovering`
+  until the retained offer installs.
 - **Authority:** unchanged — a learner votes only after a committed
   `INCREMENT` grants it weight; while its weight is 0 its messages are
   discarded by the standard membership checks (§6).
