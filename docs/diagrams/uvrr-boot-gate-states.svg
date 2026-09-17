@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+  <title id="title">The boot-gate marker state machine</title>
+  <desc id="desc">Three durable marker states: RUNNING (the boot latch, vouches for nothing), STOPPED (halt begun, wire closed, durable write in flight), FLUSHED (durable write complete, vouches for everything beneath). Controlled transitions write the marker; crash edges write nothing. Each transition is logged at its beginning and at its end, so a torn write always classifies.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#243447"/></marker>
+    <marker id="greenArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#157f3d"/></marker>
+    <marker id="redArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#b42318"/></marker>
+    <style>
+      .title{font:700 28px system-ui,sans-serif;fill:#132238}.sub{font:16px system-ui,sans-serif;fill:#475467}
+      .state{fill:#eaf2ff;stroke:#3972b7;stroke-width:2.5}
+      .vouch{fill:#e9f9ef;stroke:#157f3d;stroke-width:2.5}
+      .dead{fill:#fef3f2;stroke:#b42318;stroke-width:2.5;stroke-dasharray:6 5}
+      .s{font:700 20px system-ui,sans-serif;fill:#132238;text-anchor:middle}
+      .ss{font:14px system-ui,sans-serif;fill:#475467;text-anchor:middle}
+      .msg{stroke:#243447;stroke-width:2.5;marker-end:url(#arrow)}
+      .good{stroke:#157f3d;stroke-width:2.5;marker-end:url(#greenArrow)}
+      .bad{stroke:#b42318;stroke-width:2.5;stroke-dasharray:7 5;marker-end:url(#redArrow)}
+      .label{font:15px system-ui,sans-serif;fill:#243447;text-anchor:middle}
+      .small{font:14px system-ui,sans-serif;fill:#475467;text-anchor:middle}
+      .mono{font:14px ui-monospace,Menlo,monospace;fill:#132238;text-anchor:middle}
+      .note{fill:#f2f4f7;stroke:#d0d5dd}
+    </style>
+  </defs>
+  <rect width="1200" height="620" fill="#ffffff"/>
+  <text x="48" y="48" class="title">The boot-gate marker: three states, every transition logged at both ends</text>
+  <text x="48" y="76" class="sub">Controlled edges write four spaced copies (quorum-read). Crash edges write nothing — the marker simply stays where it was.</text>
+
+  <rect x="80" y="240" width="220" height="110" rx="12" class="state"/>
+  <text x="190" y="285" class="s">RUNNING</text>
+  <text x="190" y="312" class="ss">the boot latch — vouches for nothing</text>
+
+  <rect x="490" y="240" width="220" height="110" rx="12" class="state"/>
+  <text x="600" y="285" class="s">STOPPED</text>
+  <text x="600" y="312" class="ss">halt begun: wire closed, handlers drained</text>
+
+  <rect x="900" y="240" width="220" height="110" rx="12" class="vouch"/>
+  <text x="1010" y="285" class="s">FLUSHED</text>
+  <text x="1010" y="312" class="ss">durable write complete — vouches for all beneath</text>
+
+  <rect x="490" y="470" width="220" height="100" rx="12" class="dead"/>
+  <text x="600" y="512" class="s">CRASHED</text>
+  <text x="600" y="538" class="ss">no durable transition — marker stays put</text>
+
+  <path d="M 300 280 L 486 280" class="msg"/>
+  <text x="395" y="262" class="label">SIGTERM — round 1: 4× STOPPED</text>
+  <text x="395" y="300" class="small">halt the read loop; drain the handlers</text>
+
+  <path d="M 714 280 L 896 280" class="msg"/>
+  <text x="805" y="262" class="label">round 2: 4× FLUSHED</text>
+  <text x="805" y="300" class="small">the dual-ring WAL is forced first</text>
+
+  <path d="M 1010 240 C 1010 150, 190 150, 190 236" class="good"/>
+  <text x="600" y="132" class="label">clean start — one round: 4× RUNNING (the latch), then read the era and run</text>
+  <text x="600" y="168" class="small">a FLUSHED quorum vouches; re-sync in-cluster as though a partition had healed</text>
+
+  <path d="M 190 354 C 190 430, 420 500, 486 510" class="bad"/>
+  <path d="M 600 354 L 600 466" class="bad"/>
+  <path d="M 1010 354 C 1010 440, 790 510, 714 516" class="bad"/>
+  <text x="330" y="470" class="label">kill −9 / power</text>
+  <text x="870" y="470" class="label">kill −9 / power</text>
+
+  <path d="M 714 545 C 900 570, 1060 560, 1120 470 L 1120 400" class="msg"/>
+  <text x="980" y="600" class="label">dirty fast start: no FLUSHED quorum — gossip, catch up, rejoin; the RUNNING latch is deferred</text>
+
+  <rect x="80" y="110" width="330" height="80" rx="8" class="note"/>
+  <text x="245" y="140" class="small">two states + a torn write = ambiguous:</text>
+  <text x="245" y="162" class="small">start or halt? three states log each</text>
+  <text x="245" y="182" class="small">transition at its beginning and its end</text>
+</svg>

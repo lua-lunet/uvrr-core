@@ -7,7 +7,9 @@ is therefore a contract between the two: the library defines the obligations,
 and every future host application — an unbounded set — must meet them to
 embed uVRR safely. The obligations are recorded here as the formal contract.
 The same requirement is raised with the reference host runtime as
-lua-lunet/lunet#163.
+lua-lunet/lunet#163. Termination's dual — the classification of a start as
+clean or crashed, and the write schedules each path owes — is the boot gate
+(`uvrr-boot-gate.md`).
 
 ## 1. The obligations, ranked
 
