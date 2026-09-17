@@ -540,20 +540,18 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             &journaled
         };
         let mutation = if truncated {
-            if new_committed < accepted {
+            let covered: Vec<LogEntry> = entries
+                .iter()
+                .filter(|entry| entry.slot <= new_committed)
+                .cloned()
+                .collect();
+            if covered.is_empty() {
+                // The fold covered nothing from this chunk: the tail past
+                // the era window is re-fetched by the acquisition's next
+                // round, and there is no covered prefix to journal.
                 JournalMutation::None
             } else {
-                match self.check_suffix(
-                    journal,
-                    &entries
-                        .iter()
-                        .filter(|entry| entry.slot <= new_committed)
-                        .cloned()
-                        .collect::<Vec<_>>(),
-                    new_committed,
-                    committed,
-                    Slot::NONE,
-                ) {
+                match self.check_suffix(journal, &covered, new_committed, committed, Slot::NONE) {
                     SuffixCheck::Install(mutation) => mutation,
                     SuffixCheck::Gap { expected, got } => {
                         return self.drop_plan(Diagnostic::GapDetected { expected, got }, kind);
@@ -661,7 +659,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             fetch_view,
             new_accepted.next()
         );
-        let transfer = if more || truncated {
+        let transfer = if more || walked || (truncated && new_accepted > accepted) {
             match new_accepted.next() {
                 Some(next) => {
                     let (effect, fetch) = self.fetch(fetch_view, from, next);
@@ -672,6 +670,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 None => TransferUpdate::Clear,
             }
         } else {
+            // A capped answer that neither walked the view nor advanced
+            // the cursor would return the identical chunk forever: the
+            // acquisition's needs through the cap are already journalled,
+            // the fetch closes, and the retained offer's own revival
+            // routes carry the install and the tail.
             TransferUpdate::Clear
         };
         trace!(
