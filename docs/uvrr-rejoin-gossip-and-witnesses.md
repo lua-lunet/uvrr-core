@@ -34,11 +34,12 @@ the superblock lifecycle.
 - When the gossip delivers a piggybacked commit, the node has seen leader
   activity and starts its phi leader-timeout baseline from it.
 
-## 3. The gossip-witness list (leader side)
+## 3. The gossip-witness list (all nodes, leader streams)
 
-- The leader, on hearing a join gossip, adds the sender to its
-  **gossip-witness list** and, based on the sender's frontiers, pushes all
-  the phase-2 messages it needs to catch up, then a commit message.
+- **Every** node that hears a join gossip adds the sender to its
+  **gossip-witness list**. Only the leader acts on the list: it replies
+  and, based on the sender's frontiers, pushes all the phase-2 messages
+  the sender needs to catch up, then a commit message.
 - From then on the leader pushes **all phase-2s and all commits** to the
   gossip-witness list, as if those nodes were part of the cluster. The
   witness is a passive data sink outside the roster: it never votes, and its
@@ -47,9 +48,15 @@ the superblock lifecycle.
 - Because the witness holds a live commit stream, it stays current
   **indefinitely**. Two worked scenarios show what this buys across a heal
   (§3.1).
-- When a reconfiguration carrying a JOIN commits, the leader drops the
-  promoted node from the gossip-witness list. Duplicate delivery is
-  idempotent — dropping is a dedup optimisation, not a safety rule.
+- When a reconfiguration carrying a JOIN commits, **every** node scans its
+  gossip-witness list and drops the promoted node. Sending to the node as
+  both voter and witness is safe — duplicate delivery is idempotent — but
+  wastes IO; dropping is a dedup optimisation, not a safety rule.
+- Because every node keeps the list, **failover does not interrupt the
+  stream**: the successor leader already carries the joiner in its own
+  gossip-witness list and starts streaming on election. The joiner's
+  resend timer covers a gossip lost in flight — it is the reliability
+  mechanism of the gossip itself, not a failover re-discovery path.
 - In this manner **any node outside a cluster can gossip to find the leader
   during failovers**: tracking the cluster through the witness stream
   replaces a lucky first message.
@@ -72,23 +79,28 @@ joined the cluster and leaves the leader's witness list.
 cluster where the leader sits in a minority partition together with the
 reincarnated node: the leader plays keep-up, streaming to the witness as
 usual. The leader crashes. The network heals; the three surviving nodes form
-a quorum and a new leader emerges. What happens to the reincarnated node? It
-has a timer and keeps gossiping its desire to join to all nodes. The new
-leader answers the gossip and sends the messages the surviving majority had
-committed. These may override the old leader's uncommitted slots, and they
-add in and commit the new join attempt at slots chosen by the new leader —
-the witness arrives at the new leader already at the committed frontier and
-the join completes under the configuration the quorum chose.
+a quorum and a new leader emerges. What happens to the reincarnated node?
+Every surviving node heard its original gossip, so the new leader already
+carries it in its gossip-witness list: on election it streams the messages
+the surviving majority had committed. These may override the old leader's
+uncommitted slots, and they add in and commit the new join attempt at
+slots chosen by the new leader — the witness arrives at the new leader
+already at the committed frontier and the join completes under the
+configuration the quorum chose. The joiner's resend timer keeps gossiping
+regardless: a node that missed the original gossip learns of the joiner
+from a resend.
 
 ## 4. Witnesses as a first-class configuration role
 
 - The startup cluster configuration carries a **witness list** in addition
   to the member list: regular members **plus witnesses**, where a witness
   cannot also be a member. Startup witnesses are the pre-provisioned form —
-  e.g. out-of-region cold-backup nodes.
+  e.g. out-of-region cold-backup nodes. Every node loads the list at
+  startup and a statically registered witness is **never purged**: as the
+  cluster fails over, each leader in turn streams to the full DR backup.
 - The join method takes a **join type: `standard | witness`**.
-- On a committed JOIN of a `standard` joiner, the leader drops it from the
-  gossip-witness list: it is now a voting member and receives protocol
+- On a committed JOIN of a `standard` joiner, every node drops it from the
+  gossip-witness list (§3): it is now a voting member and receives protocol
   traffic as one.
 - On a committed **witness** join the list is **not** cleared. The purpose
   of the commit broadcast is so that **every node adds the witness to its own
