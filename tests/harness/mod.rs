@@ -68,7 +68,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
-use vrr::configuration::{EraTable, SystemOperation, INIT_SLOT, VOID_SLOT};
+use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, PlanVerdict, Stability, StabilityResult};
 use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::{Journal, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog};

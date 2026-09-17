@@ -143,12 +143,15 @@ fn serve(h: &mut Harness, all: &[NodeId], ops: &mut u64) {
             .find(|&id| h.snapshot(id).is_some())
             .expect("some node is up to serve");
         let view = current_view(h, observer);
-        let Some(primary) = primary_of(h, observer, view)
-            .filter(|&primary| h.snapshot(primary).is_some())
+        let Some(primary) =
+            primary_of(h, observer, view).filter(|&primary| h.snapshot(primary).is_some())
         else {
             return;
         };
-        if h.snapshot(primary).and_then(|s| Status::from_word(s.status)) != Some(Status::Normal) {
+        if h.snapshot(primary)
+            .and_then(|s| Status::from_word(s.status))
+            != Some(Status::Normal)
+        {
             return;
         }
         let _ = h.propose(primary, op_id(*ops), b"o");
@@ -435,7 +438,8 @@ fn a_reincarnated_identity_is_seated_by_the_forced_sequence_then_survives_churn(
 
     // The dirty boot: the disk reopens under a fresh identity nobody
     // names. Until seated, every peer discards its traffic by name.
-    h.restart_as(n(0), n(9)).expect("the disk reopens under the bump");
+    h.restart_as(n(0), n(9))
+        .expect("the disk reopens under the bump");
     h.reincarnate(n(9), n(0));
 
     // The announcement drives the forced sequence: era by era the leader
@@ -456,8 +460,7 @@ fn a_reincarnated_identity_is_seated_by_the_forced_sequence_then_survives_churn(
             })
             .unwrap_or(0);
         if weights >= 1
-            && h.snapshot(n(9)).and_then(|s| Status::from_word(s.status))
-                == Some(Status::Normal)
+            && h.snapshot(n(9)).and_then(|s| Status::from_word(s.status)) == Some(Status::Normal)
         {
             seated = true;
             break;

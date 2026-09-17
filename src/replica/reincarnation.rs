@@ -283,11 +283,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .config
             .weight_of(machine.new)
             .is_some_and(|weight| weight.0 >= 1);
-        if voting {
-            None
-        } else {
-            Some(machine.new)
-        }
+        if voting { None } else { Some(machine.new) }
     }
 
     /// The tick-driven continuation (§5, §8): the armed leader re-drives

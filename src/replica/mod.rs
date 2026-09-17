@@ -1685,8 +1685,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // first adoption of the selection, and the revival is the
             // route the acquisition's cap points at — the cap keeps the
             // node's durable frontier installable for exactly this offer.
-            let boot_fenced = matches!(self.progress.status(), Status::Restarting | Status::Joining)
-                && current == self.progress.retained();
+            let boot_fenced =
+                matches!(self.progress.status(), Status::Restarting | Status::Joining)
+                    && current == self.progress.retained();
             let adoptable = offer.message.header.view > current
                 || (offer.message.header.view == current
                     && (self.progress.status() == Status::ViewChange || boot_fenced));

@@ -171,10 +171,7 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_to(n(0));
     assert!(
-        matches!(
-            h.diagnostic(n(0)),
-            Some(Diagnostic::GapDetected { .. })
-        ),
+        matches!(h.diagnostic(n(0)), Some(Diagnostic::GapDetected { .. })),
         "n(0) gap-detects the high slot: {:?}",
         h.diagnostic(n(0))
     );
