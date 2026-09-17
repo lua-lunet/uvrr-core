@@ -71,3 +71,24 @@ pub mod reconfiguration;
 pub mod replica;
 pub mod solver;
 pub mod wire;
+
+/// Compile-time trace logging of the protocol's internal state at the top and
+/// the bottom of processing (the `trace` feature). When the feature is off
+/// the macro expands to nothing: the statements it guards are removed from
+/// the build entirely — zero production overhead. This is the observability
+/// affordance for a downstream host tracing its own problems against the
+/// core: every step boundary, planner branch, fold step, and refusal is
+/// named at the point it happens.
+///
+/// Run the suite with tracing on:
+///
+/// ```text
+/// cargo test --features trace -- --nocapture
+/// ```
+#[macro_export]
+macro_rules! trace {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "trace")]
+        eprintln!($($arg)*);
+    };
+}

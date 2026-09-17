@@ -58,6 +58,7 @@ use crate::message::{Body, EraProof, EvidenceKind, Message};
 use crate::observe::Diagnostic;
 use crate::progress::Status;
 use crate::quorum::{validate_era, validate_pivot, validate_transition};
+use crate::trace;
 use crate::wire::{Header, Tag};
 
 use super::{
@@ -129,6 +130,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         from: Slot,
         through: Slot,
     ) -> Result<Arc<EraTable>, CommitFold> {
+        trace!(
+            "FOLD from={:?} through={:?} table_era={:?}",
+            from,
+            through,
+            self.progress.config().current().era
+        );
         let mut table = Arc::clone(self.progress.config());
         let mut slot = from;
         while let Some(next) = slot.next() {
@@ -168,16 +175,25 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                         return Err(CommitFold::SplitBatch);
                     }
                     if let Ok(folded) = table.extend(&SystemOperation::Batch(ops), next) {
+                        trace!(
+                            "FOLD batch@{:?}: folded, era={:?}",
+                            next,
+                            folded.current().era
+                        );
                         table = Arc::new(folded);
                         slot = end;
                         continue;
                     }
                 }
-                table = Arc::new(
-                    table
-                        .extend(op, next)
-                        .map_err(|error| CommitFold::Breach { slot: next, error })?,
+                let extended = table
+                    .extend(op, next)
+                    .map_err(|error| CommitFold::Breach { slot: next, error })?;
+                trace!(
+                    "FOLD op@{:?}: folded, era={:?}",
+                    next,
+                    extended.current().era
                 );
+                table = Arc::new(extended);
                 slot = next;
             } else {
                 slot = next;

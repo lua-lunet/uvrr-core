@@ -21,6 +21,7 @@
 
 use super::reconfiguration::CommitFold;
 use super::*;
+use crate::trace;
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The fetch half of a gap ruling (§10, §13.1 step 5): a `GetState`
@@ -252,6 +253,24 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
+        trace!(
+            "NEW_STATE in: from={:?} view=({:?},{:?}) through={:?} committed={:?} more={} entries={} | self: current=({:?},{:?}) retained=({:?},{:?}) accepted={:?} committed={:?} status={:?} table_era={:?}",
+            from,
+            header.view.era,
+            header.view.view,
+            through,
+            committed,
+            more,
+            entries.len(),
+            self.progress.current().era,
+            self.progress.current().view,
+            self.progress.retained().era,
+            self.progress.retained().view,
+            self.progress.accepted(),
+            self.progress.committed(),
+            self.progress.status(),
+            self.progress.config().current().era
+        );
         let Some(record) = self.progress.config().record(header.view.era) else {
             return self.drop_plan(
                 Diagnostic::UnevaluableEra {
@@ -297,6 +316,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Some(fetch) => fetch.view == header.view && fetch.to == from,
             None => boot_fence && header.view == current,
         };
+        trace!(
+            "NEW_STATE qualified={} boot_fence={} fetch={:?} header=({:?},{:?})",
+            qualified,
+            boot_fence,
+            self.transfer.map(|f| f.view),
+            header.view.era,
+            header.view.view
+        );
         if !qualified {
             return self.drop_plan(
                 Diagnostic::StaleTransfer {
@@ -381,6 +408,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let boot_acquisition = header.view == current
             && matches!(self.progress.status(), Status::Restarting | Status::Joining)
             && current == self.progress.retained();
+        trace!(
+            "NEW_STATE current_view_transfer={} boot_acquisition={}",
+            current_view_transfer, boot_acquisition
+        );
         // The §10 learner acquisition's take: the answering chunk's
         // committed frontier, CAPPED by a retained gap-ruled offer's own
         // committed frontier (§13.1 step 5). The offer is the node's own
@@ -414,6 +445,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         } else {
             self.progress.committed()
         };
+        trace!(
+            "NEW_STATE take={:?} (cap={:?}) new_accepted={:?} new_committed={:?}",
+            take, boot_cap, new_accepted, new_committed
+        );
         let mut effects = if new_committed > self.progress.committed() {
             self.apply_effects_merged(journal, entries, self.progress.committed(), new_committed)?
         } else {
@@ -425,7 +460,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // cannot hold: the same breach as the conflict arm above (§9.2).
         let config =
             match self.fold_committed(journal, entries, self.progress.committed(), new_committed) {
-                Ok(config) => config,
+                Ok(config) => {
+                    trace!("NEW_STATE fold ok: table_era={:?}", config.current().era);
+                    config
+                }
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
@@ -445,6 +483,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             self.applied_walk(journal, entries, self.progress.applied(), new_committed)?,
             config,
         )?;
+        trace!(
+            "NEW_STATE candidate: accepted={:?} committed={:?} status={:?} table_era={:?}",
+            candidate.accepted(),
+            candidate.committed(),
+            candidate.status(),
+            candidate.config().current().era
+        );
         // The cursor: a partial answer resumes with a fresh `GetState`
         // one past the newly installed frontier; the final chunk closes
         // the fetch.
