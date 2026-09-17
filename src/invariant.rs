@@ -131,6 +131,7 @@ impl HeaderSlotRole {
 /// | `Fuse` | `Operation` | `first_slot`, the slot of the first packed op; each subsequent op occupies `first_slot + i` (`docs/uvrr-fuse.md` §1) |
 /// | `FuseOk` | `Operation` | the last accepted slot of the batch (`docs/uvrr-fuse.md` §3) |
 /// | `CommitBatch` | `Frontier` | the last committed frontier of the batch, mirroring `Commit` (`docs/uvrr-fuse.md` §4) |
+/// | `GossipRequest` | `Absent` | the frontiers ride the body (`docs/uvrr-rejoin-gossip-and-witnesses.md` §2–§3) |
 ///
 /// A `match` rather than a lookup table, on the codebase's standing reasoning: the
 /// compiler checks that every tag has a rule, and a tag added to `wire` without a
@@ -151,6 +152,7 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
         Tag::Fuse => HeaderSlotRole::Operation,
         Tag::FuseOk => HeaderSlotRole::Operation,
         Tag::CommitBatch => HeaderSlotRole::Frontier,
+        Tag::GossipRequest => HeaderSlotRole::Absent,
     }
 }
 
@@ -260,7 +262,11 @@ fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) ->
             | Tag::StartViewChange
             | Tag::PlannedViewChange
             | Tag::GetState
-            | Tag::Reincarnation => false,
+            | Tag::Reincarnation
+            // The rejoin gossip's request carries frontiers only — it makes
+            // no history claim (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+            // §2–§3), so it can never reselect a retained history.
+            | Tag::GossipRequest => false,
             // The fuse envelopes are ordinary accept-path packing
             // (`docs/uvrr-fuse.md`): receiving a `Fuse` is defined as
             // receiving the equivalent sequence of `Prepare`s at the same

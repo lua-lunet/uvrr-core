@@ -43,7 +43,7 @@ use vrr::wire::{Header, Malformed, Pack, PackError, Tag, Unpack, UnpackCursor, U
 /// Every `Tag`, in discriminant order. Used by the round-trip and exhaustiveness
 /// groups. Kept as an explicit list rather than derived from a `Tag::ALL` constant so
 /// that the test agrees with the brief's table independently of the implementation.
-const ALL_TAGS: [Tag; 13] = [
+const ALL_TAGS: [Tag; 14] = [
     Tag::Prepare,
     Tag::PrepareOk,
     Tag::Commit,
@@ -57,6 +57,7 @@ const ALL_TAGS: [Tag; 13] = [
     Tag::Fuse,
     Tag::FuseOk,
     Tag::CommitBatch,
+    Tag::GossipRequest,
 ];
 
 /// Encodes `value` into a fresh `Vec` sized by `packed_len()` and asserts the write
@@ -411,7 +412,7 @@ fn tag_zero_is_reserved() {
 /// offending value so a host can log what it dropped.
 #[test]
 fn unknown_tags_are_rejected() {
-    for candidate in [0u32, 1, 11, 12, 17, 100, u32::MAX] {
+    for candidate in [0u32, 1, 11, 12, 18, 100, u32::MAX] {
         let bytes = candidate.to_be_bytes();
         assert_eq!(
             Tag::unpack_from(&bytes),
@@ -643,6 +644,7 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
             Tag::Fuse => 14,
             Tag::FuseOk => 15,
             Tag::CommitBatch => 16,
+            Tag::GossipRequest => 17,
         };
         assert_eq!(
             tag.as_u32(),
@@ -672,8 +674,8 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
         Some(Tag::Reincarnation),
         "13 is the reincarnation tag"
     );
-    for candidate in 14u32..=16 {
-        let tag = Tag::from_u32(candidate).expect("14..=16 are all tags");
+    for candidate in 14u32..=17 {
+        let tag = Tag::from_u32(candidate).expect("14..=17 are all tags");
         assert_eq!(tag.as_u32(), candidate);
     }
     assert_eq!(Tag::from_u32(0), None, "0 is reserved, not a tag");

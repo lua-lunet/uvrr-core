@@ -478,7 +478,7 @@ impl Harness {
     /// script that tests them sets them, never inherits them.
     #[must_use]
     pub fn with_knobs(n: usize, knobs: ViewChangeKnobs) -> Harness {
-        Self::assemble(n, Stability::Volatile, knobs, None)
+        Self::assemble(n, Stability::Volatile, knobs, None, &[])
     }
 
     /// [`Harness::provision`] with an explicit stability level. In every
@@ -487,7 +487,7 @@ impl Harness {
     /// real host contract, mirrored.
     #[must_use]
     pub fn with_stability(n: usize, stability: Stability) -> Harness {
-        Self::assemble(n, stability, Harness::no_view_change_knobs(), None)
+        Self::assemble(n, stability, Harness::no_view_change_knobs(), None, &[])
     }
 
     /// [`Harness::provision`] with an explicit journal tail capacity. Slab
@@ -501,6 +501,7 @@ impl Harness {
             Stability::Volatile,
             Harness::no_view_change_knobs(),
             Some(tail_capacity),
+            &[],
         )
     }
 
@@ -514,7 +515,7 @@ impl Harness {
         knobs: ViewChangeKnobs,
         tail_capacity: usize,
     ) -> Harness {
-        Self::assemble(n, Stability::Volatile, knobs, Some(tail_capacity))
+        Self::assemble(n, Stability::Volatile, knobs, Some(tail_capacity), &[])
     }
 
     /// [`Harness::with_stability`] with an explicit journal tail capacity:
@@ -533,7 +534,22 @@ impl Harness {
             stability,
             Harness::no_view_change_knobs(),
             Some(tail_capacity),
+            &[],
         )
+    }
+
+    /// [`Harness::with_knobs`] with a statically registered gossip-witness
+    /// list (`docs/uvrr-rejoin-gossip-and-witnesses.md` §4): every
+    /// provisioned node loads `witnesses` at startup. The witnesses
+    /// themselves are outside the roster — they are not provisioned here;
+    /// a script that wants one to process the stream boots it itself.
+    #[must_use]
+    pub fn with_static_witnesses(
+        n: usize,
+        knobs: ViewChangeKnobs,
+        witnesses: &[NodeId],
+    ) -> Harness {
+        Self::assemble(n, Stability::Volatile, knobs, None, witnesses)
     }
 
     /// The knob setting that makes the view-change machinery inert: no
@@ -550,6 +566,7 @@ impl Harness {
         stability: Stability,
         knobs: ViewChangeKnobs,
         tail_capacity: Option<usize>,
+        witnesses: &[NodeId],
     ) -> Harness {
         let genesis_order: Vec<NodeId> = (0..n)
             .map(|i| NodeId(u32::try_from(i).expect("cluster size fits u32")))
@@ -564,6 +581,7 @@ impl Harness {
                 stability,
                 knobs,
             )
+            .map(|replica| replica.with_witnesses(witnesses))
             .expect("the genesis order 0..n provisions");
             let observer = replica.observer();
             nodes.push(Some(Node {
@@ -944,6 +962,18 @@ impl Harness {
             .get(usize::try_from(id.0).expect("node ids are small"))
             .and_then(Option::as_ref)
             .map(|node| Arc::clone(node.replica.progress().config()))
+    }
+
+    /// The node's gossip-witness list (a copy, so the script can assert on
+    /// it freely). Empty for a node that is down or absent — a down node
+    /// carries no observable list.
+    #[must_use]
+    pub fn witnesses(&self, id: NodeId) -> Vec<NodeId> {
+        self.nodes
+            .get(usize::try_from(id.0).expect("node ids are small"))
+            .and_then(Option::as_ref)
+            .map(|node| node.replica.witnesses().to_vec())
+            .unwrap_or_default()
     }
 
     /// The node's sticky fault, if declared — the identity, not just the

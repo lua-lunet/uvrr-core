@@ -286,6 +286,98 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if voting { None } else { Some(machine.new) }
     }
 
+    /// The stream targets (`docs/uvrr-rejoin-gossip-and-witnesses.md` §3):
+    /// the memo target (§7) plus the gossip-witness list — the leader
+    /// pushes all phase-2s and commits to every node the join gossip has
+    /// named, as if those nodes were part of the cluster. A witness the
+    /// committed configuration already counts at weight one or more is
+    /// skipped: the list never names a voter, and the skip covers the
+    /// window before this node's publish-path scan has heard the
+    /// promotion. Deduplicated; ordinary addressing's own recipients are
+    /// the caller's concern.
+    pub(in crate::replica) fn stream_targets(&self) -> Vec<NodeId> {
+        let mut targets = Vec::new();
+        if let Some(standby) = self.memo_target() {
+            targets.push(standby);
+        }
+        let table = self.progress.config();
+        let config = &table.current().config;
+        for &witness in &self.witnesses {
+            if config
+                .weight_of(witness)
+                .is_some_and(|weight| weight.0 >= 1)
+            {
+                continue;
+            }
+            if !targets.contains(&witness) {
+                targets.push(witness);
+            }
+        }
+        targets
+    }
+
+    /// The rejoin gossip's request (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+    /// §2–§3): the sender's frontiers, fired at every node. Every node that
+    /// hears it records the sender — that half rides the dispatch's
+    /// [`Self::with_join_gossip_witness`] wrap, whatever this planner
+    /// rules. Only the node that believes itself leader answers: the push
+    /// of everything above the sender's prepared frontier (§7 step 1's
+    /// own machinery, evaluated under the view the request carried, the
+    /// same discipline as the announcement ack), then an immediate fresh
+    /// commit. A cluster member is pushed but never listed — the wrap's
+    /// membership check withholds the list entry, so the answer is the
+    /// push, not the list.
+    pub(in crate::replica) fn plan_gossip_request(
+        &self,
+        journal: &J::View,
+        from: NodeId,
+        message: &Message,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRefusal> {
+        // Only a `GossipRequest` body is dispatched here; the shadow arm
+        // keeps the planner total against the dispatch contract.
+        let Body::GossipRequest {
+            prepared,
+            committed: _,
+        } = &message.body
+        else {
+            return self.drop_plan(Diagnostic::None, kind);
+        };
+        let is_leader = self.progress.status() == Status::Normal
+            && self.primary_of(self.progress.current()) == Some(self.own);
+        // A non-leader hears the gossip and records the sender; it does
+        // not answer — the resend loop, not this node, covers a request
+        // lost in flight.
+        if !is_leader {
+            return self.drop_plan(Diagnostic::None, kind);
+        }
+        let plan = self.drop_plan(Diagnostic::None, kind)?;
+        let view = message.header.view;
+        let current = self.progress.current();
+        let committed = self.progress.committed();
+        let push = self.missed_range_push(journal, view, from, *prepared);
+        // The fresh commit (§2): the requester learns the leader is alive
+        // and where the committed frontier now sits, even when the push
+        // above its frontier is empty.
+        let commit = Message {
+            header: Header {
+                tag: Tag::Commit,
+                view: current,
+                slot: committed,
+            },
+            body: Body::Commit { committed },
+        };
+        Ok(match push {
+            Some(effect) => plan.with_effect(effect),
+            None => plan,
+        }
+        .with_effect(Effect::Send {
+            to: from,
+            era: current.era,
+            message: commit,
+        }))
+    }
+
     /// The tick-driven continuation (§5, §8): the armed leader re-drives
     /// the sequence. `None` leaves the tick to the ordinary machinery —
     /// the machine sits armed and inert until the conditions return.
