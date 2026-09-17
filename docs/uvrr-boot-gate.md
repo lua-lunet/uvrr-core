@@ -107,17 +107,64 @@ beneath it; and a dual-ring WAL underneath. The flush literature is cited at
 reliable enough (Pillai et al., OSDI 2014; Chidambaram et al., SOSP 2013),
 which is why the marker is a quorum of copies and not a flag.
 
-## 6. The test harness obligation
+## 6. The crate contract: `vrr::lifecycle`
+
+The crate owns the machine; the host owns the writes. `vrr::lifecycle`
+ships the marker state machine, the quorum-read classification, and a
+**typestate driver** whose types fix the write schedules of §3 — a
+transition called out of order has no type to be called on.
+
+The host implements one trait, `LifecycleStore`, and nothing else:
+
+- `read_copies` — the quorum read: the working set of copies as the store
+  observed them (§2; `uvrr-termination-obligations.md` §4).
+- `commit` — the forced 4x write of a decided rewrite; the marker vouches
+  for what the drain has already put beneath it (§3).
+- `drain` — the host forces its WALs and grids; strictly between the two
+  halt rounds (`uvrr-termination-obligations.md` §1).
+
+Downstream wraps its superblock quorum writes in the trait; a test host
+writes plain marker files. The driver calls the three operations in the
+legal order only: a controlled halt is `begin_stop` (round one), `drain`,
+`finish_stop` (round two) — `finish_stop` is unreachable without the
+intervening drain because the drain is what the flushed marker vouches
+for. A clean start is one round: `latch` before the first message. A
+dirty fast start decides the replacement pair in memory, announces, and
+`latch` stays unreachable until the node presents the engine's own seated
+observation (`Replica::rejoined` — `Normal` at voting weight): the
+deferral of §3 is enforced, not recommended. A crash models as the
+absence of transitions — no write, no state, nothing.
+
+The classification's verdict is carried in **proof tokens** that no host
+can construct: a stopped-quorum read mints `Vouched`, the crashed branch
+mints the `Bumped` pair, and the seated observation mints `Rejoined`.
+The replica constructors take the tokens: `Replica::resume` requires
+`Vouched` and is the only same-identity path; `Replica::reincarnate`
+requires the `Bumped` pair. A blank or dirty boot holds no `Vouched`, and
+no function exists from a crashed classification to a same-identity
+replica: the amnesiac blank boot is unrepresentable by construction, not
+refused by a runtime check.
+
+The deferral's safety argument is the re-crash replay: a crash between
+the pair's decision and the deferred latch leaves the markers at the old
+identity, the next boot re-reads them, re-classifies crashed, and
+re-decides the same pair — and the announcement (`uvrr-reincarnation.md`
+§4) is idempotent, so the replay is absorbed. The durable bump lands with
+the deferred latch, after the rejoin, off the critical path.
+
+## 7. The test harness obligation
 
 The contract is exercised in tests through crash-stop alone. The harness
-records a node's durable state at crash and classifies the restart:
-`restart_with` is the clean classification — the vouched disk reopens as
-`Restarting` under the same identity; `restart_as` is the crashed
-classification — the identity is retired and the node reincarnates under a
-fresh one. No superblock writes are required of a test host: a plain marker
-record on the test filesystem meets the obligation. What the harness must
-never do is restart a crashed node silently as a clean one — error-on-
-crashed is the contract (`uvrr-termination-obligations.md` §3).
+implements `LifecycleStore` with plain marker files in a temporary
+directory — no superblock writes are required of a test host — and routes
+every restart through the driver: `halt` drives the controlled halt;
+`restart_with` is the clean classification — the driver's `Vouched` token
+constructs the same-identity resume; `restart_as` is the crashed
+classification — the driver's `Bumped` pair constructs the reincarnation,
+and the deferred latch fires when the seated observation mints `Rejoined`.
+What the harness must never do is restart a crashed node silently as a
+clean one — error-on-crashed is the contract
+(`uvrr-termination-obligations.md` §3).
 
 ## Figures
 

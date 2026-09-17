@@ -38,7 +38,7 @@ makes it clean is that the wire is closed before the state is declared final.
 
 The lifecycle below is stated in marker-agnostic terms; the deployed marker
 transition machine (`docs/vrr-durability-model.md` §5.1; the code twins:
-`src/replica/reincarnation.rs`, `zig/vsr/superblock.zig`) implements it with
+`src/lifecycle.rs`, `zig/vsr/superblock.zig`) implements it with
 the ordered states `Stopping → Stopped → Restarting/Joining`. The
 terminology is one language: `running` here means the marker's **not-`Stopped`**
 operational states (`Restarting` after a clean stop, `Joining` after a bump —

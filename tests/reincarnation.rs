@@ -35,14 +35,14 @@ use harness::{Harness, StepOutcome};
 use vrr::configuration::{ConfigError, Configuration, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::Effect;
 use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::lifecycle::{
+    CopyState, Incarnation, Marker, RestartClass, RestartDecision, RestartRefusal, SuperblockCopies,
+};
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::Status;
 use vrr::quorum::{QuorumStrategy, Role, WeightedMajority};
-use vrr::replica::{
-    CopyState, Incarnation, Marker, PlanRefusal, RestartClass, RestartDecision, RestartRefusal,
-    SuperblockCopies, forced_steps,
-};
+use vrr::replica::{PlanRefusal, forced_steps};
 use vrr::wire::{Header, Pack, Tag, Unpack, UnpackError};
 
 fn n(id: u32) -> NodeId {

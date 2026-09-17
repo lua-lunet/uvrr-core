@@ -171,10 +171,10 @@ fn a_restarted_node_adopts_completions_while_the_cluster_churns() {
     // n0 serves a few operations, then crashes with a complete disk.
     let mut ops = 0u64;
     serve(&mut h, &ALL, &mut ops);
-    h.crash(n(0));
+    h.halt(n(0));
 
     // The survivors keep serving and rotating while n0 is down. A rotation
-    // whose designated primary is the crashed member cannot complete (the
+    // whose designated primary is the down member cannot complete (the
     // evidence lands nowhere), so the down-period advances the two live
     // positions and stops: two views, a served frontier, the disk stale.
     rotate(&mut h, &live);
@@ -234,7 +234,7 @@ fn a_restarted_node_converges_under_a_dense_churn_storm() {
 
     let mut ops = 0u64;
     serve(&mut h, &ALL, &mut ops);
-    h.crash(n(0));
+    h.halt(n(0));
     rotate(&mut h, &live);
     serve(&mut h, &ALL, &mut ops);
     rotate(&mut h, &live);
@@ -291,7 +291,7 @@ fn a_forced_view_poll_on_the_restarted_node_still_converges() {
 
     let mut ops = 0u64;
     serve(&mut h, &ALL, &mut ops);
-    h.crash(n(0));
+    h.halt(n(0));
     rotate(&mut h, &live);
     serve(&mut h, &ALL, &mut ops);
     rotate(&mut h, &live);
@@ -364,7 +364,7 @@ fn a_frontier_gap_rejoins_through_the_fetch_under_churn() {
         serve(&mut h, &ALL, &mut ops);
     }
     let n0_frontier = snap(&h, n(0)).accepted;
-    h.crash(n(0));
+    h.halt(n(0));
 
     // Two views and more served slots while n0 is down.
     rotate(&mut h, &live);

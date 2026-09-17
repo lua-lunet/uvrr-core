@@ -19,7 +19,7 @@
 //! 1.  provision constructs exactly the genesis state (era 1, view 0, slots 1–2
 //!     committed, fenced `Restarting`) and refuses a non-member, a duplicate or
 //!     over-cap order, and a genesis configuration the quorum gate rejects;
-//! 2.  reopen validates the persisted progress against the journal, forces the
+//! 2.  resume validates the persisted progress against the journal, forces the
 //!     fenced `Restarting` boot rule, and preserves a persisted fault across
 //!     restart;
 //! 3.  volatile publication releases effects at `publish`, exactly once, and the
@@ -50,6 +50,9 @@ use vrr::effects::{Effect, Stability, StabilityResult};
 use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
 use vrr::invariant::{InputKind, header_slot_role};
 use vrr::journal::{Journal, JournalView, LogEntry, LogView, Payload, SegmentedLog};
+use vrr::lifecycle::{
+    BootOutcome, CopyState, Incarnation, LifecycleStore, Marker, SuperblockCopies, Vouched, boot,
+};
 use vrr::message::{Body, EraProof, EvidenceKind, Message};
 use vrr::progress::{Progress, Status};
 use vrr::quorum::{QuorumError, QuorumStrategy, Role, WeightedMajority};
@@ -168,6 +171,48 @@ impl QuorumStrategy for AnythingQuorums {
 
     fn threshold(&self, _role: Role, _config: &Configuration) -> Option<u64> {
         None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The boot-gate token helper: a minimal in-test store whose stopped quorum
+// mints the clean start's `Vouched` — the only same-identity proof.
+// ---------------------------------------------------------------------------
+
+struct CopiesStore {
+    copies: Option<SuperblockCopies>,
+}
+
+impl LifecycleStore for CopiesStore {
+    type Error = ();
+
+    fn read_copies(&mut self) -> Result<Option<SuperblockCopies>, ()> {
+        Ok(self.copies)
+    }
+
+    fn commit(&mut self, _copies: &SuperblockCopies) -> Result<(), ()> {
+        Ok(())
+    }
+
+    fn drain(&mut self) -> Result<(), ()> {
+        Ok(())
+    }
+}
+
+/// The clean start's token: minted only by the boot gate over a stopped
+/// quorum.
+fn clean_vouched() -> Vouched {
+    let store = CopiesStore {
+        copies: Some(SuperblockCopies {
+            copies: [CopyState {
+                identity: Incarnation(1),
+                marker: Marker::Stopped,
+            }; 4],
+        }),
+    };
+    match boot(store) {
+        Ok(BootOutcome::Clean(clean)) => clean.latch().expect("the clean latch writes").1,
+        _ => panic!("a stopped quorum classifies clean"),
     }
 }
 
@@ -386,21 +431,22 @@ fn provision_refuses_a_non_empty_journal() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Reopen
+// 2. Resume (the vouched later life)
 // ---------------------------------------------------------------------------
 
 /// A consistent persisted progress and journal reopens — fenced `Restarting`
 /// whatever status was persisted, per §5's boot rule: the pre-failure status
 /// is evidence about the past, not authority over the present.
 #[test]
-fn reopen_restores_evidence_and_fences_regardless_of_persisted_status() {
+fn resume_restores_evidence_and_fences_regardless_of_persisted_status() {
     let replica = provision_volatile();
     for status in [Status::Normal, Status::ViewChange, Status::Replaying] {
         let persisted = PersistedProgress {
             status,
             ..PersistedProgress::from(replica.progress())
         };
-        let reopened = Replica::reopen(
+        let reopened = Replica::resume(
+            clean_vouched(),
             NodeId(0),
             WeightedMajority,
             genesis_journal(),
@@ -424,13 +470,14 @@ fn reopen_restores_evidence_and_fences_regardless_of_persisted_status() {
 /// Persisted `accepted` ahead of the journal's frontier is the two durable
 /// records disagreeing about history: refused as `ProgressJournalDivergence`.
 #[test]
-fn reopen_refuses_progress_journal_divergence() {
+fn resume_refuses_progress_journal_divergence() {
     let replica = provision_volatile();
     let persisted = PersistedProgress {
         accepted: Slot(5),
         ..PersistedProgress::from(replica.progress())
     };
-    let result = Replica::reopen(
+    let result = Replica::resume(
+        clean_vouched(),
         NodeId(0),
         WeightedMajority,
         genesis_journal(),
@@ -452,13 +499,14 @@ fn reopen_refuses_progress_journal_divergence() {
 /// persisted fault reopens as a faulted replica that refuses all input, at
 /// both the plan and the publish gate.
 #[test]
-fn reopen_preserves_a_persisted_fault() {
+fn resume_preserves_a_persisted_fault() {
     let replica = provision_volatile();
     let persisted = PersistedProgress {
         fault: Some(Fault::IndeterminatePersistence),
         ..PersistedProgress::from(replica.progress())
     };
-    let mut reopened = Replica::reopen(
+    let mut reopened = Replica::resume(
+        clean_vouched(),
         NodeId(0),
         WeightedMajority,
         genesis_journal(),

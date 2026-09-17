@@ -342,7 +342,10 @@ fn crash_makes_deliveries_undeliverable_and_restart_restores() {
     let mut h = Harness::provision(3);
     h.tick(n(0)); // revision 1
     h.tick(n(0)); // revision 2
-    h.crash(n(0));
+    // The down window: n(0) takes the controlled halt (its restart is the
+    // clean path — a crashed identity cannot resume), n(1) crashes (its
+    // undeliverable delivery below is the subject).
+    h.halt(n(0));
     h.crash(n(1));
     assert!(!h.is_up(n(0)));
 

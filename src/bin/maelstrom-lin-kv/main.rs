@@ -75,15 +75,16 @@
 //!   writes; [`SuperblockCopies::finish_stop`] writes `Stopped` 4x. The
 //!   marker order is the drain's proof: a `Stopped` copy vouches for the
 //!   WAL under it.
-//! - **T2, a clean restart.** A boot whose quorum read (the core's
-//!   [`SuperblockCopies::restart`]) sees 2-of-4 `Stopped` has the
-//!   transition's proof — the drain completed, no amnesiac risk — so
-//!   the node continues under the same identity and the boot writes
-//!   `Restarting` 4x.
+//! - **T2, a clean restart.** A boot whose quorum read (the lifecycle
+//!   gate's classification) sees 2-of-4 `Stopped` has the transition's
+//!   proof — the drain completed, no amnesiac risk — so the node
+//!   continues under the same identity and the gate latches `Restarting`
+//!   4x; the `Vouched` token it mints is the only same-identity resume.
 //! - **T3, a resurrect.** No stopped quorum — a crash, a torn marker
-//!   set, or death mid-join — means the identity is dead: the machine
-//!   bumps it and the boot writes `Joining` 4x. The host reopens under
-//!   the bumped identity and reports `Input::Reincarnate { old }` —
+//!   set, or death mid-join — means the identity is dead: the gate's
+//!   `Bumped` pair is the commitment and the host reopens under the
+//!   bumped identity through `Replica::reincarnate`, reporting
+//!   `Input::Reincarnate { old }` —
 //!   from which point the core's reincarnation machinery owns the
 //!   restart: the announcement (§4), the leader's forced weight
 //!   sequence (§5, one era per batch), and the re-announce this host
@@ -94,11 +95,18 @@
 //! incarnation) before `init_ok` is answered, and a running node's
 //! markers hold its boot write until the next clean stop — so a kill
 //! leaves exactly the no-controlled-shutdown evidence the next boot
-//! needs. The bump is durable before it is announced: the write-through
-//! commits the rewritten copies before the announcement's effects
-//! route, so a crash between the bump and the announcement replays the
-//! same bump — the decision carries the pair (§2's continuation
-//! commitment).
+//! needs.
+//!
+//! The bump's durable `Joining` write DEFERS to the engine's seated
+//! observation (`docs/uvrr-boot-gate.md` §3 — the flush is never paid at
+//! the boundary of an uninitialised start): the announcement carries the
+//! pair while the markers still hold the state as loaded, and the latch
+//! fires — over the then-current running state — once the reincarnated
+//! identity is `Normal` at voting weight. The re-crash replay makes the
+//! deferral safe: a crash before the latch re-reads the old markers,
+//! re-classifies crashed, and re-decides the same pair (the bump is a
+//! pure function of the quorum-resolved identity), and the announcement
+//! is idempotent at the leader (§4), so the replay is absorbed.
 //!
 //! Torn or corrupt state files are crash artifacts, not inputs: the host
 //! refuses the reopen by name (the core's [`LifecycleRefusal`] path),
@@ -172,12 +180,15 @@ use vrr::configuration::{SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, Stability};
 use vrr::ids::{Era, NodeId, Operation, OperationId, Slot, Tick};
 use vrr::journal::{Journal, LogEntry, Payload, SegmentedLog};
+use vrr::lifecycle::{
+    BootError, BootOutcome, Clean, CopyState, Crashed, Incarnation, LifecycleStore, Marker,
+    Running, SuperblockCopies, boot,
+};
 use vrr::message::{Body, Message};
 use vrr::progress::Status;
 use vrr::quorum::WeightedMajority;
 use vrr::replica::{
-    Input, PlanRefusal, PublishOutcome, Replica, SuperblockCopies, TimedInput, ViewChangeKnobs,
-    construct_pivot,
+    Input, PlanRefusal, PublishOutcome, Replica, TimedInput, ViewChangeKnobs, construct_pivot,
 };
 use vrr::wire::{Pack, Unpack};
 
@@ -391,8 +402,20 @@ struct NodeRunner {
     /// The persistence home, when the node opts in:
     /// `MAELSTROM_VRR_STATE_DIR` set at init. `None` is the volatile
     /// default — no store, no file I/O; the provision path is the
-    /// historical one, and no write is ever issued.
+    /// historical one, and no write is ever issued. The store moves into
+    /// the boot gate at init and rides inside the marker session for the
+    /// rest of the life; this slot is the pre-boot resting place only.
     store: Option<Store>,
+    /// The running marker session: latched at init (the first life's
+    /// anchor, or the clean start's boot-gate latch), consumed by the
+    /// clean shutdown's two-round halt.
+    session: Option<Running<Gate>>,
+    /// A reincarnation's deferred latch: the crashed session held until
+    /// the engine's seated observation mints the witness, at which point
+    /// the bumped `Joining` markers become durable (`docs/uvrr-boot-gate.md`
+    /// §3 — the flush is never paid at the boundary of an uninitialised
+    /// start; the re-crash replay re-decides the same pair).
+    deferred: Option<Crashed<Gate>>,
     /// The §2 four-superblock copies this node carries, written on every
     /// persist. `None` before the first init completes — and always in
     /// the volatile mode, which carries no restart model and writes
@@ -483,10 +506,6 @@ impl NodeRunner {
             // the historical provision path.
             _ => None,
         };
-        let loaded = match self.store.as_mut() {
-            Some(store) => store.load(),
-            None => Err(store::StoreError::Absent),
-        };
         let genesis_order = (0..members.len())
             .map(Identity::genesis)
             .collect::<Vec<_>>();
@@ -499,16 +518,16 @@ impl NodeRunner {
             view_change_budget: usize::MAX,
         };
 
-        match loaded {
-            Err(store::StoreError::Absent) => {
-                // A first life — and the volatile default's every life:
-                // the genesis ruling, exactly as the unpersisted host ran
-                // it. In the persisted mode the state file is written with
-                // the first life's boot markers (`Joining`, the genesis
-                // incarnation) before `init_ok` is answered.
-                let own = Identity::genesis(index);
+        // The boot gate decides on durable evidence — the marker machine's
+        // own ruling, never the host's (§2's superblocks). The volatile
+        // default provisions exactly as the unpersisted host always ran.
+        let gate = self.store.take().map(Gate::new);
+        match gate {
+            None => {
+                // The volatile default: no store, no markers, the
+                // historical provision path.
                 match Node::provision(
-                    own,
+                    Identity::genesis(index),
                     genesis_order,
                     WeightedMajority,
                     SegmentedLog::new(),
@@ -517,48 +536,90 @@ impl NodeRunner {
                 ) {
                     Ok(replica) => {
                         eprintln!(
-                            "vrr-init: node {node_id} provisions a fresh identity (no persisted state)"
+                            "vrr-init: node {node_id} provisions a fresh identity (volatile mode)"
                         );
                         self.replica = Some(replica);
-                        if self.store.is_some() {
-                            self.copies = Some(fresh_copies());
-                        }
                     }
                     Err(reason) => {
                         self.refuse_node(message, format!("provision refused: {reason:?}"))
                     }
                 }
             }
-            Ok(state) => {
-                // The durable evidence names a cluster: it must name THIS
-                // one, or the reopen would reconstruct a configuration the
-                // roster cannot answer.
-                if state.roster != members {
+            Some(gate) => match boot(gate) {
+                Ok(BootOutcome::First(first)) => {
+                    // A first life: the genesis ruling, and the gate
+                    // latches the anchor — `Joining` at the genesis
+                    // incarnation, durable before `init_ok` is answered,
+                    // so a later kill reads exactly the no-clean-stop
+                    // evidence the next boot needs.
+                    match Node::provision(
+                        Identity::genesis(index),
+                        genesis_order,
+                        WeightedMajority,
+                        SegmentedLog::new(),
+                        Stability::Volatile,
+                        knobs,
+                    ) {
+                        Ok(replica) => {
+                            eprintln!(
+                                "vrr-init: node {node_id} provisions a fresh identity (first life)"
+                            );
+                            let gate = first.store();
+                            gate.stage_create(
+                                members.clone(),
+                                vrr::replica::PersistedProgress::from(replica.progress()),
+                                replica.journal().view(),
+                            );
+                            match first.latch(Incarnation(0)) {
+                                Ok(session) => {
+                                    self.replica = Some(replica);
+                                    self.session = Some(session);
+                                    self.copies = Some(fresh_copies());
+                                }
+                                Err((_, reason)) => self.refuse_node(
+                                    message,
+                                    format!("the first life's anchor cannot latch: {reason}"),
+                                ),
+                            }
+                        }
+                        Err(reason) => {
+                            self.refuse_node(message, format!("provision refused: {reason:?}"))
+                        }
+                    }
+                }
+                Ok(BootOutcome::Clean(clean)) => {
+                    self.reopen_clean(message, clean, index, knobs, &members);
+                }
+                Ok(BootOutcome::Crashed(crashed)) => {
+                    self.reopen_crashed(message, crashed, index, knobs, &members);
+                }
+                Err((_, BootError::QuorumLost)) => self.refuse_node(
+                    message,
+                    "the marker set is torn: no identity cohort reaches the open threshold".into(),
+                ),
+                Err((_, BootError::Store(reason))) => {
+                    // A torn or corrupt file is a crash artifact: the
+                    // named refusal path — `error` to the init request,
+                    // nonzero exit so Jepsen restarts the node.
                     self.refuse_node(
                         message,
-                        format!(
-                            "the persisted state names roster {:?}, not the init's {:?}",
-                            state.roster, members
-                        ),
+                        format!("the persisted state is unreadable: {reason}"),
                     );
                 }
-                self.reopen_node(message, state, index, knobs);
-            }
-            Err(store::StoreError::Corrupt(reason)) => {
-                // A torn or corrupt file is a crash artifact: the core's
-                // reopen refusal path — a named refusal, answered `error`,
-                // nonzero exit so Jepsen restarts the node.
-                self.refuse_node(
+                Err((_, BootError::Exhausted(incarnation))) => self.refuse_node(
                     message,
-                    format!("the persisted state is unreadable: {reason}"),
-                );
-            }
+                    format!(
+                        "the identity space is spent at incarnation {}",
+                        incarnation.0
+                    ),
+                ),
+            },
         }
 
         // The boot write, durable before the node answers anything: the
-        // first life's `Joining`, or the marker machine's boot markers the
-        // reopen decision below returned. The volatile mode has no file
-        // to write.
+        // first life's anchor or the clean start's latch already wrote
+        // through the gate; the write-through below carries the fresh
+        // running state. The volatile mode has no file to write.
         if let Err(reason) = self.write_state() {
             self.refuse_node(message, format!("the state file is unwritable: {reason}"));
         }
@@ -567,79 +628,190 @@ impl NodeRunner {
         }
     }
 
-    /// The boot decision on durable evidence — the marker machine's own
-    /// ruling, not the host's (§2's superblocks; the machine's T2/T3):
-    /// rebuild the journal, the era table and the application from the
-    /// file, hand the four copies to [`SuperblockCopies::restart`], and
-    /// reopen as the decision table says — a stopped quorum continues
-    /// under the same identity (`Restarting`, no announcement), anything
-    /// else resurrects under the bumped identity (`Joining`,
-    /// announcing). Every refusal is the reopen refusal path: named,
-    /// answered `error`, exit nonzero.
-    fn reopen_node(
+    /// The clean start (T2): the stopped quorum proved the drain — the
+    /// same identity continues, complete state, no amnesia. The gate
+    /// latches `Restarting` 4x over the loaded state (the boot-gate
+    /// latch, before the first message), the `Vouched` token constructs
+    /// the resume, and no announcement runs.
+    fn reopen_clean(
         &mut self,
         message: &Incoming,
-        state: NodeState,
+        clean: Clean<Gate>,
         index: usize,
         knobs: ViewChangeKnobs,
+        members: &[String],
     ) {
-        let (decision, rewritten) = match state.copies.restart() {
-            Ok((decision, rewritten)) => (decision, rewritten),
-            Err(vrr::replica::RestartRefusal::QuorumLost) => self.refuse_node(
+        let state = match clean.store().take_loaded() {
+            Some(state) => state,
+            None => self.refuse_node(message, "a clean boot read no state".into()),
+        };
+        if state.roster != members {
+            self.refuse_node(
                 message,
-                "the marker set is torn: no identity cohort reaches the open threshold".into(),
+                format!(
+                    "the persisted state names roster {:?}, not the init's {:?}",
+                    state.roster, members
+                ),
+            );
+        }
+        let identity = clean.identity();
+        let position = u32::try_from(index).expect("a roster position fits");
+        let own = match Identity::of(identity.0, position) {
+            Some(own) => own,
+            None => self.refuse_node(
+                message,
+                format!(
+                    "the persisted incarnation {} is outside the identity space",
+                    identity.0
+                ),
             ),
-            Err(vrr::replica::RestartRefusal::Exhausted(incarnation)) => self.refuse_node(
+        };
+        let (journal, table) = match self.rebuild(&state, message) {
+            Some(built) => built,
+            None => return,
+        };
+        // The latch writes `Restarting` 4x over the state as loaded —
+        // durable before the resume runs, so a kill reads the honest
+        // not-stopped evidence and the next boot resurrects (T3).
+        clean.store().stage_state(state.progress, journal.view());
+        let (session, vouched) = match clean.latch() {
+            Ok(latched) => latched,
+            Err((_, reason)) => self.refuse_node(
+                message,
+                format!("the clean start's latch cannot write: {reason}"),
+            ),
+        };
+        match Replica::resume(
+            vouched,
+            own,
+            WeightedMajority,
+            journal,
+            state.progress,
+            table,
+            Stability::Volatile,
+            knobs,
+        ) {
+            Ok(replica) => {
+                eprintln!(
+                    "vrr-init: node {} reopens cleanly (the stopped quorum proved the drain; identity {})",
+                    self.id, own.0
+                );
+                self.replica = Some(replica);
+                self.session = Some(session);
+                self.copies = Some(lifecycle_markers(identity, Marker::Restarting));
+            }
+            Err(reason) => self.refuse_node(message, format!("resume refused: {reason:?}")),
+        }
+    }
+
+    /// The reincarnation (T3): no stopped quorum — the identity is dead,
+    /// the gate's pair is the commitment, and the announcement follows.
+    /// The bumped `Joining` markers are NOT written here: the latch
+    /// defers to the engine's seated observation
+    /// (`docs/uvrr-boot-gate.md` §3). A crash before the latch re-reads
+    /// the old markers, re-classifies crashed, and re-decides the same
+    /// pair — the announcement is idempotent at the leader (§4), so the
+    /// replay is absorbed.
+    fn reopen_crashed(
+        &mut self,
+        message: &Incoming,
+        crashed: Crashed<Gate>,
+        index: usize,
+        knobs: ViewChangeKnobs,
+        members: &[String],
+    ) {
+        let state = match crashed.store().take_loaded() {
+            Some(state) => state,
+            None => self.refuse_node(message, "a crashed boot read no state".into()),
+        };
+        if state.roster != members {
+            self.refuse_node(
+                message,
+                format!(
+                    "the persisted state names roster {:?}, not the init's {:?}",
+                    state.roster, members
+                ),
+            );
+        }
+        let pair = match crashed.pair() {
+            Ok(pair) => pair,
+            Err(vrr::lifecycle::RestartRefusal::Exhausted(incarnation)) => self.refuse_node(
                 message,
                 format!(
                     "the identity space is spent at incarnation {}",
                     incarnation.0
                 ),
             ),
+            Err(vrr::lifecycle::RestartRefusal::QuorumLost) => self.refuse_node(
+                message,
+                "the marker set is torn: no identity cohort reaches the open threshold".into(),
+            ),
         };
         let position = u32::try_from(index).expect("a roster position fits");
-        let (own, crashed) = match decision {
-            vrr::replica::RestartDecision::Continue { identity } => {
-                // T2: the stopped quorum proved the drain — the same
-                // identity continues, complete state, no amnesia.
-                let own = match Identity::of(identity.0, position) {
-                    Some(own) => own,
-                    None => self.refuse_node(
-                        message,
-                        format!(
-                            "the persisted incarnation {} is outside the identity space",
-                            identity.0
-                        ),
-                    ),
-                };
-                (own, None)
-            }
-            vrr::replica::RestartDecision::Bump { old, new } => {
-                // T3: no stopped quorum — the identity is dead, the bump
-                // is the machine's, and the announcement follows.
-                let own = match Identity::of(new.0, position) {
-                    Some(own) => own,
-                    None => self.refuse_node(
-                        message,
-                        format!(
-                            "the identity space is spent: incarnation {} exceeds the u32 identity space",
-                            new.0
-                        ),
-                    ),
-                };
-                let crashed = match Identity::of(old.0, position) {
-                    Some(crashed) => crashed,
-                    None => self.refuse_node(
-                        message,
-                        format!(
-                            "the superseded incarnation {} is outside the identity space",
-                            old.0
-                        ),
-                    ),
-                };
-                (own, Some(crashed))
-            }
+        let own = match Identity::of(pair.new.0, position) {
+            Some(own) => own,
+            None => self.refuse_node(
+                message,
+                format!(
+                    "the identity space is spent: incarnation {} exceeds the u32 identity space",
+                    pair.new.0
+                ),
+            ),
         };
+        let crashed_identity = match Identity::of(pair.old.0, position) {
+            Some(crashed) => crashed,
+            None => self.refuse_node(
+                message,
+                format!(
+                    "the superseded incarnation {} is outside the identity space",
+                    pair.old.0
+                ),
+            ),
+        };
+        let (journal, table) = match self.rebuild(&state, message) {
+            Some(built) => built,
+            None => return,
+        };
+        match Replica::reincarnate(
+            pair,
+            own,
+            WeightedMajority,
+            journal,
+            state.progress,
+            table,
+            Stability::Volatile,
+            knobs,
+        ) {
+            Ok(replica) => {
+                eprintln!(
+                    "vrr-init: node {} reopens dirty: identity bumps {} -> {} (the latch defers to the seated witness)",
+                    self.id, crashed_identity.0, own.0
+                );
+                self.replica = Some(replica);
+                self.announce = Some(crashed_identity);
+                self.deferred = Some(crashed);
+                // The write-through keeps writing the state as loaded —
+                // the honest not-stopped markers — until the deferred
+                // latch fires; a kill in the window reads a crash and the
+                // replay re-decides the same pair.
+                self.copies = Some(state.copies);
+                self.drive(Input::Reincarnate {
+                    old: crashed_identity,
+                });
+            }
+            Err(reason) => self.refuse_node(message, format!("reincarnate refused: {reason:?}")),
+        }
+    }
+
+    /// The shared reconstruction of a later life: the journal rebuilt from
+    /// the persisted history, the era table folded at the committed
+    /// frontier, and the application state replayed to the applied
+    /// frontier. `None` is a refusal — already answered.
+    fn rebuild(
+        &mut self,
+        state: &NodeState,
+        message: &Incoming,
+    ) -> Option<(SegmentedLog, std::sync::Arc<vrr::configuration::EraTable>)> {
         let mut journal = SegmentedLog::new();
         if let Some(first) = state.entries.first() {
             if first.slot != VOID_SLOT {
@@ -659,8 +831,10 @@ impl NodeRunner {
             }
         }
         let table = match fold_table(&state.entries, state.progress.committed) {
-            Ok(table) => Arc::new(table),
-            Err(reason) => self.refuse_node(message, reason),
+            Ok(table) => std::sync::Arc::new(table),
+            Err(reason) => {
+                self.refuse_node(message, reason);
+            }
         };
         // The application state the applied frontier names is rebuilt from
         // the persisted history (replay-safe: `kv.rs`); the core re-emits
@@ -673,39 +847,7 @@ impl NodeRunner {
                 let _ = self.execute(*id, payload);
             }
         }
-        match Node::reopen(
-            own,
-            WeightedMajority,
-            journal,
-            state.progress,
-            table,
-            Stability::Volatile,
-            knobs,
-        ) {
-            Ok(replica) => {
-                self.replica = Some(replica);
-                // The boot write the machine returned: `Restarting` 4x on
-                // the continue path, the bumped `Joining` 4x on the bump
-                // path. The write-through below makes it durable before
-                // `init_ok` is answered — and, on the bump path, before
-                // the announcement routes (§2's continuation commitment).
-                self.copies = Some(rewritten);
-                if let Some(crashed) = crashed {
-                    eprintln!(
-                        "vrr-init: node {} reopens dirty: identity bumps {} -> {} (the core's reincarnation machinery owns the restart)",
-                        self.id, crashed.0, own.0
-                    );
-                    self.announce = Some(crashed);
-                    self.drive(Input::Reincarnate { old: crashed });
-                } else {
-                    eprintln!(
-                        "vrr-init: node {} reopens cleanly (the stopped quorum proved the drain; identity {})",
-                        self.id, own.0
-                    );
-                }
-            }
-            Err(reason) => self.refuse_node(message, format!("reopen refused: {reason:?}")),
-        }
+        Some((journal, table))
     }
 
     /// A restart this node cannot honestly enter: the named refusal path —
@@ -746,10 +888,10 @@ impl NodeRunner {
     /// Builds the snapshot and writes it: the first life creates the
     /// whole file; an armed store commits the delta — the new entries
     /// append, then the header slot rewrites (the store's own barrier).
+    /// The store rides wherever the marker machine holds it — the running
+    /// session, the deferred crashed session, or the pre-boot resting
+    /// place — and the write reaches it there.
     fn write_state(&mut self) -> Result<(), String> {
-        let Some(store) = self.store.as_mut() else {
-            return Ok(());
-        };
         let Some(replica) = &self.replica else {
             return Ok(());
         };
@@ -758,12 +900,25 @@ impl NodeRunner {
         };
         let progress = vrr::replica::PersistedProgress::from(replica.progress());
         let view = replica.journal().view();
-        if store.armed() {
-            store.commit(copies, progress, &view)
-        } else {
-            let state = NodeState::snapshot(copies, self.identity.roster.clone(), progress, &view)?;
-            store.create(&state)
+        let roster = self.identity.roster.clone();
+        let write = |store: &mut Store| {
+            if store.armed() {
+                store.commit(copies, progress, &view)
+            } else {
+                let state = NodeState::snapshot(copies, roster, progress, &view)?;
+                store.create(&state)
+            }
+        };
+        if let Some(session) = self.session.as_mut() {
+            return session.store_mut().write_through(write);
         }
+        if let Some(crashed) = self.deferred.as_ref() {
+            return crashed.store().write_through(write);
+        }
+        if let Some(store) = self.store.as_mut() {
+            return write(store);
+        }
+        Ok(())
     }
 
     /// A clean stop — the marker machine's T1: [`SuperblockCopies::begin_stop`]
@@ -779,40 +934,76 @@ impl NodeRunner {
         if self.replica.is_none() {
             return;
         }
-        let Some(copies) = self.copies else {
+        let Some(mut session) = self.session.take() else {
+            // No markers latched: the volatile mode. EOF is just exit.
             return;
         };
-        // T1a: the `Stopping` write, durable before the drain.
-        self.copies = Some(copies.begin_stop());
-        if let Err(reason) = self.write_state() {
-            eprintln!("vrr-init: the clean stop did not write the stopping marker: {reason}");
+        // Stage the current running state beneath both marker writes.
+        let Some(replica) = self.replica.as_ref() else {
+            self.session = Some(session);
             return;
-        }
-        // T1b: the drain — the WALs and grids flushed between the two
-        // marker writes.
-        if let Err(reason) = self.drain() {
-            eprintln!("vrr-init: the clean stop did not drain: {reason}");
-            return;
-        }
-        // T1c: the `Stopped` write, the drain's proof.
-        self.copies = Some(copies.finish_stop());
-        if let Err(reason) = self.write_state() {
-            eprintln!("vrr-init: the clean stop did not write the stopped marker: {reason}");
+        };
+        let progress = vrr::replica::PersistedProgress::from(replica.progress());
+        let view = replica.journal().view();
+        session.store_mut().stage_state(progress, view);
+        // T1, the two-round halt: `Stopping` 4x, the drain, `Stopped` 4x —
+        // the typestate owns the order; a failure at any round leaves the
+        // honest markers on disk (a boot write, no stopped quorum) and
+        // the next init resurrects (T3) — never a `Stopped` claim the
+        // drain did not earn.
+        match session.begin_stop() {
+            Ok(halting) => match halting.drain() {
+                Ok(draining) => {
+                    if let Err((_, reason)) = draining.finish_stop() {
+                        eprintln!(
+                            "vrr-init: the clean stop did not write the stopped marker: {reason}"
+                        );
+                    }
+                }
+                Err((_, reason)) => {
+                    eprintln!("vrr-init: the clean stop did not drain: {reason}");
+                }
+            },
+            Err((session, reason)) => {
+                eprintln!("vrr-init: the clean stop did not write the stopping marker: {reason}");
+                self.session = Some(session);
+            }
         }
     }
 
-    /// The T1 drain: the WALs and grids flushed. This store's one state
-    /// file is its own WAL and grid, so the drain is the file's fsync —
-    /// the store's own method, never a marker write.
-    ///
-    /// # Errors
-    ///
-    /// The file cannot be flushed: the caller must not write `Stopped`.
-    fn drain(&mut self) -> Result<(), String> {
-        let Some(store) = self.store.as_mut() else {
-            return Ok(());
+    /// Fires the deferred latch when the engine's seated observation
+    /// arrives: the bumped `Joining` markers become durable over the
+    /// current running state (`docs/uvrr-boot-gate.md` §3).
+    fn settle_deferred(&mut self) {
+        let Some(crashed) = self.deferred.take() else {
+            return;
         };
-        store.drain()
+        let Some(witness) = self.replica.as_ref().and_then(|replica| replica.rejoined()) else {
+            self.deferred = Some(crashed);
+            return;
+        };
+        let Some(replica) = self.replica.as_ref() else {
+            self.deferred = Some(crashed);
+            return;
+        };
+        let progress = vrr::replica::PersistedProgress::from(replica.progress());
+        let view = replica.journal().view();
+        crashed.store().stage_state(progress, view);
+        match crashed.latch(witness) {
+            Ok(session) => {
+                let new = session.identity();
+                eprintln!(
+                    "vrr-init: the deferred latch fired (identity {} seated; markers Joining)",
+                    new.0
+                );
+                self.copies = Some(lifecycle_markers(new, Marker::Joining));
+                self.session = Some(session);
+            }
+            Err((crashed, error)) => {
+                eprintln!("vrr-init: the deferred latch refused: {error:?}");
+                self.deferred = Some(crashed);
+            }
+        }
     }
 
     fn on_peer(&mut self, message: &Incoming) {
@@ -1264,6 +1455,9 @@ impl NodeRunner {
                 self.drive(Input::Reincarnate { old });
             } else {
                 self.announce = None;
+                // The seated observation has arrived: the reincarnation's
+                // deferred latch fires now, if it has not already.
+                self.settle_deferred();
             }
         }
     }
@@ -1520,11 +1714,160 @@ impl NodeRunner {
 /// no-controlled-shutdown evidence the next boot needs: no stopped
 /// quorum, so the identity resurrects (T3).
 fn fresh_copies() -> SuperblockCopies {
+    lifecycle_markers(Incarnation(0), Marker::Joining)
+}
+
+/// Four uniform copies of one marker state — the shape every marker
+/// write leaves on disk.
+fn lifecycle_markers(identity: Incarnation, marker: Marker) -> SuperblockCopies {
     SuperblockCopies {
-        copies: std::array::from_fn(|_| vrr::replica::CopyState {
-            identity: vrr::replica::Incarnation(0),
-            marker: vrr::replica::Marker::Joining,
-        }),
+        copies: std::array::from_fn(|_| CopyState { identity, marker }),
+    }
+}
+
+/// The bench host's [`LifecycleStore`] (`docs/uvrr-boot-gate.md` §6):
+/// the state file lent to the marker machine for a life. The host plugs
+/// in the writes — the quorum read is the store's load, the 4x marker
+/// write is the store's commit, the drain is the file's fsync — and the
+/// machine owns which marker, when, and in what order.
+///
+/// The store rides inside a `RefCell` so the runtime's write-through
+/// (`persist`) reaches it through a shared reference while a deferred
+/// session holds the gate; the state a marker commit writes beneath the
+/// markers is staged by the runtime before each transition.
+struct Gate {
+    store: std::cell::RefCell<Option<Store>>,
+    staged: std::cell::RefCell<StagedBeneath>,
+    loaded: std::cell::RefCell<Option<NodeState>>,
+}
+
+/// What a marker commit writes beneath the markers.
+enum StagedBeneath {
+    /// Nothing staged: a marker commit would write over nothing and is
+    /// refused — the runtime must stage before driving a transition.
+    Nothing,
+    /// The first life's anchor: the file is created with this content
+    /// under the markers.
+    Create {
+        /// The genesis roster the file is born with.
+        roster: Vec<String>,
+        /// The genesis progress record.
+        progress: vrr::replica::PersistedProgress,
+        /// The (empty) journal the file is born with.
+        view: <SegmentedLog as Journal>::View,
+    },
+    /// A boot's or a halt's marker rewrite over this durable state.
+    State {
+        /// The progress record written beneath the markers.
+        progress: vrr::replica::PersistedProgress,
+        /// The journal written beneath the markers.
+        view: <SegmentedLog as Journal>::View,
+    },
+}
+
+impl Gate {
+    /// The gate over a freshly opened store.
+    fn new(store: Store) -> Gate {
+        Gate {
+            store: std::cell::RefCell::new(Some(store)),
+            staged: std::cell::RefCell::new(StagedBeneath::Nothing),
+            loaded: std::cell::RefCell::new(None),
+        }
+    }
+
+    /// The state the boot read, taken by the runtime for its
+    /// reconstruction.
+    fn take_loaded(&self) -> Option<NodeState> {
+        self.loaded.borrow_mut().take()
+    }
+
+    /// Stages the first life's create beneath the anchor's markers.
+    fn stage_create(
+        &self,
+        roster: Vec<String>,
+        progress: vrr::replica::PersistedProgress,
+        view: <SegmentedLog as Journal>::View,
+    ) {
+        *self.staged.borrow_mut() = StagedBeneath::Create {
+            roster,
+            progress,
+            view,
+        };
+    }
+
+    /// Stages the durable state a marker rewrite lands over.
+    fn stage_state(
+        &self,
+        progress: vrr::replica::PersistedProgress,
+        view: <SegmentedLog as Journal>::View,
+    ) {
+        *self.staged.borrow_mut() = StagedBeneath::State { progress, view };
+    }
+
+    /// The runtime's write-through: its own durable write (progress and
+    /// journal under the current, unchanged markers) while the gate is
+    /// held by a session.
+    fn write_through(
+        &self,
+        write: impl FnOnce(&mut Store) -> Result<(), String>,
+    ) -> Result<(), String> {
+        match self.store.borrow_mut().as_mut() {
+            Some(store) => write(store),
+            None => Ok(()),
+        }
+    }
+}
+
+impl LifecycleStore for Gate {
+    type Error = String;
+
+    fn read_copies(&mut self) -> Result<Option<SuperblockCopies>, String> {
+        let mut slot = self.store.borrow_mut();
+        let Some(store) = slot.as_mut() else {
+            return Ok(None);
+        };
+        match store.load() {
+            Ok(state) => {
+                let copies = state.copies;
+                *self.loaded.borrow_mut() = Some(state);
+                Ok(Some(copies))
+            }
+            Err(store::StoreError::Absent) => Ok(None),
+            Err(store::StoreError::Corrupt(reason)) => Err(reason),
+        }
+    }
+
+    fn commit(&mut self, copies: &SuperblockCopies) -> Result<(), String> {
+        let mut slot = self.store.borrow_mut();
+        let Some(store) = slot.as_mut() else {
+            return Err("a marker commit without a store".into());
+        };
+        // The stage is read, not consumed: the controlled halt's two
+        // rounds each write the same staged state beneath their markers
+        // (the drain between them changes nothing the markers vouch
+        // for), so a stage set before round one still stands at round
+        // two.
+        let staged = self.staged.borrow();
+        match &*staged {
+            StagedBeneath::Nothing => Err("a marker commit with nothing staged beneath it".into()),
+            StagedBeneath::Create {
+                roster,
+                progress,
+                view,
+            } => {
+                let state = NodeState::snapshot(*copies, roster.clone(), *progress, view)?;
+                store.create(&state)
+            }
+            StagedBeneath::State { progress, view } => store.commit(*copies, *progress, view),
+        }
+    }
+
+    fn drain(&mut self) -> Result<(), String> {
+        let mut slot = self.store.borrow_mut();
+        let Some(store) = slot.as_mut() else {
+            return Ok(());
+        };
+        store.drain()
     }
 }
 
