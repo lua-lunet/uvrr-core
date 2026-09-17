@@ -87,8 +87,8 @@ set -o pipefail; lake build 2>&1 | tail -1; python3 check_axioms.py
 ```
 
 ```output
-Build completed successfully (24 jobs).
-PASS 355 declarations: only standard Lean axioms
+Build completed successfully (27 jobs).
+PASS 450 declarations: only standard Lean axioms
 ```
 
 ```bash

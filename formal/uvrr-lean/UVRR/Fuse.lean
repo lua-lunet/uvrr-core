@@ -176,16 +176,8 @@ theorem telescope_pass {A : Type} (nodes : List A) (eraWeight : Nat → A → Na
     (hbase : ScheduleFamily nodes eraWeight 0 R)
     (hstep : ∀ i, ScheduleFamily nodes eraWeight i R →
       ScheduleFamily nodes eraWeight (i + 1) R) :
-    ∀ i, i ≤ 2 → ScheduleFamily nodes eraWeight i R := by
-  intro i hi
-  have h0 : ScheduleFamily nodes eraWeight 0 R := hbase
-  have h1 : ScheduleFamily nodes eraWeight 1 R := hstep 0 h0
-  have h2 : ScheduleFamily nodes eraWeight 2 R := hstep 1 h1
-  have h_cases : i = 0 ∨ i = 1 ∨ i = 2 := by omega
-  rcases h_cases with (rfl|rfl|rfl)
-  · exact h0
-  · exact h1
-  · exact h2
+    ∀ i, i ≤ 2 → ScheduleFamily nodes eraWeight i R :=
+  eligible_through (ScheduleFamily nodes eraWeight) R 2 hbase (fun i _ h => hstep i h)
 
 /-- Negative control (the paper's equal-total swap): on the two-branch
 schedule `(1,2,1,2) → (2,1,2,1)` the same response set `BD` is a majority at
