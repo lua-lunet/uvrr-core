@@ -1678,9 +1678,18 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // falls through: the fetch is still open, and the retry below
         // keeps it moving.
         if let Some(offer) = self.stalled.clone() {
+            // An equal-view offer is a duplicate for a node that has
+            // adopted the view — `Normal` service or a `ViewChange` fence
+            // protecting it. A node still at its boot fence has adopted
+            // nothing (`current == retained`): the equal-view offer is its
+            // first adoption of the selection, and the revival is the
+            // route the acquisition's cap points at — the cap keeps the
+            // node's durable frontier installable for exactly this offer.
+            let boot_fenced = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+                && current == self.progress.retained();
             let adoptable = offer.message.header.view > current
                 || (offer.message.header.view == current
-                    && self.progress.status() == Status::ViewChange);
+                    && (self.progress.status() == Status::ViewChange || boot_fenced));
             if adoptable {
                 if let Body::StartView {
                     suffix,
