@@ -2395,7 +2395,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 planned.diagnostic,
             )?;
             trace!(
-                "PLAN out: published | self: current=({:?},{:?}) retained=({:?},{:?}) accepted={:?} committed={:?} applied={:?} status={:?} table_era={:?} revision={:?}",
+                "PLAN out: published | self: current=({:?},{:?}) retained=({:?},{:?}) accepted={:?} committed={:?} applied={:?} status={:?} table_era={:?} revision={:?} diagnostic={:?}",
                 self.progress.current().era,
                 self.progress.current().view,
                 self.progress.retained().era,
@@ -2405,7 +2405,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 self.progress.applied(),
                 self.progress.status(),
                 self.progress.config().current().era,
-                self.progress.revision()
+                self.progress.revision(),
+                planned.diagnostic
             );
             return Ok(PublishOutcome::Published {
                 revision: self.progress.revision(),

@@ -963,3 +963,78 @@ fn bounded_suffix_packing_break_never_emits_a_hole() {
     assert_eq!(snap(&h, n(2)).committed, 6);
     h.assert_safety();
 }
+
+// 13. The §4 status gate is named: a node mid view change drops even
+//     SAME-VIEW traffic from the legitimate primary, and the drop names the
+//     status gate — `ViewMismatch` is reserved for a view that differs. The
+//     churn-window rejoin hunt printed `ViewMismatch { got == current }`
+//     thousands of times because both the Prepare and the Commit handlers
+//     folded the status refusal into the view check.
+#[test]
+fn a_same_view_message_at_a_fencing_node_names_the_status_gate() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    h.propose(n(0), op_id(1), b"a");
+    h.deliver_all();
+    apply_all(&mut h, [0, 1, 2]);
+
+    // Partition the primary; n(0) hears nothing more from view 0 and its
+    // timeout fences it into view 1 — the view the serving cluster is on.
+    h.partition(vec![n(0)], vec![n(1), n(2)]);
+    tick_into_view_change(&mut h, n(0), view(1));
+
+    // A same-view Prepare from the legitimate primary of view 1: the view
+    // matches, the status refuses.
+    let prepare = Message {
+        header: Header {
+            tag: Tag::Prepare,
+            view: view(1),
+            slot: Slot(4),
+        },
+        body: Body::Prepare {
+            entry: LogEntry {
+                slot: Slot(4),
+                era: Era(1),
+                payload: Payload::Operation {
+                    id: op_id(8),
+                    payload: b"mid".to_vec().into_boxed_slice(),
+                },
+            },
+            committed: Slot(3),
+        },
+    };
+    let outcome = h.inject(n(1), n(0), prepare);
+    let StepOutcome::Published { effects, .. } = outcome else {
+        panic!("a status-gated message still publishes the drop");
+    };
+    assert_eq!(effects, Vec::new());
+    assert_eq!(
+        h.diagnostic(n(0)),
+        Some(Diagnostic::StatusGate {
+            got: view(1),
+            current: view(1),
+            status: Status::ViewChange,
+        })
+    );
+
+    // The Commit handler carries the same gate and names it the same way.
+    let commit = Message {
+        header: Header {
+            tag: Tag::Commit,
+            view: view(1),
+            slot: Slot(3),
+        },
+        body: Body::Commit { committed: Slot(3) },
+    };
+    let outcome = h.inject(n(1), n(0), commit);
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    assert_eq!(
+        h.diagnostic(n(0)),
+        Some(Diagnostic::StatusGate {
+            got: view(1),
+            current: view(1),
+            status: Status::ViewChange,
+        })
+    );
+    h.assert_safety();
+}
