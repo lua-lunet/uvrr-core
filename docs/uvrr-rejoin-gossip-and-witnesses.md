@@ -45,16 +45,40 @@ the superblock lifecycle.
   votes are refused by the standard membership checks
   (`uvrr-reincarnation.md` §6).
 - Because the witness holds a live commit stream, it stays current
-  **indefinitely**. This covers a flickering partition that isolates the
-  leader from both the members and the witness: when the network heals, the
-  leader replays phase-2 for the uncommitted slots, gains a majority
-  response for each missing slot, and commits as usual.
-- In this manner **any node outside a cluster can gossip to find the leader
-  during failovers**: tracking the cluster through the witness stream
-  replaces a lucky first message.
+  **indefinitely**. Two worked scenarios show what this buys across a heal
+  (§3.1).
 - When a reconfiguration carrying a JOIN commits, the leader drops the
   promoted node from the gossip-witness list. Duplicate delivery is
   idempotent — dropping is a dedup optimisation, not a safety rule.
+- In this manner **any node outside a cluster can gossip to find the leader
+  during failovers**: tracking the cluster through the witness stream
+  replaces a lucky first message.
+
+### 3.1 Worked scenarios
+
+**Three nodes: stream through the heal.** Take `n1, n2(l), n3` with `n1`
+isolated and `n3` crashed. `n3` gossips its desire to join to `n2`, which
+streams phase-2 messages to it — yet nothing commits, because no majority
+responds. The network heals: the phase-2 messages hit `n1`, which acks and
+requests retransmission of the messages it did not get. `n2` gains a majority
+response for a high slot but still has a gap, so it cannot commit; then `n1`
+catches up and responds to all slots, and `n2` commits in slot order and
+sends the commit to both nodes. Because `n3` gossiped that it wanted to join,
+`n2` computed the JOIN cluster commands as the next values to be chosen —
+those were streamed too — so upon contiguous commits in slot order `n3` has
+joined the cluster and leaves the leader's witness list.
+
+**Five nodes: the isolated leader loses the quorum.** Take a five-node
+cluster where the leader sits in a minority partition together with the
+reincarnated node: the leader plays keep-up, streaming to the witness as
+usual. The leader crashes. The network heals; the three surviving nodes form
+a quorum and a new leader emerges. What happens to the reincarnated node? It
+has a timer and keeps gossiping its desire to join to all nodes. The new
+leader answers the gossip and sends the messages the surviving majority had
+committed. These may override the old leader's uncommitted slots, and they
+add in and commit the new join attempt at slots chosen by the new leader —
+the witness arrives at the new leader already at the committed frontier and
+the join completes under the configuration the quorum chose.
 
 ## 4. Witnesses as a first-class configuration role
 
