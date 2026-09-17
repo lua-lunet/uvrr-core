@@ -188,18 +188,28 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The message's view must be the node's current view; a fenced
         // entry state (`Restarting` or `Joining`) adopts it (the bootstrap
         // rule above). Anything else is a view change or a recovery, and
-        // the message drops.
-        let eligible = header.view == current
-            && match self.progress.status() {
-                Status::Normal => true,
-                Status::Restarting | Status::Joining => current == self.progress.retained(),
-                Status::ViewChange | Status::Replaying => false,
-            };
-        if !eligible {
+        // the message drops. A differing view is a view mismatch; a
+        // matching view refused by the status is the status gate, named
+        // as such — the churn-window hunt read `ViewMismatch { got ==
+        // current }` as an era disagreement when the refusal was the
+        // receiver's status all along.
+        if header.view != current {
             return self.drop_plan(
                 Diagnostic::ViewMismatch {
                     got: header.view,
                     current,
+                },
+                kind,
+            );
+        }
+        let boot_fenced = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+            && current == self.progress.retained();
+        if !matches!(self.progress.status(), Status::Normal) && !boot_fenced {
+            return self.drop_plan(
+                Diagnostic::StatusGate {
+                    got: header.view,
+                    current,
+                    status: self.progress.status(),
                 },
                 kind,
             );
@@ -625,17 +635,23 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 return self.plan_higher_view_signal(journal, from, header.view, at, kind);
             }
         }
-        let eligible = header.view == current
-            && match self.progress.status() {
-                Status::Normal => true,
-                Status::Restarting | Status::Joining => current == self.progress.retained(),
-                Status::ViewChange | Status::Replaying => false,
-            };
-        if !eligible {
+        if header.view != current {
             return self.drop_plan(
                 Diagnostic::ViewMismatch {
                     got: header.view,
                     current,
+                },
+                kind,
+            );
+        }
+        let boot_fenced = matches!(self.progress.status(), Status::Restarting | Status::Joining)
+            && current == self.progress.retained();
+        if !matches!(self.progress.status(), Status::Normal) && !boot_fenced {
+            return self.drop_plan(
+                Diagnostic::StatusGate {
+                    got: header.view,
+                    current,
+                    status: self.progress.status(),
                 },
                 kind,
             );

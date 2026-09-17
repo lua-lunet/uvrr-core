@@ -26,6 +26,7 @@ use core::sync::atomic::{AtomicU64, Ordering, fence};
 
 use crate::configuration::ConfigError;
 use crate::ids::{Era, NodeId, Slot, ViewId};
+use crate::progress::Status;
 
 /// Why a published transition dropped its peer input — or `None`, when it
 /// dropped nothing.
@@ -66,6 +67,19 @@ pub enum Diagnostic {
         got: ViewId,
         /// The node's current view.
         current: ViewId,
+    },
+    /// The message's view matches the node's current view but the node's
+    /// status refuses service (§9.1): only `Normal` serves the current
+    /// view, and an entry state (`Restarting`, `Joining`) only while it
+    /// still sits at its boot fence. A node mid view change or replaying
+    /// drops even same-view traffic; the status names the refusing state.
+    StatusGate {
+        /// The view the message named — equal to the node's current view.
+        got: ViewId,
+        /// The node's current view.
+        current: ViewId,
+        /// The node's status that refused service.
+        status: Status,
     },
     /// The entry's era violates `era(view) <= era(entry) <= era(view) + 1`
     /// (§8.7.3's era discipline).
