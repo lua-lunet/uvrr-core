@@ -1,0 +1,127 @@
+\section{Witness acquisition: the joiner learns the era before it
+participates}\label{sec:witness}
+
+The phantom-slot analysis of \S\ref{sec:fuse} exposed the failure shape this
+section removes: a node whose engine starts uninformed receives traffic from
+an era it cannot classify, and the one-era recovery gate drops what it
+cannot span. The fix is not a wider gate. A node that is not a member of the
+cluster has no business guessing an era at all; it learns the era first,
+from the cluster, and only then lets its engine see a message. The whole
+mechanism is a wrapper --- the \emph{find-the-cluster guard} --- around the
+unmodified node engine, plus a \emph{witness list} held at every node and
+acted on by the leader. Neither touches a quorum rule.
+
+\subsection{The find-the-cluster guard}
+A server that wants to join is known to the operator and mutually
+authenticated (a pre-shared key is sufficient; the channel assumption is
+environmental, not protocol). It holds some files describing which nodes
+were recently in the cluster. It broadcasts a join request to all of them;
+it may miss the current leader, but every member answers with the pair
+(era, membership) \emph{as committed locally}. Era advances only when a
+committed batch is applied, so no honest response can name an era the
+cluster has not committed. The guard:
+\begin{enumerate}
+\item adopts the maximum reported era and the membership that response
+  carried --- the true era is that or something ahead of it, never behind;
+\item flushes the adopted (era, membership) to durable storage whenever the
+  adoption changes, so a crash during acquisition restarts from the best
+  known pair rather than from blank;
+\item runs its own retransmission loop until acquisition completes --- the
+  first responder may be stale or partitioned, and the leader may move
+  while the responses are in flight.
+\end{enumerate}
+The guard then hands the engine a valid (era, membership) pair. The engine
+never executes the drop path that stranded the phantom-slot joiner, because
+no message can now arrive from an era it has not already adopted or cannot
+reach by the ordinary guards.
+
+\subsection{The witness list}
+The join request names the joiner's frontiers (blank for a reincarnated
+node). \emph{Every} node that hears the request records the sender as a
+\emph{witness} --- present on an operator-visible list, absent from the
+voting configuration. The leader alone acts on the list:
+\begin{enumerate}
+\item replays the contiguous suffix of its journal from the advertised
+  frontier, in order, each entry subject to the ordinary accept path's
+  first-slot discipline; then the commit frontier, which never exceeds the
+  highest replayed slot (commit information rides the stream exactly as
+  VRR-2012 \S4.1 step~6 rides it on \textsc{Prepare});
+\item copies the witness on all subsequent phase-2 traffic and commits.
+  The first commit the witness folds starts its leader-timeout; it behaves
+  as a passive sink that happens to be precisely up to date;
+\item every node removes the witness entry when a committed batch makes the
+  witness a member: delivery as both voter and witness in the window
+  between the commit and the removal is covered by ingress deduplication
+  by (view, slot) and merely wastes IO.
+\end{enumerate}
+Because the list rides at every node from the moment the gossip lands, a
+successor leader resumes the stream on election without waiting for a
+re-announcement: failover does not interrupt keep-up. The guard's
+retransmission loop remains load-bearing as the gossip's own reliability
+--- a request lost in flight is re-sent, naming the current frontiers, and
+a node that missed the original learns of the joiner from the resend. A
+witness that is never promoted is an append-only audit tape of everything
+the cluster committed; a statically registered witness is never purged, so
+the disaster-recovery sink costs exactly the stream that reincarnation
+already needs, under every leader in turn.
+
+\subsection{Safety conditions and kernel-checked content}
+The construction is safe under five hypotheses, each of which is a
+construction rule rather than an assumption about timing:
+\begin{description}
+\item[H1] Respondents report only committed (era, membership) pairs.
+  Holds because era advances on commit application.
+\item[H2] The guard adopts the maximum reported era with that response's
+  membership.
+\item[H3] The replay is the contiguous suffix from the advertised frontier,
+  folded in order by the ordinary accept path. There is no
+  witness-specific accept path.
+\item[H4] Messages from non-members are discarded at ingress; the witness
+  votes nowhere and its promises are counted nowhere.
+\item[H5] The leader sends phase-2 only for views whose phase-1 completed
+  on a quorum of members.
+\end{description}
+
+Under H1--H5 the following are kernel-checked in \code{UVRR/Witness.lean}
+(zero external dependencies):
+\begin{description}
+\item[W-era-bound] The adopted era never exceeds the committed era
+  (\code{adopt\_le\_of\_honest}).
+\item[W-era-exact] Once the leader's response arrives, the adopted era
+  equals the committed era (\code{adopt\_eq\_of\_leader}).
+\item[W-replay] A journal holding exactly the frontier prefix, extended by
+  the in-order contiguous suffix, reconstructs the leader's prefix:
+  $\mathit{log}.k \oplus \mathit{replay}(\mathit{log},k,n) =
+  \mathit{log}.n$ (\code{replay\_reconstructs}). A blank reincarnation is
+  $k=0$ (\code{replay\_from\_blank}).
+\item[W-promotion] The witness's committed prefix at any committed frontier
+  equals the leader's committed prefix --- hence equals any member's, whose
+  report is a prefix of the primary by the fixed-view invariant
+  (\code{promotion\_committed\_prefix} with
+  \code{NormalLog.reachable\_inv}). Promotion therefore admits a voter
+  whose state is indistinguishable from a member that caught up by
+  ordinary state transfer, and quorum certificates that count it rest on
+  the same evidence as for any member.
+\item[W-non-interference] No quorum contains the witness
+  (\code{witness\_not\_in\_quorum}): quorum membership is decided by the
+  configuration, and the witness is not in it.
+\end{description}
+Two fault controls pin the hypotheses. \code{invented\_era\_breaks\_bound}:
+a report above the committed era breaks W-era-bound, so H1 is load-bearing
+--- this is the failure that stranded the phantom-slot joiner, and the
+guard exists precisely to make it unrepresentable at the engine.
+\code{gapped\_replay\_fails}: a replay that skips an entry cannot
+reconstruct the prefix, so the slot discipline of H3 is load-bearing.
+
+\subsection{The implicit promise, and honest scope}
+A leader that streams phase-2 at view $v$ to a witness is telescoping a
+promise: per Lamport, a promise at ballot $b$ covers all lower ballots, so
+accepting at $v$ raises the witness's promise floor to $v$ exactly as if a
+\textsc{Prepare}(v) had been received first. The witness forfeits nothing
+by raising the floor: its prior promises were counted in no quorum (H4),
+and the leader's right to send at $v$ was earned from members (H5). This
+paragraph is argued, not mechanised; it stands at the same layer of
+obligation as the accept-path era guard of \S\ref{sec:fuse-refinement},
+and we say so rather than imply otherwise. Authentication, the network and
+the witness's timeout are environment; the durable adoption record is an
+instance of the termination obligations' marker storage.
