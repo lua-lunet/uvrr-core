@@ -204,7 +204,7 @@ are committed under `research/`. Do not re-add them as submodules.
 
 ## Item numbers are session-local
 
-Work-item numbers (`item00`, `item01`, …) live in the todo and the gitignored
+Work-item numbers (`itemNN`) live in the todo and the gitignored
 `.tmp/` spec filename only. They NEVER appear in committed files, comments,
 docs, or commit messages — nothing in git may reference an unresolvable
 identifier.

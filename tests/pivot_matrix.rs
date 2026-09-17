@@ -506,8 +506,9 @@ fn minimum_overlap_without(pairs: &[Pivot], failed: NodeId) -> Option<usize> {
         .min()
 }
 
-/// Turner gives the seven weighted rows for a three-node replacement:
-/// https://github.com/DaveCTurner/paxos-membership/blob/raft-like-reconfiguration/paxos-reconf.tex#L1260-L1304
+/// Turner gives the seven weighted rows for a three-node replacement in his
+/// consensus-membership reconfiguration notes (raft-like-reconfiguration
+/// branch, the weighted-rows section).
 /// This checks their five-node extension against this crate's pivot contract:
 /// qI is legal in the current era; qII is legal in both eras. Safety of all
 /// six boundaries is distinct from availability of a live singleton split.
