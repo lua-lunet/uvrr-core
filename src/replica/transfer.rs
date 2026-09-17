@@ -254,10 +254,24 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
-        trace!("NEW_STATE from={:?} view=({:?},{:?}) through={:?} committed={:?} more={} entries={} | self: current=({:?},{:?}) retained=({:?},{:?}) accepted={:?} committed={:?} status={:?} table_current_era={:?}",
-            from, header.view.era, header.view.view, through, committed, more, entries.len(),
-            self.progress.current().era, self.progress.current().view, self.progress.retained().era, self.progress.retained().view,
-            self.progress.accepted(), self.progress.committed(), self.progress.status(), self.progress.config().current().era);
+        trace!(
+            "NEW_STATE from={:?} view=({:?},{:?}) through={:?} committed={:?} more={} entries={} | self: current=({:?},{:?}) retained=({:?},{:?}) accepted={:?} committed={:?} status={:?} table_current_era={:?}",
+            from,
+            header.view.era,
+            header.view.view,
+            through,
+            committed,
+            more,
+            entries.len(),
+            self.progress.current().era,
+            self.progress.current().view,
+            self.progress.retained().era,
+            self.progress.retained().view,
+            self.progress.accepted(),
+            self.progress.committed(),
+            self.progress.status(),
+            self.progress.config().current().era
+        );
         let Some(record) = self.progress.config().record(header.view.era) else {
             trace!(
                 "NEW_STATE drop: UnevaluableEra era={:?} (table holds no record)",
@@ -399,8 +413,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let boot_acquisition = header.view == current
             && matches!(self.progress.status(), Status::Restarting | Status::Joining)
             && current == self.progress.retained();
-        trace!("NEW_STATE current_view_transfer={} boot_acquisition={} (header==current: {}, status: {:?})",
-            current_view_transfer, boot_acquisition, header.view == current, self.progress.status());
+        trace!(
+            "NEW_STATE current_view_transfer={} boot_acquisition={} (header==current: {}, status: {:?})",
+            current_view_transfer,
+            boot_acquisition,
+            header.view == current,
+            self.progress.status()
+        );
         // The §10 learner acquisition's take: the answering chunk's
         // committed frontier, CAPPED by a retained gap-ruled offer's own
         // committed frontier (§13.1 step 5). The offer is the node's own
@@ -436,10 +455,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         };
         trace!(
             "NEW_STATE take={:?} (cap={:?}) new_accepted={:?} new_committed={:?}",
-            take,
-            boot_cap,
-            new_accepted,
-            new_committed
+            take, boot_cap, new_accepted, new_committed
         );
         // §8.7.1: the committed frontier moved — fold the system
         // operations the advance newly covers. A fold refusal here is a
@@ -497,8 +513,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             });
         trace!(
             "NEW_STATE after window: new_committed={:?} window_stopped={}",
-            new_committed,
-            window_stopped
+            new_committed, window_stopped
         );
         let new_accepted = if boot_acquisition {
             accepted.max(new_committed)
@@ -659,10 +674,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         } else {
             TransferUpdate::Clear
         };
-        trace!("NEW_STATE candidate: current=({:?},{:?}) retained=({:?},{:?}) accepted={:?} committed={:?} status={:?} table_era={:?}",
-            candidate.current().era, candidate.current().view,
-            candidate.retained().era, candidate.retained().view,
-            candidate.accepted(), candidate.committed(), candidate.status(), candidate.config().current().era);
+        trace!(
+            "NEW_STATE candidate: current=({:?},{:?}) retained=({:?},{:?}) accepted={:?} committed={:?} status={:?} table_era={:?}",
+            candidate.current().era,
+            candidate.current().view,
+            candidate.retained().era,
+            candidate.retained().view,
+            candidate.accepted(),
+            candidate.committed(),
+            candidate.status(),
+            candidate.config().current().era
+        );
         Ok(self
             .candidate_plan(candidate, mutation, effects, kind, false)
             .with_bookkeeping(Bookkeeping {

@@ -52,7 +52,7 @@ use std::sync::Arc;
 
 use crate::configuration::{ConfigError, EraTable};
 use crate::effects::Effect;
-use crate::ids::{next_view_selecting, NodeId, Slot, Tick, ViewId};
+use crate::ids::{NodeId, Slot, Tick, ViewId, next_view_selecting};
 use crate::journal::{JournalView, LogEntry, Payload};
 use crate::message::{Body, EraProof, EvidenceKind, Message};
 use crate::observe::Diagnostic;
@@ -61,9 +61,9 @@ use crate::quorum::{validate_era, validate_pivot, validate_transition};
 use crate::wire::{Header, Tag};
 
 use super::{
-    suffix_shape_ok, Bookkeeping, Evidence, InputKind, Journal, JournalMutation, Pivot,
-    PlanRefusal, PlannedOverlap, PlannedOverlapUpdate, PlannedTransition, ProgressError, Proposal,
-    QuorumStrategy, Replica, SystemOperation,
+    Bookkeeping, Evidence, InputKind, Journal, JournalMutation, Pivot, PlanRefusal, PlannedOverlap,
+    PlannedOverlapUpdate, PlannedTransition, ProgressError, Proposal, QuorumStrategy, Replica,
+    SystemOperation, suffix_shape_ok,
 };
 #[allow(unused_imports)]
 use crate::trace;

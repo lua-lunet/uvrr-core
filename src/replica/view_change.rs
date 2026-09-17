@@ -528,12 +528,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 kind,
             )?;
             let next = current.era.next();
-            trace!("OFFER: era={:?} current=({:?},{:?}) record_present={} status={:?} ==retained={} names_self={}",
-                header.view.era, current.era, current.view,
+            trace!(
+                "OFFER: era={:?} current=({:?},{:?}) record_present={} status={:?} ==retained={} names_self={}",
+                header.view.era,
+                current.era,
+                current.view,
                 self.progress.config().record(header.view.era).is_some(),
                 self.progress.status(),
                 current == self.progress.retained(),
-                establishing_op_names(&era_proof.op, self.own));
+                establishing_op_names(&era_proof.op, self.own)
+            );
             let retainable = if Some(header.view.era) == next {
                 true
             } else {

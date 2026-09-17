@@ -100,25 +100,25 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::configuration::{
-    ConfigError, EraRecord, EraTable, SystemOperation, INIT_SLOT, VOID_SLOT,
+    ConfigError, EraRecord, EraTable, INIT_SLOT, SystemOperation, VOID_SLOT,
 };
 use crate::effects::{
     Effect, JournalIntent, PersistenceIntent, ProgressIntent, Stability, StabilityResult,
 };
 use crate::ids::{Era, Fault, NodeId, Operation, Slot, Tick, View, ViewId};
-use crate::invariant::{legal, InputKind};
+use crate::invariant::{InputKind, legal};
 use crate::journal::{Journal, JournalError, JournalView, LogEntry, Payload, SegmentedLog};
 use crate::message::{Body, EraProof, EvidenceKind, Message};
 use crate::observe::{Diagnostic, Observation};
 use crate::plan::Plan;
 use crate::progress::{Progress, ProgressError, ProgressSnapshot, Status};
-use crate::quorum::{validate_era, QuorumError, QuorumStrategy, Role};
-use crate::reconfiguration::{validate_abdication, Abdication, AbdicationRefusal};
+use crate::quorum::{QuorumError, QuorumStrategy, Role, validate_era};
+use crate::reconfiguration::{Abdication, AbdicationRefusal, validate_abdication};
 #[allow(unused_imports)]
 use crate::trace;
 use crate::wire::{Header, Pack, Tag};
 
-pub use crate::quorum::{construct_pivot, validate_pivot, PivotError};
+pub use crate::quorum::{PivotError, construct_pivot, validate_pivot};
 
 mod normal;
 mod plan_execution;
@@ -129,8 +129,8 @@ mod view_change;
 
 pub use reconfiguration::FUSE_MAX_OPS;
 pub use reincarnation::{
-    forced_steps, CopyState, Incarnation, Marker, RestartClass, RestartDecision, RestartRefusal,
-    SuperblockCopies,
+    CopyState, Incarnation, Marker, RestartClass, RestartDecision, RestartRefusal,
+    SuperblockCopies, forced_steps,
 };
 
 /// One host event with the host tick attached (§6, S4).
