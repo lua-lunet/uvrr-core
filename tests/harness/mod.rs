@@ -66,12 +66,20 @@
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, VecDeque};
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, PlanVerdict, Stability, StabilityResult};
 use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
 use vrr::journal::{Journal, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog};
+use vrr::lifecycle::{
+    BootError, BootOutcome, CopyState, Crashed, Incarnation, LifecycleStore, Marker, Running,
+    SuperblockCopies, boot,
+};
 use vrr::message::Message;
 use vrr::observe::Diagnostic;
 use vrr::plan::Plan;
@@ -84,6 +92,10 @@ use vrr::replica::{
 };
 use vrr::wire::Tag;
 
+/// The boot-gate root sequence: one unique temporary root per harness, so
+/// parallel test targets never share marker directories.
+static GATE_ROOT_SEQ: AtomicU64 = AtomicU64::new(0);
+
 /// The replica configuration every harness node runs: the default journal
 /// and the default quorum strategy. Overridable per-node configuration is a
 /// later milestone's concern; nothing in the current suites needs it.
@@ -92,6 +104,145 @@ pub type HarnessReplica = Replica<SegmentedLog, WeightedMajority>;
 /// Step-trace ring capacity. A failure prints the whole buffer; a script
 /// longer than this still shows the breaking step and its neighbourhood.
 const TRACE_CAPACITY: usize = 512;
+
+// ----------------------------------------------------------------------
+// The boot gate's test store
+// ----------------------------------------------------------------------
+
+/// Blank marker content: identity 0, nothing vouched. Identity 0 is never
+/// a live identity (the harness numbers incarnations from 1), so a blank
+/// copy cannot win a working cohort and can never read as `Stopped`.
+const GATE_BLANK: &str = "0\n-\n";
+
+/// One marker file's name, by copy index.
+fn gate_file(index: usize) -> String {
+    format!("copy{index}")
+}
+
+/// The marker's on-disk name.
+fn gate_marker_name(marker: Marker) -> &'static str {
+    match marker {
+        Marker::Stopping => "Stopping",
+        Marker::Stopped => "Stopped",
+        Marker::Restarting => "Restarting",
+        Marker::Joining => "Joining",
+    }
+}
+
+/// The harness's [`LifecycleStore`] (`docs/uvrr-boot-gate.md` §6): plain
+/// marker files in the harness's temporary directory — four copies, one
+/// file each, plus a WAL stub the drain forces. Every read, write, and
+/// drain is recorded on the operation log in order, so a script can assert
+/// the boot gate's fixed write schedules against it.
+pub struct TmpGate {
+    dir: PathBuf,
+    ops: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+}
+
+impl TmpGate {
+    /// Opens the gate over `dir`, creating the four blank copies when the
+    /// directory holds none — the first life has no durable identity yet.
+    pub fn open(dir: PathBuf) -> std::io::Result<TmpGate> {
+        fs::create_dir_all(&dir)?;
+        for index in 0..4 {
+            let path = dir.join(gate_file(index));
+            if !path.exists() {
+                fs::write(&path, GATE_BLANK)?;
+            }
+        }
+        Ok(TmpGate {
+            dir,
+            ops: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+        })
+    }
+
+    /// The shared operation log: the harness retains the handle, so the
+    /// log survives the session that wrote it (a halt consumes its
+    /// session; the schedule it wrote stays assertable).
+    #[must_use]
+    pub fn ops_handle(&self) -> std::rc::Rc<std::cell::RefCell<Vec<String>>> {
+        std::rc::Rc::clone(&self.ops)
+    }
+
+    /// The operation log, in order: `read`, `commit:<marker>@<identity>`,
+    /// `drain`. The fixed schedules of `docs/uvrr-boot-gate.md` §3 assert
+    /// against this.
+    #[must_use]
+    pub fn ops(&self) -> Vec<String> {
+        self.ops.borrow().clone()
+    }
+
+    /// The directory this gate owns — the physical superblock.
+    #[must_use]
+    pub fn dir(&self) -> &PathBuf {
+        &self.dir
+    }
+
+    fn read_one(&self, index: usize) -> std::io::Result<CopyState> {
+        let text = fs::read_to_string(self.dir.join(gate_file(index)))?;
+        let (identity, marker) = text.split_once('\n').unwrap_or(("0", "-"));
+        let identity = identity.parse::<u64>().unwrap_or(0);
+        let marker = match marker.trim() {
+            "Stopping" => Marker::Stopping,
+            "Stopped" => Marker::Stopped,
+            "Restarting" => Marker::Restarting,
+            "Joining" => Marker::Joining,
+            // Blank or torn: nothing vouched — `Stopping` with identity 0
+            // never reads as a stop and never wins a working cohort.
+            _ => Marker::Stopping,
+        };
+        Ok(CopyState {
+            identity: Incarnation(identity),
+            marker,
+        })
+    }
+}
+
+impl LifecycleStore for TmpGate {
+    type Error = std::io::Error;
+
+    fn read_copies(&mut self) -> Result<Option<SuperblockCopies>, Self::Error> {
+        self.ops.borrow_mut().push("read".to_string());
+        let copies = [
+            self.read_one(0)?,
+            self.read_one(1)?,
+            self.read_one(2)?,
+            self.read_one(3)?,
+        ];
+        if copies.iter().all(|copy| copy.identity == Incarnation(0)) {
+            return Ok(None);
+        }
+        Ok(Some(SuperblockCopies { copies }))
+    }
+
+    fn commit(&mut self, copies: &SuperblockCopies) -> Result<(), Self::Error> {
+        for (index, copy) in copies.copies.iter().enumerate() {
+            let path = self.dir.join(gate_file(index));
+            let mut file = fs::File::create(&path)?;
+            file.write_all(
+                format!("{}\n{}\n", copy.identity.0, gate_marker_name(copy.marker)).as_bytes(),
+            )?;
+            file.sync_all()?;
+        }
+        self.ops.borrow_mut().push(format!(
+            "commit:{}@{}",
+            gate_marker_name(copies.copies[0].marker),
+            copies.copies[0].identity.0
+        ));
+        Ok(())
+    }
+
+    fn drain(&mut self) -> Result<(), Self::Error> {
+        let mut wal = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.dir.join("wal"))?;
+        wal.write_all(b"drain\n")?;
+        wal.sync_all()?;
+        self.ops.borrow_mut().push("drain".to_string());
+        Ok(())
+    }
+}
 
 /// One live node: the replica, its observation handle, the effects released
 /// but not yet executed by the harness, and the one outstanding persistence
@@ -451,6 +602,26 @@ pub struct Harness {
     boundary: Vec<BoundaryEvent>,
     /// Per-node durable state recorded at crash time.
     disks: Vec<Option<Disk>>,
+    /// The boot-gate root: one marker directory per node index, the
+    /// physical superblocks.
+    gate_root: PathBuf,
+    /// The marker directory each index's current identity owns — the
+    /// directory a restart boots over. Persists across crash and halt,
+    /// exactly like the disk.
+    gates: Vec<Option<PathBuf>>,
+    /// The live node's gate session: the running process's marker store,
+    /// consumed by [`Harness::halt`]. A node still awaiting its deferred
+    /// latch (a reincarnation not yet seated) holds `None` here and its
+    /// session in [`Harness::pending`] instead.
+    sessions: Vec<Option<Running<TmpGate>>>,
+    /// The retained operation log of each index's most recent gate —
+    /// survives the session that wrote it, so a halt's schedule stays
+    /// assertable after the session is consumed.
+    gate_logs: Vec<Option<std::rc::Rc<std::cell::RefCell<Vec<String>>>>>,
+    /// A reincarnation's deferred latch: the crashed session, held until
+    /// the engine's seated observation mints the witness
+    /// (`docs/uvrr-boot-gate.md` §3).
+    pending: Vec<Option<Crashed<TmpGate>>>,
     /// Per-node pending fault declarations (`expect_fault`).
     declared_faults: Vec<bool>,
     /// Per-node faults already observed and accounted for.
@@ -572,7 +743,16 @@ impl Harness {
             .map(|i| NodeId(u32::try_from(i).expect("cluster size fits u32")))
             .collect();
         let mut nodes = Vec::with_capacity(n);
-        for &id in &genesis_order {
+        let gate_root = std::env::temp_dir().join(format!(
+            "uvrr-harness-{}-{}",
+            std::process::id(),
+            GATE_ROOT_SEQ.fetch_add(1, Ordering::SeqCst),
+        ));
+        let mut gates = Vec::with_capacity(n);
+        let mut sessions = Vec::with_capacity(n);
+        let mut gate_logs = Vec::with_capacity(n);
+        let mut pending: Vec<Option<Crashed<TmpGate>>> = Vec::with_capacity(n);
+        for (index, &id) in genesis_order.iter().enumerate() {
             let replica = Replica::provision(
                 id,
                 genesis_order.clone(),
@@ -584,6 +764,23 @@ impl Harness {
             .map(|replica| replica.with_witnesses(witnesses))
             .expect("the genesis order 0..n provisions");
             let observer = replica.observer();
+            // The first life latches its anchor: `(identity, Joining)` 4x
+            // (`docs/uvrr-boot-gate.md` §3) — so a later crash reads as a
+            // crash, never as a clean stop.
+            let dir = gate_root.join(format!("n{index}"));
+            let gate = TmpGate::open(dir.clone()).expect("the gate directory opens");
+            let mut session = match boot(gate) {
+                Ok(BootOutcome::First(first)) => first
+                    .latch(Incarnation(
+                        u64::try_from(index).expect("node indices are small") + 1,
+                    ))
+                    .expect("the first latch writes"),
+                _ => panic!("a fresh gate directory classifies first"),
+            };
+            gate_logs.push(Some(session.store_mut().ops_handle()));
+            gates.push(Some(dir));
+            sessions.push(Some(session));
+            pending.push(None);
             nodes.push(Some(Node {
                 replica,
                 observer,
@@ -609,6 +806,11 @@ impl Harness {
             applied: (0..n).map(|_| Vec::new()).collect(),
             boundary: Vec::new(),
             disks: (0..n).map(|_| None).collect(),
+            gate_root,
+            gates,
+            sessions,
+            gate_logs,
+            pending,
             declared_faults: vec![false; n],
             faulted_known: vec![false; n],
             trace: VecDeque::new(),
@@ -1214,13 +1416,16 @@ impl Harness {
 
     /// Crashes a node: its volatile state dies with it, and the harness's
     /// "disk" records the published progress, the journal, and the
-    /// configuration history. Deliveries to a down node are recorded
-    /// undeliverable.
+    /// configuration history. The markers are left exactly as they were —
+    /// a crash writes nothing (`docs/uvrr-boot-gate.md` §1). Deliveries to
+    /// a down node are recorded undeliverable.
     pub fn crash(&mut self, id: NodeId) {
         let index = self.index_of(id);
         let node = self.nodes[index]
             .take()
             .unwrap_or_else(|| panic!("n={} is already down", id.0));
+        self.sessions[index] = None;
+        self.pending[index] = None;
         self.disks[index] = Some(Disk {
             persisted: PersistedProgress::from(node.replica.progress()),
             journal: clone_journal(node.replica.journal(), self.tail_capacity),
@@ -1229,6 +1434,36 @@ impl Harness {
         self.faulted_known[index] = false;
         self.declared_faults[index] = false;
         self.record(format!("n={} crash (disk recorded)", id.0));
+    }
+
+    /// A controlled halt (`docs/uvrr-boot-gate.md` §3): the two-round stop
+    /// driven through the gate — `Stopping` 4x, the drain, `Stopped` 4x —
+    /// then the disk records the drained state. This is the only stop
+    /// whose restart resumes the same identity.
+    pub fn halt(&mut self, id: NodeId) {
+        let index = self.index_of(id);
+        let node = self.nodes[index]
+            .take()
+            .unwrap_or_else(|| panic!("n={} is already down", id.0));
+        let session = self.sessions[index]
+            .take()
+            .unwrap_or_else(|| panic!("n={} has not latched its identity; a node still awaiting its deferred latch cannot halt — it can only crash", id.0));
+        let session = session
+            .begin_stop()
+            .expect("round one writes")
+            .drain()
+            .expect("the drain forces")
+            .finish_stop()
+            .expect("round two writes");
+        self.disks[index] = Some(Disk {
+            persisted: PersistedProgress::from(node.replica.progress()),
+            journal: clone_journal(node.replica.journal(), self.tail_capacity),
+            config: Arc::clone(node.replica.progress().config()),
+        });
+        self.faulted_known[index] = false;
+        self.declared_faults[index] = false;
+        drop(session);
+        self.record(format!("n={} halt (drained, markers flushed)", id.0));
     }
 
     /// Crashes a node like [`Harness::crash`], but the recorded disk's
@@ -1241,6 +1476,8 @@ impl Harness {
         let node = self.nodes[index]
             .take()
             .unwrap_or_else(|| panic!("n={} is already down", id.0));
+        self.sessions[index] = None;
+        self.pending[index] = None;
         let view = node.replica.journal().view();
         let frontier = view
             .accepted()
@@ -1271,25 +1508,54 @@ impl Harness {
         ));
     }
 
-    /// A later life: `reopen` with whatever the harness's disk recorded at
-    /// crash time. A fault persisted in the record reopens faulted — that is
-    /// evidence restored, not a new fault, so it does not trip the gate.
+    /// A later life: the same identity resumes over whatever the harness's
+    /// disk recorded at halt time. A fault persisted in the record reopens
+    /// faulted — that is evidence restored, not a new fault, so it does
+    /// not trip the gate.
+    ///
+    /// The restart routes through the boot gate: the markers must classify
+    /// `Clean` — a stopped quorum from a [`Harness::halt`]. A crashed
+    /// marker set refuses loudly (error-on-crashed is the contract,
+    /// `docs/uvrr-boot-gate.md` §7): the same identity cannot resume a
+    /// crash.
     pub fn restart_with(&mut self, id: NodeId) -> Result<(), LifecycleRefusal> {
         let index = self.index_of(id);
         assert!(
             self.nodes[index].is_none(),
-            "n={} is up; crash it before restarting it",
+            "n={} is up; halt or crash it before restarting it",
             id.0
         );
+        let dir = self.gates[index]
+            .clone()
+            .unwrap_or_else(|| panic!("n={} has no gate directory", id.0));
+        let gate = TmpGate::open(dir).expect("the gate directory opens");
+        let (mut session, vouched) = match boot(gate) {
+            Ok(BootOutcome::Clean(clean)) => clean.latch().expect("the clean latch writes"),
+            Ok(BootOutcome::Crashed { .. }) => panic!(
+                "n={} restart_with refused: the markers classify crashed — error-on-crashed is the contract; halt the node for the clean path or restart_as for reincarnation",
+                id.0
+            ),
+            Ok(BootOutcome::First { .. }) => panic!(
+                "n={} restart_with refused: the markers hold no life to resume",
+                id.0
+            ),
+            Err((_, BootError::QuorumLost)) => panic!(
+                "n={} restart_with refused: the marker set is torn beyond the quorum read",
+                id.0
+            ),
+            Err((_, error)) => panic!("n={} restart_with refused: {error:?}", id.0),
+        };
         let (journal, persisted, config) = match self.disks[index].as_ref() {
             Some(disk) => (
                 clone_journal(&disk.journal, self.tail_capacity),
                 disk.persisted,
                 Arc::clone(&disk.config),
             ),
-            None => panic!("n={} has no recorded disk; crash it first", id.0),
+            None => panic!("n={} has no recorded disk; halt or crash it first", id.0),
         };
-        match Replica::reopen(
+        self.gate_logs[index] = Some(session.store_mut().ops_handle());
+        match Replica::resume(
+            vouched,
             id,
             WeightedMajority,
             journal,
@@ -1300,7 +1566,8 @@ impl Harness {
         ) {
             Ok(replica) => {
                 self.install(index, replica);
-                self.record(format!("n={} restart(with disk)", id.0));
+                self.sessions[index] = Some(session);
+                self.record(format!("n={} restart(with vouched disk)", id.0));
                 Ok(())
             }
             Err(error) => {
@@ -1316,6 +1583,13 @@ impl Harness {
     /// same journal, new `own`. The new identity is not a member until the
     /// forced sequence joins it; addressable from this moment on.
     ///
+    /// The restart routes through the boot gate: the markers must classify
+    /// `Crashed`. The replacement pair is decided by the gate, and the
+    /// durable latch DEFERS to the engine's seated observation — the
+    /// harness latches automatically on the first step after which
+    /// [`Replica::rejoined`] mints its witness (`docs/uvrr-boot-gate.md`
+    /// §3).
+    ///
     /// Identity is not reused: the identity that crashed is never resumed
     /// (same-identity recovery after volatile-state loss is
     /// unrepresentable), so the script names a fresh `new`.
@@ -1327,6 +1601,30 @@ impl Harness {
             id.0
         );
         assert_ne!(id, new, "reincarnation always changes the identity");
+        let dir = self.gates[old_index]
+            .clone()
+            .unwrap_or_else(|| panic!("n={} has no gate directory", id.0));
+        let gate = TmpGate::open(dir.clone()).expect("the gate directory opens");
+        let crashed = match boot(gate) {
+            Ok(BootOutcome::Crashed(crashed)) => crashed,
+            Ok(BootOutcome::Clean { .. }) => panic!(
+                "n={} restart_as refused: the markers classify a clean stop — restart_with is the path",
+                id.0
+            ),
+            Ok(BootOutcome::First { .. }) => panic!(
+                "n={} restart_as refused: the markers hold no life to reincarnate",
+                id.0
+            ),
+            Err((_, BootError::QuorumLost)) => panic!(
+                "n={} restart_as refused: the marker set is torn beyond the quorum read",
+                id.0
+            ),
+            Err((_, error)) => panic!("n={} restart_as refused: {error:?}", id.0),
+        };
+        self.gate_logs[old_index] = Some(crashed.store().ops_handle());
+        let pair = crashed
+            .pair()
+            .expect("the identity is nowhere near exhaustion");
         let (journal, persisted, config) = match self.disks[old_index].as_ref() {
             Some(disk) => (
                 clone_journal(&disk.journal, self.tail_capacity),
@@ -1335,7 +1633,8 @@ impl Harness {
             ),
             None => panic!("n={} has no recorded disk; crash it first", id.0),
         };
-        match Replica::reopen(
+        match Replica::reincarnate(
+            pair,
             new,
             WeightedMajority,
             journal,
@@ -1346,6 +1645,9 @@ impl Harness {
         ) {
             Ok(replica) => {
                 let new_index = self.grow_to(new);
+                self.gates[new_index] = Some(dir);
+                self.gate_logs[new_index] = self.gate_logs[old_index].take();
+                self.pending[new_index] = Some(crashed);
                 self.install(new_index, replica);
                 self.record(format!("n={:?} restart_as(old n={:?})", new, id));
                 Ok(())
@@ -1410,7 +1712,7 @@ impl Harness {
             view: View::INITIAL,
         };
         let config = Arc::new(table);
-        let boot = Progress::reconstitute(
+        let entry = Progress::reconstitute(
             view,
             view,
             Status::Restarting,
@@ -1423,17 +1725,31 @@ impl Harness {
             None,
         )
         .map_err(LifecycleRefusal::Progress)?;
-        match Replica::reopen(
+        // The fresh joiner is a first life: no durable identity yet, so the
+        // gate latches its anchor and the replica enters through the
+        // checked fresh-joiner constructor.
+        let index = self.grow_to(id);
+        let dir = self.gate_root.join(format!("n{index}"));
+        let gate = TmpGate::open(dir.clone()).expect("the gate directory opens");
+        let mut session = match boot(gate) {
+            Ok(BootOutcome::First(first)) => first
+                .latch(Incarnation(u64::from(id.0) + 1))
+                .expect("the first latch writes"),
+            _ => panic!("a fresh gate directory classifies first"),
+        };
+        match Replica::join(
             id,
             WeightedMajority,
             journal,
-            PersistedProgress::from(&boot),
+            PersistedProgress::from(&entry),
             Arc::clone(&config),
             self.stability,
             self.knobs,
         ) {
             Ok(replica) => {
-                let index = self.grow_to(id);
+                self.gates[index] = Some(dir);
+                self.gate_logs[index] = Some(session.store_mut().ops_handle());
+                self.sessions[index] = Some(session);
                 self.install(index, replica);
                 self.record(format!("n={id:?} boot_as (fresh joiner)"));
                 Ok(())
@@ -1455,10 +1771,57 @@ impl Harness {
             self.nodes.push(None);
             self.applied.push(Vec::new());
             self.disks.push(None);
+            self.gates.push(None);
+            self.sessions.push(None);
+            self.gate_logs.push(None);
+            self.pending.push(None);
             self.declared_faults.push(false);
             self.faulted_known.push(false);
         }
         index
+    }
+
+    /// The boot gate's operation log for a node — `read`, `commit:<marker>@<identity>`,
+    /// `drain`, in order — from whichever holder rides the gate (the
+    /// running session, the deferred crashed session, or nothing). The
+    /// fixed write schedules of `docs/uvrr-boot-gate.md` §3 assert
+    /// against this.
+    pub fn gate_ops(&self, id: NodeId) -> Vec<String> {
+        let index = self.index_of(id);
+        self.gate_logs[index]
+            .as_ref()
+            .map(|log| log.borrow().clone())
+            .unwrap_or_default()
+    }
+
+    /// Fires every deferred latch whose seated observation has arrived: a
+    /// reincarnated node that has reached `Normal` at voting weight mints
+    /// its witness, and the gate writes the deferred `(new, Joining)` 4x
+    /// (`docs/uvrr-boot-gate.md` §3). Called at the end of every step, so
+    /// no script can forget it.
+    fn settle_pending(&mut self) {
+        for index in 0..self.nodes.len() {
+            if self.pending[index].is_none() {
+                continue;
+            }
+            let Some(witness) = self.nodes[index]
+                .as_ref()
+                .and_then(|node| node.replica.rejoined())
+            else {
+                continue;
+            };
+            let crashed = self.pending[index].take().expect("checked above");
+            match crashed.latch(witness) {
+                Ok(session) => {
+                    self.sessions[index] = Some(session);
+                    self.record(format!(
+                        "n={} latch (deferred, seated)",
+                        u32::try_from(index).expect("node indices are small")
+                    ));
+                }
+                Err((_, error)) => panic!("the deferred latch refused: {error:?}"),
+            }
+        }
     }
 
     /// Feeds the node's `Input::Reincarnate { old }` (§4 of the doc): the
@@ -1671,6 +2034,7 @@ impl Harness {
             self.route_effect(index, effect);
         }
         self.record(format!("{summary} -> {outcome:?}"));
+        self.settle_pending();
         outcome
     }
 

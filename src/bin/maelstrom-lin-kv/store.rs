@@ -74,8 +74,9 @@ use std::path::{Path, PathBuf};
 
 use vrr::ids::{Era, Fault, Slot, View, ViewId};
 use vrr::journal::{JournalView, LogEntry};
+use vrr::lifecycle::{Incarnation, Marker, SuperblockCopies};
 use vrr::progress::Status;
-use vrr::replica::{Incarnation, Marker, PersistedProgress, SuperblockCopies};
+use vrr::replica::PersistedProgress;
 use vrr::wire::{Pack, Unpack};
 
 /// File magic, as a big-endian word. A slot not opening with it is not
@@ -655,7 +656,7 @@ impl SlotBytes {
                 MARKER_JOINING => Marker::Joining,
                 _ => return None,
             };
-            copies.push(vrr::replica::CopyState { identity, marker });
+            copies.push(vrr::lifecycle::CopyState { identity, marker });
         }
         let [a, b, d, e] = copies.try_into().expect("four copies were read");
         let count = get_u32(buf, AT_ROSTER) as usize;

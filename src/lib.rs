@@ -62,6 +62,7 @@ pub mod effects;
 pub mod ids;
 pub mod invariant;
 pub mod journal;
+pub mod lifecycle;
 pub mod message;
 pub mod observe;
 pub mod plan;

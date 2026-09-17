@@ -108,6 +108,7 @@ use crate::effects::{
 use crate::ids::{Era, Fault, NodeId, Operation, Slot, Tick, View, ViewId};
 use crate::invariant::{InputKind, legal};
 use crate::journal::{Journal, JournalError, JournalView, LogEntry, Payload, SegmentedLog};
+use crate::lifecycle::{Bumped, Rejoined, Vouched};
 use crate::message::{Body, EraProof, EvidenceKind, Message};
 use crate::observe::{Diagnostic, Observation};
 use crate::plan::Plan;
@@ -128,10 +129,7 @@ mod transfer;
 mod view_change;
 
 pub use reconfiguration::FUSE_MAX_OPS;
-pub use reincarnation::{
-    CopyState, Incarnation, Marker, RestartClass, RestartDecision, RestartRefusal,
-    SuperblockCopies, forced_steps,
-};
+pub use reincarnation::forced_steps;
 
 /// One host event with the host tick attached (§6, S4).
 ///
@@ -546,7 +544,7 @@ pub struct ViewChangeKnobs {
     pub view_change_budget: usize,
 }
 
-/// Why construction — provision or reopen — was refused.
+/// Why construction — provision, join, resume, or reincarnate — was refused.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LifecycleRefusal {
     /// `own` is not in the genesis order. A node cannot provision as a cluster
@@ -569,8 +567,14 @@ pub enum LifecycleRefusal {
     Journal(JournalError),
     /// `provision` was offered a journal that already holds history. A
     /// non-empty journal is evidence of a prior life; provisioning must go
-    /// through [`Replica::reopen`] instead.
+    /// through [`Replica::resume`] instead.
     JournalNotEmpty,
+    /// `join` was offered a record that carries history beyond the shared
+    /// genesis prefix: a prior life, which must enter through
+    /// [`Replica::resume`] (a vouched clean start) or
+    /// [`Replica::reincarnate`] (a crashed identity's replacement). The
+    /// fresh-joiner constructor restores no past beyond genesis.
+    NotAFreshJoiner,
     /// The persisted progress and the journal disagree about the accepted
     /// frontier (§5 invariant 1): the two durable records tell different
     /// histories, and the core will not guess which one lied.
@@ -585,10 +589,11 @@ pub enum LifecycleRefusal {
 /// The durable half of [`Progress`], as the host persists and returns it (§5).
 ///
 /// The configuration history is deliberately absent: an `Arc<EraTable>` is not
-/// a durable value, so `reopen` takes it as a separate argument — the host
+/// a durable value, so the later-life constructors take it as a separate
+/// argument — the host
 /// reconstructs it from the journal it also persists. Not every field must
 /// survive a crash; which do is a property of the host's declared durability
-/// profile (§5), and `reopen` treats the whole record as evidence about the
+/// profile (§5), and every constructor treats the whole record as evidence about the
 /// past, not authority over the present.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PersistedProgress {
@@ -596,10 +601,10 @@ pub struct PersistedProgress {
     pub current: ViewId,
     /// The view at which the current logical history was selected (§1.3).
     pub retained: ViewId,
-    /// The last observed status. Evidence only: `reopen` fences to
+    /// The last observed status. Evidence only: every constructor fences to
     /// [`Status::Restarting`] regardless (§5's boot rule).
     pub status: Status,
-    /// The accepted frontier; must agree with the journal's at `reopen`.
+    /// The accepted frontier; must agree with the journal's at construction.
     pub accepted: Slot,
     /// The committed frontier.
     pub committed: Slot,
@@ -1358,19 +1363,47 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         ))
     }
 
-    /// A later life of a node: restore the durable evidence and start fenced.
+    /// The first life of a joining identity: no past beyond the shared
+    /// genesis (§10's learner acquisition entry). The journal and the
+    /// persisted record must carry exactly the genesis prefix — anything
+    /// longer is a prior life and must enter through [`Replica::resume`]
+    /// or [`Replica::reincarnate`], so no member's past can be restored
+    /// through this constructor.
     ///
-    /// The persisted progress is evidence about the past, not authority over
-    /// the present: whatever status was last observed before failure, the
-    /// node reopens in [`Status::Restarting`] (§5's boot rule) and becomes
-    /// normal only after local restoration establishes adequate state. The
-    /// persisted fault, if any, is preserved —
-    /// faults survive restart because they are part of progress (§5
-    /// invariant 5).
+    /// # Refusals
     ///
-    /// A host that cannot produce a persisted progress must say so by using
-    /// [`Replica::provision`] instead; the core makes the host say which it
-    /// is doing by choosing the constructor.
+    /// [`LifecycleRefusal::NotAFreshJoiner`] if either record carries
+    /// history beyond the genesis prefix; the rest as [`Replica::resume`].
+    pub fn join(
+        own: NodeId,
+        strategy: Q,
+        journal: J,
+        persisted: PersistedProgress,
+        config: Arc<EraTable>,
+        stability: Stability,
+        knobs: ViewChangeKnobs,
+    ) -> Result<Self, LifecycleRefusal> {
+        let frontier = journal.view().accepted().unwrap_or(Slot::NONE);
+        if frontier != INIT_SLOT || persisted.accepted != INIT_SLOT {
+            return Err(LifecycleRefusal::NotAFreshJoiner);
+        }
+        Self::reopen_fenced(own, strategy, journal, persisted, config, stability, knobs)
+    }
+
+    /// The same-identity resume of a controlled halt: the drain was
+    /// vouched by a stopped quorum, and the boot gate's clean start has
+    /// latched (`docs/uvrr-boot-gate.md` §6).
+    ///
+    /// The [`Vouched`] token is minted only by the boot gate's clean
+    /// classification — a stopped-quorum read. No token, no same-identity
+    /// constructor: the amnesiac blank boot of classic crash-recovery is
+    /// unrepresentable, not refused. The persisted progress is evidence
+    /// about the past, not authority over the present: whatever status was
+    /// last observed before failure, the node reopens in
+    /// [`Status::Restarting`] (§5's boot rule) and becomes normal only
+    /// after local restoration establishes adequate state. The persisted
+    /// fault, if any, is preserved — faults survive restart because they
+    /// are part of progress (§5 invariant 5).
     ///
     /// # Refusals
     ///
@@ -1379,7 +1412,68 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// [`LifecycleRefusal::Progress`] if the persisted record fails the
     /// invariant set; [`LifecycleRefusal::Quorum`] if the Q1 gate refuses the
     /// configuration the host reconstructed.
-    pub fn reopen(
+    #[allow(clippy::too_many_arguments)]
+    pub fn resume(
+        _proof: Vouched,
+        own: NodeId,
+        strategy: Q,
+        journal: J,
+        persisted: PersistedProgress,
+        config: Arc<EraTable>,
+        stability: Stability,
+        knobs: ViewChangeKnobs,
+    ) -> Result<Self, LifecycleRefusal> {
+        Self::reopen_fenced(own, strategy, journal, persisted, config, stability, knobs)
+    }
+
+    /// The reincarnation of a crashed identity: the boot gate read no
+    /// stopped quorum, the identity is dead, and the replacement pair is
+    /// the commitment (`docs/uvrr-reincarnation.md` §4).
+    ///
+    /// The [`Bumped`] pair is minted only by the boot gate's crashed
+    /// classification. The node reopens fenced in [`Status::Restarting`],
+    /// a weight-0 non-member until the forced sequence seats it; the
+    /// cached journal and progress remain evidence, never authority. The
+    /// engine does not interpret the durable identity — the pair is the
+    /// host's durable band, carried for the wire announcement.
+    ///
+    /// # Refusals
+    ///
+    /// As [`Replica::resume`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn reincarnate(
+        _pair: Bumped,
+        own: NodeId,
+        strategy: Q,
+        journal: J,
+        persisted: PersistedProgress,
+        config: Arc<EraTable>,
+        stability: Stability,
+        knobs: ViewChangeKnobs,
+    ) -> Result<Self, LifecycleRefusal> {
+        Self::reopen_fenced(own, strategy, journal, persisted, config, stability, knobs)
+    }
+
+    /// The seated observation: the deferred latch's witness
+    /// (`docs/uvrr-boot-gate.md` §3). `Some` iff this node is `Normal` at
+    /// voting weight — the engine itself observed the rejoin complete.
+    /// Only this method mints [`Rejoined`]; the dirty fast start's latch
+    /// is unreachable without it.
+    #[must_use]
+    pub fn rejoined(&self) -> Option<Rejoined> {
+        let seated = matches!(self.progress.status(), Status::Normal)
+            && self
+                .progress
+                .config()
+                .current()
+                .config
+                .weight_of(self.own)
+                .is_some_and(|weight| weight.0 >= 1);
+        seated.then(Rejoined::mint)
+    }
+
+    /// The shared fenced reopen of both later-life constructors.
+    fn reopen_fenced(
         own: NodeId,
         strategy: Q,
         journal: J,

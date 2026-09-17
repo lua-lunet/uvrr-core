@@ -61,10 +61,10 @@ mod harness;
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{INIT_SLOT, SystemOperation};
 use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::lifecycle::{CopyState, Incarnation, Marker, RestartDecision, SuperblockCopies};
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::Status;
-use vrr::replica::{CopyState, Incarnation, Marker, RestartDecision, SuperblockCopies};
 use vrr::wire::{Header, Tag};
 
 /// The timeout knob: a suspecting node — `Normal` backup or `Restarting`
@@ -276,9 +276,10 @@ fn post_genesis_history(h: &mut Harness) -> ViewId {
 #[test]
 fn staggered_genesis_start_completes() {
     let mut h = cluster();
-    // n(1) has not started: its epoch-0 crash records the pristine genesis
-    // disk (the staggered-provisioning expression, see the module docs).
-    h.crash(n(1));
+    // n(1) is down from epoch 0: its controlled halt records the pristine
+    // genesis disk (the staggered-provisioning expression, see the module
+    // docs) and the markers vouch the clean stop.
+    h.halt(n(1));
 
     // The solo phase: n(0) promotes on the first tick, fires its fence at
     // the first timeout, and cannot fire again — a `ViewChange` node has
@@ -403,7 +404,7 @@ fn post_genesis_cold_restart_completes_through_the_machine() {
             .all(|copy| copy.marker == Marker::Restarting),
         "the boot wrote `Restarting` 4x"
     );
-    h.crash(n(0));
+    h.halt(n(0));
     h.restart_with(n(0))
         .expect("n(0) boots over its recorded disk");
     assert_eq!(
@@ -444,7 +445,7 @@ fn post_genesis_cold_restart_completes_through_the_machine() {
             .all(|copy| copy.marker == Marker::Restarting),
         "the boot wrote `Restarting` 4x"
     );
-    h.crash(n(1));
+    h.halt(n(1));
     h.restart_with(n(1))
         .expect("n(1) boots over its recorded disk");
     assert_eq!(status_of(&h, n(1)), Status::Restarting, "fenced at boot");

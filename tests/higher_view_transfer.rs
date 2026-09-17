@@ -655,7 +655,7 @@ fn recovering_node_refuses_get_state() {
     let mut h = cluster();
     bootstrap(&mut h);
     commit_one(&mut h, n(0), 1, b"a");
-    h.crash(n(2));
+    h.halt(n(2));
     h.restart_with(n(2)).expect("the journal survived");
     assert_eq!(status_of(&h, n(2)), Status::Restarting);
 

@@ -840,7 +840,7 @@ The current code contains:
 - separate accepted, committed, and executed frontiers;
 - explicit `Restarting`, `Joining`, and `Replaying` statuses;
 - host strategies for the journal (`Journal`/`JournalView`, with the segmented in-memory implementation) and an explicit stability-completion boundary (`Stability`) gating dependent effects;
-- the provisioning/reopen lifecycle: `provision` establishes the genesis configuration and joins fenced `Joining`, `reopen` restarts after possible state loss and starts fenced `Restarting`;
+- the lifecycle constructors behind the boot gate (`vrr::lifecycle`): `provision` establishes the genesis configuration and joins fenced `Joining`; `join` enters a fresh identity over the shared genesis prefix; `resume` continues a vouched clean stop and `reincarnate` replaces a crashed identity — both later lives start fenced `Restarting`;
 - the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it — the arm a post-genesis cold start's first fence goes through (§5), the boot fence never self-arming from persisted knowledge;
 - the host-supplied `u64` event tick on every input, with recovery nonces derived from it (§6.1);
 - the higher-view normal-message state-transfer behaviour specified by VRR-2012.
@@ -851,7 +851,7 @@ The current code does not provide:
 
 - a normative C ABI transition-ownership contract — no FFI module exists at present; the C ABI is planned work.
 
-The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision` and `reopen` both start fenced `Restarting` and become normal only after local restoration establishes adequate state, so the amnesiac-voter path is unrepresentable.
+The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision`, `join`, `resume`, and `reincarnate` all fence into `Restarting`/`Joining` and become normal only after local restoration establishes adequate state, and the later-life constructors require the boot gate's proof tokens — `resume` a vouched clean stop, `reincarnate` a crashed identity's bump — so the amnesiac-voter path and the blank same-identity boot are both unrepresentable.
 
 ## 15. Minimal proposal
 
@@ -861,7 +861,7 @@ The pre-rewrite `Replica::new` created an empty normal replica in view zero; use
 4. Keep the application upcall/completion boundary independent; allow the host to compose it into a wider transaction.
 5. Expose one stability-completion point which gates publication and dependent effects.
 6. Permit host-selected in-memory strategies for tests and intentionally volatile deployments.
-7. Define separate provisioning and reopen/recovery lifecycles.
+7. Define separate genesis, fresh-joiner, clean-stop, and crashed-identity lifecycles, the later two gated by the boot classification's proof tokens.
 8. Publish immutable progress for observation; prohibit mutation through diagnostics, transport, timers, or transfer side channels.
 9. Keep quorum evidence and transfer state process-local and explicitly scoped.
 10. Leave physical storage, retained-history policy, batching, flush cadence, and reclamation entirely to the host.
