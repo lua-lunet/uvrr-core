@@ -203,7 +203,7 @@ Each boundary preserves cross-era majority intersection by a unit change or exac
 
 The leader stays live for client requests and drives a forced weight sequence from
 the voting-weights rules \cite{votingweights}: the exiting node's weight goes
-$1\to0$ (a Leave), the new identity joins at weight $0$ (a Join), and the new
+$1\to0$ (a Decrement; the Leave follows at weight zero), the new identity joins at weight $0$ (a Join), and the new
 identity goes $0\to1$. Each step
 is a unit-weight change, so the strict majorities of consecutive configurations
 overlap by the unit-change overlap argument and every intermediate era is
@@ -491,8 +491,8 @@ boundary; quorum memory is the only protocol state, and the recovery nonce
 file remains as shipped.
 \item \emph{Naive single write (the latency baseline).} One 4~KiB block
 write followed by \code{fsync} at the recovery boundary. Per the FAST'18
-finding \cite{diskless}, even a single write plus \code{fsync} is not
-fault-safe against real disk faults; the variant is the latency baseline
+finding \cite{par}, stock consensus systems lose committed data under a
+single storage fault despite \code{fsync}; the variant is the latency baseline
 only, never a safety claim.
 \item \emph{Double-ring write.} A TigerBeetle-style double write at the
 recovery boundary: one 4~KiB block of data plus a checksum header to the
@@ -550,7 +550,8 @@ overwrite a newer decision; every killed node reincarnates and rejoins
 serving, with no run ending in a permanently lost node; and no read ever
 reports two holders, expiry being judged only in the leader's clock. All
 figures $\mathrm{xxxx}$. A passing campaign supports the case that
-reincarnation eliminates the FAST'18 weakness: consistency under crash with
+reincarnation eliminates the diskless-recovery weakness \cite{diskless}:
+consistency under crash with
 successful rejoin, by construction rather than by recovery.
 
 \subsection{E4: cloud repetition}
@@ -594,6 +595,7 @@ Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters
 \bibitem{vr} B. M. Oki and B. H. Liskov, ``Viewstamped replication: A new primary copy method to support highly-available distributed systems,'' in \emph{ACM PODC}, 1988, pp. 8--17.
 \bibitem{vrr} B. Liskov and J. Cowling, ``Viewstamped replication revisited,'' MIT CSAIL, Tech. Rep. MIT-CSAIL-TR-2012-021, 2012. [Online]. Available: \url{https://hdl.handle.net/1721.1/71763}
 \bibitem{diskless} E. Michael, D. R. K. Ports, N. Kr. Sharma, and A. Szekeres, ``Providing stable storage for the diskless crash-recovery failure model,'' University of Washington, Tech. Rep. UW-CSE-16-08-02, Aug. 25, 2016. [Online]. Available: \url{https://syslab.cs.washington.edu/papers/diskless-tr16.pdf}
+\bibitem{par} R. Alagappan, A. Ganesan, E. Lee, A. Albarghouthi, V. Chidambaram, A. C. Arpaci-Dusseau, and R. H. Arpaci-Dusseau, ``Protocol-aware recovery for consensus-based storage,'' in \emph{USENIX FAST}, 2018. [Online]. Available: \url{https://www.usenix.org/system/files/conference/fast18/fast18-alagappan.pdf}
 \bibitem{turner} D. Turner, ``Unbounded pipelining in dynamically reconfigurable Paxos clusters,'' revision 1A9DBA37, Aug. 14, 2017. [Online]. Available: \url{https://github.com/DaveCTurner/paxos-membership}. The proof artifact includes the consulted PDF and its digest.
 \bibitem{motivation} S. Massey, ``Viewstamped replication revisited,'' Aug. 12, 2026. [Online]. Available: \url{https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/}
 \bibitem{corfu} M. Balakrishnan, D. Malkhi, J. D. Davis, V. Prabhakaran, M. Wei, and T. Wobber, ``CORFU: A Distributed Shared Log,'' \emph{ACM Trans. Comput. Syst.}, vol. 31, no. 4, Art. 10, Dec. 2013, doi: \href{https://doi.org/10.1145/2535930}{10.1145/2535930}.
