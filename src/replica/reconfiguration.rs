@@ -52,20 +52,21 @@ use std::sync::Arc;
 
 use crate::configuration::{ConfigError, EraTable};
 use crate::effects::Effect;
-use crate::ids::{NodeId, Slot, Tick, ViewId, next_view_selecting};
+use crate::ids::{next_view_selecting, NodeId, Slot, Tick, ViewId};
 use crate::journal::{JournalView, LogEntry, Payload};
 use crate::message::{Body, EraProof, EvidenceKind, Message};
 use crate::observe::Diagnostic;
 use crate::progress::Status;
 use crate::quorum::{validate_era, validate_pivot, validate_transition};
-use crate::trace;
 use crate::wire::{Header, Tag};
 
 use super::{
-    Bookkeeping, Evidence, InputKind, Journal, JournalMutation, Pivot, PlanRefusal, PlannedOverlap,
-    PlannedOverlapUpdate, PlannedTransition, ProgressError, Proposal, QuorumStrategy, Replica,
-    SystemOperation, suffix_shape_ok,
+    suffix_shape_ok, Bookkeeping, Evidence, InputKind, Journal, JournalMutation, Pivot,
+    PlanRefusal, PlannedOverlap, PlannedOverlapUpdate, PlannedTransition, ProgressError, Proposal,
+    QuorumStrategy, Replica, SystemOperation,
 };
+#[allow(unused_imports)]
+use crate::trace;
 
 /// Why the fold of the committed prefix refused.
 pub(in crate::replica) enum CommitFold {
@@ -130,14 +131,38 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         from: Slot,
         through: Slot,
     ) -> Result<Arc<EraTable>, CommitFold> {
+        Ok(self
+            .fold_committed_windowed(journal, overlay, from, through, None)?
+            .0)
+    }
+
+    /// The windowed form of the fold (§8.7.3, W1): `window` names the era
+    /// successor the fold may not walk past. The fold stops before an
+    /// extension would establish an era more than one past the window's
+    /// era, the covered frontier stops at the last folded slot, and
+    /// `stopped` marks the deferral — the tail is folded by the next
+    /// round, once the caller's durable view has walked into the era the
+    /// folded table established. `window = None` is the unbounded fold the
+    /// ordinary candidates run.
+    pub(in crate::replica) fn fold_committed_windowed(
+        &self,
+        journal: &J::View,
+        overlay: &[LogEntry],
+        from: Slot,
+        through: Slot,
+        window: Option<crate::ids::Era>,
+    ) -> Result<(Arc<EraTable>, Slot, bool), CommitFold> {
         trace!(
-            "FOLD from={:?} through={:?} table_era={:?}",
+            "FOLD_W from={:?} through={:?} window={:?} table_era={:?}",
             from,
             through,
+            window,
             self.progress.config().current().era
         );
         let mut table = Arc::clone(self.progress.config());
+        let mut covered = from;
         let mut slot = from;
+        let mut window_stopped = false;
         while let Some(next) = slot.next() {
             if next > through {
                 break;
@@ -161,6 +186,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                             None => break,
                         },
                     };
+                    // A run is one establishing batch — the fuse envelope's
+                    // ops journal as consecutive entries of the SAME entry
+                    // era. Consecutive system entries of DIFFERENT entry
+                    // eras are separately committed eras that happen to be
+                    // adjacent: gluing them would collapse two committed
+                    // eras into one, and the folding node's era numbering
+                    // would diverge from the incumbents that committed them
+                    // one at a time.
+                    if follow_entry.era != entry.era {
+                        break;
+                    }
                     match &follow_entry.payload {
                         Payload::System(follow_op) => {
                             ops.push(follow_op.clone());
@@ -174,13 +210,28 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     if end > through {
                         return Err(CommitFold::SplitBatch);
                     }
-                    if let Ok(folded) = table.extend(&SystemOperation::Batch(ops), next) {
+                    if let Ok(extended) = table.extend(&SystemOperation::Batch(ops), next) {
+                        if window.is_some_and(|successor| extended.current().era > successor) {
+                            // The era window is spent: the fold stops
+                            // before this slot, whose establishing
+                            // operation awaits the next acquisition round
+                            // (after the view's era walked).
+                            trace!(
+                                "FOLD_W batch@{:?}: era {:?} > window {:?} — STOP",
+                                next,
+                                extended.current().era,
+                                window
+                            );
+                            window_stopped = true;
+                            break;
+                        }
                         trace!(
-                            "FOLD batch@{:?}: folded, era={:?}",
+                            "FOLD_W batch@{:?}: folded, era={:?}",
                             next,
-                            folded.current().era
+                            extended.current().era
                         );
-                        table = Arc::new(folded);
+                        table = Arc::new(extended);
+                        covered = end;
                         slot = end;
                         continue;
                     }
@@ -188,18 +239,36 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 let extended = table
                     .extend(op, next)
                     .map_err(|error| CommitFold::Breach { slot: next, error })?;
+                if window.is_some_and(|successor| extended.current().era > successor) {
+                    trace!(
+                        "FOLD_W op@{:?}: era {:?} > window {:?} — STOP",
+                        next,
+                        extended.current().era,
+                        window
+                    );
+                    window_stopped = true;
+                    break;
+                }
                 trace!(
-                    "FOLD op@{:?}: folded, era={:?}",
+                    "FOLD_W op@{:?}: folded, era={:?}",
                     next,
                     extended.current().era
                 );
                 table = Arc::new(extended);
+                covered = next;
                 slot = next;
             } else {
+                covered = next;
                 slot = next;
             }
         }
-        Ok(table)
+        trace!(
+            "FOLD_W done: table_era={:?} covered={:?} stopped={}",
+            table.current().era,
+            covered,
+            window_stopped
+        );
+        Ok((table, covered, window_stopped))
     }
 
     /// The reconfiguration gates every proposal path runs, shared by the
