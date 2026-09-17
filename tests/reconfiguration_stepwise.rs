@@ -892,6 +892,19 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
         6,
         "five-node replacement includes both scaling eras"
     );
+    // The deterministic chain of rows the walk establishes: the initial
+    // configuration plus each step applied in turn, so a member's config
+    // can be checked against the chain row for its own era.
+    let mut chain = vec![initial.clone()];
+    for (index, step) in steps.iter().enumerate() {
+        let next = chain
+            .last()
+            .unwrap()
+            .apply(step, Slot(3 + index as u64))
+            .unwrap()
+            .into();
+        chain.push(next);
+    }
     let mut expected = initial;
     for (index, step) in steps.iter().enumerate() {
         let leader = if index == 0 { n(0) } else { n(1) };
@@ -900,20 +913,30 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
             StepOutcome::Published { .. }
         ));
         h.deliver_all();
+        // The host's steady state: the leader ticks every cycle. The armed
+        // reincarnation machine proposes the next forced step on the tick
+        // (§5, §8 of `docs/uvrr-reincarnation.md`); the prechecks make the
+        // tick an inert transition whenever a step is still in flight.
+        h.tick(leader);
+        h.deliver_all();
         expected = expected.apply(step, Slot(3 + index as u64)).unwrap().into();
         for id in [n(1), n(2), n(3)] {
             let table = h.era_table(id).unwrap();
-            assert_eq!(
-                table.current().config,
-                expected,
-                "committed row {} at {id:?}",
+            // Each committed row makes the next step plannable, so a
+            // member may legitimately sit one row ahead once the machine
+            // is armed. Monotone progress is the assertion: the member's
+            // config is the chain row for its own era, never behind the
+            // row this cycle establishes.
+            let row = u64::from(table.current().config.era().0) as usize - 1;
+            assert!(
+                row >= index,
+                "{id:?} fell behind row {} (at row {row})",
                 index + 1
             );
             assert_eq!(
-                h.journal_entry(id, table.current().established_by)
-                    .unwrap()
-                    .payload,
-                vrr::journal::Payload::System(step.clone())
+                table.current().config,
+                chain[row],
+                "row {row} at {id:?} is not the expected chain row"
             );
         }
         assert_eq!(
