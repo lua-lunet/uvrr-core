@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">How the joiner's first message is already in era 3</title>
+  <desc id="desc">Sequence diagram showing an existing four-replica cluster committing a join while the new node receives no traffic, then sending that node an era 3 StartView as its first message.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#243447"/></marker>
+    <marker id="redArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#b42318"/></marker>
+    <style>
+      .title{font:700 28px system-ui,sans-serif;fill:#132238}.sub{font:16px system-ui,sans-serif;fill:#475467}.lane{stroke:#98a2b3;stroke-width:2;stroke-dasharray:7 7}.head{fill:#eaf2ff;stroke:#3972b7;stroke-width:2}.joiner{fill:#fff4e5;stroke:#dc6803;stroke-width:2}.h{font:700 17px system-ui,sans-serif;fill:#132238;text-anchor:middle}.msg{stroke:#243447;stroke-width:2.5;marker-end:url(#arrow)}.bad{stroke:#b42318;stroke-width:3;marker-end:url(#redArrow)}.label{font:15px system-ui,sans-serif;fill:#243447;text-anchor:middle}.small{font:14px system-ui,sans-serif;fill:#475467}.era{fill:#f2f4f7;stroke:#d0d5dd}.warn{fill:#fff1f0;stroke:#f04438;stroke-width:2}.strong{font-weight:700}.none{stroke:#dc6803;stroke-width:2;stroke-dasharray:5 5}.x{stroke:#b42318;stroke-width:4}
+    </style>
+  </defs>
+  <rect width="1200" height="760" fill="#ffffff"/>
+  <text x="48" y="48" class="title">1. The joiner hears nothing — then suddenly hears era 3</text>
+  <text x="48" y="76" class="sub">Time flows downwards. “Cluster” compresses the four existing replicas; N5 is the joining replica.</text>
+
+  <rect x="120" y="105" width="230" height="56" rx="10" class="head"/><text x="235" y="139" class="h">Existing cluster N1–N4</text>
+  <rect x="835" y="105" width="230" height="56" rx="10" class="joiner"/><text x="950" y="139" class="h">New replica N5</text>
+  <line x1="235" y1="161" x2="235" y2="700" class="lane"/><line x1="950" y1="161" x2="950" y2="700" class="lane"/>
+
+  <rect x="36" y="192" width="1110" height="91" rx="10" class="era"/><text x="56" y="220" class="small strong">ERA 1</text>
+  <path d="M235 238 C390 270 720 270 940 238" fill="none" class="none"/>
+  <text x="595" y="254" class="label">no datagram to N5: it is not yet in the roster</text>
+
+  <rect x="36" y="303" width="1110" height="132" rx="10" class="era"/><text x="56" y="331" class="small strong">ERA 2</text>
+  <line x1="235" y1="353" x2="540" y2="353" class="msg"/><text x="395" y="343" class="label">commit batch containing Join(N5)</text>
+  <path d="M235 389 C420 421 740 421 940 389" fill="none" class="none"/>
+  <text x="595" y="405" class="label">still no catch-up stream to N5</text>
+
+  <rect x="36" y="455" width="1110" height="185" rx="10" class="era"/><text x="56" y="483" class="small strong">ERA 3</text>
+  <line x1="235" y1="530" x2="940" y2="530" class="bad"/>
+  <text x="595" y="515" class="label strong">StartView(era 3) — N5's first-ever incoming message</text>
+  <rect x="810" y="560" width="282" height="58" rx="9" class="warn"/>
+  <text x="951" y="585" class="label strong">N5 still knows only boot era 1</text>
+  <text x="951" y="606" class="label">gap = two eras, not one</text>
+
+  <line x1="420" y1="676" x2="780" y2="676" class="x"/><line x1="595" y1="660" x2="595" y2="692" class="x"/>
+  <text x="595" y="726" class="label strong">Nothing taught N5 about era 2 before the era-3 fence arrived.</text>
+</svg>

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">The find-the-cluster guard: the joiner learns the era before its engine starts</title>
+  <desc id="desc">Sequence diagram: a non-member broadcasts a join request to every node it knows; each member answers with its committed era and membership; the joiner adopts the maximum era and that response's membership, flushes it to disk, and retransmits on its own timeout until acquisition completes.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#243447"/></marker>
+    <marker id="greenArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#157f3d"/></marker>
+    <style>
+      .title{font:700 28px system-ui,sans-serif;fill:#132238}.sub{font:16px system-ui,sans-serif;fill:#475467}.lane{stroke:#98a2b3;stroke-width:2;stroke-dasharray:7 7}.head{fill:#eaf2ff;stroke:#3972b7;stroke-width:2}.joiner{fill:#fff4e5;stroke:#dc6803;stroke-width:2}.h{font:700 17px system-ui,sans-serif;fill:#132238;text-anchor:middle}.msg{stroke:#243447;stroke-width:2.5;marker-end:url(#arrow)}.good{stroke:#157f3d;stroke-width:2.5;marker-end:url(#greenArrow)}.label{font:15px system-ui,sans-serif;fill:#243447;text-anchor:middle}.small{font:14px system-ui,sans-serif;fill:#475467}.box{fill:#f2f4f7;stroke:#d0d5dd}.strong{font-weight:700}.mono{font:14px ui-monospace,Menlo,monospace}
+    </style>
+  </defs>
+  <rect width="1200" height="760" fill="#ffffff"/>
+  <text x="48" y="48" class="title">1. Find the cluster: adopt the maximum committed era, then start the engine</text>
+  <text x="48" y="76" class="sub">D is a known server (mutual PSK) that is not a member. It never guesses an era — it asks, adopts the max, flushes, and only then lets its engine see traffic.</text>
+
+  <rect x="130" y="110" width="150" height="44" rx="8" class="head"/><text x="205" y="138" class="h">leader B</text>
+  <rect x="380" y="110" width="150" height="44" rx="8" class="head"/><text x="455" y="138" class="h">A</text>
+  <rect x="630" y="110" width="150" height="44" rx="8" class="head"/><text x="705" y="138" class="h">C (stale)</text>
+  <rect x="880" y="110" width="170" height="44" rx="8" class="joiner"/><text x="965" y="138" class="h">D (non-member)</text>
+  <line x1="205" y1="154" x2="205" y2="700" class="lane"/>
+  <line x1="455" y1="154" x2="455" y2="700" class="lane"/>
+  <line x1="705" y1="154" x2="705" y2="700" class="lane"/>
+  <line x1="965" y1="154" x2="965" y2="700" class="lane"/>
+
+  <line x1="965" y1="200" x2="205" y2="200" class="msg"/>
+  <text x="585" y="188" class="label">join: "I am D, sysadmin-known; my frontier is k (blank = 0)"</text>
+  <line x1="965" y1="236" x2="455" y2="236" class="msg"/>
+  <line x1="965" y1="272" x2="705" y2="272" class="msg"/>
+  <text x="1090" y="240" class="small">broadcast to every node in its files;</text>
+  <text x="1090" y="260" class="small">may miss the leader — every member answers</text>
+
+  <line x1="205" y1="330" x2="965" y2="330" class="good"/>
+  <text x="585" y="318" class="label">(era 42, membership@42) — era advances only on commit application</text>
+  <line x1="455" y1="366" x2="965" y2="366" class="good"/>
+  <text x="700" y="354" class="label">(era 42, membership@42)</text>
+  <line x1="705" y1="402" x2="965" y2="402" class="good" stroke-dasharray="6 5"/>
+  <text x="845" y="390" class="label">(era 39, membership@39) — partitioned earlier; still honest, just old</text>
+
+  <rect x="820" y="440" width="330" height="112" rx="10" class="box"/>
+  <text x="840" y="468" class="small strong">guard (a wrapper, not the engine):</text>
+  <text x="840" y="492" class="small">adopt max era = 42, membership@42</text>
+  <text x="840" y="514" class="small">flush (42, membership@42) to disk as JSON</text>
+  <text x="840" y="536" class="small">only now start the engine on (42, cfg@42)</text>
+
+  <rect x="80" y="580" width="640" height="100" rx="10" class="box"/>
+  <text x="100" y="608" class="small strong">retransmission loop (load-bearing, runs until acquisition completes):</text>
+  <text x="100" y="632" class="small">network loss, a stale first responder, or the leader moving mid-acquisition</text>
+  <text x="100" y="654" class="small">are all the same event to the guard: resend the join, adopt any newer era, flush.</text>
+</svg>

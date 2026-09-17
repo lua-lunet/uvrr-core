@@ -783,6 +783,13 @@ pub enum Tag {
     /// (`docs/uvrr-fuse.md` §4): `count`, then `count × Slot`. No range
     /// encodings.
     CommitBatch = 16,
+    /// The rejoin gossip's request (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+    /// §2–§3): the sender's frontiers, fired at every node it knows. A node
+    /// that cannot commit in order uses it to ask for the missing range; a
+    /// node outside the cluster uses it as its join. Only the node that
+    /// believes itself leader answers, with the push above the sender's
+    /// frontier and a fresh commit.
+    GossipRequest = 17,
 }
 
 impl Tag {
@@ -807,6 +814,7 @@ impl Tag {
             Tag::Fuse => 14,
             Tag::FuseOk => 15,
             Tag::CommitBatch => 16,
+            Tag::GossipRequest => 17,
         }
     }
 
@@ -833,6 +841,7 @@ impl Tag {
             14 => Some(Tag::Fuse),
             15 => Some(Tag::FuseOk),
             16 => Some(Tag::CommitBatch),
+            17 => Some(Tag::GossipRequest),
             _ => None,
         }
     }

@@ -922,6 +922,21 @@ enum ReincarnationUpdate {
     Clear,
 }
 
+/// The gossip half of [`Bookkeeping`]: what a transition does to the
+/// node's gossip-witness list (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+/// §3). Every node that hears a join gossip — the announcement or the
+/// gossip request — records the sender, leader or not.
+#[derive(Clone, Debug, Default)]
+enum WitnessesUpdate {
+    /// The list is untouched.
+    #[default]
+    Unchanged,
+    /// The sender of the join gossip joins the list, unless it is already
+    /// on it or has become a voting member between the plan and the
+    /// install (the publish-path scan has the final word either way).
+    Add(NodeId),
+}
+
 /// The plan-execution half of [`Bookkeeping`]: what a transition does to
 /// the leader's armed plan machine (`docs/weighted-reconfiguration-solver.md`).
 #[derive(Clone, Debug, Default)]
@@ -1001,6 +1016,8 @@ struct Bookkeeping {
     reincarnation: ReincarnationUpdate,
     /// The plan-execution-machine update (the solver doc).
     plan_execution: PlanExecutionUpdate,
+    /// The gossip-witness-list update (the rejoin gossip doc).
+    witnesses: WitnessesUpdate,
     /// Refresh of the primary-activity baseline (S4): the tick of a
     /// same-view `Prepare`/`Commit` from the legitimate primary, or of a
     /// `StartView` adoption — the new primary has just proved itself alive.
@@ -1072,6 +1089,13 @@ impl PlannedTransition {
     /// of the transition's bookkeeping.
     fn with_plan_execution(mut self, update: PlanExecutionUpdate) -> PlannedTransition {
         self.bookkeeping.plan_execution = update;
+        self
+    }
+
+    /// Records the sender of a join gossip in the gossip-witness list
+    /// without disturbing the rest of the transition's bookkeeping.
+    fn with_witness(mut self, update: WitnessesUpdate) -> PlannedTransition {
+        self.bookkeeping.witnesses = update;
         self
     }
 
@@ -1205,6 +1229,13 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// operator — the plan is re-solicited against the configuration that
     /// committed.
     plan_execution: Option<plan_execution::PlannedSequence>,
+    /// The gossip-witness list (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+    /// §3–§4): every node the join gossip has named, plus the startup
+    /// configuration's statically registered witnesses. Every node keeps
+    /// the list; only the leader acts on it. A statically registered
+    /// witness is never purged; a node the promotion made a voting member
+    /// always is (the list never names a voter).
+    witnesses: Vec<NodeId>,
 }
 
 // Manual, non-exhaustive: `Observation` is a seqlock with no `Debug` of its
@@ -1416,6 +1447,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             planned: None,
             reincarnation: None,
             plan_execution: None,
+            witnesses: Vec::new(),
         }
     }
 
@@ -1423,6 +1455,29 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     #[must_use]
     pub fn own(&self) -> NodeId {
         self.own
+    }
+
+    /// Seeds the gossip-witness list at startup (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+    /// §4): the statically registered witnesses the deployment configuration
+    /// names — out-of-region sinks that follow the stream forever. Duplicates
+    /// and this node's own identity are dropped; a witness that is also a
+    /// member is a configuration error the list cannot fix, so the entry is
+    /// refused by omission (the list never names a voter — the same
+    /// invariant the publish path enforces after every promotion).
+    pub fn with_witnesses(mut self, witnesses: &[NodeId]) -> Self {
+        for &witness in witnesses {
+            if witness != self.own && !self.witnesses.contains(&witness) {
+                self.witnesses.push(witness);
+            }
+        }
+        self
+    }
+
+    /// The node's gossip-witness list (§3): operator-visible, like the era
+    /// table. Every node keeps the list; only the leader acts on it.
+    #[must_use]
+    pub fn witnesses(&self) -> &[NodeId] {
+        &self.witnesses
     }
 
     /// The published progress record (§5).
@@ -2450,6 +2505,24 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             PlanExecutionUpdate::Set(machine) => self.plan_execution = Some(machine),
             PlanExecutionUpdate::Clear => self.plan_execution = None,
         }
+        match bookkeeping.witnesses {
+            WitnessesUpdate::Unchanged => {}
+            WitnessesUpdate::Add(node) => {
+                if !self.witnesses.contains(&node) {
+                    self.witnesses.push(node);
+                }
+            }
+        }
+        // The list never names a voter (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+        // §3): whenever an install changes what anyone is — the promotion
+        // commit above, or any other reconfiguration — the scan drops every
+        // node the committed configuration now counts at weight one or more.
+        // A statically registered witness is outside every configuration, so
+        // the scan can never purge it (§4).
+        let table = self.progress.config();
+        let config = &table.current().config;
+        self.witnesses
+            .retain(|&witness| config.weight_of(witness).is_none_or(|weight| weight.0 < 1));
         for (slot, proposal) in bookkeeping.proposals {
             self.proposals.insert(slot, proposal);
         }
@@ -2535,9 +2608,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             body: Body::Commit { committed },
         };
         let mut recipients = self.backups();
-        if let Some(standby) = self.memo_target() {
-            if !recipients.contains(&standby) {
-                recipients.push(standby);
+        for target in self.stream_targets() {
+            if !recipients.contains(&target) {
+                recipients.push(target);
             }
         }
         recipients
@@ -2776,6 +2849,28 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             && planned.pivot.q_i.contains(&from)
     }
 
+    /// The gossip-witness half of a join gossip
+    /// (`docs/uvrr-rejoin-gossip-and-witnesses.md` §3): every node that
+    /// hears the announcement or the request — leader or not, whatever the
+    /// transition's own outcome — records the sender, unless the committed
+    /// configuration already counts it a voter. The list never names a
+    /// member; the publish-path scan holds that invariant against the
+    /// promotions this node has not heard about yet.
+    fn with_join_gossip_witness(&self, plan: PlannedTransition, from: NodeId) -> PlannedTransition {
+        if self
+            .progress
+            .config()
+            .current()
+            .config
+            .weight_of(from)
+            .is_some_and(|weight| weight.0 >= 1)
+        {
+            plan
+        } else {
+            plan.with_witness(WitnessesUpdate::Add(from))
+        }
+    }
+
     /// The peer-message dispatch (§4, §9): normal operation, the ordinary
     /// view-change exchange, the non-stop overlap exchange (§8.7.7),
     /// recovery, and state transfer are live.
@@ -2797,10 +2892,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The §6 membership-discard check (`docs/uvrr-reincarnation.md`):
         // a message FROM a node outside the current committed
         // configuration — a superseded old identity, or any other
-        // non-member — is discarded. Two exceptions, each the message that
-        // makes or keeps a membership: the `Reincarnation` announcement is
-        // the bumped node's entry ticket, and the reconfiguration's own
-        // solicited planned evidence is the vote the construction
+        // non-member — is discarded. Three exceptions, each the message
+        // that makes or keeps a membership: the `Reincarnation`
+        // announcement is the bumped node's entry ticket, the
+        // `GossipRequest` is the rejoin gossip's entry ticket (the join
+        // half and the gap half of `docs/uvrr-rejoin-gossip-and-witnesses.md`
+        // §2–§3 — every node that hears either records the sender as a
+        // gossip-witness), and the reconfiguration's own solicited
+        // planned evidence is the vote the construction
         // solicited — the pivot puts a departing member inside `qI`
         // precisely so its answer completes the planned quorum
         // (§8.7.7), so the discard treating that one answer as hostile
@@ -2809,6 +2908,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // other guard of the planned-evidence path re-fires downstream.
         // Messages TO such a node are unaffected.
         if message.header.tag != Tag::Reincarnation
+            && message.header.tag != Tag::GossipRequest
             && !self.planned_evidence_solicited(from, message)
             && self
                 .progress
@@ -2900,7 +3000,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Body::PlannedViewChange {} => {
                 self.plan_planned_view_change(journal, from, message, kind)
             }
-            Body::Reincarnation { .. } => self.plan_reincarnation(journal, from, message, kind),
+            Body::Reincarnation { .. } => self
+                .plan_reincarnation(journal, from, message, kind)
+                .map(|plan| self.with_join_gossip_witness(plan, from)),
+            // The rejoin gossip's request (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+            // §2–§3): every node that hears it records the sender; the
+            // leader — only the node that believes itself leader — answers
+            // with the push above the sender's frontier and a fresh commit.
+            Body::GossipRequest { .. } => self
+                .plan_gossip_request(journal, from, message, kind)
+                .map(|plan| self.with_join_gossip_witness(plan, from)),
             // The acceptor's fuse transition (`docs/uvrr-fuse.md` §3): the
             // envelope folds whole with the ordinary prepare perimeter.
             Body::Fuse { ops } => self.plan_fuse(journal, from, message, ops, at, kind),

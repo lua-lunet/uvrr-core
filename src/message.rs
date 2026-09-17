@@ -178,6 +178,20 @@ pub enum Body {
         /// The committed frontiers, in batch order.
         committed: Vec<Slot>,
     },
+    /// The rejoin gossip's request (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+    /// §2–§3): the sender's frontiers, fired at every node. A node that
+    /// cannot commit in order asks for the missing range; a node outside the
+    /// cluster uses it as its join. Only the node that believes itself
+    /// leader answers — the push of everything above the sender's prepared
+    /// frontier, then a fresh commit — and a sender inside the cluster is
+    /// pushed but never listed as a gossip-witness.
+    GossipRequest {
+        /// The sender's accepted (prepared) frontier; the push resumes at
+        /// its successor.
+        prepared: Slot,
+        /// The sender's committed frontier.
+        committed: Slot,
+    },
 }
 
 /// Whether view-change evidence is ordinary or planned (§8.7.7).
@@ -233,17 +247,18 @@ impl Body {
             Body::Fuse { .. } => Tag::Fuse,
             Body::FuseOk { .. } => Tag::FuseOk,
             Body::CommitBatch { .. } => Tag::CommitBatch,
+            Body::GossipRequest { .. } => Tag::GossipRequest,
         }
     }
 
     /// The wire discriminant: the tag's numbering narrowed to one byte.
     ///
     /// The `expect` is unreachable by construction: [`Tag::as_u32`] yields
-    /// 2..=16, and the conversion is a `try_from` rather than a cast because
+    /// 2..=17, and the conversion is a `try_from` rather than a cast because
     /// the crate forbids `as` between integer widths — a tag added past 255
     /// fails loudly here instead of truncating onto the wire.
     fn discriminant(&self) -> u8 {
-        u8::try_from(self.tag().as_u32()).expect("tag discriminants fit in a u8 (2..=16)")
+        u8::try_from(self.tag().as_u32()).expect("tag discriminants fit in a u8 (2..=17)")
     }
 }
 
@@ -414,6 +429,10 @@ impl Pack for Body {
             Body::Fuse { ops } => counted_packed_len(ops),
             Body::FuseOk { acks } => counted_packed_len(acks),
             Body::CommitBatch { committed } => counted_packed_len(committed),
+            Body::GossipRequest {
+                prepared,
+                committed,
+            } => prepared.packed_len() + committed.packed_len(),
         };
         1 + fields
     }
@@ -479,6 +498,13 @@ impl Pack for Body {
             Body::Fuse { ops } => pack_counted(ops, w),
             Body::FuseOk { acks } => pack_counted(acks, w),
             Body::CommitBatch { committed } => pack_counted(committed, w),
+            Body::GossipRequest {
+                prepared,
+                committed,
+            } => {
+                prepared.pack(w);
+                committed.pack(w);
+            }
         }
     }
 }
@@ -503,6 +529,7 @@ impl Unpack for Body {
             14 => Tag::Fuse,
             15 => Tag::FuseOk,
             16 => Tag::CommitBatch,
+            17 => Tag::GossipRequest,
             _ => return Err(UnpackError::Malformed(Malformed::OutOfDomain)),
         };
         let body = match tag {
@@ -553,6 +580,10 @@ impl Unpack for Body {
             },
             Tag::CommitBatch => Body::CommitBatch {
                 committed: unpack_counted(c)?,
+            },
+            Tag::GossipRequest => Body::GossipRequest {
+                prepared: Slot::unpack(c)?,
+                committed: Slot::unpack(c)?,
             },
         };
         Ok(body)

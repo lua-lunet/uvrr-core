@@ -408,13 +408,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // order), an unrepresentable `v'` refusing the proposal outright
         // rather than wrapping the view space.
         let mut recipients: Vec<NodeId> = self.backups();
-        // The memo stream (§7 of `docs/uvrr-reincarnation.md`): the
-        // establishing operation is exactly what the announced standby
-        // must hold, so the memo copy rides the forced step's proposal
-        // as well.
-        if let Some(standby) = self.memo_target() {
-            if !recipients.contains(&standby) {
-                recipients.push(standby);
+        // The stream targets (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+        // §3): the establishing operation is exactly what the announced
+        // standby and every gossip-witness must hold, so the copies ride
+        // the forced step's proposal as well.
+        for target in self.stream_targets() {
+            if !recipients.contains(&target) {
+                recipients.push(target);
             }
         }
         let mut planned = PlannedOverlapUpdate::Unchanged;
@@ -591,12 +591,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             body: Body::Fuse { ops: ops.to_vec() },
         };
         let mut recipients = self.backups();
-        // The memo stream (§7 of `docs/uvrr-reincarnation.md`): the
-        // establishing batch is exactly what the announced standby must
-        // hold, so the envelope reaches it too.
-        if let Some(standby) = self.memo_target() {
-            if !recipients.contains(&standby) {
-                recipients.push(standby);
+        // The stream targets (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+        // §3): the establishing batch is exactly what the announced
+        // standby and every gossip-witness must hold, so the envelope
+        // reaches them too.
+        for target in self.stream_targets() {
+            if !recipients.contains(&target) {
+                recipients.push(target);
             }
         }
         let effects = recipients

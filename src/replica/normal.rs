@@ -78,12 +78,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             },
         };
         let mut recipients = self.backups();
-        // The memo stream (§7 of `docs/uvrr-reincarnation.md`): the
-        // leader's own proposals stream to the announced standby too,
-        // unless ordinary addressing already covers it.
-        if let Some(standby) = self.memo_target() {
-            if !recipients.contains(&standby) {
-                recipients.push(standby);
+        // The stream targets (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+        // §3): the leader's own proposals stream to the announced standby
+        // and to every gossip-witness too, unless ordinary addressing
+        // already covers them.
+        for target in self.stream_targets() {
+            if !recipients.contains(&target) {
+                recipients.push(target);
             }
         }
         let effects: Vec<Effect> = recipients
@@ -762,9 +763,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                         body: Body::CommitBatch { committed },
                     };
                     let mut recipients = self.backups();
-                    if let Some(standby) = self.memo_target() {
-                        if !recipients.contains(&standby) {
-                            recipients.push(standby);
+                    for target in self.stream_targets() {
+                        if !recipients.contains(&target) {
+                            recipients.push(target);
                         }
                     }
                     effects.extend(recipients.into_iter().map(|to| Effect::Send {
