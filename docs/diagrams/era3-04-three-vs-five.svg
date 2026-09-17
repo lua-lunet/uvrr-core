@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">Why the same failure does not occur in the three-node walk</title>
+  <desc id="desc">Side-by-side comparison: in the five-node walk the killed member remains in the era 3 roster and the joiner sees a two-era gap; in the three-node walk the killed member is removed and the joiner sees a one-era gap that starts recovery.</desc>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0l10 5-10 5z" fill="#344054"/></marker><style>.title{font:700 28px system-ui,sans-serif;fill:#132238}.sub{font:16px system-ui,sans-serif;fill:#475467}.panel5{fill:#fff7f5;stroke:#f04438;stroke-width:2}.panel3{fill:#f0fdf4;stroke:#12b76a;stroke-width:2}.h{font:700 21px system-ui,sans-serif;fill:#1d2939;text-anchor:middle}.t{font:16px system-ui,sans-serif;fill:#344054;text-anchor:middle}.small{font:14px system-ui,sans-serif;fill:#475467;text-anchor:middle}.pillbad{fill:#fee4e2;stroke:#d92d20}.pillgood{fill:#dcfae6;stroke:#039855}.pill{font:700 15px system-ui,sans-serif;fill:#1d2939;text-anchor:middle}.line{stroke:#344054;stroke-width:2.5;marker-end:url(#a)}.eq{font:700 24px ui-monospace,monospace;fill:#1d2939;text-anchor:middle}.outbad{fill:#b42318}.outgood{fill:#027a48}</style></defs>
+  <rect width="1200" height="720" fill="#fff"/>
+  <text x="48" y="48" class="title">4. Why three nodes do not reproduce the five-node strand</text>
+  <text x="48" y="76" class="sub">It is not “three nodes are safe”. It is narrower: the same three factors do not coincide in that walk.</text>
+  <rect x="45" y="110" width="535" height="540" rx="16" class="panel5"/><rect x="620" y="110" width="535" height="540" rx="16" class="panel3"/>
+  <text x="312" y="153" class="h">Five-node swap</text><text x="887" y="153" class="h">Three-node swap</text>
+
+  <rect x="105" y="190" width="415" height="54" rx="27" class="pillbad"/><text x="312" y="223" class="pill">era-3 roster still contains killed member</text>
+  <rect x="680" y="190" width="415" height="54" rx="27" class="pillgood"/><text x="887" y="223" class="pill">killed member removed in era-3 batch</text>
+  <line x1="312" y1="244" x2="312" y2="294" class="line"/><line x1="887" y1="244" x2="887" y2="294" class="line"/>
+
+  <text x="312" y="327" class="eq">StartView 3 − local 1 = 2</text>
+  <text x="887" y="327" class="eq">StartView 3 − local 2 = 1</text>
+  <text x="312" y="356" class="small">too far for the only recovery branch</text><text x="887" y="356" class="small">exactly the distance the recovery branch accepts</text>
+  <line x1="312" y1="376" x2="312" y2="426" class="line"/><line x1="887" y1="376" x2="887" y2="426" class="line"/>
+
+  <rect x="105" y="430" width="415" height="78" rx="10" class="pillbad"/><text x="312" y="461" class="pill">drop StartView; no fetch</text><text x="312" y="488" class="t">dead member may be selected primary</text>
+  <rect x="680" y="430" width="415" height="78" rx="10" class="pillgood"/><text x="887" y="461" class="pill">retain StartView; open fetch</text><text x="887" y="488" class="t">dead member is not selected from roster</text>
+  <line x1="312" y1="508" x2="312" y2="558" class="line"/><line x1="887" y1="508" x2="887" y2="558" class="line"/>
+  <text x="312" y="600" class="h outbad">all three failure factors coincide</text>
+  <text x="887" y="600" class="h outgood">that particular chain is broken</text>
+</svg>

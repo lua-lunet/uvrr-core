@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="780" viewBox="0 0 1200 780" role="img" aria-labelledby="title desc">
+  <title id="title">The witness stream: contiguous replay from the frontier, then the commit frontier</title>
+  <desc id="desc">Sequence diagram: the leader replays the contiguous journal suffix from the witness's advertised frontier under first-slot discipline, then the commit frontier which never exceeds the highest replayed slot; the witness's messages are dropped at ingress; ongoing phase-2 and commit traffic is copied to the witness.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#243447"/></marker>
+    <marker id="greenArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#157f3d"/></marker>
+    <marker id="redArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#b42318"/></marker>
+    <style>
+      .title{font:700 28px system-ui,sans-serif;fill:#132238}.sub{font:16px system-ui,sans-serif;fill:#475467}.lane{stroke:#98a2b3;stroke-width:2;stroke-dasharray:7 7}.head{fill:#eaf2ff;stroke:#3972b7;stroke-width:2}.joiner{fill:#fff4e5;stroke:#dc6803;stroke-width:2}.h{font:700 17px system-ui,sans-serif;fill:#132238;text-anchor:middle}.msg{stroke:#243447;stroke-width:2.5;marker-end:url(#arrow)}.good{stroke:#157f3d;stroke-width:2.5;marker-end:url(#greenArrow)}.bad{stroke:#b42318;stroke-width:2.5;stroke-dasharray:6 5;marker-end:url(#redArrow)}.label{font:15px system-ui,sans-serif;fill:#243447;text-anchor:middle}.small{font:14px system-ui,sans-serif;fill:#475467}.box{fill:#f2f4f7;stroke:#d0d5dd}.strong{font-weight:700}.x{stroke:#b42318;stroke-width:4}
+    </style>
+  </defs>
+  <rect width="1200" height="780" fill="#ffffff"/>
+  <text x="48" y="48" class="title">2. The witness stream: replay is a contiguous suffix; commits never lead it</text>
+  <text x="48" y="76" class="sub">H3: the ordinary accept path folds every entry — there is no witness-specific path. H4: the witness votes nowhere.</text>
+
+  <rect x="180" y="110" width="170" height="44" rx="8" class="head"/><text x="265" y="138" class="h">leader B (era 42)</text>
+  <rect x="620" y="110" width="180" height="44" rx="8" class="joiner"/><text x="710" y="138" class="h">witness D (weight 0)</text>
+  <line x1="265" y1="154" x2="265" y2="720" class="lane"/>
+  <line x1="710" y1="154" x2="710" y2="720" class="lane"/>
+
+  <line x1="265" y1="200" x2="710" y2="200" class="msg"/>
+  <text x="487" y="188" class="label">phase-2 slot k+1 (first replayed slot = frontier + 1, slot discipline)</text>
+  <line x1="265" y1="240" x2="710" y2="240" class="msg"/>
+  <text x="487" y="228" class="label">phase-2 slot k+2 … contiguous, in order</text>
+  <line x1="265" y1="280" x2="710" y2="280" class="msg"/>
+  <text x="487" y="268" class="label">phase-2 slot n (highest replayed)</text>
+  <line x1="265" y1="330" x2="710" y2="330" class="good"/>
+  <text x="487" y="318" class="label">commit c ≤ n — the commit frontier never exceeds what was replayed</text>
+  <text x="730" y="352" class="small">D's leader-timeout (φ) starts here</text>
+
+  <rect x="470" y="380" width="480" height="76" rx="10" class="box"/>
+  <text x="490" y="408" class="small strong">W-replay (kernel-checked): journal k ⊕ replay(log,k,n) = log.take n</text>
+  <text x="490" y="432" class="small">blank reincarnation is k = 0: the whole prefix is reconstructed in order</text>
+
+  <line x1="265" y1="500" x2="710" y2="500" class="msg"/>
+  <text x="487" y="488" class="label">steady state: every phase-2 and commit copied to D as it happens</text>
+
+  <line x1="710" y1="560" x2="330" y2="560" class="bad"/>
+  <line x1="320" y1="548" x2="340" y2="572" class="x"/><line x1="340" y1="548" x2="320" y2="572" class="x"/>
+  <text x="487" y="548" class="label">anything D says: dropped at ingress — not in the configuration (H4)</text>
+
+  <rect x="80" y="620" width="700" height="76" rx="10" class="box"/>
+  <text x="100" y="648" class="small strong">The implicit promise: accepting phase-2 at view v raises D's promise floor to v — a Prepare(v) telescoped into the stream.</text>
+  <text x="100" y="672" class="small">D forfeits nothing: its prior promises were counted in no quorum (H4), and the leader earned v from members (H5).</text>
+</svg>

@@ -201,3 +201,10 @@ are committed under `research/`. Do not re-add them as submodules.
 - `maelstrom/` — Rust Maelstrom test harness. Retained. Unrelated to the paper.
 - No `tools/` submodules. The four exploratory tool submodules (tla2tools, veil,
   LeanLTL, lean-auto) were removed after the survey concluded.
+
+## Item numbers are session-local
+
+Work-item numbers (`item00`, `item01`, …) live in the todo and the gitignored
+`.tmp/` spec filename only. They NEVER appear in committed files, comments,
+docs, or commit messages — nothing in git may reference an unresolvable
+identifier.

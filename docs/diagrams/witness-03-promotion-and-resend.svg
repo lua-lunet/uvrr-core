@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Promotion and the re-announce: the witness becomes a voter, and a new leader resumes the stream</title>
+  <desc id="desc">Sequence diagram in two acts: first the committed batch that makes the witness a member causes the leader to drop the witness entry and the node votes in the next quorum; second, a leader crash mid-acquisition is covered by the guard's retransmission loop, which re-announces with the current frontiers so the new leader resumes the replay from the right slot.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#243447"/></marker>
+    <marker id="greenArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#157f3d"/></marker>
+    <style>
+      .title{font:700 28px system-ui,sans-serif;fill:#132238}.sub{font:16px system-ui,sans-serif;fill:#475467}.lane{stroke:#98a2b3;stroke-width:2;stroke-dasharray:7 7}.head{fill:#eaf2ff;stroke:#3972b7;stroke-width:2}.joiner{fill:#fff4e5;stroke:#dc6803;stroke-width:2}.member{fill:#e8f7ee;stroke:#157f3d;stroke-width:2}.h{font:700 17px system-ui,sans-serif;fill:#132238;text-anchor:middle}.msg{stroke:#243447;stroke-width:2.5;marker-end:url(#arrow)}.good{stroke:#157f3d;stroke-width:2.5;marker-end:url(#greenArrow)}.label{font:15px system-ui,sans-serif;fill:#243447;text-anchor:middle}.small{font:14px system-ui,sans-serif;fill:#475467}.box{fill:#f2f4f7;stroke:#d0d5dd}.strong{font-weight:700}.x{stroke:#b42318;stroke-width:4}.act{font:700 15px system-ui,sans-serif;fill:#7c3aed}
+    </style>
+  </defs>
+  <rect width="1200" height="800" fill="#ffffff"/>
+  <text x="48" y="48" class="title">3. Promotion: the leader drops the witness entry; a new leader is found by the resend loop</text>
+  <text x="48" y="76" class="sub">Act I: the batch commits and the witness becomes a voter. Act II: the leader dies mid-acquisition — the guard's timeout is what reconnects D to the new leader.</text>
+
+  <text x="60" y="120" class="act">ACT I — promotion</text>
+  <rect x="180" y="140" width="170" height="44" rx="8" class="head"/><text x="265" y="168" class="h">leader B</text>
+  <rect x="620" y="140" width="180" height="44" rx="8" class="joiner"/><text x="710" y="168" class="h">witness D</text>
+  <line x1="265" y1="184" x2="265" y2="470" class="lane"/>
+  <line x1="710" y1="184" x2="710" y2="470" class="lane"/>
+
+  <line x1="265" y1="230" x2="710" y2="230" class="good"/>
+  <text x="487" y="218" class="label">commit: batch {INCREMENT(D)} applied — era 43, D is now weight 1</text>
+  <rect x="455" y="258" width="490" height="56" rx="10" class="box"/>
+  <text x="475" y="282" class="small strong">leader applies the commit ⇒ removes D from the witness list</text>
+  <text x="475" y="304" class="small">overlap window (committed, not yet removed): ingress dedup by (view, slot)</text>
+
+  <rect x="620" y="340" width="180" height="44" rx="8" class="member"/><text x="710" y="368" class="h">member D (weight 1)</text>
+  <line x1="265" y1="410" x2="710" y2="410" class="msg"/>
+  <text x="487" y="398" class="label">next phase-2: D votes as a member — W-promotion: its state ≡ state transfer</text>
+
+  <text x="60" y="520" class="act">ACT II — leader change mid-acquisition</text>
+  <rect x="180" y="540" width="170" height="44" rx="8" class="head"/><text x="265" y="568" class="h">new leader A</text>
+  <rect x="620" y="540" width="180" height="44" rx="8" class="joiner"/><text x="710" y="568" class="h">witness D</text>
+  <line x1="265" y1="584" x2="265" y2="760" class="lane"/>
+  <line x1="710" y1="584" x2="710" y2="760" class="lane"/>
+  <line x1="500" y1="530" x2="540" y2="530" class="x" opacity="0"/>
+  <text x="1000" y="560" class="small">(old leader B is dead;</text>
+  <text x="1000" y="580" class="small">witness lists are not inherited)</text>
+
+  <line x1="710" y1="640" x2="265" y2="640" class="msg"/>
+  <text x="487" y="628" class="label">guard timeout fires: re-announce join, frontier now n′ (not blank)</text>
+  <line x1="265" y1="690" x2="710" y2="690" class="good"/>
+  <text x="487" y="678" class="label">replay resumes from n′ + 1, then commits — the same H3 discipline</text>
+</svg>

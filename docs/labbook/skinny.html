@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>skinny — the open-source Chubby that can</title>
+<style>
+* { box-sizing: border-box; }
+body { margin:0; background:#141414; color:#f5f3ee; font: 20px/1.6 Georgia, serif;
+  display:flex; align-items:center; justify-content:center; min-height:100vh; }
+.slide { max-width: 900px; padding: 3rem; opacity:0; transform: translateY(18px);
+  transition: opacity .5s ease, transform .5s ease; display:none; }
+.slide.on { display:block; opacity:1; transform:none; }
+.kicker { color:#ffd43b; font: .9rem ui-monospace, Menlo, monospace; letter-spacing:.2em;
+  text-transform:uppercase; }
+h1 { font-size: 3.2rem; margin:.4rem 0 0; line-height:1.1; }
+.sub { color:#adb5bd; font-size:1.3rem; margin:.3rem 0 1.6rem; font-style: italic; }
+p { max-width: 46rem; }
+a { color:#ffd43b; }
+.anim { width:100%; border:1px solid #343a40; border-radius:6px; margin:.6rem 0; }
+nav { position:fixed; bottom:1.4rem; right:1.6rem; display:flex; gap:.6rem; align-items:center; }
+button { font: 1rem ui-monospace, Menlo, monospace; background:none; color:#ffd43b;
+  border:1px solid #ffd43b; border-radius:4px; padding:.3rem .9rem; cursor:pointer; }
+button:disabled { opacity:.35; cursor:default; }
+#pos { color:#868e96; font: .9rem ui-monospace, Menlo, monospace; }
+</style>
+</head>
+<body>
+<section class="slide" data-say="Skinny. The open source Chubby that can. Three nodes, two rules, one promise counting theorem — and it survives the thing that kills every consensus system eventually: the restart.">
+  <div class="kicker">the launch</div>
+  <h1>skinny</h1>
+  <div class="sub">the open-source Chubby that can</div>
+  <p>Google kept Chubby behind the moat. This one fits in your head:
+      three nodes, two rules, one promise-counting theorem &mdash; and it
+      survives the thing that kills every consensus system eventually:
+      <em>the restart</em>.</p>
+</section>
+<section class="slide" data-say="Part one. A quorum is not a majority of machines. It is a majority of promises. Two of three must agree, any two quorums overlap, and that overlap is set arithmetic — the only thing between you and a split brain. But a promise is only worth something if the node that made it can be held to it.">
+  <div class="kicker">part 1</div>
+  <h1>a quorum is a majority of promises</h1>
+  <div class="sub">not a majority of machines</div>
+  <p>Two of three must agree. Any two quorums overlap. That overlap
+      is set arithmetic, and it is the only thing between you and a split
+      brain.</p><p>But the arithmetic counts <em>promises</em> &mdash; and a
+      promise is only worth something if the node that made it can be held
+      to it.</p>
+</section>
+<section class="slide" data-say="Part two. The amnesiac in the overlap. Diskless recovery asks the cluster to vouch for a promise it does not hold. In twenty sixteen the counterexample landed: two commands committed at one slot, every rule followed, because one of the overlappers had forgotten making the promise.">
+  <div class="kicker">part 2</div>
+  <h1>the amnesiac in the overlap</h1>
+  <div class="sub">VRR-2012's diskless recovery, four years later</div>
+  <p>2012: crash recovery with no disk on the critical path &mdash;
+      the crashed node asks the cluster what it missed. A blinder.</p>
+      <p>2016: the counterexample. Two different commands committed at one
+      slot, every rule followed by every node. The overlap existed on paper;
+      one of the overlappers had forgotten making the promise.</p>
+      <p><em>You cannot recover a promise from a node that has forgotten
+      making it.</em></p>
+</section>
+<section class="slide" data-say="Crash stop, then reincarnate. The clean shutdown writes its marker at quiesce, off the critical path. A restart that finds any marker saying running knows it crashed — and it never answers to its old name again. It comes back in milliseconds as a new identity, with amnesia that is now harmless, because a newborn has made no promises.">
+  <div class="kicker">part 2</div>
+  <h1>crash-stop, then reincarnate</h1>
+  <div class="sub">the one sentence the invention fits in</div>
+  <p>A clean shutdown marks itself <em>stopped</em>. A start marks
+      itself <em>running</em>. Two writes, both off the hot path. Steady
+      state: zero disk writes.</p><p>Restart reads the markers. Clean stop:
+      carry on, no recovery protocol at all. Any marker says running: this
+      node is <em>dead</em>. It comes back in milliseconds &mdash; as a
+      <em>new identity</em> &mdash; and the old identity can never vote
+      again.</p>
+</section>
+<section class="slide" data-say="Part three. Rejoining is reconfiguration. One one one becomes one one zero zero, becomes one one absent one — two eras, each moving one unit of weight, every boundary quorum safe on its own. The eviction is not a new protocol. It is the cluster's ordinary reconfiguration machinery doing something nobody had asked it to do before.">
+  <div class="kicker">part 3</div>
+  <h1>rejoining <em>is</em> reconfiguration</h1>
+  <div class="sub">two eras, one unit of weight at a time</div>
+  <img class="anim" src="reincarnation.gif" alt="reincarnation message sequence">
+      <p>(1,1,1,&ndash;) &rarr; (1,1,0,0) &rarr; (1,1,&ndash;,1). Every
+      consecutive pair of configurations has overlapping quorums; the
+      boundary is carried by the leader's casting vote. The amnesiac's
+      promise is never leaned on again.</p>
+</section>
+<section class="slide" data-say="Part four. The witness. The reborn node hears every decision from the moment it knocks, because the leader's prepares already carry the commits. Promotion finds a caught up node. Useful in as low as one round trip.">
+  <div class="kicker">part 4</div>
+  <h1>the witness</h1>
+  <div class="sub">why wait to be useful?</div>
+  <p>The reborn node announces; the leader answers at once with
+      the missed range and streams it everything. VRR-2012 &sect;4.1 step 6
+      already rides commits on the prepares &mdash; the witness channel was
+      built in 2012 and never used for this.</p><p>Promotion finds a
+      caught-up node. Useful in as low as one round trip.</p>
+</section>
+<section class="slide" data-say="Fuse. One datagram per era, with the header factored out. The acceptor checks once, explodes the envelope, and one fused acknowledgement is one atomic vote. The first slot's quorum telescopes the rest. Not a new protocol message — a wire encoding.">
+  <div class="kicker">the wire trick</div>
+  <h1>fuse</h1>
+  <div class="sub">one datagram per era, telescoped acks</div>
+  <img class="anim" src="fuse.gif" alt="fuse message sequence">
+      <p>The batch's phase-2 messages share one header; the acceptor checks
+      it once and explodes the envelope. One FuseOk is one atomic vote; the
+      first slot's quorum telescopes the rest. Six eras, six round trips
+      &mdash; one per era, as fast as the pipeline allows.</p>
+</section>
+<section class="slide" data-say="And it is proved, not argued. Kernel checked Lean four, zero external dependencies. Amnesia is unreachable by construction. Seven of seven injected faults killed by the kernel, and an independent solver re-proved the spine. Read it line by line, in English, in the lab book.">
+  <div class="kicker">the maths</div>
+  <h1>proved, not argued</h1>
+  <div class="sub">kernel-checked Lean 4, zero dependencies</div>
+  <p>24 modules, 450 declarations, standard axioms only. Turner's
+      Lemma&nbsp;2 mechanised; amnesia <em>unreachable</em>; telescoping
+      proved with its negative control. Seven of seven injected faults
+      killed by the kernel; an independent solver re-proved the spine.</p>
+      <p>Read it line by line, in English, in the <a href="index.html">lab
+      book</a>.</p>
+</section>
+<nav>
+  <span id="pos"></span>
+  <button id="prev">&larr;</button>
+  <button id="play">narrate</button>
+  <button id="next">&rarr;</button>
+</nav>
+<script>
+const slides = [...document.querySelectorAll('.slide')];
+let i = 0;
+const pos = document.getElementById('pos');
+function show(n) {
+  slides[i].classList.remove('on');
+  i = (n + slides.length) % slides.length;
+  slides[i].classList.add('on');
+  pos.textContent = (i + 1) + ' / ' + slides.length;
+  speechSynthesis.cancel();
+}
+async function narrate() {
+  const say = slides[i].dataset.say;
+  if (!say) return;
+  try {
+    const r = await fetch('/speak', {method: 'POST', body: say});
+    if (!r.ok) throw new Error('no voice');
+    const a = new Audio(URL.createObjectURL(await r.blob()));
+    a.onended = () => show(i + 1);
+    await a.play();
+  } catch (e) {
+    const u = new SpeechSynthesisUtterance(say);
+    u.onend = () => show(i + 1);
+    speechSynthesis.speak(u);
+  }
+}
+document.getElementById('prev').onclick = () => show(i - 1);
+document.getElementById('next').onclick = () => show(i + 1);
+document.getElementById('play').onclick = narrate;
+addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') show(i + 1);
+  if (e.key === 'ArrowLeft') show(i - 1);
+  if (e.key === ' ') { e.preventDefault(); narrate(); }
+});
+show(0);
+</script>
+</body>
+</html>

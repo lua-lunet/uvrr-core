@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Why the dropped StartView becomes a permanent strand</title>
+  <desc id="desc">Sequence diagram showing the joiner dropping its era 3 StartView, the cluster rotating to a dead primary, ViewChange evidence reaching only the dead primary, and no renewed suspicion or fetch.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0l10 5-10 5z" fill="#344054"/></marker><marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0l10 5-10 5z" fill="#b42318"/></marker>
+    <style>.title{font:700 28px system-ui,sans-serif;fill:#132238}.sub{font:16px system-ui,sans-serif;fill:#475467}.head{fill:#eef4ff;stroke:#3972b7;stroke-width:2}.dead{fill:#f2f4f7;stroke:#667085;stroke-width:2}.join{fill:#fff4e5;stroke:#dc6803;stroke-width:2}.h{font:700 16px system-ui,sans-serif;fill:#1d2939;text-anchor:middle}.lane{stroke:#98a2b3;stroke-width:2;stroke-dasharray:7 7}.msg{fill:none;stroke:#344054;stroke-width:2.5;marker-end:url(#a)}.red{fill:none;stroke:#b42318;stroke-width:3;marker-end:url(#r)}.dash{fill:none;stroke:#b42318;stroke-width:2.5;stroke-dasharray:7 6;marker-end:url(#r)}.lab{font:15px system-ui,sans-serif;fill:#344054;text-anchor:middle}.strong{font-weight:700}.warn{fill:#fff1f0;stroke:#f04438;stroke-width:2}.cycle{fill:none;stroke:#b42318;stroke-width:3;marker-end:url(#r)}.x{stroke:#b42318;stroke-width:4}</style>
+  </defs>
+  <rect width="1200" height="800" fill="#fff"/>
+  <text x="48" y="48" class="title">3. The dropped packet combines with a dead primary</text>
+  <text x="48" y="76" class="sub">All three conditions are required. Remove any one and this particular permanent strand disappears.</text>
+  <rect x="65" y="108" width="230" height="56" rx="10" class="head"/><text x="180" y="142" class="h">Live replicas</text>
+  <rect x="485" y="108" width="230" height="56" rx="10" class="dead"/><text x="600" y="132" class="h">Killed replica</text><text x="600" y="151" class="lab">still in era-3 roster</text>
+  <rect x="905" y="108" width="230" height="56" rx="10" class="join"/><text x="1020" y="142" class="h">Joiner N5</text>
+  <line x1="180" y1="164" x2="180" y2="710" class="lane"/><line x1="600" y1="164" x2="600" y2="710" class="lane"/><line x1="1020" y1="164" x2="1020" y2="710" class="lane"/>
+
+  <line x1="180" y1="220" x2="1010" y2="220" class="red"/><text x="600" y="205" class="lab strong">StartView(era 3)</text>
+  <rect x="880" y="244" width="280" height="64" rx="9" class="warn"/><text x="1020" y="270" class="h">hard-drop: UnevaluableEra</text><text x="1020" y="294" class="lab">no fetch; N5 emits nothing</text>
+
+  <path d="M180 360C300 330 465 330 590 360" class="msg"/><text x="390" y="337" class="lab strong">fixed clock rotates to view 4</text>
+  <rect x="477" y="380" width="246" height="60" rx="9" class="warn"/><text x="600" y="405" class="h">view 4 selects this primary</text><text x="600" y="429" class="lab">but it is dead</text>
+
+  <line x1="180" y1="500" x2="590" y2="500" class="dash"/><text x="390" y="483" class="lab strong">ViewChange evidence</text>
+  <line x1="590" y1="488" x2="610" y2="512" class="x"/><line x1="610" y1="488" x2="590" y2="512" class="x"/>
+  <text x="600" y="542" class="lab">quorum can close only at the designated primary</text>
+
+  <path d="M340 605C340 555 180 555 180 605S340 655 340 605" class="cycle"/>
+  <text x="260" y="588" class="lab strong">no renewed suspicion</text><text x="260" y="610" class="lab">when ViewChange stalls</text>
+  <path d="M860 605C860 555 1020 555 1020 605S860 655 860 605" class="cycle"/>
+  <text x="940" y="588" class="lab strong">no incoming fetch</text><text x="940" y="610" class="lab">and no outgoing packet</text>
+
+  <rect x="322" y="684" width="556" height="70" rx="12" class="warn"/><text x="600" y="713" class="h">Permanent strand</text><text x="600" y="738" class="lab">live cluster waits on a dead primary; N5 remains two eras behind</text>
+</svg>
