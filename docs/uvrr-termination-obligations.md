@@ -34,6 +34,18 @@ makes it clean is that the wire is closed before the state is declared final.
 
 ## 2. The lifecycle
 
+The lifecycle below is stated in marker-agnostic terms; the deployed marker
+transition machine (`docs/vrr-durability-model.md` §5.1; the code twins:
+`src/replica/reincarnation.rs`, `zig/vsr/superblock.zig`) implements it with
+the ordered states `Stopping → Stopped → Restarting/Joining`. The
+terminology is one language: `running` here means the marker's **not-`Stopped`**
+operational states (`Restarting` after a clean stop, `Joining` after a bump —
+the `unflushed` of the reincarnation doc), and `flushed` here means the
+**`Stopped` quorum after the drain** — the copy that vouches for the WAL
+under it. `Running` itself is never written: the boot writes `Restarting`
+or `Joining` before the first message, and no safety logic looks for
+anything else.
+
 ```
 startup:  marker := running               (before the loop starts)
 stop:     marker := stopped               (termination begins; wire closed)
@@ -71,6 +83,13 @@ writes must never be mistaken for a clean stop:
   `running`) — the previous process cannot be shown to have reached the drain
   point. This is error-on-crashed: the reincarnation path runs, and the
   runtime must not silently resume as a clean restart.
+
+The classification applies to every identity start, the bumped one included:
+the bump write claims (X+1, `Joining`) as the wire-phase marker — it claims
+no `Stopped` checkpoint, because the bumped identity has no WAL under it to
+vouch for — so a second crash mid-wire-phase reads no stopped quorum and
+bumps again (X+2). The lifecycle makes same-identity recovery after
+volatile-state loss unrepresentable **by construction**, not by argument.
 
 ## 4. The marker storage: expectation and example
 
