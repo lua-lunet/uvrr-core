@@ -120,18 +120,37 @@ batch travels as an ordinary `Prepare` and needs no envelope):
 
 ## 6. The single round trip
 
-One establishing batch — the two-operation crossing batch of a three-node
-reincarnation, one batch of the five-node weighted sequence — travels as
-one datagram per recipient: leader to each backup, `FuseOk` back,
-`CommitBatch` out. One round trip per era. The cross-DC maximum RTT of
-3.3 ms measured in `docs/uvrr-experiment-design.md` bounds each
-reconfiguration round trip; the per-op `Prepare` round trips within an era
-no longer multiply it. The eras themselves stay paced by the closed
-era/slot discipline (§8.7.3): a commit transition folds one era
-establishment, and the next era's batch is proposed after the ordinary
-view change into the era its predecessor established — exactly the
-sequence the ordinary path runs, with each era's Phase2 round collapsed
-into one datagram.
+The solver precomputes the whole schedule before anything is emitted, and the
+schedule is small — a full cluster reconfiguration is at most seven
+operations, well inside a single MTU — so the schedule travels as one
+envelope per recipient: leader to each backup, one `FuseOk` back, one
+`CommitBatch` out. That is one round trip for the schedule, the standard
+batching optimisation: the per-datagram transport and authenticated-encryption
+overheads are paid once across the packed operations, not once per operation.
+The cross-DC maximum RTT of 3.3 ms measured in
+`docs/uvrr-experiment-design.md` therefore bounds the whole swap, not each
+era of it; the per-op `Prepare` round trips no longer multiply it.
+
+The round trip is one collection of replies, not one per op, because the
+atomic batch property (§2) makes each recipient's processing
+all-or-nothing: the node validates the header, takes its processing lock,
+and folds the payloads in batch order entirely in memory — no disk flush
+between payloads, no other datagram read mid-batch — so it either records
+every accept or none. The set of nodes acknowledging the first packed op is
+therefore exactly the set acknowledging every packed op: a quorum for the
+first is a quorum for all, and the leader counts the replies once. Each
+payload's guards — slot consecutiveness, command legality, era discipline —
+are evaluated against the in-memory configuration the fold of the preceding
+payloads established, exactly as though the payloads had arrived as separate
+datagrams with nothing between them; the header's checks are the ones that
+telescope, the per-payload state is the thing that advances.
+
+Emitting one envelope per establishing batch — one round trip per era, six
+for the five-node weighted swap, the ordinary view change into each
+established era between envelopes — is the same machine unpaced, and is
+equally valid: packing changes the wire, not the machine. The engine emits
+per batch today; whole-schedule packing elides only the network between the
+steps the paced emission already runs back to back.
 
 ## 7. Test obligations
 

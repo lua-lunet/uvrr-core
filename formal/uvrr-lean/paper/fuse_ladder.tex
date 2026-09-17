@@ -148,11 +148,20 @@ telescoping theorem alone does not perform phase one.
 
 Concretely, the current ordinary accept path in
 \path{src/replica/normal.rs} requires the entry era to equal the ballot era
-or its successor. If a shared ballot has era $e$ and expanded entries have
-eras $e,e+1,\ldots,e+k$, this guard implies $k\leq1$.
-\path{Fuse.same_ballot_era_guard} checks that arithmetic in Lean.
-Thus a multi-era Fuse needs an explicit account of its logical entry eras and
-phase-one authority before it can be claimed to refine that accept path.
+or its successor. If a shared ballot has era $e$ and expanded entries are
+assigned eras $e,e+1,\ldots,e+k$ against that one ballot, this guard implies
+$k\leq1$; \path{Fuse.same_ballot_era_guard} checks that arithmetic in Lean.
+That is the degenerate reading, not the envelope's. Under the atomic handler
+model above, the fold evaluates each payload against the in-memory
+configuration the preceding payloads established: payload $i{+}1$'s era
+guard is judged in the era payload $i$'s commit folded, exactly as though
+the payloads had arrived as separate datagrams with no intervening network.
+The entry eras are therefore per-payload facts of the fold, discharged in
+order, and the era the header carries disciplines the first payload alone.
+Phase-one authority for every packed slot is the header ballot itself:
+Lamport's leader executes phase one once for all future instances at the
+same proposal number~\cite{fuse-paxos}, which is the induction the
+telescoping theorem records.
 
 The proof dependencies are consequently:
 \[
