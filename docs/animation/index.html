@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>uVRR Educational Explainer — Crash, Boot Gate & Rejoin Equivalence</title>
+<style>
+:root {
+  --bg: #f8fafc;
+  --card-bg: #ffffff;
+  --text-dark: #0f172a;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+  --n0-blue: #648fff;
+  --n1-purple: #785ef0;
+  --n2-magenta: #dc267f;
+  --n2p-orange: #fe6100;
+  --msg-gold: #ffb000;
+  --green: #16a34a;
+  --red: #dc2626;
+  --navy: #0f172a;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text-dark);
+  line-height: 1.5;
+  padding: 1.5rem;
+}
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+header {
+  background: var(--card-bg);
+  padding: 1.25rem 1.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.kicker {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--n0-blue);
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+}
+h1 {
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: var(--text-dark);
+  margin-bottom: 0.35rem;
+}
+.subhead {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+/* Main Animation Viewport */
+.viewport-card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.svg-wrapper {
+  width: 100%;
+  height: 480px;
+  background: #ffffff;
+  position: relative;
+}
+svg {
+  width: 100%;
+  height: 100%;
+}
+/* Controls Toolbar */
+.toolbar {
+  background: #f1f5f9;
+  border-top: 1px solid var(--border);
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.btn-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+button {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  color: var(--text-dark);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+button:hover {
+  background: #e2e8f0;
+}
+button.primary {
+  background: var(--n0-blue);
+  color: #ffffff;
+  border-color: var(--n0-blue);
+}
+button.primary:hover {
+  background: #4a75e6;
+}
+.slider-container {
+  flex: 1;
+  min-width: 260px;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+input[type="range"] {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: #cbd5e1;
+  outline: none;
+  cursor: pointer;
+  accent-color: var(--n0-blue);
+}
+.stage-pill {
+  background: #e0e7ff;
+  color: #3730a3;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+/* Audio & Sync */
+.audio-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.85rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+audio {
+  flex: 1;
+  min-width: 280px;
+  height: 38px;
+}
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--green);
+}
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--green);
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+/* Lower Details Grid */
+.details-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 1.25rem;
+}
+@media (max-width: 900px) {
+  .details-grid { grid-template-columns: 1fr; }
+}
+.detail-card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.detail-card h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-dark);
+  margin-bottom: 0.5rem;
+}
+.rule-box {
+  background: #f8fafc;
+  border-left: 4px solid var(--n0-blue);
+  padding: 0.75rem 1rem;
+  border-radius: 0 8px 8px 0;
+  margin: 0.75rem 0;
+  font-size: 0.92rem;
+}
+.rule-box.amber { border-color: var(--n2p-orange); background: #fffaf0; }
+.rule-box.red { border-color: var(--red); background: #fef2f2; }
+.rule-box.green { border-color: var(--green); background: #f0fdf4; }
+.stage-bullets {
+  list-style: none;
+  margin-top: 0.5rem;
+  font-size: 0.92rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.stage-bullets li {
+  position: relative;
+  padding-left: 1.2rem;
+}
+.stage-bullets li::before {
+  content: "•";
+  color: var(--n0-blue);
+  font-weight: bold;
+  position: absolute;
+  left: 0;
+}
+/* Podcast Transcript */
+.transcript-box {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding-right: 0.4rem;
+}
+.dialogue-turn {
+  padding: 0.55rem 0.8rem;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid transparent;
+  font-size: 0.88rem;
+  transition: all 0.2s ease;
+}
+.dialogue-turn.active {
+  background: #eff6ff;
+  border-color: var(--n0-blue);
+  box-shadow: 0 0 0 2px rgba(100,143,255,0.15);
+}
+.speaker-tag {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.15rem;
+}
+.speaker-Alex { color: var(--n0-blue); }
+.speaker-Morgan { color: #7e22ce; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <header>
+    <div class="kicker">Distributed Systems Interactive Explainer</div>
+    <h1>uVRR Crash-Stop Reincarnation & Gossip Catch-up</h1>
+    <div class="subhead">A 3-node cluster walkthrough: sudden crash, era-0 uninitialised start, 3-state superblock arbitration, and implicit-promise gossip catch-up. Grounded in Lean 4.33.1 formal proofs and TigerBeetle superblock architecture.</div>
+  </header>
+
+  <!-- Visual Canvas & Toolbar -->
+  <div class="viewport-card">
+    <div class="svg-wrapper">
+      <svg id="stage-svg" viewBox="0 0 960 480">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#ffb000" />
+          </marker>
+          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
+        </defs>
+
+        <!-- Static Network Lines -->
+        <g stroke="#e2e8f0" stroke-width="2" stroke-dasharray="4 4">
+          <line x1="480" y1="110" x2="220" y2="330" />
+          <line x1="480" y1="110" x2="740" y2="330" />
+          <line x1="220" y1="330" x2="740" y2="330" />
+        </g>
+
+        <!-- Message Tracks & Animation Objects -->
+        <g id="message-layer"></g>
+
+        <!-- Node 0: Primary (Top Center) -->
+        <g id="node-0" transform="translate(480, 110)">
+          <circle r="46" fill="#648fff" stroke="#0f172a" stroke-width="3" />
+          <text text-anchor="middle" y="-6" fill="#ffffff" font-weight="bold" font-size="16">N₀ (Leader)</text>
+          <text id="n0-role" text-anchor="middle" y="14" fill="#ffffff" font-size="11">Era 1 | Primary</text>
+          <g id="n0-superblocks" transform="translate(-24, 22)"></g>
+          <text text-anchor="middle" y="66" fill="#0f172a" font-size="11" font-weight="600">Weight: 1</text>
+        </g>
+
+        <!-- Node 1: Backup (Bottom Left) -->
+        <g id="node-1" transform="translate(220, 330)">
+          <circle r="46" fill="#785ef0" stroke="#0f172a" stroke-width="3" />
+          <text text-anchor="middle" y="-6" fill="#ffffff" font-weight="bold" font-size="16">N₁ (Backup)</text>
+          <text id="n1-role" text-anchor="middle" y="14" fill="#ffffff" font-size="11">Era 1 | Normal</text>
+          <g id="n1-superblocks" transform="translate(-24, 22)"></g>
+          <text text-anchor="middle" y="66" fill="#0f172a" font-size="11" font-weight="600">Weight: 1</text>
+        </g>
+
+        <!-- Node 2 / Node 2 Prime (Bottom Right) -->
+        <g id="node-2" transform="translate(740, 330)">
+          <circle id="n2-circle" r="46" fill="#dc267f" stroke="#0f172a" stroke-width="3" />
+          <text id="n2-title" text-anchor="middle" y="-6" fill="#ffffff" font-weight="bold" font-size="16">N₂ (Backup)</text>
+          <text id="n2-role" text-anchor="middle" y="14" fill="#ffffff" font-size="11">Era 1 | Normal</text>
+          <g id="n2-superblocks" transform="translate(-24, 22)"></g>
+          <text id="n2-weight" text-anchor="middle" y="66" fill="#0f172a" font-size="11" font-weight="600">Weight: 1</text>
+          <!-- Crash cross marker -->
+          <g id="crash-marker" opacity="0">
+            <line x1="-30" y1="-30" x2="30" y2="30" stroke="#dc2626" stroke-width="8" stroke-linecap="round" />
+            <line x1="30" y1="-30" x2="-30" y2="30" stroke="#dc2626" stroke-width="8" stroke-linecap="round" />
+          </g>
+        </g>
+
+        <!-- Status Pill Overlay -->
+        <g id="overlay-card" transform="translate(480, 240)">
+          <rect x="-190" y="-22" width="380" height="44" rx="22" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5" filter="url(#glow)" />
+          <text id="status-pill-text" text-anchor="middle" y="6" font-size="13" font-weight="700" fill="#0f172a">Initialising...</text>
+        </g>
+      </svg>
+    </div>
+
+    <!-- Controls Toolbar -->
+    <div class="toolbar">
+      <div class="btn-group">
+        <button id="btn-first" title="First Stage">|&lt;&lt;</button>
+        <button id="btn-prev" title="Previous Stage">&lt;</button>
+        <button id="btn-play" class="primary" title="Play / Pause">▶ Play</button>
+        <button id="btn-next" title="Next Stage">&gt;</button>
+        <button id="btn-last" title="Last Stage">&gt;&gt;|</button>
+      </div>
+
+      <div class="slider-container">
+        <input type="range" id="stage-slider" min="0" max="7" value="0" step="1">
+        <span class="stage-pill" id="stage-badge">Stage 1 of 8</span>
+      </div>
+
+      <div class="btn-group">
+        <button id="speed-toggle">1.0x Speed</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audio Player & Sync Status -->
+  <div class="audio-card">
+    <audio id="podcast-audio" controls preload="auto">
+      <source src="podcast.mp3" type="audio/mpeg">
+      Your browser does not support the audio element.
+    </audio>
+    <div class="sync-badge">
+      <span class="pulse-dot"></span>
+      <span id="sync-status-text">Audio-Synchronised Playback Active</span>
+    </div>
+  </div>
+
+  <!-- Details & Transcript Grid -->
+  <div class="details-grid">
+    <!-- Theory & Protocol Inspector -->
+    <div class="detail-card">
+      <h2 id="stage-title">Stage 1: Steady-State Replication at Era 1</h2>
+      <div id="stage-rule-box" class="rule-box green">
+        <strong>Protocol Invariant:</strong> Volatile normal-path replication. Strict weighted majority {N₀, N₁} maintains linearizability with zero disk writes on the critical path.
+      </div>
+      <ul id="stage-bullet-list" class="stage-bullets">
+        <li>Cluster operating in genesis configuration (Era 1, unit weights [1, 1, 1]).</li>
+        <li>Node 0 is the primary; Nodes 1 and 2 act as backups.</li>
+        <li>Storage superblocks are in the vouched clean state (all replicas running).</li>
+      </ul>
+      <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-muted);">
+        <strong>Formal Reference:</strong> <span id="formal-citation">paper.tex §1; docs/uvrr-boot-gate.md §1</span>
+      </div>
+    </div>
+
+    <!-- Podcast Transcript with Active Highlighting -->
+    <div class="detail-card">
+      <h2>Two-Speaker Discussion (Alex & Dr. Morgan)</h2>
+      <div class="transcript-box" id="transcript-container">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Stage Definitions & State Invariants
+const STAGES = [
+  {
+    stage: 1,
+    title: "Stage 1: Steady-State Replication at Era 1",
+    ruleType: "green",
+    rule: "Protocol Invariant: Volatile normal-path replication. Consensus is held strictly in volatile quorum memory with zero disk writes on the critical path.",
+    bullets: [
+      "Cluster configuration is in genesis Era 1 with unit weights [1, 1, 1].",
+      "Node 0 is primary; Nodes 1 & 2 process Prepares and Commits.",
+      "Any majority of 2 voters ({N₀, N₁}, {N₀, N₂}, or {N₁, N₂}) commits client operations."
+    ],
+    citation: "formal/uvrr-lean/paper/paper.tex §1; docs/uvrr-boot-gate.md §1",
+    pillText: "Steady State: Era 1 [1, 1, 1] Normal Consensus",
+    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
+    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
+    n2: { title: "N₂ (Backup)", role: "Era 1 | Normal", fill: "#dc267f", weight: 1, crashed: false },
+    messages: [
+      { from: [480, 110], to: [220, 330], label: "Prepare #101", offset: 0.2 },
+      { from: [480, 110], to: [740, 330], label: "Prepare #101", offset: 0.6 }
+    ]
+  },
+  {
+    stage: 2,
+    title: "Stage 2: Node 2 Crashes (Power Loss / SIGKILL)",
+    ruleType: "red",
+    rule: "Finality Rule: A crash is final for the protocol identity. The old node identity is permanently retired and will never speak or vote again.",
+    bullets: [
+      "Sudden power loss or SIGKILL wipes volatile memory on Node 2.",
+      "Zero disk writes are performed during the crash (diskless normal path).",
+      "Quorum {N₀, N₁} retains mass 2 of 3 and continues committing without stalling."
+    ],
+    citation: "Michael et al. (UW-CSE-16-08-02); docs/uvrr-boot-gate.md §1",
+    pillText: "N₂ Crash: Volatile Memory Wiped — Zero Disk Writes",
+    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
+    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
+    n2: { title: "N₂ (Crashed)", role: "Dead / Unresponsive", fill: "#94a3b8", weight: 1, crashed: true },
+    messages: [
+      { from: [480, 110], to: [220, 330], label: "Prepare #102", offset: 0.3 },
+      { from: [220, 330], to: [480, 110], label: "PrepareOk #102", offset: 0.7 }
+    ]
+  },
+  {
+    stage: 3,
+    title: "Stage 3: Superblock Quorum Read at Boot Gate",
+    ruleType: "amber",
+    rule: "Disambiguation Rule: 3 marker states (RUNNING, STOPPED, FLUSHED) classify torn 4-copy superblock writes. Absence of FLUSHED quorum proves dirty crash.",
+    bullets: [
+      "Node 2 powers on and reads its 4 spaced TigerBeetle-style superblock copies.",
+      "Reads copies: [RUNNING, RUNNING, RUNNING, STOPPED]. No FLUSHED quorum exists.",
+      "Minimum-progress classifier declares Crashed. Zero disk flush paid on boot!"
+    ],
+    citation: "docs/uvrr-boot-gate.md §2-§3; tests/lifecycle.rs",
+    pillText: "Boot Gate: Quorum Read [RUNNING, STOPPED] ≡ Crashed",
+    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
+    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
+    n2: { title: "N₂ (Booting)", role: "Superblock Read: Crashed", fill: "#cbd5e1", weight: 0, crashed: false },
+    messages: [
+      { from: [740, 370], to: [740, 330], label: "Superblock Read (4x)", offset: 0.5 }
+    ]
+  },
+  {
+    stage: 4,
+    title: "Stage 4: Blank Boot at Era 0 & Reincarnation as N₂'",
+    ruleType: "amber",
+    rule: "Amnesia Invariant: Resumption of crashed identity is unrepresentable. N₂ reincarnates as newborn N₂' at Era 0 with zero prior promises.",
+    bullets: [
+      "Old identity N₂ is retired forever. Replacement spawns as N₂' (Orange #fe6100).",
+      "N₂' starts at Era 0. Genesis era is 1; in-cluster sync to Era 0 is refused by construction.",
+      "A newborn has made no prior commitments, eliminating the Michael et al. amnesia bug."
+    ],
+    citation: "docs/uvrr-boot-gate.md §4; UVRR/Reincarnation.lean (amnesia_unreachable)",
+    pillText: "Reincarnation: N₂' Spawned at Era 0 (Blank / Standby)",
+    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
+    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
+    n2: { title: "N₂' (Newborn)", role: "Era 0 | Standby", fill: "#fe6100", weight: 0, crashed: false },
+    messages: []
+  },
+  {
+    stage: 5,
+    title: "Stage 5: Outer Join Gossip Broadcast",
+    ruleType: "blue",
+    rule: "Discovery Rule: Uninitialised nodes find the cluster via outer gossip outside the consensus engine, broadcasting known frontier (slot 0).",
+    bullets: [
+      "N₂' emits authenticated JoinGossip packets to all known peers (N₀ and N₁).",
+      "Carries frontier slot 0: 'I am N₂', my frontier is 0, what is the current era?'",
+      "Outer gossip bypasses consensus view fences to discover current era safely."
+    ],
+    citation: "docs/uvrr-rejoin-gossip-and-witnesses.md §2; UVRR/Witness.lean",
+    pillText: "Outer Gossip: N₂' Broadcasts Join Request (Frontier 0)",
+    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
+    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
+    n2: { title: "N₂' (Joiner)", role: "Era 0 | Gossiping", fill: "#fe6100", weight: 0, crashed: false },
+    messages: [
+      { from: [740, 330], to: [480, 110], label: "JoinGossip (frontier=0)", offset: 0.3 },
+      { from: [740, 330], to: [220, 330], label: "JoinGossip (frontier=0)", offset: 0.7 }
+    ]
+  },
+  {
+    stage: 6,
+    title: "Stage 6: Leader Witness Stream & Telescoping",
+    ruleType: "blue",
+    rule: "Equivalence Theorem: Gossip ≡ recovery without memory. Leader streams Phase-2s + commits; Phase-2 at view v raises promise floor to v.",
+    bullets: [
+      "Leader N₀ registers N₂' on its gossip-witness list.",
+      "N₀ streams contiguous missed Phase-2 log entries (slots 1..100) and commits.",
+      "Lean theorems H1–H5 prove adopted era ≤ committed era; stream telescopes in 1 RTT."
+    ],
+    citation: "research/trex-vrr-gossip-equivalence.md §2; UVRR/Witness.lean H1–H5",
+    pillText: "Witness Stream: Leader N₀ Pushes Missed Suffix & Commits",
+    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
+    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
+    n2: { title: "N₂' (Witness)", role: "Era 1 | Streaming Catch-up", fill: "#fe6100", weight: 0, crashed: false },
+    messages: [
+      { from: [480, 110], to: [740, 330], label: "Stream(Phase2s 1..100, Commit)", offset: 0.5 }
+    ]
+  },
+  {
+    stage: 7,
+    title: "Stage 7: Two-Step Reconfiguration via Leader Overlap",
+    ruleType: "blue",
+    rule: "Turner Leader Overlap: 2 committed batches safely swap voting authority. Era 2: [Dec(N₂), Join(N₂')]; Era 3: [Inc(N₂'), Leave(N₂)].",
+    bullets: [
+      "Era 2: N₂ weight decremented 1→0; N₂' joins as weight-0 standby (weights [1, 1, 0, 0]).",
+      "Era 3: N₂' incremented 0→1; old N₂ evicted (weights [1, 1, 1]).",
+      "Turner Lemma 2: consecutive strict majorities overlap via leader's casting vote."
+    ],
+    citation: "formal/uvrr-lean/UVRR/Weights.lean; paper.tex Table 1",
+    pillText: "Reconfiguration: Era 2 (1,1,0,0) → Era 3 (1,1,1) via Casting Vote",
+    n0: { role: "Era 3 | Primary", fill: "#648fff", weight: 1 },
+    n1: { role: "Era 3 | Normal", fill: "#785ef0", weight: 1 },
+    n2: { title: "N₂' (Promoted)", role: "Era 3 | Voter Seated", fill: "#fe6100", weight: 1, crashed: false },
+    messages: [
+      { from: [480, 110], to: [220, 330], label: "Reconfig Batch E2/E3", offset: 0.4 },
+      { from: [480, 110], to: [740, 330], label: "Reconfig Batch E2/E3", offset: 0.8 }
+    ]
+  },
+  {
+    stage: 8,
+    title: "Stage 8: Seated Observation & Deferred RUNNING Latch",
+    ruleType: "green",
+    rule: "Deferred Latch Safety: RUNNING latch write was deferred off critical path until rejoin; engine mints Rejoined token, host forces 4x RUNNING.",
+    bullets: [
+      "Replica::rejoined() observes Normal status at voting weight ≥ 1 and mints Rejoined token.",
+      "Host LifecycleStore executes 4× forced write of RUNNING to superblocks.",
+      "Re-crash before this moment would have re-classified as crashed with zero penalty!"
+    ],
+    citation: "docs/uvrr-boot-gate.md §3, §6; src/lifecycle.rs",
+    pillText: "Seated: Rejoined Proof Token Mints 4× RUNNING Latch",
+    n0: { role: "Era 3 | Primary", fill: "#648fff", weight: 1 },
+    n1: { role: "Era 3 | Normal", fill: "#785ef0", weight: 1 },
+    n2: { title: "N₂' (Active)", role: "Era 3 | Normal (LATCHED)", fill: "#fe6100", weight: 1, crashed: false },
+    messages: [
+      { from: [740, 330], to: [740, 370], label: "4× RUNNING Latch Written", offset: 0.5 }
+    ]
+  }
+];
+
+// Cues mapping for Audio Sync
+let CUES = null;
+let currentStageIdx = 0;
+let isPlaying = false;
+let playTimer = null;
+let playbackSpeed = 1.0;
+
+// Superblock mini-gauge builder
+function renderSuperblocks(containerId, countFlushed, countStopped, countRunning) {
+  const g = document.getElementById(containerId);
+  g.innerHTML = "";
+  const total = 4;
+  for (let i = 0; i < total; i++) {
+    const cx = i * 16;
+    let color = "#e2e8f0"; // unvouched
+    if (i < countFlushed) color = "#16a34a"; // green
+    else if (i < countFlushed + countStopped) color = "#2563eb"; // blue
+    else if (i < countFlushed + countStopped + countRunning) color = "#d97706"; // amber
+    
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", cx);
+    circle.setAttribute("cy", 0);
+    circle.setAttribute("r", 5);
+    circle.setAttribute("fill", color);
+    circle.setAttribute("stroke", "#0f172a");
+    circle.setAttribute("stroke-width", "1");
+    g.appendChild(circle);
+  }
+}
+
+// Render SVG Message Flights
+function renderMessages(messages) {
+  const g = document.getElementById("message-layer");
+  g.innerHTML = "";
+  messages.forEach((m, idx) => {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const [x1, y1] = m.from;
+    const [x2, y2] = m.to;
+    // Curved trajectory
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const cx = (x1 + x2) / 2 - dy * 0.15;
+    const cy = (y1 + y2) / 2 + dx * 0.15;
+    const d = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "#ffb000");
+    path.setAttribute("stroke-width", "3");
+    path.setAttribute("stroke-dasharray", "6 4");
+    path.setAttribute("marker-end", "url(#arrow)");
+    g.appendChild(path);
+
+    // Message payload label badge
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", cx);
+    text.setAttribute("y", cy - 8);
+    text.setAttribute("fill", "#b45309");
+    text.setAttribute("font-size", "11");
+    text.setAttribute("font-weight", "bold");
+    text.setAttribute("text-anchor", "middle");
+    text.textContent = m.label;
+    g.appendChild(text);
+  });
+}
+
+function updateStage(idx) {
+  currentStageIdx = idx;
+  const s = STAGES[idx];
+
+  // Update UI Elements
+  document.getElementById("stage-slider").value = idx;
+  document.getElementById("stage-badge").textContent = `Stage ${idx + 1} of 8`;
+  document.getElementById("stage-title").textContent = s.title;
+  document.getElementById("status-pill-text").textContent = s.pillText;
+
+  const ruleBox = document.getElementById("stage-rule-box");
+  ruleBox.className = `rule-box ${s.ruleType}`;
+  ruleBox.innerHTML = `<strong>Protocol Invariant:</strong> ${s.rule}`;
+
+  const bullets = document.getElementById("stage-bullet-list");
+  bullets.innerHTML = s.bullets.map(b => `<li>${b}</li>`).join("");
+
+  document.getElementById("formal-citation").textContent = s.citation;
+
+  // Update Nodes
+  document.getElementById("n0-role").textContent = s.n0.role;
+  document.getElementById("n1-role").textContent = s.n1.role;
+  
+  const n2Circle = document.getElementById("n2-circle");
+  n2Circle.setAttribute("fill", s.n2.fill);
+  document.getElementById("n2-title").textContent = s.n2.title;
+  document.getElementById("n2-role").textContent = s.n2.role;
+  document.getElementById("n2-weight").textContent = `Weight: ${s.n2.weight}`;
+
+  const crashMarker = document.getElementById("crash-marker");
+  crashMarker.setAttribute("opacity", s.n2.crashed ? "1" : "0");
+
+  // Superblock Gauges
+  if (idx === 0) {
+    renderSuperblocks("n0-superblocks", 4, 0, 0);
+    renderSuperblocks("n1-superblocks", 4, 0, 0);
+    renderSuperblocks("n2-superblocks", 4, 0, 0);
+  } else if (idx === 1) {
+    renderSuperblocks("n0-superblocks", 4, 0, 0);
+    renderSuperblocks("n1-superblocks", 4, 0, 0);
+    renderSuperblocks("n2-superblocks", 0, 0, 3); // volatile loss
+  } else if (idx === 2) {
+    renderSuperblocks("n0-superblocks", 4, 0, 0);
+    renderSuperblocks("n1-superblocks", 4, 0, 0);
+    renderSuperblocks("n2-superblocks", 0, 1, 3); // read torn mix
+  } else if (idx >= 3 && idx <= 6) {
+    renderSuperblocks("n0-superblocks", 4, 0, 0);
+    renderSuperblocks("n1-superblocks", 4, 0, 0);
+    renderSuperblocks("n2-superblocks", 0, 0, 0); // blank boot, unvouched
+  } else if (idx === 7) {
+    renderSuperblocks("n0-superblocks", 4, 0, 0);
+    renderSuperblocks("n1-superblocks", 4, 0, 0);
+    renderSuperblocks("n2-superblocks", 0, 0, 4); // 4x RUNNING latched
+  }
+
+  // Messages
+  renderMessages(s.messages);
+
+  // Transcript Highlighting
+  document.querySelectorAll(".dialogue-turn").forEach(el => {
+    if (parseInt(el.dataset.stage) === idx + 1) {
+      el.classList.add("active");
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } else {
+      el.classList.remove("active");
+    }
+  });
+}
+
+// Populate Transcript Box
+async function initTranscript() {
+  const container = document.getElementById("transcript-container");
+  const dialogueScript = [
+    { s: 1, spk: "Alex", txt: "Welcome back to Distributed Systems Deep Dives! Today we are digging into uVRR—Unbounded Viewstamped Replication Revisited. We are looking at a classic three-node cluster: node zero is the elected leader, node one and two are backups, running in Era one with unit weights. Everything is humming along on the fast path without touching the disk." },
+    { s: 1, spk: "Morgan", txt: "Exactly, Alex. Notice that like classic VRR-2012, normal operations require zero disk writes on the critical path. Consensus is held strictly in volatile quorum memory. But the profound question has always been: what happens when a node suffers a sudden, unannounced crash?" },
+    { s: 2, spk: "Alex", txt: "Boom! There goes Node Two. A kernel panic, power trip, or SIGKILL. In legacy systems, this is where panic sets in, because Node Two just lost all its in-memory promises." },
+    { s: 2, spk: "Morgan", txt: "Right. In 2016, Michael, Ports, Sharma, and Szekeres proved that classic diskless VRR had a catastrophic blind spot here: an amnesiac replica could restart, forget a prior view-change promise, and cause a split brain. uVRR completely eliminates that class of bugs with one foundational rule: a crash is final for the protocol identity!" },
+    { s: 3, spk: "Alex", txt: "So Node Two is booting back up. But before it touches the network, it reads its local storage. It does not look at a single file—it reads four spaced superblock copies, just like TigerBeetle DB does!" },
+    { s: 3, spk: "Morgan", txt: "Precisely. Because disk writes tear, you cannot rely on two states. uVRR uses three states: RUNNING, STOPPED, and FLUSHED. If the node had done a controlled halt, all four copies would read FLUSHED. Here, the quorum read sees no FLUSHED mark. The host instantly knows: this node died dirty. It classifies the start as a crash. And crucially, it pays zero disk latency on boot—time is of the essence!" },
+    { s: 4, spk: "Alex", txt: "Notice that Node Two did not resume. Resuming an old crashed identity is strictly unrepresentable. Instead, it reincarnates under a brand-new identity: Node Two Prime!" },
+    { s: 4, spk: "Morgan", txt: "Yes! A newborn has made no prior promises, so amnesia is harmless by construction. Furthermore, Node Two Prime boots at Era zero. The genesis era of the cluster is Era one. By construction, uVRR engines drop in-cluster sync messages for an Era zero node. It cannot be fenced forward by internal view traffic." },
+    { s: 5, spk: "Alex", txt: "So how does Node Two Prime find where the cluster is without corrupting the active view?" },
+    { s: 5, spk: "Morgan", txt: "Through an outer gossip protocol that sits completely outside the consensus engine! Node Two Prime broadcasts a join gossip packet containing its known frontier—slot zero. Any node that hears it reports back the current cluster era and configuration." },
+    { s: 6, spk: "Alex", txt: "Node Zero—the leader—immediately adds Two Prime to its gossip-witness list! And look at that data stream: the leader pushes every missed log entry and commit directly to the witness!" },
+    { s: 6, spk: "Morgan", txt: "This is the heart of the equivalence theorem: gossip equals recovery, with the memory precondition removed. The leader's stream is self-certifying. Under Lean theorem H1 through H5, accepting a Phase-2 at view v raises the node's promise floor to v via implicit promise telescoping. Node Two Prime is completely caught up in as little as one round trip!" },
+    { s: 7, spk: "Alex", txt: "Now Node Two Prime is caught up, but it is still a weight-zero witness. To become a voting member, the leader executes a two-step reconfiguration sequence." },
+    { s: 7, spk: "Morgan", txt: "That's Turner's leader overlap in action. In Era two, the dead Node Two drops to weight zero while Two Prime joins as a standby. Then in Era three, Two Prime steps up to weight one while the old identity leaves permanently. Every consecutive era maintains overlapping majorities through the leader's casting vote. Zero stalls, zero safety violations!" },
+    { s: 8, spk: "Alex", txt: "And the final beauty of the design: once Node Two Prime is officially seated as a normal voting member, its engine mints a proof token that finally allows the host to write the deferred RUNNING latch to disk!" },
+    { s: 8, spk: "Morgan", txt: "Exactly. The disk write was kept off the critical path until the node was fully operational. A crash during catch-up would have re-classified as crashed with zero penalty. That is uVRR: diskless speed on the normal path, mathematically sound crash-stop reincarnation, and rock-solid safety guaranteed by Lean kernel-checked proofs!" },
+    { s: 8, spk: "Alex", txt: "Brilliant engineering. Check out the interactive slider below to step through each phase yourself!" }
+  ];
+
+  container.innerHTML = dialogueScript.map(d => `
+    <div class="dialogue-turn" data-stage="${d.s}">
+      <div class="speaker-tag speaker-${d.spk}">${d.spk === "Alex" ? "Alex (Host)" : "Dr. Morgan (Consensus Researcher)"}</div>
+      <div>${d.txt}</div>
+    </div>
+  `).join("");
+}
+
+// Fetch cues.json for audio sync
+async function loadCues() {
+  try {
+    const res = await fetch("cues.json");
+    if (res.ok) {
+      CUES = await res.json();
+      console.log("Loaded cues:", CUES);
+    }
+  } catch (err) {
+    console.warn("Could not load cues.json; using fallback timing:", err);
+  }
+}
+
+// Audio Timeupdate listener
+const audio = document.getElementById("podcast-audio");
+audio.addEventListener("timeupdate", () => {
+  if (!CUES || !CUES.stages) return;
+  const t = audio.currentTime;
+  const match = CUES.stages.find(s => t >= s.start_time && t < s.end_time);
+  if (match && match.stage - 1 !== currentStageIdx) {
+    updateStage(match.stage - 1);
+  }
+});
+
+audio.addEventListener("play", () => {
+  document.getElementById("sync-status-text").textContent = "Audio Playing (Synchronised)";
+  document.getElementById("btn-play").textContent = "⏸ Pause";
+  isPlaying = true;
+});
+
+audio.addEventListener("pause", () => {
+  document.getElementById("sync-status-text").textContent = "Audio Paused";
+  document.getElementById("btn-play").textContent = "▶ Play";
+  isPlaying = false;
+});
+
+// Controls Handlers
+document.getElementById("btn-first").addEventListener("click", () => {
+  if (CUES && CUES.stages) audio.currentTime = CUES.stages[0].start_time;
+  updateStage(0);
+});
+document.getElementById("btn-prev").addEventListener("click", () => {
+  const next = Math.max(0, currentStageIdx - 1);
+  if (CUES && CUES.stages) audio.currentTime = CUES.stages[next].start_time;
+  updateStage(next);
+});
+document.getElementById("btn-next").addEventListener("click", () => {
+  const next = Math.min(7, currentStageIdx + 1);
+  if (CUES && CUES.stages) audio.currentTime = CUES.stages[next].start_time;
+  updateStage(next);
+});
+document.getElementById("btn-last").addEventListener("click", () => {
+  if (CUES && CUES.stages) audio.currentTime = CUES.stages[7].start_time;
+  updateStage(7);
+});
+
+document.getElementById("btn-play").addEventListener("click", () => {
+  if (audio.paused) {
+    audio.play();
+  } else {
+    audio.pause();
+  }
+});
+
+document.getElementById("stage-slider").addEventListener("input", (e) => {
+  const idx = parseInt(e.target.value);
+  if (CUES && CUES.stages) {
+    audio.currentTime = CUES.stages[idx].start_time;
+  }
+  updateStage(idx);
+});
+
+document.getElementById("speed-toggle").addEventListener("click", (e) => {
+  const speeds = [1.0, 1.5, 2.0, 0.75];
+  const next = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length];
+  playbackSpeed = next;
+  audio.playbackRate = next;
+  e.target.textContent = `${next}x Speed`;
+});
+
+// Initialise
+window.addEventListener("DOMContentLoaded", async () => {
+  await initTranscript();
+  await loadCues();
+  updateStage(0);
+});
+</script>
+</body>
+</html>
