@@ -1,81 +1,135 @@
-# The uVRR Explainer: Two-Person Podcast Script
-## "Diskless Strong Consistency and the Geometry of Reincarnation"
+# The uVRR Explainer: A Walk Up the Consistency Ladder
 
-### Format & Voices
-- **Host (Alex)**: Distributed systems engineer, pragmatic, inquisitive.
-- **Expert (Dr. Morgan)**: Formal consensus researcher, rigorous, theoretical foundations.
-- **Target Duration**: ~3 minutes, divided into 8 discrete narrative stages synchronized with the SVG animation slides.
+## Format
 
----
-
-### Stage 1: Steady-State Replication at Era 1
-**[Visual]**: Nodes $N_0$ (Leader, Blue `#648fff`), $N_1$ (Backup 1, Purple `#785ef0`), and $N_2$ (Backup 2, Magenta `#dc267f`) in an equilateral triangle. Weight vector $[1, 1, 1]$. Normal-path Prepare, PrepareOk, and Commit messages flying with gold highlights (`#ffb000`).
-
-**Alex**: Welcome back to Distributed Systems Deep Dives! Today we are digging into uVRR—Unbounded Viewstamped Replication Revisited. We are looking at a classic three-node cluster: node zero is the elected leader, node one and two are backups, running in Era one with unit weights. Everything is humming along on the fast path without touching the disk.
-
-**Dr. Morgan**: Exactly, Alex. Notice that like classic VRR-2012, normal operations require zero disk writes on the critical path. Consensus is held strictly in volatile quorum memory. But the profound question has always been: what happens when a node suffers a sudden, unannounced crash?
+- **Narration**: one voice, female (Jane, British English), normal reading pace.
+- **Form**: short clips, one per rung of the ladder; each clip is a bookmark.
+- **Player**: one long-play scrubber with bookmark ticks; forward and back
+  skip between bookmarks; the stage carries an informational 2D/2.5D SVG
+  animation with short transitions between clips.
+- **Narrative**: from one node and no resilience to the replicated protocol —
+  VSR and consistency from 101 to done. No product pitch; the ladder is the
+  product.
 
 ---
 
-### Stage 2: Node 2 Crashes (Sudden Power Loss)
-**[Visual]**: $N_2$ flashes with a crash symbol, turns grey/outline, and stops emitting heartbeats. Wire messages to $N_2$ bounce or time out. $N_0$ and $N_1$ continue serving client operations because $\{N_0, N_1\}$ constitutes a strict weighted majority (mass 2 of 3).
+## Clip 1 — One node: your data, one machine
 
-**Alex**: Boom! There goes Node Two. A kernel panic, power trip, or SIGKILL. In legacy systems, this is where panic sets in, because Node Two just lost all its in-memory promises.
+**[Visual]**: a single server card centre-stage; data blocks stack on it; the
+power cuts, the blocks scatter and fade; the request queue empties.
 
-**Dr. Morgan**: Right. In 2016, Michael, Ports, Sharma, and Szekeres proved that classic diskless VRR had a catastrophic blind spot here: an amnesiac replica could restart, forget a prior view-change promise, and cause a split brain. uVRR completely eliminates that class of bugs with one foundational rule: a crash is final for the protocol identity!
+Start with the simplest thing that can possibly work: one machine, holding
+your data, answering your requests. It works — until the day it doesn't. The
+power fails, the disk dies, the kernel panics. In one moment, everything you
+stored is gone, and every request goes unanswered. Resilience is not an
+optimisation you add later; it is the first requirement. So we need more than
+one machine. The question is: how many, and how do they agree?
 
----
+## Clip 2 — Two nodes: the split brain
 
-### Stage 3: Superblock Quorum Read at the Boot Gate
-**[Visual]**: $N_2$ powers on. The local host reads its 4 spaced superblock copies. Three copies read `RUNNING`, none read `FLUSHED`. The minimum-progress classifier declares `Crashed`. Zero disk flush is paid at the boundary.
+**[Visual]**: two mirrored nodes joined by a wire; the wire breaks; each side
+answers a different value to the same question; a brain glyph splits.
 
-**Alex**: So Node Two is booting back up. But before it touches the network, it reads its local storage. It does not look at a single file—it reads four spaced superblock copies, just like TigerBeetle DB does!
+The obvious answer is two: keep a mirror, copy every write to both. But now
+the two machines must agree, and the wire between them can break. When it
+does, each side carries on alone, certain it is the whole system. Ask a
+question, and you can get two different answers — two histories of the same
+truth. This is the split brain, and it is the central problem of replication.
+A mirror does not remove the failure; it duplicates the authority. Agreement
+needs something stronger than copying.
 
-**Dr. Morgan**: Precisely. Because disk writes tear, you cannot rely on two states. uVRR uses three states: `RUNNING`, `STOPPED`, and `FLUSHED`. If the node had done a controlled halt, all four copies would read `FLUSHED`. Here, the quorum read sees no `FLUSHED` mark. The host instantly knows: this node died dirty. It classifies the start as a crash. And crucially, it pays zero disk latency on boot—time is of the essence!
+## Clip 3 — Three nodes: the majority
 
----
+**[Visual]**: three nodes in a triangle; a vote lights two of three green;
+backdrop shifts to a cloud map with three region pins, each with its own
+power and network glyphs, joined by fast interconnect lines.
 
-### Stage 4: Blank Boot at Era 0 and Reincarnation as $N_2'$
-**[Visual]**: $N_2$ permanently retires its identity. A fresh incarnation badge appears: $N_2'$ in Orange (`#fe6100`). State is set to Era 0, completely blank. In-cluster state synchronisation is blocked by the engine.
+Add a third machine, and something remarkable appears: the majority. Any two
+of the three overlap, so any decision that two nodes have made is a decision
+the whole system must remember. One machine can die, and its memory is not
+lost — it survives in the pair that remain. And the cloud was built for
+exactly this shape: three regions, each with its own power and its own
+networking, joined by fast interconnects. Three is not just a number; it is
+the smallest system that can lose a part and keep its mind.
 
-**Alex**: Notice that Node Two did not "resume". Resuming an old crashed identity is strictly unrepresentable. Instead, it reincarnates under a brand-new identity: Node Two Prime!
+## Clip 4 — The arithmetic: 2F+1
 
-**Dr. Morgan**: Yes! A newborn has made no prior promises, so amnesia is harmless by construction. Furthermore, Node Two Prime boots at Era zero. The genesis era of the cluster is Era one. By construction, uVRR engines drop in-cluster sync messages for an Era zero node. It cannot be fenced forward by internal view traffic.
+**[Visual]**: a formula panel builds 2F+1; F=1 fills three node dots, F=2
+fills five; a minority side goes grey and the system pauses — refusing to
+answer is safe.
 
----
+Here is the arithmetic that governs every replication system. To tolerate F
+failed machines, you need two F plus one: with five nodes you can lose two;
+with three, you can lose one. A majority must always survive, because the
+majority is the memory of the system — the place where every committed
+decision lives. Fewer than a majority, and the system must stop and wait:
+refusing to answer is safe; answering from a stale memory is not.
 
-### Stage 5: Outer Join Gossip Broadcast
-**[Visual]**: $N_2'$ emits outer `JoinGossip` broadcast envelopes to all known nodes ($N_0$ and $N_1$) stating: *"I am Node Two Prime, my accepted frontier is slot zero, I want to join."*
+## Clip 5 — Five, then back to three
 
-**Alex**: So how does Node Two Prime find where the cluster is without corrupting the active view?
+**[Visual]**: five node dots; two fade out, the service bar never dips; the
+five collapse into the three-node triangle used for the rest of the walk.
 
-**Dr. Morgan**: Through an outer gossip protocol that sits completely outside the consensus engine! Node Two Prime broadcasts a join gossip packet containing its known frontier—slot zero. Any node that hears it reports back the current cluster era and configuration.
+So use five, and lose any two — the service never notices. But five is a lot
+of machines to watch in an explainer, so from here on we draw three, and
+everything we show scales by the same arithmetic. Three nodes, one majority,
+one shared truth. Now: how do the three actually work together? That is the
+protocol — Viewstamped Replication.
 
----
+## Clip 6 — Views and the primary
 
-### Stage 6: Leader Witness Stream & Implicit Promise Telescoping
-**[Visual]**: $N_0$ receives the gossip, registers $N_2'$ in its gossip-witness list, and pushes a continuous stream of missed Phase-2 log entries followed by a fresh Commit. $N_2'$ rapidly catches up to slot 100 without voting.
+**[Visual]**: the triangle returns; a crown settles on one node; the view
+counter ticks v to v plus one when the crown moves.
 
-**Alex**: Node Zero—the leader—immediately adds Two Prime to its gossip-witness list! And look at that data stream: the leader pushes every missed log entry and commit directly to the witness!
+Viewstamped Replication organises time into views. In each view, one node is
+the primary — the leader — and the others are backups. The primary decides
+the order of every operation; the backups follow. There is no lock, no lease
+file on disk: leadership is a fact the majority holds in memory, and it is
+numbered by the view. When the view changes, the leadership can move —
+cleanly, and by agreement.
 
-**Dr. Morgan**: This is the heart of the equivalence theorem: *gossip equals recovery, with the memory precondition removed*. The leader's stream is self-certifying. Under Lean theorem H1 through H5, accepting a Phase-2 at view $v$ raises the node's promise floor to $v$ via implicit promise telescoping. Node Two Prime is completely caught up in as little as one round trip!
+## Clip 7 — Normal operation: two round trips, no disk
 
----
+**[Visual]**: a request dot travels client to primary; prepare fans out to
+the backups; acknowledgements return; commit fans out; the log fills in
+order; a disk glyph appears struck through.
 
-### Stage 7: Two-Step Reconfiguration via Leader Casting Vote
-**[Visual]**: $N_0$ executes the 2-step reconfiguration schedule. Era 2: $N_2$ decremented from weight 1 to 0, $N_2'$ admitted as weight-0 standby (weights $[1, 1, 0, 0]$). Era 3: $N_2'$ incremented to weight 1, $N_2$ evicted (weights $[1, 1, 1]$). Quorum overlap is preserved at every step.
+A client sends a request to the primary. The primary appends it to the log
+and sends a prepare to the backups. Each backup appends and acknowledges,
+and when the majority — the primary plus the backups — has answered, the
+operation is committed: the primary sends the commit, and every node applies
+it in order. Two network round trips, and not one disk write on the path.
+The speed of the protocol comes from what it refuses to do: it does not wait
+for a disk; it trusts the majority's memory.
 
-**Alex**: Now Node Two Prime is caught up, but it is still a weight-zero witness. To become a voting member, the leader executes a two-step reconfiguration sequence.
+## Clip 8 — Failover: the view change
 
-**Dr. Morgan**: That's Turner's leader overlap in action. In Era two, the dead Node Two drops to weight zero while Two Prime joins as a standby. Then in Era three, Two Prime steps up to weight one while the old identity leaves permanently. Every consecutive era maintains overlapping majorities through the leader's casting vote. Zero stalls, zero safety violations!
+**[Visual]**: the primary greys out; suspicion ripples widen from the
+survivors; view-change arrows cross between them; the crown moves to a
+survivor; the view ticks up; the service bar resumes.
 
----
+Now the primary itself dies. The backups stop hearing its heartbeat, and
+suspicion accrues. The surviving pair — still a majority — runs a view
+change: they exchange what they know, elect a new primary, and install the
+next view. Because the pair overlaps every past majority, nothing committed
+is forgotten; the new primary continues the log exactly where the old one
+left it. The failover costs round trips, not disk flushes — the memory that
+matters was never on one machine.
 
-### Stage 8: Seated Observation and Deferred Superblock Latch
-**[Visual]**: $N_2'$ is observed by its engine as `Status::Normal` with weight 1. The engine mints the `Rejoined` proof token. The host executes a single 4-copy write of `RUNNING` to its superblocks. The cluster is restored to full fault tolerance.
+## Clip 9 — A new identity: safety by construction
 
-**Alex**: And the final beauty of the design: once Node Two Prime is officially seated as a normal voting member, its engine mints a proof token that finally allows the host to write the deferred `RUNNING` latch to disk!
+**[Visual]**: the crashed node's identity card is stamped FINAL; a fresh
+orange card, N2 prime, appears at weight zero; a progress ring fills as the
+committed history streams in; a weight-one badge lands; the era counter
+ticks.
 
-**Dr. Morgan**: Exactly. The disk write was kept off the critical path until the node was fully operational. A crash during catch-up would have re-classified as crashed with zero penalty. That is uVRR: diskless speed on the normal path, mathematically sound crash-stop reincarnation, and rock-solid safety guaranteed by Lean kernel-checked proofs!
-
-**Alex**: Brilliant engineering. Check out the interactive slider below to step through each phase yourself!
+One machine is still crashed. In the classic design it would recover — and
+recovery is where the textbooks bleed: a node that forgot its promises can
+come back and vote again, and break the very safety we built. Here, the
+crash is final for that identity. The process returns as a new identity,
+joins as a non-voting member, streams the committed history until it is
+current, and only then is promoted, by a committed decision of the majority.
+The old identity can never vote again, so its forgotten promises cannot
+break anything — safety by construction, not by careful recovery. That is
+the ladder, from one node to a replicated brain: majority memory, views, and
+identities that never lie about what they forgot.
