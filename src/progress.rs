@@ -101,6 +101,22 @@ impl Status {
         }
     }
 
+    /// The status's name, for every surface a human reads (a log line, a
+    /// diagnostic dump, a trace): `state=joining`, never `state=4`. The
+    /// snapshot word and every comparison stay numeric — the name is for
+    /// humans only, and it is stated here next to the numbering it names
+    /// so the two cannot drift apart.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Status::Normal => "normal",
+            Status::ViewChange => "view_change",
+            Status::Restarting => "restarting",
+            Status::Replaying => "replaying",
+            Status::Joining => "joining",
+        }
+    }
+
     /// The inverse of [`Status::to_word`], or `None` for a word no status encodes.
     /// Total rather than transmuting: the word crosses a seqlock and eventually a C
     /// ABI, and an unrecognised word is a diagnostic value, not undefined behaviour.
