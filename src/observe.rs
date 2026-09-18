@@ -45,8 +45,8 @@ pub enum Diagnostic {
     None,
     /// The message's era is outside the configuration retention window, so
     /// the configuration that would judge it is gone: the message is
-    /// unevaluable. A peer that far behind must recover or state-transfer
-    /// (§10, §14.2).
+    /// unevaluable. A peer that far behind must state-transfer (VRR-2012's §10
+    /// recovery, guarded here by era proofs; §14.2).
     UnevaluableEra {
         /// The unevaluable era.
         era: Era,

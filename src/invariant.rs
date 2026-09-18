@@ -19,7 +19,7 @@
 //! not required between arbitrary phase-one quorums of the classical protocol family,
 //! and its absence is the standard way a flexible-quorum policy that satisfies
 //! `QI ⌢ QII` is nevertheless an invalid VRR-2012 policy: diskless restart requires
-//! a recovering replica to encounter the volatile evidence that an earlier view was
+//! a boot-fenced replica to encounter the volatile evidence that an earlier view was
 //! fenced (§8.3).
 //!
 //! This module holds the transition-legality checker [`legal`]. The family-intersection

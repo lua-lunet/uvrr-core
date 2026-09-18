@@ -187,7 +187,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // The message's view must be the node's current view; a fenced
         // entry state (`Restarting` or `Joining`) adopts it (the bootstrap
-        // rule above). Anything else is a view change or a recovery, and
+        // rule above). Anything else is a view change or a state transfer, and
         // the message drops. A differing view is a view mismatch; a
         // matching view refused by the status is the status gate, named
         // as such — the churn-window hunt read `ViewMismatch { got ==

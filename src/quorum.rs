@@ -137,7 +137,7 @@ pub enum QuorumError {
     },
     /// A family does not self-intersect (§8.3's `V_g ⌢ V_g`): two quorums of the same
     /// role in the same era are disjoint. Required because the fence family equals
-    /// the view family in diskless VRR, so a recovering replica must encounter the
+    /// the view family in diskless VRR, so a boot-fenced replica must encounter the
     /// volatile evidence that an earlier view was fenced; not required between
     /// arbitrary phase-one quorums in the classical protocol family, which is why
     /// a flexible-quorum policy satisfying `R1` can still fail here.
@@ -151,7 +151,7 @@ pub enum QuorumError {
         second: Vec<NodeId>,
     },
     /// §8.3's `F_g ⌢ R_g` failed: a fence quorum and a restart quorum of the same
-    /// era are disjoint, so a recovering replica could miss the evidence that a view
+    /// era are disjoint, so a boot-fenced replica could miss the evidence that a view
     /// was fenced.
     FenceRestartViolation {
         /// A `Role::Fence` quorum under the configuration.

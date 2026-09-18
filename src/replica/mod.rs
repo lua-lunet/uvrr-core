@@ -394,7 +394,7 @@ pub enum PlanRefusal {
     Reconfigure(ConfigError),
     /// An [`Input::Reconfigure`] the closed intersection gate refuses
     /// (§8.7.4, Q1): R2 across the era boundary, or R1 / self-intersection
-    /// / fence-recovery within the resulting era. Carries the witness —
+    /// / fence-restart within the resulting era. Carries the witness —
     /// the disjoint vote sets that cannot both be legal. The refusal runs
     /// BEFORE the proposal; the operation never entered the log.
     ReconfigureQuorum(QuorumError),
@@ -810,7 +810,7 @@ enum ViewChangeUpdate {
 struct TransferVolatile {
     /// The view the fetch rides: the current view for a normal-operation
     /// gap, the fence target for a higher-view pull, the latest fenced
-    /// view for a recovery gap.
+    /// view for a re-entry gap.
     view: ViewId,
     /// The responder the fetch asked.
     to: NodeId,
@@ -1728,7 +1728,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// to be amnesiac about — the §14.2 objection does not apply to initial
     /// provisioning, only to reopen. A reopened node either changed view
     /// (`current.view != 0`) or holds post-genesis history (`accepted >
-    /// 2`), and both exclude it here; its path is §10 recovery.
+    /// 2`), and both exclude it here; its path is state transfer (VRR-2012's §10
+    /// recovery).
     /// The promotion happens on a tick, not in `provision`, so construction
     /// starts fenced — provision in `Joining`, reopen in `Restarting` — and the
     /// promotion is an explicit protocol step the trace shows.
@@ -2008,7 +2009,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // A `Replaying` node (§6.1, §11.1) flips to `Normal` when the
         // walked frontier catches up with the committed frontier: the
-        // recovered history is applied, and participation resumes.
+        // walked history is applied, and participation resumes.
         let applied = self.applied_walk(journal, &[], slot, committed)?;
         let status = if self.progress.status() == Status::Replaying && applied == committed {
             Status::Normal
@@ -2825,7 +2826,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// `discharged` is the frontier the host's installed application state
     /// vouches for (§4, §11), [`Slot::NONE`] on every path but the
-    /// install-completed recovery: an offered slot the journal physically
+    /// completed transfer install: an offered slot the journal physically
     /// let go (S1) is unverifiable — ordinarily a [`SuffixCheck::Gap`] —
     /// but reclamation only ever drops slots at or below the published
     /// checkpoint, and the checkpoint never exceeds the committed frontier
@@ -2884,7 +2885,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 // diagnostic's doc — sits at or below `expected` here.
                 // A slot at or below `discharged` is vouched for —
                 // by the host's installed application state on the
-                // recovery path, or by the node's own published
+                // transfer-install path, or by the node's own published
                 // checkpoint on the view-change path (§4): the caller
                 // names the frontier whose word discharges the check.
                 None if entry.slot <= discharged => {}
@@ -2967,8 +2968,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The peer-message dispatch (§4, §9): normal operation, the ordinary
-    /// view-change exchange, the non-stop overlap exchange (§8.7.7),
-    /// recovery, and state transfer are live.
+    /// view-change exchange, the non-stop overlap exchange (§8.7.7), and
+    /// state transfer are live.
     ///
     /// A same-view `Prepare` or `Commit` from the legitimate primary is
     /// proof of primary life: whatever its outcome (accept, gap, named
@@ -3226,7 +3227,7 @@ impl Replica<SegmentedLog, crate::quorum::WeightedMajority> {
     /// published it is a no-op however old the history, because the
     /// checkpoint is the SOLE authorization. The slot space is a protocol
     /// fact (§4): reclamation never moves the published frontiers, and the
-    /// failure domains it enables (state shortfall, recovery evidence, the
+    /// failure domains it enables (state shortfall, re-entry evidence, the
     /// §13.1 transfer) are surfaced by the ordinary paths.
     pub fn reclaim_journal(&mut self) {
         let checkpoint = self.progress.checkpoint();

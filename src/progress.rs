@@ -39,9 +39,10 @@
 //! published state visible). A node that has lost track of its durable state cannot
 //! be the authority that declares itself sound again, so no transition clears a
 //! fault and the replica refuses all further input (§5 invariant 5, §12's
-//! `Indeterminate persistence result -> Faulted`). Recovery is a host lifecycle
-//! event — restart, then the ordinary restart path re-establishes a coherent
-//! state — not a state transition the core performs on itself.
+//! `Indeterminate persistence result -> Faulted`). Re-entering the protocol is a
+//! host lifecycle event — a controlled start over vouched durable state, or
+//! reincarnation after a crash (`docs/uvrr-boot-gate.md` §1: a start is not a
+//! recovery) — not a state transition the core performs on itself.
 //!
 //! `status` is process control as well as protocol state. A reopened node that has
 //! not proved its state current starts fenced and restarting, whatever status was
@@ -245,7 +246,7 @@ fn era_of_slot(table: &EraTable, slot: Slot) -> Option<Era> {
 }
 
 impl Progress {
-    /// The genesis record: [`ViewId::INITIAL`], fenced and recovering, every
+    /// The genesis record: [`ViewId::INITIAL`], fenced at the boot gate, every
     /// frontier at [`Slot::NONE`], revision 0, no fault.
     ///
     /// This pins the meaning of `ViewId::INITIAL` (ruled
@@ -259,8 +260,8 @@ impl Progress {
     /// The status is the caller's fenced entry state (`Restarting` on reopen,
     /// `Joining` on provision) per §5: a node that has not proved its
     /// state current starts fenced, and genesis is the uniform case of that rule —
-    /// fresh and reopened nodes enter the protocol the same way, through recovery
-    /// or an installed view.
+    /// fresh and reopened nodes enter the protocol the same way, through the
+    /// boot gate and then an installed view.
     ///
     /// # Errors
     ///
@@ -556,8 +557,8 @@ impl Progress {
     /// `target` is a legal successor of `current` (delegated to
     /// `ViewId::is_legal_successor`, never re-derived here);
     /// [`ProgressError::StatusViewRelation`] if the retained history is from a
-    /// later view than `target` — that state must be replayed or recovered, not
-    /// fenced into a view change.
+    /// later view than `target` — that state must be replayed or re-acquired by
+    /// state transfer, not fenced into a view change.
     pub fn with_view_change(&self, target: ViewId) -> Result<Progress, ProgressError> {
         self.refuse_if_faulted()?;
         if !self.current.is_legal_successor(target) {

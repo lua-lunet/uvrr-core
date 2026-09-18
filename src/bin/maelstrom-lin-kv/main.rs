@@ -1557,8 +1557,8 @@ impl NodeRunner {
                     payload,
                 } => {
                     // Every replica executes; only the node holding the
-                    // waiter answers. Replay after a recovery restore is
-                    // safe for this service (see kv.rs), and finds no
+                    // waiter answers. Replay after a reincarnation
+                    // restore is safe for this service (see kv.rs), and finds no
                     // waiter.
                     let response = self.execute(operation_id, &payload);
                     if let Some(waiter) = self.waiting.remove(&(operation_id.msb, operation_id.lsb))

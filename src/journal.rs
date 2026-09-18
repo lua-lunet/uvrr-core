@@ -12,8 +12,9 @@
 //! operation in either trait, because none of those is a VRR-2012 state transition
 //! (decision S1). A host may implement any retention policy it likes without telling
 //! the core, provided it either satisfies a protocol read or reports the requested
-//! history unavailable — at which point recovery or state transfer must obtain an
-//! adequate state elsewhere. Adding a retention knob to the trait would convert a host
+//! history unavailable — at which point state transfer must obtain an
+//! adequate state elsewhere (VRR-2012's §10 recovery; our design admits it only
+//! era-proof-guarded, `docs/uvrr-reincarnation.md`). Adding a retention knob to the trait would convert a host
 //! policy into a protocol obligation and thereby preclude a legal host, which
 //! `docs/architecture.md` classifies as a defect. The split is enforced mechanically:
 //! `tests/journal_contract.rs` scans the trait definitions and fails the build if the
@@ -160,7 +161,7 @@ impl Unpack for LogEntry {
 ///
 /// One variant per cause, so a test asserting a refusal asserts *which* precondition
 /// failed — a test that can only observe `is_err()` passes when the journal refuses
-/// for the wrong reason. Carries the slots the caller needs to recover without a second
+/// for the wrong reason. Carries the slots the caller needs to replay without a second
 /// round trip.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum JournalError {
@@ -187,8 +188,8 @@ pub enum JournalError {
     /// The mutation named a position the journal has already let go of.
     ///
     /// Physical, not logical: the slot may still be part of the accepted history while
-    /// being unavailable locally, and §4's answer to unavailable history is recovery
-    /// or state transfer, not an error the caller can retry away. `first` is the
+    /// being unavailable locally, and §4's answer to unavailable history is state
+    /// transfer (VRR-2012's §10 recovery, era-proof-guarded here), not an error the caller can retry away. `first` is the
     /// first physically present slot.
     BelowRetention {
         /// The slot the caller named.
@@ -333,7 +334,8 @@ pub enum RangeOutcome {
     /// Chosen over a silent partial copy, deliberately: §4 requires the journal to
     /// report unavailable history, and a partial copy of `[from, to]` looks exactly
     /// like a complete copy of a shorter range. The requester must obtain the early
-    /// history by recovery or state transfer (§10, §14.2).
+    /// history by state transfer (§14.2; VRR-2012's §10 names the same obligation
+    /// recovery).
     BelowRetention {
         /// The slot the caller asked from.
         slot: Slot,

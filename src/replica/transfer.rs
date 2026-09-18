@@ -1,4 +1,4 @@
-//! State transfer: bringing a lagging, recovering or newly promoted replica current.
+//! State transfer: bringing a lagging, reincarnating or newly promoted replica current.
 //!
 //! Spec §4 (unavailable history), §11 (application boundary), §13.1 (bounded view-change
 //! suffix). Decision W5.
@@ -100,7 +100,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// current) and `Replaying` (the journal is
     /// mid-install, structurally inconsistent). A fenced `ViewChange`
     /// node serves exactly like a `Normal` one, and the request's view is
-    /// a correlation token (like the recovery nonce), not a serving
+    /// a correlation token (VRR-2012's §10 recovery nonce), not a serving
     /// condition: the response header echoes it so the recipient's
     /// open-fetch qualification — the real gate — can match the answer to
     /// the fetch it opened. When the requested era is outside the
@@ -200,7 +200,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             );
         };
         // The response header echoes the REQUEST's view: a correlation
-        // token (like the recovery nonce), never the responder's current
+        // token (VRR-2012's §10 recovery nonce), never the responder's current
         // view — the recipient's open-fetch qualification matches the
         // answer against the fetch it opened, and the send routes in the
         // request's era so it reaches the requester under the same
@@ -229,7 +229,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// A `NewState` chunk (§10, §13.1 step 5): history the node actively
     /// fetched, installed through the same suffix ruling as the
-    /// view-change and recovery paths — contiguity against the local
+    /// view-change and state-transfer paths — contiguity against the local
     /// journal, no committed-slot conflict (the one deliberate fault),
     /// committed frontier monotone. Only a chunk answering the open fetch
     /// is protocol-qualified evidence at all; anything else — another
@@ -397,7 +397,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // `current == retained` — it has adopted nothing) that opened this
         // fetch itself may take the chunk's committed frontier and fold
         // the system operations it covers. That is the speculative
-        // learner recovery `docs/uvrr-reincarnation.md` §10 states: the
+        // learner acquisition `docs/uvrr-reincarnation.md` §10 states: the
         // learner acquires state by streaming while never voting — the
         // chunk is history it actively fetched, every entry verified
         // against its local journal by the suffix ruling above, and the

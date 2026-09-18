@@ -16,7 +16,7 @@
 //!
 //! Ordering on identifiers is total and lexicographic in `(era, view)`, because the
 //! higher-view rule of §10 must be decidable from the header alone, without consulting
-//! configuration state that a fenced or recovering replica may not yet hold.
+//! configuration state that a boot-fenced replica may not yet hold.
 //!
 //! # Why newtypes rather than aliases
 //!

@@ -107,6 +107,48 @@ Startup fencing and clean shutdown use durable writes, keeping those writes
 outside normal replication. Loss of volatile state therefore leads to replacement
 of a member: crash recovery becomes crash-stop reincarnation.
 
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,>=Stealth,font=\small]
+\node at (0,0.45) {$n_1$ (primary of $v$)};
+\node at (5,0.45) {$n_2$};
+\node at (10,0.45) {$n_3$};
+\foreach \x in {0,5,10} {\draw[gray] (\x,0)--(\x,-7.1);}
+\draw[->] (0,-0.25)--node[above,sloped]{commit $o$ at $v$ (quorum $\{n_1,n_2\}$)}(5,-0.9);
+\draw[->] (0,-1.05)--node[above,sloped]{\textsc{DoViewChange} $v{+}1$ (volatile commitment)}(10,-1.7);
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-2.3) {$n_1$ crashes:\\volatile state lost};
+\draw[->] (0,-2.85)--node[above,sloped]{\textsc{Recovery} $x$ (\S4.3: no disk record)}(5,-3.5);
+\draw[->] (0,-3.65)--node[above,sloped]{\textsc{Recovery} $x$}(10,-4.3);
+\draw[->] (5,-4.45)--node[above,sloped]{\textsc{RecoveryResponse} $v,x$}(0,-5.1);
+\draw[->] (10,-4.85)--node[above,sloped]{\textsc{RecoveryResponse} $v,x$}(0,-5.5);
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-6.1) {$n_1$ re-enters \emph{as $n_1$}, status normal:\\the $v{+}1$ commitment is forgotten};
+\draw[->,very thick] (0,-6.65)--node[above,sloped]{\textbf{bad vote}: helps fence/commit in $v{+}1$ with stale state}(10,-7.0);
+\end{tikzpicture}
+\caption{The diskless-recovery amnesia of VRR, after Michael \emph{et al.}~\cite[Sec.~4.2 and Appendix~A.1]{diskless}. A replica sends a view-change commitment, crashes, and returns in an older view having forgotten the commitment; it can then help commit an operation that a later leader loses when delayed view-change messages arrive. The counterexample breaks linearizability, including when channels preserve message order. Three voters, $f{=}1$; acceptance replies and unrelated traffic omitted.}
+\label{fig:amnesia}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,>=Stealth,font=\small]
+\node at (0,0.45) {$n_1$ (primary of $v$)};
+\node at (5,0.45) {$n_2$};
+\node at (10,0.45) {$n_3$};
+\foreach \x in {0,5,10} {\draw[gray] (\x,0)--(\x,-7.35);}
+\draw[->] (0,-0.25)--node[above,sloped]{commit $o$ at $v$ (quorum $\{n_1,n_2\}$)}(5,-0.9);
+\draw[->] (0,-1.05)--node[above,sloped]{\textsc{DoViewChange} $v{+}1$ (volatile commitment)}(10,-1.7);
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-2.3) {$n_1$ crashes: final for the\\protocol identity --- $n_1$ never resumes};
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-3.15) {process reincarnates as $n_1'$:\\fresh identity, weight $0$, non-voting};
+\draw[->,dashed] (5,-3.75)--node[above,sloped]{witness stream / state transfer to the standby}(0,-4.4);
+\draw[->,dashed] (10,-4.0)--node[above,sloped]{join gossip answered}(0,-4.75);
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-5.35) {$n_1'$ caught up at the current era:\\still no vote --- the quorum read ran\\outside the voting protocol};
+\draw[->] (5,-6.0)--node[above,sloped]{committed \textsc{Increment}: $n_1'$ walks $0\!\to\!1$}(0,-6.65);
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-7.15) {$n_1'$ votes for the first time ---\\nothing of $n_1$'s history can be re-voted};
+\end{tikzpicture}
+\caption{Crash-stop reincarnation on the same prefix. The crashed identity never resumes; the replacement joins as a weight-0 standby, and its quorum read and state transfer complete while it cannot vote, so the amnesia's bad vote is unrepresentable rather than filtered. Promotion to voting weight is itself a committed membership change. Time runs downwards without a scale; acceptance replies omitted.}
+\label{fig:reincarnation-fix}
+\end{figure*}
+
 Turner supplies the construction that connects this lifecycle to continued
 replication~\cite{turner}.
 Where the leader is the sole intersection of an active decision quorum and the
@@ -309,7 +351,7 @@ weight through committed batches. They presume the replacement can reach a
 fence: it must know an era the cluster has committed before its engine sees
 a message. A node whose durable state is lost returns blank; a node that
 reincarnates under a fresh identity holds no roster entry at all. Neither
-can guess an era, and the one-era recovery window drops what it cannot
+can guess an era, and the one-era window drops what it cannot
 span. The rejoin path closes this with a gossip layer outside the voting
 protocol; the addendum~\cite{artifact} gives its full construction, its
 worked scenarios and the kernel-checked safety conditions. Three properties
@@ -361,7 +403,7 @@ reconstructs the leader's prefix; and the promoted witness's committed
 prefix is indistinguishable from a member that caught up by ordinary state
 transfer. A node that rejoins through this path arrives at its first fence
 at the cluster's current era, having seen a commit, which makes the
-one-era recovery gate unreachable by construction rather than widened.
+one-era window gate unreachable by construction rather than widened.
 
 \section{Evidence}\label{sec:evidence}
 The addendum~\cite{artifact} maps these arguments to Lean~4~\cite{lean4}, bounded exhaustive enumeration, Rust property tests and protocol tests. It includes the existing specialised machine theorem's precise scope, the general lemmas used above, and the reproduction commands. Configuration reachability, abstract casting witnesses and the operational history contract are stated separately so each result can be checked at its own layer.
@@ -501,18 +543,22 @@ finished demonstration of the reincarnation protocol.
 \expwarning
 
 The claim under test is diskless low latency: rejoin through reincarnation
-is faster than paying a forced disk flush at the recovery boundary. The
+is faster than paying a forced disk flush at the reincarnation boundary. The
 decision rule for the campaign: if the measured rejoin latency of E1 is
 slower than the forced-flush baseline of E2 at the same sample count, the
-diskless claim collapses --- if recovery is slower than doing disk flushes,
+diskless claim collapses --- if rejoining is slower than doing disk flushes,
 nothing has been achieved. The system under test for all four designs is the
-\code{lunet-locks} demonstration of Section~\ref{sec:demo}; every number
-below is the placeholder $\mathrm{xxxx}$, to be filled at run time.
+\code{lunet-locks} demonstration of Section~\ref{sec:demo}. Every number
+below is a placeholder of the form X.XX, showing the significant figures and
+decimal places the run will report --- latencies in milliseconds with two
+decimals for the local rig and one decimal at tens of milliseconds, counts
+as integers --- to be filled at run time from the lab book, one figure per
+lab-book row.
 
 \subsection{E1: node-kill rejoin latency}
 The design kills one voting node that is not the leader, rotated across all
 non-leader voting nodes of the three-datacentre \code{lunet-locks} cluster,
-for $k=\mathrm{xxxx}$ kill/rejoin cycles, with continuous competing lock
+for $k=\mathrm{XXX}$ kill/rejoin cycles, with continuous competing lock
 traffic at the lease cadence throughout. Each iteration begins only after
 the previous rejoin has completed serving and a soak interval has elapsed,
 so no measurement is contaminated by the previous one. For each iteration
@@ -522,9 +568,9 @@ volatile state lost, the node is by construction a different node on reopen
 weight-0 standby, been walked back to voting weight by the leader's forced
 sequence, and is again a voting, serving replica. The metric is the
 kill-to-rejoin-serving latency, one sample per iteration: p50
-$\mathrm{xxxx}$~ms, p90 $\mathrm{xxxx}$~ms, p99 $\mathrm{xxxx}$~ms, max
-$\mathrm{xxxx}$~ms, mean $\mathrm{xxxx}$~ms, and the count of eras and view
-changes consumed per rejoin, $\mathrm{xxxx}$. Fig.~\ref{fig:e1} shows the
+X.XX~ms, p90 X.XX~ms, p99 XX.X~ms, max
+XX.X~ms, mean X.XX~ms, and the count of eras and view
+changes consumed per rejoin, X. Fig.~\ref{fig:e1} shows the
 designed chart: kill iteration on the horizontal axis, rejoin-serving
 latency on the vertical axis, one series per milestone of the forced
 sequence (standby rejoin at weight 0, voting again at weight 1). No data
@@ -548,36 +594,36 @@ points exist yet; the chart is watermarked ``dummy''.
 \label{fig:e1}
 \end{figure}
 
-\subsection{E2: disk modes at the recovery boundary}
+\subsection{E2: disk modes at the reincarnation boundary}
 What does the diskless default save, in latency, against paying a forced
-flush at the recovery boundary? The design builds custom \code{lunet-locks}
+flush at the reincarnation boundary? The design builds custom \code{lunet-locks}
 binaries, identical in every respect other than the durability behaviour at
-the recovery boundary --- the point at which a reincarnating node durably
+the reincarnation boundary --- the point at which a reincarnating node durably
 records state before rejoining serving:
 \begin{itemize}
-\item \emph{Diskless (the default).} No durable writes at the recovery
+\item \emph{Diskless (the default).} No durable writes at the reincarnation
 boundary; quorum memory is the only protocol state, and the recovery nonce
 file remains as shipped.
 \item \emph{Naive single write (the latency baseline).} One 4~KiB block
-write followed by \code{fsync} at the recovery boundary. Per the FAST'18
+write followed by \code{fsync} at the reincarnation boundary. Per the FAST'18
 finding \cite{par}, stock consensus systems lose committed data under a
 single storage fault despite \code{fsync}; the variant is the latency baseline
 only, never a safety claim.
 \item \emph{Double-ring write.} A TigerBeetle-style double write at the
-recovery boundary: one 4~KiB block of data plus a checksum header to the
+reincarnation boundary: one 4~KiB block of data plus a checksum header to the
 first WAL ring, then the header and checksum with no payload to the second
 WAL ring, the two rings spaced apart in separate 4~KiB-sector-aligned zones
 so the two checksum copies sit in different erasure blocks. Both flush
 variants carry fake data only, with no read-back: they measure
 write-and-flush latency and never reconstruct state from what was written.
 \end{itemize}
-Each variant runs E1's procedure exactly, $k=\mathrm{xxxx}$ iterations per
+Each variant runs E1's procedure exactly, $k=\mathrm{XXX}$ iterations per
 variant, cold counts. The metrics are the kill-to-rejoin-serving
 distribution per variant (percentiles as in E1) and, for the flush
-variants, the recovery-boundary flush latency itself per iteration. The
+variants, the reincarnation-boundary flush latency itself per iteration. The
 planned report is the rejoin-latency delta: diskless median
-$\mathrm{xxxx}$~ms, naive-flush median $\mathrm{xxxx}$~ms, double-ring
-median $\mathrm{xxxx}$~ms, with tail figures $\mathrm{xxxx}$~ms at the ninth
+X.XX~ms, naive-flush median XX.X~ms, double-ring
+median XX.X~ms, with tail figures XX.X~ms at the ninth
 decile. The delta is the utility test: if reincarnation is slower than the
 forced flush, the diskless design has achieved nothing.
 Fig.~\ref{fig:e2} shows the designed chart: node restart event on the
@@ -601,7 +647,7 @@ points exist yet; the chart is watermarked ``dummy''.
 \draw[thick,black!60] (0.6,2.15) -- (1.4,2.15);
 \node[anchor=west,font=\scriptsize] at (1.45,2.15) {double-ring write};
 \end{tikzpicture}
-\caption{E2: disk modes at the recovery boundary.}
+\caption{E2: disk modes at the reincarnation boundary.}
 \label{fig:e2}
 \end{figure}
 
@@ -612,13 +658,13 @@ volatile-state loss --- the crashed node reincarnates rather than
 crash-recovers --- plus partitions, with a Maelstrom adapter fronting the
 lock service as a compare-and-set register and competing lock clients at
 the lease cadence. The design runs the fault profile at three nodes, then
-at five, $\mathrm{xxxx}$ runs per cluster size. Three checks decide each
+at five, $\mathrm{XXX}$ runs per cluster size. Three checks decide each
 run: Maelstrom's linearizability check passes over the register --- no
 committed operation is lost, and no node rejoins under its old identity to
 overwrite a newer decision; every killed node reincarnates and rejoins
 serving, with no run ending in a permanently lost node; and no read ever
 reports two holders, expiry being judged only in the leader's clock. All
-figures $\mathrm{xxxx}$. A passing campaign supports the case that
+figures X.XX (medians, milliseconds) and $\mathrm{XXX}$ (run counts). A passing campaign supports the case that
 reincarnation eliminates the diskless-recovery weakness \cite{diskless}:
 consistency under crash with
 successful rejoin, by construction rather than by recovery.
@@ -629,8 +675,8 @@ cluster laid out over three regions, two machines each --- the
 correlated-infrastructure setting that weighted configurations address.
 Variables, procedure, metrics, and sample counts are E1's and E2's
 unchanged; only the environment differs. The planned report records
-$\mathrm{xxxx}$ kills per configuration and zone-crossing medians of
-$\mathrm{xxxx}$~ms (E1) and $\mathrm{xxxx}$~ms (E2), with $\mathrm{xxxx}$
+$\mathrm{XXX}$ kills per configuration and zone-crossing medians of
+XX.X~ms (E1) and XX.X~ms (E2), with $\mathrm{XX}$
 availability incidents. Fig.~\ref{fig:e4} shows the designed chart:
 experiment on the horizontal axis (E1 rejoin, E2 flush delta), latency on
 the vertical axis, one series per deployment (local cluster, cloud
@@ -653,6 +699,151 @@ machines). No data points exist yet; the chart is watermarked ``dummy''.
 \caption{E4: cloud repetition of E1 and E2.}
 \label{fig:e4}
 \end{figure}
+
+\subsection{E5: the failover budget --- $N$ round trips, no disk flush}
+The design claim is that view failover costs $N$ network round trips and
+\emph{no} forced disk flush, where the classic diskful alternatives pay at
+least one flush on the fence path. The budget is measured, not assumed: the
+view change is decomposed into its wire segments and each segment timed.
+For the three-node cluster the segments are: suspicion (the phi-accrued
+suspect interval, floored by the host's election knob),
+\textsc{StartViewChange} dissemination ($1$~RTT), \textsc{DoViewChange}
+collection at the next view's primary (pipelined with dissemination:
+$0$ extra RTT when the messages cross), and \textsc{StartView} installation
+($1$~RTT): the designed expectation is failover $=$ suspicion floor $+$
+$2$~RTT $+$ $0$ flushes. The counterfactual arm pays the same suspicion
+floor and round trips \emph{plus} a forced flush before fencing (the
+VSR-1988-class stable-storage barrier) and a further flush before the new
+primary may serve installed state: suspicion floor $+$ flush $+$ $2$~RTT
+$+$ flush. Both arms are measured on the same hardware, the same run.
+The counterfactual is built by the forced-write rig of the campaign plan:
+a custom test build of the demonstration performs one 4~KiB write and
+\code{fsync} \emph{outside} the algorithm --- before the fenced node emits
+its view-change traffic and again before the new primary answers
+\textsc{StartView} --- so the rig prices the diskful barrier without any
+uVRR code being made unsafe or rewritten to resemble the compared systems.
+The reported numbers are the per-segment medians and the totals: suspicion
+floor X.XX~ms; per-RTT X.XX~ms; total failover, ours, X.XX~ms; total
+failover, forced-flush arm, XX.X~ms; flush cost per boundary X.XX~ms,
+expressed also in units of the same-run RTT, X.X~RTTs. The last ratio is
+the hardware-agnostic headline: it should survive moving between loopback,
+local virtual machines, and cloud machines, where the absolute latencies
+will not. Fig.~\ref{fig:e5} shows the designed stacked budget chart, one
+bar per arm; no data points exist yet; the chart is watermarked ``dummy''.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=0.9cm]
+\draw[gray!45,opacity=0.85,rotate around={38:(2.6,1.2)}] (2.6,1.2)
+ node[font=\fontsize{26}{26}\selectfont\bfseries,text=gray]{dummy};
+\draw[->,thick] (0,0) -- (5.6,0) node[anchor=west,font=\scriptsize]{latency (ms)};
+\draw[->,thick] (0,0) -- (0,2.4);
+% our bar
+\fill[black!25] (0.0,1.35) rectangle (0.9,1.7);
+\fill[black!55] (0.9,1.35) rectangle (2.1,1.7);
+\fill[black!85] (2.1,1.35) rectangle (3.3,1.7);
+\node[anchor=east,font=\scriptsize] at (-0.05,1.52) {uVRR (diskless)};
+\node[font=\tiny,anchor=west] at (3.4,1.52) {floor $+ 2\,\times$ RTT: X.XX ms};
+% counterfactual bar
+\fill[black!25] (0.0,0.45) rectangle (0.9,0.8);
+\fill[white,draw=black!60] (0.9,0.45) rectangle (2.4,0.8);
+\fill[black!55] (2.4,0.45) rectangle (3.6,0.8);
+\fill[white,draw=black!60] (3.6,0.45) rectangle (5.1,0.8);
+\node[anchor=east,font=\scriptsize] at (-0.05,0.62) {forced-flush arm};
+\node[font=\tiny,anchor=west] at (5.2,0.62) {floor $+$ flush $+ 2\,\times$ RTT $+$ flush: XX.X ms};
+% legend
+\fill[black!25] (0.5,2.15) rectangle (0.8,2.35);
+\node[anchor=west,font=\tiny] at (0.9,2.25) {suspicion floor (phi)};
+\fill[black!55] (2.2,2.15) rectangle (2.5,2.35);
+\node[anchor=west,font=\tiny] at (2.6,2.25) {$2\times$ RTT (SVC + SV)};
+\fill[white,draw=black!60] (4.2,2.15) rectangle (4.5,2.35);
+\node[anchor=west,font=\tiny] at (4.6,2.25) {forced flush (4 KiB + fsync)};
+\end{tikzpicture}
+\caption{E5: the failover budget. Stacked segments per arm; the forced-flush
+arm prices the classic diskful barrier on identical hardware in the same
+run, via the custom test build's out-of-algorithm flush.}
+\label{fig:e5}
+\end{figure}
+
+\subsection{E6: suspicion calibration under jitter --- what phi actually saw}
+The campaign owes an explanation of the detection floor, because the first
+rig runs showed the phi accumulator firing early: its estimate sat far
+below the true round-trip time, and under reconfiguration jitter its
+variance exploded. The runtime is LuaJIT plus FFI driving a Rust core with
+small messages, so the noise budget is genuinely small; the open question
+is whether the residual variance is garbage collection, scheduler jitter,
+or the estimator's window shape, and E6 decides it by attribution rather
+than by guess. The rig samples, per heartbeat, the measured RTT, the phi
+estimate, the estimator window's mean and variance, the LuaJIT allocation
+counter (\code{collectgarbage("count")}) before and after each window, and
+the Rust-side tick gap distribution; reconfiguration epochs are marked on
+the same axis. The designed report is the phi estimate against the measured
+RTT distribution with GC-attributed pauses marked: median estimate X.XX~ms
+against median RTT X.XX~ms, ninth-decile estimate XX.X~ms against
+ninth-decile RTT XX.X~ms, GC-attributed share of outlier windows XX.X
+percent, scheduler-attributed share XX.X percent, unexplained share
+XX.X percent. The decision rule: if the GC share explains the outlier
+windows, the estimator gets a variance-capped window and a stated floor;
+if scheduler jitter dominates, the floor moves to the measured jitter
+percentile and the paper says which. Fig.~\ref{fig:e6} shows the designed
+chart; no data points exist yet; the chart is watermarked ``dummy''.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=0.9cm]
+\draw[gray!45,opacity=0.85,rotate around={38:(1.9,1.4)}] (1.9,1.4)
+ node[font=\fontsize{26}{26}\selectfont\bfseries,text=gray]{dummy};
+\draw[-{Stealth},thick] (0,0) -- (4.1,0) node[anchor=west,font=\scriptsize]{heartbeat window};
+\draw[-{Stealth},thick] (0,0) -- (0,3.1) node[anchor=south,font=\scriptsize,rotate=90]{latency (ms)};
+\foreach \xx in {0.8,1.6,2.4,3.2}{\draw (\xx,0.05) -- (\xx,-0.05) node[anchor=north,font=\tiny,text=gray]{xxxx};}
+\foreach \yy in {0.8,1.6,2.4}{\draw (0.05,\yy) -- (-0.05,\yy) node[anchor=east,font=\tiny,text=gray]{xxxx};}
+\draw[thick,black!60] (0.6,2.7) -- (1.4,2.7);
+\node[anchor=west,font=\scriptsize] at (1.45,2.7) {measured RTT};
+\draw[thick,black!60,dash pattern=on 3pt off 2pt] (0.6,2.4) -- (1.4,2.4);
+\node[anchor=west,font=\scriptsize] at (1.45,2.4) {phi estimate};
+\draw[thick,black!60,dotted] (0.6,2.1) -- (1.4,2.1);
+\node[anchor=west,font=\scriptsize] at (1.45,2.1) {GC-attributed outlier};
+\end{tikzpicture}
+\caption{E6: phi estimate against measured RTT, GC-attributed outliers marked.}
+\label{fig:e6}
+\end{figure}
+
+\subsection{Cross-checks: the figures must be self-consistent}
+Every placeholder above carries an implicit order of magnitude, and the
+campaign checks the consistency before any number is quoted. The rules the
+lab book enforces: no loopback-harness figure may be quoted beside a cloud
+claim (loopback round trips are tens of microseconds; intra-zone cloud
+round trips are not); every failover figure must be at least the suspicion
+floor plus two measured round trips of the same rig --- a failover quoted
+an order of magnitude faster than that rig's RTT is a measurement error,
+not a result; every flush figure must be at least the device class's write
+latency --- a flush quoted an order of magnitude below the block device's
+measured \code{fsync} is the same class of error; and ratios may only be
+formed within one rig and one run. Table~\ref{tab:consistency} lists the
+checks; the lab-book template carries one row per figure and no figure may
+enter the paper with its row blank.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+figure & rig & lower bound & check \\
+\midrule
+E1 rejoin p50 & local & X.XX ms (2 RTT $+$ floor) & $\ge$ bound \\
+E1 rejoin p50 & cloud & XX.X ms (2 RTT $+$ floor) & $\ge$ bound \\
+E2 flush delta & local & X.XX ms (device fsync) & $\ge$ bound \\
+E2 flush delta & cloud & XX.X ms (device fsync) & $\ge$ bound \\
+E5 failover total & local & X.XX ms & $=$ floor $+2$ RTT \\
+E5 failover total & cloud & XX.X ms & $=$ floor $+2$ RTT \\
+E6 phi median & local & X.XX ms (RTT median) & $\approx$ RTT \\
+\bottomrule
+\end{tabular}
+\caption{Consistency checks: each figure's rig, its physical lower bound,
+and the arithmetic identity it must satisfy. X.XX marks the placeholder
+showing the significant figures the run will report; no figure enters the
+paper without its row completed in the lab book.}
+\label{tab:consistency}
+\end{table}
 
 \section{Related Work}\label{sec:related}
 Viewstamped Replication introduced the organisation of replication around views and a primary~\cite{vr}; VRR revisits that organisation and separates normal operation, view change, recovery and reconfiguration~\cite{vrr}. Michael \emph{et al.} identify the failure of diskless recovery to preserve view-change commitments and construct virtual stable storage~\cite{diskless}. uVRR takes a different route: it makes a crash final for the old identity, then brings the process back as a new member through reconfiguration. The replacement schedule connects that lifecycle to agreement across configurations.

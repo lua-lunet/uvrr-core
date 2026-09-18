@@ -3,8 +3,14 @@
 > **WARNING: THIS WORK HAS NOT BEEN DONE.** This document is an experimental
 > design, not a report. Nothing here has been executed; no cluster was killed,
 > no flush was forced, no VM was timed. Every timing, percentile, and result in
-> this document is the placeholder `xxxx`. Any document or paper that quotes a
-> number from here as a measurement is wrong.
+> this document is a placeholder. Any document or paper that quotes a number
+> from here as a measurement is wrong.
+>
+> **Placeholder notation.** `X.XX` / `XX.X` are latency placeholders showing
+> the significant figures and decimal places the run will report (two decimals
+> below 10 ms, one decimal at tens of milliseconds); `XXX` is an integer count
+> placeholder. No other digits exist in this document; anything else would be
+> a fabricated measurement.
 
 ## 1. System under test
 
@@ -69,7 +75,7 @@ cluster.
 ## 2. Decision rule
 
 The claim under test is diskless low latency: Crash-Stop-Reincarnation (CSR)
-rejoin is faster than paying a forced disk flush at the recovery boundary. The
+rejoin is faster than paying a forced disk flush at the reincarnation boundary. The
 decision rule for the whole campaign:
 
 > If the measured CSR rejoin latency (E1) is **slower** than the forced-flush
@@ -77,7 +83,7 @@ decision rule for the whole campaign:
 > **collapses**. Success is CSR rejoin latency matching or beating the
 > forced-flush baseline.
 
-If recovery is slower than doing disk flushes, nothing has been achieved.
+If rejoining is slower than doing disk flushes, nothing has been achieved.
 
 ## 3. E1 — node-kill rejoin latency under CSR
 
@@ -112,28 +118,28 @@ non-leader voting nodes.
 **Success rule.** Every iteration rejoins (no permanent loss of the killed
 node); the distribution is reported for comparison under §2.
 
-## 4. E2 — disk modes at the recovery boundary
+## 4. E2 — disk modes at the reincarnation boundary
 
 **Question.** What does the diskless default save, in latency, against paying a
-forced flush at the recovery boundary?
+forced flush at the reincarnation boundary?
 
 Three variants, identical in every respect other than the durability behavior
-at the recovery boundary (the point at which a reincarnating node durably
+at the reincarnation boundary (the point at which a reincarnating node durably
 records state before rejoining serving):
 
 **Variant 0 — diskless (our default).** No durable writes at all at the
-recovery boundary. Quorum memory is the only protocol state; the recovery nonce
+reincarnation boundary. Quorum memory is the only protocol state; the recovery nonce
 file remains as shipped.
 
 **Variant 1 — naive single write (latency baseline).** One 4 KiB block write
-followed by `fsync` at the recovery boundary: the direct-write approach of the
+followed by `fsync` at the reincarnation boundary: the direct-write approach of the
 classic designs. Per FAST'18 (Alagappan et al., *Protocol-Aware Recovery for
 Consensus-Based Storage*, USENIX FAST '18, Best Paper), even this single write
 plus `fsync` is **not** fault-safe against real disk faults — it is included
 only as the latency baseline, never as a safety claim.
 
 **Variant 2 — double-ring write.** A TigerBeetle-style double write, at the
-recovery boundary: write one 4 KiB block containing one 64-byte cache line of
+reincarnation boundary: write one 4 KiB block containing one 64-byte cache line of
 data plus a checksum header to the **first WAL ring**; then write the
 header+checksum, with **no payload**, to the **second WAL ring**. The rings are
 spaced apart per TigerBeetle's real layout: two separate fixed zones of the
@@ -144,7 +150,7 @@ documents the production geometry this variant mirrors — 4x superblock writes
 plus the WAL header flush, two durable direct writes per prepare (body, then
 redundant header) before the acknowledgement, 1024-slot two-ring WAL, headers
 ring separate from the prepares ring. Wild support for double-write/dual-ring
-spacing is surveyed in §9.
+spacing is surveyed in §13.
 
 **Both flush variants carry fake data only.** The payload may use the value of
 the message being sent as junk; there is **never any read-back** in either
@@ -155,10 +161,10 @@ reconstruct state from what was written.
 `k = xxxx` per variant, cold counts.
 
 **Procedure.** Exactly E1's procedure, per variant, against a custom build that
-implements the variant's recovery-boundary behavior.
+implements the variant's reincarnation-boundary behavior.
 
 **Metric.** Kill→rejoin-serving latency distribution (percentiles as in E1)
-per variant; plus, for variants 1 and 2, the recovery-boundary flush latency
+per variant; plus, for variants 1 and 2, the reincarnation-boundary flush latency
 itself (time from flush start to write completion) per iteration. All values
 `xxxx`.
 
@@ -207,9 +213,111 @@ under crash with successful rejoin, by construction rather than by recovery.
 E1 and E2 are repeated on commodity cloud virtual machines, with the six-node
 cluster laid out over three regions (two VMs each) matching the §1.3
 labelling. Variables, procedure, metrics, and sample counts are E1's and E2's
-unchanged; the environment differs (§8). All values `xxxx`.
+unchanged; the environment differs (§12). All values `xxxx`.
 
-## 7. Timing measurement
+## 7. E5 — the failover budget: N round trips, no disk flush
+
+**Question.** What does a view failover cost, decomposed into its wire
+segments, and what does the classic diskful barrier add on identical hardware
+in the same run?
+
+**The design claim.** uVRR failover costs suspicion floor + 2 RTT + 0
+flushes: the StartViewChange dissemination is one RTT, the DoViewChange
+collection is pipelined with it (zero extra RTT when the messages cross),
+and the StartView installation is one RTT. The classic diskful alternative
+pays the same floor and round trips plus a forced flush before fencing (the
+VSR-1988-class stable-storage barrier) and a further flush before the new
+primary may serve installed state.
+
+**The forced-write rig (the counterfactual arm).** A custom test build of
+the demonstration performs one 4 KiB write + `fsync` **outside** the
+algorithm — before the fenced node emits its view-change traffic, and again
+before the new primary answers StartView. The build never touches the core:
+no uVRR code is made unsafe, and nothing is rewritten to resemble the
+compared systems; the rig prices their barrier by adding its cost on our
+critical path, at the points where VSR-1988/VRR must write to be safe.
+
+**Variables.** Arm (diskless, forced-flush); suspicion knob fixed per run;
+`k = XXX` failovers per arm, cold counts as in E1.
+
+**Metrics.** Per-segment medians (suspicion floor, each RTT leg, each
+flush), and totals. Headline: total failover ours X.XX ms vs forced-flush
+arm XX.X ms; flush cost per boundary X.XX ms, also expressed in units of the
+same run's RTT as X.X RTTs — the hardware-agnostic ratio that should survive
+moving rigs.
+
+**Success rule.** The totals satisfy the identity `total = floor + 2 RTT`
+(+2 flushes on the counterfactual arm) within the run's own noise; the
+diskless arm matches or beats the flush arm's total.
+
+## 8. E6 — suspicion calibration under jitter: what phi actually saw
+
+**Question.** The first rig runs showed the phi accumulator firing early:
+its estimate sat far below the true round-trip time, and under
+reconfiguration jitter its variance exploded. Which component owns the
+variance — GC, scheduler jitter, or the estimator window shape?
+
+**Instrumentation.** Per heartbeat window, sample: measured RTT; the phi
+estimate; the estimator window's mean and variance; the LuaJIT allocation
+counter (`collectgarbage("count")`) before and after the window; the
+Rust-side tick gap distribution. Reconfiguration epochs are marked on the
+same axis. Runtime context for the attribution: LuaJIT + FFI driving the
+Rust core, small messages, no flush on the serving path, so the standing
+noise budget is small and an outlier window is genuinely informative.
+
+**Metrics.** Median phi estimate X.XX ms vs median RTT X.XX ms;
+ninth-decile estimate XX.X ms vs ninth-decile RTT XX.X ms; attribution of
+outlier windows: GC-attributed XX.X %, scheduler-attributed XX.X %,
+unexplained XX.X %.
+
+**Decision rule.** If GC explains the outlier windows, the estimator gets a
+variance-capped window and a stated floor; if scheduler jitter dominates,
+the floor moves to the measured jitter percentile. The paper reports which
+and why.
+
+## 9. Consistency checks — the figures must not contradict themselves
+
+Every placeholder carries an implicit order of magnitude, and the lab book
+checks it before any number is quoted. The rules:
+
+1. No loopback-harness figure may be quoted beside a cloud claim — loopback
+   round trips are tens of microseconds; intra-zone cloud round trips are
+   not. Numbers from different rigs never mix in one sentence, one ratio,
+   or one chart.
+2. A failover figure must be at least its rig's suspicion floor plus two
+   measured round trips. A failover quoted an order of magnitude faster
+   than that rig's RTT is a measurement error, not a result.
+3. A flush figure must be at least the device class's measured `fsync`
+   latency. A flush quoted an order of magnitude below the block device's
+   own measurement is the same class of error.
+4. Ratios are formed only within one rig and one run.
+5. A failover measured on an all-in-memory harness (no network between
+   nodes) may be reported only as a harness figure; it supports no claim
+   about networked failover.
+
+These checks exist because the errors they prevent are the ones that look
+amazing: the contradiction is not visible until the figure sits next to the
+rig's RTT, and a reader who reproduces the rig will see it immediately.
+
+## 10. The lab-book run sheet
+
+One row per figure, completed before the figure enters the paper; the run
+sheets live as dated entries under `docs/labbook/`. Columns:
+
+| column | content |
+|---|---|
+| figure | paper figure/table row this measurement feeds |
+| run id | harness run identifier + commit SHA of every component |
+| rig | loopback / local VM / cloud (region, zone, instance class) |
+| date + clock | wall-clock start; clock discipline used |
+| knobs | heartbeat, election, phi, recovery intervals; sample count |
+| raw artifact | path to the raw capture + its checksum |
+| percentiles | p50 / p90 / p99 / max / mean as measured |
+| bound check | the §9 bound for this rig, and pass/fail |
+| anomalies | GC pauses, reconfigs, scheduler events inside the window |
+| verdict | the number that may be quoted, in the paper's sig figs |
+
+## 11. Timing measurement
 
 - **Client round trip:** every operation's round trip is measured by the
   client: a monotonic clock reading taken immediately before the request line
@@ -224,7 +332,7 @@ unchanged; the environment differs (§8). All values `xxxx`.
   tick, so a client can interpret expiry against the leader's timeline without
   assuming synchronized clocks.
 
-## 8. Environment plan
+## 12. Environment plan
 
 - **Local timing runs:** a lima virtual machine on the Director's machine runs
   the timing experiments (E1, E2 local legs). All timing runs happen inside
@@ -239,7 +347,7 @@ unchanged; the environment differs (§8). All values `xxxx`.
 - **Target hardware note:** the Director's target box class is M5-series Macs
   with 2T disk. Local timings target that class.
 
-## 9. Sources
+## 13. Sources
 
 - Director's TigerBeetle 0.17.9 VSR/VRR protocol and disk analysis (the
   grounding for variant 2's geometry: 4x superblock writes + WAL header flush,
