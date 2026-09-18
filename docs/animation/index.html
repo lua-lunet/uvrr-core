@@ -596,7 +596,7 @@ function buildMarks() {
 }
 marks.addEventListener("click", (e) => {
   const at = e.target.dataset.at;
-  if (at !== undefined) { audio.currentTime = parseFloat(at); renderAt(parseFloat(at)); }
+  if (at !== undefined) seekTo(parseFloat(at));
 });
 
 /* ---------- ladder rail ---------- */
@@ -606,26 +606,32 @@ function buildRail() {
     const chip = mk("button", { class: "rung-chip" }, rail);
     chip.innerHTML = `<span class="n">${i+1}</span>${c.title.split(":")[0]}`;
     chip.title = c.title;
-    chip.onclick = () => { audio.currentTime = c.start_time; renderAt(c.start_time); if (audio.paused) play(); };
+    chip.onclick = () => seekTo(c.start_time);
     rail.appendChild(chip);
   });
 }
 
-/* ---------- transport ---------- */
+/* ---------- transport ----------
+   posT is the position the UI is painted at; skips and scrubs address it
+   directly because the media element's currentTime lags and bounces on
+   lazily-buffered file:// sources. Skips never change the play state. */
 const btnPlay = $("btn-play");
 function play()  { audio.play();  }
 function pause() { audio.pause(); }
+let posT = 0;
+function seekTo(t) {
+  posT = clamp(t, 0, TOTAL);
+  audio.currentTime = posT;
+  renderAt(posT);
+}
 btnPlay.onclick = () => audio.paused ? play() : pause();
 $("btn-prev").onclick = () => skip(-1);
 $("btn-next").onclick = () => skip(+1);
 function skip(dir) {
-  const i = clipIndexAt(audio.currentTime);
-  const c = CLIPS[i];
-  const target = (dir < 0 && audio.currentTime - c.start_time > 2.0) ? i : clamp(i + dir, 0, CLIPS.length - 1);
-  const t = CLIPS[target].start_time;
-  audio.currentTime = t;
-  renderAt(t);
-  if (audio.paused) play();
+  const i = clipIndexAt(posT);
+  /* at the first bookmark and going back: restart the first clip */
+  const target = clamp(i + dir, 0, CLIPS.length - 1);
+  seekTo(CLIPS[target].start_time);
 }
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -633,11 +639,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowLeft")   { e.preventDefault(); skip(-1); }
   if (e.key === "ArrowRight")  { e.preventDefault(); skip(+1); }
 });
-scrub.addEventListener("input", () => {
-  const t = parseFloat(scrub.value);
-  audio.currentTime = t;
-  renderAt(t);
-});
+scrub.addEventListener("input", () => seekTo(parseFloat(scrub.value)));
 function renderAt(t) {
   const i = clipIndexAt(t);
   showClip(i);
@@ -930,6 +932,7 @@ const DIRECTORS = {
 let raf = null;
 function renderOnce() {
   const t = audio.currentTime;
+  if (!audio.paused) posT = t;
   const i = clipIndexAt(t);
   showClip(i);
   const d = DIRECTORS[CLIPS[i].id];
