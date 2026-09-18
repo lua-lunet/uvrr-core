@@ -25,7 +25,7 @@
 //!
 //! Reconfiguration operations (`VOID`, `INIT`, `JOIN`, `LEAVE`, `INCREMENT`,
 //! `DECREMENT`, `DOUBLE`, `HALVE`) are replicated history, not ambient state, so initial
-//! configuration construction is itself recoverable. One reconfiguration commits a
+//! configuration construction is itself reconstructible from that history. One reconfiguration commits a
 //! [`SystemOperation::Batch`]: operations applied together, in order, establishing one
 //! era. A batch containing `Double` or `Halve` contains nothing else (R13); every other
 //! batch is a unit batch moving at most one unit of per-node mass (R14); genesis and
@@ -871,7 +871,7 @@ pub enum ConfigError {
 /// Operations are replicated history, not ambient state: they travel in the log as
 /// typed payloads ([`crate::journal::LogEntry`] carries one), so configuration
 /// construction is
-/// itself recoverable and two replicas cannot disagree about genesis without the
+/// itself reconstructible from that history and two replicas cannot disagree about genesis without the
 /// disagreement appearing in the history itself. This type is the **WAL payload**
 /// (rules §9): the durable record is a [`Snapshot`] plus a WAL of these values, and
 /// replay is the fold.
@@ -1173,7 +1173,8 @@ pub struct EraRecord {
 /// messages from a peer that has not yet learned of the era change remain *evaluable*
 /// rather than merely undecidable. A message naming an era outside the window is not
 /// evaluable and is **dropped**, not faulted — a peer that far behind must obtain a
-/// current state by recovery or state transfer (§10, §14.2), which is the mechanism
+/// current state by state transfer (§14.2; VRR-2012's §10 names the same obligation
+/// recovery), which is the mechanism
 /// VRR-2012 already requires for a stale peer. The window is deliberately small: an
 /// unbounded table would make configuration history a memory leak, and a window of one
 /// would make the overlap mode unexpressible.

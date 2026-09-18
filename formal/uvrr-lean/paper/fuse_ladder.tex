@@ -129,7 +129,7 @@ An indivisible datagram does not itself make execution of the receiver's
 handler indivisible. The refinement obligation is therefore to validate the
 whole fold before exposing its effects, acknowledge only after all accepts
 are recorded, and ensure that interruption before acknowledgement leaves a
-state admitted by the ordinary recovery or crash-stop-reincarnation model.
+state admitted by the ordinary clean-start or crash-stop-reincarnation model.
 Checksums establish neither a transaction over memory nor a journal
 transaction. Under an atomic handler model, expansion is a finite sequence of
 ordinary accept actions with no intervening local action. Under a finer model,

@@ -209,3 +209,17 @@ Chidambaram
 Dusseau
 Ganesan
 deduplication
+llll
+RTT
+RTTs
+SVC
+StartViewChange
+VSR
+collectgarbage
+diskful
+intra
+jitter
+latencies
+loopback
+pipelined
+unrepresentable

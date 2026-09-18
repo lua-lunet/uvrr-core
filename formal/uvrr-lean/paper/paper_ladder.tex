@@ -82,6 +82,46 @@ Startup fencing and clean shutdown use durable writes, keeping those writes
 outside normal replication. Loss of volatile state therefore leads to replacement
 of a member: crash recovery becomes crash-stop reincarnation.
 
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,>=Stealth,font=\small]
+\node at (0,0.45) {$n_1$ (primary of $v$)};
+\node at (4.5,0.45) {$\{n_2,n_3\}$};
+\node at (9.5,0.45) {$\{n_4,n_5\}$};
+\foreach \x in {0,4.5,9.5} {\draw[gray] (\x,0)--(\x,-6.6);}
+\draw[->] (0,-0.25)--node[above,sloped]{commit $o$ at $v$ (quorum $\{n_1,n_2,n_3\}$)}(4.5,-0.9);
+\draw[->] (0,-1.05)--node[above,sloped]{\textsc{DoViewChange} $v{+}1$ (volatile commitment)}(9.5,-1.7);
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-2.3) {$n_1$ crashes:\\volatile state lost};
+\draw[->] (0,-2.85)--node[above,sloped]{\textsc{Recovery} $x$ (\S4.3: no disk record)}(4.5,-3.5);
+\draw[->] (0,-3.65)--node[above,sloped]{\textsc{Recovery} $x$}(9.5,-4.3);
+\draw[->] (4.5,-4.45)--node[above,sloped]{$f{+}1$ \textsc{RecoveryResponse} incl.\ current primary}(0,-5.1);
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-5.75) {$n_1$ re-enters \emph{as $n_1$}, status normal:\\the $v{+}1$ commitment is forgotten};
+\draw[->,very thick] (0,-6.3)--node[above,sloped]{\textbf{bad vote}: $n_1$'s stale self joins a $v{+}1$ quorum}(9.5,-6.55);
+\end{tikzpicture}
+\caption{The diskless-recovery amnesia of VRR at five voters ($f{=}2$), after Michael \emph{et al.}~\cite[Sec.~4.2 and Appendix~A.1]{diskless}. The forgotten commitment now spans a three-voter quorum: the recovering node's stale self can complete a $v{+}1$ quorum that a later leader cannot reconcile. Group arrows represent messages to each member; time runs downwards without a scale.}
+\label{fig:amnesia5}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,>=Stealth,font=\small]
+\node at (0,0.45) {$n_1$ (primary of $v$)};
+\node at (4.5,0.45) {$\{n_2,n_3\}$};
+\node at (9.5,0.45) {$\{n_4,n_5\}$};
+\foreach \x in {0,4.5,9.5} {\draw[gray] (\x,0)--(\x,-6.85);}
+\draw[->] (0,-0.25)--node[above,sloped]{commit $o$ at $v$ (quorum $\{n_1,n_2,n_3\}$)}(4.5,-0.9);
+\draw[->] (0,-1.05)--node[above,sloped]{\textsc{DoViewChange} $v{+}1$ (volatile commitment)}(9.5,-1.7);
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-2.3) {$n_1$ crashes: final for the\\protocol identity --- $n_1$ never resumes};
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-3.15) {process reincarnates as $n_6$:\\fresh identity, weight $0$, non-voting};
+\draw[->,dashed] (4.5,-3.75)--node[above,sloped]{witness stream / state transfer to the standby}(0,-4.4);
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-5.0) {$n_6$ caught up at the current era:\\still no vote --- the quorum read ran\\outside the voting protocol};
+\draw[->] (4.5,-5.65)--node[above,sloped]{committed \textsc{Increment}: $n_6$ walks $0\!\to\!1$}(0,-6.3);
+\node[draw,fill=white,align=center,inner sep=4pt] at (0,-6.8) {$n_6$ votes for the first time ---\\nothing of $n_1$'s history can be re-voted};
+\end{tikzpicture}
+\caption{Crash-stop reincarnation at five voters on the same prefix. The replacement $n_6$ acquires state while it cannot vote; promotion is the committed membership change. Group arrows represent messages to each member; acceptance replies omitted.}
+\label{fig:reincarnation-fix5}
+\end{figure*}
+
 Turner supplies the construction that connects this lifecycle to continued
 replication~\cite{turner}.
 Where the leader is the sole intersection of an active decision quorum and the

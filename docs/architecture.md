@@ -150,9 +150,10 @@ the protocol correctly.
 
 ### Vocabulary: restarting is not crash recovery
 
-The `Restarting` status is classic VRR-2012 recovery, guarded by a clean shutdown.
-Recovery without a clean shutdown and a full reload of all durable state is not
-admitted: there is no crash-recovery protocol, because there is no crash to recover
+The `Restarting` status is our own language for the start a boot gate classifies as
+clean — the classic VRR-2012 notion of recovery, but only over a clean shutdown and a
+full reload of all durable state. A start that cannot prove those is not a recovery
+at all: there is no crash-recovery protocol, because there is no crash to recover
 from. A node that lost volatile state is by construction a different node
 (`docs/uvrr-reincarnation.md` §1) and re-enters through reincarnation, not
 recovery. Nothing in the clean stop/start/sync path or the reincarnation path may

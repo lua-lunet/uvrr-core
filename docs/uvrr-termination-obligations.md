@@ -90,7 +90,7 @@ The classification applies to every identity start, the bumped one included:
 the bump write claims (X+1, `Joining`) as the wire-phase marker — it claims
 no `Stopped` checkpoint, because the bumped identity has no WAL under it to
 vouch for — so a second crash mid-wire-phase reads no stopped quorum and
-bumps again (X+2). The lifecycle makes same-identity recovery after
+bumps again (X+2). The lifecycle makes same-identity re-entry after
 volatile-state loss unrepresentable **by construction**, not by argument.
 
 ## 4. The marker storage: expectation and example

@@ -195,7 +195,7 @@ majority-loss configurations.
 
 ## 10. Learner acquisition
 
-**Speculative learner recovery:** a zero-weight learner acquires state by
+**Speculative learner acquisition:** a zero-weight learner acquires state by
 streaming while never voting, so that the 0→1 promotion finds the node already
 caught up. The mechanism is the ordinary state transfer, gated by the learner
 acquisition rule:
@@ -224,8 +224,8 @@ acquisition rule:
   each ordinary tick re-runs the retained ruling, the walked view carries
   the next round's fetch, and the offer installs — the ordinary install —
   once its era is evaluable. The member never votes in an era it has not
-  folded, and the walked view never adopts: the node is `Recovering`
-  until the retained offer installs.
+  folded, and the walked view never adopts: the node stays at its boot fence
+  (`Restarting`) until the retained offer installs.
 - **Authority:** unchanged — a learner votes only after a committed
   `INCREMENT` grants it weight; while its weight is 0 its messages are
   discarded by the standard membership checks (§6).

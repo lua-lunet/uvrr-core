@@ -506,7 +506,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             //
             // An offer MORE than one era past is the §10 learner
             // acquisition's catch-up route when — and only when — the
-            // recipient is still at its boot fence (`Recovering` at
+            // recipient is still at its boot fence (`Restarting` at
             // `current == retained`, the reopen state: it has adopted
             // nothing) and the offer NAMES it: the offered era's
             // establishing operation admits the node (a `Join`, the

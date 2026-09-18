@@ -25,7 +25,7 @@
 //!   the entries — the same fold that runs at every later commit.
 //! * **The pre-proposal gate is closed** (§8.7.2, §8.7.4, Q1): the fold's
 //!   preconditions, then R2 across the era boundary, then R1 /
-//!   self-intersection / fence-recovery within the resulting era. A
+//!   self-intersection / fence-restart within the resulting era. A
 //!   refusal is named, carries its witness, and the operation never
 //!   enters the log. The pivot never substitutes for this gate.
 //! * **The commit-time fold is the only place the era advances**
@@ -276,7 +276,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// transition at a time (gate 3), one establishing operation at a time
     /// (gate 4), the §8.7.2 preconditions of the fold itself (gate 5), and
     /// the closed intersection obligations (gate 6, Q1) — R2 across the
-    /// boundary FIRST, then R1 / self-intersection / fence-recovery within
+    /// boundary FIRST, then R1 / self-intersection / fence-restart within
     /// the resulting era. Returns the validated successor table.
     fn reconfigure_gates(
         &self,
@@ -353,7 +353,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///    ([`PlanRefusal::Reconfigure`]);
     /// 6. the closed intersection obligations (Q1): R2 across the
     ///    boundary FIRST — so a cross-era refusal names the cross-era
-    ///    witness — then R1, self-intersection and fence-recovery within
+    ///    witness — then R1, self-intersection and fence-restart within
     ///    the resulting era ([`PlanRefusal::ReconfigureQuorum`]).
     ///
     /// A refusal at any gate never enters the log. The pivot never

@@ -6,6 +6,8 @@
 
 This document defines the state, persistence, recovery, and concurrency boundary for a SANS-I/O implementation of Viewstamped Replication. `VSR-1988` denotes Brian M. Oki and Barbara H. Liskov's paper [*Viewstamped Replication: A New Primary Copy Method to Support Highly-Available Distributed Systems*](https://www.cs.princeton.edu/courses/archive/fall11/cos518/papers/viewstamped.pdf), presented at PODC in August 1988.[^oki-dissertation] `VRR-2012` denotes Barbara Liskov and James Cowling's later paper, [*Viewstamped Replication Revisited*](https://dspace.mit.edu/entities/publication/80846d94-fcd3-40e6-87fb-8d91fe99a5d1), published in 2012. `vrr-core` implements VRR-2012 only. VSR-1988 is discussed solely to explain the origin and purpose of the VRR-2012 view-change fence.
 
+**On the word "recovery".** Where this document says *recovery* it names VRR-2012's own §4.3/§6.1 mechanism, quoted as literature about the cited design. uVRR removes it by construction: a controlled halt is not a crash, a controlled start is not a recovery, and a crashed identity returns only through Crash-Stop-Self-Evict reincarnation — reincarnation is not recovery (`docs/uvrr-boot-gate.md` §1 rules the words; `docs/uvrr-reincarnation.md` §1 rules the identities). Wherever uVRR's own path is described, this document says *state transfer*, *clean start*, or *reincarnation*, and says so.
+
 [^oki-dissertation]: The fuller contemporary treatment is Brian Masao Oki's MIT dissertation and technical report, [*Viewstamped Replication for Highly Available Distributed Systems*](https://publications.csail.mit.edu/lcs/pubs/pdf/MIT-LCS-TR-423.pdf), supervised by Professor Barbara H. Liskov, submitted in May 1988, and issued as MIT/LCS/TR-423 in August 1988.
 
 VRR-2012 is **diskless** in the precise sense used here: no normal-operation or view-change message has a protocol-required forced local-storage barrier. It uses the volatile state of a quorum of replicas as stable protocol state. A host may nevertheless persist protocol progress, accepted operations, application state, or any combination. Those are distinct logical concerns even when one host transaction records them together.
@@ -154,9 +156,9 @@ The following cross-strategy invariants are mandatory:
 2. published `committed` does not exceed `accepted`;
 3. published `applied` does not exceed `committed`;
 4. a durable frontier must not claim state which the host cannot recover under the same declared durability profile;
-5. after an indeterminate persistence result, `fault` is sticky until explicit recovery establishes a coherent state.
+5. after an indeterminate persistence result, `fault` is sticky until the host re-enters through a controlled start or reincarnation and establishes a coherent state.
 
-`status` is process control as well as protocol state. A reopened node which has not proved its state current starts fenced/recovering regardless of the last status observed before failure.
+`status` is process control as well as protocol state. A reopened node which has not proved its state current starts fenced (`Restarting` on a vouched clean start, `Joining` on a bumped reincarnation) regardless of the last status observed before failure.
 
 The boot fence never self-arms from persisted knowledge: a reopened member promotes itself only over the pristine genesis, and only a normal member suspects a silent primary, so a post-genesis full-cluster cold start — every member reopened fenced — emits nothing until the host acts. The host arms the first fence through the host-forced view change (`Input::AdminForceView`, §14.2), which drives the ordinary fence/evidence/install pipeline; a real deployment's cluster manager does exactly this (the Maelstrom host's bounded force-feed on a dirty reopen is the same obligation).
 
@@ -685,7 +687,7 @@ The host reports `Applied { slot }` as a later serialized input. The completion 
 
 A host may retain an ephemeral `OperationId -> pending request` association. After successful application and completion publication, the host returns its result only when such an association still exists; otherwise it discards the result. On process failure the pending connections and associations disappear, while the operation may nevertheless commit and apply. An I/O failure therefore means the caller cannot know the write outcome and must reconnect and query according to the host protocol.
 
-Recovery re-emits the application upcalls of committed-but-unapplied slots: the §6.1 fast-forward emits the newly committed slots' upcalls as the frontier advances, and the completion's replay walk does not re-emit a slot the fast-forward already emitted in the same process life. A crash discards that emission memory, so replay after a crash re-emits from the durable `applied` frontier. Application durability, replay handling, and side-effect semantics remain host responsibilities.
+Replay re-emits the application upcalls of committed-but-unapplied slots: the §6.1 fast-forward emits the newly committed slots' upcalls as the frontier advances, and the completion's replay walk does not re-emit a slot the fast-forward already emitted in the same process life. A crash discards that emission memory, so replay after a crash re-emits from the durable `applied` frontier. Application durability, replay handling, and side-effect semantics remain host responsibilities.
 
 ### 11.2 Application participating in a host transaction
 
@@ -842,7 +844,7 @@ The current code contains:
 - host strategies for the journal (`Journal`/`JournalView`, with the segmented in-memory implementation) and an explicit stability-completion boundary (`Stability`) gating dependent effects;
 - the lifecycle constructors behind the boot gate (`vrr::lifecycle`): `provision` establishes the genesis configuration and joins fenced `Joining`; `join` enters a fresh identity over the shared genesis prefix; `resume` continues a vouched clean stop and `reincarnate` replaces a crashed identity — both later lives start fenced `Restarting`;
 - the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it — the arm a post-genesis cold start's first fence goes through (§5), the boot fence never self-arming from persisted knowledge;
-- the host-supplied `u64` event tick on every input, with recovery nonces derived from it (§6.1);
+- the host-supplied `u64` event tick on every input, serving the classic recovery-nonce role (§6.1, S4);
 - the higher-view normal-message state-transfer behaviour specified by VRR-2012.
 
 ### 14.2 Missing contracts
@@ -867,7 +869,7 @@ The pre-rewrite `Replica::new` created an empty normal replica in view zero; use
 10. Leave physical storage, retained-history policy, batching, flush cadence, and reclamation entirely to the host.
 11. Make quorum policy pluggable by semantic role, validate family intersections rather than counts, and retain strict majority as the initial policy.
 12. Support the Unbounded VSR extension specified in §8.7; keep its pivot construction, planned transition, fallback, and crash proof distinct from the ordinary VRR-2012 view-change path.
-13. Require a host-supplied event-start `u64` on every input; derive recovery nonces from it and perform no clock reads inside the core.
+13. Require a host-supplied event-start `u64` on every input; serve the classic recovery-nonce role from it and perform no clock reads inside the core.
 
 ## 16. References
 

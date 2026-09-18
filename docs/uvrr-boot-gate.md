@@ -15,10 +15,13 @@ unsafe, full stop.
   Nothing was lost; nothing needs recovering.
 - A **controlled start** is not a recovery. A process booting over a vouched
   durable state continues that state; no recovery protocol runs.
-- **Resume** names nothing in uVRR. The resumption of a crashed identity is
-  the unrepresentable case (`uvrr-reincarnation.md` §1): a crash is final
-  for the protocol identity, and the process returns through crash-stop
-  reincarnation, never through recovery.
+- **Resume** names nothing in uVRR for a crashed identity. The resumption of a
+  crashed identity is the unrepresentable case (`uvrr-reincarnation.md` §1): a
+  crash is final for the protocol identity, and the process returns through
+  crash-stop reincarnation, never through recovery. The constructor called
+  `Replica::resume` is the ordinary controlled start of a halted process —
+  Run → Halt → Run, vouched by the stopped quorum — not a resumption of a
+  crashed identity and not a recovery.
 
 The lifecycles, stated once:
 

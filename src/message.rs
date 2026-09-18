@@ -3,7 +3,8 @@
 //! Spec §4 (state transfer), §6 (normal operation), §9 (view change), §10
 //! (recovery), §11.1 (the application boundary), §13.3 (piggybacked commit
 //! frontier), and decisions W1 (era in every header), W3 (normative exact
-//! lengths), W4 (fixed-width big-endian), S4 (the recovery nonce is the tick).
+//! lengths), W4 (fixed-width big-endian), S4 (the tick serves as the classic
+//! recovery nonce).
 //!
 //! A [`Message`] is the 20-byte [`Header`] followed by a one-byte body
 //! discriminant and the body fields. The kind travels twice — once as the
