@@ -880,7 +880,7 @@ impl Unpack for Tag {
 /// step 4 solicits planned evidence from `qI - {L}` for a view `v'` whose era is `e+1`.
 /// The era authorizing a message is therefore a transport-visible routing fact about
 /// that message, not an attribute of the sender's current state — and it is not
-/// recoverable from a view number without the configuration history that the packed
+/// reconstructible from a view number without the configuration history that the packed
 /// encoding presumed. §8.7.3's own relation `era(view) <= era(slot) <= era(view) + 1`
 /// makes the point: under the packed scheme a host wanting to route or shed by era would
 /// have to decode a protocol number to make a transport decision.
