@@ -793,6 +793,31 @@ pub enum Tag {
 }
 
 impl Tag {
+    /// The tag's name, for every surface a human reads (a trace line, a
+    /// diagnostic dump, an extraction): `tag=prepare`, never `tag=2`. The
+    /// wire discriminant and every comparison stay numeric — the name is
+    /// for humans only, and it is stated here next to the numbering it
+    /// names so the two cannot drift apart.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Tag::Prepare => "prepare",
+            Tag::PrepareOk => "prepare_ok",
+            Tag::Commit => "commit",
+            Tag::StartViewChange => "start_view_change",
+            Tag::DoViewChange => "do_view_change",
+            Tag::StartView => "start_view",
+            Tag::PlannedViewChange => "planned_view_change",
+            Tag::GetState => "get_state",
+            Tag::NewState => "new_state",
+            Tag::Reincarnation => "reincarnation",
+            Tag::Fuse => "fuse",
+            Tag::FuseOk => "fuse_ok",
+            Tag::CommitBatch => "commit_batch",
+            Tag::GossipRequest => "gossip_request",
+        }
+    }
+
     /// The wire discriminant.
     ///
     /// A `match` rather than a cast. `self as u32` would keep compiling after a variant
