@@ -3,818 +3,931 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>uVRR Educational Explainer — Crash, Boot Gate & Rejoin Equivalence</title>
+<title>uVRR — The Consistency Ladder</title>
 <style>
 :root {
-  --bg: #f8fafc;
+  --bg: #f6f8fb;
   --card-bg: #ffffff;
-  --text-dark: #0f172a;
-  --text-muted: #64748b;
-  --border: #e2e8f0;
-  --n0-blue: #648fff;
-  --n1-purple: #785ef0;
-  --n2-magenta: #dc267f;
-  --n2p-orange: #fe6100;
-  --msg-gold: #ffb000;
+  --ink: #0f172a;
+  --muted: #5b6b84;
+  --faint: #94a3b8;
+  --border: #e4e9f2;
+  --accent: #648fff;
+  --accent-deep: #3b5bdb;
+  --gold: #ffb000;
   --green: #16a34a;
   --red: #dc2626;
-  --navy: #0f172a;
+  --orange: #fe6100;
+  --purple: #785ef0;
+  --magenta: #dc267f;
+  --shadow: 0 1px 2px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.06);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: var(--bg);
-  color: var(--text-dark);
-  line-height: 1.5;
-  padding: 1.5rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  background:
+    radial-gradient(1200px 500px at 70% -10%, #e8eeff 0%, transparent 60%),
+    var(--bg);
+  color: var(--ink);
+  line-height: 1.55;
+  padding: 1.25rem 1.25rem 2.5rem;
 }
-.container {
-  max-width: 1280px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem; }
+
+/* ---------- header ---------- */
 header {
   background: var(--card-bg);
-  padding: 1.25rem 1.75rem;
-  border-radius: 12px;
   border: 1px solid var(--border);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 1.4rem 1.8rem 1.3rem;
 }
 .kicker {
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--n0-blue);
-  text-transform: uppercase;
-  margin-bottom: 0.25rem;
+  font-size: .78rem; font-weight: 800; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--accent-deep); margin-bottom: .3rem;
 }
-h1 {
-  font-size: 1.65rem;
-  font-weight: 800;
-  color: var(--text-dark);
-  margin-bottom: 0.35rem;
-}
-.subhead {
-  font-size: 0.95rem;
-  color: var(--text-muted);
-}
-/* Main Animation Viewport */
-.viewport-card {
+h1 { font-size: 1.7rem; font-weight: 800; letter-spacing: -.01em; }
+.subhead { color: var(--muted); font-size: .98rem; margin-top: .3rem; }
+
+/* ---------- stage ---------- */
+.stage-card {
   background: var(--card-bg);
-  border-radius: 12px;
   border: 1px solid var(--border);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
-.svg-wrapper {
-  width: 100%;
-  height: 480px;
-  background: #ffffff;
-  position: relative;
+.scene-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .8rem 1.3rem; border-bottom: 1px solid var(--border);
 }
-svg {
-  width: 100%;
-  height: 100%;
+.rung {
+  font-size: .75rem; font-weight: 800; letter-spacing: .1em;
+  color: var(--accent-deep); text-transform: uppercase;
 }
-/* Controls Toolbar */
-.toolbar {
-  background: #f1f5f9;
-  border-top: 1px solid var(--border);
-  padding: 0.75rem 1.5rem;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+.clip-title { font-size: 1.05rem; font-weight: 700; }
+.scene-slot { position: relative; height: 480px; background: #fff; }
+.scene-slot svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.scene {
+  opacity: 0; transform: translateX(28px);
+  transition: opacity .45s ease, transform .45s ease;
+  pointer-events: none;
 }
-.btn-group {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-button {
-  background: #ffffff;
-  border: 1px solid var(--border);
-  color: var(--text-dark);
-  padding: 0.4rem 0.85rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.3rem;
-}
-button:hover {
-  background: #e2e8f0;
-}
-button.primary {
-  background: var(--n0-blue);
-  color: #ffffff;
-  border-color: var(--n0-blue);
-}
-button.primary:hover {
-  background: #4a75e6;
-}
-.slider-container {
-  flex: 1;
-  min-width: 260px;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-input[type="range"] {
-  flex: 1;
-  height: 6px;
-  border-radius: 3px;
-  background: #cbd5e1;
-  outline: none;
-  cursor: pointer;
-  accent-color: var(--n0-blue);
-}
-.stage-pill {
-  background: #e0e7ff;
-  color: #3730a3;
-  font-size: 0.85rem;
-  font-weight: 700;
-  padding: 0.25rem 0.65rem;
-  border-radius: 9999px;
-  white-space: nowrap;
-}
-/* Audio & Sync */
-.audio-card {
+.scene.on { opacity: 1; transform: translateX(0); }
+.scene.leaving { opacity: 0; transform: translateX(-28px); }
+
+/* ---------- transport ---------- */
+.transport {
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 0.85rem 1.25rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 1rem;
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: .95rem 1.3rem 1.15rem;
+  display: flex; flex-direction: column; gap: .7rem;
 }
-audio {
-  flex: 1;
-  min-width: 280px;
-  height: 38px;
+.transport-row { display: flex; align-items: center; gap: .8rem; }
+.tbtn {
+  border: 1px solid var(--border); background: #fff; color: var(--ink);
+  border-radius: 12px; width: 44px; height: 44px; cursor: pointer;
+  display: grid; place-items: center; transition: all .15s ease;
+  font-size: 1rem;
 }
-.sync-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--green);
+.tbtn:hover { border-color: var(--accent); color: var(--accent-deep); }
+.tbtn.big {
+  width: 56px; height: 56px; border-radius: 16px;
+  background: var(--accent-deep); border-color: var(--accent-deep); color: #fff;
+  font-size: 1.25rem;
 }
-.pulse-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--green);
-  border-radius: 50%;
-  animation: pulse 1.5s infinite;
+.tbtn.big:hover { background: var(--accent); }
+.time {
+  font-variant-numeric: tabular-nums; font-size: .85rem; color: var(--muted);
+  min-width: 44px; text-align: center;
 }
-@keyframes pulse {
-  0% { transform: scale(0.9); opacity: 0.8; }
-  50% { transform: scale(1.3); opacity: 1; }
-  100% { transform: scale(0.9); opacity: 0.8; }
+.scrub-wrap { position: relative; flex: 1; height: 44px; display: flex; align-items: center; }
+.scrub {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 8px; border-radius: 6px; outline: none; cursor: pointer;
+  background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--p,0%), #e4e9f2 var(--p,0%));
 }
-/* Lower Details Grid */
-.details-grid {
-  display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  gap: 1.25rem;
+.scrub::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; border: 3px solid var(--accent-deep);
+  box-shadow: 0 1px 4px rgba(15,23,42,.25); cursor: grab;
 }
-@media (max-width: 900px) {
-  .details-grid { grid-template-columns: 1fr; }
+.scrub::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; border: 3px solid var(--accent-deep); cursor: grab;
 }
-.detail-card {
-  background: var(--card-bg);
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  padding: 1.25rem 1.5rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+.marks { position: absolute; inset: 0; pointer-events: none; }
+.mark {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  width: 3px; height: 16px; border-radius: 2px; background: var(--accent-deep);
+  opacity: .55;
 }
-.detail-card h2 {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--text-dark);
-  margin-bottom: 0.5rem;
+.mark.done { opacity: 1; }
+.mark-label {
+  position: absolute; top: -22px; transform: translateX(-50%);
+  font-size: .6rem; font-weight: 700; color: var(--faint);
+  letter-spacing: .04em; white-space: nowrap;
 }
-.rule-box {
-  background: #f8fafc;
-  border-left: 4px solid var(--n0-blue);
-  padding: 0.75rem 1rem;
-  border-radius: 0 8px 8px 0;
-  margin: 0.75rem 0;
-  font-size: 0.92rem;
+
+/* ---------- ladder rail ---------- */
+.rail {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 16px; box-shadow: var(--shadow);
+  padding: .9rem 1.1rem;
+  display: flex; gap: .45rem; flex-wrap: wrap;
 }
-.rule-box.amber { border-color: var(--n2p-orange); background: #fffaf0; }
-.rule-box.red { border-color: var(--red); background: #fef2f2; }
-.rule-box.green { border-color: var(--green); background: #f0fdf4; }
-.stage-bullets {
-  list-style: none;
-  margin-top: 0.5rem;
-  font-size: 0.92rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+.rung-chip {
+  border: 1px solid var(--border); border-radius: 999px;
+  background: #fff; padding: .34rem .8rem .34rem .6rem;
+  font-size: .8rem; color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; gap: .45rem;
+  transition: all .15s ease;
 }
-.stage-bullets li {
-  position: relative;
-  padding-left: 1.2rem;
+.rung-chip .n {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: #eef2fb; color: var(--accent-deep);
+  font-size: .68rem; font-weight: 800;
 }
-.stage-bullets li::before {
-  content: "•";
-  color: var(--n0-blue);
-  font-weight: bold;
-  position: absolute;
-  left: 0;
+.rung-chip:hover { border-color: var(--accent); }
+.rung-chip.now { border-color: var(--accent-deep); color: var(--ink); background: #f2f6ff; }
+.rung-chip.now .n { background: var(--accent-deep); color: #fff; }
+.rung-chip.past { color: var(--ink); }
+.rung-chip.past .n { background: #dfe7fb; }
+
+/* ---------- narration ---------- */
+.narration {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 16px; box-shadow: var(--shadow);
+  padding: 1.15rem 1.5rem;
 }
-/* Podcast Transcript */
-.transcript-box {
-  max-height: 280px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  padding-right: 0.4rem;
+.narration h2 {
+  font-size: .78rem; font-weight: 800; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--faint); margin-bottom: .5rem;
 }
-.dialogue-turn {
-  padding: 0.55rem 0.8rem;
-  border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid transparent;
-  font-size: 0.88rem;
-  transition: all 0.2s ease;
+.narration p { color: #22304a; font-size: .97rem; max-width: 70ch; }
+.foot {
+  text-align: center; color: var(--faint); font-size: .78rem; margin-top: .4rem;
 }
-.dialogue-turn.active {
-  background: #eff6ff;
-  border-color: var(--n0-blue);
-  box-shadow: 0 0 0 2px rgba(100,143,255,0.15);
+kbd {
+  border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px;
+  background: #fff; padding: 0 .4em; font-size: .85em; font-family: inherit;
 }
-.speaker-tag {
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.15rem;
+@media (max-width: 760px) {
+  .scene-slot { height: 320px; }
+  .mark-label { display: none; }
 }
-.speaker-Alex { color: var(--n0-blue); }
-.speaker-Morgan { color: #7e22ce; }
 </style>
 </head>
 <body>
-<div class="container">
+<div class="wrap">
 
-  <!-- Header -->
-  <header>
-    <div class="kicker">Distributed Systems Interactive Explainer</div>
-    <h1>uVRR Crash-Stop Reincarnation & Gossip Catch-up</h1>
-    <div class="subhead">A 3-node cluster walkthrough: sudden crash, era-0 uninitialised start, 3-state superblock arbitration, and implicit-promise gossip catch-up. Grounded in Lean 4.33.1 formal proofs and TigerBeetle superblock architecture.</div>
-  </header>
+<header>
+  <div class="kicker">uVRR · Viewstamped Replication, from 101 to done</div>
+  <h1>The Consistency Ladder</h1>
+  <div class="subhead">One node to a replicated brain — mirroring and the
+  split brain, the majority and the arithmetic of 2F+1, views and the
+  primary, the two-round-trip fast path with no disk on it, failover by
+  view change, and a new identity for a crashed node — safety by
+  construction. Nine short clips; skip between the bookmarks.</div>
+</header>
 
-  <!-- Visual Canvas & Toolbar -->
-  <div class="viewport-card">
-    <div class="svg-wrapper">
-      <svg id="stage-svg" viewBox="0 0 960 480">
-        <defs>
-          <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#ffb000" />
-          </marker>
-          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-          </filter>
-        </defs>
+<div class="stage-card">
+  <div class="scene-topbar">
+    <div>
+      <div class="rung" id="rung-no">Rung 1 of 9</div>
+      <div class="clip-title" id="clip-title">One node: your data, one machine</div>
+    </div>
+    <div class="time" id="time-end">0:00</div>
+  </div>
+  <div class="scene-slot">
+    <svg viewBox="0 0 960 480" preserveAspectRatio="xMidYMid meet"
+         aria-label="Consistency ladder animation stage">
+      <defs>
+        <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.14"/>
+        </filter>
+        <filter id="softer" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.10"/>
+        </filter>
+        <linearGradient id="plat" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#f8fafc"/><stop offset="1" stop-color="#e8edf6"/>
+        </linearGradient>
+        <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+        </marker>
+        <marker id="arrG" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/>
+        </marker>
+      </defs>
 
-        <!-- Static Network Lines -->
-        <g stroke="#e2e8f0" stroke-width="2" stroke-dasharray="4 4">
-          <line x1="480" y1="110" x2="220" y2="330" />
-          <line x1="480" y1="110" x2="740" y2="330" />
-          <line x1="220" y1="330" x2="740" y2="330" />
+      <!-- shared ground line -->
+      <rect x="0" y="0" width="960" height="480" fill="url(#plat)"/>
+
+      <!-- ===== clip 1: one node ===== -->
+      <g class="scene" id="sc-one-node">
+        <ellipse cx="480" cy="330" rx="120" ry="16" fill="#dbe3f0" opacity=".7"/>
+        <g id="c1-server" filter="url(#soft)">
+          <rect x="410" y="180" width="140" height="130" rx="12" fill="#ffffff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="410" y="180" width="140" height="30" rx="12" fill="#648fff"/>
+          <text x="480" y="200" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">YOUR DATA</text>
+          <g id="c1-lights">
+            <circle cx="430" cy="228" r="4" fill="#16a34a"/><circle cx="444" cy="228" r="4" fill="#16a34a"/><circle cx="458" cy="228" r="4" fill="#16a34a"/>
+          </g>
+          <rect x="430" y="244" width="100" height="10" rx="3" fill="#eef2fb"/>
+          <rect x="430" y="260" width="100" height="10" rx="3" fill="#eef2fb"/>
+          <rect x="430" y="276" width="100" height="10" rx="3" fill="#eef2fb"/>
         </g>
-
-        <!-- Message Tracks & Animation Objects -->
-        <g id="message-layer"></g>
-
-        <!-- Node 0: Primary (Top Center) -->
-        <g id="node-0" transform="translate(480, 110)">
-          <circle r="46" fill="#648fff" stroke="#0f172a" stroke-width="3" />
-          <text text-anchor="middle" y="-6" fill="#ffffff" font-weight="bold" font-size="16">N₀ (Leader)</text>
-          <text id="n0-role" text-anchor="middle" y="14" fill="#ffffff" font-size="11">Era 1 | Primary</text>
-          <g id="n0-superblocks" transform="translate(-24, 22)"></g>
-          <text text-anchor="middle" y="66" fill="#0f172a" font-size="11" font-weight="600">Weight: 1</text>
+        <g id="c1-blocks"></g>
+        <g id="c1-clients" font-size="13" fill="#5b6b84">
+          <circle cx="150" cy="120" r="7" fill="#eef2fb" stroke="#c9d4e6"/><text x="165" y="125">client</text>
+          <path d="M160 128 Q 300 128 405 215" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)" id="c1-req"/>
         </g>
-
-        <!-- Node 1: Backup (Bottom Left) -->
-        <g id="node-1" transform="translate(220, 330)">
-          <circle r="46" fill="#785ef0" stroke="#0f172a" stroke-width="3" />
-          <text text-anchor="middle" y="-6" fill="#ffffff" font-weight="bold" font-size="16">N₁ (Backup)</text>
-          <text id="n1-role" text-anchor="middle" y="14" fill="#ffffff" font-size="11">Era 1 | Normal</text>
-          <g id="n1-superblocks" transform="translate(-24, 22)"></g>
-          <text text-anchor="middle" y="66" fill="#0f172a" font-size="11" font-weight="600">Weight: 1</text>
+        <g id="c1-crash" opacity="0">
+          <text x="480" y="150" text-anchor="middle" font-size="17" font-weight="800" fill="#dc2626">✕ POWER LOST</text>
         </g>
+        <text id="c1-cap" x="480" y="415" text-anchor="middle" font-size="15" fill="#5b6b84">one machine · one copy · no resilience</text>
+      </g>
 
-        <!-- Node 2 / Node 2 Prime (Bottom Right) -->
-        <g id="node-2" transform="translate(740, 330)">
-          <circle id="n2-circle" r="46" fill="#dc267f" stroke="#0f172a" stroke-width="3" />
-          <text id="n2-title" text-anchor="middle" y="-6" fill="#ffffff" font-weight="bold" font-size="16">N₂ (Backup)</text>
-          <text id="n2-role" text-anchor="middle" y="14" fill="#ffffff" font-size="11">Era 1 | Normal</text>
-          <g id="n2-superblocks" transform="translate(-24, 22)"></g>
-          <text id="n2-weight" text-anchor="middle" y="66" fill="#0f172a" font-size="11" font-weight="600">Weight: 1</text>
-          <!-- Crash cross marker -->
-          <g id="crash-marker" opacity="0">
-            <line x1="-30" y1="-30" x2="30" y2="30" stroke="#dc2626" stroke-width="8" stroke-linecap="round" />
-            <line x1="30" y1="-30" x2="-30" y2="30" stroke="#dc2626" stroke-width="8" stroke-linecap="round" />
+      <!-- ===== clip 2: two nodes, split brain ===== -->
+      <g class="scene" id="sc-split-brain">
+        <g id="c2-nodeL" filter="url(#soft)">
+          <rect x="150" y="190" width="130" height="110" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="150" y="190" width="130" height="26" rx="12" fill="#785ef0"/>
+          <text x="215" y="208" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">NODE A</text>
+          <text id="c2-valL" x="215" y="262" text-anchor="middle" font-size="26" font-weight="800" fill="#785ef0">x=1</text>
+        </g>
+        <g id="c2-nodeR" filter="url(#soft)">
+          <rect x="680" y="190" width="130" height="110" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="680" y="190" width="130" height="26" rx="12" fill="#dc267f"/>
+          <text x="745" y="208" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">NODE B</text>
+          <text id="c2-valR" x="745" y="262" text-anchor="middle" font-size="26" font-weight="800" fill="#dc267f">x=1</text>
+        </g>
+        <g id="c2-wire">
+          <line x1="280" y1="245" x2="680" y2="245" stroke="#94a3b8" stroke-width="4"/>
+          <text x="480" y="230" text-anchor="middle" font-size="12" fill="#5b6b84">the mirror link</text>
+        </g>
+        <g id="c2-break" opacity="0">
+          <line x1="280" y1="245" x2="680" y2="245" stroke="#f6f8fb" stroke-width="7"/>
+          <g stroke="#dc2626" stroke-width="3">
+            <line x1="455" y1="228" x2="505" y2="262"/><line x1="505" y1="228" x2="455" y2="262"/>
           </g>
         </g>
-
-        <!-- Status Pill Overlay -->
-        <g id="overlay-card" transform="translate(480, 240)">
-          <rect x="-190" y="-22" width="380" height="44" rx="22" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5" filter="url(#glow)" />
-          <text id="status-pill-text" text-anchor="middle" y="6" font-size="13" font-weight="700" fill="#0f172a">Initialising...</text>
+        <g id="c2-q" opacity="0" font-size="14">
+          <rect x="380" y="60" width="200" height="34" rx="8" fill="#fff" stroke="#c9d4e6" filter="url(#softer)"/>
+          <text x="480" y="82" text-anchor="middle" fill="#0f172a">client asks: what is x?</text>
         </g>
-      </svg>
-    </div>
+        <g id="c2-ansL" opacity="0">
+          <path d="M300 245 Q 250 160 385 100" fill="none" stroke="#785ef0" stroke-width="2.5" marker-end="url(#arr)"/>
+        </g>
+        <g id="c2-ansR" opacity="0">
+          <path d="M660 245 Q 710 160 575 100" fill="none" stroke="#dc267f" stroke-width="2.5" marker-end="url(#arr)"/>
+        </g>
+        <g id="c2-brain" opacity="0">
+          <path d="M470 390 C 470 372, 480 366, 480 366 C 480 366 490 372, 490 390" fill="none" stroke="#0f172a" stroke-width="3"/>
+          <line x1="480" y1="358" x2="480" y2="400" stroke="#dc2626" stroke-width="3"/>
+          <text x="480" y="428" text-anchor="middle" font-size="15" font-weight="700" fill="#dc2626">two histories of one truth</text>
+        </g>
+        <text x="480" y="455" text-anchor="middle" font-size="15" fill="#5b6b84">a mirror duplicates authority — it does not remove failure</text>
+      </g>
 
-    <!-- Controls Toolbar -->
-    <div class="toolbar">
-      <div class="btn-group">
-        <button id="btn-first" title="First Stage">|&lt;&lt;</button>
-        <button id="btn-prev" title="Previous Stage">&lt;</button>
-        <button id="btn-play" class="primary" title="Play / Pause">▶ Play</button>
-        <button id="btn-next" title="Next Stage">&gt;</button>
-        <button id="btn-last" title="Last Stage">&gt;&gt;|</button>
-      </div>
+      <!-- ===== clip 3: three nodes, majority ===== -->
+      <g class="scene" id="sc-majority">
+        <g id="c3-map" opacity="0">
+          <rect x="60" y="70" width="840" height="340" rx="18" fill="#eef3fb" stroke="#d5dfee"/>
+          <text x="90" y="100" font-size="13" font-weight="700" fill="#5b6b84">three cloud regions · separate power · separate networks</text>
+          <g id="c3-pins"></g>
+          <g id="c3-links" stroke="#8fb0ff" stroke-width="2.5" stroke-dasharray="2 7" fill="none">
+            <path d="M180 340 Q 480 150 780 340"/>
+          </g>
+          <text x="480" y="150" text-anchor="middle" font-size="12" fill="#3b5bdb">fast interconnects</text>
+        </g>
+        <g id="c3-tri">
+          <path d="M480 190 L340 340 L620 340 Z" fill="none" stroke="#c9d4e6" stroke-width="2" stroke-dasharray="4 6"/>
+        </g>
+        <g class="c3-node" id="c3-n1" filter="url(#soft)">
+          <rect x="430" y="150" width="100" height="86" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="430" y="150" width="100" height="24" rx="12" fill="#648fff"/><text x="480" y="167" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">NODE 1</text>
+          <circle id="c3-dot1" cx="480" cy="205" r="13" fill="#eef2fb" stroke="#c9d4e6" stroke-width="2"/>
+        </g>
+        <g class="c3-node" id="c3-n2" filter="url(#soft)">
+          <rect x="288" y="300" width="100" height="86" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="288" y="300" width="100" height="24" rx="12" fill="#785ef0"/><text x="338" y="317" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">NODE 2</text>
+          <circle id="c3-dot2" cx="338" cy="355" r="13" fill="#eef2fb" stroke="#c9d4e6" stroke-width="2"/>
+        </g>
+        <g class="c3-node" id="c3-n3" filter="url(#soft)">
+          <rect x="572" y="300" width="100" height="86" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="572" y="300" width="100" height="24" rx="12" fill="#dc267f"/><text x="622" y="317" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">NODE 3</text>
+          <circle id="c3-dot3" cx="622" cy="355" r="13" fill="#eef2fb" stroke="#c9d4e6" stroke-width="2"/>
+        </g>
+        <g id="c3-votes" opacity="0" font-size="13" font-weight="800">
+          <text x="480" y="210" text-anchor="middle" fill="#16a34a" id="c3-v1">✓</text>
+          <text x="338" y="360" text-anchor="middle" fill="#16a34a" id="c3-v2">✓</text>
+        </g>
+        <g id="c3-dead" opacity="0">
+          <rect x="572" y="300" width="100" height="86" rx="12" fill="#f1f5f9" stroke="#e4e9f2"/>
+          <text x="622" y="347" text-anchor="middle" font-size="22" fill="#94a3b8">✕</text>
+          <text x="622" y="372" text-anchor="middle" font-size="10" fill="#94a3b8">one may die</text>
+        </g>
+        <text x="480" y="445" text-anchor="middle" font-size="15" fill="#5b6b84">any two overlap — the majority is the system's memory</text>
+      </g>
 
-      <div class="slider-container">
-        <input type="range" id="stage-slider" min="0" max="7" value="0" step="1">
-        <span class="stage-pill" id="stage-badge">Stage 1 of 8</span>
-      </div>
+      <!-- ===== clip 4: 2F+1 ===== -->
+      <g class="scene" id="sc-arithmetic">
+        <g id="c4-formula" filter="url(#softer)">
+          <rect x="330" y="70" width="300" height="64" rx="14" fill="#fff" stroke="#c9d4e6"/>
+          <text id="c4-eq" x="480" y="112" text-anchor="middle" font-size="34" font-weight="800" fill="#0f172a">2F+1</text>
+        </g>
+        <g id="c4-row1">
+          <text x="270" y="215" text-anchor="end" font-size="15" fill="#5b6b84">F = 1</text>
+          <g id="c4-dots1"></g>
+          <text x="700" y="215" font-size="15" font-weight="700" fill="#16a34a" id="c4-t1">lose 1 of 3</text>
+        </g>
+        <g id="c4-row2">
+          <text x="270" y="315" text-anchor="end" font-size="15" fill="#5b6b84">F = 2</text>
+          <g id="c4-dots2"></g>
+          <text x="700" y="315" font-size="15" font-weight="700" fill="#16a34a" id="c4-t2">lose 2 of 5</text>
+        </g>
+        <g id="c4-minority" opacity="0">
+          <rect x="230" y="360" width="500" height="58" rx="12" fill="#fff" stroke="#c9d4e6" filter="url(#softer)"/>
+          <text x="480" y="396" text-anchor="middle" font-size="14.5" fill="#0f172a">below a majority: <tspan font-weight="800" fill="#dc2626">stop and wait</tspan> — a stale answer is worse than none</text>
+        </g>
+      </g>
 
-      <div class="btn-group">
-        <button id="speed-toggle">1.0x Speed</button>
-      </div>
-    </div>
+      <!-- ===== clip 5: five then three ===== -->
+      <g class="scene" id="sc-five-then-three">
+        <g id="c5-five"></g>
+        <g id="c5-svc">
+          <rect x="330" y="90" width="300" height="26" rx="13" fill="#eef2fb"/>
+          <rect id="c5-svcfill" x="330" y="90" width="300" height="26" rx="13" fill="#16a34a" opacity=".25"/>
+          <text x="480" y="108" text-anchor="middle" font-size="11.5" font-weight="700" fill="#166534">SERVICE — never interrupted</text>
+        </g>
+        <g id="c5-loselbl" opacity="0">
+          <text x="480" y="200" text-anchor="middle" font-size="14" fill="#dc2626" font-weight="700">two lost — the majority survives</text>
+        </g>
+        <g id="c5-tri" opacity="0">
+          <path d="M480 260 L400 380 L560 380 Z" fill="none" stroke="#c9d4e6" stroke-width="2" stroke-dasharray="4 6"/>
+          <circle cx="480" cy="290" r="17" fill="#648fff"/><circle cx="430" cy="368" r="17" fill="#785ef0"/><circle cx="530" cy="368" r="17" fill="#dc267f"/>
+          <text x="480" y="295" text-anchor="middle" fill="#fff" font-size="10" font-weight="800">1</text>
+          <text x="430" y="373" text-anchor="middle" fill="#fff" font-size="10" font-weight="800">2</text>
+          <text x="530" y="373" text-anchor="middle" fill="#fff" font-size="10" font-weight="800">3</text>
+          <text x="480" y="430" text-anchor="middle" font-size="14.5" fill="#5b6b84">back to three for the rest of the walk — same arithmetic at any size</text>
+        </g>
+      </g>
+
+      <!-- ===== clip 6: views and the primary ===== -->
+      <g class="scene" id="sc-views">
+        <g id="c6-viewbox" filter="url(#softer)">
+          <rect x="380" y="58" width="200" height="46" rx="10" fill="#fff" stroke="#c9d4e6"/>
+          <text id="c6-view" x="480" y="89" text-anchor="middle" font-size="21" font-weight="800" fill="#3b5bdb">view 7</text>
+        </g>
+        <path d="M480 170 L360 320 L600 320 Z" fill="none" stroke="#c9d4e6" stroke-width="2" stroke-dasharray="4 6"/>
+        <g id="c6-n0" filter="url(#soft)">
+          <rect x="430" y="130" width="100" height="86" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="430" y="130" width="100" height="24" rx="12" fill="#648fff"/><text x="480" y="147" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">PRIMARY</text>
+          <text x="480" y="192" text-anchor="middle" font-size="12" fill="#5b6b84">decides the order</text>
+        </g>
+        <g filter="url(#soft)">
+          <rect x="308" y="280" width="100" height="86" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="308" y="280" width="100" height="24" rx="12" fill="#785ef0"/><text x="358" y="297" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">BACKUP</text>
+          <text x="358" y="342" text-anchor="middle" font-size="12" fill="#5b6b84">follows</text>
+        </g>
+        <g filter="url(#soft)">
+          <rect x="552" y="280" width="100" height="86" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="552" y="280" width="100" height="24" rx="12" fill="#dc267f"/><text x="602" y="297" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">BACKUP</text>
+          <text x="602" y="342" text-anchor="middle" font-size="12" fill="#5b6b84">follows</text>
+        </g>
+        <text id="c6-crown" x="480" y="122" font-size="30" text-anchor="middle" fill="#0f172a">♛</text>
+        <text x="480" y="445" text-anchor="middle" font-size="15" fill="#5b6b84">leadership lives in the majority's memory — numbered by the view</text>
+      </g>
+
+      <!-- ===== clip 7: normal path ===== -->
+      <g class="scene" id="sc-normal-path">
+        <g filter="url(#softer)">
+          <rect x="70" y="200" width="130" height="56" rx="12" fill="#fff" stroke="#c9d4e6"/>
+          <text x="135" y="234" text-anchor="middle" font-size="13" font-weight="700" fill="#0f172a">CLIENT</text>
+        </g>
+        <g filter="url(#soft)">
+          <rect x="330" y="150" width="130" height="86" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="330" y="150" width="130" height="24" rx="12" fill="#648fff"/><text x="395" y="167" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">PRIMARY</text>
+          <text x="395" y="215" text-anchor="middle" font-size="12" fill="#5b6b84">appends to the log</text>
+        </g>
+        <g filter="url(#soft)">
+          <rect x="590" y="120" width="120" height="80" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="590" y="120" width="120" height="22" rx="11" fill="#785ef0"/><text x="650" y="136" text-anchor="middle" fill="#fff" font-size="10.5" font-weight="700">BACKUP</text>
+        </g>
+        <g filter="url(#soft)">
+          <rect x="590" y="260" width="120" height="80" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="590" y="260" width="120" height="22" rx="11" fill="#dc267f"/><text x="650" y="276" text-anchor="middle" fill="#fff" font-size="10.5" font-weight="700">BACKUP</text>
+        </g>
+        <g id="c7-msgs">
+          <path id="c7-p1" d="M205 220 Q 270 220 325 205" fill="none" stroke="#0f172a" stroke-width="2.5" marker-end="url(#arr)"/>
+          <path id="c7-p2" d="M465 185 Q 530 165 585 160" fill="none" stroke="#ffb000" stroke-width="2.5" marker-end="url(#arr)"/>
+          <path id="c7-p3" d="M465 215 Q 530 250 585 290" fill="none" stroke="#ffb000" stroke-width="2.5" marker-end="url(#arr)"/>
+          <path id="c7-a2" d="M585 180 Q 530 195 470 195" fill="none" stroke="#16a34a" stroke-width="2.5" marker-end="url(#arrG)"/>
+          <path id="c7-a3" d="M585 300 Q 530 260 470 220" fill="none" stroke="#16a34a" stroke-width="2.5" marker-end="url(#arrG)"/>
+          <path id="c7-c2" d="M465 200 Q 300 235 208 232" fill="none" stroke="#16a34a" stroke-width="3" marker-end="url(#arrG)"/>
+        </g>
+        <g font-size="12" font-weight="700" fill="#5b6b84">
+          <text id="c7-l1" x="265" y="205" text-anchor="middle">request</text>
+          <text id="c7-l2" x="527" y="150" text-anchor="middle" fill="#b8860b">prepare</text>
+          <text id="c7-l3" x="527" y="240" text-anchor="middle" fill="#16a34a">ack · ack</text>
+          <text id="c7-l4" x="330" y="262" text-anchor="middle" fill="#16a34a">commit</text>
+        </g>
+        <g id="c7-log" filter="url(#softer)">
+          <rect x="330" y="290" width="130" height="70" rx="10" fill="#fff" stroke="#c9d4e6"/>
+          <text x="395" y="308" text-anchor="middle" font-size="10.5" font-weight="700" fill="#5b6b84">THE LOG</text>
+          <g id="c7-logslots"></g>
+        </g>
+        <g id="c7-disk" opacity="0">
+          <ellipse cx="810" cy="216" rx="30" ry="10" fill="none" stroke="#94a3b8" stroke-width="3"/>
+          <rect x="780" y="188" width="60" height="28" rx="6" fill="#fff" stroke="#94a3b8" stroke-width="3"/>
+          <line x1="770" y1="250" x2="850" y2="166" stroke="#dc2626" stroke-width="4"/>
+          <line x1="770" y1="166" x2="850" y2="250" stroke="#dc2626" stroke-width="4"/>
+          <text x="810" y="286" text-anchor="middle" font-size="12" font-weight="800" fill="#dc2626">no disk on the path</text>
+        </g>
+        <text x="480" y="445" text-anchor="middle" font-size="15" fill="#5b6b84">two round trips — prepare to a majority, then commit — zero disk writes</text>
+      </g>
+
+      <!-- ===== clip 8: failover ===== -->
+      <g class="scene" id="sc-failover">
+        <g id="c8-viewbox" filter="url(#softer)">
+          <rect x="380" y="58" width="200" height="46" rx="10" fill="#fff" stroke="#c9d4e6"/>
+          <text id="c8-view" x="480" y="89" text-anchor="middle" font-size="21" font-weight="800" fill="#3b5bdb">view 7</text>
+        </g>
+        <path d="M480 170 L360 320 L600 320 Z" fill="none" stroke="#c9d4e6" stroke-width="2" stroke-dasharray="4 6"/>
+        <g id="c8-n0">
+          <rect x="430" y="130" width="100" height="86" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="430" y="130" width="100" height="24" rx="12" fill="#648fff"/><text x="480" y="147" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">PRIMARY</text>
+          <text x="480" y="192" text-anchor="middle" font-size="12" fill="#5b6b84">heartbeats…</text>
+        </g>
+        <g id="c8-dead" opacity="0">
+          <rect x="430" y="130" width="100" height="86" rx="12" fill="#f1f5f9" stroke="#e4e9f2"/>
+          <rect x="430" y="130" width="100" height="24" rx="12" fill="#94a3b8"/><text x="480" y="147" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">PRIMARY</text>
+          <text x="480" y="192" text-anchor="middle" font-size="20" fill="#94a3b8">✕</text>
+        </g>
+        <g id="c8-ripple"></g>
+        <g filter="url(#soft)">
+          <rect x="308" y="280" width="100" height="86" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="308" y="280" width="100" height="24" rx="12" fill="#785ef0"/><text x="358" y="297" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">BACKUP</text>
+        </g>
+        <g filter="url(#soft)">
+          <rect x="552" y="280" width="100" height="86" rx="12" fill="#fff" stroke="#c9d4e6" stroke-width="2"/>
+          <rect x="552" y="280" width="100" height="24" rx="12" fill="#dc267f"/><text x="602" y="297" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">BACKUP</text>
+        </g>
+        <g id="c8-vc" opacity="0">
+          <path d="M360 280 Q 480 235 600 280" fill="none" stroke="#3b5bdb" stroke-width="2.5" stroke-dasharray="3 5" marker-end="url(#arr)"/>
+          <text x="480" y="252" text-anchor="middle" font-size="11.5" font-weight="700" fill="#3b5bdb">view change: exchange what we know · elect</text>
+        </g>
+        <text id="c8-crown" x="480" y="122" font-size="30" text-anchor="middle" fill="#0f172a">♛</text>
+        <g id="c8-resume" opacity="0">
+          <rect x="330" y="396" width="300" height="26" rx="13" fill="#16a34a" opacity=".2"/>
+          <text x="480" y="414" text-anchor="middle" font-size="11.5" font-weight="700" fill="#166534">SERVICE RESUMES — the log continues exactly</text>
+        </g>
+        <text x="480" y="455" text-anchor="middle" font-size="15" fill="#5b6b84">failover costs round trips, not disk flushes</text>
+      </g>
+
+      <!-- ===== clip 9: new identity ===== -->
+      <g class="scene" id="sc-new-identity">
+        <g id="c9-old" filter="url(#softer)">
+          <rect x="120" y="160" width="180" height="120" rx="12" fill="#fff" stroke="#c9d4e6"/>
+          <rect x="120" y="160" width="180" height="26" rx="12" fill="#94a3b8"/><text x="210" y="178" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">IDENTITY N2</text>
+          <text x="210" y="225" text-anchor="middle" font-size="13" fill="#5b6b84">crashed · forgot its promises</text>
+          <g id="c9-stamp" opacity="0">
+            <rect x="139" y="238" width="142" height="30" rx="6" fill="none" stroke="#dc2626" stroke-width="3"/>
+            <text x="210" y="259" text-anchor="middle" font-size="15" font-weight="900" fill="#dc2626" letter-spacing="2">FINAL</text>
+          </g>
+        </g>
+        <path id="c9-stream" d="M320 300 Q 480 300 600 240" fill="none" stroke="#fe6100" stroke-width="3" marker-end="url(#arr)" opacity="0"/>
+        <g id="c9-new" filter="url(#soft)" opacity="0">
+          <rect x="600" y="160" width="190" height="120" rx="12" fill="#fff" stroke="#fe6100" stroke-width="2"/>
+          <rect x="600" y="160" width="190" height="26" rx="12" fill="#fe6100"/><text x="695" y="178" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">NEW IDENTITY N2′</text>
+          <text id="c9-w0" x="695" y="212" text-anchor="middle" font-size="13" fill="#5b6b84">weight 0 — cannot vote</text>
+          <circle id="c9-ring-bg" cx="695" cy="252" r="18" fill="none" stroke="#e4e9f2" stroke-width="5"/>
+          <circle id="c9-ring" cx="695" cy="252" r="18" fill="none" stroke="#fe6100" stroke-width="5"
+                  stroke-dasharray="113" stroke-dashoffset="113" transform="rotate(-90 695 252)" stroke-linecap="round"/>
+          <g id="c9-promoted" opacity="0">
+            <rect x="615" y="238" width="160" height="28" rx="8" fill="#16a34a"/>
+            <text x="695" y="257" text-anchor="middle" font-size="12.5" font-weight="800" fill="#fff">weight 1 — by a committed vote</text>
+          </g>
+        </g>
+        <g id="c9-era" filter="url(#softer)">
+          <rect x="410" y="60" width="140" height="40" rx="10" fill="#fff" stroke="#c9d4e6"/>
+          <text id="c9-eratxt" x="480" y="87" text-anchor="middle" font-size="17" font-weight="800" fill="#3b5bdb">era 12</text>
+        </g>
+        <text x="480" y="445" text-anchor="middle" font-size="15" fill="#5b6b84">the old identity never votes again — safety by construction</text>
+      </g>
+    </svg>
   </div>
+</div>
 
-  <!-- Audio Player & Sync Status -->
-  <div class="audio-card">
-    <audio id="podcast-audio" controls preload="auto">
-      <source src="podcast.mp3" type="audio/mpeg">
-      Your browser does not support the audio element.
-    </audio>
-    <div class="sync-badge">
-      <span class="pulse-dot"></span>
-      <span id="sync-status-text">Audio-Synchronised Playback Active</span>
+<div class="transport">
+  <div class="transport-row">
+    <button class="tbtn" id="btn-prev" title="Previous bookmark (←)">⏮</button>
+    <button class="tbtn big" id="btn-play" title="Play / pause (space)">▶</button>
+    <button class="tbtn" id="btn-next" title="Next bookmark (→)">⏭</button>
+    <div class="time" id="time-now">0:00</div>
+    <div class="scrub-wrap">
+      <input type="range" class="scrub" id="scrub" min="0" max="100" step="0.05" value="0">
+      <div class="marks" id="marks"></div>
     </div>
+    <div class="time" id="time-total">0:00</div>
   </div>
-
-  <!-- Details & Transcript Grid -->
-  <div class="details-grid">
-    <!-- Theory & Protocol Inspector -->
-    <div class="detail-card">
-      <h2 id="stage-title">Stage 1: Steady-State Replication at Era 1</h2>
-      <div id="stage-rule-box" class="rule-box green">
-        <strong>Protocol Invariant:</strong> Volatile normal-path replication. Strict weighted majority {N₀, N₁} maintains linearizability with zero disk writes on the critical path.
-      </div>
-      <ul id="stage-bullet-list" class="stage-bullets">
-        <li>Cluster operating in genesis configuration (Era 1, unit weights [1, 1, 1]).</li>
-        <li>Node 0 is the primary; Nodes 1 and 2 act as backups.</li>
-        <li>Storage superblocks are in the vouched clean state (all replicas running).</li>
-      </ul>
-      <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-muted);">
-        <strong>Formal Reference:</strong> <span id="formal-citation">paper.tex §1; docs/uvrr-boot-gate.md §1</span>
-      </div>
-    </div>
-
-    <!-- Podcast Transcript with Active Highlighting -->
-    <div class="detail-card">
-      <h2>Two-Speaker Discussion (Alex & Dr. Morgan)</h2>
-      <div class="transcript-box" id="transcript-container">
-        <!-- Rendered via JS -->
-      </div>
-    </div>
+  <div class="foot">
+    <kbd>space</kbd> play · <kbd>←</kbd><kbd>→</kbd> skip bookmarks ·
+    click a tick or a rung to jump · the ladder rail follows the clip
   </div>
+</div>
+
+<div class="rail" id="rail"></div>
+
+<div class="narration">
+  <h2>Narration — this clip</h2>
+  <p id="narration-text"></p>
+</div>
 
 </div>
 
+<audio id="audio" preload="auto">
+  <source src="podcast.mp3" type="audio/mpeg">
+</audio>
+
+<script src="cues.js"></script>
 <script>
-// Stage Definitions & State Invariants
-const STAGES = [
-  {
-    stage: 1,
-    title: "Stage 1: Steady-State Replication at Era 1",
-    ruleType: "green",
-    rule: "Protocol Invariant: Volatile normal-path replication. Consensus is held strictly in volatile quorum memory with zero disk writes on the critical path.",
-    bullets: [
-      "Cluster configuration is in genesis Era 1 with unit weights [1, 1, 1].",
-      "Node 0 is primary; Nodes 1 & 2 process Prepares and Commits.",
-      "Any majority of 2 voters ({N₀, N₁}, {N₀, N₂}, or {N₁, N₂}) commits client operations."
-    ],
-    citation: "formal/uvrr-lean/paper/paper.tex §1; docs/uvrr-boot-gate.md §1",
-    pillText: "Steady State: Era 1 [1, 1, 1] Normal Consensus",
-    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
-    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
-    n2: { title: "N₂ (Backup)", role: "Era 1 | Normal", fill: "#dc267f", weight: 1, crashed: false },
-    messages: [
-      { from: [480, 110], to: [220, 330], label: "Prepare #101", offset: 0.2 },
-      { from: [480, 110], to: [740, 330], label: "Prepare #101", offset: 0.6 }
-    ]
-  },
-  {
-    stage: 2,
-    title: "Stage 2: Node 2 Crashes (Power Loss / SIGKILL)",
-    ruleType: "red",
-    rule: "Finality Rule: A crash is final for the protocol identity. The old node identity is permanently retired and will never speak or vote again.",
-    bullets: [
-      "Sudden power loss or SIGKILL wipes volatile memory on Node 2.",
-      "Zero disk writes are performed during the crash (diskless normal path).",
-      "Quorum {N₀, N₁} retains mass 2 of 3 and continues committing without stalling."
-    ],
-    citation: "Michael et al. (UW-CSE-16-08-02); docs/uvrr-boot-gate.md §1",
-    pillText: "N₂ Crash: Volatile Memory Wiped — Zero Disk Writes",
-    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
-    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
-    n2: { title: "N₂ (Crashed)", role: "Dead / Unresponsive", fill: "#94a3b8", weight: 1, crashed: true },
-    messages: [
-      { from: [480, 110], to: [220, 330], label: "Prepare #102", offset: 0.3 },
-      { from: [220, 330], to: [480, 110], label: "PrepareOk #102", offset: 0.7 }
-    ]
-  },
-  {
-    stage: 3,
-    title: "Stage 3: Superblock Quorum Read at Boot Gate",
-    ruleType: "amber",
-    rule: "Disambiguation Rule: 3 marker states (RUNNING, STOPPED, FLUSHED) classify torn 4-copy superblock writes. Absence of FLUSHED quorum proves dirty crash.",
-    bullets: [
-      "Node 2 powers on and reads its 4 spaced TigerBeetle-style superblock copies.",
-      "Reads copies: [RUNNING, RUNNING, RUNNING, STOPPED]. No FLUSHED quorum exists.",
-      "Minimum-progress classifier declares Crashed. Zero disk flush paid on boot!"
-    ],
-    citation: "docs/uvrr-boot-gate.md §2-§3; tests/lifecycle.rs",
-    pillText: "Boot Gate: Quorum Read [RUNNING, STOPPED] ≡ Crashed",
-    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
-    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
-    n2: { title: "N₂ (Booting)", role: "Superblock Read: Crashed", fill: "#cbd5e1", weight: 0, crashed: false },
-    messages: [
-      { from: [740, 370], to: [740, 330], label: "Superblock Read (4x)", offset: 0.5 }
-    ]
-  },
-  {
-    stage: 4,
-    title: "Stage 4: Blank Boot at Era 0 & Reincarnation as N₂'",
-    ruleType: "amber",
-    rule: "Amnesia Invariant: Resumption of crashed identity is unrepresentable. N₂ reincarnates as newborn N₂' at Era 0 with zero prior promises.",
-    bullets: [
-      "Old identity N₂ is retired forever. Replacement spawns as N₂' (Orange #fe6100).",
-      "N₂' starts at Era 0. Genesis era is 1; in-cluster sync to Era 0 is refused by construction.",
-      "A newborn has made no prior commitments, eliminating the Michael et al. amnesia bug."
-    ],
-    citation: "docs/uvrr-boot-gate.md §4; UVRR/Reincarnation.lean (amnesia_unreachable)",
-    pillText: "Reincarnation: N₂' Spawned at Era 0 (Blank / Standby)",
-    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
-    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
-    n2: { title: "N₂' (Newborn)", role: "Era 0 | Standby", fill: "#fe6100", weight: 0, crashed: false },
-    messages: []
-  },
-  {
-    stage: 5,
-    title: "Stage 5: Outer Join Gossip Broadcast",
-    ruleType: "blue",
-    rule: "Discovery Rule: Uninitialised nodes find the cluster via outer gossip outside the consensus engine, broadcasting known frontier (slot 0).",
-    bullets: [
-      "N₂' emits authenticated JoinGossip packets to all known peers (N₀ and N₁).",
-      "Carries frontier slot 0: 'I am N₂', my frontier is 0, what is the current era?'",
-      "Outer gossip bypasses consensus view fences to discover current era safely."
-    ],
-    citation: "docs/uvrr-rejoin-gossip-and-witnesses.md §2; UVRR/Witness.lean",
-    pillText: "Outer Gossip: N₂' Broadcasts Join Request (Frontier 0)",
-    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
-    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
-    n2: { title: "N₂' (Joiner)", role: "Era 0 | Gossiping", fill: "#fe6100", weight: 0, crashed: false },
-    messages: [
-      { from: [740, 330], to: [480, 110], label: "JoinGossip (frontier=0)", offset: 0.3 },
-      { from: [740, 330], to: [220, 330], label: "JoinGossip (frontier=0)", offset: 0.7 }
-    ]
-  },
-  {
-    stage: 6,
-    title: "Stage 6: Leader Witness Stream & Telescoping",
-    ruleType: "blue",
-    rule: "Equivalence Theorem: Gossip ≡ recovery without memory. Leader streams Phase-2s + commits; Phase-2 at view v raises promise floor to v.",
-    bullets: [
-      "Leader N₀ registers N₂' on its gossip-witness list.",
-      "N₀ streams contiguous missed Phase-2 log entries (slots 1..100) and commits.",
-      "Lean theorems H1–H5 prove adopted era ≤ committed era; stream telescopes in 1 RTT."
-    ],
-    citation: "research/trex-vrr-gossip-equivalence.md §2; UVRR/Witness.lean H1–H5",
-    pillText: "Witness Stream: Leader N₀ Pushes Missed Suffix & Commits",
-    n0: { role: "Era 1 | Primary", fill: "#648fff", weight: 1 },
-    n1: { role: "Era 1 | Normal", fill: "#785ef0", weight: 1 },
-    n2: { title: "N₂' (Witness)", role: "Era 1 | Streaming Catch-up", fill: "#fe6100", weight: 0, crashed: false },
-    messages: [
-      { from: [480, 110], to: [740, 330], label: "Stream(Phase2s 1..100, Commit)", offset: 0.5 }
-    ]
-  },
-  {
-    stage: 7,
-    title: "Stage 7: Two-Step Reconfiguration via Leader Overlap",
-    ruleType: "blue",
-    rule: "Turner Leader Overlap: 2 committed batches safely swap voting authority. Era 2: [Dec(N₂), Join(N₂')]; Era 3: [Inc(N₂'), Leave(N₂)].",
-    bullets: [
-      "Era 2: N₂ weight decremented 1→0; N₂' joins as weight-0 standby (weights [1, 1, 0, 0]).",
-      "Era 3: N₂' incremented 0→1; old N₂ evicted (weights [1, 1, 1]).",
-      "Turner Lemma 2: consecutive strict majorities overlap via leader's casting vote."
-    ],
-    citation: "formal/uvrr-lean/UVRR/Weights.lean; paper.tex Table 1",
-    pillText: "Reconfiguration: Era 2 (1,1,0,0) → Era 3 (1,1,1) via Casting Vote",
-    n0: { role: "Era 3 | Primary", fill: "#648fff", weight: 1 },
-    n1: { role: "Era 3 | Normal", fill: "#785ef0", weight: 1 },
-    n2: { title: "N₂' (Promoted)", role: "Era 3 | Voter Seated", fill: "#fe6100", weight: 1, crashed: false },
-    messages: [
-      { from: [480, 110], to: [220, 330], label: "Reconfig Batch E2/E3", offset: 0.4 },
-      { from: [480, 110], to: [740, 330], label: "Reconfig Batch E2/E3", offset: 0.8 }
-    ]
-  },
-  {
-    stage: 8,
-    title: "Stage 8: Seated Observation & Deferred RUNNING Latch",
-    ruleType: "green",
-    rule: "Deferred Latch Safety: RUNNING latch write was deferred off critical path until rejoin; engine mints Rejoined token, host forces 4x RUNNING.",
-    bullets: [
-      "Replica::rejoined() observes Normal status at voting weight ≥ 1 and mints Rejoined token.",
-      "Host LifecycleStore executes 4× forced write of RUNNING to superblocks.",
-      "Re-crash before this moment would have re-classified as crashed with zero penalty!"
-    ],
-    citation: "docs/uvrr-boot-gate.md §3, §6; src/lifecycle.rs",
-    pillText: "Seated: Rejoined Proof Token Mints 4× RUNNING Latch",
-    n0: { role: "Era 3 | Primary", fill: "#648fff", weight: 1 },
-    n1: { role: "Era 3 | Normal", fill: "#785ef0", weight: 1 },
-    n2: { title: "N₂' (Active)", role: "Era 3 | Normal (LATCHED)", fill: "#fe6100", weight: 1, crashed: false },
-    messages: [
-      { from: [740, 330], to: [740, 370], label: "4× RUNNING Latch Written", offset: 0.5 }
-    ]
-  }
-];
+"use strict";
 
-// Cues mapping for Audio Sync
-let CUES = null;
-let currentStageIdx = 0;
-let isPlaying = false;
-let playTimer = null;
-let playbackSpeed = 1.0;
+/* ---------- clip metadata (fallback timings are replaced by cues.js) ---------- */
+const FALLBACK = { total_duration: 0, clips: [
+  {id:"one-node",title:"One node: your data, one machine",start_time:0,end_time:0,text:"Run scripts/generate_podcast.py to synthesise the narration and the cue sheet."},
+] };
+const CUES = (window.UVRR_CUES && window.UVRR_CUES.clips && window.UVRR_CUES.clips.length > 1)
+  ? window.UVRR_CUES : FALLBACK;
+const CLIPS = CUES.clips;
+const TOTAL = CUES.total_duration || CLIPS[CLIPS.length-1].end_time;
 
-// Superblock mini-gauge builder
-function renderSuperblocks(containerId, countFlushed, countStopped, countRunning) {
-  const g = document.getElementById(containerId);
-  g.innerHTML = "";
-  const total = 4;
-  for (let i = 0; i < total; i++) {
-    const cx = i * 16;
-    let color = "#e2e8f0"; // unvouched
-    if (i < countFlushed) color = "#16a34a"; // green
-    else if (i < countFlushed + countStopped) color = "#2563eb"; // blue
-    else if (i < countFlushed + countStopped + countRunning) color = "#d97706"; // amber
-    
-    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    circle.setAttribute("cx", cx);
-    circle.setAttribute("cy", 0);
-    circle.setAttribute("r", 5);
-    circle.setAttribute("fill", color);
-    circle.setAttribute("stroke", "#0f172a");
-    circle.setAttribute("stroke-width", "1");
-    g.appendChild(circle);
+/* ---------- dom ---------- */
+const $ = (id) => document.getElementById(id);
+const audio = $("audio");
+const scrub = $("scrub");
+const marks = $("marks");
+const rail = $("rail");
+const scenes = {};
+for (const c of CLIPS) { const g = $("sc-" + c.id); if (g) scenes[c.id] = g; }
+
+/* ---------- helpers ---------- */
+const fmt = (s) => {
+  s = Math.max(0, s);
+  const m = Math.floor(s / 60), r = Math.floor(s % 60);
+  return m + ":" + String(r).padStart(2, "0");
+};
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, p) => a + (b - a) * p;
+/* progress within a clip, 0..1 */
+const prog = (i, t) => {
+  const c = CLIPS[i];
+  return clamp((t - c.start_time) / Math.max(0.01, c.end_time - c.start_time), 0, 1);
+};
+const clipIndexAt = (t) => {
+  for (let i = CLIPS.length - 1; i >= 0; i--) if (t >= CLIPS[i].start_time - 0.001) return i;
+  return 0;
+};
+
+/* ---------- scrubber + bookmark ticks ---------- */
+scrub.max = TOTAL;
+function buildMarks() {
+  marks.innerHTML = "";
+  for (const c of CLIPS) {
+    const m = document.createElement("div");
+    m.className = "mark";
+    m.style.left = (100 * c.start_time / TOTAL) + "%";
+    m.title = c.title;
+    m.dataset.at = c.start_time;
+    const l = document.createElement("div");
+    l.className = "mark-label";
+    l.style.left = m.style.left;
+    l.textContent = c.title.split(":")[0];
+    marks.appendChild(m); marks.appendChild(l);
   }
 }
+marks.addEventListener("click", (e) => {
+  const at = e.target.dataset.at;
+  if (at !== undefined) audio.currentTime = parseFloat(at);
+});
 
-// Render SVG Message Flights
-function renderMessages(messages) {
-  const g = document.getElementById("message-layer");
-  g.innerHTML = "";
-  messages.forEach((m, idx) => {
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    const [x1, y1] = m.from;
-    const [x2, y2] = m.to;
-    // Curved trajectory
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const cx = (x1 + x2) / 2 - dy * 0.15;
-    const cy = (y1 + y2) / 2 + dx * 0.15;
-    const d = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
-    path.setAttribute("d", d);
-    path.setAttribute("fill", "none");
-    path.setAttribute("stroke", "#ffb000");
-    path.setAttribute("stroke-width", "3");
-    path.setAttribute("stroke-dasharray", "6 4");
-    path.setAttribute("marker-end", "url(#arrow)");
-    g.appendChild(path);
-
-    // Message payload label badge
-    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    text.setAttribute("x", cx);
-    text.setAttribute("y", cy - 8);
-    text.setAttribute("fill", "#b45309");
-    text.setAttribute("font-size", "11");
-    text.setAttribute("font-weight", "bold");
-    text.setAttribute("text-anchor", "middle");
-    text.textContent = m.label;
-    g.appendChild(text);
+/* ---------- ladder rail ---------- */
+function buildRail() {
+  rail.innerHTML = "";
+  CLIPS.forEach((c, i) => {
+    const chip = document.createElement("button");
+    chip.className = "rung-chip";
+    chip.innerHTML = `<span class="n">${i+1}</span>${c.title.split(":")[0]}`;
+    chip.title = c.title;
+    chip.onclick = () => { audio.currentTime = c.start_time; if (audio.paused) play(); };
+    rail.appendChild(chip);
   });
 }
 
-function updateStage(idx) {
-  currentStageIdx = idx;
-  const s = STAGES[idx];
+/* ---------- transport ---------- */
+const btnPlay = $("btn-play");
+function play()  { audio.play();  }
+function pause() { audio.pause(); }
+btnPlay.onclick = () => audio.paused ? play() : pause();
+$("btn-prev").onclick = () => skip(-1);
+$("btn-next").onclick = () => skip(+1);
+function skip(dir) {
+  const i = clipIndexAt(audio.currentTime);
+  const c = CLIPS[i];
+  /* inside a clip past its first two seconds, prev restarts the clip */
+  const target = (dir < 0 && audio.currentTime - c.start_time > 2.0) ? i : clamp(i + dir, 0, CLIPS.length - 1);
+  audio.currentTime = CLIPS[target].start_time;
+  if (audio.paused) play();
+}
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  if (e.code === "Space")      { e.preventDefault(); audio.paused ? play() : pause(); }
+  if (e.key === "ArrowLeft")   { e.preventDefault(); skip(-1); }
+  if (e.key === "ArrowRight")  { e.preventDefault(); skip(+1); }
+});
+scrub.addEventListener("input", () => { audio.currentTime = parseFloat(scrub.value); });
 
-  // Update UI Elements
-  document.getElementById("stage-slider").value = idx;
-  document.getElementById("stage-badge").textContent = `Stage ${idx + 1} of 8`;
-  document.getElementById("stage-title").textContent = s.title;
-  document.getElementById("status-pill-text").textContent = s.pillText;
-
-  const ruleBox = document.getElementById("stage-rule-box");
-  ruleBox.className = `rule-box ${s.ruleType}`;
-  ruleBox.innerHTML = `<strong>Protocol Invariant:</strong> ${s.rule}`;
-
-  const bullets = document.getElementById("stage-bullet-list");
-  bullets.innerHTML = s.bullets.map(b => `<li>${b}</li>`).join("");
-
-  document.getElementById("formal-citation").textContent = s.citation;
-
-  // Update Nodes
-  document.getElementById("n0-role").textContent = s.n0.role;
-  document.getElementById("n1-role").textContent = s.n1.role;
-  
-  const n2Circle = document.getElementById("n2-circle");
-  n2Circle.setAttribute("fill", s.n2.fill);
-  document.getElementById("n2-title").textContent = s.n2.title;
-  document.getElementById("n2-role").textContent = s.n2.role;
-  document.getElementById("n2-weight").textContent = `Weight: ${s.n2.weight}`;
-
-  const crashMarker = document.getElementById("crash-marker");
-  crashMarker.setAttribute("opacity", s.n2.crashed ? "1" : "0");
-
-  // Superblock Gauges
-  if (idx === 0) {
-    renderSuperblocks("n0-superblocks", 4, 0, 0);
-    renderSuperblocks("n1-superblocks", 4, 0, 0);
-    renderSuperblocks("n2-superblocks", 4, 0, 0);
-  } else if (idx === 1) {
-    renderSuperblocks("n0-superblocks", 4, 0, 0);
-    renderSuperblocks("n1-superblocks", 4, 0, 0);
-    renderSuperblocks("n2-superblocks", 0, 0, 3); // volatile loss
-  } else if (idx === 2) {
-    renderSuperblocks("n0-superblocks", 4, 0, 0);
-    renderSuperblocks("n1-superblocks", 4, 0, 0);
-    renderSuperblocks("n2-superblocks", 0, 1, 3); // read torn mix
-  } else if (idx >= 3 && idx <= 6) {
-    renderSuperblocks("n0-superblocks", 4, 0, 0);
-    renderSuperblocks("n1-superblocks", 4, 0, 0);
-    renderSuperblocks("n2-superblocks", 0, 0, 0); // blank boot, unvouched
-  } else if (idx === 7) {
-    renderSuperblocks("n0-superblocks", 4, 0, 0);
-    renderSuperblocks("n1-superblocks", 4, 0, 0);
-    renderSuperblocks("n2-superblocks", 0, 0, 4); // 4x RUNNING latched
-  }
-
-  // Messages
-  renderMessages(s.messages);
-
-  // Transcript Highlighting
-  document.querySelectorAll(".dialogue-turn").forEach(el => {
-    if (parseInt(el.dataset.stage) === idx + 1) {
-      el.classList.add("active");
-      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    } else {
-      el.classList.remove("active");
-    }
+/* ---------- scene transitions ---------- */
+let shown = null;
+function showClip(i) {
+  const id = CLIPS[i].id;
+  if (shown === id) return;
+  for (const k in scenes) scenes[k].classList.remove("on");
+  scenes[id].classList.add("on");
+  shown = id;
+  $("clip-title").textContent = CLIPS[i].title;
+  $("rung-no").textContent = `Rung ${i+1} of ${CLIPS.length}`;
+  $("time-end").textContent = fmt(CLIPS[i].end_time);
+  $("narration-text").textContent = CLIPS[i].text || "";
+  [...rail.children].forEach((chip, j) => {
+    chip.classList.toggle("now", j === i);
+    chip.classList.toggle("past", j < i);
   });
 }
 
-// Populate Transcript Box
-async function initTranscript() {
-  const container = document.getElementById("transcript-container");
-  const dialogueScript = [
-    { s: 1, spk: "Alex", txt: "Welcome back to Distributed Systems Deep Dives! Today we are digging into uVRR—Unbounded Viewstamped Replication Revisited. We are looking at a classic three-node cluster: node zero is the elected leader, node one and two are backups, running in Era one with unit weights. Everything is humming along on the fast path without touching the disk." },
-    { s: 1, spk: "Morgan", txt: "Exactly, Alex. Notice that like classic VRR-2012, normal operations require zero disk writes on the critical path. Consensus is held strictly in volatile quorum memory. But the profound question has always been: what happens when a node suffers a sudden, unannounced crash?" },
-    { s: 2, spk: "Alex", txt: "Boom! There goes Node Two. A kernel panic, power trip, or SIGKILL. In legacy systems, this is where panic sets in, because Node Two just lost all its in-memory promises." },
-    { s: 2, spk: "Morgan", txt: "Right. In 2016, Michael, Ports, Sharma, and Szekeres proved that classic diskless VRR had a catastrophic blind spot here: an amnesiac replica could restart, forget a prior view-change promise, and cause a split brain. uVRR completely eliminates that class of bugs with one foundational rule: a crash is final for the protocol identity!" },
-    { s: 3, spk: "Alex", txt: "So Node Two is booting back up. But before it touches the network, it reads its local storage. It does not look at a single file—it reads four spaced superblock copies, just like TigerBeetle DB does!" },
-    { s: 3, spk: "Morgan", txt: "Precisely. Because disk writes tear, you cannot rely on two states. uVRR uses three states: RUNNING, STOPPED, and FLUSHED. If the node had done a controlled halt, all four copies would read FLUSHED. Here, the quorum read sees no FLUSHED mark. The host instantly knows: this node died dirty. It classifies the start as a crash. And crucially, it pays zero disk latency on boot—time is of the essence!" },
-    { s: 4, spk: "Alex", txt: "Notice that Node Two did not resume. Resuming an old crashed identity is strictly unrepresentable. Instead, it reincarnates under a brand-new identity: Node Two Prime!" },
-    { s: 4, spk: "Morgan", txt: "Yes! A newborn has made no prior promises, so amnesia is harmless by construction. Furthermore, Node Two Prime boots at Era zero. The genesis era of the cluster is Era one. By construction, uVRR engines drop in-cluster sync messages for an Era zero node. It cannot be fenced forward by internal view traffic." },
-    { s: 5, spk: "Alex", txt: "So how does Node Two Prime find where the cluster is without corrupting the active view?" },
-    { s: 5, spk: "Morgan", txt: "Through an outer gossip protocol that sits completely outside the consensus engine! Node Two Prime broadcasts a join gossip packet containing its known frontier—slot zero. Any node that hears it reports back the current cluster era and configuration." },
-    { s: 6, spk: "Alex", txt: "Node Zero—the leader—immediately adds Two Prime to its gossip-witness list! And look at that data stream: the leader pushes every missed log entry and commit directly to the witness!" },
-    { s: 6, spk: "Morgan", txt: "This is the heart of the equivalence theorem: gossip equals recovery, with the memory precondition removed. The leader's stream is self-certifying. Under Lean theorem H1 through H5, accepting a Phase-2 at view v raises the node's promise floor to v via implicit promise telescoping. Node Two Prime is completely caught up in as little as one round trip!" },
-    { s: 7, spk: "Alex", txt: "Now Node Two Prime is caught up, but it is still a weight-zero witness. To become a voting member, the leader executes a two-step reconfiguration sequence." },
-    { s: 7, spk: "Morgan", txt: "That's Turner's leader overlap in action. In Era two, the dead Node Two drops to weight zero while Two Prime joins as a standby. Then in Era three, Two Prime steps up to weight one while the old identity leaves permanently. Every consecutive era maintains overlapping majorities through the leader's casting vote. Zero stalls, zero safety violations!" },
-    { s: 8, spk: "Alex", txt: "And the final beauty of the design: once Node Two Prime is officially seated as a normal voting member, its engine mints a proof token that finally allows the host to write the deferred RUNNING latch to disk!" },
-    { s: 8, spk: "Morgan", txt: "Exactly. The disk write was kept off the critical path until the node was fully operational. A crash during catch-up would have re-classified as crashed with zero penalty. That is uVRR: diskless speed on the normal path, mathematically sound crash-stop reincarnation, and rock-solid safety guaranteed by Lean kernel-checked proofs!" },
-    { s: 8, spk: "Alex", txt: "Brilliant engineering. Check out the interactive slider below to step through each phase yourself!" }
-  ];
+/* ============================================================
+   Scene directors: map local progress p (0..1) to scene state.
+   ============================================================ */
+const S = (id) => $(id);
+const setO = (id, o) => { const el = S(id); if (el) el.setAttribute("opacity", String(o)); };
+const setT = (id, x, y) => { const el = S(id); if (el) el.setAttribute("transform", `translate(${x},${y})`); };
 
-  container.innerHTML = dialogueScript.map(d => `
-    <div class="dialogue-turn" data-stage="${d.s}">
-      <div class="speaker-tag speaker-${d.spk}">${d.spk === "Alex" ? "Alex (Host)" : "Dr. Morgan (Consensus Researcher)"}</div>
-      <div>${d.txt}</div>
-    </div>
-  `).join("");
-}
-
-// Fetch cues.json for audio sync
-async function loadCues() {
-  try {
-    const res = await fetch("cues.json");
-    if (res.ok) {
-      CUES = await res.json();
-      console.log("Loaded cues:", CUES);
-    }
-  } catch (err) {
-    console.warn("Could not load cues.json; using fallback timing:", err);
+/* clip 1 — data blocks stack, then power cut scatters them */
+(function () {
+  const blocks = S("c1-blocks");
+  for (let i = 0; i < 5; i++) {
+    const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    r.setAttribute("x", 560 + (i % 3) * 34); r.setAttribute("y", 210 + Math.floor(i / 3) * 26);
+    r.setAttribute("width", 28); r.setAttribute("height", 20); r.setAttribute("rx", 4);
+    r.setAttribute("fill", "#648fff"); r.setAttribute("opacity", "0");
+    r.dataset.i = i; blocks.appendChild(r);
   }
+})();
+function dOneNode(p) {
+  const stackP = clamp((p - 0.05) / 0.35, 0, 1);
+  [...S("c1-blocks").children].forEach((b, i) => {
+    const local = clamp(stackP * 5 - i, 0, 1);
+    let o = local, x = 0, y = 0;
+    if (p > 0.55) { /* scatter */
+      const s = clamp((p - 0.55) / 0.3, 0, 1);
+      o = 1 - s; x = (i - 2) * 60 * s; y = -80 * s * (i % 2 ? 1 : 0.6);
+      b.setAttribute("transform", `translate(${x},${y}) rotate(${s * (i - 2) * 25})`);
+    } else b.setAttribute("transform", "translate(0,0)");
+    b.setAttribute("opacity", String(o));
+  });
+  const alive = p < 0.5;
+  S("c1-server").setAttribute("opacity", p < 0.5 ? "1" : String(clamp(1 - (p - 0.5) / 0.15, 0.25, 1)));
+  S("c1-server").setAttribute("filter", p < 0.5 ? "url(#soft)" : "url(#softer)");
+  setO("c1-lights", p < 0.5 ? 1 : 0.15);
+  setO("c1-req", p < 0.5 ? 0.9 : 0.1);
+  setO("c1-crash", clamp((p - 0.5) / 0.1, 0, 1));
+  S("c1-cap").textContent = p < 0.55
+    ? "one machine · one copy · no resilience"
+    : "the day it doesn't — everything is gone";
 }
 
-// Audio Timeupdate listener
-const audio = document.getElementById("podcast-audio");
-audio.addEventListener("timeupdate", () => {
-  if (!CUES || !CUES.stages) return;
+/* clip 2 — mirror, break, two answers */
+function dSplitBrain(p) {
+  setO("c2-wire", p < 0.35 ? 1 : 0);
+  setO("c2-break", clamp((p - 0.33) / 0.08, 0, 1));
+  setO("c2-q", clamp((p - 0.40) / 0.1, 0, 1));
+  setO("c2-ansL", clamp((p - 0.55) / 0.1, 0, 1));
+  setO("c2-ansR", clamp((p - 0.62) / 0.1, 0, 1));
+  S("c2-valL").textContent = p > 0.55 ? "x=1" : "x=1";
+  S("c2-valR").textContent = p > 0.62 ? "x=2" : "x=1";
+  setO("c2-brain", clamp((p - 0.75) / 0.12, 0, 1));
+}
+
+/* clip 3 — cloud map fades in, votes light, one dies */
+(function () {
+  const pins = S("c3-pins");
+  const spots = [[180, 340], [480, 320], [780, 340]];
+  spots.forEach(([x, y], i) => {
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.innerHTML = `<circle cx="${x}" cy="${y}" r="26" fill="#648fff" opacity=".18"/>
+      <circle cx="${x}" cy="${y}" r="7" fill="#3b5bdb"/>
+      <text x="${x}" y="${y+40}" text-anchor="middle" font-size="10.5" fill="#5b6b84">region ${i+1}</text>`;
+    pins.appendChild(g);
+  });
+})();
+function dMajority(p) {
+  setO("c3-map", clamp((p - 0.25) / 0.25, 0, 1) * 0.9);
+  const v1 = clamp((p - 0.45) / 0.1, 0, 1), v2 = clamp((p - 0.53) / 0.1, 0, 1);
+  setO("c3-votes", Math.max(v1, v2) > 0 ? 1 : 0);
+  setO("c3-v1", v1); setO("c3-v2", v2);
+  S("c3-dot1").setAttribute("fill", v1 > 0 ? "#bbf7d0" : "#eef2fb");
+  S("c3-dot2").setAttribute("fill", v2 > 0 ? "#bbf7d0" : "#eef2fb");
+  setO("c3-dead", clamp((p - 0.72) / 0.1, 0, 1));
+  S("c3-dot3").setAttribute("fill", p > 0.72 ? "#f1f5f9" : "#eef2fb");
+}
+
+/* clip 4 — 2F+1 rows fill */
+(function () {
+  const mk = (host, n) => {
+    const g = S(host);
+    for (let i = 0; i < n; i++) {
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("cx", 300 + i * 46); c.setAttribute("cy", host === "c4-dots1" ? 210 : 310);
+      c.setAttribute("r", 15); c.setAttribute("fill", "#eef2fb");
+      c.setAttribute("stroke", "#c9d4e6"); c.setAttribute("stroke-width", "2");
+      g.appendChild(c);
+    }
+  };
+  mk("c4-dots1", 3); mk("c4-dots2", 5);
+})();
+function dArithmetic(p) {
+  const r1 = clamp((p - 0.1) / 0.2, 0, 1);
+  const r2 = clamp((p - 0.4) / 0.2, 0, 1);
+  [...S("c4-dots1").children].forEach((c, i) =>
+    c.setAttribute("fill", r1 > i / 3 ? "#648fff" : "#eef2fb"));
+  [...S("c4-dots2").children].forEach((c, i) =>
+    c.setAttribute("fill", r2 > i / 5 ? "#785ef0" : "#eef2fb"));
+  /* the F=2 row loses its two tail dots late in the clip */
+  const lost = p > 0.62;
+  [...S("c4-dots2").children].forEach((c, i) => {
+    if (i >= 3 && lost) { c.setAttribute("fill", "#f1f5f9"); c.setAttribute("stroke", "#e4e9f2"); }
+  });
+  setO("c4-minority", clamp((p - 0.74) / 0.12, 0, 1));
+  S("c4-eq").textContent = p < 0.06 ? "N = ?" : "2F + 1";
+}
+
+/* clip 5 — five, two die, service never dips, collapse to three */
+(function () {
+  const g = S("c5-five");
+  const cols = ["#648fff","#785ef0","#3b5bdb","#dc267f","#fe6100"];
+  for (let i = 0; i < 5; i++) {
+    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("cx", 480 + (i - 2) * 62); c.setAttribute("cy", 250);
+    c.setAttribute("r", 19); c.setAttribute("fill", cols[i]);
+    c.dataset.fill = cols[i]; g.appendChild(c);
+  }
+})();
+function dFiveThenThree(p) {
+  const die = clamp((p - 0.25) / 0.15, 0, 1);
+  [...S("c5-five").children].forEach((c, i) => {
+    if (i === 1 || i === 3) {
+      c.setAttribute("opacity", String(1 - die));
+      c.setAttribute("fill", die >= 1 ? "#94a3b8" : c.dataset.fill);
+    }
+  });
+  setO("c5-loselbl", die);
+  const collapse = clamp((p - 0.5) / 0.25, 0, 1);
+  S("c5-five").setAttribute("transform",
+    `translate(${lerp(0, -0, collapse)},${lerp(0, -20, collapse)}) scale(${lerp(1, 0.4, collapse)})`);
+  S("c5-five").setAttribute("opacity", String(1 - collapse));
+  setO("c5-tri", collapse);
+  setO("c5-svcfill", 1); /* the service bar never dips */
+}
+
+/* clip 6 — crown sits on the primary; view ticks on a late move */
+function dViews(p) {
+  const crown = S("c6-crown");
+  const stay = p < 0.7;
+  crown.setAttribute("x", stay ? 480 : lerp(480, 358, clamp((p - 0.7) / 0.15, 0, 1)));
+  crown.setAttribute("y", stay ? 122 : lerp(122, 272, clamp((p - 0.7) / 0.15, 0, 1)));
+  crown.setAttribute("fill", stay ? "#0f172a" : "#3b5bdb");
+  S("c6-view").textContent = p < 0.7 ? "view 7" : "view 8";
+  setO("c6-viewbox", 1);
+}
+
+/* clip 7 — request → prepare fan → acks → commit → log fills → disk struck */
+(function () {
+  const slots = S("c7-logslots");
+  for (let i = 0; i < 4; i++) {
+    const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    r.setAttribute("x", 342 + i * 27); r.setAttribute("y", 318); r.setAttribute("width", 22);
+    r.setAttribute("height", 14); r.setAttribute("rx", 3); r.setAttribute("fill", "#eef2fb");
+    slots.appendChild(r);
+  }
+})();
+function dNormalPath(p) {
+  const a = clamp(p / 0.2, 0, 1);          /* request */
+  const b = clamp((p - 0.2) / 0.2, 0, 1);  /* prepare */
+  const c = clamp((p - 0.4) / 0.2, 0, 1);  /* acks */
+  const d = clamp((p - 0.6) / 0.2, 0, 1);  /* commit */
+  const e = clamp((p - 0.75) / 0.15, 0, 1);/* log fill + disk */
+  setO("c7-p1", a); setO("c7-l1", a);
+  setO("c7-p2", b); setO("c7-p3", b); setO("c7-l2", b);
+  setO("c7-a2", c); setO("c7-a3", c); setO("c7-l3", c);
+  setO("c7-c2", d); setO("c7-l4", d);
+  [...S("c7-logslots").children].forEach((r, i) =>
+    r.setAttribute("fill", e > i / 4 ? "#bbf7d0" : "#eef2fb"));
+  setO("c7-disk", e);
+}
+
+/* clip 8 — primary dies, ripples, view change, crown moves, service resumes */
+(function () {
+  const r = S("c8-ripple");
+  for (let i = 0; i < 3; i++) {
+    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("cx", 480); c.setAttribute("cy", 173);
+    c.setAttribute("r", 20); c.setAttribute("fill", "none");
+    c.setAttribute("stroke", "#dc2626"); c.setAttribute("stroke-width", "2");
+    r.appendChild(c);
+  }
+})();
+function dFailover(p) {
+  setO("c8-n0", p < 0.25 ? 1 : 0);
+  setO("c8-dead", clamp((p - 0.22) / 0.08, 0, 1));
+  const rip = clamp((p - 0.25) / 0.2, 0, 1);
+  [...S("c8-ripple").children].forEach((c, i) => {
+    const local = clamp(rip * 3 - i, 0, 1);
+    c.setAttribute("r", String(20 + local * 70));
+    c.setAttribute("opacity", String(local > 0 && local < 1 ? 0.5 * (1 - local) : 0));
+  });
+  setO("c8-vc", clamp((p - 0.45) / 0.12, 0, 1));
+  const move = clamp((p - 0.62) / 0.15, 0, 1);
+  const cr = S("c8-crown");
+  cr.setAttribute("x", lerp(480, 602, move));
+  cr.setAttribute("y", lerp(122, 272, move));
+  cr.setAttribute("fill", move > 0 ? "#3b5bdb" : "#0f172a");
+  S("c8-view").textContent = p < 0.62 ? "view 7" : "view 8";
+  setO("c8-resume", clamp((p - 0.8) / 0.12, 0, 1));
+}
+
+/* clip 9 — FINAL stamp, new card, stream, ring fills, promotion, era ticks */
+function dNewIdentity(p) {
+  setO("c9-stamp", clamp((p - 0.08) / 0.1, 0, 1));
+  setO("c9-new", clamp((p - 0.2) / 0.1, 0, 1));
+  setO("c9-stream", p > 0.32 && p < 0.68 ? 0.9 : 0);
+  const fillP = clamp((p - 0.3) / 0.35, 0, 1);
+  S("c9-ring").setAttribute("stroke-dashoffset", String(113 * (1 - fillP)));
+  setO("c9-w0", 1);
+  const promoted = clamp((p - 0.68) / 0.1, 0, 1);
+  setO("c9-promoted", promoted);
+  if (promoted > 0) setO("c9-w0", 1 - promoted);
+  S("c9-eratxt").textContent = p < 0.68 ? "era 12" : "era 13";
+}
+
+const DIRECTORS = {
+  "one-node": dOneNode, "split-brain": dSplitBrain, "majority": dMajority,
+  "arithmetic": dArithmetic, "five-then-three": dFiveThenThree, "views": dViews,
+  "normal-path": dNormalPath, "failover": dFailover, "new-identity": dNewIdentity,
+};
+
+/* ---------- the loop ---------- */
+let raf = null;
+function renderOnce() {
   const t = audio.currentTime;
-  const match = CUES.stages.find(s => t >= s.start_time && t < s.end_time);
-  if (match && match.stage - 1 !== currentStageIdx) {
-    updateStage(match.stage - 1);
-  }
-});
+  const i = clipIndexAt(t);
+  showClip(i);
+  const d = DIRECTORS[CLIPS[i].id];
+  if (d) d(prog(i, t));
+  scrub.value = t;
+  scrub.style.setProperty("--p", (100 * t / TOTAL) + "%");
+  $("time-now").textContent = fmt(t);
+  $("time-total").textContent = fmt(TOTAL);
+  [...marks.querySelectorAll(".mark")].forEach((m) =>
+    m.classList.toggle("done", t >= parseFloat(m.dataset.at)));
+}
+function frame() { renderOnce(); raf = requestAnimationFrame(frame); }
+audio.addEventListener("play",  () => { btnPlay.textContent = "⏸"; if (!raf) frame(); });
+audio.addEventListener("pause", () => { btnPlay.textContent = "▶"; cancelAnimationFrame(raf); raf = null; });
+audio.addEventListener("seeked", () => { if (audio.paused) renderOnce(); });
+audio.addEventListener("timeupdate", () => { if (audio.paused) renderOnce(); });
+/* A paused seek on a lazily-buffered source (file://, readyState 1) may stay
+   pending forever — `seeked` never fires although currentTime has already
+   moved. A low-frequency watchdog re-renders from currentTime while paused,
+   so scrubbing and bookmark skips are always live. */
+setInterval(() => { if (audio.paused && raf === null) renderOnce(); }, 150);
 
-audio.addEventListener("play", () => {
-  document.getElementById("sync-status-text").textContent = "Audio Playing (Synchronised)";
-  document.getElementById("btn-play").textContent = "⏸ Pause";
-  isPlaying = true;
-});
-
-audio.addEventListener("pause", () => {
-  document.getElementById("sync-status-text").textContent = "Audio Paused";
-  document.getElementById("btn-play").textContent = "▶ Play";
-  isPlaying = false;
-});
-
-// Controls Handlers
-document.getElementById("btn-first").addEventListener("click", () => {
-  if (CUES && CUES.stages) audio.currentTime = CUES.stages[0].start_time;
-  updateStage(0);
-});
-document.getElementById("btn-prev").addEventListener("click", () => {
-  const next = Math.max(0, currentStageIdx - 1);
-  if (CUES && CUES.stages) audio.currentTime = CUES.stages[next].start_time;
-  updateStage(next);
-});
-document.getElementById("btn-next").addEventListener("click", () => {
-  const next = Math.min(7, currentStageIdx + 1);
-  if (CUES && CUES.stages) audio.currentTime = CUES.stages[next].start_time;
-  updateStage(next);
-});
-document.getElementById("btn-last").addEventListener("click", () => {
-  if (CUES && CUES.stages) audio.currentTime = CUES.stages[7].start_time;
-  updateStage(7);
-});
-
-document.getElementById("btn-play").addEventListener("click", () => {
-  if (audio.paused) {
-    audio.play();
-  } else {
-    audio.pause();
-  }
-});
-
-document.getElementById("stage-slider").addEventListener("input", (e) => {
-  const idx = parseInt(e.target.value);
-  if (CUES && CUES.stages) {
-    audio.currentTime = CUES.stages[idx].start_time;
-  }
-  updateStage(idx);
-});
-
-document.getElementById("speed-toggle").addEventListener("click", (e) => {
-  const speeds = [1.0, 1.5, 2.0, 0.75];
-  const next = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length];
-  playbackSpeed = next;
-  audio.playbackRate = next;
-  e.target.textContent = `${next}x Speed`;
-});
-
-// Initialise
-window.addEventListener("DOMContentLoaded", async () => {
-  await initTranscript();
-  await loadCues();
-  updateStage(0);
-});
+/* ---------- boot ---------- */
+buildMarks(); buildRail();
+$("time-total").textContent = fmt(TOTAL);
+showClip(0); renderOnce();
+if (CLIPS === FALLBACK.clips) {
+  $("narration-text").textContent = FALLBACK.clips[0].text;
+}
 </script>
 </body>
 </html>
