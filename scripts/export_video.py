@@ -82,15 +82,25 @@ def base_frame(clip_no, title, beat_caption):
     return img, d
 
 
-def node_card(d, cx, cy, label, colour, dead=False, w=150, h=96):
-    x0, y0 = cx - w // 2, cy - h // 2
-    fill = (241, 245, 249) if dead else CARD
-    line = (228, 233, 242) if dead else BORDER
-    d.rectangle([x0, y0, x0 + w, y0 + h], fill=fill, outline=line, width=2)
-    d.rectangle([x0, y0, x0 + w, y0 + 30], fill=GREY if dead else colour)
-    lw = d.textlength(label, font=F_TINY)
-    d.text((cx - lw / 2, y0 + 7), label, font=F_TINY, fill=(255, 255, 255))
-    return x0, y0, w, h
+def node_card(d, cx, cy, label, colour, dead=False, w=None, h=None, leader=False):
+    """A circle node in the classic explainer style: chunky coloured ring,
+    the name inside (white when leading), mono label handled by the caller."""
+    r = 46
+    lead = (not dead) and label.lower() in ("primary", "your data")
+    d.ellipse([cx - r - 4, cy + r - 10, cx + r + 4, cy + r + 12], fill=(226, 232, 240))
+    if dead:
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(238, 242, 246),
+                  outline=(203, 213, 225), width=4)
+    elif lead:
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=colour,
+                  outline=(15, 23, 42), width=5)
+    else:
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=CARD,
+                  outline=colour, width=5)
+    lw = d.textlength(label, font=F_SMALL)
+    d.text((cx - lw / 2, cy - 11), label, font=F_SMALL,
+           fill=(255, 255, 255) if lead else MUTED)
+    return cx - r, cy - r, 2 * r, 2 * r
 
 
 def dot(d, cx, cy, r, colour, label=None):
@@ -121,7 +131,7 @@ def sc_one_node(beat):
                          1: "it works — until the day it doesn't",
                          2: "everything is gone in one moment"}[beat])
     dead = beat == 2
-    node_card(d, 640, 360, "YOUR DATA", GREY if dead else BLUE)
+    node_card(d, 640, 360, "your data", GREY if dead else BLUE)
     for i in range(5):
         x = 760 + (i % 3) * 40
         y = 300 + (i // 3) * 32
@@ -133,7 +143,7 @@ def sc_one_node(beat):
         arrow(d, (200, 300), (540, 340), MUTED)
         d.text((220, 262), "requests", font=F_SMALL, fill=MUTED)
     else:
-        d.text((560, 210), "X  POWER LOST", font=F_BEAT, fill=RED)
+        d.text((560, 210), "✕ power lost", font=F_BEAT, fill=RED)
     return img
 
 
@@ -142,13 +152,13 @@ def sc_split_brain(beat):
                         {0: "copy every write to both",
                          1: "the wire breaks — each side is certain",
                          2: "two answers to one question"}[beat])
-    node_card(d, 330, 360, "NODE A", PURPLE)
-    node_card(d, 950, 360, "NODE B", MAGENTA)
+    node_card(d, 330, 360, "node a", PURPLE)
+    node_card(d, 950, 360, "node b", MAGENTA)
     if beat == 0:
         d.line([410, 360, 870, 360], fill=GREY, width=5)
         d.text((600, 322), "the mirror link", font=F_SMALL, fill=MUTED)
     else:
-        d.text((600, 322), "LINK DOWN", font=F_BEAT, fill=RED)
+        d.text((600, 322), "link down", font=F_BEAT, fill=RED)
         d.line([570, 344, 630, 380], fill=RED, width=4)
         d.line([630, 344, 570, 380], fill=RED, width=4)
     va, vb = ("x=1", "x=2") if beat == 2 else ("x=1", "x=1")
@@ -165,8 +175,8 @@ def sc_majority(beat):
                          1: "cloud regions: separate power and networks",
                          2: "lose one — the memory survives in the pair"}[beat])
     for (cx, cy), col, name in zip(TRI, (BLUE, PURPLE, MAGENTA),
-                                   ("NODE 1", "NODE 2", "NODE 3")):
-        dead = (beat == 2 and name == "NODE 3")
+                                   ("node 1", "node 2", "node 3")):
+        dead = (beat == 2 and name == "node 3")
         node_card(d, cx, cy, name, col, dead=dead)
         if not dead and beat >= 0:
             dot(d, cx, cy + 34, 11, (187, 247, 208) if beat >= 0 else CARD)
@@ -234,9 +244,9 @@ def sc_views(beat):
                          2: "the view changes — leadership moves"}[beat])
     d.rectangle([520, 170, 760, 220], fill=CARD, outline=BORDER, width=2)
     d.text((640, 195), "view 7" if beat < 2 else "view 8", font=F_BEAT, fill=BLUE_DEEP, anchor="mm")
-    node_card(d, TRI[0][0], TRI[0][1] + 30, "PRIMARY", BLUE)
-    node_card(d, TRI[1][0] + 80, TRI[1][1], "BACKUP", PURPLE)
-    node_card(d, TRI[2][0] - 80, TRI[2][1], "BACKUP", MAGENTA)
+    node_card(d, TRI[0][0], TRI[0][1] + 30, "primary", BLUE)
+    node_card(d, TRI[1][0] + 80, TRI[1][1], "backup", PURPLE)
+    node_card(d, TRI[2][0] - 80, TRI[2][1], "backup", MAGENTA)
     crown_at = TRI[0] if beat < 2 else (TRI[1][0] + 80, TRI[1][1] - 70)
     d.text((crown_at[0], crown_at[1] - 78), "♛", font=F_TITLE, fill=INK if beat < 2 else BLUE_DEEP, anchor="mm")
     return img
@@ -248,10 +258,10 @@ def sc_normal_path(beat):
                          1: "prepare → majority acknowledges → commit",
                          2: "zero disk writes on the path"}[beat])
     d.rectangle([100, 300, 260, 360], fill=CARD, outline=BORDER, width=2)
-    d.text((180, 330), "CLIENT", font=F_SMALL, fill=INK, anchor="mm")
-    node_card(d, 500, 330, "PRIMARY", BLUE)
-    node_card(d, 900, 240, "BACKUP", PURPLE, w=130, h=80)
-    node_card(d, 900, 430, "BACKUP", MAGENTA, w=130, h=80)
+    d.text((180, 330), "client", font=F_SMALL, fill=INK, anchor="mm")
+    node_card(d, 500, 330, "primary", BLUE)
+    node_card(d, 900, 240, "backup", PURPLE, w=130, h=80)
+    node_card(d, 900, 430, "backup", MAGENTA, w=130, h=80)
     if beat >= 0:
         arrow(d, (268, 330), (418, 330), INK)
         d.text((340, 300), "request", font=F_TINY, fill=MUTED, anchor="mm")
@@ -266,7 +276,7 @@ def sc_normal_path(beat):
         for i in range(4):
             d.rectangle([432 + i * 36, 492, 462 + i * 36, 520],
                         fill=(187, 247, 208) if beat >= 1 else (238, 242, 251))
-        d.text((500, 528), "THE LOG", font=F_TINY, fill=MUTED, anchor="mm")
+        d.text((500, 528), "the log", font=F_TINY, fill=MUTED, anchor="mm")
     if beat == 2:
         d.ellipse([1100, 290, 1160, 320], outline=GREY, width=3)
         d.rectangle([1095, 260, 1165, 292], fill=CARD, outline=GREY, width=3)
@@ -283,14 +293,14 @@ def sc_failover(beat):
                          2: "the log continues exactly — service resumes"}[beat])
     d.rectangle([520, 170, 760, 220], fill=CARD, outline=BORDER, width=2)
     d.text((640, 195), "view 7" if beat < 2 else "view 8", font=F_BEAT, fill=BLUE_DEEP, anchor="mm")
-    node_card(d, TRI[0][0], TRI[0][1] + 30, "PRIMARY", GREY if beat > 0 else BLUE,
+    node_card(d, TRI[0][0], TRI[0][1] + 30, "primary", GREY if beat > 0 else BLUE,
               dead=beat > 0)
     if beat > 0:
         d.text((TRI[0][0], TRI[0][1] + 30), "X", font=F_TITLE, fill=GREY, anchor="mm")
     b1 = (TRI[1][0] + 80, TRI[1][1])
     b2 = (TRI[2][0] - 80, TRI[2][1])
-    node_card(d, *b1, "BACKUP", PURPLE)
-    node_card(d, *b2, "BACKUP", MAGENTA)
+    node_card(d, *b1, "backup", PURPLE)
+    node_card(d, *b2, "backup", MAGENTA)
     if beat == 1:
         arrow(d, (b1[0] + 40, b1[1] - 30), (b2[0] - 40, b2[1] - 30), BLUE_DEEP)
         d.text((640, 400), "view change: exchange · elect", font=F_SMALL, fill=BLUE_DEEP, anchor="mm")
@@ -306,14 +316,14 @@ def sc_new_identity(beat):
                         {0: "the crash is FINAL for that identity",
                          1: "a new identity joins — weight 0, cannot vote",
                          2: "caught up, then promoted by a committed vote"}[beat])
-    node_card(d, 330, 330, "IDENTITY N2", GREY, dead=True)
+    node_card(d, 330, 330, "identity n2", GREY, dead=True)
     if beat >= 0:
         d.rectangle([250, 372, 410, 404], outline=RED, width=3)
-        d.text((330, 388), "F I N A L", font=F_SMALL, fill=RED, anchor="mm")
+        d.text((330, 388), "final", font=F_SMALL, fill=RED, anchor="mm")
     if beat >= 1:
         arrow(d, (430, 330), (830, 330), ORANGE)
         d.text((630, 300), "the committed history streams", font=F_TINY, fill=ORANGE, anchor="mm")
-        node_card(d, 950, 330, "N2'", ORANGE)
+        node_card(d, 950, 330, "n2'", ORANGE)
         if beat == 1:
             d.text((950, 372), "weight 0 — cannot vote", font=F_TINY, fill=MUTED, anchor="mm")
         else:
