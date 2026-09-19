@@ -316,32 +316,72 @@ def sc_normal_path(beat):
 
 def sc_failover(beat):
     img, d = base_frame(8, "Failover: the view change",
-                        {0: "the primary dies — suspicion accrues",
-                         1: "the pair exchanges what it knows · elects",
-                         2: "the log continues exactly — service resumes"}[beat])
+                        {0: "the heartbeats stop — the survivors call a view change",
+                         1: "a majority elects — the new view is installed",
+                         2: "service resumes — the log continues exactly"}[beat])
     d.rectangle([520, 170, 760, 220], fill=CARD, outline=BORDER, width=2)
-    d.text((640, 195), "view 7" if beat < 2 else "view 8", font=F_BEAT, fill=BLUE_DEEP, anchor="mm")
-    node_card(d, TRI[0][0], TRI[0][1] + 30, "primary", GREY if beat > 0 else BLUE,
-              dead=beat > 0)
-    if beat > 0:
-        d.text((TRI[0][0], TRI[0][1] + 30), "X", font=F_TITLE, fill=GREY, anchor="mm")
-    b1 = (TRI[1][0] + 80, TRI[1][1])
-    b2 = (TRI[2][0] - 80, TRI[2][1])
-    node_card(d, *b1, "backup", PURPLE)
+    d.text((640, 195), "view 7" if beat < 1 else "view 8", font=F_BEAT,
+           fill=BLUE_DEEP, anchor="mm")
+    p = (TRI[0][0], TRI[0][1] + 30)          # the crashed primary, top
+    b1 = (TRI[1][0] + 80, TRI[1][1])         # left survivor -> new primary
+    b2 = (TRI[2][0] - 80, TRI[2][1])         # right survivor
+    # wires: to the dead primary and between the survivors
+    d.line([(623, 323), (577, 437)], fill=BORDER, width=3)
+    d.line([(657, 323), (703, 437)], fill=BORDER, width=3)
+    d.line([(606, 480), (674, 480)], fill=BORDER, width=3)
+    node_card(d, *p, "primary", GREY, dead=True)
+    d.text(p, "✕", font=F_TITLE, fill=GREY, anchor="mm")
+    # the dead sockets at the wire ends go dark
+    dot(d, 623, 323, 4, GREY)
+    dot(d, 657, 323, 4, GREY)
+    node_card(d, *b1, "backup" if beat < 1 else "primary", PURPLE)
     node_card(d, *b2, "backup", MAGENTA)
+    if beat >= 1:
+        d.text((b1[0], b1[1] - 78), "♛", font=F_TITLE, fill=BLUE_DEEP, anchor="mm")
+    if beat == 0:
+        # start-view-change: each survivor sends to every other node; the
+        # dots aimed at the crashed node die at its dark socket
+        arrow(d, (606, 472), (674, 472), BLUE_DEEP)
+        dot(d, 628, 355, 8, BLUE_DEEP)
+        dot(d, 652, 355, 8, BLUE_DEEP)
+        d.text((640, 548), "start view change · v 8", font=F_TINY,
+               fill=BLUE_DEEP, anchor="mm")
+        # do-view-change: the log travels to the new primary
+        d.rounded_rectangle([604, 436, 676, 468], radius=6, fill=CARD,
+                            outline=BORDER, width=2)
+        for i in range(4):
+            d.rectangle([610 + i * 15, 444, 622 + i * 15, 460],
+                        fill=(187, 247, 208), outline=(134, 211, 164), width=1)
+        d.text((640, 572), "do view change · log + last committed", font=F_TINY,
+               fill=MUTED, anchor="mm")
     if beat == 1:
-        arrow(d, (b1[0] + 40, b1[1] - 30), (b2[0] - 40, b2[1] - 30), BLUE_DEEP)
-        d.text((640, 400), "view change: exchange · elect", font=F_SMALL, fill=BLUE_DEEP, anchor="mm")
+        # a majority (itself + one) elects; the new view goes to every node,
+        # retained at the dead node's socket
+        d.ellipse([b1[0] - 64, b1[1] - 64, b1[0] + 64, b1[1] + 64],
+                  outline=GREEN, width=3)
+        d.text((410, 430), "quorum: two of three", font=F_TINY, fill=GREEN,
+               anchor="mm")
+        arrow(d, (b1[0] + 34, b1[1] - 34), (b2[0] - 44, b2[1] - 6), GREEN)
+        arrow(d, (b1[0] + 18, b1[1] - 48), (628, 332), GREEN)
+        dot(d, 631, 329, 7, GREEN)
+        d.text((640, 548), "new view · v 8 · log", font=F_TINY, fill=GREEN,
+               anchor="mm")
     if beat == 2:
-        d.text((b2[0], b2[1] - 78), "♛", font=F_TITLE, fill=BLUE_DEEP, anchor="mm")
-        d.text((640, 560), "SERVICE RESUMES — the log continues exactly",
-               font=F_BEAT, fill=GREEN, anchor="mm")
+        # the log continues exactly, and heartbeats resume from the new primary
+        d.rectangle([170, 300, 320, 400], fill=CARD, outline=BORDER, width=2)
+        d.text((245, 322), "the log", font=F_TINY, fill=MUTED, anchor="mm")
+        for i in range(4):
+            d.rectangle([186 + i * 30, 340, 212 + i * 30, 362],
+                        fill=(187, 247, 208), outline=(134, 211, 164), width=1)
+        d.text((245, 384), "committed prefix", font=F_TINY, fill=GREY, anchor="mm")
+        arrow(d, (606, 474), (674, 474), GREEN)
+        arrow(d, (674, 486), (606, 486), GREEN)
+        d.text((640, 548), "heartbeats resume", font=F_TINY, fill=GREEN, anchor="mm")
     return img
 
 
 SCENES = [sc_one_node, sc_split_brain, sc_majority, sc_arithmetic,
-          sc_five_then_three, sc_views, sc_normal_path, sc_failover,
-          sc_failover]
+          sc_five_then_three, sc_views, sc_normal_path, sc_failover]
 
 
 def main():
