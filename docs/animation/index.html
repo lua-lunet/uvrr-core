@@ -180,15 +180,14 @@ kbd {
   <h1>The Consistency Ladder</h1>
   <div class="subhead">One node to a replicated brain — mirroring and the
   split brain, the majority and the arithmetic of 2F+1, views and the
-  primary, the two-round-trip fast path with no disk on it, failover by
-  view change, and a new identity for a crashed node — safety by
-  construction. Nine short clips; skip between the bookmarks.</div>
+  primary, the two-round-trip fast path with no disk on it, and failover
+  by view change. Eight short clips; skip between the bookmarks.</div>
 </header>
 
 <div class="stage-card">
   <div class="scene-topbar">
     <div>
-      <div class="rung" id="rung-no">Rung 1 of 9</div>
+      <div class="rung" id="rung-no">Rung 1 of 8</div>
       <div class="clip-title" id="clip-title">One node: your data, one machine</div>
     </div>
     <div class="time" id="time-end">0:24</div>
@@ -447,38 +446,6 @@ kbd {
         <text id="c8-cap" x="480" y="470" text-anchor="middle" font-size="15" fill="#5b6b84">failover costs round trips, not disk flushes</text>
       </g>
 
-      <!-- ===== clip 9: new identity ===== -->
-      <g class="scene" id="sc-new-identity">
-        <rect id="c9-era" x="392" y="52" width="176" height="50" rx="16" fill="#fff" stroke="#c9d4e6" stroke-width="2" filter="url(#softer)"/>
-        <text id="c9-eratxt" x="480" y="84" text-anchor="middle" font-size="19" font-weight="800" fill="#3b5bdb">era 12</text>
-        <g id="c9-old">
-          <ellipse cx="250" cy="330" rx="48" ry="9" fill="#0f172a" opacity=".07"/>
-          <circle id="c9-cold" cx="250" cy="286" r="46" fill="#eef2f6" stroke="#cbd5e1" stroke-width="5"/>
-          <text x="250" y="280" text-anchor="middle" font-size="12.5" font-weight="700" fill="#94a3b8">identity n2</text>
-          <text x="250" y="300" text-anchor="middle" font-size="10.5" fill="#94a3b8">forgot its word</text>
-          <text x="250" y="376" text-anchor="middle" font-size="12" fill="#5b6b84" font-family="var(--mono)">crashed</text>
-          <g id="c9-stamp" opacity="0">
-            <rect x="178" y="392" width="144" height="34" rx="8" fill="none" stroke="#dc2626" stroke-width="3"/>
-            <text x="250" y="416" text-anchor="middle" font-size="15" font-weight="900" fill="#dc2626">final</text>
-          </g>
-        </g>
-        <path id="c9-stream" d="M310 286 Q 470 190 660 232" fill="none" stroke="#fe6100" stroke-width="2.5" opacity="0"/>
-        <circle id="c9-sdot" r="6" fill="#fe6100" opacity="0"/>
-        <text id="c9-slbl" x="470" y="212" text-anchor="middle" font-size="12" font-weight="700" fill="#fe6100" opacity="0">the committed history streams</text>
-        <g id="c9-new" opacity="0" filter="url(#soft)">
-          <ellipse cx="660" cy="330" rx="48" ry="9" fill="#0f172a" opacity=".07"/>
-          <circle id="c9-ring-bg" cx="660" cy="286" r="46" fill="#fff" stroke="#ffe3d1" stroke-width="6"/>
-          <circle id="c9-ring" cx="660" cy="286" r="46" fill="#fff" stroke="#fe6100" stroke-width="6"
-                  stroke-dasharray="289" stroke-dashoffset="289" transform="rotate(-90 660 286)" stroke-linecap="round"/>
-          <text id="c9-w0" x="660" y="280" text-anchor="middle" font-size="12" font-weight="700" fill="#5b6b84">n2′ · w0</text>
-          <text id="c9-sub" x="660" y="300" text-anchor="middle" font-size="10.5" fill="#5b6b84">no vote yet</text>
-          <text x="660" y="376" text-anchor="middle" font-size="12" fill="#5b6b84" font-family="var(--mono)">new identity</text>
-          <g id="c9-promoted" opacity="0">
-            <text x="660" y="280" text-anchor="middle" font-size="12.5" font-weight="800" fill="#fff" id="c9-w1" opacity="0">n2′ · w1</text>
-          </g>
-        </g>
-        <text x="480" y="452" text-anchor="middle" font-size="15" fill="#5b6b84">the old identity never votes again — safety by construction</text>
-      </g>
     </svg>
   </div>
 </div>
@@ -895,38 +862,10 @@ function dFailover(p) {
   }
 }
 
-/* clip 9 — FINAL stamp, new circle with catch-up ring on its own stroke */
-function dNewIdentity(p) {
-  setO("c9-stamp", clamp((p - 0.08) / 0.1, 0, 1));
-  setO("c9-new", clamp((p - 0.18) / 0.1, 0, 1));
-  const stream = clamp((p - 0.3) / 0.36, 0, 1);
-  setO("c9-stream", stream > 0 && stream < 1 ? 0.9 : 0);
-  setO("c9-sdot", stream > 0 && stream < 1 ? 1 : 0);
-  if (stream > 0 && stream < 1) glide(S("c9-sdot"), S("c9-stream"), stream);
-  setO("c9-slbl", stream > 0 && stream < 1 ? 1 : 0);
-  const fillP = clamp((p - 0.3) / 0.34, 0, 1);
-  S("c9-ring").setAttribute("stroke-dashoffset", String(289 * (1 - fillP)));
-  const promoted = clamp((p - 0.68) / 0.1, 0, 1);
-  setO("c9-promoted", promoted);
-  setO("c9-w0", 1 - promoted);
-  setO("c9-sub", 1 - promoted);
-  S("c9-w1").setAttribute("opacity", String(promoted));
-  const ring = S("c9-ring");
-  if (promoted > 0) {
-    ring.setAttribute("fill", "#fe6100");
-    ring.setAttribute("stroke", "#fe6100");
-  } else {
-    ring.setAttribute("fill", "#fff");
-    ring.setAttribute("stroke", "#fe6100");
-  }
-  S("c9-eratxt").textContent = p < 0.68 ? "era 12" : "era 13";
-}
-
 const DIRECTORS = {
   "one-node": dOneNode, "split-brain": dSplitBrain, "majority": dMajority,
   "arithmetic": dArithmetic, "five-then-three": dFiveThenThree, "views": dViews,
-  "normal-path": dNormalPath, "failover": dFailover, "new-identity": dNewIdentity,
-};
+  "normal-path": dNormalPath, "failover": dFailover, };
 
 /* ---------- the loop ---------- */
 let raf = null;

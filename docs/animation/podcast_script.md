@@ -115,21 +115,3 @@ next view. Because the pair overlaps every past majority, nothing committed
 is forgotten; the new primary continues the log exactly where the old one
 left it. The failover costs round trips, not disk flushes — the memory that
 matters was never on one machine.
-
-## Clip 9 — A new identity: safety by construction
-
-**[Visual]**: the crashed node's identity card is stamped FINAL; a fresh
-orange card, N2 prime, appears at weight zero; a progress ring fills as the
-committed history streams in; a weight-one badge lands; the era counter
-ticks.
-
-One machine is still crashed. In the classic design it would recover — and
-recovery is where the textbooks bleed: a node that forgot its promises can
-come back and vote again, and break the very safety we built. Here, the
-crash is final for that identity. The process returns as a new identity,
-joins as a non-voting member, streams the committed history until it is
-current, and only then is promoted, by a committed decision of the majority.
-The old identity can never vote again, so its forgotten promises cannot
-break anything — safety by construction, not by careful recovery. That is
-the ladder, from one node to a replicated brain: majority memory, views, and
-identities that never lie about what they forgot.
