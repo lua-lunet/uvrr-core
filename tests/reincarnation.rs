@@ -1616,4 +1616,77 @@ fn forced_steps_recompute_exactly_the_remaining_suffix() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// H. The host obligation: the announcement must be delivered AS the bumped
+// identity
+// ---------------------------------------------------------------------------
+
+/// The downstream wedge of lunet-locks issue #26, reproduced as a protocol
+/// fact. A crashed node bumps its identity and emits the CORRECT
+/// reincarnation (`old=2, new=3`, frontiers present); a non-compliant host
+/// transport stamps the outbound sender from a stale learned map, so the
+/// frame arrives attributed to the OLD identity. The engine's refusal is
+/// the protocol's anti-spoof guard working: an announcement whose claimed
+/// sender does not match the claimed new identity must never drive a
+/// reconfiguration. The compliant host (the corpus's `reincarnate` drive,
+/// sender = the bumped node) commits the fused batch in one pass; the
+/// mis-attributed announcement wedges, with safety held.
+#[test]
+fn h_the_announcement_must_be_attributed_to_the_new_identity() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    let outcome = h.propose(n(0), op_id(1), b"x");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    h.crash(n(2));
+    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
+
+    // The violation, exactly as the wire carried it: the correct body,
+    // delivered with sender = the OLD identity. The leader refuses by
+    // name, and the fused walk never arms — the wedge their rig sat in.
+    let mis_attributed = Message {
+        header: Header {
+            tag: Tag::Reincarnation,
+            view: current_view(&h, n(0)),
+            slot: Slot::NONE,
+        },
+        body: Body::Reincarnation {
+            old: n(2),
+            new: n(3),
+            committed: Slot(3),
+            prepared: Slot(3),
+        },
+    };
+    h.inject(n(2), n(0), mis_attributed);
+    assert_eq!(
+        h.diagnostic(n(0)),
+        Some(Diagnostic::ReincarnationRefused {
+            sender: n(2),
+            view: current_view(&h, n(0)),
+        }),
+        "an announcement attributed to the old identity is refused by name"
+    );
+    assert_eq!(
+        current_era(&h, n(0)),
+        Era(1),
+        "no fused batch commits off a mis-attributed announcement"
+    );
+
+    // The compliant delivery of the SAME pair — sender = the bumped
+    // node — commits the fused batch in one pass: the protocol's part is
+    // proven, and the obligation is the host's attribution, not the
+    // announcement's content.
+    let outcome = h.reincarnate(n(3), n(2));
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    assert_eq!(
+        current_era(&h, n(0)),
+        Era(2),
+        "the compliant announcement commits Batch([Decrement, Join])"
+    );
+    assert_eq!(current_order(&h, n(0)), vec![n(0), n(1), n(3), n(2)]);
+    assert_eq!(current_weights(&h, n(0)), vec![1, 1, 0, 0]);
+    h.assert_safety();
+}
+
 // Silence the unused-import lint for the era-table type used in helpers.
