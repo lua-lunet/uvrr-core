@@ -311,32 +311,9 @@ def sc_failover(beat):
     return img
 
 
-def sc_new_identity(beat):
-    img, d = base_frame(9, "A new identity: safety by construction",
-                        {0: "the crash is FINAL for that identity",
-                         1: "a new identity joins — weight 0, cannot vote",
-                         2: "caught up, then promoted by a committed vote"}[beat])
-    node_card(d, 330, 330, "identity n2", GREY, dead=True)
-    if beat >= 0:
-        d.rectangle([250, 372, 410, 404], outline=RED, width=3)
-        d.text((330, 388), "final", font=F_SMALL, fill=RED, anchor="mm")
-    if beat >= 1:
-        arrow(d, (430, 330), (830, 330), ORANGE)
-        d.text((630, 300), "the committed history streams", font=F_TINY, fill=ORANGE, anchor="mm")
-        node_card(d, 950, 330, "n2'", ORANGE)
-        if beat == 1:
-            d.text((950, 372), "weight 0 — cannot vote", font=F_TINY, fill=MUTED, anchor="mm")
-        else:
-            d.rectangle([875, 362, 1025, 392], fill=GREEN)
-            d.text((950, 377), "weight 1 — by a committed vote", font=F_TINY, fill=(255, 255, 255), anchor="mm")
-    d.rectangle([560, 170, 720, 220], fill=CARD, outline=BORDER, width=2)
-    d.text((640, 195), "era 12" if beat < 2 else "era 13", font=F_BEAT, fill=BLUE_DEEP, anchor="mm")
-    return img
-
-
 SCENES = [sc_one_node, sc_split_brain, sc_majority, sc_arithmetic,
           sc_five_then_three, sc_views, sc_normal_path, sc_failover,
-          sc_new_identity]
+          sc_failover]
 
 
 def main():
