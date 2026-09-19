@@ -422,19 +422,28 @@ def main():
             p = FRAMES_DIR / f"f_{len(frame_paths):05d}.png"
             closing.save(p)
             frame_paths.append(p)
-        print(f"clip {i+1}/9 rendered: {clip['title']}")
+        print(f"clip {i+1}/{len(clips)} rendered: {clip['title']}")
 
     concat = FRAMES_DIR / "concat_frames.txt"
     with open(concat, "w") as f:
         for p in frame_paths:
             f.write(f"file '{p.resolve()}'\n")
 
+    # the narration is trimmed to the cue timeline: a withdrawn rung must
+    # not leave its voice at the tail of the derivative
+    total = clips[-1]["end_time"]
+    trimmed_audio = FRAMES_DIR / "narration_trimmed.m4a"
+    subprocess.run([
+        "ffmpeg", "-y", "-i", str(AUDIO_MP3), "-t", f"{total:.3f}",
+        "-c:a", "aac", "-b:a", "160k", str(trimmed_audio)
+    ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     print(f"Compositing {len(frame_paths)} frames with narration -> {OUTPUT_MP4}")
     subprocess.run([
         "ffmpeg", "-y", "-r", str(FPS), "-f", "concat", "-safe", "0",
-        "-i", str(concat), "-i", str(AUDIO_MP3),
+        "-i", str(concat), "-i", str(trimmed_audio),
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "medium",
-        "-c:a", "aac", "-b:a", "160k",
+        "-shortest",
         str(OUTPUT_MP4)
     ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
