@@ -431,11 +431,16 @@ kbd {
         <text id="c7-cap" x="480" y="466" text-anchor="middle" font-size="15" fill="#5b6b84">the client's request glides to the primary</text>
       </g>
 
-      <!-- ===== clip 8: failover ===== -->
+      <!-- ===== clip 8: failover — the full view change ===== -->
       <g class="scene" id="sc-failover">
         <rect x="392" y="52" width="176" height="50" rx="16" fill="#fff" stroke="#c9d4e6" stroke-width="2" filter="url(#softer)"/>
         <text id="c8-view" x="480" y="84" text-anchor="middle" font-size="19" font-weight="800" fill="#3b5bdb">view 7</text>
         <path d="M480 210 L352 396 L608 396 Z" fill="none" stroke="#dbe3f0" stroke-width="2" stroke-dasharray="5 7"/>
+        <g id="c8-wires" stroke="#dbe3f0" stroke-width="2" fill="none">
+          <path id="c8-w0" d="M455 250 L375 363"/>
+          <path id="c8-w1" d="M505 250 L585 363"/>
+          <path id="c8-w2" d="M392 396 L568 396"/>
+        </g>
         <g id="c8-n0">
           <ellipse cx="480" cy="254" rx="46" ry="9" fill="#0f172a" opacity=".07"/>
           <circle id="c8-c0" cx="480" cy="214" r="44" fill="#648fff" stroke="#0f172a" stroke-width="5"/>
@@ -446,23 +451,46 @@ kbd {
           <circle cx="480" cy="214" r="44" fill="#eef2f6" stroke="#cbd5e1" stroke-width="4"/>
           <text x="480" y="220" text-anchor="middle" font-size="18" fill="#94a3b8">✕</text>
         </g>
+        <g id="c8-deadends" opacity="0">
+          <circle cx="455" cy="250" r="3.5" fill="#94a3b8"/>
+          <circle cx="505" cy="250" r="3.5" fill="#94a3b8"/>
+        </g>
         <g id="c8-ripple"></g>
         <g id="c8-b1">
           <ellipse cx="352" cy="436" rx="42" ry="8" fill="#0f172a" opacity=".07"/>
           <circle cx="352" cy="396" r="40" fill="#fff" stroke="#785ef0" stroke-width="5"/>
-          <text x="352" y="401" text-anchor="middle" font-size="12" font-weight="700" fill="#5b6b84">backup</text>
+          <text id="c8-b1t" x="352" y="401" text-anchor="middle" font-size="12" font-weight="700" fill="#5b6b84">backup</text>
         </g>
         <g id="c8-b2">
           <ellipse cx="608" cy="436" rx="42" ry="8" fill="#0f172a" opacity=".07"/>
           <circle id="c8-c2" cx="608" cy="396" r="40" fill="#fff" stroke="#dc267f" stroke-width="5"/>
           <text x="608" y="401" text-anchor="middle" font-size="12" font-weight="700" fill="#5b6b84">backup</text>
         </g>
-        <g id="c8-vc" opacity="0">
-          <path id="c8-vcpath" d="M392 366 Q 480 316 568 366" fill="none" stroke="#3b5bdb" stroke-width="2.5" stroke-dasharray="4 6"/>
-          <text x="480" y="300" text-anchor="middle" font-size="12" font-weight="700" fill="#3b5bdb">view change: exchange what we know, elect</text>
+        <g id="c8-susp" opacity="0">
+          <rect x="264" y="340" width="72" height="8" rx="4" fill="#eef2fb" stroke="#dbe3f0"/>
+          <rect id="c8-sup1" x="264" y="340" width="0" height="8" rx="4" fill="#fe6100"/>
+          <text x="300" y="364" text-anchor="middle" font-size="10.5" fill="#94a3b8" font-family="var(--mono)">suspicion</text>
+          <rect x="624" y="340" width="72" height="8" rx="4" fill="#eef2fb" stroke="#dbe3f0"/>
+          <rect id="c8-sup2" x="624" y="340" width="0" height="8" rx="4" fill="#fe6100"/>
+          <text x="660" y="364" text-anchor="middle" font-size="10.5" fill="#94a3b8" font-family="var(--mono)">suspicion</text>
+        </g>
+        <g id="c8-log" opacity="0" filter="url(#softer)">
+          <rect x="110" y="240" width="132" height="84" rx="12" fill="#fff" stroke="#c9d4e6"/>
+          <text x="176" y="262" text-anchor="middle" font-size="11" font-weight="700" fill="#5b6b84">the log</text>
+          <g id="c8-logslots">
+            <rect x="124" y="274" width="20" height="16" rx="2.5" fill="#eef2fb" stroke="#dbe3f0" stroke-width="1"/>
+            <rect x="150" y="274" width="20" height="16" rx="2.5" fill="#eef2fb" stroke="#dbe3f0" stroke-width="1"/>
+            <rect x="176" y="274" width="20" height="16" rx="2.5" fill="#eef2fb" stroke="#dbe3f0" stroke-width="1"/>
+            <rect x="202" y="274" width="20" height="16" rx="2.5" fill="#eef2fb" stroke="#dbe3f0" stroke-width="1"/>
+          </g>
+          <text x="176" y="314" text-anchor="middle" font-size="10" fill="#94a3b8" font-family="var(--mono)">committed prefix</text>
         </g>
         <text id="c8-crown" x="480" y="148" font-size="30" text-anchor="middle" fill="#0f172a">♛</text>
-        <text id="c8-cap" x="480" y="470" text-anchor="middle" font-size="15" fill="#5b6b84">failover costs round trips, not disk flushes</text>
+        <text id="c8-la" x="480" y="378" text-anchor="middle" font-size="11.5" fill="#3b5bdb" font-family="var(--mono)" opacity="0">start view change · v 8</text>
+        <text id="c8-lb" x="480" y="452" text-anchor="middle" font-size="11.5" fill="#3b5bdb" font-family="var(--mono)" opacity="0">do view change · log + last committed</text>
+        <text id="c8-lc" x="480" y="378" text-anchor="middle" font-size="11.5" fill="#16a34a" font-family="var(--mono)" opacity="0">new view · v 8 · log</text>
+        <text id="c8-t2" x="650" y="366" text-anchor="middle" font-size="15" font-weight="800" fill="#16a34a" opacity="0">✓</text>
+        <text id="c8-cap" x="480" y="470" text-anchor="middle" font-size="15" fill="#5b6b84">the heartbeats stop — suspicion accrues</text>
       </g>
 
     </svg>
@@ -890,38 +918,138 @@ function dNormalPath(p) {
                "committed — every node applies it in order, no disk on the path";
 }
 
-/* clip 8 — primary dies, ripples, view change dot glides, crown moves */
+/* clip 8 — failover: the full view change, every message exchange.
+   suspicion → start-view-change broadcast (dots to the dead node die at its
+   dark socket) → do-view-change with the log travelling → majority elects
+   (crown + view 8) → new-view to every node (retained at the dead socket)
+   → service resumes with the log continuing exactly. */
 (function () {
   const r = S("c8-ripple");
   for (let i = 0; i < 3; i++) {
     mk("circle", { cx: 480, cy: 214, r: 20, fill: "none", stroke: "#dc2626",
                    "stroke-width": 2 }, r);
   }
-  mk("circle", { id: "c8-vdot", r: 6, fill: "#3b5bdb", opacity: 0 }, S("sc-failover"));
+  const dots = mk("g", { id: "c8-dots" }, S("sc-failover"));
+  mk("circle", { id: "c8-hb1", r: 5, fill: "#0f172a", opacity: 0 }, dots);
+  mk("circle", { id: "c8-hb2", r: 5, fill: "#0f172a", opacity: 0 }, dots);
+  mk("circle", { id: "c8-s1", r: 6, fill: "#3b5bdb", opacity: 0 }, dots);
+  mk("circle", { id: "c8-s2", r: 6, fill: "#3b5bdb", opacity: 0 }, dots);
+  mk("circle", { id: "c8-s3", r: 6, fill: "#3b5bdb", opacity: 0 }, dots);
+  mk("circle", { id: "c8-s4", r: 6, fill: "#3b5bdb", opacity: 0 }, dots);
+  mk("circle", { id: "c8-n1", r: 6, fill: "#16a34a", opacity: 0 }, dots);
+  mk("circle", { id: "c8-n2", r: 6, fill: "#16a34a", opacity: 0 }, dots);
+  mk("circle", { id: "c8-r1", r: 5, fill: "#16a34a", opacity: 0 }, dots);
+  mk("circle", { id: "c8-r2", r: 5, fill: "#16a34a", opacity: 0 }, dots);
+  mk("circle", { id: "c8-flash", cx: 352, cy: 396, r: 40, fill: "none",
+                 stroke: "#16a34a", "stroke-width": 3, opacity: 0 }, dots);
+  const card = mk("g", { id: "c8-vccard", opacity: 0 }, dots);
+  mk("rect", { x: -32, y: -17, width: 64, height: 34, rx: 7, fill: "#fff",
+               stroke: "#c9d4e6", "stroke-width": 1.5, filter: "url(#softer)" }, card);
+  for (let i = 0; i < 4; i++) {
+    mk("rect", { x: -24 + i * 13, y: -8, width: 10, height: 16, rx: 2.5,
+                 fill: "#bbf7d0", stroke: "#86d3a4", "stroke-width": 1 }, card);
+  }
 })();
 function dFailover(p) {
-  setO("c8-n0", p < 0.22 ? 1 : 0);
-  setO("c8-dead", clamp((p - 0.2) / 0.08, 0, 1));
-  const rip = clamp((p - 0.24) / 0.2, 0, 1);
+  const w = S("c8-wires").children;
+  /* phase 1 (p 0–0.14) — the heartbeats stop mid-wire and fade, the primary
+     greys out dead, and suspicion accrues on both survivors */
+  const hb = clamp(p / 0.08, 0, 1);
+  const hbF = clamp((p - 0.08) / 0.05, 0, 1);
+  setO("c8-hb1", hb > 0 && hbF < 1 ? 1 - hbF : 0);
+  setO("c8-hb2", hb > 0 && hbF < 1 ? 1 - hbF : 0);
+  if (hb > 0 && hbF < 1) {
+    glide(S("c8-hb1"), w[0], 0.5 * hb);
+    glide(S("c8-hb2"), w[1], 0.5 * hb);
+  }
+  const dead = clamp((p - 0.10) / 0.06, 0, 1);
+  setO("c8-dead", dead);
+  setO("c8-deadends", dead);
+  setO("c8-n0", dead > 0 ? 0 : 1);
+  const rip = clamp((p - 0.10) / 0.16, 0, 1);
   [...S("c8-ripple").children].forEach((c, i) => {
     const local = clamp(rip * 3 - i, 0, 1);
-    c.setAttribute("r", String(20 + local * 74));
-    c.setAttribute("opacity", String(local > 0 && local < 1 ? 0.45 * (1 - local) : 0));
+    c.setAttribute("r", String(20 + local * 64));
+    c.setAttribute("opacity", String(local > 0 && local < 1 ? 0.4 * (1 - local) : 0));
   });
-  const vc = clamp((p - 0.46) / 0.16, 0, 1);
-  setO("c8-vc", vc > 0 ? 1 : 0);
-  setO("c8-vdot", vc > 0 && vc < 1 ? 1 : 0);
-  if (vc > 0 && vc < 1) glide(S("c8-vdot"), S("c8-vcpath"), vc);
-  const move = clamp((p - 0.64) / 0.14, 0, 1);
-  S("c8-crown").setAttribute("x", lerp(480, 608, move));
-  S("c8-crown").setAttribute("y", lerp(148, 340, move));
-  S("c8-crown").setAttribute("fill", move > 0 ? "#3b5bdb" : "#0f172a");
-  S("c8-view").textContent = p < 0.64 ? "view 7" : "view 8";
-  const resumed = clamp((p - 0.82) / 0.1, 0, 1);
-  if (resumed > 0) {
-    S("c8-cap").textContent = "service resumes — the log continues exactly";
-    S("c8-cap").setAttribute("fill", "#166534");
-    S("c8-cap").setAttribute("font-weight", "700");
+  const su = clamp((p - 0.12) / 0.20, 0, 1);
+  setO("c8-susp", clamp((p - 0.11) / 0.05, 0, 1) * (1 - clamp((p - 0.32) / 0.06, 0, 1)));
+  S("c8-sup1").setAttribute("width", String(72 * su));
+  S("c8-sup2").setAttribute("width", String(72 * su));
+  /* phase 2 (p 0.14–0.36) — start-view-change: each survivor sends to every
+     other node; the dots aimed at the crashed node die at its dark socket */
+  const a1 = clamp((p - 0.15) / 0.12, 0, 1);
+  const a2 = clamp((p - 0.16) / 0.12, 0, 1);
+  const a3 = clamp((p - 0.17) / 0.12, 0, 1);
+  const a4 = clamp((p - 0.18) / 0.12, 0, 1);
+  setO("c8-s1", a1 > 0 && a1 < 1 ? 1 : 0);
+  if (a1 > 0 && a1 < 1) glide(S("c8-s1"), w[2], a1);
+  setO("c8-s2", a2 > 0 && a2 < 1 ? 1 : 0);
+  if (a2 > 0 && a2 < 1) glide(S("c8-s2"), w[2], 1 - a2);
+  const dieAt = (t) => (t < 0.75 ? 1 : Math.max(0, 1 - (t - 0.75) / 0.2));
+  setO("c8-s3", a3 > 0 && a3 < 1 ? dieAt(a3) : 0);
+  if (a3 > 0 && a3 < 1) glide(S("c8-s3"), w[0], 1 - Math.min(a3, 1));
+  setO("c8-s4", a4 > 0 && a4 < 1 ? dieAt(a4) : 0);
+  if (a4 > 0 && a4 < 1) glide(S("c8-s4"), w[1], 1 - Math.min(a4, 1));
+  setO("c8-la", clamp((p - 0.15) / 0.04, 0, 1) * (1 - clamp((p - 0.34) / 0.05, 0, 1)));
+  /* phase 3 (p 0.36–0.57) — do-view-change: the log travels to the new
+     primary (the left survivor) and docks into the retained log card */
+  const c1 = clamp((p - 0.38) / 0.14, 0, 1);
+  setO("c8-vccard", c1 <= 0 ? 0 : c1 < 1 ? 1 : 1 - clamp((p - 0.52) / 0.04, 0, 1));
+  S("c8-vccard").setAttribute("transform", `translate(${lerp(540, 440, c1)},370)`);
+  setO("c8-log", clamp((p - 0.50) / 0.06, 0, 1));
+  setO("c8-lb", clamp((p - 0.38) / 0.04, 0, 1) * (1 - clamp((p - 0.56) / 0.05, 0, 1)));
+  /* phase 4 (p 0.57–0.71) — a majority (itself + one) elects: quorum flash,
+     the crown moves to the new primary, the view advances */
+  const q = clamp((p - 0.57) / 0.10, 0, 1);
+  const fl = S("c8-flash");
+  fl.setAttribute("r", String(40 + q * 52));
+  fl.setAttribute("opacity", String(q > 0 && q < 1 ? 0.7 * (1 - q) : 0));
+  const move = clamp((p - 0.60) / 0.10, 0, 1);
+  /* the crown falls with the dead primary and rises again on the winner */
+  const crown = S("c8-crown");
+  crown.setAttribute("x", lerp(480, 352, move));
+  crown.setAttribute("y", lerp(148, 348, move));
+  crown.setAttribute("fill", move > 0 ? "#3b5bdb" : "#0f172a");
+  setO("c8-crown", (1 - clamp((p - 0.16) / 0.04, 0, 1)) + (move > 0 ? move : 0));
+  S("c8-view").textContent = p < 0.62 ? "view 7" : "view 8";
+  S("c8-b1t").textContent = p < 0.62 ? "backup" : "primary";
+  /* phase 5 (p 0.71–0.87) — new-view to every node: delivered to the
+     survivor, retained at the dead node's socket where it waits */
+  const n1 = clamp((p - 0.71) / 0.09, 0, 1);
+  setO("c8-n1", n1 > 0 && n1 < 1 ? 1 : 0);
+  if (n1 > 0 && n1 < 1) glide(S("c8-n1"), w[2], n1);
+  setO("c8-t2", clamp((p - 0.80) / 0.04, 0, 1));
+  const n2 = clamp((p - 0.72) / 0.11, 0, 1);
+  setO("c8-n2", n2 > 0 && p < 0.97 ? (n2 < 1 ? 1 : 0.55) : 0);
+  if (n2 > 0) glide(S("c8-n2"), w[0], 1 - Math.min(n2, 1));
+  setO("c8-lc", clamp((p - 0.71) / 0.04, 0, 1) * (1 - clamp((p - 0.88) / 0.05, 0, 1)));
+  /* phase 6 (p 0.87–1) — service resumes: the committed prefix fills in
+     green and a request/response pair runs in the new view */
+  const e = clamp((p - 0.86) / 0.09, 0, 1);
+  [...S("c8-logslots").children].forEach((rr, i) => {
+    rr.setAttribute("fill", e > i / 4 ? "#bbf7d0" : p > 0.5 ? "#ffe1a8" : "#eef2fb");
+  });
+  const r1 = clamp((p - 0.87) / 0.06, 0, 1);
+  const r2 = clamp((p - 0.92) / 0.07, 0, 1);
+  setO("c8-r1", r1 > 0 && r1 < 1 ? 1 : 0);
+  if (r1 > 0 && r1 < 1) glide(S("c8-r1"), w[2], r1);
+  setO("c8-r2", r2 > 0 && r2 < 1 ? 1 : 0);
+  if (r2 > 0 && r2 < 1) glide(S("c8-r2"), w[2], 1 - r2);
+  const cap = S("c8-cap");
+  cap.textContent =
+    p < 0.14 ? "the heartbeats stop — suspicion accrues" :
+    p < 0.36 ? "the survivors call a view change" :
+    p < 0.57 ? "exchange what we know — every committed decision arrives" :
+    p < 0.71 ? "a majority elects — the new primary holds every committed prefix" :
+    p < 0.87 ? "the new view is installed" :
+               "service resumes — the log continues exactly";
+  if (p >= 0.87) {
+    cap.setAttribute("fill", "#166534");
+    cap.setAttribute("font-weight", "700");
+  } else {
+    cap.setAttribute("fill", "#5b6b84");
+    cap.setAttribute("font-weight", "400");
   }
 }
 
