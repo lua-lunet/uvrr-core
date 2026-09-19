@@ -539,6 +539,24 @@ with packaged releases for tagged versions.
 It is a working implementation under active hardening and testing, not a
 finished demonstration of the reincarnation protocol.
 
+\paragraph{What the demonstration's evidence is, and is not}
+The correctness claim of this paper stands on the formalisation of
+Sections~\ref{sec:formal}--\ref{sec:scope}: kernel-checked theorems and
+bounded enumeration over the protocol's own state space, in this
+repository. The demonstration's traces and lab books establish the
+claim's \emph{realisability} --- that the protocol's message patterns,
+latency floors and lifecycle contracts are achievable by a concrete
+host --- and its timings. They are not part of the correctness argument,
+and correctness does not depend on any particular host being well
+written. A defect in a demonstration's transport or runtime is evidence
+about that host, and where it violates a stated host obligation (the
+boot gate's attribution requirement, for example) it is confirmation
+that the obligation is real and load-bearing --- the protocol flagged
+the violation by name and declined to act. That is confidence in the
+construction, not an argument against it. We are delivering a protocol
+with machine-checked limits, not a guarantee that every program written
+against it is bug-free; no result in this paper should be read as such.
+
 \section{Experimental results: designs, not measurements}\label{sec:experiments}
 \expwarning
 

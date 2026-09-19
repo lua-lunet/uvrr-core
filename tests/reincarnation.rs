@@ -1690,3 +1690,64 @@ fn h_the_announcement_must_be_attributed_to_the_new_identity() {
 }
 
 // Silence the unused-import lint for the era-table type used in helpers.
+
+// ---------------------------------------------------------------------------
+// G. The announcement's acceptance is depth-independent (#70 disproof)
+// ---------------------------------------------------------------------------
+
+/// The claimed upstream defect (the downstream rig's issue #70): the
+/// reincarnation announcement is "refused at the pre-kill view — rejoin
+/// fenced in every crash-restart family (depth-independent)". The
+/// disproof: the announcement's header carries the BOOT view (0); the
+/// dispatch takes the `Reincarnation` arm before any view guard, and the
+/// only gate is `is_leader && from == new && old != new` — the wire
+/// attribution, not the view. A leader at a deep view accepts the
+/// announcement and drives the forced sequence exactly as at the
+/// bootstrap view. The test drives the cluster's view deep through
+/// repeated rotations, then runs the standard crash-reincarnate
+/// choreography unchanged: if the deep view refused the announcement,
+/// era 2 would never commit.
+#[test]
+fn g_the_announcement_is_accepted_at_a_deep_view() {
+    let mut h = cluster();
+    bootstrap(&mut h);
+    // Drive the view deep: ten ordinary rotations. The cluster is at a
+    // high view while the (future) crashed node will announce at its
+    // boot view — 0.
+    let mut live = vec![n(0), n(1), n(2)];
+    let start = current_view(&h, n(0)).view.0;
+    for _ in 0..10 {
+        let (target, _) = drive_view_change(&mut h, &live);
+        assert!(target.view.0 > start, "the view is climbing");
+    }
+    let deep = current_view(&h, n(0));
+    assert!(
+        deep.view.0 >= start + 10,
+        "the cluster sits at a deep view: {:?}",
+        deep
+    );
+
+    // The standard choreography, unchanged: running crash, dirty
+    // restart, announce at the boot view.
+    let outcome = h.propose(n(0), op_id(1), b"x");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_all();
+    h.crash(n(2));
+    live = vec![n(0), n(1)];
+    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
+    let outcome = h.reincarnate(n(3), n(2));
+    assert!(
+        matches!(outcome, StepOutcome::Published { .. }),
+        "announce outcome: {outcome:?}"
+    );
+    h.deliver_all();
+    // The deep-view leader accepted the view-0 announcement: the fused
+    // `[Decrement(old), Join(new)]` batch committed.
+    assert_eq!(
+        current_era(&h, n(0)),
+        Era(2),
+        "the announcement at the boot view was accepted at a deep view"
+    );
+    assert_eq!(current_weights(&h, n(0)), vec![1, 1, 0, 0]);
+    h.assert_safety();
+}
