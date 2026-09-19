@@ -254,35 +254,63 @@ def sc_views(beat):
 
 def sc_normal_path(beat):
     img, d = base_frame(7, "Normal operation: two round trips, no disk",
-                        {0: "request → the primary appends",
-                         1: "prepare → majority acknowledges → commit",
-                         2: "zero disk writes on the path"}[beat])
-    d.rectangle([100, 300, 260, 360], fill=CARD, outline=BORDER, width=2)
-    d.text((180, 330), "client", font=F_SMALL, fill=INK, anchor="mm")
-    node_card(d, 500, 330, "primary", BLUE)
-    node_card(d, 900, 240, "backup", PURPLE, w=130, h=80)
-    node_card(d, 900, 430, "backup", MAGENTA, w=130, h=80)
-    if beat >= 0:
-        arrow(d, (268, 330), (418, 330), INK)
-        d.text((340, 300), "request", font=F_TINY, fill=MUTED, anchor="mm")
-    if beat >= 1:
-        arrow(d, (585, 310), (828, 250), GOLD)
-        arrow(d, (585, 350), (828, 420), GOLD)
-        d.text((700, 260), "prepare", font=F_TINY, fill=(184, 134, 11), anchor="mm")
-        arrow(d, (828, 275), (590, 320), GREEN)
-        arrow(d, (828, 400), (590, 345), GREEN)
-        d.text((700, 400), "ack · ack", font=F_TINY, fill=GREEN, anchor="mm")
-        d.rectangle([420, 470, 580, 540], fill=CARD, outline=BORDER, width=2)
-        for i in range(4):
-            d.rectangle([432 + i * 36, 492, 462 + i * 36, 520],
-                        fill=(187, 247, 208) if beat >= 1 else (238, 242, 251))
-        d.text((500, 528), "the log", font=F_TINY, fill=MUTED, anchor="mm")
+                        {0: "the leader acknowledges its own message",
+                         1: "one reply from either backup is enough — a majority has spoken",
+                         2: "committed — no disk on the path"}[beat])
+    # two data centres, visibly separated; the far wire is twice as long
+    d.rounded_rectangle([250, 120, 830, 560], radius=24,
+                        fill=(244, 247, 253), outline=BORDER, width=2)
+    d.text((280, 140), "region 1", font=F_TINY, fill=GREY)
+    d.rounded_rectangle([950, 170, 1240, 460], radius=24,
+                        fill=(244, 247, 253), outline=BORDER, width=2)
+    d.text((980, 190), "region 2", font=F_TINY, fill=GREY)
+    d.rectangle([90, 320, 210, 380], fill=CARD, outline=BORDER, width=2)
+    d.text((150, 350), "client", font=F_SMALL, fill=INK, anchor="mm")
+    # base wires: client, short hop, long haul
+    d.line([218, 340, 352, 296], fill=BORDER, width=3)
+    d.line([452, 268, 648, 268], fill=BORDER, width=3)
+    d.line([452, 304, 1043, 316], fill=BORDER, width=3)
+    node_card(d, 400, 280, "primary", BLUE)
+    node_card(d, 700, 280, "backup", PURPLE)
+    node_card(d, 1095, 310, "backup", MAGENTA)
+    d.text((436, 244), "✓", font=F_BEAT, fill=GREEN, anchor="mm")
+    slot_fill = {0: (255, 226, 168) if beat < 2 else (187, 247, 208),
+                 1: (238, 242, 251), 2: (238, 242, 251), 3: (238, 242, 251)}
+    d.rectangle([340, 370, 460, 430], fill=CARD, outline=BORDER, width=2)
+    d.text((400, 384), "the log", font=F_TINY, fill=MUTED, anchor="mm")
+    for i in range(4):
+        d.rectangle([354 + i * 24, 396, 372 + i * 24, 414],
+                    fill=slot_fill[i], outline=BORDER, width=1)
+    if beat == 0:
+        arrow(d, (218, 345), (350, 296), INK)
+        d.text((300, 330), "request", font=F_TINY, fill=MUTED, anchor="mm")
+        d.text((400, 470), "the leader acknowledges its own message",
+               font=F_TINY, fill=(22, 101, 52), anchor="mm")
+    if beat == 1:
+        arrow(d, (452, 262), (648, 262), GOLD)
+        arrow(d, (452, 296), (1043, 310), GOLD)
+        d.text((545, 240), "prepare", font=F_TINY, fill=(184, 134, 11), anchor="mm")
+        d.text((620, 356), "the same prepare, two distances",
+               font=F_TINY, fill=MUTED, anchor="mm")
+        arrow(d, (648, 306), (456, 316), GREEN)
+        d.text((550, 336), "ack", font=F_TINY, fill=GREEN, anchor="mm")
+        arrow(d, (1043, 340), (790, 346), GREEN)
+        dot(d, 760, 348, 8, GREEN)
+        d.rounded_rectangle([300, 150, 830, 200], radius=18,
+                            fill=CARD, outline=GREEN, width=2)
+        d.text((565, 175), "quorum: primary + one reply = two of three",
+               font=F_TINY, fill=(22, 101, 52), anchor="mm")
+        arrow(d, (348, 262), (216, 326), GREEN)
+        d.text((296, 272), "response", font=F_TINY, fill=GREEN, anchor="mm")
     if beat == 2:
-        d.ellipse([1100, 290, 1160, 320], outline=GREY, width=3)
-        d.rectangle([1095, 260, 1165, 292], fill=CARD, outline=GREY, width=3)
-        d.line([1080, 340, 1180, 240], fill=RED, width=5)
-        d.line([1080, 240, 1180, 340], fill=RED, width=5)
-        d.text((1130, 372), "no disk on the path", font=F_TINY, fill=RED, anchor="mm")
+        d.text((738, 244), "✓", font=F_BEAT, fill=GREEN, anchor="mm")
+        d.text((1134, 276), "✓", font=F_BEAT, fill=GREEN, anchor="mm")
+        d.text((1095, 380), "also counted", font=F_TINY, fill=GREY, anchor="mm")
+        d.ellipse([1064, 526, 1116, 544], outline=GREY, width=3)
+        d.rectangle([1060, 498, 1120, 526], fill=CARD, outline=GREY, width=3)
+        d.line([1050, 560, 1130, 466], fill=RED, width=5)
+        d.line([1050, 466, 1130, 560], fill=RED, width=5)
+        d.text((1090, 590), "no disk on the path", font=F_TINY, fill=RED, anchor="mm")
     return img
 
 
