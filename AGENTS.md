@@ -176,15 +176,20 @@ applies to it with double force — the branch rule AND a cleanup rule.
 
 ## Tool inventory and submodule policy
 
-The paper (`formal/uvrr-lean/paper/paper.tex`) and the Lean formalization
-(`formal/uvrr-lean/`) use zero external Lean dependencies. The `lake-manifest.json`
-has `"packages": []`. All Lean imports are internal (`UVRR.*` only). This is by
-design, not accident.
+The deliverable crate is sans-I/O with zero runtime dependencies; that
+property belongs to the library, not to the proof or build tooling. The Lean
+formalization (`formal/uvrr-lean/`) pins Mathlib `v4.33.1` (matching the
+toolchain) as build-time proof tooling. Per-file imports stay targeted
+(`Mathlib.Tactic.*` modules only, never a full `Mathlib` import): measured on
+macOS, elaboration is 0.78 s per file bare, 1.47 s with targeted tactic
+imports, and ~4.3 s warm / 24 s cold with a full import; the package cache is
+7.5 GB. The paper's build (tectonic) is unchanged.
 
 ### Tools that contributed to the paper
 
-- **Lean 4.33.1** — kernel-checked proofs. The formalization's sole verification
-  tool. No Mathlib, no external tactics.
+- **Lean 4.33.1** — kernel-checked proofs. The formalization's sole
+  verification tool; Mathlib supplies tactic modules as build-time tooling,
+  imported targeted per file.
 - **TLC 2.19** — model-checked the era model and its mutations. Ran from a
   standalone jar, not a submodule. Evidence in `formal/uvrr-lean/evidence/tlc/`;
   the delayed-fence counterexample evidence was removed with the classic
