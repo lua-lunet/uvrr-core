@@ -60,7 +60,7 @@
   <text x="870" y="470" class="label">kill −9 / power</text>
 
   <path d="M 714 545 C 900 570, 1060 560, 1120 470 L 1120 400" class="msg"/>
-  <text x="980" y="600" class="label">dirty fast start: no FLUSHED quorum — gossip, catch up, rejoin; the RUNNING latch is deferred</text>
+  <text x="980" y="600" class="label">dirty fast start: no FLUSHED quorum — flush the bumped pair first (the identity law), then gossip, catch up, rejoin; the RUNNING latch is deferred</text>
 
   <rect x="80" y="110" width="330" height="80" rx="8" class="note"/>
   <text x="245" y="140" class="small">two states + a torn write = ambiguous:</text>

@@ -30,7 +30,9 @@ Startup classification:
 2. Any of the four reads `unflushed` → the node is **dirty**.
 
 **Dirty path:** bump the incarnation (new identity), write new identity + `flushed`
-to all four superblocks, then enter the wire phase (§4). The state machine is:
+to all four superblocks, then enter the wire phase (§4) — the identity law of
+`uvrr-boot-gate.md` §5: the bumped pair is flushed before the first
+announcement, unconditionally, seated or not. The state machine is:
 
 | State | Meaning |
 |---|---|
@@ -39,6 +41,13 @@ to all four superblocks, then enter the wire phase (§4). The state machine is:
 | `dirty` | restart observed any-`unflushed`; eviction must begin |
 | `bumped` | incarnation incremented; all four superblocks rewritten as (new identity, `flushed`) |
 | `reincarnating` | wire phase: old identity pending eviction, new identity a weight-0 standby |
+
+The identity is named by the durable pair `{systemIdentifier, crashCounter}`
+(`uvrr-boot-gate.md` §5): the sysadmin-assigned `systemIdentifier` is burnt
+into the marker before first boot; the crash counter is durable in the same
+file; both are one-indexed and never read as zero; and a bumped value is
+never revisited — universally unique per life, the ballot obligation of
+Paxos Made Simple applied to node identity.
 
 A **standby** is TigerBeetle's term for its non-voting cluster members (this document's
 older drafts called it a learner). Standby nodes have a zero voting weight so cannot
