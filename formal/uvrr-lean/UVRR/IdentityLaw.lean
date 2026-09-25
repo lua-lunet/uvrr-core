@@ -88,37 +88,51 @@ theorem lawful_one_indexed {s : Nat} (hs : s ≠ 0) (k : Nat) :
 
 /-! ### The wire packing
 
-The wire name is one `u32`: the system identifier in the high byte, the
-counter in the low twenty-four bits. Inside the bounds the packing is
-injective, so the wire name inherits the pair's uniqueness. -/
+The wire name is one machine word: the system identifier in the high bits,
+the counter in the low bits. The multiplicative form `systemId * m +
+counter` and the shift-and-mask byte packing are one function at modulus
+`m = 2^16`; the theorems are stated over an arbitrary modulus wider than
+every counter, so the proof and the library never disagree: division and
+remainder recover the pair at any such modulus, no two pairs share a wire
+name, and no name is revisited. The encoding's ordering is the lexicographic
+order of the pair at every modulus, and no protocol rule ever compares wire
+names. -/
 
-/-- The wire packing: `systemId * 2^24 + counter`. -/
-def pack (p : Identity) : Nat := p.systemId * 16777216 + p.counter
+/-- The packing at modulus `m`: `systemId * m + counter`. -/
+def pack (m : Nat) (p : Identity) : Nat := p.systemId * m + p.counter
 
-/-- The counter is recoverable from the wire name. -/
-theorem pack_counter (p : Identity) (h : p.counter < 16777216) :
-    pack p % 16777216 = p.counter := by
+/-- The counter is recoverable at any modulus wider than it. -/
+theorem pack_counter (m : Nat) (p : Identity) (h : p.counter < m) :
+    pack m p % m = p.counter := by
   unfold pack
-  omega
+  rw [Nat.mul_add_mod_self_right, Nat.mod_eq_of_lt h]
 
-/-- The system identifier is recoverable from the wire name. -/
-theorem pack_system (p : Identity) (h : p.counter < 16777216) :
-    pack p / 16777216 = p.systemId := by
+/-- The system identifier is recoverable at any modulus wider than the
+counter. -/
+theorem pack_system (m : Nat) (p : Identity) (h : p.counter < m) :
+    pack m p / m = p.systemId := by
   unfold pack
-  omega
+  rw [Nat.mul_comm p.systemId m, Nat.mul_add_div (Nat.zero_lt_of_lt h),
+    Nat.div_eq_of_lt h, Nat.add_zero]
 
 /-- Inside the bounds, equal wire names are equal identities. -/
-theorem pack_injective {p q : Identity} (hp : p.counter < 16777216)
-    (hq : q.counter < 16777216) (h : pack p = pack q) : p = q := by
+theorem pack_injective {m : Nat} {p q : Identity} (hp : p.counter < m)
+    (hq : q.counter < m) (h : pack m p = pack m q) : p = q := by
   have hcnt : p.counter = q.counter := by
-    have := congrArg (fun x => x % 16777216) h
-    rw [pack_counter p hp, pack_counter q hq] at this
-    exact this
+    have hmod := congrArg (fun x => x % m) h
+    rw [pack_counter m p hp, pack_counter m q hq] at hmod
+    exact hmod
   have hsys : p.systemId = q.systemId := by
-    have := congrArg (fun x => x / 16777216) h
-    rw [pack_system p hp, pack_system q hq] at this
-    exact this
+    have hdiv := congrArg (fun x => x / m) h
+    rw [pack_system m p hp, pack_system m q hq] at hdiv
+    exact hdiv
   cases p; cases q; simp_all
+
+/-- The library's instance: the two u16 halves at modulus `2^16`, which the
+byte packing writes by shift and mask. -/
+theorem pack_wire (p : Identity) (h : p.counter < 65536) :
+    pack 65536 p % 65536 = p.counter ∧ pack 65536 p / 65536 = p.systemId :=
+  ⟨pack_counter 65536 p h, pack_system 65536 p h⟩
 
 /-! ### The three ways to break it
 
