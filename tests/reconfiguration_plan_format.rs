@@ -44,15 +44,17 @@ fn plan_replacement(start: &Configuration, old: NodeId, new: NodeId, live: &[Nod
 }
 
 /// The header and step lines of the three-node two-era replacement plan, in the
-/// JSONL schema of `docs/weighted-reconfiguration-solver.md`.
+/// JSONL schema of `docs/weighted-reconfiguration-solver.md`. The ids are the
+/// lawful packed pairs: systems 1, 2, 3 at crash counter 1, and the
+/// reincarnated identity is system 4's first life.
 const THREE_NODE_PLAN: &str = concat!(
-    "{\"kind\":\"plan\",\"version\":1,\"initial\":[{\"id\":0,\"weight\":1},",
-    "{\"id\":1,\"weight\":1},{\"id\":2,\"weight\":1}],",
-    "\"target\":[{\"id\":0,\"weight\":1},{\"id\":1,\"weight\":1},{\"id\":3,\"weight\":1}]}\n",
-    "{\"kind\":\"step\",\"ops\":[{\"op\":\"decrement\",\"node\":2},",
-    "{\"op\":\"join\",\"node\":3,\"position\":2}]}\n",
-    "{\"kind\":\"step\",\"ops\":[{\"op\":\"increment\",\"node\":3},",
-    "{\"op\":\"leave\",\"node\":2}]}\n",
+    "{\"kind\":\"plan\",\"version\":1,\"initial\":[{\"id\":65537,\"weight\":1},",
+    "{\"id\":131073,\"weight\":1},{\"id\":196609,\"weight\":1}],",
+    "\"target\":[{\"id\":65537,\"weight\":1},{\"id\":131073,\"weight\":1},{\"id\":262145,\"weight\":1}]}\n",
+    "{\"kind\":\"step\",\"ops\":[{\"op\":\"decrement\",\"node\":196609},",
+    "{\"op\":\"join\",\"node\":262145,\"position\":2}]}\n",
+    "{\"kind\":\"step\",\"ops\":[{\"op\":\"increment\",\"node\":262145},",
+    "{\"op\":\"leave\",\"node\":196609}]}\n",
 );
 
 /// The three-node unit cluster's replacement is exactly the paper's two-era
@@ -434,13 +436,18 @@ mod cli {
         let members = dir.join("members.jsonl");
         std::fs::write(
             &members,
-            "{\"id\":0,\"weight\":1}\n{\"id\":1,\"weight\":1}\n{\"id\":2,\"weight\":1}\n",
+            "{\"id\":65537,\"weight\":1}\n{\"id\":131073,\"weight\":1}\n{\"id\":196609,\"weight\":1}\n",
         )
         .expect("the member file is written");
         let output = Command::new(binary)
             .args(["plan", "--current"])
             .arg(&members)
-            .args(["--replace", "2:3", "--available", "0,1,3"])
+            .args([
+                "--replace",
+                "196609:262145",
+                "--available",
+                "65537,131073,262145",
+            ])
             .output()
             .expect("the CLI runs");
         assert!(
