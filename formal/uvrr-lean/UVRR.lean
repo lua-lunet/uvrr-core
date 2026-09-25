@@ -23,3 +23,4 @@ import UVRR.ReincarnationSafety
 import UVRR.WeightedReachability
 import UVRR.Fuse
 import UVRR.Witness
+import UVRR.IdentityLaw
