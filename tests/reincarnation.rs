@@ -34,7 +34,7 @@ mod harness;
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{ConfigError, Configuration, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::Effect;
-use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::lifecycle::{
     CopyState, Incarnation, Marker, RestartClass, RestartDecision, RestartRefusal, SuperblockCopies,
 };
@@ -46,7 +46,10 @@ use vrr::replica::{PlanRefusal, forced_steps};
 use vrr::wire::{Header, Pack, Tag, Unpack, UnpackError};
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 fn op_id(lsb: u64) -> OperationId {
@@ -171,11 +174,10 @@ enum Stop {
 }
 
 /// The shared choreography over the three-node genesis `[0, 1, 2]`:
-/// `n(2)` is crashed while running, reincarnates as `n(3)`, announces, and
-/// the leader drives the forced sequence. Returns the harness at the
-/// requested stopping point, with the era each committed step
-/// established.
-fn reincarnate_backup(h: &mut Harness, stop: Stop) {
+/// `n(2)` is crashed while running, reincarnates as its next life,
+/// announces, and the leader drives the forced sequence. Returns the new
+/// identity at the requested stopping point.
+fn reincarnate_backup(h: &mut Harness, stop: Stop) -> NodeId {
     bootstrap(h);
     // The node is RUNNING when the volatile state is lost: an accepted
     // operation, then the crash — the superblocks hold the running
@@ -186,8 +188,11 @@ fn reincarnate_backup(h: &mut Harness, stop: Stop) {
     h.crash(n(2));
 
     // The dirty path: bump the identity, reopen, announce.
-    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
-    let outcome = h.reincarnate(n(3), n(2));
+    let bumped = n(2)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(2), bumped).expect("the bumped node reopens");
+    let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     // One delivery pass carries the announcement (the backups drop it by
     // name) AND the leader's first forced `Prepare` — for the batch
@@ -198,10 +203,10 @@ fn reincarnate_backup(h: &mut Harness, stop: Stop) {
         Era(2),
         "Batch([Decrement, Join]) committed"
     );
-    assert_eq!(current_order(h, n(0)), vec![n(0), n(1), n(3), n(2)]);
+    assert_eq!(current_order(h, n(0)), vec![n(0), n(1), bumped, n(2)]);
     assert_eq!(current_weights(h, n(0)), vec![1, 1, 0, 0]);
     if stop == Stop::AfterFirstEra {
-        return;
+        return bumped;
     }
 
     // The next forced batch waits for the view change into era 2, then the
@@ -213,7 +218,7 @@ fn reincarnate_backup(h: &mut Harness, stop: Stop) {
     assert_eq!(target.era, Era(2));
     // Leadership rotated; the bumped node re-announces to the stable
     // leader (§8), which proposes the next step directly.
-    let outcome = h.reincarnate(n(3), n(2));
+    let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert_eq!(
@@ -221,9 +226,10 @@ fn reincarnate_backup(h: &mut Harness, stop: Stop) {
         Era(3),
         "Batch([Increment, Leave]) committed"
     );
-    assert_eq!(current_order(h, n(0)), vec![n(0), n(1), n(3)]);
+    assert_eq!(current_order(h, n(0)), vec![n(0), n(1), bumped]);
     assert_eq!(current_weights(h, n(0)), vec![1, 1, 1]);
     h.assert_safety();
+    bumped
 }
 
 // ---------------------------------------------------------------------------
@@ -466,8 +472,8 @@ fn a_skipped_unit_is_refused_by_the_gate() {
 #[test]
 fn b_backup_crashed_reincarnates_and_rejoins() {
     let mut h = cluster();
-    reincarnate_backup(&mut h, Stop::Complete);
-    assert_eq!(current_order(&h, n(0)), vec![n(0), n(1), n(3)]);
+    let bumped = reincarnate_backup(&mut h, Stop::Complete);
+    assert_eq!(current_order(&h, n(0)), vec![n(0), n(1), bumped]);
     assert_eq!(current_weights(&h, n(0)), vec![1, 1, 1]);
     // The superseded identity is gone from every configuration the
     // voting members folded (the rejoined node acquires the streamed
@@ -500,8 +506,11 @@ fn b_announcement_carries_past_life_frontiers() {
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     h.crash(n(2));
-    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
-    let outcome = h.reincarnate(n(3), n(2));
+    let bumped = n(2)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(2), bumped).expect("the bumped node reopens");
+    let outcome = h.reincarnate(bumped, n(2));
     let StepOutcome::Published { effects, .. } = outcome else {
         panic!("the announcement publishes: {outcome:?}");
     };
@@ -521,7 +530,7 @@ fn b_announcement_carries_past_life_frontiers() {
             unreachable!("the tag names the body");
         };
         assert_eq!(*old, n(2), "the pair the node bumped from");
-        assert_eq!(*new, n(3), "the pair the node bumped to");
+        assert_eq!(*new, bumped, "the pair the node bumped to");
         assert_eq!(*committed, Slot(3), "the past-life committed frontier");
         assert_eq!(*prepared, Slot(3), "the past-life prepared frontier");
         addressed.push(to);
@@ -557,10 +566,13 @@ fn b_leader_crash_mid_sequence_memo_dies_and_resumes() {
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     h.crash(n(4));
-    h.restart_as(n(4), n(5)).expect("the bumped node reopens");
+    let bumped = n(4)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(4), bumped).expect("the bumped node reopens");
 
     // The leader acks at once and proposes the first forced step.
-    let outcome = h.reincarnate(n(5), n(4));
+    let outcome = h.reincarnate(bumped, n(4));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_to(n(0));
 
@@ -568,13 +580,13 @@ fn b_leader_crash_mid_sequence_memo_dies_and_resumes() {
     // the memo die with it. Every datagram the ack had put in flight is
     // dropped, the standby's included.
     h.crash(n(0));
-    for id in [n(1), n(2), n(3), n(5)] {
+    for id in [n(1), n(2), n(3), bumped] {
         h.drop_queued(id);
     }
     h.assert_safety();
     assert_eq!(current_era(&h, n(1)), Era(1));
     assert_eq!(
-        snap(&h, n(5)).committed,
+        snap(&h, bumped).committed,
         3,
         "the standby stayed at its past life"
     );
@@ -601,10 +613,11 @@ fn b_leader_crash_mid_sequence_memo_dies_and_resumes() {
     let outcome = h.propose(n(1), op_id(2), b"z");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
+    let memo = format!("n{}->n{}", n(1).0, bumped.0);
     assert!(
         !h.step_trace()
             .iter()
-            .any(|line| line.contains("n1->n5") && line.contains("Prepare")),
+            .any(|line| line.contains(&memo) && line.contains("Prepare")),
         "the memo died with the machine"
     );
     h.assert_safety();
@@ -613,7 +626,7 @@ fn b_leader_crash_mid_sequence_memo_dies_and_resumes() {
     // the missed range (the commit it missed) and the armed machine's
     // next forced step, recomputed from the configuration the observed
     // eras committed, in ONE transition.
-    let outcome = h.reincarnate(n(5), n(4));
+    let outcome = h.reincarnate(bumped, n(4));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     let outcome = h
         .deliver_to(n(1))
@@ -624,7 +637,7 @@ fn b_leader_crash_mid_sequence_memo_dies_and_resumes() {
     let Effect::Send { to, message, .. } = &effects[0] else {
         panic!("the ack's effects are sends: {:?}", effects[0]);
     };
-    assert_eq!(*to, n(5), "the push is addressed to the standby");
+    assert_eq!(*to, bumped, "the push is addressed to the standby");
     assert_eq!(message.header.tag, Tag::NewState);
     let Body::NewState {
         entries,
@@ -667,7 +680,7 @@ fn b_leader_crash_mid_sequence_memo_dies_and_resumes() {
     // past its past life without a fetch of its own.
     h.deliver_all();
     assert!(
-        snap(&h, n(5)).committed >= 4,
+        snap(&h, bumped).committed >= 4,
         "the standby advanced past its past life through the ack's push"
     );
     h.assert_safety();
@@ -1016,26 +1029,27 @@ fn e_membership_discard() {
 #[test]
 fn f_standby_streams_current_without_fetch_and_cannot_influence() {
     let mut h = cluster();
-    reincarnate_backup(&mut h, Stop::AfterFirstEra);
+    let bumped = reincarnate_backup(&mut h, Stop::AfterFirstEra);
     // Instant sync without a round trip: the ack's missed-range push and
     // the memo'd establishing prepare and its commit carried the standby
     // to the leader's committed frontier. The admitting era folded; the
     // boot fence is intact (the standby adopted no view).
     assert_eq!(
-        snap(&h, n(3)).committed,
+        snap(&h, bumped).committed,
         snap(&h, n(0)).committed,
         "the standby synced to the leader's committed frontier"
     );
-    assert_eq!(current_era(&h, n(3)), Era(2), "the admitting era folded");
+    assert_eq!(current_era(&h, bumped), Era(2), "the admitting era folded");
     assert_eq!(
-        status_of(&h, n(3)),
+        status_of(&h, bumped),
         Status::Restarting,
         "the standby stays fenced; the memo'd stream adopts no view"
     );
+    let fetch = format!("net send n{}", bumped.0);
     assert!(
         !h.step_trace()
             .iter()
-            .any(|line| line.contains("net send n3") && line.contains("GetState")),
+            .any(|line| line.contains(&fetch) && line.contains("GetState")),
         "no fetch was opened: the §10 self-fetch route is not needed here"
     );
 
@@ -1045,16 +1059,16 @@ fn f_standby_streams_current_without_fetch_and_cannot_influence() {
     // already current, adopts the view through the ordinary install.
     let _ = drive_view_change(&mut h, &[n(0), n(1)]);
     assert_eq!(
-        status_of(&h, n(3)),
+        status_of(&h, bumped),
         Status::Normal,
         "the standby is caught up"
     );
-    assert_eq!(current_era(&h, n(3)), Era(2));
+    assert_eq!(current_era(&h, bumped), Era(2));
 
     // Its vote is discarded, named, before counting — the weight is still
     // 0, so no quorum ever counts it.
     h.inject(
-        n(3),
+        bumped,
         n(1),
         Message {
             header: Header {
@@ -1067,7 +1081,7 @@ fn f_standby_streams_current_without_fetch_and_cannot_influence() {
     );
     assert_eq!(
         h.diagnostic(n(1)),
-        Some(Diagnostic::LearnerSender { sender: n(3) }),
+        Some(Diagnostic::LearnerSender { sender: bumped }),
         "the standby's vote is discarded by name"
     );
 
@@ -1081,7 +1095,7 @@ fn f_standby_streams_current_without_fetch_and_cannot_influence() {
         "the operation committed without the standby"
     );
     assert_eq!(
-        snap(&h, n(3)).committed,
+        snap(&h, bumped).committed,
         snap(&h, n(1)).committed,
         "the standby stayed current through the client commit"
     );
@@ -1102,20 +1116,23 @@ fn f_boot_fetch_route_acquires_the_admitting_era() {
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     h.crash(n(2));
-    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
+    let bumped = n(2)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(2), bumped).expect("the bumped node reopens");
     // The announcement reaches the leader; the ack's establishing prepare
     // (the memo stream's first beat) and the commit it rode are then both
     // dropped, so the standby's only route back is the fetch it opens
     // itself (§10).
-    let outcome = h.reincarnate(n(3), n(2));
+    let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_to(n(0));
-    h.drop_queued(n(3));
+    h.drop_queued(bumped);
     h.deliver_all();
-    h.drop_queued(n(3));
+    h.drop_queued(bumped);
     h.assert_safety();
     assert_eq!(current_era(&h, n(0)), Era(2), "the forced step committed");
-    assert_eq!(snap(&h, n(3)).committed, 3, "the standby heard nothing");
+    assert_eq!(snap(&h, bumped).committed, 3, "the standby heard nothing");
 
     // The first forced era awaits the ordinary view change (§8.7.4); the
     // fence view's recipients are the era that includes the standby, so
@@ -1127,12 +1144,12 @@ fn f_boot_fetch_route_acquires_the_admitting_era() {
     // voted, adopted nothing, and stays fenced.
     let _ = drive_view_change(&mut h, &[n(0), n(1)]);
     assert_eq!(
-        current_era(&h, n(3)),
+        current_era(&h, bumped),
         Era(2),
         "the standby folded the era that admitted it through the §10 acquisition"
     );
     assert_eq!(
-        status_of(&h, n(3)),
+        status_of(&h, bumped),
         Status::Restarting,
         "the acquisition runs at the boot fence, never voting"
     );
@@ -1145,7 +1162,7 @@ fn f_boot_fetch_route_acquires_the_admitting_era() {
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert_eq!(
-        status_of(&h, n(3)),
+        status_of(&h, bumped),
         Status::Restarting,
         "the standby stays fenced through the stream"
     );
@@ -1153,18 +1170,18 @@ fn f_boot_fetch_route_acquires_the_admitting_era() {
     // The retained offer re-runs on an ordinary tick (§13.1 step 5): the
     // fetched era makes it evaluable, the install adopts the view, and
     // the boot fence is discharged by the fetch the standby opened.
-    h.tick(n(3));
+    h.tick(bumped);
     assert_eq!(
-        status_of(&h, n(3)),
+        status_of(&h, bumped),
         Status::Normal,
         "the standby is caught up"
     );
-    assert_eq!(current_era(&h, n(3)), Era(2));
+    assert_eq!(current_era(&h, bumped), Era(2));
 
     // Its vote is discarded, named, before counting — the weight is still
     // 0, so no quorum ever counts it.
     h.inject(
-        n(3),
+        bumped,
         n(1),
         Message {
             header: Header {
@@ -1177,7 +1194,7 @@ fn f_boot_fetch_route_acquires_the_admitting_era() {
     );
     assert_eq!(
         h.diagnostic(n(1)),
-        Some(Diagnostic::LearnerSender { sender: n(3) }),
+        Some(Diagnostic::LearnerSender { sender: bumped }),
         "the standby's vote is discarded by name"
     );
 
@@ -1215,8 +1232,11 @@ fn b_ack_pushes_missed_range_and_proposes_first_step_in_one_transition() {
     assert_eq!(current_era(&h, n(0)), Era(1));
     assert_eq!(snap(&h, n(0)).committed, 4);
 
-    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
-    let outcome = h.reincarnate(n(3), n(2));
+    let bumped = n(2)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(2), bumped).expect("the bumped node reopens");
+    let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     // The FIRST transition answering the fresh announcement: the ack.
     let outcome = h
@@ -1229,7 +1249,7 @@ fn b_ack_pushes_missed_range_and_proposes_first_step_in_one_transition() {
     let Effect::Send { to, message, .. } = &effects[0] else {
         panic!("the ack's effects are sends: {:?}", effects[0]);
     };
-    assert_eq!(*to, n(3), "the push is addressed to the standby");
+    assert_eq!(*to, bumped, "the push is addressed to the standby");
     assert_eq!(message.header.tag, Tag::NewState);
     let Body::NewState {
         entries,
@@ -1266,11 +1286,11 @@ fn b_ack_pushes_missed_range_and_proposes_first_step_in_one_transition() {
                                 &entry.payload,
                                 vrr::journal::Payload::System(
                                     SystemOperation::Batch(ops)
-                                ) if *ops
+                                )                                 if *ops
                                     == vec![
                                         SystemOperation::Decrement(n(2)),
                                         SystemOperation::Join {
-                                            node: n(3),
+                                            node: bumped,
                                             position: 2
                                         }
                                     ]
@@ -1285,7 +1305,7 @@ fn b_ack_pushes_missed_range_and_proposes_first_step_in_one_transition() {
         effects.iter().any(|effect| matches!(
             effect,
             Effect::Send { to, message, .. }
-                if *to == n(3)
+                if *to == bumped
                     && message.header.tag == Tag::Prepare
                     && matches!(
                         &message.body,
@@ -1303,21 +1323,22 @@ fn b_ack_pushes_missed_range_and_proposes_first_step_in_one_transition() {
 
     // Instant sync: the pushed range alone brings the standby to the
     // leader's committed frontier, with no fetch of its own.
-    let outcome = h.deliver_to(n(3)).expect("the push delivers");
+    let outcome = h.deliver_to(bumped).expect("the push delivers");
     assert!(
         matches!(outcome.outcome, StepOutcome::Published { .. }),
         "the push installs: {:?}",
         outcome.outcome
     );
     assert_eq!(
-        snap(&h, n(3)).committed,
+        snap(&h, bumped).committed,
         snap(&h, n(0)).committed,
         "the standby synced to the leader's committed frontier"
     );
+    let fetch = format!("net send n{}", bumped.0);
     assert!(
         !h.step_trace()
             .iter()
-            .any(|line| line.contains("net send n3") && line.contains("GetState")),
+            .any(|line| line.contains(&fetch) && line.contains("GetState")),
         "no fetch was opened"
     );
     h.assert_safety();
@@ -1639,7 +1660,10 @@ fn h_the_announcement_must_be_attributed_to_the_new_identity() {
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     h.crash(n(2));
-    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
+    let bumped = n(2)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(2), bumped).expect("the bumped node reopens");
 
     // The violation, exactly as the wire carried it: the correct body,
     // delivered with sender = the OLD identity. The leader refuses by
@@ -1652,7 +1676,7 @@ fn h_the_announcement_must_be_attributed_to_the_new_identity() {
         },
         body: Body::Reincarnation {
             old: n(2),
-            new: n(3),
+            new: bumped,
             committed: Slot(3),
             prepared: Slot(3),
         },
@@ -1676,7 +1700,7 @@ fn h_the_announcement_must_be_attributed_to_the_new_identity() {
     // node — commits the fused batch in one pass: the protocol's part is
     // proven, and the obligation is the host's attribution, not the
     // announcement's content.
-    let outcome = h.reincarnate(n(3), n(2));
+    let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert_eq!(
@@ -1684,7 +1708,7 @@ fn h_the_announcement_must_be_attributed_to_the_new_identity() {
         Era(2),
         "the compliant announcement commits Batch([Decrement, Join])"
     );
-    assert_eq!(current_order(&h, n(0)), vec![n(0), n(1), n(3), n(2)]);
+    assert_eq!(current_order(&h, n(0)), vec![n(0), n(1), bumped, n(2)]);
     assert_eq!(current_weights(&h, n(0)), vec![1, 1, 0, 0]);
     h.assert_safety();
 }

@@ -26,7 +26,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{Member, SystemOperation, Weight};
-use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
@@ -34,7 +34,10 @@ use vrr::plan::Plan;
 use vrr::wire::{Header, Tag};
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 /// A view in era 1: every scenario here is same-era (W1).
@@ -69,7 +72,7 @@ fn op_id(lsb: u64) -> OperationId {
 
 fn member(id: u32, weight: u32) -> Member {
     Member {
-        node: NodeId(id),
+        node: n(id),
         weight: Weight(weight),
     }
 }

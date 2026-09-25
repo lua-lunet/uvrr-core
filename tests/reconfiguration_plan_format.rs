@@ -11,12 +11,15 @@
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use vrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use vrr::ids::{Era, NodeId};
+use vrr::ids::{CrashCounter, Era, NodeId, SystemId};
 use vrr::plan::{Plan, PlanRejection};
 use vrr::solver::solve_replacement;
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 fn m(id: u32, weight: u32) -> Member {

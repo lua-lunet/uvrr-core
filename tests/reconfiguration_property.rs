@@ -31,7 +31,7 @@ use proptest::prelude::*;
 use proptest::test_runner::Config;
 
 use vrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use vrr::ids::{Era, NodeId, Slot};
+use vrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId};
 use vrr::quorum::WeightedMajority;
 use vrr::reconfiguration::EraStep;
 
@@ -39,7 +39,10 @@ use vrr::reconfiguration::EraStep;
 /// join pool that lets membership grow. The union stays far below
 /// `MAX_MEMBERS`, so the exhaustive gate's subset scan is microseconds.
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 /// A random in-domain starting configuration: three nodes, each weight

@@ -29,11 +29,14 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::ids::{NodeId, OperationId};
+use vrr::ids::{CrashCounter, NodeId, OperationId, SystemId};
 use vrr::lifecycle::{CopyState, Incarnation, Marker, RestartClass, SuperblockCopies};
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 fn op_id(lsb: u64) -> OperationId {
@@ -220,7 +223,7 @@ fn b_the_first_life_latches_its_anchor_once() {
     bootstrap(&mut h);
     assert_eq!(
         h.gate_ops(n(0)),
-        vec!["read", "commit:Joining@1"],
+        vec!["read", "commit:Joining@65537"],
         "the first life is one read and one anchor round"
     );
 }
@@ -237,10 +240,10 @@ fn b_the_controlled_halt_is_two_rounds_with_the_drain_between() {
         h.gate_ops(n(0)),
         vec![
             "read",
-            "commit:Joining@1",
-            "commit:Stopping@1",
+            "commit:Joining@65537",
+            "commit:Stopping@65537",
             "drain",
-            "commit:Stopped@1"
+            "commit:Stopped@65537"
         ],
         "the halt's schedule is fixed: two rounds, the drain between"
     );
@@ -248,7 +251,7 @@ fn b_the_controlled_halt_is_two_rounds_with_the_drain_between() {
     h.restart_with(n(0)).expect("the clean start resumes");
     assert_eq!(
         h.gate_ops(n(0)),
-        vec!["read", "commit:Restarting@1"],
+        vec!["read", "commit:Restarting@65537"],
         "the clean start is one read and one latch round"
     );
 }
@@ -266,8 +269,11 @@ fn c_the_reincarnations_latch_defers_to_the_seated_witness() {
     let mut h = cluster();
     bootstrap(&mut h);
     h.crash(n(2));
-    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
-    let outcome = h.reincarnate(n(3), n(2));
+    let bumped = n(2)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(2), bumped).expect("the bumped node reopens");
+    let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert_eq!(current_era(&h, n(0)), vrr::ids::Era(2));
@@ -275,7 +281,7 @@ fn c_the_reincarnations_latch_defers_to_the_seated_witness() {
     // nothing — the flush is not paid at the boundary of an
     // uninitialised start, and the node is a weight-0 learner.
     assert_eq!(
-        h.gate_ops(n(3)),
+        h.gate_ops(bumped),
         vec!["read"],
         "no marker round before the seated witness"
     );
@@ -285,20 +291,21 @@ fn c_the_reincarnations_latch_defers_to_the_seated_witness() {
     // Leave(old)]` batch — the node seats at weight 1.
     drive_view_change(&mut h, &[n(0), n(1)]);
     assert_eq!(
-        h.gate_ops(n(3)),
+        h.gate_ops(bumped),
         vec!["read"],
         "still no marker round: the node is Normal at weight 0 in era 2"
     );
-    let outcome = h.reincarnate(n(3), n(2));
+    let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert_eq!(current_era(&h, n(0)), vrr::ids::Era(3));
     // Seated: the harness's settle fired the deferred latch — one
-    // `Joining` round at the bumped identity (the crashed anchor was
-    // identity 3, one past the node's index), over the running state.
+    // `Joining` round at the bumped identity (the crashed anchor was the
+    // first life's packed identity, the latch its next crash counter),
+    // over the running state.
     assert_eq!(
-        h.gate_ops(n(3)),
-        vec!["read", "commit:Joining@4"],
+        h.gate_ops(bumped),
+        vec!["read", "commit:Joining@196610"],
         "the deferred latch is one Joining round at the bumped identity"
     );
     h.assert_safety();
@@ -340,26 +347,32 @@ fn e_a_recrash_between_decision_and_latch_replays_the_same_pair() {
     let mut h = cluster();
     bootstrap(&mut h);
     h.crash(n(2));
-    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
-    let outcome = h.reincarnate(n(3), n(2));
+    let bumped = n(2)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(2), bumped).expect("the bumped node reopens");
+    let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
 
     // Crash again BEFORE the latch: the markers still hold the first
     // crash's evidence (no Joining round has fired).
-    assert_eq!(h.gate_ops(n(3)), vec!["read"]);
-    h.crash(n(3));
+    assert_eq!(h.gate_ops(bumped), vec!["read"]);
+    h.crash(bumped);
 
     // The replay: the same marker directory, the same classification,
     // the same pair — the bump is a pure function of the quorum-resolved
     // identity. The announcement replays idempotently at the leader.
-    h.restart_as(n(3), n(4)).expect("the replay reopens");
+    let replay = bumped
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(bumped, replay).expect("the replay reopens");
     assert_eq!(
-        h.gate_ops(n(4)),
+        h.gate_ops(replay),
         vec!["read"],
         "the replay's boot wrote nothing either"
     );
-    let outcome = h.reincarnate(n(4), n(3));
+    let outcome = h.reincarnate(replay, bumped);
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     // The replay's forced sequence: the announcement's batch recomputes
@@ -367,18 +380,18 @@ fn e_a_recrash_between_decision_and_latch_replays_the_same_pair() {
     // followed by its ordinary view change and the idempotent
     // re-announce, until the new identity seats at weight 1.
     for _ in 0..6 {
-        if h.gate_ops(n(4)).len() > 1 {
+        if h.gate_ops(replay).len() > 1 {
             break;
         }
         drive_view_change(&mut h, &[n(0), n(1)]);
-        let outcome = h.reincarnate(n(4), n(3));
+        let outcome = h.reincarnate(replay, bumped);
         assert!(matches!(outcome, StepOutcome::Published { .. }));
         h.deliver_all();
     }
     assert_eq!(
-        h.gate_ops(n(4)),
-        vec!["read", "commit:Joining@4"],
-        "the replay re-decided the same pair (anchor 3, bump 4): the latch writes the same bump, never a double bump"
+        h.gate_ops(replay),
+        vec!["read", "commit:Joining@196610"],
+        "the replay re-decided the same pair (the anchor is the crashed life's packed identity, the bump its next crash counter): the latch writes the same bump, never a double bump"
     );
     h.assert_safety();
 }

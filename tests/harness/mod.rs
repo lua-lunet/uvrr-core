@@ -74,7 +74,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, PlanVerdict, Stability, StabilityResult};
-use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
+use vrr::ids::{
+    CrashCounter, Era, Fault, NodeId, Operation, OperationId, Slot, SystemId, Tick, View, ViewId,
+};
 use vrr::journal::{Journal, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog};
 use vrr::lifecycle::{
     BootError, BootOutcome, CopyState, Crashed, Incarnation, LifecycleStore, Marker, Running,
@@ -110,8 +112,9 @@ const TRACE_CAPACITY: usize = 512;
 // ----------------------------------------------------------------------
 
 /// Blank marker content: identity 0, nothing vouched. Identity 0 is never
-/// a live identity (the harness numbers incarnations from 1), so a blank
-/// copy cannot win a working cohort and can never read as `Stopped`.
+/// a live identity (a lawful packed identity is non-zero in both halves),
+/// so a blank copy cannot win a working cohort and can never read as
+/// `Stopped`.
 const GATE_BLANK: &str = "0\n-\n";
 
 /// One marker file's name, by copy index.
@@ -594,8 +597,18 @@ pub struct Harness {
     /// only), so a reclamation script must place them deterministically.
     /// `None` is the default journal's own capacity.
     tail_capacity: Option<usize>,
-    /// Genesis order; also the node-index mapping (`NodeId(i)` is index `i`).
+    /// Genesis order, as provisioned: the first life of system `i + 1`
+    /// (crash counter 1, packed) at slot `i`.
     genesis_order: Vec<NodeId>,
+    /// The identity-to-slot mapping: every identity the script ever names
+    /// (genesis members, reincarnated lives, fresh joiners) occupies one
+    /// slot, keyed on the packed identity itself rather than on arithmetic
+    /// over its integer value.
+    slots: BTreeMap<NodeId, usize>,
+    /// The reverse mapping: the identity each slot belongs to, so the
+    /// index-ordered walks (the tick sweep, the safety scan, the legality
+    /// gate) can name the node they visit.
+    slot_ids: Vec<NodeId>,
     /// Per-node record of the `Apply` effects the harness executed.
     applied: Vec<Vec<(Slot, Box<[u8]>)>>,
     /// The ordered Apply boundary record (§11.1 assertions).
@@ -634,7 +647,8 @@ pub struct Harness {
 
 impl Harness {
     /// `n` provisioned nodes, volatile stability, `SegmentedLog`,
-    /// `WeightedMajority`, genesis order `[NodeId(0)..NodeId(n))`.
+    /// `WeightedMajority`, genesis order the first lives of systems 1
+    /// through `n` (system `i + 1`, crash counter 1, packed).
     ///
     /// View-change knobs: suspicion disabled, unbounded suffix — the
     /// normal-operation suites never time out. View-change scripts use
@@ -740,7 +754,15 @@ impl Harness {
         witnesses: &[NodeId],
     ) -> Harness {
         let genesis_order: Vec<NodeId> = (0..n)
-            .map(|i| NodeId(u32::try_from(i).expect("cluster size fits u32")))
+            .map(|i| {
+                NodeId::new(
+                    SystemId::new(
+                        u16::try_from(i + 1).expect("cluster size fits the system-id space"),
+                    )
+                    .expect("a one-indexed system id is non-zero"),
+                    CrashCounter::new(1).expect("one is non-zero"),
+                )
+            })
             .collect();
         let mut nodes = Vec::with_capacity(n);
         let gate_root = std::env::temp_dir().join(format!(
@@ -771,9 +793,7 @@ impl Harness {
             let gate = TmpGate::open(dir.clone()).expect("the gate directory opens");
             let mut session = match boot(gate) {
                 Ok(BootOutcome::First(first)) => first
-                    .latch(Incarnation(
-                        u64::try_from(index).expect("node indices are small") + 1,
-                    ))
+                    .latch(Incarnation(u64::from(id.0)))
                     .expect("the first latch writes"),
                 _ => panic!("a fresh gate directory classifies first"),
             };
@@ -802,6 +822,12 @@ impl Harness {
             stability,
             knobs,
             tail_capacity,
+            slots: genesis_order
+                .iter()
+                .enumerate()
+                .map(|(index, &id)| (id, index))
+                .collect(),
+            slot_ids: genesis_order.clone(),
             genesis_order,
             applied: (0..n).map(|_| Vec::new()).collect(),
             boundary: Vec::new(),
@@ -882,7 +908,7 @@ impl Harness {
         let mut results = Vec::new();
         for index in 0..self.nodes.len() {
             if self.nodes[index].is_some() {
-                let id = NodeId(u32::try_from(index).expect("node ids are small"));
+                let id = self.slot_ids[index];
                 let outcome = self.drive(id, format!("n={} tick", id.0), Input::Tick);
                 results.push((id, outcome));
             }
@@ -1139,8 +1165,8 @@ impl Harness {
     /// it. `None` if the node is down.
     #[must_use]
     pub fn retained(&self, id: NodeId) -> Option<(Slot, Slot)> {
-        self.nodes
-            .get(usize::try_from(id.0).expect("node ids are small"))
+        self.slot_of(id)
+            .and_then(|index| self.nodes.get(index))
             .and_then(Option::as_ref)
             .map(|node| node.replica.journal().view().retained())
     }
@@ -1149,8 +1175,8 @@ impl Harness {
     /// frontier or was reclaimed under a published checkpoint (§4).
     #[must_use]
     pub fn journal_entry(&self, id: NodeId, slot: Slot) -> Option<LogEntry> {
-        self.nodes
-            .get(usize::try_from(id.0).expect("node ids are small"))
+        self.slot_of(id)
+            .and_then(|index| self.nodes.get(index))
             .and_then(Option::as_ref)
             .and_then(|node| node.replica.journal().view().get(slot).cloned())
     }
@@ -1160,8 +1186,8 @@ impl Harness {
     /// slot, the member weights). `None` if the node is down.
     #[must_use]
     pub fn era_table(&self, id: NodeId) -> Option<Arc<EraTable>> {
-        self.nodes
-            .get(usize::try_from(id.0).expect("node ids are small"))
+        self.slot_of(id)
+            .and_then(|index| self.nodes.get(index))
             .and_then(Option::as_ref)
             .map(|node| Arc::clone(node.replica.progress().config()))
     }
@@ -1171,8 +1197,8 @@ impl Harness {
     /// carries no observable list.
     #[must_use]
     pub fn witnesses(&self, id: NodeId) -> Vec<NodeId> {
-        self.nodes
-            .get(usize::try_from(id.0).expect("node ids are small"))
+        self.slot_of(id)
+            .and_then(|index| self.nodes.get(index))
             .and_then(Option::as_ref)
             .map(|node| node.replica.witnesses().to_vec())
             .unwrap_or_default()
@@ -1183,8 +1209,8 @@ impl Harness {
     /// scripts assert WHICH fault the breach declared).
     #[must_use]
     pub fn fault_of(&self, id: NodeId) -> Option<Fault> {
-        self.nodes
-            .get(usize::try_from(id.0).expect("node ids are small"))
+        self.slot_of(id)
+            .and_then(|index| self.nodes.get(index))
             .and_then(Option::as_ref)
             .and_then(|node| node.replica.progress().fault())
     }
@@ -1365,7 +1391,7 @@ impl Harness {
                     };
                     self.applied[index].push((slot, payload.clone()));
                     self.boundary.push(BoundaryEvent::Applied {
-                        node: NodeId(u32::try_from(index).expect("node ids are small")),
+                        node: id,
                         slot,
                         operation_id,
                     });
@@ -1403,8 +1429,8 @@ impl Harness {
     /// release order. Empty if the node is down or answered nothing.
     #[must_use]
     pub fn admin_verdicts(&self, id: NodeId) -> &[PlanVerdict] {
-        self.nodes
-            .get(usize::try_from(id.0).expect("node ids are small"))
+        self.slot_of(id)
+            .and_then(|index| self.nodes.get(index))
             .and_then(Option::as_ref)
             .map(|node| node.admin_verdicts.as_slice())
             .unwrap_or(&[])
@@ -1601,6 +1627,11 @@ impl Harness {
             id.0
         );
         assert_ne!(id, new, "reincarnation always changes the identity");
+        assert_eq!(
+            new,
+            id.next_life().expect("the bump never exhausts in tests"),
+            "the reincarnated identity is the same system's next crash counter"
+        );
         let dir = self.gates[old_index]
             .clone()
             .unwrap_or_else(|| panic!("n={} has no gate directory", id.0));
@@ -1733,7 +1764,7 @@ impl Harness {
         let gate = TmpGate::open(dir.clone()).expect("the gate directory opens");
         let mut session = match boot(gate) {
             Ok(BootOutcome::First(first)) => first
-                .latch(Incarnation(u64::from(id.0) + 1))
+                .latch(Incarnation(u64::from(id.0)))
                 .expect("the first latch writes"),
             _ => panic!("a fresh gate directory classifies first"),
         };
@@ -1761,23 +1792,26 @@ impl Harness {
         }
     }
 
-    /// Grows the per-node vectors to cover `id` and returns its index.
-    /// Reincarnated identities live past the genesis order; every slot is
-    /// identity-indexed (`NodeId(i)` is index `i`), genesis members and
-    /// successors alike.
+    /// The slot an identity occupies, assigning a fresh one past the end on
+    /// first sight. Reincarnated identities live past the genesis order;
+    /// slots key on the identity itself, genesis members and successors
+    /// alike.
     fn grow_to(&mut self, id: NodeId) -> usize {
-        let index = usize::try_from(id.0).expect("node ids are small");
-        while self.nodes.len() <= index {
-            self.nodes.push(None);
-            self.applied.push(Vec::new());
-            self.disks.push(None);
-            self.gates.push(None);
-            self.sessions.push(None);
-            self.gate_logs.push(None);
-            self.pending.push(None);
-            self.declared_faults.push(false);
-            self.faulted_known.push(false);
+        if let Some(index) = self.slot_of(id) {
+            return index;
         }
+        let index = self.nodes.len();
+        self.nodes.push(None);
+        self.applied.push(Vec::new());
+        self.disks.push(None);
+        self.gates.push(None);
+        self.sessions.push(None);
+        self.gate_logs.push(None);
+        self.pending.push(None);
+        self.declared_faults.push(false);
+        self.faulted_known.push(false);
+        self.slot_ids.push(id);
+        self.slots.insert(id, index);
         index
     }
 
@@ -1816,7 +1850,7 @@ impl Harness {
                     self.sessions[index] = Some(session);
                     self.record(format!(
                         "n={} latch (deferred, seated)",
-                        u32::try_from(index).expect("node indices are small")
+                        self.slot_ids[index].0
                     ));
                 }
                 Err((_, error)) => panic!("the deferred latch refused: {error:?}"),
@@ -1903,7 +1937,7 @@ impl Harness {
                 }
             }
             evidence.push(NodeEvidence {
-                id: NodeId(u32::try_from(index).expect("node ids are small")),
+                id: self.slot_ids[index],
                 snapshot,
                 config: Arc::clone(node.replica.progress().config()),
                 committed,
@@ -1920,8 +1954,8 @@ impl Harness {
     /// The node's latest published observation, or `None` if it is down.
     #[must_use]
     pub fn snapshot(&self, id: NodeId) -> Option<ProgressSnapshot> {
-        self.nodes
-            .get(usize::try_from(id.0).expect("node ids are small"))
+        self.slot_of(id)
+            .and_then(|index| self.nodes.get(index))
             .and_then(Option::as_ref)
             .map(|node| node.observer.read())
     }
@@ -1929,15 +1963,15 @@ impl Harness {
     /// Whether the node is up.
     #[must_use]
     pub fn is_up(&self, id: NodeId) -> bool {
-        self.nodes
-            .get(usize::try_from(id.0).expect("node ids are small"))
+        self.slot_of(id)
+            .and_then(|index| self.nodes.get(index))
             .is_some_and(Option::is_some)
     }
 
     /// The harness's apply record for the node.
     #[must_use]
     pub fn applied(&self, id: NodeId) -> &[(Slot, Box<[u8]>)] {
-        &self.applied[usize::try_from(id.0).expect("node ids are small")]
+        &self.applied[self.index_of(id)]
     }
 
     /// The node's latest published drop diagnostic: every refused
@@ -1945,8 +1979,8 @@ impl Harness {
     /// `None` if the node is down.
     #[must_use]
     pub fn diagnostic(&self, id: NodeId) -> Option<Diagnostic> {
-        self.nodes
-            .get(usize::try_from(id.0).expect("node ids are small"))
+        self.slot_of(id)
+            .and_then(|index| self.nodes.get(index))
             .and_then(Option::as_ref)
             .map(|node| node.observer.read_diagnostic())
     }
@@ -1974,14 +2008,15 @@ impl Harness {
     // The step machinery
     // ------------------------------------------------------------------
 
+    /// The slot an identity occupies, when it has one: the per-node
+    /// vectors key on the identity itself, never on its integer value.
+    fn slot_of(&self, id: NodeId) -> Option<usize> {
+        self.slots.get(&id).copied()
+    }
+
     fn index_of(&self, id: NodeId) -> usize {
-        let index = usize::try_from(id.0).expect("node ids are small");
-        assert!(
-            index < self.nodes.len(),
-            "the script named n={id}, outside the cluster",
-            id = id.0
-        );
-        index
+        self.slot_of(id)
+            .unwrap_or_else(|| panic!("the script named n={}, outside the cluster", id.0))
     }
 
     /// One step: plan, publish, route the released effects, record the
@@ -1992,10 +2027,7 @@ impl Harness {
         // cannot deliver to it, the same verdict as a crashed one. (A
         // reconfiguration may add a member whose process was never
         // started — its stream is recorded undeliverable.)
-        let Some(index) = usize::try_from(id.0)
-            .ok()
-            .filter(|&index| index < self.nodes.len())
-        else {
+        let Some(index) = self.slot_of(id) else {
             self.record(format!("{summary} -> NodeDown"));
             return StepOutcome::NodeDown;
         };
@@ -2045,7 +2077,7 @@ impl Harness {
         match effect {
             Effect::Send { to, era, message } => {
                 self.network.route(Envelope {
-                    from: NodeId(u32::try_from(from).expect("node ids are small")),
+                    from: self.slot_ids[from],
                     to,
                     era,
                     message,
@@ -2100,13 +2132,14 @@ impl Harness {
             }
         }
         for (index, fault) in newly_faulted {
+            let id = self.slot_ids[index].0;
             if self.declared_faults[index] {
                 self.declared_faults[index] = false;
                 self.faulted_known[index] = true;
-                self.push_trace(format!("  n={index} faulted as declared: {fault:?}"));
+                self.push_trace(format!("  n={id} faulted as declared: {fault:?}"));
             } else {
                 let dump = self.trace_dump();
-                panic!("undeclared fault on n={index}: {fault:?}\nstep trace:\n{dump}");
+                panic!("undeclared fault on n={id}: {fault:?}\nstep trace:\n{dump}");
             }
         }
     }

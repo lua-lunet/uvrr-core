@@ -60,7 +60,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{INIT_SLOT, SystemOperation};
-use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::lifecycle::{CopyState, Incarnation, Marker, RestartDecision, SuperblockCopies};
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
@@ -77,7 +77,10 @@ const TIMEOUT: u64 = 3;
 const WINDOWS: u64 = 3;
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 fn op_id(lsb: u64) -> OperationId {
@@ -594,7 +597,10 @@ fn crash_shape_bumps_and_joins_without_membership() {
 
     // The harness restart idiom for the bump: the new identity reopens
     // over the old disk — the dirty path's identity change.
-    h.restart_as(n(1), n(2))
+    let bumped = n(1)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(1), bumped)
         .expect("the bumped identity reopens over the recorded disk");
     let member_view = current_view(&h, n(0));
 
@@ -604,7 +610,7 @@ fn crash_shape_bumps_and_joins_without_membership() {
     // member — no vote, no view change — and the suspicion gate is a voting
     // member's act), and it has no open fetch to re-run.
     for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
-        h.tick(n(2));
+        h.tick(bumped);
     }
     assert_eq!(h.queued_len(), 0, "the solo windows emitted nothing");
 
@@ -614,7 +620,7 @@ fn crash_shape_bumps_and_joins_without_membership() {
     // in its view.
     let before = h.queued_len();
     h.inject(
-        n(2),
+        bumped,
         n(0),
         Message {
             header: Header {
@@ -630,7 +636,7 @@ fn crash_shape_bumps_and_joins_without_membership() {
     );
     assert_eq!(
         h.diagnostic(n(0)),
-        Some(Diagnostic::UnknownSender { sender: n(2) }),
+        Some(Diagnostic::UnknownSender { sender: bumped }),
         "the bumped identity is discarded by name"
     );
     assert_eq!(h.queued_len(), before, "nothing was queued by the drop");
@@ -647,11 +653,11 @@ fn crash_shape_bumps_and_joins_without_membership() {
 
     // Further solo windows emit nothing more; the cluster is undisturbed.
     for _ in 0..(WINDOWS * (TIMEOUT + 1)) {
-        h.tick(n(2));
+        h.tick(bumped);
         h.deliver_all();
     }
     assert_eq!(h.queued_len(), 0, "the dead identity emitted nothing more");
     assert_eq!(status_of(&h, n(0)), Status::Normal, "n(0) still serves");
-    assert_eq!(status_of(&h, n(2)), Status::Restarting, "still fenced");
+    assert_eq!(status_of(&h, bumped), Status::Restarting, "still fenced");
     h.assert_safety();
 }

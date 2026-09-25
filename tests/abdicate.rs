@@ -16,7 +16,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::effects::Effect;
-use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::message::Body;
 use vrr::observe::Diagnostic;
 use vrr::progress::{ProgressSnapshot, Status};
@@ -29,7 +29,10 @@ use vrr::wire::Tag;
 // ---------------------------------------------------------------------------
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 fn at(era: u32, term: u32) -> ViewId {
