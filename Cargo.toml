@@ -46,6 +46,13 @@ name = "uvrr-reconfig"
 path = "src/bin/uvrr-reconfig/main.rs"
 required-features = ["cli"]
 
+# The sysadmin identity tool (init, print, bump) for the boot gate's identity
+# law. A binary, not a second crate: std only, no dependencies, no feature
+# gate, because a host that cannot name its nodes cannot boot one.
+[[bin]]
+name = "uvrr-hostid"
+path = "src/bin/uvrr-hostid/main.rs"
+
 # The TigerBeetle-superblock durability demo (examples/uvrr-reincarnation/).
 # It links the static library extracted from TigerBeetle's own superblock
 # source, which build.sh in that directory compiles with TigerBeetle's pinned

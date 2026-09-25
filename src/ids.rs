@@ -57,6 +57,7 @@
 //! fixed-width encoding makes the §13.1 suffix budget an exact sum (W4).
 
 use core::mem::{align_of, size_of};
+use core::num::NonZeroU16;
 
 /// Replica identity within a configuration.
 ///
@@ -64,6 +65,14 @@ use core::mem::{align_of, size_of};
 /// host-supplied list of distinct identifiers, and node naming is an open extension
 /// point, so the core never derives, orders by, or assigns meaning to the integer
 /// beyond equality and a total order for deterministic iteration.
+///
+/// The lawful minting form is the durable pair of [`SystemId`] and [`CrashCounter`]
+/// packed into the thirty-two bits (the boot gate's identity law: universally unique,
+/// durable before emission, one-indexed, never read as zero). The system identifier
+/// is the high half and is durable in the boot fence; the crash counter is the low
+/// half and is incremented and durable before the first emission of every new life.
+/// The halves are never exported to the C ABI individually: only the packed `NodeId`
+/// crosses the boundary.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -71,6 +80,130 @@ pub struct NodeId(pub u32);
 
 const _: () = assert!(size_of::<NodeId>() == size_of::<u32>());
 const _: () = assert!(align_of::<NodeId>() == align_of::<u32>());
+
+/// The sysadmin-assigned system identifier: the durable high half of a lawful node
+/// identity. Zero is unrepresentable, so an uninitialised or corrupt marker cannot be
+/// read as an identity; the never-read-as-zero assert is a type, not a runtime check.
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SystemId(NonZeroU16);
+
+const _: () = assert!(size_of::<SystemId>() == size_of::<u16>());
+
+/// The crash bump counter: the low half of a lawful node identity, incremented and
+/// flushed before the first emission of each new life. Zero is unrepresentable for
+/// the same reason as [`SystemId`].
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CrashCounter(NonZeroU16);
+
+const _: () = assert!(size_of::<CrashCounter>() == size_of::<u16>());
+
+impl SystemId {
+    /// The lawful constructor: zero is refused, not defaulted.
+    pub const fn new(value: u16) -> Option<SystemId> {
+        match NonZeroU16::new(value) {
+            Some(v) => Some(SystemId(v)),
+            None => None,
+        }
+    }
+
+    /// The number the sysadmin assigned.
+    pub const fn get(self) -> u16 {
+        self.0.get()
+    }
+}
+
+impl CrashCounter {
+    /// The lawful constructor: zero is refused, not defaulted. The genesis life of a
+    /// system carries counter one.
+    pub const fn new(value: u16) -> Option<CrashCounter> {
+        match NonZeroU16::new(value) {
+            Some(v) => Some(CrashCounter(v)),
+            None => None,
+        }
+    }
+
+    /// The counter value as a number.
+    pub const fn get(self) -> u16 {
+        self.0.get()
+    }
+}
+
+impl NodeId {
+    /// The lawful constructor: the pair packed as MSB system identifier, LSB crash
+    /// counter. Sixteen bits of systems, sixteen bits of lives per system.
+    pub const fn new(system: SystemId, crash: CrashCounter) -> NodeId {
+        NodeId(((system.get() as u32) << 16) | (crash.get() as u32))
+    }
+
+    /// The system half of the pair, or nothing when the high sixteen bits are zero:
+    /// a zero half is no identity, made total rather than asserted after the fact.
+    pub const fn system_id(self) -> Option<SystemId> {
+        SystemId::new((self.0 >> 16) as u16)
+    }
+
+    /// The crash-counter half of the pair, or nothing when the low sixteen bits are
+    /// zero.
+    pub const fn crash_counter(self) -> Option<CrashCounter> {
+        CrashCounter::new((self.0 & 0xffff) as u16)
+    }
+
+    /// Whether the bit pattern is a lawful identity: both halves non-zero.
+    pub const fn is_lawful(self) -> bool {
+        (self.0 >> 16) != 0 && (self.0 & 0xffff) != 0
+    }
+
+    /// The next life of the same system: the counter incremented, which the host must
+    /// flush before the first emission. A bit pattern that is no identity has no next
+    /// life, and the sixteenth bit of lives is the last the packing holds.
+    pub const fn next_life(self) -> Option<NodeId> {
+        match self.system_id() {
+            Some(system) => match self.crash_counter() {
+                Some(counter) => match counter.get().checked_add(1) {
+                    Some(n) => match CrashCounter::new(n) {
+                        Some(next) => Some(NodeId::new(system, next)),
+                        None => None,
+                    },
+                    None => None,
+                },
+                None => None,
+            },
+            None => None,
+        }
+    }
+}
+
+impl From<NodeId> for u32 {
+    /// The packed wire form.
+    fn from(id: NodeId) -> u32 {
+        id.0
+    }
+}
+
+impl From<u32> for NodeId {
+    /// Decodes a raw bit pattern. This is not a mint: decoding never constructs an
+    /// identity, and the lawful halves are read back through [`NodeId::system_id`]
+    /// and [`NodeId::crash_counter`].
+    fn from(value: u32) -> NodeId {
+        NodeId(value)
+    }
+}
+
+impl core::fmt::Display for NodeId {
+    /// The pair left-padded to full width, system half then counter half, so logs
+    /// name the host identity directly: system 21, crash 112 prints as `0002100112`.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{:05}{:05}",
+            (self.0 >> 16) as u16,
+            (self.0 & 0xffff) as u16
+        )
+    }
+}
 
 /// Configuration generation.
 ///
