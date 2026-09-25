@@ -33,7 +33,7 @@ envelope arrives whole or not at all.
 Therefore the first operation in the batch decides the whole batch. Membership,
 view, era, and slot discipline are checked on `first_slot`; if the first op is
 acceptable, every following op is acceptable at its own slot under the same
-ballot — a promise is a promise to all future accepts of that ballot. "First
+ballot, a promise is a promise to all future accepts of that ballot. "First
 accepts ⇒ all accept" is a finite induction over at most `FUSE_MAX_OPS`
 operations, not a proof over interruption points mid-sequence. Majority and
 quorum accounting are computed on the first op in the batch.
@@ -63,9 +63,9 @@ On receiving a `Fuse` from the primary:
 4. Any op refusing mid-batch is unrepresentable when the header passed and the
    schedule is legal: the planner already certified the sequence, and slots are
    consecutive. If an implementation-level refusal nevertheless occurs, the
-   whole envelope is dropped with a `FuseRefusal` diagnostic — never a partial
+   whole envelope is dropped with a `FuseRefusal` diagnostic, never a partial
    fold.
-5. All ops accepted: reply `FuseOk` — `count`, then one accepted slot per op in
+5. All ops accepted: reply `FuseOk`, `count`, then one accepted slot per op in
    batch order. No ranges.
 
 ## 4. The leader transition
@@ -81,17 +81,17 @@ batch travels as an ordinary `Prepare` and needs no envelope):
 2. Register one proposal record per packed slot; the leader's own vote is
    implicit, as in the ordinary path.
 3. One `FuseOk` is ONE atomic vote (§2): the leader counts the sender
-   once, cumulatively onto every outstanding slot the header slot covers —
+   once, cumulatively onto every outstanding slot the header slot covers:
    the header slot is the batch's last slot as the acceptor stamps it, so
    the vouch spans the batch whole. Majority is computed on the first
    message in batch and the remaining slots telescope. The `acks` body is
    the acceptor's wire evidence and is not examined for counting.
 4. When every packed slot holds a quorum, the commit cascade commits the
    batch whole: the packed schedule folds as the ONE establishing batch it
-   is — a maximal run of consecutive system entries in the journal — and
+   is, a maximal run of consecutive system entries in the journal, and
    establishes exactly one era, at the batch's first slot (§8.7.1). The
    commit emission is PER ERA: one `CommitBatch` per establishing batch
-   committed — `count`, then one committed frontier per slot of that
+   committed, `count`, then one committed frontier per slot of that
    batch, in batch order. No ranges. The `CommitBatch` is a broadcast
    fired the instant the batch's quorum completes, never a round trip;
    backups advance their frontiers and fold the era through the ordinary
@@ -121,8 +121,8 @@ batch travels as an ordinary `Prepare` and needs no envelope):
 ## 6. The single round trip
 
 The solver precomputes the whole schedule before anything is emitted, and the
-schedule is small — a full cluster reconfiguration is at most seven
-operations, well inside a single MTU — so the schedule travels as one
+schedule is small, a full cluster reconfiguration is at most seven
+operations, well inside a single MTU, so the schedule travels as one
 envelope per recipient: leader to each backup, one `FuseOk` back, one
 `CommitBatch` out. That is one round trip for the schedule, the standard
 batching optimisation: the per-datagram transport and authenticated-encryption
@@ -134,20 +134,20 @@ era of it; the per-op `Prepare` round trips no longer multiply it.
 The round trip is one collection of replies, not one per op, because the
 atomic batch property (§2) makes each recipient's processing
 all-or-nothing: the node validates the header, takes its processing lock,
-and folds the payloads in batch order entirely in memory — no disk flush
-between payloads, no other datagram read mid-batch — so it either records
+and folds the payloads in batch order entirely in memory, no disk flush
+between payloads, no other datagram read mid-batch, so it either records
 every accept or none. The set of nodes acknowledging the first packed op is
 therefore exactly the set acknowledging every packed op: a quorum for the
 first is a quorum for all, and the leader counts the replies once. Each
-payload's guards — slot consecutiveness, command legality, era discipline —
+payload's guards, slot consecutiveness, command legality, era discipline,
 are evaluated against the in-memory configuration the fold of the preceding
 payloads established, exactly as though the payloads had arrived as separate
 datagrams with nothing between them; the header's checks are the ones that
 telescope, the per-payload state is the thing that advances.
 
-Emitting one envelope per establishing batch — one round trip per era, six
+Emitting one envelope per establishing batch, one round trip per era, six
 for the five-node weighted swap, the ordinary view change into each
-established era between envelopes — is the same machine unpaced, and is
+established era between envelopes, is the same machine unpaced, and is
 equally valid: packing changes the wire, not the machine. The engine emits
 per batch today; whole-schedule packing elides only the network between the
 steps the paced emission already runs back to back.
@@ -171,11 +171,11 @@ steps the paced emission already runs back to back.
 ## 8. Fuse is transport
 
 The ruling this document closes on: Fuse is a wire format and a transport-layer
-optimisation — nothing more. The algorithm never knows it is talking to a
+optimisation, nothing more. The algorithm never knows it is talking to a
 batch.
 
 **The wire shape.** One datagram: the 20-byte header carrying the shared
-ballot once and `first_slot`, then the body — `count`, then `count ×
+ballot once and `first_slot`, then the body, `count`, then `count ×
 SystemOperation`, in batch order. The reply is `count` + the accepted slots;
 the commit emission is `count` + one committed frontier per slot. No range
 encodings anywhere on the fuse surface: the count names the things and the
@@ -183,20 +183,20 @@ things follow, one element at a time.
 
 **The one-unpack explode.** The acceptor unpacks the envelope once at the
 codec boundary and never re-encodes. The explode is a struct copy: the shared
-header is carried alongside each packed op — the data off the wire is exactly
+header is carried alongside each packed op, the data off the wire is exactly
 what sending N individual `Prepare`s would have produced, minus the N
 datagrams. No per-message `Message` value is constructed and no per-message
 codec work runs; the reply is the single `FuseOk` the whole batch earns.
 
 **The explicit algorithm loop.** The acceptor's only fuse-aware site is the
-explode loop itself: for each `i`, the op at `first_slot + i` — the explicit
-per-element step, one `Slot::next()` per element — folds through the
+explode loop itself: for each `i`, the op at `first_slot + i`, the explicit
+per-element step, one `Slot::next()` per element, folds through the
 ordinary system-op perimeter, the same guards per op, the same journal
 accept batch, the frontier advancing per op. There is no fuse-specific branch
 inside the per-slot logic beyond the loop: every op is judged exactly as an
 individually-arrived `Prepare` at its own slot would be. The leader side is
-symmetric: the builder packs the schedule's ops with the shared ballot —
-transport only — and the proposal bookkeeping is what N individual proposals
+symmetric: the builder packs the schedule's ops with the shared ballot,
+transport only, and the proposal bookkeeping is what N individual proposals
 would register, one record and one journal entry per packed slot.
 
 **The no-ranged-actions rule.** No range arithmetic and no span computation
@@ -216,7 +216,7 @@ machine (§4): an accepted plan steps one batch per era, each proposed through
 the shared step-proposal router that emits the envelope when the batch packs
 at least two operations within the budget and the ordinary establishing
 `Prepare` otherwise. The forced-reincarnation machine proposes the same
-schedules' batches as ordinary establishing `Prepare`s — one `Batch` entry
-per era, the ordinary pipeline — and its memo-stream copy is the establishing
+schedules' batches as ordinary establishing `Prepare`s, one `Batch` entry
+per era, the ordinary pipeline, and its memo-stream copy is the establishing
 `Prepare` itself. Both machines commit the batch as the ONE establishing
 operation it is; the wire shape differs, the machine does not.

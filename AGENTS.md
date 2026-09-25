@@ -1,11 +1,11 @@
 # Repository agent rules
 
-## Andon アンドン — Prime Directive
+## Andon アンドン, Prime Directive
 
 Andon is a kernel panic. It halts the line, halts planning, halts todo
 updates, halts all work. It happens immediately. No other pending operation
 receives any tokens. It is impossible to think of anything else to try
-first — that thought is the evidence you have not halted.
+first, that thought is the evidence you have not halted.
 
 An Andon in the queue supersedes all. If the user queued commands 1-3 then
 said "do an Andon," the Andon invokes the Prime Directive and overrides
@@ -13,7 +13,7 @@ commands 1-3 entirely. Multiple Andons run in parallel without interrupting
 each other.
 
 When the correct fix is outside your lane: do your lane's work, then halt
-and report — *Andon: task incomplete, the correct fix needs a larger
+and report, *Andon: task incomplete, the correct fix needs a larger
 structural change*, with file:line specifics. Do not work around it. Do not
 hack tactically. The coordinator delegates the deeper work.
 
@@ -145,14 +145,14 @@ abandoned on a branch.
 
 You are FORBIDDEN from making a branch without adding a todo list item
 to the end of the todo to check branch ${name} has been merged. This is
-not negotiable. It is forbidden to do a branch then a todo — you must
+not negotiable. It is forbidden to do a branch then a todo, you must
 do a todo and then the branch. Laptops crash, plans pivot, and far too
 much work has been misplaced to the fury of the user.
 
 ## Worktree discipline
 
 A git worktree is a branch with a checkout attached, so every branch rule
-applies to it with double force — the branch rule AND a cleanup rule.
+applies to it with double force, the branch rule AND a cleanup rule.
 
 - You are FORBIDDEN from creating a git worktree unless the User explicitly
   asked for one in the current task. "Do it in parallel", "fork an agent", or
@@ -162,10 +162,10 @@ applies to it with double force — the branch rule AND a cleanup rule.
 - Before creating a worktree you MUST add TWO todo items, in this order: (1)
   check the worktree's branch has been merged, (2) check the worktree has been
   removed (`git worktree remove`). It is forbidden to create the worktree then
-  the todos — todos first, worktree second, exactly as with branches.
+  the todos, todos first, worktree second, exactly as with branches.
 - A worktree used for read-only work still counts: read-only work does not
   need a worktree at all. Read from the existing checkout, or use `git show
-  <ref>:<path>` / `git log` — those cannot lose data, a worktree can.
+  <ref>:<path>` / `git log`, those cannot lose data, a worktree can.
 - By the end of the task, `git worktree list` must contain nothing you
   created. A worktree left behind after its branch is merged is a violation;
   a worktree orphaned by a deleted branch is a violation and a data-loss risk
@@ -187,20 +187,20 @@ imports, and ~4.3 s warm / 24 s cold with a full import; the package cache is
 
 ### Tools that contributed to the paper
 
-- **Lean 4.33.1** — kernel-checked proofs. The formalization's sole
+- **Lean 4.33.1**, kernel-checked proofs. The formalization's sole
   verification tool; Mathlib supplies tactic modules as build-time tooling,
   imported targeted per file.
-- **TLC 2.19** — model-checked the era model and its mutations. Ran from a
+- **TLC 2.19**, model-checked the era model and its mutations. Ran from a
   standalone jar, not a submodule. Evidence in `formal/uvrr-lean/evidence/tlc/`;
   the delayed-fence counterexample evidence was removed with the classic
   crash-recover attempt it witnessed (historical copies remain under
   `research/uvrr-audit/`).
-- **Leanstral** (Mistral) — LLM Lean proof generator. Rung 26 records an accepted
+- **Leanstral** (Mistral), LLM Lean proof generator. Rung 26 records an accepted
   composition proof supplied with library signatures and checked by Lean.
   Failed attempts and externally reported repair trials remain distinguished
   from kernel-checked results.
-- **Showboat** — executable evidence packaging. Cited in the paper bibliography.
-- **Tectonic** — LaTeX build tool for `paper.tex` (via `paper/build.sh`).
+- **Showboat**, executable evidence packaging. Cited in the paper bibliography.
+- **Tectonic**, LaTeX build tool for `paper.tex` (via `paper/build.sh`).
 
 ### Tools surveyed and abandoned (not submodules)
 
@@ -208,22 +208,22 @@ The following were cloned during the research tool survey (items 12, 14a, 14b)
 but did not contribute to the paper or formalization. Their experiment records
 are committed under `research/`. Do not re-add them as submodules.
 
-- **Veil** — never tire-kicked. Pins v4.32.0 + pulls Mathlib. The formalization
+- **Veil**, never tire-kicked. Pins v4.32.0 + pulls Mathlib. The formalization
   uses plain Lean by design. Record: `research/tool-kick-tires.md`,
   `research/outcomes-paper.md`.
-- **LeanLTL** — never exercised beyond checkout. Past-time operators remain
+- **LeanLTL**, never exercised beyond checkout. Past-time operators remain
   future work. Record: `research/outcomes-paper.md`.
-- **lean-auto / Duper** — exercised (2/3 theorems solved, T2 commutativity
+- **lean-auto / Duper**, exercised (2/3 theorems solved, T2 commutativity
   timed out at 500s). Not a dependency of the formalization. Record:
   `research/lean-solvers-cli-lean-auto.md`.
-- **Aesop** — exercised (4/4 propositional theorems solved). Not a dependency.
+- **Aesop**, exercised (4/4 propositional theorems solved). Not a dependency.
   Record: `research/lean-solvers-cli-omega-aesop.md`.
-- **omega** — built into Lean, zero install. Not a dependency. Record: same as
+- **omega**, built into Lean, zero install. Not a dependency. Record: same as
   Aesop.
 
 ### Submodules
 
-- `maelstrom/` — Rust Maelstrom test harness. Retained. Unrelated to the paper.
+- `maelstrom/`, Rust Maelstrom test harness. Retained. Unrelated to the paper.
 - No `tools/` submodules. The four exploratory tool submodules (tla2tools, veil,
   LeanLTL, lean-auto) were removed after the survey concluded.
 
@@ -231,5 +231,5 @@ are committed under `research/`. Do not re-add them as submodules.
 
 Work-item numbers (`itemNN`) live in the todo and the gitignored
 `.tmp/` spec filename only. They NEVER appear in committed files, comments,
-docs, or commit messages — nothing in git may reference an unresolvable
+docs, or commit messages, nothing in git may reference an unresolvable
 identifier.

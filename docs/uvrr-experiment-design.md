@@ -66,7 +66,7 @@ value; holder `0x0` means no holder, and no client identifier is `0x0`.
 ### 1.3 Cluster and labelling
 
 Six nodes over raw UDP on the LAL Peer Protocol. Nodes are labelled `DC1_A`,
-`DC1_B`, `DC2_A`, `DC2_B`, `DC3_A`, `DC3_B` — three data centres, two nodes
+`DC1_B`, `DC2_A`, `DC2_B`, `DC3_A`, `DC3_B`, three data centres, two nodes
 each. This is the FPAXOS label scheme, stated here as our labelling. The
 lexically sorted member list is identical on every node; the membership
 fingerprint guards against accidentally joining a differently configured
@@ -85,7 +85,7 @@ decision rule for the whole campaign:
 
 If rejoining is slower than doing disk flushes, nothing has been achieved.
 
-## 3. E1 — node-kill rejoin latency under CSR
+## 3. E1, node-kill rejoin latency under CSR
 
 **Question.** With normal lock traffic running, how long does a killed voting
 node take to rejoin serving after reincarnation?
@@ -104,7 +104,8 @@ node take to rejoin serving after reincarnation?
 `normal`, leader serving); kill the selected node's process
 (Crash-Stop: volatile state lost, the node is by construction a different node
 on reopen); the cluster continues serving at quorum; the killed node bumps its
-incarnation, rejoins as a weight-0 standby, and is walked back to voting
+crash counter under the identity law (`docs/uvrr-boot-gate.md` §5), rejoins as
+a weight-0 member, and is walked back to voting
 weight by the leader's forced reconfiguration sequence; the iteration ends when
 the reincarnated node is again a voting, serving replica.
 
@@ -118,7 +119,7 @@ non-leader voting nodes.
 **Success rule.** Every iteration rejoins (no permanent loss of the killed
 node); the distribution is reported for comparison under §2.
 
-## 4. E2 — disk modes at the reincarnation boundary
+## 4. E2, disk modes at the reincarnation boundary
 
 **Question.** What does the diskless default save, in latency, against paying a
 forced flush at the reincarnation boundary?
@@ -127,18 +128,18 @@ Three variants, identical in every respect other than the durability behavior
 at the reincarnation boundary (the point at which a reincarnating node durably
 records state before rejoining serving):
 
-**Variant 0 — diskless (our default).** No durable writes at all at the
+**Variant 0, diskless (our default).** No durable writes at all at the
 reincarnation boundary. Quorum memory is the only protocol state; the recovery nonce
 file remains as shipped.
 
-**Variant 1 — naive single write (latency baseline).** One 4 KiB block write
+**Variant 1, naive single write (latency baseline).** One 4 KiB block write
 followed by `fsync` at the reincarnation boundary: the direct-write approach of the
 classic designs. Per FAST'18 (Alagappan et al., *Protocol-Aware Recovery for
 Consensus-Based Storage*, USENIX FAST '18, Best Paper), even this single write
-plus `fsync` is **not** fault-safe against real disk faults — it is included
+plus `fsync` is **not** fault-safe against real disk faults, it is included
 only as the latency baseline, never as a safety claim.
 
-**Variant 2 — double-ring write.** A TigerBeetle-style double write, at the
+**Variant 2, double-ring write.** A TigerBeetle-style double write, at the
 reincarnation boundary: write one 4 KiB block containing one 64-byte cache line of
 data plus a checksum header to the **first WAL ring**; then write the
 header+checksum, with **no payload**, to the **second WAL ring**. The rings are
@@ -146,7 +147,7 @@ spaced apart per TigerBeetle's real layout: two separate fixed zones of the
 data file, 4 KiB-sector aligned, so the two copies of the checksum sit in
 different erasure blocks. Grounding: the TigerBeetle 0.17.9 protocol and disk
 analysis ([the Director's gist](https://gist.github.com/simbo1905/3818c439bb08774f87bc8a92cc0a6ad5))
-documents the production geometry this variant mirrors — 4x superblock writes
+documents the production geometry this variant mirrors, 4x superblock writes
 plus the WAL header flush, two durable direct writes per prepare (body, then
 redundant header) before the acknowledgement, 1024-slot two-ring WAL, headers
 ring separate from the prepares ring. Wild support for double-write/dual-ring
@@ -174,7 +175,7 @@ itself (time from flush start to write completion) per iteration. All values
 distribution (§2). Variant 2 quantifies what the fault-safe flush would cost
 against both.
 
-## 5. E3 — Maelstrom brute force at three and five nodes
+## 5. E3, Maelstrom brute force at three and five nodes
 
 **Question.** Does CSR hold consistency under brute-force fault injection?
 
@@ -191,7 +192,7 @@ reincarnation behavior. Workload: competing lock clients at the §1.2 cadence.
 **Checks.**
 
 1. **Consistency under crash:** Maelstrom's linearizability check over the
-   register passes for every run — no committed operation is lost, no
+   register passes for every run, no committed operation is lost, no
    amnesiac node rejoins under its old identity and overwrites a newer
    decision.
 2. **Rejoin success:** every killed node reincarnates and rejoins serving; no
@@ -208,14 +209,14 @@ repeat at five nodes. Iterations per cluster size: `xxxx`. All values `xxxx`.
 supporting the case that CSR eliminates the FAST'18 weakness: consistency
 under crash with successful rejoin, by construction rather than by recovery.
 
-## 6. E4 — cloud repetition
+## 6. E4, cloud repetition
 
 E1 and E2 are repeated on commodity cloud virtual machines, with the six-node
 cluster laid out over three regions (two VMs each) matching the §1.3
 labelling. Variables, procedure, metrics, and sample counts are E1's and E2's
 unchanged; the environment differs (§12). All values `xxxx`.
 
-## 7. E5 — the failover budget: N round trips, no disk flush
+## 7. E5, the failover budget: N round trips, no disk flush
 
 **Question.** What does a view failover cost, decomposed into its wire
 segments, and what does the classic diskful barrier add on identical hardware
@@ -231,7 +232,7 @@ primary may serve installed state.
 
 **The forced-write rig (the counterfactual arm).** A custom test build of
 the demonstration performs one 4 KiB write + `fsync` **outside** the
-algorithm — before the fenced node emits its view-change traffic, and again
+algorithm, before the fenced node emits its view-change traffic, and again
 before the new primary answers StartView. The build never touches the core:
 no uVRR code is made unsafe, and nothing is rewritten to resemble the
 compared systems; the rig prices their barrier by adding its cost on our
@@ -243,19 +244,19 @@ critical path, at the points where VSR-1988/VRR must write to be safe.
 **Metrics.** Per-segment medians (suspicion floor, each RTT leg, each
 flush), and totals. Headline: total failover ours X.XX ms vs forced-flush
 arm XX.X ms; flush cost per boundary X.XX ms, also expressed in units of the
-same run's RTT as X.X RTTs — the hardware-agnostic ratio that should survive
+same run's RTT as X.X RTTs, the hardware-agnostic ratio that should survive
 moving rigs.
 
 **Success rule.** The totals satisfy the identity `total = floor + 2 RTT`
 (+2 flushes on the counterfactual arm) within the run's own noise; the
 diskless arm matches or beats the flush arm's total.
 
-## 8. E6 — suspicion calibration under jitter: what phi actually saw
+## 8. E6, suspicion calibration under jitter: what phi actually saw
 
 **Question.** The first rig runs showed the phi accumulator firing early:
 its estimate sat far below the true round-trip time, and under
 reconfiguration jitter its variance exploded. Which component owns the
-variance — GC, scheduler jitter, or the estimator window shape?
+variance, GC, scheduler jitter, or the estimator window shape?
 
 **Instrumentation.** Per heartbeat window, sample: measured RTT; the phi
 estimate; the estimator window's mean and variance; the LuaJIT allocation
@@ -275,12 +276,12 @@ variance-capped window and a stated floor; if scheduler jitter dominates,
 the floor moves to the measured jitter percentile. The paper reports which
 and why.
 
-## 9. Consistency checks — the figures must not contradict themselves
+## 9. Consistency checks, the figures must not contradict themselves
 
 Every placeholder carries an implicit order of magnitude, and the lab book
 checks it before any number is quoted. The rules:
 
-1. No loopback-harness figure may be quoted beside a cloud claim — loopback
+1. No loopback-harness figure may be quoted beside a cloud claim, loopback
    round trips are tens of microseconds; intra-zone cloud round trips are
    not. Numbers from different rigs never mix in one sentence, one ratio,
    or one chart.
@@ -324,7 +325,7 @@ sheets live as dated entries under `docs/labbook/`. Columns:
   is written to the TCP connection and immediately after the response line is
   read. One sample per operation; distributions reported as percentiles.
 - **Expiry decisions:** expiry is judged in the **leader's** clock. The leader
-  reads `now()` on its own host at execution time — the adapter's monotonic,
+  reads `now()` on its own host at execution time, the adapter's monotonic,
   nondecreasing milliseconds-since-Unix-epoch tick, clamped per node so a
   wall-clock regression never reaches the core. The lease expiry is stamped as
   leader `now() + 100 ms` on `SET` and advanced by one window on `BUMP`.
@@ -339,7 +340,7 @@ sheets live as dated entries under `docs/labbook/`. Columns:
   the VM so the host's load does not contaminate percentiles.
 - **Docker is functional only:** the local Colima Docker daemon has no BuildKit
   and no disk sharing, so Docker never produces timings. Docker is for
-  **functional tests** — docker-compose the six-node cluster and prove the
+  **functional tests**, docker-compose the six-node cluster and prove the
   cluster boots and serves with its dependencies. Base image: Debian Trixie;
   `aarch64` on this host, `x86_64` elsewhere; the arm64 build must boot with
   dependencies installed.
@@ -354,7 +355,7 @@ sheets live as dated entries under `docs/labbook/`. Columns:
   two-ring WAL, spacing):
   <https://gist.github.com/simbo1905/3818c439bb08774f87bc8a92cc0a6ad5>
 - Alagappan et al., *Protocol-Aware Recovery for Consensus-Based Storage*,
-  USENIX FAST '18 (Best Paper) — the amnesia-recovery flaw; why even the
+  USENIX FAST '18 (Best Paper), the amnesia-recovery flaw; why even the
   naive single write+fsync baseline is not fault-safe:
   <https://www.usenix.org/conference/fast18/presentation/alagappan>
 - TigerBeetle architecture: storage can fail; checksummed, replicated repair:

@@ -101,8 +101,8 @@ git submodule update
 ```
 
 `maelstrom-lin-kv` runs the core as a [Maelstrom](https://github.com/jepsen-io/maelstrom)
-node so Jepsen's Knossos checker verifies **linearizability** — strictly
-stronger than [sequential consistency](https://jepsen.io/consistency/models/sequential) —
+node so Jepsen's Knossos checker verifies **linearizability**, strictly
+stronger than [sequential consistency](https://jepsen.io/consistency/models/sequential),
 under partition, process kill, and process pause. Latest: 10,880 operations at
 K=5 under all three nemeses, `:valid? true`, no failures.
 
@@ -139,7 +139,7 @@ See `Dockerfile.maelstrom` for the build definition.
 **Cluster size and the fault budget.** Jepsen's default kill targets include
 `:majority` and `:all`. At `NODES=3` (f=1) that routinely kills two of three
 nodes, and a crash-fault protocol tolerating one failure then cannot make
-progress *by construction* — you get `ok-count 0`, `:valid? false`, and a
+progress *by construction*, you get `ok-count 0`, `:valid? false`, and a
 vacuously true `:linearizable`. Safety still held; liveness was impossible. The
 default here is `NODES=5` (f=2) for that reason. Read `ok-count` before reading
 the verdict.
@@ -156,16 +156,16 @@ Due to the Yeti nature of the superior but little advertised technology we are u
 
 This project uses the following open-source tools for testing and validation:
 
-- **[Maelstrom](https://github.com/jepsen-io/maelstrom)** — a workbench for learning
+- **[Maelstrom](https://github.com/jepsen-io/maelstrom)**, a workbench for learning
   distributed systems by writing your own, created by [Kyle Kingsbury](https://jepsen.io)
   and the [Jepsen](https://jepsen.io) team. Licensed under the [Eclipse Public
   License 1.0](https://www.eclipse.org/legal/epl-v10.html).
 
-- **[Jepsen](https://github.com/jepsen-io/jepsen)** — a framework for testing
+- **[Jepsen](https://github.com/jepsen-io/jepsen)**, a framework for testing
   distributed systems, also by Kyle Kingsbury. Licensed under the [Eclipse Public
   License 1.0](https://www.eclipse.org/legal/epl-v10.html).
 
-- **[Knossos](https://github.com/jepsen-io/knossos)** — Jepsen's linearizability
+- **[Knossos](https://github.com/jepsen-io/knossos)**, Jepsen's linearizability
   checker. Licensed under the [Eclipse Public
   License 1.0](https://www.eclipse.org/legal/epl-v10.html).
 
