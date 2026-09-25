@@ -115,11 +115,13 @@
 //!
 //! # Identity mapping (host-side, transparent to Maelstrom)
 //!
-//! The core's `NodeId` space is the identity space the bump moves in; the
-//! Maelstrom transport names a fixed roster. The host maps between them
-//! ([`Identity`]): a genesis identity is its sorted-roster position, a
-//! bumped identity is `incarnation * STRIDE + position`, and the low bits
-//! always resolve a core identity back to the Maelstrom node string it
+//! The core's `NodeId` is the durable pair (`docs/uvrr-boot-gate.md` §5):
+//! the system half names the node, the crash-counter half names the life;
+//! the Maelstrom transport names a fixed roster. The host maps between
+//! them ([`Identity`]): a genesis identity is the sorted-roster position
+//! as the system half with counter one, a bumped identity is the same
+//! system half with the counter one past, and the system half always
+//! resolves a core identity back to the Maelstrom node string it
 //! reincarnated under. A `Reincarnation(old, new)` announcement remaps the
 //! sender's transport id onto the announced new identity (§6's attribution
 //! rule, enforced host-side); before an announcement arrives, traffic from
@@ -178,11 +180,12 @@ use std::time::Duration;
 use serde_json::Value;
 use vrr::configuration::{SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, Stability};
+use vrr::ids::{CrashCounter, SystemId};
 use vrr::ids::{Era, NodeId, Operation, OperationId, Slot, Tick};
 use vrr::journal::{Journal, LogEntry, Payload, SegmentedLog};
 use vrr::lifecycle::{
-    BootError, BootOutcome, Clean, CopyState, Crashed, Incarnation, LifecycleStore, Marker,
-    Running, SuperblockCopies, boot,
+    BootError, BootOutcome, Clean, CopyState, Crashed, LifecycleStore, Marker, Running,
+    SuperblockCopies, boot,
 };
 use vrr::message::{Body, Message};
 use vrr::progress::Status;
@@ -270,24 +273,18 @@ fn main() {
     }
 }
 
-/// The stride between one node's consecutive identities. A genesis identity
-/// is its sorted-roster position; a bumped identity is
-/// `incarnation * STRIDE + position`, so identities never collide across
-/// nodes and never wrap — the bump is checked, and an identity past the
-/// `u32` space is a named refusal (§2's bump refuses rather than wraps).
-const STRIDE: u32 = 1 << 24;
-
-/// The host-side identity map: the core's `NodeId` space is the space the
-/// identity bump moves in; the Maelstrom transport names a fixed roster.
-/// Transparent to Maelstrom: a bumped internal identity resolves to the
-/// same Maelstrom node string it reincarnated under, and traffic from a
-/// node string resolves to the identity the host currently attributes to
-/// it (the genesis position until a `Reincarnation` announcement remaps
-/// it, §4, §6).
+/// The host-side identity map: a core identity is the durable pair
+/// (`docs/uvrr-boot-gate.md` §5), the roster position naming the system
+/// half and the life naming the crash-counter half; the Maelstrom transport
+/// names a fixed roster. Transparent to Maelstrom: a bumped identity
+/// resolves to the same Maelstrom node string it reincarnated under, and
+/// traffic from a node string resolves to the identity the host currently
+/// attributes to it (the genesis pair until a `Reincarnation` announcement
+/// remaps it, §4, §6).
 #[derive(Default)]
 struct Identity {
     /// The sorted genesis roster, fixed by `node_ids` (§8.7.2's genesis
-    /// order); the low bits of every core identity name a position in it.
+    /// order); the system half of every core identity names a position in it.
     roster: Vec<String>,
     /// The transport attribution the host currently holds per Maelstrom
     /// id, learned at each observed announcement.
@@ -295,21 +292,26 @@ struct Identity {
 }
 
 impl Identity {
-    /// The genesis identity of the node at roster position `index`.
+    /// The genesis identity of the node at roster position `index`: the
+    /// position names the system half, the genesis life is counter one.
     fn genesis(index: usize) -> NodeId {
-        NodeId(u32::try_from(index).expect("a roster position fits the identity space"))
+        let system = SystemId::new((index as u16) + 1).expect("a roster position names a system");
+        let crash = CrashCounter::new(1).expect("the genesis life is one");
+        NodeId::new(system, crash)
     }
 
-    /// The identity the node at roster position `position` carries in
-    /// incarnation `incarnation` (genesis is incarnation 0). Checked:
-    /// the identity space is refused, never wrapped.
-    fn of(incarnation: u64, position: u32) -> Option<NodeId> {
-        let incarnations = u64::from(u32::MAX / STRIDE);
-        if incarnation > incarnations {
+    /// The identity a boot read produced, validated against the roster
+    /// position this process serves: the system half must name the
+    /// position and both halves must be lawful. Nothing is re-derived —
+    /// the marker's pair is the identity.
+    fn of(id: NodeId, position: u32) -> Option<NodeId> {
+        if !id.is_lawful() {
             return None;
         }
-        let base = u32::try_from(incarnation).ok()?.checked_mul(STRIDE)?;
-        Some(NodeId(base.checked_add(position)?))
+        match id.system_id() {
+            Some(system) if system.get() == (position as u16) + 1 => Some(id),
+            _ => None,
+        }
     }
 
     /// The Maelstrom node string a core identity resolves to: the roster
@@ -317,8 +319,9 @@ impl Identity {
     /// core can name — genesis and bumped alike — and `None` for an
     /// identity outside the roster's reach, which the transport drops.
     fn string_of(&self, id: NodeId) -> Option<&str> {
+        let system = id.system_id()?;
         self.roster
-            .get((id.0 % STRIDE) as usize)
+            .get(system.get() as usize - 1)
             .map(String::as_str)
     }
 
@@ -570,11 +573,19 @@ impl NodeRunner {
                                 vrr::replica::PersistedProgress::from(replica.progress()),
                                 replica.journal().view(),
                             );
-                            match first.latch(Incarnation(0)) {
+                            let anchored = Identity::genesis(index);
+                            match first.latch(anchored) {
                                 Ok(session) => {
                                     self.replica = Some(replica);
                                     self.session = Some(session);
-                                    self.copies = Some(fresh_copies());
+                                    // The write-through beneath the first
+                                    // life re-encodes the anchor the latch
+                                    // already wrote: the genesis pair's
+                                    // `Joining` set, never a zero pattern —
+                                    // zero is no identity, and a restart
+                                    // resolving it would refuse as spent.
+                                    self.copies =
+                                        Some(lifecycle_markers(anchored, Marker::Joining));
                                 }
                                 Err((_, reason)) => self.refuse_node(
                                     message,
@@ -656,13 +667,13 @@ impl NodeRunner {
         }
         let identity = clean.identity();
         let position = u32::try_from(index).expect("a roster position fits");
-        let own = match Identity::of(identity.0, position) {
+        let own = match Identity::of(identity, position) {
             Some(own) => own,
             None => self.refuse_node(
                 message,
                 format!(
-                    "the persisted incarnation {} is outside the identity space",
-                    identity.0
+                    "the persisted identity {} does not name roster position {position}",
+                    identity
                 ),
             ),
         };
@@ -694,7 +705,7 @@ impl NodeRunner {
             Ok(replica) => {
                 eprintln!(
                     "vrr-init: node {} reopens cleanly (the stopped quorum proved the drain; identity {})",
-                    self.id, own.0
+                    self.id, own
                 );
                 self.replica = Some(replica);
                 self.session = Some(session);
@@ -735,12 +746,9 @@ impl NodeRunner {
         }
         let pair = match crashed.pair() {
             Ok(pair) => pair,
-            Err(vrr::lifecycle::RestartRefusal::Exhausted(incarnation)) => self.refuse_node(
+            Err(vrr::lifecycle::RestartRefusal::Exhausted(identity)) => self.refuse_node(
                 message,
-                format!(
-                    "the identity space is spent at incarnation {}",
-                    incarnation.0
-                ),
+                format!("the identity space is spent at identity {identity}"),
             ),
             Err(vrr::lifecycle::RestartRefusal::QuorumLost) => self.refuse_node(
                 message,
@@ -748,23 +756,23 @@ impl NodeRunner {
             ),
         };
         let position = u32::try_from(index).expect("a roster position fits");
-        let own = match Identity::of(pair.new.0, position) {
+        let own = match Identity::of(pair.new, position) {
             Some(own) => own,
             None => self.refuse_node(
                 message,
                 format!(
-                    "the identity space is spent: incarnation {} exceeds the u32 identity space",
-                    pair.new.0
+                    "the bumped identity {} does not name roster position {position}",
+                    pair.new
                 ),
             ),
         };
-        let crashed_identity = match Identity::of(pair.old.0, position) {
+        let crashed_identity = match Identity::of(pair.old, position) {
             Some(crashed) => crashed,
             None => self.refuse_node(
                 message,
                 format!(
-                    "the superseded incarnation {} is outside the identity space",
-                    pair.old.0
+                    "the superseded identity {} does not name roster position {position}",
+                    pair.old
                 ),
             ),
         };
@@ -785,7 +793,7 @@ impl NodeRunner {
             Ok(replica) => {
                 eprintln!(
                     "vrr-init: node {} reopens dirty: identity bumps {} -> {} (the latch defers to the seated witness)",
-                    self.id, crashed_identity.0, own.0
+                    self.id, crashed_identity, own
                 );
                 self.replica = Some(replica);
                 self.announce = Some(crashed_identity);
@@ -1707,19 +1715,9 @@ impl NodeRunner {
     }
 }
 
-/// A fresh four-superblock set (§2): the genesis incarnation carrying
-/// the provision's boot write — `Joining`, the state of a node that is
-/// not yet seated by any transition. A first life's file is born with
-/// it, and a crash before any clean stop reads exactly the
-/// no-controlled-shutdown evidence the next boot needs: no stopped
-/// quorum, so the identity resurrects (T3).
-fn fresh_copies() -> SuperblockCopies {
-    lifecycle_markers(Incarnation(0), Marker::Joining)
-}
-
 /// Four uniform copies of one marker state — the shape every marker
 /// write leaves on disk.
-fn lifecycle_markers(identity: Incarnation, marker: Marker) -> SuperblockCopies {
+fn lifecycle_markers(identity: NodeId, marker: Marker) -> SuperblockCopies {
     SuperblockCopies {
         copies: std::array::from_fn(|_| CopyState { identity, marker }),
     }

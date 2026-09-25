@@ -72,9 +72,10 @@ use std::fs::File;
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use vrr::ids::NodeId;
 use vrr::ids::{Era, Fault, Slot, View, ViewId};
 use vrr::journal::{JournalView, LogEntry};
-use vrr::lifecycle::{Incarnation, Marker, SuperblockCopies};
+use vrr::lifecycle::{Marker, SuperblockCopies};
 use vrr::progress::Status;
 use vrr::replica::PersistedProgress;
 use vrr::wire::{Pack, Unpack};
@@ -86,7 +87,7 @@ const MAGIC: u32 = u32::from_be_bytes(*b"UVRS");
 /// not a compatibility surface. Format 3 renumbers the marker words to
 /// the core's four-state marker transition machine; a format-2 file's
 /// words would misread, so it refuses rather than decodes.
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 /// Marker words, stated as a table so reordering this source cannot
 /// renumber the file (the core's `Status::to_word` discipline). The
@@ -110,7 +111,7 @@ const ROSTER_AREA: usize = 4096;
 // Slot field offsets, stated once so encode and decode cannot drift.
 const AT_SEQ: usize = 8;
 const AT_COPIES: usize = AT_SEQ + 8;
-const AT_ROSTER: usize = AT_COPIES + 4 * 9;
+const AT_ROSTER: usize = AT_COPIES + 4 * 5;
 const AT_CURRENT: usize = AT_ROSTER + ROSTER_AREA;
 const AT_RETAINED: usize = AT_CURRENT + 8;
 const AT_STATUS: usize = AT_RETAINED + 8;
@@ -600,8 +601,8 @@ impl SlotBytes {
         put_u32(buf, 4, VERSION);
         put_u64(buf, AT_SEQ, self.seq);
         for (index, copy) in self.copies.copies.iter().enumerate() {
-            put_u64(buf, AT_COPIES + index * 9, copy.identity.0);
-            buf[AT_COPIES + index * 9 + 8] = match copy.marker {
+            put_u32(buf, AT_COPIES + index * 5, copy.identity.0);
+            buf[AT_COPIES + index * 5 + 4] = match copy.marker {
                 Marker::Stopping => MARKER_STOPPING,
                 Marker::Stopped => MARKER_STOPPED,
                 Marker::Restarting => MARKER_RESTARTING,
@@ -648,8 +649,8 @@ impl SlotBytes {
         }
         let mut copies = Vec::new();
         for index in 0..4 {
-            let identity = Incarnation(get_u64(buf, AT_COPIES + index * 9));
-            let marker = match buf[AT_COPIES + index * 9 + 8] {
+            let identity = NodeId(get_u32(buf, AT_COPIES + index * 5));
+            let marker = match buf[AT_COPIES + index * 5 + 4] {
                 MARKER_STOPPING => Marker::Stopping,
                 MARKER_STOPPED => Marker::Stopped,
                 MARKER_RESTARTING => Marker::Restarting,

@@ -79,8 +79,8 @@ use vrr::ids::{
 };
 use vrr::journal::{Journal, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog};
 use vrr::lifecycle::{
-    BootError, BootOutcome, CopyState, Crashed, Incarnation, LifecycleStore, Marker, Running,
-    SuperblockCopies, boot,
+    BootError, BootOutcome, CopyState, Crashed, LifecycleStore, Marker, Running, SuperblockCopies,
+    boot,
 };
 use vrr::message::Message;
 use vrr::observe::Diagnostic;
@@ -98,6 +98,45 @@ use vrr::wire::Tag;
 /// parallel test targets never share marker directories.
 static GATE_ROOT_SEQ: AtomicU64 = AtomicU64::new(0);
 
+/// A lawful random pair, minted strictly inside the identity space: both
+/// halves in `1..u16::MAX` with two lives of bump headroom below the
+/// bound, drawn from a xorshift seeded by the clock and the process id. No memorised value can satisfy the rules by accident:
+/// a test mints its pair once at the start, runs its whole flow, and then
+/// checks the mint was not violated, so a hardcoded identity hiding as a
+/// fake satisfaction of the rules is impossible by construction.
+///
+/// # Panics
+///
+/// Never: the xorshift never yields zero and the range arithmetic cannot
+/// overflow.
+#[must_use]
+pub fn mint_pair() -> (SystemId, CrashCounter) {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64)
+        .unwrap_or(0x9e37_79b9);
+    let mut state = nanos ^ (u64::from(std::process::id()) << 32) | 1;
+    let draw = |state: &mut u64| -> u16 {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        // Strictly inside with two lives of headroom: 1..u16::MAX - 2, so
+        // neither the zero edge nor the exhaustion edge is ever minted by
+        // accident, and two lawful bumps always exist below the bound.
+        u16::try_from((*state % (u16::MAX as u64 - 2)) + 1).unwrap_or(1)
+    };
+    let system = SystemId::new(draw(&mut state)).expect("the draw is non-zero");
+    let crash = CrashCounter::new(draw(&mut state)).expect("the draw is non-zero");
+    (system, crash)
+}
+
+/// A lawful random identity: the pair, packed.
+#[must_use]
+pub fn mint_id() -> NodeId {
+    let (system, crash) = mint_pair();
+    NodeId::new(system, crash)
+}
+
 /// The replica configuration every harness node runs: the default journal
 /// and the default quorum strategy. Overridable per-node configuration is a
 /// later milestone's concern; nothing in the current suites needs it.
@@ -111,11 +150,13 @@ const TRACE_CAPACITY: usize = 512;
 // The boot gate's test store
 // ----------------------------------------------------------------------
 
-/// Blank marker content: identity 0, nothing vouched. Identity 0 is never
-/// a live identity (a lawful packed identity is non-zero in both halves),
-/// so a blank copy cannot win a working cohort and can never read as
-/// `Stopped`.
-const GATE_BLANK: &str = "0\n-\n";
+/// Blank marker content: the version stamp, identity 0, nothing vouched.
+/// Identity 0 is never a live identity (a lawful pair is non-zero in both
+/// halves), so a blank copy cannot win a working cohort and can never read
+/// as `Stopped`. The version stamp is the format contract: a marker file
+/// without it predates the durable identity pair and is refused as
+/// incompatible, never silently migrated.
+const GATE_BLANK: &str = "v1\n0\n-\n";
 
 /// One marker file's name, by copy index.
 fn gate_file(index: usize) -> String {
@@ -183,19 +224,41 @@ impl TmpGate {
 
     fn read_one(&self, index: usize) -> std::io::Result<CopyState> {
         let text = fs::read_to_string(self.dir.join(gate_file(index)))?;
-        let (identity, marker) = text.split_once('\n').unwrap_or(("0", "-"));
-        let identity = identity.parse::<u64>().unwrap_or(0);
-        let marker = match marker.trim() {
+        let text = text.trim_end_matches('\n');
+        let mut lines = text.split('\n');
+        // The format stamp rules: a file without `v1` predates the durable
+        // identity pair and is refused, never migrated in place.
+        if lines.next() != Some("v1") {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "incompatible marker format: the file predates the durable identity pair",
+            ));
+        }
+        let identity_line = lines.next().unwrap_or("0");
+        let marker_line = lines.next().unwrap_or("-");
+        let identity = identity_line.parse::<u32>().unwrap_or(0);
+        let marker = match marker_line {
             "Stopping" => Marker::Stopping,
             "Stopped" => Marker::Stopped,
             "Restarting" => Marker::Restarting,
             "Joining" => Marker::Joining,
-            // Blank or torn: nothing vouched — `Stopping` with identity 0
-            // never reads as a stop and never wins a working cohort.
+            // Blank: nothing vouched — `Stopping` with identity 0 never
+            // reads as a stop and never wins a working cohort.
+            "-" => Marker::Stopping,
             _ => Marker::Stopping,
         };
+        // A zero half under a real marker state is a corrupt marker, not
+        // an identity: the pair is one-indexed in both halves
+        // (`docs/uvrr-boot-gate.md` §5), so the read refuses rather than
+        // classifies over a pattern no lawful life ever wrote.
+        if identity == 0 && marker_line != "-" {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "corrupt marker: a zero half is no identity",
+            ));
+        }
         Ok(CopyState {
-            identity: Incarnation(identity),
+            identity: NodeId(identity),
             marker,
         })
     }
@@ -212,7 +275,7 @@ impl LifecycleStore for TmpGate {
             self.read_one(2)?,
             self.read_one(3)?,
         ];
-        if copies.iter().all(|copy| copy.identity == Incarnation(0)) {
+        if copies.iter().all(|copy| copy.identity == NodeId(0)) {
             return Ok(None);
         }
         Ok(Some(SuperblockCopies { copies }))
@@ -223,7 +286,12 @@ impl LifecycleStore for TmpGate {
             let path = self.dir.join(gate_file(index));
             let mut file = fs::File::create(&path)?;
             file.write_all(
-                format!("{}\n{}\n", copy.identity.0, gate_marker_name(copy.marker)).as_bytes(),
+                format!(
+                    "v1\n{}\n{}\n",
+                    copy.identity.0,
+                    gate_marker_name(copy.marker)
+                )
+                .as_bytes(),
             )?;
             file.sync_all()?;
         }
@@ -792,9 +860,7 @@ impl Harness {
             let dir = gate_root.join(format!("n{index}"));
             let gate = TmpGate::open(dir.clone()).expect("the gate directory opens");
             let mut session = match boot(gate) {
-                Ok(BootOutcome::First(first)) => first
-                    .latch(Incarnation(u64::from(id.0)))
-                    .expect("the first latch writes"),
+                Ok(BootOutcome::First(first)) => first.latch(id).expect("the first latch writes"),
                 _ => panic!("a fresh gate directory classifies first"),
             };
             gate_logs.push(Some(session.store_mut().ops_handle()));
@@ -1763,9 +1829,7 @@ impl Harness {
         let dir = self.gate_root.join(format!("n{index}"));
         let gate = TmpGate::open(dir.clone()).expect("the gate directory opens");
         let mut session = match boot(gate) {
-            Ok(BootOutcome::First(first)) => first
-                .latch(Incarnation(u64::from(id.0)))
-                .expect("the first latch writes"),
+            Ok(BootOutcome::First(first)) => first.latch(id).expect("the first latch writes"),
             _ => panic!("a fresh gate directory classifies first"),
         };
         match Replica::join(

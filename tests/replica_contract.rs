@@ -51,7 +51,7 @@ use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, Vie
 use vrr::invariant::{InputKind, header_slot_role};
 use vrr::journal::{Journal, JournalView, LogEntry, LogView, Payload, SegmentedLog};
 use vrr::lifecycle::{
-    BootOutcome, CopyState, Incarnation, LifecycleStore, Marker, SuperblockCopies, Vouched, boot,
+    BootOutcome, CopyState, LifecycleStore, Marker, SuperblockCopies, Vouched, boot,
 };
 use vrr::message::{Body, EraProof, EvidenceKind, Message};
 use vrr::progress::{Progress, Status};
@@ -205,7 +205,7 @@ fn clean_vouched() -> Vouched {
     let store = CopiesStore {
         copies: Some(SuperblockCopies {
             copies: [CopyState {
-                identity: Incarnation(1),
+                identity: NodeId(1),
                 marker: Marker::Stopped,
             }; 4],
         }),

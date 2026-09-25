@@ -31,12 +31,12 @@
 
 mod harness;
 
-use harness::{Harness, StepOutcome};
+use harness::{Harness, StepOutcome, mint_pair};
 use vrr::configuration::{ConfigError, Configuration, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::Effect;
 use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::lifecycle::{
-    CopyState, Incarnation, Marker, RestartClass, RestartDecision, RestartRefusal, SuperblockCopies,
+    CopyState, Marker, RestartClass, RestartDecision, RestartRefusal, SuperblockCopies,
 };
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
@@ -690,10 +690,10 @@ fn b_leader_crash_mid_sequence_memo_dies_and_resumes() {
 // D. The marker transition machine
 // ---------------------------------------------------------------------------
 
-fn copies(marks: [Marker; 4], identity: u64) -> SuperblockCopies {
+fn copies(marks: [Marker; 4], identity: u32) -> SuperblockCopies {
     SuperblockCopies {
         copies: marks.map(|marker| CopyState {
-            identity: Incarnation(identity),
+            identity: NodeId(identity),
             marker,
         }),
     }
@@ -717,6 +717,14 @@ fn copies(marks: [Marker; 4], identity: u64) -> SuperblockCopies {
 /// and the rewritten set reincarnates AGAIN — the commitment never wedges.
 #[test]
 fn d_marker_domain_exhaustive() {
+    // Minted once: the whole exhaustive domain runs at the drawn identity,
+    // and the bump chain advances the counter lawfully.
+    let (system, crash) = mint_pair();
+    let life = NodeId::new(system, crash);
+    let life1 = life
+        .next_life()
+        .expect("the minted counter is below the bound");
+    let life2 = life1.next_life().expect("still below the bound");
     let states = [
         Marker::Stopping,
         Marker::Stopped,
@@ -730,7 +738,7 @@ fn d_marker_domain_exhaustive() {
             states[(bits >> 4) & 3],
             states[(bits >> 6) & 3],
         ];
-        let stored = copies(marks, 7);
+        let stored = copies(marks, life.0);
         let clean = marks
             .iter()
             .filter(|mark| **mark == Marker::Stopped)
@@ -739,7 +747,7 @@ fn d_marker_domain_exhaustive() {
         let (class, identity) = stored
             .classify()
             .expect("the single written identity reaches the open threshold");
-        assert_eq!(identity, Incarnation(7), "marks {marks:?}");
+        assert_eq!(identity, life, "marks {marks:?}");
         assert_eq!(
             class == RestartClass::Stopped,
             clean,
@@ -749,23 +757,22 @@ fn d_marker_domain_exhaustive() {
         if clean {
             assert_eq!(
                 decision,
-                RestartDecision::Continue {
-                    identity: Incarnation(7)
-                },
+                RestartDecision::Continue { identity: life },
                 "marks {marks:?}"
             );
             assert!(
-                written.copies.iter().all(
-                    |copy| copy.identity == Incarnation(7) && copy.marker == Marker::Restarting
-                ),
+                written
+                    .copies
+                    .iter()
+                    .all(|copy| copy.identity == life && copy.marker == Marker::Restarting),
                 "the continue writes Restarting 4x: {marks:?}"
             );
         } else {
             assert_eq!(
                 decision,
                 RestartDecision::Bump {
-                    old: Incarnation(7),
-                    new: Incarnation(8)
+                    old: life,
+                    new: life1,
                 },
                 "marks {marks:?}"
             );
@@ -773,35 +780,35 @@ fn d_marker_domain_exhaustive() {
                 written
                     .copies
                     .iter()
-                    .all(|copy| copy.identity == Incarnation(8) && copy.marker == Marker::Joining),
+                    .all(|copy| copy.identity == life1 && copy.marker == Marker::Joining),
                 "the bump writes Joining 4x: {marks:?}"
             );
         }
     }
 
     // Death mid-join: all-`Joining` reincarnates again — and again.
-    let mid_join = copies([Marker::Joining; 4], 7);
+    let mid_join = copies([Marker::Joining; 4], life.0);
     let (decision, rejoined) = mid_join.restart().expect("the bump succeeds");
     assert_eq!(
         decision,
         RestartDecision::Bump {
-            old: Incarnation(7),
-            new: Incarnation(8)
+            old: life,
+            new: life1
         }
     );
     let (again, reincarnated) = rejoined.restart().expect("the second bump succeeds");
     assert_eq!(
         again,
         RestartDecision::Bump {
-            old: Incarnation(8),
-            new: Incarnation(9)
+            old: life1,
+            new: life2
         }
     );
     assert!(
         reincarnated
             .copies
             .iter()
-            .all(|copy| copy.identity == Incarnation(9) && copy.marker == Marker::Joining)
+            .all(|copy| copy.identity == life2 && copy.marker == Marker::Joining)
     );
 }
 
@@ -813,7 +820,9 @@ fn d_marker_domain_exhaustive() {
 /// `Restarting` 4x under the same identity.
 #[test]
 fn d_stop_path_marks_the_drain() {
-    let running = copies([Marker::Restarting; 4], 7);
+    let (system, crash) = mint_pair();
+    let life = NodeId::new(system, crash);
+    let running = copies([Marker::Restarting; 4], life.0);
     let stopping = running.begin_stop();
     assert!(
         stopping
@@ -830,17 +839,9 @@ fn d_stop_path_marks_the_drain() {
             .iter()
             .all(|copy| copy.marker == Marker::Stopped)
     );
-    assert_eq!(
-        stopped.classify(),
-        Some((RestartClass::Stopped, Incarnation(7)))
-    );
+    assert_eq!(stopped.classify(), Some((RestartClass::Stopped, life)));
     let (decision, restarted) = stopped.restart().expect("the identity space is not spent");
-    assert_eq!(
-        decision,
-        RestartDecision::Continue {
-            identity: Incarnation(7)
-        }
-    );
+    assert_eq!(decision, RestartDecision::Continue { identity: life });
     assert!(
         restarted
             .copies
@@ -855,12 +856,20 @@ fn d_stop_path_marks_the_drain() {
 /// wins; a lone copy at a higher identity cannot impose it.
 #[test]
 fn d_identity_resolved_inside_the_working_quorum() {
-    let mut higher_cohort = copies([Marker::Joining; 4], 7);
-    higher_cohort.copies[0].identity = Incarnation(9);
-    higher_cohort.copies[1].identity = Incarnation(9);
+    // Minted once: the low cohort at the drawn life, the high cohort one
+    // counter past it, so the packed order is the pair's order at values
+    // nothing memorised chose.
+    let (system, crash) = mint_pair();
+    let low = NodeId::new(system, crash);
+    let high = low
+        .next_life()
+        .expect("the minted counter is below the bound");
+    let mut higher_cohort = copies([Marker::Joining; 4], low.0);
+    higher_cohort.copies[0].identity = high;
+    higher_cohort.copies[1].identity = high;
     assert_eq!(
         higher_cohort.classify(),
-        Some((RestartClass::NotStopped, Incarnation(9)))
+        Some((RestartClass::NotStopped, high))
     );
     let (decision, _) = higher_cohort
         .restart()
@@ -868,17 +877,21 @@ fn d_identity_resolved_inside_the_working_quorum() {
     assert_eq!(
         decision,
         RestartDecision::Bump {
-            old: Incarnation(9),
-            new: Incarnation(10)
+            old: high,
+            new: high.next_life().expect("still below the bound"),
         },
         "the highest identity reaching the open threshold wins"
     );
 
-    let mut lone_higher = copies([Marker::Joining; 4], 7);
-    lone_higher.copies[2].identity = Incarnation(12);
+    // A second mint for the lone-imposer case.
+    let (system, crash) = mint_pair();
+    let lone_low = NodeId::new(system, crash);
+    let imposter = lone_low.next_life().expect("below the bound");
+    let mut lone_higher = copies([Marker::Joining; 4], lone_low.0);
+    lone_higher.copies[2].identity = imposter;
     assert_eq!(
         lone_higher.classify(),
-        Some((RestartClass::NotStopped, Incarnation(7)))
+        Some((RestartClass::NotStopped, lone_low))
     );
     let (decision, _) = lone_higher
         .restart()
@@ -886,8 +899,8 @@ fn d_identity_resolved_inside_the_working_quorum() {
     assert_eq!(
         decision,
         RestartDecision::Bump {
-            old: Incarnation(7),
-            new: Incarnation(8)
+            old: lone_low,
+            new: imposter,
         },
         "a single stale-or-superseded copy cannot impose its identity"
     );
@@ -898,20 +911,26 @@ fn d_identity_resolved_inside_the_working_quorum() {
 /// restart re-enters the same protocol from it.
 #[test]
 fn d_continuation_commitment() {
+    let (system, crash) = mint_pair();
+    let life = NodeId::new(system, crash);
     let mut marks = [Marker::Restarting; 4];
     marks[3] = Marker::Stopping;
-    let (decision, bumped) = copies(marks, 7).restart().expect("the bump succeeds");
+    let (decision, bumped) = copies(marks, life.0).restart().expect("the bump succeeds");
     let RestartDecision::Bump { new, .. } = decision else {
         panic!("no stopped quorum bumps");
     };
     // The wire phase runs; the node then restarts AGAIN: no stopped
-    // quorum once more, and the identity only moves forward.
+    // quorum once more, and the identity only moves forward — each step
+    // the counter one past, by the machine's own lawful bump, never by
+    // arithmetic on the packed value.
     let (second, rebumped) = bumped.restart().expect("the second bump succeeds");
     assert_eq!(
         second,
         RestartDecision::Bump {
             old: new,
-            new: Incarnation(new.0 + 1)
+            new: new
+                .next_life()
+                .expect("the mint leaves two lives of headroom"),
         }
     );
     // A clean stop then a restart continues the committed identity —
@@ -921,7 +940,9 @@ fn d_continuation_commitment() {
     assert_eq!(
         third,
         RestartDecision::Continue {
-            identity: Incarnation(new.0 + 1)
+            identity: new
+                .next_life()
+                .expect("the mint leaves two lives of headroom"),
         }
     );
     assert!(
@@ -936,10 +957,13 @@ fn d_continuation_commitment() {
 /// refuses rather than wrapping a superseded identity into circulation.
 #[test]
 fn d_identity_exhaustion_refuses() {
-    let stored = copies([Marker::Joining; 4], u64::MAX);
+    let system = SystemId::new(1).expect("system 1 is lawful");
+    let last = CrashCounter::new(u16::MAX).expect("65535 is lawful");
+    let last_identity = NodeId::new(system, last);
+    let stored = copies([Marker::Joining; 4], last_identity.0);
     assert_eq!(
         stored.restart().err(),
-        Some(RestartRefusal::Exhausted(Incarnation(u64::MAX))),
+        Some(RestartRefusal::Exhausted(last_identity)),
         "the bump refuses at exhaustion"
     );
 }

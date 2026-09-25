@@ -61,7 +61,7 @@ mod harness;
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{INIT_SLOT, SystemOperation};
 use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::lifecycle::{CopyState, Incarnation, Marker, RestartDecision, SuperblockCopies};
+use vrr::lifecycle::{CopyState, Marker, RestartDecision, SuperblockCopies};
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
 use vrr::progress::Status;
@@ -199,10 +199,10 @@ fn commit_quiet(h: &mut Harness, primary: NodeId, lsb: u64, payload: &[u8]) {
 /// One node's four superblock copies at the given incarnation, all four
 /// carrying `marker` — the uniform 4x write shape every marker
 /// transition leaves.
-fn copies(marker: Marker, identity: u64) -> SuperblockCopies {
+fn copies(marker: Marker, identity: u32) -> SuperblockCopies {
     SuperblockCopies {
         copies: [CopyState {
-            identity: Incarnation(identity),
+            identity: NodeId(identity),
             marker,
         }; 4],
     }
@@ -215,7 +215,7 @@ fn copies(marker: Marker, identity: u64) -> SuperblockCopies {
 /// is protocol-invisible), `finish_stop` (the drain's proof), then the
 /// boot's quorum read: 2-of-4 `Stopped` is the clean stop, the identity
 /// continues.
-fn host_stop(identity: u64) -> (RestartDecision, SuperblockCopies) {
+fn host_stop(identity: u32) -> (RestartDecision, SuperblockCopies) {
     let stopping = copies(Marker::Restarting, identity).begin_stop();
     assert!(
         stopping
@@ -392,12 +392,12 @@ fn post_genesis_cold_restart_completes_through_the_machine() {
 
     // n(0) stops and boots through the machine: the host stop, then the
     // quorum read continuing the identity as `Restarting`.
-    let (decision, written) = host_stop(7);
+    let (system, crash) = harness::mint_pair();
+    let minted = NodeId::new(system, crash);
+    let (decision, written) = host_stop(minted.0);
     assert_eq!(
         decision,
-        RestartDecision::Continue {
-            identity: Incarnation(7)
-        },
+        RestartDecision::Continue { identity: minted },
         "the stopped quorum continues the identity"
     );
     assert!(
@@ -433,12 +433,12 @@ fn post_genesis_cold_restart_completes_through_the_machine() {
     assert_eq!(h.queued_len(), 1, "the solo phase emitted the fence vote");
 
     // n(1) stops and boots through the machine the same way.
-    let (decision, written) = host_stop(8);
+    let (system, crash) = harness::mint_pair();
+    let minted = NodeId::new(system, crash);
+    let (decision, written) = host_stop(minted.0);
     assert_eq!(
         decision,
-        RestartDecision::Continue {
-            identity: Incarnation(8)
-        },
+        RestartDecision::Continue { identity: minted },
         "the stopped quorum continues the identity"
     );
     assert!(
@@ -576,14 +576,21 @@ fn crash_shape_bumps_and_joins_without_membership() {
     // The crash shape: n(1) died while running — the markers on disk are
     // the `Restarting` 4x its boot wrote, no `Stopped` in sight.
     h.crash(n(1));
-    let (decision, written) = copies(Marker::Restarting, 8)
+    // Minted once: the crash bumps this exact pair, the counter one past
+    // the minted life, the system half unmoved, nothing reverting.
+    let (system, crash) = harness::mint_pair();
+    let life = NodeId::new(system, crash);
+    let bumped = life
+        .next_life()
+        .expect("the minted counter is below the bound");
+    let (decision, written) = copies(Marker::Restarting, life.0)
         .restart()
         .expect("the identity space is not spent");
     assert_eq!(
         decision,
         RestartDecision::Bump {
-            old: Incarnation(8),
-            new: Incarnation(9),
+            old: life,
+            new: bumped
         },
         "no stopped quorum bumps the identity"
     );
@@ -591,7 +598,7 @@ fn crash_shape_bumps_and_joins_without_membership() {
         written
             .copies
             .iter()
-            .all(|copy| copy.identity == Incarnation(9) && copy.marker == Marker::Joining),
+            .all(|copy| copy.identity == bumped && copy.marker == Marker::Joining),
         "the reincarnation wrote `Joining` 4x under the bumped identity"
     );
 
