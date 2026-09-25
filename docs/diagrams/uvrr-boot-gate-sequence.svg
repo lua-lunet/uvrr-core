@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title desc">
   <title id="title">The three boot classifications at the boot gate</title>
-  <desc id="desc">Sequence diagram of the three starts. Clean start: a FLUSHED quorum vouches, one round writes RUNNING, the process reads its era and re-syncs in-cluster. Controlled halt then clean start: two rounds down, one round up. Dirty fast start: no FLUSHED quorum, no flush paid at the boundary — the process gossips, catches up, rejoins, and only then writes the deferred RUNNING latch.</desc>
+  <desc id="desc">Sequence diagram of the three starts. Clean start: a FLUSHED quorum vouches, one round writes RUNNING, the process reads its era and re-syncs in-cluster. Controlled halt then clean start: two rounds down, one round up. Dirty fast start: no FLUSHED quorum; the bumped identity pair is flushed before any emission — the identity law — and the process then gossips, catches up, rejoins, writing the deferred RUNNING latch only after the rejoin.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#243447"/></marker>
     <marker id="greenArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#157f3d"/></marker>
@@ -18,16 +18,16 @@
       .rule{stroke:#d0d5dd;stroke-width:2}
     </style>
   </defs>
-  <rect width="1200" height="820" fill="#ffffff"/>
+  <rect width="1200" height="856" fill="#ffffff"/>
   <text x="48" y="48" class="title">The boot gate: three starts, three write schedules</text>
   <text x="48" y="76" class="sub">One question from durable state — did the previous process reach its drain point? — chooses the path.</text>
 
   <rect x="150" y="110" width="180" height="44" rx="8" class="head"/><text x="240" y="138" class="h">process</text>
   <rect x="510" y="110" width="220" height="44" rx="8" class="disk"/><text x="620" y="138" class="h">superblock quorum (4)</text>
   <rect x="890" y="110" width="180" height="44" rx="8" class="head"/><text x="980" y="138" class="h">cluster</text>
-  <line x1="240" y1="154" x2="240" y2="790" class="lane"/>
-  <line x1="620" y1="154" x2="620" y2="790" class="lane"/>
-  <line x1="980" y1="154" x2="980" y2="790" class="lane"/>
+  <line x1="240" y1="154" x2="240" y2="826" class="lane"/>
+  <line x1="620" y1="154" x2="620" y2="826" class="lane"/>
+  <line x1="980" y1="154" x2="980" y2="826" class="lane"/>
 
   <text x="48" y="196" class="banner">1. Controlled halt — two rounds</text>
   <line x1="240" y1="228" x2="616" y2="228" class="msg"/>
@@ -49,12 +49,14 @@
   <text x="48" y="524" class="banner">3. Dirty fast start — no round now, one round later</text>
   <line x1="616" y1="556" x2="244" y2="556" class="good"/>
   <text x="420" y="544" class="label">read quorum: no FLUSHED — crashed; uninitialised; time is of the essence</text>
-  <line x1="240" y1="592" x2="976" y2="592" class="msg"/>
-  <text x="600" y="580" class="label">rejoin gossip to every known node, carrying frontiers</text>
-  <line x1="976" y1="628" x2="244" y2="628" class="good"/>
-  <text x="600" y="616" class="label">the leader streams from the frontier, then a fresh commit; catch up, rejoin</text>
-  <line x1="240" y1="676" x2="616" y2="676" class="msg"/>
-  <text x="420" y="664" class="label">deferred: 4× RUNNING — the latch is written only after the rejoin</text>
-  <text x="380" y="716" class="small">a second crash before the deferred write still reads no FLUSHED quorum — crashed again, correctly</text>
-  <text x="380" y="740" class="small">the flush is never paid at the boundary of an uninitialised start</text>
+  <line x1="240" y1="592" x2="616" y2="592" class="msg"/>
+  <text x="420" y="580" class="label">the identity gate: increment {systemIdentifier, crashCounter}, 4× commit — before any emission</text>
+  <line x1="240" y1="628" x2="976" y2="628" class="msg"/>
+  <text x="600" y="616" class="label">rejoin gossip to every known node, carrying frontiers</text>
+  <line x1="976" y1="664" x2="244" y2="664" class="good"/>
+  <text x="600" y="652" class="label">the leader streams from the frontier, then a fresh commit; catch up, rejoin</text>
+  <line x1="240" y1="712" x2="616" y2="712" class="msg"/>
+  <text x="420" y="700" class="label">deferred: 4× RUNNING — the latch is written only after the rejoin</text>
+  <text x="380" y="752" class="small">a second crash before the deferred latch still reads no FLUSHED quorum — crashed again, and the counter increments again</text>
+  <text x="380" y="776" class="small">the state flush is never paid at the boundary; the identity flush always is (§5)</text>
 </svg>

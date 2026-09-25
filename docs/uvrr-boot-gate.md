@@ -61,7 +61,7 @@ marker writes must never read as a clean stop
 
 ## 3. The write schedules
 
-The marker is four spaced, checksummed copies, quorum-read (§5). The rounds
+The marker is four spaced, checksummed copies, quorum-read (§6). The rounds
 of forced writes are fixed by the path.
 
 **Controlled halt — two rounds.** Halt the read loop and drain the handlers;
@@ -76,14 +76,18 @@ before the first message is processed, so that a later crash can never be
 mistaken for this clean start. The process reads its era from the vouched
 state and runs.
 
-**Dirty fast start — no round now, one round later.** The read shows no
+**Dirty fast start — one round now, the latch later.** The read shows no
 `FLUSHED` quorum: the previous process never reached its drain point, the
-identity is crashed, and this process is uninitialised. Time is of the
-essence — the flush is not paid at the boundary. The process finds the
-cluster, catches up, and rejoins first (`uvrr-rejoin-gossip-and-witnesses.md`
-§2); the `RUNNING` latch write is deferred until the rejoin completes. A
-second crash before the deferred write still reads no `FLUSHED` quorum and
-classifies crashed again — the deferral is safe by construction.
+identity is crashed, and this process is uninitialised. Two durable writes
+now separate. The identity write is paid at the boundary, before any
+emission: the boot increments the crash counter, commits the bumped pair,
+and only then speaks (§5). The state flush is not paid at the boundary:
+the process finds the cluster, catches up, and rejoins first
+(`uvrr-rejoin-gossip-and-witnesses.md` §2); the `RUNNING` latch write is
+deferred until the rejoin completes. A second crash before the deferred
+latch still reads no `FLUSHED` quorum and classifies crashed again — and
+because the bumped identity was already flushed, the second life increments
+again: no value is ever served twice.
 
 ## 4. The era rule
 
@@ -95,7 +99,46 @@ durable state and re-synchronises in-cluster from that era; a blank or dirty
 start adopts the cluster's era through the gossip before its engine sees
 traffic.
 
-## 5. The construction the schedules assume
+## 5. The identity law: universally unique, durable before emission
+
+A node identity carries the obligation that Paxos Made Simple puts on
+ballots: an identity is **universally unique, durable before use, and never
+recycled**. A bump assigns a value that no life of any node has ever used
+or will ever use; a value is burnt once and serves one life.
+
+The marker names the identity as the explicit pair
+`{systemIdentifier, crashCounter}`:
+
+- the `systemIdentifier` is assigned by the sysadmin and burnt into the
+  marker before first boot. It is one-indexed and never read as zero: a
+  boot that reads zero asserts, because zero is not an identity but a
+  corrupt marker.
+- the `crashCounter` is durable in the same file, one-indexed and never
+  read as zero; the life the disk last saw is the counter it read.
+
+The wire identifier stays `u32` — the transport (paxe) and the descriptor
+table demand it — and the durable pair in the marker is the truth the wire
+name stands for.
+
+**The emission gate: no announcement until the incremented counter is
+flushed.** A crashed classification increments the counter, commits the
+bumped pair, and only then emits its first message — identity before
+emission, not emission before seat, unconditionally, seated or not. The
+gate owes nothing to the rejoin, the witness, or any later seat: the
+cluster must be able to distinguish lives, and a life that never reached
+the disk is indistinguishable from its predecessor.
+
+The deferral of §3 is untouched, because the two durable facts differ: the
+`RUNNING` latch vouches for the *state* beneath the marker, and its
+deferral is safe exactly as §3 argues; the identity pair vouches for the
+*life* itself, and it never defers.
+
+The re-crash replay under the law: a crash after the flush leaves the
+marker at the bumped identity; the next boot reads it, classifies crashed
+again, and increments again. Each life is one counter advance past the
+last identity the disk saw, and no value is revisited.
+
+## 6. The construction the schedules assume
 
 The schedules assume a marker store whose reads survive the failure modes of
 real disks: torn sectors, misdirected writes, and silent rot are single-copy
@@ -110,7 +153,7 @@ beneath it; and a dual-ring WAL underneath. The flush literature is cited at
 reliable enough (Pillai et al., OSDI 2014; Chidambaram et al., SOSP 2013),
 which is why the marker is a quorum of copies and not a flag.
 
-## 6. The crate contract: `vrr::lifecycle`
+## 7. The crate contract: `vrr::lifecycle`
 
 The crate owns the machine; the host owns the writes. `vrr::lifecycle`
 ships the marker state machine, the quorum-read classification, and a
@@ -132,15 +175,17 @@ legal order only: a controlled halt is `begin_stop` (round one), `drain`,
 `finish_stop` (round two) — `finish_stop` is unreachable without the
 intervening drain because the drain is what the flushed marker vouches
 for. A clean start is one round: `latch` before the first message. A
-dirty fast start decides the replacement pair in memory, announces, and
-`latch` stays unreachable until the node presents the engine's own seated
-observation (`Replica::rejoined` — `Normal` at voting weight): the
-deferral of §3 is enforced, not recommended. A crash models as the
+dirty fast start commits the bumped pair before the driver releases the
+first announcement, and `latch` stays unreachable until the node presents
+the engine's own seated observation (`Replica::rejoined` — `Normal` at
+voting weight): the identity gate of §5 and the deferral of §3 are both
+enforced by the driver, not recommended. A crash models as the
 absence of transitions — no write, no state, nothing.
 
 The classification's verdict is carried in **proof tokens** that no host
 can construct: a stopped-quorum read mints `Vouched`, the crashed branch
-mints the `Bumped` pair, and the seated observation mints `Rejoined`.
+mints the `Bumped` pair once its commit is durable (§5), and the seated
+observation mints `Rejoined`.
 The replica constructors take the tokens: `Replica::resume` requires
 `Vouched` and is the only same-identity path; `Replica::reincarnate`
 requires the `Bumped` pair. A blank or dirty boot holds no `Vouched`, and
@@ -148,14 +193,14 @@ no function exists from a crashed classification to a same-identity
 replica: the amnesiac blank boot is unrepresentable by construction, not
 refused by a runtime check.
 
-The deferral's safety argument is the re-crash replay: a crash between
-the pair's decision and the deferred latch leaves the markers at the old
-identity, the next boot re-reads them, re-classifies crashed, and
-re-decides the same pair — and the announcement (`uvrr-reincarnation.md`
-§4) is idempotent, so the replay is absorbed. The durable bump lands with
-the deferred latch, after the rejoin, off the critical path.
+The deferral's safety argument is the re-crash replay: a crash before the
+deferred latch leaves the marker at the bumped identity — flushed before
+the first announcement (§5) — and the next boot re-reads it, re-classifies
+crashed, and increments again; no replayed value is ever announced. The
+latch lands after the rejoin, off the critical path; the identity write
+never does.
 
-## 7. The test harness obligation
+## 8. The test harness obligation
 
 The contract is exercised in tests through crash-stop alone. The harness
 implements `LifecycleStore` with plain marker files in a temporary
@@ -164,7 +209,9 @@ every restart through the driver: `halt` drives the controlled halt;
 `restart_with` is the clean classification — the driver's `Vouched` token
 constructs the same-identity resume; `restart_as` is the crashed
 classification — the driver's `Bumped` pair constructs the reincarnation,
-and the deferred latch fires when the seated observation mints `Rejoined`.
+the bumped commit is observed durable before the harness network sees any
+announcement (the §5 gate), and the deferred latch fires when the seated
+observation mints `Rejoined`.
 What the harness must never do is restart a crashed node silently as a
 clean one — error-on-crashed is the contract
 (`uvrr-termination-obligations.md` §3).
