@@ -13,7 +13,7 @@ use vrr::configuration::{
     ConfigError, Configuration, INIT_SLOT, SystemOperation, VOID_SLOT, Weight,
 };
 use vrr::effects::{Effect, Stability};
-use vrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, Tick, View, ViewId};
 use vrr::journal::{Journal, JournalView, LogEntry, Payload, SegmentedLog};
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
@@ -23,7 +23,10 @@ use vrr::replica::{Input, PlanRefusal, Replica, TimedInput, ViewChangeKnobs};
 use vrr::wire::{Header, Tag};
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 /// An operation identity for the scripts: the host assigns it, the core
@@ -884,9 +887,12 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
     let mut h = Harness::provision(5);
     bootstrap(&mut h);
     h.crash(n(4));
-    h.restart_as(n(4), n(5)).expect("the bumped node reopens");
+    let bumped = n(4)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(4), bumped).expect("the bumped node reopens");
     let initial = h.era_table(n(0)).unwrap().current().config.clone();
-    let steps = vrr::replica::forced_steps(&initial, n(4), n(5));
+    let steps = vrr::replica::forced_steps(&initial, n(4), bumped);
     assert_eq!(
         steps.len(),
         6,
@@ -909,7 +915,7 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
     for (index, step) in steps.iter().enumerate() {
         let leader = if index == 0 { n(0) } else { n(1) };
         assert!(matches!(
-            h.reincarnate(n(5), n(4)),
+            h.reincarnate(bumped, n(4)),
             StepOutcome::Published { .. }
         ));
         h.deliver_all();
@@ -940,7 +946,7 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
             );
         }
         assert_eq!(
-            vrr::replica::forced_steps(&expected, n(4), n(5)),
+            vrr::replica::forced_steps(&expected, n(4), bumped),
             steps[index + 1..]
         );
         if index == 0 {
@@ -984,7 +990,7 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
             .iter()
             .map(|m| m.node)
             .collect::<Vec<_>>(),
-        vec![n(0), n(1), n(2), n(3), n(5)]
+        vec![n(0), n(1), n(2), n(3), bumped]
     );
     assert_eq!(current_weights(&h, n(1)), vec![1, 1, 1, 1, 1]);
 }
@@ -1020,12 +1026,19 @@ fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
                 original_leader
             };
             assert_eq!(status_of(&h, n(leader)), Status::Normal);
-            h.restart_as(n(killed), n(6)).unwrap();
+            let bumped = n(killed)
+                .next_life()
+                .expect("the test never exhausts the counter");
+            h.restart_as(n(killed), bumped).unwrap();
             let start = h.era_table(n(leader)).unwrap().current().config.clone();
-            let live: Vec<_> = (0..7).filter(|&id| id != killed).map(n).collect();
-            let steps = vrr::solver::solve_replacement(&start, n(killed), n(6), &live).unwrap();
+            let live: Vec<_> = (0..6)
+                .filter(|&id| id != killed)
+                .map(n)
+                .chain(std::iter::once(bumped))
+                .collect();
+            let steps = vrr::solver::solve_replacement(&start, n(killed), bumped, &live).unwrap();
             for (index, step) in steps.iter().enumerate() {
-                h.reincarnate(n(6), n(killed));
+                h.reincarnate(bumped, n(killed));
                 h.deliver_all();
                 assert_eq!(
                     h.era_table(n(leader)).unwrap().current().config,
@@ -1052,9 +1065,9 @@ fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
                 h.deliver_all();
                 // Complete the retained StartView after its state fetch before
                 // offering subsequent traffic or promoting the learner.
-                h.tick(n(6));
+                h.tick(bumped);
                 h.deliver_all();
-                assert_eq!(status_of(&h, n(6)), Status::Normal);
+                assert_eq!(status_of(&h, bumped), Status::Normal);
                 assert_eq!(status_of(&h, n(leader)), Status::Normal);
                 let before = snap(&h, n(leader)).committed;
                 h.propose(n(leader), op_id(900 + index as u64), b"solver replacement");
@@ -1072,7 +1085,7 @@ fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
                     .is_none()
             );
             assert_eq!(
-                h.era_table(n(6)).unwrap().current().config.order(),
+                h.era_table(bumped).unwrap().current().config.order(),
                 h.era_table(n(leader)).unwrap().current().config.order()
             );
         }

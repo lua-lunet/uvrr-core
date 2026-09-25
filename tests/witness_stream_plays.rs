@@ -16,12 +16,15 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::observe::Diagnostic;
 use vrr::progress::Status;
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 fn op_id(lsb: u64) -> OperationId {
@@ -121,7 +124,7 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> ViewId {
 /// commits, and the streamed join batches land the witness as a voter.
 ///
 /// The user's walk, mapped: n1 = n(0), n2(l) = n(1), n3 = n(2),
-/// reincarnated n3' = n(3).
+/// reincarnated n3' = the next life of n(2).
 #[test]
 fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
     let mut h = Harness::with_knobs(3, knobs());
@@ -134,18 +137,21 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
     h.deliver_all();
     assert_eq!(snap(&h, n(1)).committed, 3, "op1 committed everywhere");
 
-    // n1 isolated; n3 crashes dirty and reincarnates as n(3).
-    h.partition(vec![n(0)], vec![n(1), n(2), n(3)]);
+    // n1 isolated; n3 crashes dirty and reincarnates as its next life.
+    let bumped = n(2)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.partition(vec![n(0)], vec![n(1), n(2), bumped]);
     h.crash(n(2));
-    h.restart_as(n(2), n(3)).expect("the bumped node reopens");
-    let outcome = h.reincarnate(n(3), n(2));
+    h.restart_as(n(2), bumped).expect("the bumped node reopens");
+    let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     // The leader acked and streamed the first forced batch
     // `[Decrement(n2), Join(n3)]` at slot 4: the witness folded it; the
     // isolated n(0) never saw it; no quorum exists.
     assert_eq!(
-        snap(&h, n(3)).accepted,
+        snap(&h, bumped).accepted,
         4,
         "the witness folded the streamed batch"
     );
@@ -158,7 +164,7 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
     let outcome = h.propose(n(1), op_id(2), b"y");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
-    assert_eq!(snap(&h, n(3)).accepted, 5, "the witness stays current");
+    assert_eq!(snap(&h, bumped).accepted, 5, "the witness stays current");
     assert_eq!(snap(&h, n(1)).committed, 3, "still no quorum");
 
     // The slot-4/5 prepares to n(0) are lost; the heal delivers nothing
@@ -206,12 +212,12 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
         "the healed member holds the same committed prefix"
     );
     assert_eq!(
-        snap(&h, n(3)).committed,
+        snap(&h, bumped).committed,
         7,
         "the witness holds the live commit stream — current indefinitely"
     );
     assert_eq!(
-        current_era(&h, n(3)),
+        current_era(&h, bumped),
         Era(2),
         "the witness folded the era that will admit it"
     );
@@ -223,30 +229,30 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
         );
         assert_eq!(
             h.journal_entry(n(1), Slot(slot)),
-            h.journal_entry(n(3), Slot(slot)),
+            h.journal_entry(bumped, Slot(slot)),
             "slot {slot}: the witness's journal is the leader's"
         );
     }
 
     // The join completes over the stream: the view change into era 2,
-    // the re-announce, and the second batch `[Increment(n3), Leave(n2)]`
-    // commits — n(3) is a voter and n(2) is gone.
+    // the re-announce, and the second batch `[Increment(n3'), Leave(n2)]`
+    // commits: the bumped witness is a voter and n(2) is gone.
     drive_view_change(&mut h, &[n(0), n(1)]);
-    let outcome = h.reincarnate(n(3), n(2));
+    let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert_eq!(current_era(&h, n(0)), Era(3), "the promotion committed");
     assert_eq!(
         current_weights(&h, n(0)),
         vec![1, 1, 1],
-        "n(3) joined at weight 1; n(2) left"
+        "the bumped witness joined at weight 1; n(2) left"
     );
 
     // "Left the leader's witness list": its vote is now REQUIRED. In the
     // era-3 unit cluster, isolate one incumbent — the leader and the
     // promoted member are exactly a quorum, and the commit waits on the
     // promoted member's ack.
-    drive_view_change(&mut h, &[n(0), n(1), n(3)]);
+    drive_view_change(&mut h, &[n(0), n(1), bumped]);
     let leader = h
         .era_table(n(0))
         .expect("live")
@@ -254,7 +260,7 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
         .config
         .primary(current_view(&h, n(0)).view)
         .expect("a primary exists");
-    let promoted = n(3);
+    let promoted = bumped;
     let incumbent = [n(0), n(1)]
         .into_iter()
         .find(|&id| id != leader)
@@ -296,30 +302,33 @@ fn play_b_isolated_leader_dies_new_leader_overrides_witness_tail() {
     h.deliver_all();
     assert_eq!(snap(&h, n(0)).committed, 3);
 
-    // n(4) crashes dirty and reincarnates as n(5); the leader acks and
-    // arms the machine. The first forced step (DOUBLE) is proposed but
-    // not yet delivered anywhere.
+    // n(4) crashes dirty and reincarnates as its next life; the leader
+    // acks and arms the machine. The first forced step (DOUBLE) is
+    // proposed but not yet delivered anywhere.
     h.crash(n(4));
-    h.restart_as(n(4), n(5)).expect("the bumped node reopens");
-    let outcome = h.reincarnate(n(5), n(4));
+    let bumped = n(4)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(4), bumped).expect("the bumped node reopens");
+    let outcome = h.reincarnate(bumped, n(4));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_to(n(0));
 
     // The minority: old leader and witness. The witness plays keep-up on
     // the dead view's uncommitted slots — the DOUBLE at slot 4 and a
     // client op "z" at slot 5.
-    h.partition(vec![n(0), n(5)], vec![n(1), n(2), n(3)]);
+    h.partition(vec![n(0), bumped], vec![n(1), n(2), n(3)]);
     h.deliver_all();
     let outcome = h.propose(n(0), op_id(2), b"z");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert_eq!(
-        snap(&h, n(5)).accepted,
+        snap(&h, bumped).accepted,
         5,
         "the witness kept up with the isolated leader"
     );
     assert_eq!(
-        snap(&h, n(5)).committed,
+        snap(&h, bumped).committed,
         3,
         "keep-up is not commit: nothing commits in the minority"
     );
@@ -341,7 +350,7 @@ fn play_b_isolated_leader_dies_new_leader_overrides_witness_tail() {
     // at slot 4 — the SAME slot the witness filled for the dead view.
     h.crash(n(0));
     h.heal();
-    let outcome = h.reincarnate(n(5), n(4));
+    let outcome = h.reincarnate(bumped, n(4));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_to(n(1));
     // The new leader's slot 5 is a client op "y" — a DIFFERENT value
@@ -363,21 +372,21 @@ fn play_b_isolated_leader_dies_new_leader_overrides_witness_tail() {
     // divergent tail is invisible to the leader. For now the witness is
     // simply behind; it votes nowhere, so this is availability, not safety.
     assert_eq!(
-        snap(&h, n(5)).committed,
+        snap(&h, bumped).committed,
         3,
         "the memo stream is same-view-only: the witness cannot ride it across the view change"
     );
 
     // The recomputed sequence commits at the majority: the view change
-    // into era 2, the re-announce, and `[Join(n5), Increment(n5)]`
+    // into era 2, the re-announce, and `[Join(new), Increment(new)]`
     // establishes era 3 — the new join attempt at slots the new leader
     // chose.
     drive_view_change(&mut h, &[n(1), n(2), n(3)]);
-    let outcome = h.reincarnate(n(5), n(4));
+    let outcome = h.reincarnate(bumped, n(4));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert_eq!(
-        weight_of(&h, n(1), n(5)),
+        weight_of(&h, n(1), bumped),
         Some(1),
         "the new join attempt committed at the new leader's slots"
     );
@@ -394,15 +403,15 @@ fn play_b_isolated_leader_dies_new_leader_overrides_witness_tail() {
         h.deliver_all();
     }
     assert_eq!(
-        status_of(&h, n(5)),
+        status_of(&h, bumped),
         Status::Normal,
         "the witness converged through the fence: {:?}",
-        status_of(&h, n(5))
+        status_of(&h, bumped)
     );
     for slot in 1..=5u64 {
         assert_eq!(
             h.journal_entry(n(1), Slot(slot)),
-            h.journal_entry(n(5), Slot(slot)),
+            h.journal_entry(bumped, Slot(slot)),
             "slot {slot}: the majority's history overrode the dead view's uncommitted tail"
         );
     }
@@ -425,11 +434,14 @@ fn play_b_tail_sequence_fence_completes_with_promoted_witness_behind() {
     h.deliver_all();
 
     h.crash(n(4));
-    h.restart_as(n(4), n(5)).expect("the bumped node reopens");
-    let outcome = h.reincarnate(n(5), n(4));
+    let bumped = n(4)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(4), bumped).expect("the bumped node reopens");
+    let outcome = h.reincarnate(bumped, n(4));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_to(n(0));
-    h.partition(vec![n(0), n(5)], vec![n(1), n(2), n(3)]);
+    h.partition(vec![n(0), bumped], vec![n(1), n(2), n(3)]);
     h.deliver_all();
     for _ in 0..=TIMEOUT {
         h.tick(n(1));
@@ -437,18 +449,18 @@ fn play_b_tail_sequence_fence_completes_with_promoted_witness_behind() {
     h.deliver_all();
     h.crash(n(0));
     h.heal();
-    let outcome = h.reincarnate(n(5), n(4));
+    let outcome = h.reincarnate(bumped, n(4));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_to(n(1));
     let outcome = h.propose(n(1), op_id(3), b"y");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     drive_view_change(&mut h, &[n(1), n(2), n(3)]);
-    let outcome = h.reincarnate(n(5), n(4));
+    let outcome = h.reincarnate(bumped, n(4));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert_eq!(
-        weight_of(&h, n(1), n(5)),
+        weight_of(&h, n(1), bumped),
         Some(1),
         "setup: the join attempt committed at the new leader's slots"
     );
@@ -456,7 +468,7 @@ fn play_b_tail_sequence_fence_completes_with_promoted_witness_behind() {
     // The tail: re-announce to arm the old identity's next eviction batch,
     // drive the next fence before the witness has folded the new era, and
     // the fence must still complete within bounded driving.
-    let outcome = h.reincarnate(n(5), n(4));
+    let outcome = h.reincarnate(bumped, n(4));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     drive_view_change(&mut h, &[n(1), n(2), n(3)]);
@@ -478,7 +490,7 @@ fn play_b_tail_sequence_fence_completes_with_promoted_witness_behind() {
                 eprintln!("PROBE4 era {era}: no record at n1");
             }
         }
-        let t5 = h.era_table(n(5)).expect("n5 live");
+        let t5 = h.era_table(bumped).expect("n5 live");
         eprintln!(
             "PROBE4 n5 current {:?} era4 record {:?}",
             t5.current().era,

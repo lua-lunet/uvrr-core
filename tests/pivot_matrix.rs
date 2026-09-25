@@ -19,13 +19,16 @@ mod harness;
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{Configuration, SystemOperation};
 use vrr::effects::Stability;
-use vrr::ids::{Era, NodeId, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, SystemId, View, ViewId};
 use vrr::journal::{Journal, SegmentedLog};
 use vrr::quorum::{QuorumStrategy, Role, WeightedMajority};
 use vrr::replica::{Input, Pivot, PlanRefusal, Replica, ViewChangeKnobs};
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 /// A view in era 1 — the era every node here bootstraps into.

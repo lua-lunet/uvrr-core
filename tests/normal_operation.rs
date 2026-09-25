@@ -13,7 +13,7 @@
 
 use vrr::configuration::INIT_SLOT;
 use vrr::effects::Effect;
-use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
@@ -27,7 +27,10 @@ mod harness;
 use harness::{BoundaryEvent, Harness, StepOutcome};
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 /// An operation identity for the scripts: the host assigns it, the core

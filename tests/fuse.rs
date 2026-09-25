@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use vrr::configuration::{Member, SystemOperation, Weight};
 use vrr::effects::Effect;
-use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::journal::Payload;
 use vrr::message::{Body, Message};
 use vrr::observe::Diagnostic;
@@ -26,7 +26,10 @@ use vrr::plan::Plan;
 use vrr::wire::{Header, Pack, Tag, Unpack, UnpackError};
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 /// The bootstrap of `tests/reconfiguration_stepwise.rs`: the genesis
@@ -397,7 +400,7 @@ fn op_id(lsb: u64) -> OperationId {
 
 fn member(id: u32, weight: u32) -> Member {
     Member {
-        node: NodeId(id),
+        node: n(id),
         weight: Weight(weight),
     }
 }
@@ -840,7 +843,7 @@ fn oversized_schedule_falls_back_to_ordinary_prepares() {
     // 1300-byte payload check in `tests/wire_contract.rs`).
     let joins: Vec<SystemOperation> = (0..8)
         .map(|i| SystemOperation::Join {
-            node: NodeId(u32::try_from(i + 3).expect("eight learners fit a u32")),
+            node: n(u32::try_from(i + 3).expect("eight learners fit a u32")),
             position: u32::try_from(i + 3).expect("eight positions fit a u32"),
         })
         .collect();

@@ -12,7 +12,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{EraTable, SystemOperation};
-use vrr::ids::{Era, NodeId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId, View, ViewId};
 use vrr::observe::Diagnostic;
 use vrr::progress::Status;
 use vrr::quorum::{WeightedMajority, construct_pivot};
@@ -20,7 +20,10 @@ use vrr::replica::ViewChangeKnobs;
 use vrr::wire::Tag;
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 /// A view in era 2 — the era the standby-bearing `DECREMENT` establishes.

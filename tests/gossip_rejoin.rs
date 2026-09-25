@@ -18,15 +18,18 @@
 mod harness;
 
 use harness::Harness;
-use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::message::{Body, Message};
 use vrr::progress::Status;
 use vrr::wire::{Header, Tag};
 
-const ALL: [NodeId; 3] = [NodeId(0), NodeId(1), NodeId(2)];
+const ALL: [NodeId; 3] = [n(0), n(1), n(2)];
 
-fn n(id: u32) -> NodeId {
-    NodeId(id)
+const fn n(id: u32) -> NodeId {
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 fn op_id(lsb: u64) -> OperationId {
@@ -154,13 +157,16 @@ fn the_join_gossip_lists_the_announcer_at_every_node() {
 
     h.crash(n(0));
     rotate(&mut h);
-    h.restart_as(n(0), n(9))
+    let bumped = n(0)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(0), bumped)
         .expect("the disk reopens under the bump");
-    h.reincarnate(n(9), n(0));
+    h.reincarnate(bumped, n(0));
     h.deliver_tag(n(1), Tag::Reincarnation);
     h.deliver_tag(n(2), Tag::Reincarnation);
     assert!(
-        h.peek_queued(n(9), Tag::Prepare).is_some(),
+        h.peek_queued(bumped, Tag::Prepare).is_some(),
         "the leader's stream beat to the joiner is on the wire\n{}",
         h.trace_dump()
     );
@@ -168,7 +174,7 @@ fn the_join_gossip_lists_the_announcer_at_every_node() {
 
     for id in [n(1), n(2)] {
         assert!(
-            h.witnesses(id).contains(&n(9)),
+            h.witnesses(id).contains(&bumped),
             "n={id:?} did not list the announcer",
         );
     }
@@ -353,11 +359,14 @@ fn a_stale_stream_message_never_moves_the_sink_backwards() {
 
     h.crash(n(0));
     rotate(&mut h);
-    h.restart_as(n(0), n(9))
+    let bumped = n(0)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(0), bumped)
         .expect("the disk reopens under the bump");
-    h.reincarnate(n(9), n(0));
+    h.reincarnate(bumped, n(0));
     h.deliver_all();
-    let before = snap(&h, n(9));
+    let before = snap(&h, bumped);
 
     // A forged stream chunk from a view below the sink's current: refused.
     let stale = Message {
@@ -376,8 +385,8 @@ fn a_stale_stream_message_never_moves_the_sink_backwards() {
             more: false,
         },
     };
-    h.inject(n(0), n(9), stale);
-    let after = snap(&h, n(9));
+    h.inject(n(0), bumped, stale);
+    let after = snap(&h, bumped);
     assert_eq!(after.committed, before.committed, "no rewind");
     assert_eq!(after.view, before.view, "no view regression");
     assert!(
@@ -399,15 +408,18 @@ fn promotion_removes_the_joined_voter_from_every_witness_list() {
 
     h.crash(n(0));
     rotate(&mut h);
-    h.restart_as(n(0), n(9))
+    let bumped = n(0)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(0), bumped)
         .expect("the disk reopens under the bump");
-    h.reincarnate(n(9), n(0));
+    h.reincarnate(bumped, n(0));
     h.deliver_tag(n(1), Tag::Reincarnation);
     h.deliver_tag(n(2), Tag::Reincarnation);
     h.deliver_all();
     for id in [n(1), n(2)] {
         assert!(
-            h.witnesses(id).contains(&n(9)),
+            h.witnesses(id).contains(&bumped),
             "the joiner was listed before promotion",
         );
     }
@@ -419,18 +431,18 @@ fn promotion_removes_the_joined_voter_from_every_witness_list() {
         h.tick_all();
         h.deliver_all();
         let weights = h
-            .era_table(n(9))
+            .era_table(bumped)
             .map(|table| {
                 table
                     .current()
                     .config
-                    .weight_of(n(9))
+                    .weight_of(bumped)
                     .map(|weight| weight.0)
                     .unwrap_or(0)
             })
             .unwrap_or(0);
         if weights >= 1
-            && h.snapshot(n(9)).and_then(|s| Status::from_word(s.status)) == Some(Status::Normal)
+            && h.snapshot(bumped).and_then(|s| Status::from_word(s.status)) == Some(Status::Normal)
         {
             seated = true;
             break;
@@ -439,7 +451,7 @@ fn promotion_removes_the_joined_voter_from_every_witness_list() {
     assert!(seated, "the joiner was never seated\n{}", h.trace_dump());
     for id in [n(1), n(2)] {
         assert!(
-            !h.witnesses(id).contains(&n(9)),
+            !h.witnesses(id).contains(&bumped),
             "n={id:?} still lists a promoted voter",
         );
     }

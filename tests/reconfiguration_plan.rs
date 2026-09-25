@@ -18,12 +18,15 @@ use proptest::test_runner::TestCaseError;
 use vrr::configuration::{
     ConfigError, Configuration, INIT_SLOT, MAX_WEIGHT, Member, SystemOperation, VOID_SLOT, Weight,
 };
-use vrr::ids::{Era, NodeId, Slot};
+use vrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId};
 use vrr::quorum::{QuorumStrategy, Role, WeightedMajority};
 use vrr::replica::forced_steps;
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 /// `Join { node, position }` at the named succession position.
@@ -601,7 +604,7 @@ fn genesis_and_nested_batches_are_refused() {
 #[test]
 fn grid_one_is_reproduced_row_by_row() {
     let genesis = fold_genesis();
-    let z = NodeId(3);
+    let z = n(3);
     let stream = vec![
         join(z, 3),
         SystemOperation::Increment(z),
@@ -630,7 +633,7 @@ fn grid_one_is_reproduced_row_by_row() {
 #[test]
 fn grid_two_is_reproduced_row_by_row() {
     let genesis = fold_genesis();
-    let z = NodeId(3);
+    let z = n(3);
     let stream = vec![
         SystemOperation::Double,
         join(z, 3),
@@ -682,7 +685,7 @@ fn grid_two_is_reproduced_row_by_row() {
 /// domain-closure and era-safety helpers.
 fn grid_one_configs() -> Vec<Configuration> {
     let genesis = fold_genesis();
-    let z = NodeId(3);
+    let z = n(3);
     let stream = vec![
         join(z, 3),
         SystemOperation::Increment(z),
@@ -695,7 +698,7 @@ fn grid_one_configs() -> Vec<Configuration> {
 
 fn grid_two_configs() -> Vec<Configuration> {
     let genesis = fold_genesis();
-    let z = NodeId(3);
+    let z = n(3);
     let stream = vec![
         SystemOperation::Double,
         join(z, 3),
@@ -864,7 +867,7 @@ fn snapshot_serde_round_trip_and_tamper() {
 #[test]
 fn snapshot_plus_wal_fold_equals_the_flat_stream() {
     let genesis = fold_genesis();
-    let z = NodeId(3);
+    let z = n(3);
     let stream = vec![
         SystemOperation::Double,
         join(z, 3),
@@ -953,13 +956,13 @@ fn op_strategy() -> impl Strategy<Value = SystemOperation> {
     // a leave at a positive weight — and those are exactly the streams the
     // property skips, but the accept rate keeps the case count meaningful.
     prop_oneof![
-        3 => (0u32..3).prop_map(|id| SystemOperation::Increment(NodeId(id))),
-        3 => (0u32..3).prop_map(|id| SystemOperation::Decrement(NodeId(id))),
+        3 => (0u32..3).prop_map(|id| SystemOperation::Increment(n(id))),
+        3 => (0u32..3).prop_map(|id| SystemOperation::Decrement(n(id))),
         5 => (4u32..8).prop_map(|id| SystemOperation::Join {
-            node: NodeId(id),
+            node: n(id),
             position: 0,
         }),
-        2 => (0u32..3).prop_map(|id| SystemOperation::Leave(NodeId(id))),
+        2 => (0u32..3).prop_map(|id| SystemOperation::Leave(n(id))),
         1 => Just(SystemOperation::Double),
         1 => Just(SystemOperation::Halve),
     ]

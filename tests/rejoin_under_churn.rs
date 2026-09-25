@@ -13,15 +13,18 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::message::{Body, Message};
 use vrr::progress::Status;
 use vrr::wire::{Header, Pack, Tag};
 
-const ALL: [NodeId; 3] = [NodeId(0), NodeId(1), NodeId(2)];
+const ALL: [NodeId; 3] = [n(0), n(1), n(2)];
 
-fn n(id: u32) -> NodeId {
-    NodeId(id)
+const fn n(id: u32) -> NodeId {
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 fn op_id(lsb: u64) -> OperationId {
@@ -438,9 +441,12 @@ fn a_reincarnated_identity_is_seated_by_the_forced_sequence_then_survives_churn(
 
     // The dirty boot: the disk reopens under a fresh identity nobody
     // names. Until seated, every peer discards its traffic by name.
-    h.restart_as(n(0), n(9))
+    let bumped = n(0)
+        .next_life()
+        .expect("the test never exhausts the counter");
+    h.restart_as(n(0), bumped)
         .expect("the disk reopens under the bump");
-    h.reincarnate(n(9), n(0));
+    h.reincarnate(bumped, n(0));
 
     // The announcement drives the forced sequence: era by era the leader
     // joins the new identity, grants its weight, and evicts the dead one.
@@ -449,18 +455,18 @@ fn a_reincarnated_identity_is_seated_by_the_forced_sequence_then_survives_churn(
         h.tick_all();
         h.deliver_all();
         let weights = h
-            .era_table(n(9))
+            .era_table(bumped)
             .map(|table| {
                 table
                     .current()
                     .config
-                    .weight_of(n(9))
+                    .weight_of(bumped)
                     .map(|weight| weight.0)
                     .unwrap_or(0)
             })
             .unwrap_or(0);
         if weights >= 1
-            && h.snapshot(n(9)).and_then(|s| Status::from_word(s.status)) == Some(Status::Normal)
+            && h.snapshot(bumped).and_then(|s| Status::from_word(s.status)) == Some(Status::Normal)
         {
             seated = true;
             break;
@@ -476,7 +482,7 @@ fn a_reincarnated_identity_is_seated_by_the_forced_sequence_then_survives_churn(
             .iter()
             .map(|m| (m.node, u64::from(m.weight.0)))
             .collect::<Vec<_>>()),
-        h.snapshot(n(9)).and_then(|s| Status::from_word(s.status)),
+        h.snapshot(bumped).and_then(|s| Status::from_word(s.status)),
         h.trace_dump()
     );
 
@@ -489,7 +495,7 @@ fn a_reincarnated_identity_is_seated_by_the_forced_sequence_then_survives_churn(
             serve(&mut h, &ALL, &mut ops);
         }
     }
-    assert_eq!(status_of(&h, n(9)), Status::Normal);
+    assert_eq!(status_of(&h, bumped), Status::Normal);
     h.assert_safety();
 }
 

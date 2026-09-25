@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use vrr::effects::{Effect, Stability, StabilityResult};
-use vrr::ids::{Era, Fault, NodeId, OperationId, Slot, Tick, View, ViewId};
+use vrr::ids::{CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, Tick, View, ViewId};
 use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, Message};
 use vrr::progress::{ProgressSnapshot, Status};
@@ -45,7 +45,10 @@ mod harness;
 // ---------------------------------------------------------------------------
 
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 fn genesis_view() -> ViewId {
@@ -119,14 +122,14 @@ fn genesis_log(order: &[u32]) -> Vec<LogEntry> {
             slot: INIT_SLOT,
             era: Era(1),
             payload: Payload::System(SystemOperation::Init {
-                order: order.iter().map(|&id| NodeId(id)).collect(),
+                order: order.iter().map(|&id| n(id)).collect(),
             }),
         },
     ]
 }
 
 fn era_table(order: &[u32]) -> Arc<EraTable> {
-    let order: Vec<NodeId> = order.iter().map(|&id| NodeId(id)).collect();
+    let order: Vec<NodeId> = order.iter().map(|&id| n(id)).collect();
     Arc::new(
         EraTable::genesis()
             .extend(&SystemOperation::Void, VOID_SLOT)
@@ -169,7 +172,7 @@ fn evidence(
     applied: Vec<(u64, u8)>,
 ) -> NodeEvidence {
     NodeEvidence {
-        id: NodeId(id),
+        id: n(id),
         snapshot: snap,
         config: era_table(order),
         committed,

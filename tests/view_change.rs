@@ -11,7 +11,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::configuration::{INIT_SLOT, SystemOperation};
-use vrr::ids::{Era, Fault, NodeId, OperationId, Slot, View, ViewId};
+use vrr::ids::{CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, View, ViewId};
 use vrr::journal::{LogEntry, Payload};
 use vrr::message::{Body, EraProof, EvidenceKind, Message};
 use vrr::observe::Diagnostic;
@@ -21,7 +21,10 @@ use vrr::wire::{Header, Pack, Tag};
 
 /// Node id shorthand (the harness's own pattern).
 fn n(id: u32) -> NodeId {
-    NodeId(id)
+    NodeId::new(
+        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
 }
 
 /// A view in era 1 — every scenario here is same-era (W1).
