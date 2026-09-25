@@ -1642,7 +1642,7 @@ fn forced_steps_recompute_exactly_the_remaining_suffix() {
 // identity
 // ---------------------------------------------------------------------------
 
-/// The downstream wedge of lunet-locks issue #26, reproduced as a protocol
+/// The wedge, reproduced as a protocol
 /// fact. A crashed node bumps its identity and emits the CORRECT
 /// reincarnation (`old=2, new=3`, frontiers present); a non-compliant host
 /// transport stamps the outbound sender from a stale learned map, so the

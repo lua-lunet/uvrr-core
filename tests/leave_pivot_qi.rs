@@ -1,4 +1,4 @@
-//! The Leave-pivot `qI` finding (issue #13): a `Leave` whose pivot places
+//! The Leave-pivot `qI` finding: a `Leave` whose pivot places
 //! the departing member inside `qI` — the standby rides into `qI` on the
 //! §8.7.6 cardinality rule (`|qI| + |qII| = N + 1`) — must still complete
 //! its planned quorum. The construction explicitly solicits the departed

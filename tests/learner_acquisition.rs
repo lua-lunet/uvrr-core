@@ -301,8 +301,7 @@ fn catch_up(h: &mut Harness, learner: NodeId) {
     }
 }
 
-/// A joiner admitted SEVERAL eras past its boot table (the issue-#13
-/// fourth finding): boot three genesis voters, admit three joiners across
+/// A joiner admitted SEVERAL eras past its boot table: boot three genesis voters, admit three joiners across
 /// successive eras — one committed `Join` per era — then promote the
 /// second joiner. The promoted joiner folds the eras its boot table is
 /// behind on through the §10 acquisition, era by era — one fold per
