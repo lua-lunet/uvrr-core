@@ -23,7 +23,7 @@ weight above `2`:
 §3 scaling rules), which keeps every worked schedule inside the domain the closure
 arguments were checked over.
 
-A weight-0 member is a **standby** — TigerBeetle's term for its non-voting cluster
+A weight-0 member is a **standby**, TigerBeetle's term for its non-voting cluster
 members (older drafts of this document called it a learner). Standby nodes have a zero
 voting weight so cannot form part of any quorum nor actively participate in the VSR
 algorithm. TigerBeetle ships exactly this role: its constants cap `standbys_max` alongside
@@ -32,7 +32,7 @@ replicas *and* standbys (`send_message_to_other_replicas_and_standbys` in
 `src/vsr/replica.zig`) while every quorum is sized on the replica count alone.
 
 A nine-node deployment of three voting nodes across three data centres with six
-standbys is a **three-node cluster** with six warm standbys — the quorum arithmetic
+standbys is a **three-node cluster** with six warm standbys, the quorum arithmetic
 runs entirely over the voters. There is no bound on the number of standbys other
 than the membership cap, and standbys may come and go.
 
@@ -43,13 +43,13 @@ than the membership cap, and standbys may come and go.
 | R2 | A node joins the cluster at voting weight zero (`Join` inserts a standby; there is no operation that joins at any other weight). |
 | R3 | A node leaves the cluster only after its voting weight has been changed to zero (`Leave` is legal only at weight 0). |
 | R4 | A zero-weight member never votes: it is not a voter in any quorum evaluation, so it is not counted against any quorum. |
-| R5 | A leader does not count any response from a zero-weight member toward any vote, and every replica drops view-change-like messages from a zero-weight member. The one message a non-voting identity may send that is never dropped is the `Reincarnation` announcement (§4 of `docs/uvrr-reincarnation.md`) — the entry ticket. The one response a departing identity's answer still counts toward is the non-stop transition's own planned quorum (§8.7.7): the pivot places the departing member inside `qI` and the construction solicits exactly that vote, so the §6 membership-discard (`docs/uvrr-reincarnation.md`) admits precisely that solicited `EvidenceKind::Planned` answer past ingress — every other message from the departed identity stays refused by name. |
+| R5 | A leader does not count any response from a zero-weight member toward any vote, and every replica drops view-change-like messages from a zero-weight member. The one message a non-voting identity may send that is never dropped is the `Reincarnation` announcement (§4 of `docs/uvrr-reincarnation.md`), the entry ticket. The one response a departing identity's answer still counts toward is the non-stop transition's own planned quorum (§8.7.7): the pivot places the departing member inside `qI` and the construction solicits exactly that vote, so the §6 membership-discard (`docs/uvrr-reincarnation.md`) admits precisely that solicited `EvidenceKind::Planned` answer past ingress, every other message from the departed identity stays refused by name. |
 | R6 | A leader sends prepare and commit to zero-weight standbys so they stay caught up: warm standbys, swappable in by uVRR. |
 
 ## 3. The operation alphabet
 
 `ABDICATE`, `DOUBLE`, `HALVE`, `INCREMENT(n)`, `DECREMENT(n)`, `JOIN(n, position)`,
-`LEAVE(n)` — plus the two genesis operations `VOID` and `INIT` (genesis is not
+`LEAVE(n)`, plus the two genesis operations `VOID` and `INIT` (genesis is not
 plannable; see §6). Each operation has its own refusal, and refusals are total:
 nothing saturates, nothing rounds, no partial application.
 
@@ -83,7 +83,7 @@ LEAVE(c)]` applied to `(a:1, b:1, c:1)` has net change `0` yet moves mass `2`
 alone would admit the swap it exists to forbid.
 
 Zero-weight joins and leaves move no mass (`|0 − 0| = 0`), so **any number of
-standbys may join or leave in one era** — R14 admits them without bound, which is
+standbys may join or leave in one era**, R14 admits them without bound, which is
 the property R1–R4 rest on.
 
 ## 5. The planner: reduce-left batch evaluation
@@ -95,8 +95,8 @@ The leader never proposes an unsafe batch. Given a stream of operations it runs 
 1. try the operation against the accumulated in-batch configuration;
 2. if the growing batch stays legal (R13–R15 and every per-op boundary at its point
    in the sequence), **take** it: extend the taken list and the configuration;
-3. if it would violate a rule, **pass only the prior list**: close the batch — the
-   taken ops become one era's establishing operation — and retry the operation as
+3. if it would violate a rule, **pass only the prior list**: close the batch, the
+   taken ops become one era's establishing operation, and retry the operation as
    the first op of the next batch.
 
 The classic shapes fall out mechanically:
@@ -104,8 +104,8 @@ The classic shapes fall out mechanically:
 - *A ton of zero-weight joins, then a double*: every `JOIN` moves no mass, so the
   reduce keeps taking them; the `DOUBLE` cannot join a batch that has ops (R13), so
   it closes the joins and starts its own solitary era.
-- *The reincarnation four* — `[DECREMENT(c), JOIN(d), INCREMENT(d), LEAVE(c)]` —
-  **split nicely into two**: after `DECREMENT(c), JOIN(d)` the mass moved is `1`;
+- *The reincarnation four*, `[DECREMENT(c), JOIN(d), INCREMENT(d), LEAVE(c)]`,
+  **splits nicely into two**: after `DECREMENT(c), JOIN(d)` the mass moved is `1`;
   adding `INCREMENT(d)` would move `2`, so the batch closes and the next era takes
   `INCREMENT(d), LEAVE(c)` (mass `1`). The canonical two-era form
   `(a:1,b:1,c:1) → (a:1,b:1,c:0,d:0) → (a:1,b:1,d:1)` is exactly what the
@@ -121,7 +121,7 @@ leader evaluates a proposed batch on a clone before proposing it for consensus,
 thread-safely, with no lock and no mutation.
 
 The planner's output is what travels on the wire. Under Fuse
-(`docs/uvrr-fuse.md`) a schedule of at least two operations is packed —
+(`docs/uvrr-fuse.md`) a schedule of at least two operations is packed:
 one datagram per recipient, the shared ballot in the envelope header, each op
 at its own consecutive slot. The planner certifies the sequence once; the
 envelope is delivered atomically; the first op in the batch decides the whole
@@ -151,7 +151,7 @@ membership.
 
 | Stage | Batch | Old | New | Each of four survivors |
 |---|---|---|---|---|
-| Initial | — | 1 | 0 | 1 |
+| Initial |, | 1 | 0 | 1 |
 | Double | `DOUBLE` | 2 | 0 | 2 |
 | Introduce | `JOIN(new), INCREMENT(new)` | 2 | 1 | 2 |
 | Reduce old | `DECREMENT(old)` | 1 | 1 | 2 |
@@ -186,10 +186,10 @@ state the exact predicates and cover arbitrary finite cluster sizes.
 The canonical hot-swap schedules, as published in *Paxos Voting Weights*
 (2017-03-16). Columns are servers `W, X, Y, Z` across three zones; `–` means not a
 member. Each row is one committed era, each consecutive pair is era-safe, and the
-partitioner reproduces each grid from its flat op stream — see
+partitioner reproduces each grid from its flat op stream, see
 `tests/reconfiguration_plan.rs`.
 
-**Grid 1 — the unit hot swap** (three zones, unit weights):
+**Grid 1, the unit hot swap** (three zones, unit weights):
 
 | W | X | Y | Z |
 |---|---|---|---|
@@ -200,7 +200,7 @@ partitioner reproduces each grid from its flat op stream — see
 Op stream: `JOIN(Z)`, `INCREMENT(Z)`, `DECREMENT(Y)`, `LEAVE(Y)` →
 eras `[JOIN(Z), INCREMENT(Z)]` then `[DECREMENT(Y), LEAVE(Y)]`.
 
-**Grid 2 — the doubled-scale safe replacement** (the even-nodes optimisation;
+**Grid 2, the doubled-scale safe replacement** (the even-nodes optimisation;
 weights run `0, 1, 2` only):
 
 | W | X | Y | Z |
@@ -217,19 +217,19 @@ Op stream: `DOUBLE`, `JOIN(Z)`, `INCREMENT(Z)`, `DECREMENT(Y)`, `DECREMENT(Y)`,
 `LEAVE(Y)`, `INCREMENT(Z)`, `HALVE` → eras
 `[DOUBLE]`, `[JOIN(Z), INCREMENT(Z)]`, `[DECREMENT(Y)]`, `[DECREMENT(Y), LEAVE(Y)]`,
 `[INCREMENT(Z)]`, `[HALVE]`. The final `HALVE` is integral because the joiner was
-driven to weight 2 first — the doubled corner that makes the return to unit weights
+driven to weight 2 first, the doubled corner that makes the return to unit weights
 possible at all.
 
 ## 8. The named mathematics
 
-The user's statement — "the proofs are trivial, it's the property of the
-intersections of integer sets" — has standard names:
+The user's statement, "the proofs are trivial, it's the property of the
+intersections of integer sets", has standard names:
 
 | Rule | Named result |
 |---|---|
 | Two strict majorities of one configuration intersect | the **pigeonhole principle**: strict-majority threshold `floor(T/2) + 1` exceeds half the total, so two disjoint sets would exceed the total |
 | Majorities intersect when the **per-node mass moved** is ≤ 1 | Turner's **Lemma 2** (general weighted-majority overlap), formalized as ladder rung 9 `WeightedGeneral.scaled_overlap` |
-| `DOUBLE`/`HALVE` change no quorum family | **common-factor normalization**: the majority threshold `floor(T/2) + 1` scales with `T`, so `18/27 = 2/3` — the "zero op" |
+| `DOUBLE`/`HALVE` change no quorum family | **common-factor normalization**: the majority threshold `floor(T/2) + 1` scales with `T`, so `18/27 = 2/3`, the "zero op" |
 | Even totals need one more than half, odd totals split exactly | `floor(T/2) + 1` is the strict-majority threshold: even `T` is "eager" (`2n → n+1`), odd `2n+1 → n+1` splits evenly |
 
 The exhaustive check the tests use is `vrr::quorum::validate_transition` (the full
@@ -248,7 +248,7 @@ Cluster state is **folded history, never ambient mutation**:
   snapshot is a validated object: it serializes (`serde` feature) and re-inflates
   only through a constructor that re-checks every invariant (domain {0,1,2},
   duplicate-free, non-empty unless era 0, total ≥ 1). The WAL carries
-  `SystemOperation` values — already serde and wire types — and replay is the fold.
+  `SystemOperation` values, already serde and wire types, and replay is the fold.
 - A batch commits as one establishing operation (one era, one WAL entry), so the
   WAL is exactly the sequence of legal eras the planner produced.
 
@@ -308,13 +308,13 @@ The delta rule bounds the bump from both sides. The primary schedule advances
 one node per view along the succession order, so a legitimate relocation skips
 the intervening members: moving the leader from `DC1:a` to `DC3:a` in a cluster
 holding `a,b` per site is a bump of `+4` past `DC1:b`, `DC2:a`, `DC2:b`. The
-upper bound `N` keeps that arithmetic honest: a bump larger than the total set —
-view `1234` asked to become view `2^32` — would waste the succession space the
+upper bound `N` keeps that arithmetic honest: a bump larger than the total set,
+view `1234` asked to become view `2^32`, would waste the succession space the
 schedule depends on, so it is refused. A non-positive delta is refused: views do
 not move backwards.
 
 **The transition.** On a valid abdication the leader emits the standard
-view-change messages for the target view — no new wire message exists; the
+view-change messages for the target view, no new wire message exists; the
 abdication is answered by exactly the protocol messages the ordinary era change
 would run. The leader stops being the primary at the same instant: any further
 message it sends is ignored, discarded by the standard membership and fence
@@ -327,6 +327,6 @@ obligations above are validation and test obligations, not proof obligations.
 
 **Test obligations.** Each refusal is checked by one named test through the
 public interface: the CAS failure, the non-primary receiver, the non-positive
-delta, the delta above `N`, and the valid relocation path — the leader's
+delta, the delta above `N`, and the valid relocation path, the leader's
 emission is the standard view-change set, and its own subsequent messages are
 discarded.

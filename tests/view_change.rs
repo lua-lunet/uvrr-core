@@ -86,8 +86,7 @@ fn apply_all(h: &mut Harness, ids: [u32; 3]) {
 /// change after more than three ticks of primary silence (S4).
 const TIMEOUT: u64 = 3;
 
-/// A three-node cluster with the view-change knobs set explicitly (the
-/// brief's requirement; the legacy harness constructors never time out).
+/// A three-node cluster with the view-change knobs set explicitly.
 fn cluster() -> Harness {
     Harness::with_knobs(
         3,

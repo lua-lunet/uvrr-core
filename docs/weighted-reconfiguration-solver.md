@@ -39,7 +39,7 @@ snapshot supplied by the operator: re-evaluate it when failures change.
 
 A plan is the dumb-operator artefact: compute it once, submit it, and the leader
 steps through it while the cluster keeps running normally. `vrr::plan::Plan`
-is the core's serde-free form — the initial membership (order is succession)
+is the core's serde-free form, the initial membership (order is succession)
 and one batch of operations per era, in commit order.
 
 The plan travels as JSONL, one JSON object per line: a header line, then one
@@ -52,24 +52,24 @@ step line per era.
 ```
 
 `target` is the membership the steps reach. The operation vocabulary is exactly
-the existing `SystemOperation` alphabet — `increment`, `decrement`, `double`,
-`halve`, `join` (with `position`), `leave` — each naming `node` where the
+the existing `SystemOperation` alphabet, `increment`, `decrement`, `double`,
+`halve`, `join` (with `position`), `leave`, each naming `node` where the
 operation has one. JSON is parsed once at the tool perimeter into the
 serde-free `Plan`; the core never sees JSON. The codec refuses, on the way in,
 an initial membership that is not a legal configuration, any step the fold
 refuses, and a declared `target` that is not the configuration the steps reach.
 
 The leader acceptance rule: the leader rejects any plan whose `initial`
-configuration is not its current committed configuration — membership,
-succession order and weights are all compared — and rejects any step the
+configuration is not its current committed configuration, membership,
+succession order and weights are all compared, and rejects any step the
 configuration fold refuses (`vrr::plan::Plan::validate_against`). A plan that
 was legal when computed but has drifted is rejected, not committed; replan
 from the current configuration to the original target.
 
 An accepted plan is executed by the leader's plan-execution machine: one step
 per era, each proposed through the ordinary reconfiguration gates, until the
-last step commits and the machine clears. A step the gates refuse — the
-cluster changed underneath the plan — aborts the machine with `PlanAborted`
+last step commits and the machine clears. A step the gates refuse, the
+cluster changed underneath the plan, aborts the machine with `PlanAborted`
 and the operator re-plans from the configuration that committed. The plan
 arrives on the leader's dedicated admin ingress, and the host polls that
 ingress BEFORE the regular client queue on every selection

@@ -6,7 +6,7 @@
 
 This document defines the state, persistence, recovery, and concurrency boundary for a SANS-I/O implementation of Viewstamped Replication. `VSR-1988` denotes Brian M. Oki and Barbara H. Liskov's paper [*Viewstamped Replication: A New Primary Copy Method to Support Highly-Available Distributed Systems*](https://www.cs.princeton.edu/courses/archive/fall11/cos518/papers/viewstamped.pdf), presented at PODC in August 1988.[^oki-dissertation] `VRR-2012` denotes Barbara Liskov and James Cowling's later paper, [*Viewstamped Replication Revisited*](https://dspace.mit.edu/entities/publication/80846d94-fcd3-40e6-87fb-8d91fe99a5d1), published in 2012. `vrr-core` implements VRR-2012 only. VSR-1988 is discussed solely to explain the origin and purpose of the VRR-2012 view-change fence.
 
-**On the word "recovery".** Where this document says *recovery* it names VRR-2012's own §4.3/§6.1 mechanism, quoted as literature about the cited design. uVRR removes it by construction: a controlled halt is not a crash, a controlled start is not a recovery, and a crashed identity returns only through Crash-Stop-Self-Evict reincarnation — reincarnation is not recovery (`docs/uvrr-boot-gate.md` §1 rules the words; `docs/uvrr-reincarnation.md` §1 rules the identities). Wherever uVRR's own path is described, this document says *state transfer*, *clean start*, or *reincarnation*, and says so.
+**On the word "recovery".** Where this document says *recovery* it names VRR-2012's own §4.3/§6.1 mechanism, quoted as literature about the cited design. uVRR removes it by construction: a controlled halt is not a crash, a controlled start is not a recovery, and a crashed identity returns only through Crash-Stop-Self-Evict reincarnation, reincarnation is not recovery (`docs/uvrr-boot-gate.md` §1 rules the words; `docs/uvrr-reincarnation.md` §1 rules the identities). Wherever uVRR's own path is described, this document says *state transfer*, *clean start*, or *reincarnation*, and says so.
 
 [^oki-dissertation]: The fuller contemporary treatment is Brian Masao Oki's MIT dissertation and technical report, [*Viewstamped Replication for Highly Available Distributed Systems*](https://publications.csail.mit.edu/lcs/pubs/pdf/MIT-LCS-TR-423.pdf), supervised by Professor Barbara H. Liskov, submitted in May 1988, and issued as MIT/LCS/TR-423 in August 1988.
 
@@ -160,7 +160,7 @@ The following cross-strategy invariants are mandatory:
 
 `status` is process control as well as protocol state. A reopened node which has not proved its state current starts fenced (`Restarting` on a vouched clean start, `Joining` on a bumped reincarnation) regardless of the last status observed before failure.
 
-The boot fence never self-arms from persisted knowledge: a reopened member promotes itself only over the pristine genesis, and only a normal member suspects a silent primary, so a post-genesis full-cluster cold start — every member reopened fenced — emits nothing until the host acts. The host arms the first fence through the host-forced view change (`Input::AdminForceView`, §14.2), which drives the ordinary fence/evidence/install pipeline; a real deployment's cluster manager does exactly this (the Maelstrom host's bounded force-feed on a dirty reopen is the same obligation).
+The boot fence never self-arms from persisted knowledge: a reopened member promotes itself only over the pristine genesis, and only a normal member suspects a silent primary, so a post-genesis full-cluster cold start, every member reopened fenced, emits nothing until the host acts. The host arms the first fence through the host-forced view change (`Input::AdminForceView`, §14.2), which drives the ordinary fence/evidence/install pipeline; a real deployment's cluster manager does exactly this (the Maelstrom host's bounded force-feed on a dirty reopen is the same obligation).
 
 ## 6. Functional core model
 
@@ -208,7 +208,7 @@ The host may record progress, journal changes, and application changes in one wi
 ### 6.1 Event-clock contract and the freshness carrier
 
 `TimedInput.at` is an unsigned 64-bit tick supplied by the host. Nanosecond-resolution time is preferred because normal process scheduling makes accidental reuse unlikely. The core treats the value as opaque and does not convert units.
-Classic VRR-2012 diskless recovery carries freshness in a recovery nonce: the host tick of each recovery event, with a bounded nonce set per attempt and a delayed response counted iff its echoed nonce is still remembered. That carrier exists because a classic diskless restart keeps its identity and has no durable freshness record. uVRR does not perform that exchange: the freshness carrier is the durable four-superblock incarnation — a dirty node bumps its incarnation (Crash-Stop-Self-Evict), so freshness survives the crash as durable identity rather than as a nonce set. The tick remains the host's observation metadata (S4) and the `(incarnation, sequence)` request identity of the acquisition certificates; the classic-VRR nonce rules above are retained here as literature about the classic design they govern.
+Classic VRR-2012 diskless recovery carries freshness in a recovery nonce: the host tick of each recovery event, with a bounded nonce set per attempt and a delayed response counted iff its echoed nonce is still remembered. That carrier exists because a classic diskless restart keeps its identity and has no durable freshness record. uVRR does not perform that exchange: the freshness carrier is the durable identity pair in the boot marker (`docs/uvrr-boot-gate.md` §5), a dirty node bumps its crash counter under the identity law (Crash-Stop-Self-Evict), so freshness survives the crash as durable identity rather than as a nonce set. The tick remains the host's observation metadata (S4) and the `(identity, sequence)` request identity of the acquisition certificates; the classic-VRR nonce rules above are retained here as literature about the classic design they govern.
 
 
 ## 7. Transition publication and durability
@@ -299,7 +299,7 @@ V_g ⌢ V_g
 
 This self-intersection is not implied by `QI ⌢ QII` alone. It is required by this diskless VRR construction because a recovering replica must encounter the volatile evidence that an earlier view was fenced. A quorum policy is therefore not automatically a valid VRR-2012 policy merely because `QI ⌢ QII` holds.
 
-This section describes classic VRR-2012 diskless recovery (its §4.3) as literature, not uVRR: uVRR replaces the diskless recovery overlap with Crash-Stop-Self-Evict reincarnation. A crashed node whose superblocks record an unflushed session reopens under a new incarnation, the leader evicts the old identity through the forced weight sequence (exiting 1 to 0, joining at 0, then 0 to 1), and the new identity rejoins as a weight-0 standby — a **standby** is TigerBeetle's term for its non-voting cluster members (older drafts of this document called it a learner): standby nodes have a zero voting weight so cannot form part of any quorum nor actively participate in the VSR algorithm — so no recovery quorum meets a fence family, and the obligation above governs the classic design only.
+This section describes classic VRR-2012 diskless recovery (its §4.3) as literature, not uVRR: uVRR replaces the diskless recovery overlap with Crash-Stop-Self-Evict reincarnation. A crashed node whose superblocks record an unflushed session reopens under a new incarnation, the leader evicts the old identity through the forced weight sequence (exiting 1 to 0, joining at 0, then 0 to 1), and the new identity rejoins as a weight-0 standby, a **standby** is TigerBeetle's term for its non-voting cluster members (older drafts of this document called it a learner): standby nodes have a zero voting weight so cannot form part of any quorum nor actively participate in the VSR algorithm, so no recovery quorum meets a fence family, and the obligation above governs the classic design only.
 
 ### 8.4 Weighted quorums
 
@@ -752,7 +752,7 @@ The following mechanisms may reduce messages, latency, or storage traffic. None 
 
 ### 13.1 Bounded view-change suffix
 
-The baseline `DoViewChange` description in VRR-2012 §4.2 carries the replica's log. Section 5.3 explicitly permits an implementation to carry only a small suffix—suggesting the latest one or two entries—and to request more information when that suffix is insufficient.
+The baseline `DoViewChange` description in VRR-2012 §4.2 carries the replica's log. Section 5.3 explicitly permits an implementation to carry only a small suffix,suggesting the latest one or two entries,and to request more information when that suffix is insufficient.
 
 The amount sent initially is therefore policy, not a new consensus rule. A suitable host-aware policy is:
 
@@ -820,14 +820,14 @@ batch is impossible. The first operation in the batch decides the whole batch,
 majority is computed on the first op, and "first accepts ⇒ all accept" is a
 finite induction over the schedule, not a proof over interruption points
 mid-sequence. The acceptor replies `FuseOk` (one accepted slot per op, no
-range encoding); on quorum the primary commits the packed schedule whole —
+range encoding); on quorum the primary commits the packed schedule whole:
 the commit fold recognises the run of consecutive system entries as the one
-establishing batch it is, one era — and the commit emission is per era: one
+establishing batch it is, one era, and the commit emission is per era: one
 `CommitBatch` per establishing batch committed, one committed frontier per
 slot of that batch, no range encoding, broadcast the instant the batch's
 quorum completes. Client operations never fuse and are not blocked by the
 fuse round. Fuse slots are ordinary journal slots under the durability
-profile in force; Fuse changes message count, not commit semantics — the
+profile in force; Fuse changes message count, not commit semantics, the
 same sanction as §13.3, applied to the reconfiguration path.
 
 ## 14. Current implementation assessment
@@ -842,8 +842,8 @@ The current code contains:
 - separate accepted, committed, and executed frontiers;
 - explicit `Restarting`, `Joining`, and `Replaying` statuses;
 - host strategies for the journal (`Journal`/`JournalView`, with the segmented in-memory implementation) and an explicit stability-completion boundary (`Stability`) gating dependent effects;
-- the lifecycle constructors behind the boot gate (`vrr::lifecycle`): `provision` establishes the genesis configuration and joins fenced `Joining`; `join` enters a fresh identity over the shared genesis prefix; `resume` continues a vouched clean stop and `reincarnate` replaces a crashed identity — both later lives start fenced `Restarting`;
-- the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it — the arm a post-genesis cold start's first fence goes through (§5), the boot fence never self-arming from persisted knowledge;
+- the lifecycle constructors behind the boot gate (`vrr::lifecycle`): `provision` establishes the genesis configuration and joins fenced `Joining`; `join` enters a fresh identity over the shared genesis prefix; `resume` continues a vouched clean stop and `reincarnate` replaces a crashed identity, both later lives start fenced `Restarting`;
+- the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it, the arm a post-genesis cold start's first fence goes through (§5), the boot fence never self-arming from persisted knowledge;
 - the host-supplied `u64` event tick on every input, serving the classic recovery-nonce role (§6.1, S4);
 - the higher-view normal-message state-transfer behaviour specified by VRR-2012.
 
@@ -851,9 +851,9 @@ The current code contains:
 
 The current code does not provide:
 
-- a normative C ABI transition-ownership contract — no FFI module exists at present; the C ABI is planned work.
+- a normative C ABI transition-ownership contract, no FFI module exists at present; the C ABI is planned work.
 
-The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision`, `join`, `resume`, and `reincarnate` all fence into `Restarting`/`Joining` and become normal only after local restoration establishes adequate state, and the later-life constructors require the boot gate's proof tokens — `resume` a vouched clean stop, `reincarnate` a crashed identity's bump — so the amnesiac-voter path and the blank same-identity boot are both unrepresentable.
+The pre-rewrite `Replica::new` created an empty normal replica in view zero; used after loss of volatile state and fed normal input before recovery, it admitted an amnesiac voter and violated the failure model. That constructor no longer exists. `provision`, `join`, `resume`, and `reincarnate` all fence into `Restarting`/`Joining` and become normal only after local restoration establishes adequate state, and the later-life constructors require the boot gate's proof tokens, `resume` a vouched clean stop, `reincarnate` a crashed identity's bump, so the amnesiac-voter path and the blank same-identity boot are both unrepresentable.
 
 ## 15. Minimal proposal
 
@@ -884,7 +884,7 @@ The pre-rewrite `Replica::new` created an empty normal replica in view zero; use
 9. Simon Birch, “One more frown please! (quorum overlaps)”, 2020.
 10. Allen Ling and Simon Birch, [unbounded-reconfiguration progress discussion](https://gist.github.com/allenling/99bf0e965fa7e0b208f461446fcc97e1), GitHub Gist, 2020.
 
-## Amendment A1 — §8.7.3 view-number construction is superseded
+## Amendment A1, §8.7.3 view-number construction is superseded
 
 See `docs/architecture.md` decision **W1**.
 

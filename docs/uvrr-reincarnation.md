@@ -30,7 +30,7 @@ Startup classification:
 2. Any of the four reads `unflushed` → the node is **dirty**.
 
 **Dirty path:** bump the incarnation (new identity), write new identity + `flushed`
-to all four superblocks, then enter the wire phase (§4) — the identity law of
+to all four superblocks, then enter the wire phase (§4), the identity law of
 `uvrr-boot-gate.md` §5: the bumped pair is flushed before the first
 announcement, unconditionally, seated or not. The state machine is:
 
@@ -46,7 +46,7 @@ The identity is named by the durable pair `{systemIdentifier, crashCounter}`
 (`uvrr-boot-gate.md` §5): the sysadmin-assigned `systemIdentifier` is burnt
 into the marker before first boot; the crash counter is durable in the same
 file; both are one-indexed and never read as zero; and a bumped value is
-never revisited — universally unique per life, the ballot obligation of
+never revisited, universally unique per life, the ballot obligation of
 Paxos Made Simple applied to node identity.
 
 A **standby** is TigerBeetle's term for its non-voting cluster members (this document's
@@ -74,8 +74,8 @@ per operation as a flush.
 
 A new **reincarnation** message carries the pair `(old identity, new identity)`,
 sent by the bumped node to **all** nodes. **Only the leader responds**, and it
-responds immediately — before it starts the cluster's forced reconfiguration (§5)
-— with an ack that carries the new era and the state the node missed: the
+responds immediately, before it starts the cluster's forced reconfiguration (§5)
+with an ack that carries the new era and the state the node missed: the
 announcement names the slot the reincarnated node had committed in its past life
 and what it had prepared, so the leader pushes exactly the missing range and the
 node synchronises to the frontier at once. From the ack onward the leader memo-
@@ -91,7 +91,7 @@ rules (`docs/uvrr-reconfiguration-rules.md`: the operation alphabet `DOUBLE`, `H
 `INCREMENT`, `DECREMENT`, `JOIN`, `LEAVE`; each reconfiguration commits a legal batch,
 one era). One reconfiguration commits a batch, and a batch either moves at most one
 unit of per-node voting mass (standbys at weight 0 move none) or is one solitary
-scaling op. Three-node unit-weight special case, evicting `N2` and reincarnating it as `N2′` —
+scaling op. Three-node unit-weight special case, evicting `N2` and reincarnating it as `N2′`,
 **two eras**, each a batch:
 
 | Era | Batch | Weights (N0, N1, N2, N2′) | Mass moved |
@@ -100,7 +100,7 @@ scaling op. Three-node unit-weight special case, evicting `N2` and reincarnating
 | D2 | `INCREMENT(N2′), LEAVE(N2)` | (1, 1, –, 1) | 1 |
 
 The old identity leaves only after its weight is zero, and the new identity joins at
-zero — the two together in the crossing era move exactly one unit, and the eviction
+zero, the two together in the crossing era move exactly one unit, and the eviction
 era moves exactly one. **Era-safety invariant:** every consecutive pair of
 configurations in the sequence satisfies the per-node mass rule (R14 of the rules
 doc), so consecutive majority families intersect and **every intermediate era is
@@ -128,17 +128,17 @@ integral:
 | C1 | `DECREMENT(N2)` | (2, 2, 1, –) |
 | C2 | `DECREMENT(N2), JOIN(N2′)` | (2, 2, 0, 0) |
 | C3 | `INCREMENT(N2′), LEAVE(N2)` | (2, 2, –, 1) |
-| C4 | `INCREMENT(N2′)` | (2, 2, –, 2) — **corner**: joiner at 2 so the halve is integral |
+| C4 | `INCREMENT(N2′)` | (2, 2, –, 2), **corner**: joiner at 2 so the halve is integral |
 | C5 | `HALVE` | (1, 1, –, 1) |
 
 Every era above is a legal batch of the rules document, so every intermediate era is
 quorum-safe by the same invariant. (Scaled steps preserve overlap by common-factor
-normalization — the checked `WeightedGeneral.scaled_overlap` result covers each step.)
+normalization, the checked `WeightedGeneral.scaled_overlap` result covers each step.)
 
 ## 6. Membership-discard check
 
-Messages **FROM** a node that is not in the current voting configuration — a weight-0
-standby, or a superseded old identity — are **discarded** by the standard membership
+Messages **FROM** a node that is not in the current voting configuration, a weight-0
+standby, or a superseded old identity, are **discarded** by the standard membership
 check on ingress. Messages **TO** such a node are fine. This is good practice
 independent of reincarnation: once a later incarnation is
 known for a node, replies from the old identity never regain eligibility, regardless
@@ -148,7 +148,7 @@ of redelivery.
 
 The leader stays live for client requests throughout. From its immediate ack (§4)
 it **preemptively streams** to the reincarnated node **as a standby** (weight 0;
-messages TO it fine, FROM it discarded via §6) — all phase-1 and phase-2 messages,
+messages TO it fine, FROM it discarded via §6), all phase-1 and phase-2 messages,
 so the node is current before the sequence reaches its promotion. It streams, in
 order:
 
@@ -172,27 +172,27 @@ eviction of the old identity until a stable leader exists to drive it.
   sequence is a path through the weighted-era space; each step's safety is the
   weighted-overlap argument, and the leader-overlap round is rung 6's casting vote.
 - Rung 22 (`Reincarnation.lean`, `ReincarnationGeneral.lean`): the definitions and
-  state machine above, with the four general theorems discharged at arbitrary scale —
+  state machine above, with the four general theorems discharged at arbitrary scale:
   bumped-identity non-membership from eviction on (`evicted_never_voting`), quorum
   safety of every intermediate era (`forced_sequence_era_safe`), unreachability of
   the classic amnesia trace (`amnesia_unreachable`), and continuation commitment
   (`forced_run_committed`, `forced_run_terminal_flushed`).
 - Rung 23 (`CastingVoteReincarnation.lean`): the casting vote on the reincarnation
-  eras — the two-node leader-overlap case and the three-node degenerate negative.
-- Rung 24 (`ReincarnationFive.lean`): the five-voter instance — computed majority
+  eras, the two-node leader-overlap case and the three-node degenerate negative.
+- Rung 24 (`ReincarnationFive.lean`): the five-voter instance, computed majority
   families, era safety by the general discharge, the E1/E2 pivot at `n3`.
 - Rung 25 (`ReincarnationAgreement.lean`): agreement across the forced sequence
   under every view schedule. The era family `E0, E1, E2, E2, …` satisfies P1 at
   arbitrary scale (`sequence_p1`), so rung 4's Theorem 10 instantiates: any two
   chosen ballots of one instance agree for every history satisfying P2–P7
-  (`sequence_agreement`, `five_agreement`). View changes — within an era, across the
-  two boundaries, the leader-overlap schedule included — are ballots of that history
+  (`sequence_agreement`, `five_agreement`). View changes, within an era, across the
+  two boundaries, the leader-overlap schedule included, are ballots of that history
   and change nothing. What a view change can do is take the majority away: with the
   victim dead, three survivors form one quorum that is a majority in every era and two
   survivors form none (`five_majority_boundary`); the sequence stalls until a majority
   is live, and no disagreement is reachable.
 
-- Rung 26 (`ReincarnationSafety.lean`): the final composition — per-slot agreement across the replacement schedule at unit weights — is discharged as `five_safe` over eras 0-2, sealing the ladder's lifecycle premises.
+- Rung 26 (`ReincarnationSafety.lean`): the final composition, per-slot agreement across the replacement schedule at unit weights, is discharged as `five_safe` over eras 0-2, sealing the ladder's lifecycle premises.
 
 The TLC counterpart is `formal/VrrCoreReincarnation.tla`: the two-era sequence with
 variable leadership, view changes mid-sequence, crash-stop identities, and per-era
@@ -210,7 +210,7 @@ caught up. The mechanism is the ordinary state transfer, gated by the learner
 acquisition rule:
 
 - **Serving:** the leader serves a `GetState` from a member of its current
-  committed configuration — any weight, a weight-0 learner included — even
+  committed configuration, any weight, a weight-0 learner included, even
   when the sender is not a member of the configuration of the era it names:
   a learner behind the frontier can only name the eras its own table holds,
   and the era that admitted it is by definition not one of them. Serving is
@@ -219,7 +219,7 @@ acquisition rule:
 - **Acquisition:** a node still at its boot fence (`Restarting` or
   `Joining` at `current == retained`, the fenced entry state) that opened the fetch itself
   takes the answering chunk's committed frontier and folds the system
-  operations it covers — the fold input is the chunk the suffix ruling
+  operations it covers, the fold input is the chunk the suffix ruling
   already verified against the local journal. The node stays fenced: it
   adopts no view, its votes are never counted, and it serves nothing.
   The admitting era folds exactly there, which makes the leader's
@@ -227,15 +227,15 @@ acquisition rule:
 - **Era-by-era catch-up:** a boot-fenced member admitted several eras
   past its boot table catches up era by era, one fold per stalled-ruling
   re-run: an offer more than one era past is retained when it NAMES the
-  node (the era's establishing operation — a `Join`, the `Increment`
+  node (the era's establishing operation, a `Join`, the `Increment`
   that promotes it, or a batch carrying either), the acquisition's fold
   is capped at one era past the view it carries (the §8.7.3 era window),
   each ordinary tick re-runs the retained ruling, the walked view carries
-  the next round's fetch, and the offer installs — the ordinary install —
+  the next round's fetch, and the offer installs, the ordinary install,
   once its era is evaluable. The member never votes in an era it has not
   folded, and the walked view never adopts: the node stays at its boot fence
   (`Restarting`) until the retained offer installs.
-- **Authority:** unchanged — a learner votes only after a committed
+- **Authority:** unchanged, a learner votes only after a committed
   `INCREMENT` grants it weight; while its weight is 0 its messages are
   discarded by the standard membership checks (§6).
 
@@ -244,14 +244,14 @@ owns the commit frontier.
 
 ## Grounding sources
 
-- <https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/> — voting
+- <https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/>, voting
   weights; halve/double and ±1 unit rules; standbys at weight 0.
 - <https://simbo1905.wordpress.com/2016/12/16/upaxos-unbounded-paxos-reconfigurations/>
-  — era-indexed reconfiguration, consecutive-configuration overlap, casting vote.
+ , era-indexed reconfiguration, consecutive-configuration overlap, casting vote.
 - <https://simbo1905.wordpress.com/2020/05/23/one-more-frown-please-upaxos-quorum-overlaps/>
-  — the frown operator and the exact quorum-overlap chain
+ , the frown operator and the exact quorum-overlap chain
   `QIIe ⌢ QIe ⌢ QIIe+1 ⌢ QIe+1`.
 - <https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/>
-  — uVRR motivation; TigerBeetle-style durability framing.
+ , uVRR motivation; TigerBeetle-style durability framing.
 - <https://simbo1905.wordpress.com/2024/04/12/the-network-is-faster-than-the-disk/>
-  — the deferred-flush economic rationale (§3).
+ , the deferred-flush economic rationale (§3).

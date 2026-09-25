@@ -17,7 +17,7 @@ F_g ⌢ R_g                   (§8.3, diskless)
 V_g ⌢ V_g                   (§8.3, diskless self-intersection)
 ```
 
-These are mechanically checked — the family-intersection obligations by the free
+These are mechanically checked, the family-intersection obligations by the free
 functions `quorum::validate_era`/`quorum::validate_transition`, the
 transition-legality rules by `invariant::legal`. No host, feature flag, or extension may
 weaken them. `V_g ⌢ V_g` is called out separately because it does not follow from
@@ -51,14 +51,14 @@ nonce; the attempt retains a bounded set of them, one per re-drive (§6.1, S4).
 
 Timeout policy is host policy in the same sense, and the core publishes a
 recommendation rather than a timer. For the view-change timeout: size the unit at
-`2×rtt` — the first window is one unit split evenly into a fixed and a uniform
+`2×rtt`, the first window is one unit split evenly into a fixed and a uniform
 random half, so the earliest suspicion is a full round trip after the last observed
 activity; a 20 ms unit presumes ~10 ms RTT, ~5 ms one-way between two DCs. Each
 failed or interrupted election attempt doubles the window (unit, `2·unit`,
 `4·unit`, …, capped at 5000 ms), split into a fixed part and a uniform random part
-that both grow with the window — the fixed part so a duel survivor gets real work
+that both grow with the window, the fixed part so a duel survivor gets real work
 done inside its window, the random part so dueling hosts' timers spread and one
-election completes while the other waits — and the counter resets to the unit on
+election completes while the other waits, and the counter resets to the unit on
 commit or adopt. The host draws the random part and delivers its ticks; the core
 only counts. The schedule's arithmetic is published as pure functions in `backoff`;
 the recommendation is documented on `ViewChangeKnobs`.
@@ -122,7 +122,7 @@ Both are depended on by `replica`, so no path reaches a proposal without passing
 gates. `effects` is a leaf: nothing in the core consumes an effect, because effects are
 returned to the host, never performed. `observe` reads `progress` and is read by nothing
 inside the core; it exists for the host and the C ABI. `backoff` has no edges at all:
-it depends on nothing inside the core and nothing inside the core depends on it — pure
+it depends on nothing inside the core and nothing inside the core depends on it, pure
 arithmetic published for the host (the randomized-timeout recommendation, S4).
 
 The graph above is acyclic, and stays so by ruling. A proposed edge that would create a
@@ -132,7 +132,7 @@ cycle is a signal that a responsibility is in the wrong module.
 
 Normal operation's contiguity guard (§13.1 step 5) drops a `Prepare` whose slot is
 past the accepted frontier's successor and publishes `Diagnostic::GapDetected` on the
-observation; the fetch half of the ruling — a `GetState` for the missing range —
+observation; the fetch half of the ruling, a `GetState` for the missing range,
 rides the same transition. A `Commit` carries a frontier, not a slot: it is clamped
 to the local accepted frontier and never claims what the journal does not record
 (§5 invariant 2), so a gap can never enter through the commit path.
@@ -145,13 +145,13 @@ the fetch; the repair decision is the host's.
 ## Host obligations for correct running
 
 The core performs no clock reads and opens no sockets; a host carries the
-obligations below. Each is stated as the end state — a host that meets them runs
+obligations below. Each is stated as the end state, a host that meets them runs
 the protocol correctly.
 
 ### Vocabulary: restarting is not crash recovery
 
 The `Restarting` status is our own language for the start a boot gate classifies as
-clean — the classic VRR-2012 notion of recovery, but only over a clean shutdown and a
+clean, the classic VRR-2012 notion of recovery, but only over a clean shutdown and a
 full reload of all durable state. A start that cannot prove those is not a recovery
 at all: there is no crash-recovery protocol, because there is no crash to recover
 from. A node that lost volatile state is by construction a different node
@@ -163,8 +163,8 @@ superblocks read `flushed`), reincarnation runs the crash-stop-self-evict sequen
 ### Reincarnation: the leader's obligations on hearing the announcement
 
 A bumped node announces `(old, new)` to **all** nodes; **only the leader
-responds**, and it does so immediately — before it starts the cluster's forced
-reconfiguration — because the announcement is safe to answer at once: the
+responds**, and it does so immediately, before it starts the cluster's forced
+reconfiguration, because the announcement is safe to answer at once: the
 announcer is not a member of the cluster, its messages are discarded by the
 membership-discard check, and its votes are never counted.
 
@@ -209,7 +209,7 @@ Section references are to `docs/vrr-durability-model.md`.
 
 ### Identity & wire
 
-#### W1 — Explicit `ViewId { era: u32, view: u32 }`, 20-byte big-endian header
+#### W1, Explicit `ViewId { era: u32, view: u32 }`, 20-byte big-endian header
 
 **Context.** §8.7.3 packs the view number as `view = (era << k) | index`, with `k` low
 bits for the primary-selection index. It requires checked encoding and forbids
@@ -235,7 +235,7 @@ anywhere in the wire format. Recorded as Amendment A1 at the end of
 legal view-number gaps, and the rule that a replica may propose a view only if its
 accepted history contains that era's establishing reconfiguration are all unchanged.
 
-#### W2 — No `uuid`; identifiers are host-supplied
+#### W2, No `uuid`; identifiers are host-supplied
 
 **Context.** The alpha depended on `uuid` with the `v4` and `serde` features to mint
 identifiers, which requires a randomness source inside a library that is supposed
@@ -250,7 +250,7 @@ existing correlation-id discipline uses that instead; a deterministic simulation
 uses counters. Combined with W3 this makes the non-optional dependency set empty, which is
 what `tests/manifest_contract.rs` gates.
 
-#### W3 — Own binary codec in `wire`, optional serde derives, JSON debug bridge
+#### W3, Own binary codec in `wire`, optional serde derives, JSON debug bridge
 
 **Context.** The alpha put JSON in the datagram path. §13.1's bounded view-change suffix
 requires the encoded size of a candidate history suffix to be computable exactly before it
@@ -259,7 +259,7 @@ is sent.
 **Decision.** A binary big-endian codec in `wire` is normative. `serde` derives sit behind
 the `serde` feature. A binary-to-JSON debug bridge sits behind `maelstrom`.
 
-**Rationale.** Binary on the wire makes the §13.1 suffix budget deterministic — a
+**Rationale.** Binary on the wire makes the §13.1 suffix budget deterministic, a
 serializer whose output length depends on number formatting cannot answer "does this
 suffix fit". Serde derives behind a feature let a host impose its own encoding without
 forking. The debug bridge means the *binary* path is the one under test while the failure
@@ -271,7 +271,7 @@ mandatory rather than optional.
 **Amendment.** The dev-dependency allowlist that bounds the round-trip test's format is
 decision P3.
 
-#### W4 — Fixed-width big-endian, no varints
+#### W4, Fixed-width big-endian, no varints
 
 **Context.** A variable-length integer encoding is smaller on the wire.
 
@@ -284,11 +284,11 @@ length depends on its value, so a suffix budget becomes a search rather than a s
 Big-endian because it is the network order the wire already implies and because it makes
 a hex dump readable in the same order as the struct definition.
 
-**Consequence.** Larger datagrams than a varint encoding. Accepted — the host owns
+**Consequence.** Larger datagrams than a varint encoding. Accepted, the host owns
 packetization (W5) and can compress a whole datagram if it cares, which is a better place
 for that trade than inside a protocol invariant.
 
-#### W5 — No `MAX_DATAGRAM` in the core
+#### W5, No `MAX_DATAGRAM` in the core
 
 **Context.** The alpha embedded datagram sizing, so the core made packetization decisions
 using a constant chosen at compile time by someone who did not know the transport.
@@ -302,7 +302,7 @@ handle, and every decode site distinguishes "malformed" from "incomplete". More 
 area in the codec API, in exchange for a core that cannot be wrong about an MTU it was
 never told.
 
-#### W6 — Fuse is a wire shape, not a protocol semantic
+#### W6, Fuse is a wire shape, not a protocol semantic
 
 **Context.** A multi-era reconfiguration schedule was proposed slot by slot, so a
 three-node reincarnation paid one round trip per era transition. The temptation was a
@@ -325,7 +325,7 @@ vectors.
 
 ### Durability & stability
 
-#### S1 — Journal reclamation is host policy and is absent from the trait
+#### S1, Journal reclamation is host policy and is absent from the trait
 
 **Context.** §4 lists exactly four required journal capabilities: identify the accepted
 frontier, read history, record acceptance, record a view selection. It lists no physical
@@ -335,7 +335,7 @@ transition.
 
 **Decision.** The portable `Journal` trait contains no reclamation operation. A host
 implements whatever retention policy it likes without exposing it to the core, provided it
-either satisfies a protocol read or reports the requested history unavailable — at which
+either satisfies a protocol read or reports the requested history unavailable, at which
 point restart or state transfer obtains an adequate state elsewhere.
 
 The default `SegmentedLog` reclaims lazily and opportunistically on append, gated on a
@@ -346,7 +346,7 @@ or stress run that never reclaims at all is a legitimate configuration, not a le
 no test can be flaky because reclamation ran at an inconvenient moment. The cost is that
 disk growth is not the core's problem and the core will not warn about it.
 
-#### S2 — Stability is `plan` / `publish` / confirm; no host callbacks across the ABI
+#### S2, Stability is `plan` / `publish` / confirm; no host callbacks across the ABI
 
 **Context.** §7 and §12 require the host to serialize the publication interval. A
 callback-based durability hook is the conventional design.
@@ -360,11 +360,11 @@ transition interval. The reentrancy is not analysable, and across a C ABI it is 
 type-checkable.
 
 **Consequence.** `begin`/`end` and `lock`/`unlock` are documented host-side **wrapping**
-patterns, not core traits — the host wraps its call to the core, the core does not call
+patterns, not core traits, the host wraps its call to the core, the core does not call
 into the host's transaction. §11.1 (application inside the host transaction) and §11.2
 (application outside it) are both expressible, which is the point.
 
-#### S3 — Three-way `StabilityResult`
+#### S3, Three-way `StabilityResult`
 
 **Context.** A persistence attempt has three outcomes, not two: it succeeded, it
 definitely did not succeed, or the host cannot tell.
@@ -390,7 +390,7 @@ outage.
 resulting divergence is the host's, so this is stated in the trait's documentation and not
 merely assumed.
 
-#### S4 — Externalised clock; the restart nonce is the host tick
+#### S4, Externalised clock; the restart nonce is the host tick
 
 **Context.** §6.1 makes `TimedInput.at` an opaque host-supplied `u64` and derives the
 restart nonce from it. The alpha took a caller-supplied nonce separately from time,
@@ -401,8 +401,8 @@ restart input the tick **is** a restart nonce, and the attempt retains a bounded
 them, one per re-drive. `Input::Tick` exists as an ordinary
 event.
 
-**Rationale.** One value cannot disagree with itself. The §6.1 invariant — no recovery
-attempt may reuse a nonce while a message from an earlier attempt can still be delivered —
+**Rationale.** One value cannot disagree with itself. The §6.1 invariant, no recovery
+attempt may reuse a nonce while a message from an earlier attempt can still be delivered,
 becomes a property of the host's declared clock strategy, which §6.1 already tabulates for
 continuous-nanosecond, continuous-millisecond, and resettable clocks. `Input::Tick` as an
 event rather than a timer callback lets a harness replay sloppy, late, early and reordered
@@ -415,7 +415,7 @@ cannot detect that failure and does not pretend to.
 
 ### Quorum policy
 
-#### Q1 — Open/closed: quorum families are an extension point, intersection is closed
+#### Q1, Open/closed: quorum families are an extension point, intersection is closed
 
 **Context.** §8.2 argues that quorum policy is a family of legal sets, not a count.
 §8.4 admits weighted families, §8.5 admits the even-node split `V_g = k+1, C_g = k`, and
@@ -442,7 +442,7 @@ functions `validate_era`/`validate_transition`, not as `invariant` code and not 
 methods: free functions are what makes the gate un-overridable by a strategy value.
 `invariant` retains the transition-legality checker `legal`. The discharge mechanism is
 exhaustive subset enumeration over the membership, bounded by
-`configuration::MAX_MEMBERS = 16` — a validation-cost bound, not a protocol limit.
+`configuration::MAX_MEMBERS = 16`, a validation-cost bound, not a protocol limit.
 
 **The counterexample that makes the gate necessary.** Six members, all unit weight, so
 `T = 6`. A commit threshold of `C = 4` and a view-change threshold of `V = 4` both
@@ -460,7 +460,7 @@ C_(e+1) = 3  admits  {n0,n5}                weight 3 under era e+1
 
 `R2` is violated: a view change in era `e` can select a history that omits an operation
 committed by the era-`e+1` commit quorum. The validator must **refuse `INCREMENT(n0)`
-before it is proposed**. Detecting this after the reconfiguration commits is worthless —
+before it is proposed**. Detecting this after the reconfiguration commits is worthless,
 the divergence is already reachable and no later check can un-commit it.
 
 **The half-total threshold note.** `C = floor(T/2)` gives `C + V = T` when `T` is odd,
@@ -473,12 +473,12 @@ strategy offering a half-total threshold must reject odd totals rather than roun
 just messages. A `QuorumStrategy` that cannot enumerate or characterise its families well
 enough to be validated is not usable, and that is intentional.
 
-#### Q2 — The voting-weight domain {0,1,2}; join at 0, leave at 0; era batches move ≤ 1 unit of mass
+#### Q2, The voting-weight domain {0,1,2}; join at 0, leave at 0; era batches move ≤ 1 unit of mass
 
 **Context.** Voting weights are common factors: `18/27` is `2/3`, so no node ever needs a
 weight above `2`, and a uniform double or halve is a zero op on quorum families. Standbys
-— TigerBeetle's term for its non-voting cluster members (weight 0; older drafts called
-them learners) — never vote and are not counted against any quorum: standby nodes have a
+TigerBeetle's term for its non-voting cluster members (weight 0; older drafts called
+them learners), never vote and are not counted against any quorum: standby nodes have a
 zero voting weight so cannot form part of any quorum nor actively participate in the VSR
 algorithm. A nine-node deployment
 of three voting nodes across three data centres is a three-node cluster with six warm
@@ -491,7 +491,7 @@ elsewhere and no legal fold that removes a voter. Zero-weight standbys receive p
 and commit traffic so they stay swappable in, and every replica discards
 vote/view-change messages from a non-voting identity (the `Reincarnation` announcement is
 the one exempted message). One reconfiguration commits a **batch**: either one solitary
-scaling operation (`DOUBLE`/`HALVE` — refused with company), or a unit batch whose
+scaling operation (`DOUBLE`/`HALVE`, refused with company), or a unit batch whose
 per-node mass moved `Σ|W_before(a) − W_after(a)|` over the union node set is at most `1`.
 The rule is stated over per-node mass moved, not over the net total change: the
 zero-net, mass-2 identity swap is refused, and a leader crash cannot compress it.
@@ -507,7 +507,7 @@ and the reducer partitions an operation stream into maximal legal era batches
    Lemma 2, formalized as ladder rung 9 `WeightedGeneral.scaled_overlap`); uniform
    scaling preserves every quorum family by common-factor normalization.
 2. A net-total rule alone would admit the mass-2 swap `(1,1,1) → (1,1,c:0,d:1)`, whose
-   era-`e` majority `{b,c}` and era-`e+1` majority `{a,d}` are disjoint — exactly the
+   era-`e` majority `{b,c}` and era-`e+1` majority `{a,d}` are disjoint, exactly the
    Q1 counterexample shape, caught here before consensus rather than after.
 3. More eras are free (§8.7.2's non-stop transition makes each one cheap); proving that
    two commands acted as one without a violation is work no one needs to do twice.
@@ -515,13 +515,13 @@ and the reducer partitions an operation stream into maximal legal era batches
 **Consequence.** The fold refuses any operation or batch that would leave the domain
 {0,1,2}, join or remove a voter, combine scaling ops with anything, or move more than one
 unit of per-node mass. Cluster state is an immutable snapshot plus a WAL of legal
-operations; there is no Crash-Recover by design — a dirty node reincarnates under a new
+operations; there is no Crash-Recover by design, a dirty node reincarnates under a new
 identity and the leader drives the forced sequence
 (`docs/uvrr-reincarnation.md` §6).
 
 ### Application boundary
 
-#### B1 — Seqlock over a POD snapshot for lockless observation
+#### B1, Seqlock over a POD snapshot for lockless observation
 
 **Context.** §12 requires the host to serialize the transition interval. Diagnostics,
 metrics and the C ABI must read `Progress` from outside that interval. The obvious
@@ -542,7 +542,7 @@ precisely so those two modules can each hold one scoped, documented exception.
 Observation is read-only without exception (§15): no mutation through diagnostic,
 transport, timer or transfer side channels.
 
-#### B2 — The core orders opaque operations; clients are a host concern
+#### B2, The core orders opaque operations; clients are a host concern
 
 **Context.** The VRR-2012 paper ships a per-client table (latest request number plus
 cached result per client, at most one outstanding request per client) as duplicate
@@ -555,7 +555,7 @@ propagation through every view-change and restart message as protocol evidence.
 **Decision.** An operation is `{ id: OperationId, payload: bytes }` where
 `OperationId` is an opaque 128-bit correlation token `{ msb: u64, lsb: u64 }`. The
 core never compares identifiers for duplicate detection, never assigns retry
-semantics, and never suppresses a repeated identifier — the host protocol decides
+semantics, and never suppresses a repeated identifier, the host protocol decides
 whether a repetition is a retry, a duplication, or another valid invocation. Every
 replica emits the same ordered `(slot, OperationId, payload)` application upcall;
 the host answers with `Applied { slot }`, which carries no result. Application
@@ -591,7 +591,7 @@ decisions and set no core precedent.
 
 ### Runtime guards
 
-#### G1 — Two runtime tiers: asserted invariants and maybes
+#### G1, Two runtime tiers: asserted invariants and maybes
 
 **Context.** The core already holds compile-time unrepresentability (`const _:
 () = assert!(...)` sanity and constructors that refuse illegal states), the
@@ -602,10 +602,10 @@ every new module re-decides it.
 
 **Decision.** The runtime rule is two-tier:
 
-- **Invariants** — conditions whose impossibility the surrounding code
+- **Invariants**, conditions whose impossibility the surrounding code
   establishes. Asserted with `assert!`, always, release included. A violation
   is a bug in the core itself, never a hostile input.
-- **Maybes** — conditions that are not provably impossible and are typically
+- **Maybes**, conditions that are not provably impossible and are typically
   adversary- or environment-adjacent. They panic in test and debug builds, so a
   suite or smoke run surfaces them; in release they continue and surface
   through the named Diagnostic surface.
@@ -616,24 +616,25 @@ peer-input maybes: total, named, never faulting the node. An `assert!` is never
 a stand-in for a hostile-input check, and a hostile-input check is never a
 stand-in for an `assert!`.
 
-#### G2 — The incarnation band is an asserted invariant
+#### G2, Identity monotonicity is an asserted invariant
 
 **Context.** The bump is the sole constructor of a higher identity. A wrapped
-or reused identity would make a superseded one indistinguishable from a
-current one — the amnesiac voter of §14.2 by another name.
+or recycled identity would make a superseded one indistinguishable from a
+current one, the amnesiac voter of §14.2 by another name.
 
-**Decision.** The incarnation-band disjointness is asserted at the bump: the
-identity `bump` returns is strictly greater than the one it supersedes, so the
-superseded band never re-enters circulation. The surrounding `checked_add`
-establishes the impossibility; the `assert!` at the bump site is the tripwire,
-release included. The exhaustion refusal (`bump` returning `None`) is the
+**Decision.** Identity monotonicity is asserted at the bump: the pair identity
+the bump returns is strictly beyond the one it supersedes in the lawful
+ordering of `docs/uvrr-boot-gate.md` §5, so a superseded pair never re-enters
+circulation. The surrounding bounded arithmetic establishes the impossibility;
+the `assert!` at the bump site is the tripwire, release included. The
+exhaustion refusal (the bump at the counter bound returning `None`) is the
 refusal path, not a violation.
 
-**Consequence.** A future change to the band arithmetic that could wrap a
-superseded identity into circulation faults at the bump instead of circulating
+**Consequence.** A future change to the identity arithmetic that could recycle
+a superseded pair into circulation faults at the bump instead of circulating
 silently.
 
-#### G3 — Maybes surface through the Diagnostic they already flow through
+#### G3, Maybes surface through the Diagnostic they already flow through
 
 **Context.** The core reads no clock, opens no socket, and holds no log (S4,
 S1): it cannot log, warn, or report except by returning data to the host. The
@@ -641,8 +642,8 @@ Diagnostic record is a seqlock-protected last-value snapshot (B1).
 
 **Decision.** No host-report surface this release. A maybe in the core
 continues in release and surfaces through the Diagnostic it already flows
-through. A host-report hook — a host-set report function or a trait value
-passed at construction — is an amendment to this record, not a quiet addition.
+through. A host-report hook, a host-set report function or a trait value
+passed at construction, is an amendment to this record, not a quiet addition.
 
 **Consequence.** The Diagnostic record holds only the latest transition's
 outcome: two rapid drops overwrite each other, and a host that never polls it
@@ -651,7 +652,7 @@ contiguity gap rule above.
 
 ### Process & hygiene
 
-#### P1 — `.tmp/` is never committed
+#### P1, `.tmp/` is never committed
 
 **Context.** `.tmp/` is the working-tree scratch directory: untracked artifacts
 such as captured outputs and the overlap crash matrix's `failure.log` live there.
@@ -664,7 +665,7 @@ Normative documents live in `docs/` and are tracked.
 the overlap crash matrix mines it for regression signatures from the working
 tree, not from history.
 
-#### P2 — MIT
+#### P2, MIT
 
 **Context.** `Cargo.toml` declared `Apache-2.0`. `LICENSE` is MIT and `README.md` says
 MIT. Two of three sources agreed.
@@ -674,7 +675,7 @@ MIT. Two of three sources agreed.
 **Consequence.** `tests/manifest_contract.rs` asserts `license = "MIT"` and asserts that
 no residual `Apache` string remains, so the disagreement cannot silently return.
 
-#### P3 — Dependency stance: empty non-optional set, allowlisted dev-dependencies
+#### P3, Dependency stance: empty non-optional set, allowlisted dev-dependencies
 
 **Context.** The W3 `--features serde` round trip needs some format to serialize
 *through*. An earlier attempt hand-rolled a `Serializer`/`Deserializer` pair inside
@@ -685,7 +686,7 @@ our codec, and carries a maintenance cost forever for no return.
 **Decision.** `proptest` is already a dev-dependency, so the project's position is
 already settled: a dev-dependency is build-time tooling for `cargo test`, not a
 consumer's supply chain, and `tests/manifest_contract.rs` correctly gates only
-`[dependencies]` — a library consumer's non-optional dependency set stays empty either
+`[dependencies]`, a library consumer's non-optional dependency set stays empty either
 way. The concession is bounded by an explicit allowlist rather than left open:
 `[dev-dependencies]` names exactly `{proptest, serde_json}`, asserted by
 `tests/manifest_contract.rs`, so a third entry requires an amendment here rather than a

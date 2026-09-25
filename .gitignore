@@ -38,3 +38,7 @@ docs/slides/*.pptx
 docs/slides/*.pdf
 
 .zigcache
+
+# Local tool state and Python bytecode, never source.
+.verdent/
+__pycache__/
