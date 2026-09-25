@@ -15,31 +15,7 @@
 //! (`docs/uvrr-reincarnation.md` §1: a crash is final for the protocol
 //! identity).
 
-/// A durable node identity: the incarnation the four superblocks record.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct Incarnation(pub u64);
-
-impl Incarnation {
-    /// The bumped identity: exactly one past the current one (the
-    /// reincarnate branch of §5.1). Refused at exhaustion — a wrapped
-    /// identity would make a superseded one indistinguishable from a
-    /// current one.
-    ///
-    /// The band invariant (G2, `docs/architecture.md`): the bump is the sole
-    /// constructor of a higher identity, and the identity it returns is
-    /// strictly greater than the one it supersedes — the superseded band
-    /// never re-enters circulation. The surrounding `checked_add` establishes
-    /// the impossibility; the `assert!` is the tripwire, release included.
-    #[must_use]
-    pub fn bump(self) -> Option<Incarnation> {
-        let next = self.0.checked_add(1)?;
-        assert!(
-            next > self.0,
-            "the bumped identity must lie in a band disjoint from the identity it supersedes"
-        );
-        Some(Incarnation(next))
-    }
-}
+use crate::ids::NodeId;
 
 /// One superblock copy's marker (§5.1): one state of the ordered marker
 /// transition system. Each state names the transition that must have
@@ -83,7 +59,7 @@ pub enum Marker {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CopyState {
     /// The identity this copy vouches for.
-    pub identity: Incarnation,
+    pub identity: NodeId,
     /// The copy's marker.
     pub marker: Marker,
 }
@@ -118,7 +94,7 @@ pub enum RestartRefusal {
     /// be bumped is carried. A wrapped identity would make a superseded
     /// one indistinguishable from a current one, so the bump refuses
     /// instead.
-    Exhausted(Incarnation),
+    Exhausted(NodeId),
 }
 
 /// What a restart decided (§5.1's decision table).
@@ -129,7 +105,7 @@ pub enum RestartDecision {
     /// copies (the boot of a controlled shutdown).
     Continue {
         /// The identity the node continues under.
-        identity: Incarnation,
+        identity: NodeId,
     },
     /// No stopped quorum: the identity is dead. Bump it — exactly one
     /// past the quorum-resolved identity — and write `Joining` to all
@@ -137,9 +113,9 @@ pub enum RestartDecision {
     /// always follows.
     Bump {
         /// The superseded identity.
-        old: Incarnation,
+        old: NodeId,
         /// The bumped identity.
-        new: Incarnation,
+        new: NodeId,
     },
 }
 
@@ -168,12 +144,21 @@ impl SuperblockCopies {
     /// Returns `None` when no cohort reaches the threshold — the torn
     /// marker set with no quorum (the twin's `QuorumLost`).
     #[must_use]
-    pub fn classify(&self) -> Option<(RestartClass, Incarnation)> {
+    pub fn classify(&self) -> Option<(RestartClass, NodeId)> {
         // Per identity: how many copies carry it, and how many of those
         // hold `Stopped` (the state right of the Stopping→Stopped
         // transition).
-        let mut cohorts: Vec<(Incarnation, usize, usize)> = Vec::new();
+        // The blank zero pattern is no identity (the pair is one-indexed
+        // in both halves, `docs/uvrr-boot-gate.md` §5): a blank copy forms
+        // no cohort, so a marker set whose only cohort is blank reads as
+        // NO identity cohort reaching the open threshold — a torn set,
+        // never a zero identity to bump. A crash picks up its actual
+        // identity; nothing self-resets to zero.
+        let mut cohorts: Vec<(NodeId, usize, usize)> = Vec::new();
         for copy in &self.copies {
+            if copy.identity == NodeId(0) {
+                continue;
+            }
             match cohorts
                 .iter_mut()
                 .find(|(identity, _, _)| *identity == copy.identity)
@@ -210,9 +195,9 @@ impl SuperblockCopies {
     ///   full protocol.
     /// * No stopped quorum → [`RestartDecision::Bump`]; the copies are
     ///   written `(new, Joining)` 4x — the reincarnation. The bumped
-    ///   identity is one past the quorum-resolved identity, checked: an
-    ///   identity one bump from `u64` exhaustion refuses rather than
-    ///   wraps.
+    ///   identity is the counter one past the quorum-resolved identity,
+    ///   checked: a counter at the sixteenth bit of lives is the last the
+    ///   packing holds, and the bump refuses rather than wraps.
     ///
     /// The uniform 4x write is the repair: every copy that disagreed with
     /// the working quorum is rewritten from the decision — 4-of-4,
@@ -233,7 +218,9 @@ impl SuperblockCopies {
                 self.rewrite(identity, Marker::Restarting),
             )),
             RestartClass::NotStopped => {
-                let new = identity.bump().ok_or(RestartRefusal::Exhausted(identity))?;
+                let new = identity
+                    .next_life()
+                    .ok_or(RestartRefusal::Exhausted(identity))?;
                 Ok((
                     RestartDecision::Bump { old: identity, new },
                     self.rewrite(new, Marker::Joining),
@@ -270,7 +257,7 @@ impl SuperblockCopies {
     /// its own uniform 4x writes — the identity was resolved at boot by
     /// the quorum read ([`SuperblockCopies::classify`]); this is that
     /// identity's live read, not the boot resolution.
-    fn read_identity(&self) -> Incarnation {
+    fn read_identity(&self) -> NodeId {
         self.copies
             .iter()
             .map(|copy| copy.identity)
@@ -282,7 +269,7 @@ impl SuperblockCopies {
     /// marker writes are durable-on-write (flushed): the host applies the
     /// returned state with its sync path, which is the only disk traffic
     /// outside the stop path.
-    fn rewrite(&self, identity: Incarnation, marker: Marker) -> SuperblockCopies {
+    fn rewrite(&self, identity: NodeId, marker: Marker) -> SuperblockCopies {
         SuperblockCopies {
             copies: self.copies.map(|_| CopyState { identity, marker }),
         }
@@ -358,13 +345,13 @@ pub trait LifecycleStore {
 /// a host-side concept). The token's guarantee is the classification
 /// itself: no `Vouched`, no same-identity resume.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Vouched(Incarnation);
+pub struct Vouched(NodeId);
 
 impl Vouched {
     /// The quorum-resolved identity the clean start vouches for — the
     /// identity the resume may take.
     #[must_use]
-    pub fn identity(&self) -> Incarnation {
+    pub fn identity(&self) -> NodeId {
         self.0
     }
 }
@@ -376,9 +363,9 @@ impl Vouched {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Bumped {
     /// The superseded identity.
-    pub old: Incarnation,
+    pub old: NodeId,
     /// The bumped identity.
-    pub new: Incarnation,
+    pub new: NodeId,
 }
 
 /// Proof that the engine itself observed the reincarnated node seated:
@@ -414,7 +401,7 @@ pub enum BootError<E> {
     QuorumLost,
     /// The bump would wrap the identity space; the identity that could
     /// not be bumped is carried.
-    Exhausted(Incarnation),
+    Exhausted(NodeId),
 }
 
 /// What the boot read decided (`docs/uvrr-boot-gate.md` §1): the
@@ -466,7 +453,7 @@ impl<S: LifecycleStore> First<S> {
     /// # Errors
     ///
     /// [`BootError::Store`] hands the session back with the store error.
-    pub fn latch(mut self, identity: Incarnation) -> Result<Running<S>, FirstLatchFailure<S>> {
+    pub fn latch(mut self, identity: NodeId) -> Result<Running<S>, FirstLatchFailure<S>> {
         let copies = SuperblockCopies {
             copies: [CopyState {
                 identity,
@@ -487,7 +474,7 @@ impl<S: LifecycleStore> First<S> {
 /// first message, then the same-identity resume.
 pub struct Clean<S> {
     store: S,
-    identity: Incarnation,
+    identity: NodeId,
 }
 
 impl<S: LifecycleStore> Clean<S> {
@@ -499,7 +486,7 @@ impl<S: LifecycleStore> Clean<S> {
 
     /// The quorum-resolved identity the clean start vouches for.
     #[must_use]
-    pub fn identity(&self) -> Incarnation {
+    pub fn identity(&self) -> NodeId {
         self.identity
     }
 
@@ -537,7 +524,7 @@ impl<S: LifecycleStore> Clean<S> {
 /// is decided here; the durable latch defers to the seated witness.
 pub struct Crashed<S> {
     store: S,
-    identity: Incarnation,
+    identity: NodeId,
 }
 
 impl<S: LifecycleStore> Crashed<S> {
@@ -563,7 +550,7 @@ impl<S: LifecycleStore> Crashed<S> {
     pub fn pair(&self) -> Result<Bumped, RestartRefusal> {
         let new = self
             .identity
-            .bump()
+            .next_life()
             .ok_or(RestartRefusal::Exhausted(self.identity))?;
         Ok(Bumped {
             old: self.identity,
@@ -582,7 +569,7 @@ impl<S: LifecycleStore> Crashed<S> {
     ///
     /// [`BootError::Store`] hands the session back with the store error.
     pub fn latch(mut self, _witness: Rejoined) -> Result<Running<S>, DeferredLatchFailure<S>> {
-        let new = match self.identity.bump() {
+        let new = match self.identity.next_life() {
             Some(new) => new,
             None => {
                 let exhausted = self.identity;
@@ -611,7 +598,7 @@ impl<S: LifecycleStore> Crashed<S> {
 /// durable writes between the marker transitions.
 pub struct Running<S> {
     store: S,
-    identity: Incarnation,
+    identity: NodeId,
 }
 
 impl<S: LifecycleStore> Running<S> {
@@ -624,7 +611,7 @@ impl<S: LifecycleStore> Running<S> {
     }
 
     /// The running identity.
-    pub fn identity(&self) -> Incarnation {
+    pub fn identity(&self) -> NodeId {
         self.identity
     }
 
@@ -658,7 +645,7 @@ impl<S: LifecycleStore> Running<S> {
 /// else is legal.
 pub struct Halting<S> {
     store: S,
-    identity: Incarnation,
+    identity: NodeId,
 }
 
 impl<S: LifecycleStore> Halting<S> {
@@ -685,7 +672,7 @@ impl<S: LifecycleStore> Halting<S> {
 /// The drain completed: the flushed marker can now be written over it.
 pub struct Draining<S> {
     store: S,
-    identity: Incarnation,
+    identity: NodeId,
 }
 
 impl<S: LifecycleStore> Draining<S> {
@@ -718,7 +705,7 @@ impl<S: LifecycleStore> Draining<S> {
 /// proven. The store is handed back — the process exits.
 pub struct Halted<S> {
     store: S,
-    identity: Incarnation,
+    identity: NodeId,
 }
 
 impl<S> Halted<S> {
@@ -728,7 +715,7 @@ impl<S> Halted<S> {
     }
 
     /// The halted identity.
-    pub fn identity(&self) -> Incarnation {
+    pub fn identity(&self) -> NodeId {
         self.identity
     }
 }

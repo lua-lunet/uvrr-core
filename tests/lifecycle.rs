@@ -30,7 +30,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use vrr::ids::{CrashCounter, NodeId, OperationId, SystemId};
-use vrr::lifecycle::{CopyState, Incarnation, Marker, RestartClass, SuperblockCopies};
+use vrr::lifecycle::{CopyState, Marker, RestartClass, SuperblockCopies};
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -110,10 +110,10 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> vrr::ids::ViewId {
 // A. The identity×marker cohort matrix
 // ---------------------------------------------------------------------------
 
-fn copies_of(states: [(u64, Marker); 4]) -> SuperblockCopies {
+fn copies_of(states: [(u32, Marker); 4]) -> SuperblockCopies {
     SuperblockCopies {
         copies: states.map(|(identity, marker)| CopyState {
-            identity: Incarnation(identity),
+            identity: NodeId(identity),
             marker,
         }),
     }
@@ -123,11 +123,17 @@ fn copies_of(states: [(u64, Marker); 4]) -> SuperblockCopies {
 /// the copies by identity, keep the cohorts of ≥2 (the open threshold),
 /// the winner is the highest identity among them, and the class reads
 /// the winner cohort's `Stopped` count.
-fn oracle(states: [(u64, Marker); 4]) -> Option<(bool, u64)> {
-    let mut identities: Vec<u64> = states.iter().map(|(id, _)| *id).collect();
+fn oracle(states: [(u32, Marker); 4]) -> Option<(bool, u32)> {
+    // The zero pattern is no identity and forms no cohort, exactly as the
+    // machine rules it.
+    let mut identities: Vec<u32> = states
+        .iter()
+        .map(|(id, _)| *id)
+        .filter(|id| *id != 0)
+        .collect();
     identities.sort_unstable();
     identities.dedup();
-    let working: Vec<u64> = identities
+    let working: Vec<u32> = identities
         .into_iter()
         .filter(|id| states.iter().filter(|(i, _)| i == id).count() >= 2)
         .collect();
@@ -148,7 +154,17 @@ fn oracle(states: [(u64, Marker); 4]) -> Option<(bool, u64)> {
 /// as anything but lost.
 #[test]
 fn a_the_identity_marker_cohort_matrix_is_exhaustive() {
-    let identities = [0u64, 1, 2, 3];
+    // Minted once, strictly inside the space, no memorised values: the
+    // matrix runs over the drawn identities and the blank zero pattern.
+    let (system, crash) = harness::mint_pair();
+    let low = NodeId::new(system, crash);
+    let mid = NodeId::new(
+        system,
+        CrashCounter::new(crash.get() + 1).expect("the drawn counter is below the bound"),
+    );
+    let (other_system, other_crash) = harness::mint_pair();
+    let high = NodeId::new(other_system, other_crash);
+    let identities = [0u32, low.0, mid.0, high.0];
     let markers = [
         Marker::Stopping,
         Marker::Stopped,
@@ -180,7 +196,7 @@ fn a_the_identity_marker_cohort_matrix_is_exhaustive() {
                         (Some((clean, winner)), Some((class, identity))) => {
                             assert_eq!(
                                 identity,
-                                Incarnation(winner),
+                                NodeId(winner),
                                 "the winner is the highest working identity: {states:?}"
                             );
                             assert_eq!(
