@@ -2,7 +2,7 @@
 //! overlap transition (§8.7.6–§8.7.7).
 //!
 //! A system operation is proposed through the ORDINARY pipeline like any
-//! entry — one establishing operation at a time — and the era advances
+//! entry, one establishing operation at a time, and the era advances
 //! exactly when the operation COMMITS (§8.7.1: an era is established by
 //! the commit of its establishing operation, never by its acceptance).
 //! The pivot is `None` on the stop-the-world path: the establishing
@@ -10,7 +10,7 @@
 //! through the next ordinary view change. A `Some` pivot names the
 //! non-stop variant (§8.7.6–§8.7.7): the `Prepare` goes only to
 //! `qII − {L}`, and when the operation commits through `qII` the leader
-//! solicits PLANNED evidence from `qI − {L}` — never a fence — and, the
+//! solicits PLANNED evidence from `qI − {L}`, never a fence, and, the
 //! planned quorum complete, publishes its casting vote and its switch to
 //! `v'` as ONE transition, then announces `StartView(v')` to every
 //! member of config(e+1). The client stream is never interrupted:
@@ -22,7 +22,7 @@
 //! * **Genesis is ordinary committed log history** (§8.7.1–§8.7.2): VOID
 //!   at slot 1 in era 0, INIT at slot 2 in era 1, committed by
 //!   construction at provision. The initial configuration is DERIVED from
-//!   the entries — the same fold that runs at every later commit.
+//!   the entries, the same fold that runs at every later commit.
 //! * **The pre-proposal gate is closed** (§8.7.2, §8.7.4, Q1): the fold's
 //!   preconditions, then R2 across the era boundary, then R1 /
 //!   self-intersection / fence-restart within the resulting era. A
@@ -30,8 +30,8 @@
 //!   enters the log. The pivot never substitutes for this gate.
 //! * **The commit-time fold is the only place the era advances**
 //!   (§8.7.1): every path that moves the commit frontier folds the system
-//!   operations the advance newly covers — [`Replica::fold_committed`]
-//!   — and carries the folded table in the candidate. A fold refusal in
+//!   operations the advance newly covers and carries the folded table in
+//!   the candidate ([`Replica::fold_committed`]). A fold refusal in
 //!   COMMITTED history is a breach and faults; a refusal at the arriving
 //!   entry's own slot is the peer's invalid operation and is dropped by
 //!   name ([`Diagnostic::InvalidSystemOperation`]).
@@ -44,7 +44,7 @@
 //!   `PlannedViewChange` recipients retain `current_view = v` and keep
 //!   accepting valid era-e `Prepare`; their `EvidenceKind::Planned`
 //!   answers complete the planned quorum and are never counted toward a
-//!   `Role::Fence` or ordinary `Role::ViewChange` quorum — the kinds are
+//!   `Role::Fence` or ordinary `Role::ViewChange` quorum, the kinds are
 //!   distinguishable on the wire and routed by kind.
 
 use std::collections::BTreeMap;
@@ -71,20 +71,20 @@ use crate::trace;
 /// Why the fold of the committed prefix refused.
 pub(in crate::replica) enum CommitFold {
     /// A slot the published record says is accepted is absent from the
-    /// journal (§5 invariant 1) — surfaced exactly like the applied
+    /// journal (§5 invariant 1), surfaced exactly like the applied
     /// walk's same finding.
     Unavailable(Slot),
     /// The commit frontier would land in the INTERIOR of an establishing
     /// batch: the maximal run of consecutive system entries the fold
     /// recognised extends past the advance. A batch commits whole or not
-    /// at all — its era is established by the whole fold — so a split
+    /// at all, its era is established by the whole fold, so a split
     /// advance is refused, never partially folded. Unreachable while every
     /// commit-frontier advance is segment-atomic; stated so the fold stays
     /// total.
     SplitBatch,
     /// A committed system operation the §8.7.2 preconditions refuse: the
     /// journal and the configuration history disagree about a COMMITTED
-    /// slot — the same class of breach as a committed-slot conflict
+    /// slot, the same class of breach as a committed-slot conflict
     /// (§9.1), so the transition declares it, never guesses.
     Breach {
         /// The slot whose operation would not fold.
@@ -109,14 +109,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// commit-frontier advance `(from, through]` newly covers (§8.7.1).
     /// `overlay` supplies the entries an in-transition install adds to the
     /// picture, exactly as in [`Replica::applied_walk`]. Returns the
-    /// receiver's own table when the advance covers no system operation —
+    /// receiver's own table when the advance covers no system operation,
     /// the fold is the identity, no allocation.
     ///
     /// A maximal run of two or more CONSECUTIVE system entries folds as
     /// the ONE establishing batch it is (`docs/uvrr-fuse.md` §1: the
     /// packed schedule a fuse envelope carried, one op per consecutive
     /// slot): the run's operations fold through the batch applier at the
-    /// run's first slot and establish exactly one era — the same history
+    /// run's first slot and establish exactly one era, the same history
     /// the ordinary per-op `Prepare` path journals for the same batch.
     /// The genesis pair (`Void`, `Init`) is the one run the batch applier
     /// refuses (R15), and it folds per entry as it always has; a batch
@@ -140,7 +140,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// successor the fold may not walk past. The fold stops before an
     /// extension would establish an era more than one past the window's
     /// era, the covered frontier stops at the last folded slot, and
-    /// `stopped` marks the deferral — the tail is folded by the next
+    /// `stopped` marks the deferral, the tail is folded by the next
     /// round, once the caller's durable view has walked into the era the
     /// folded table established. `window = None` is the unbounded fold the
     /// ordinary candidates run.
@@ -172,7 +172,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 None => journal.get(next).ok_or(CommitFold::Unavailable(next))?,
             };
             if let Payload::System(op) = &entry.payload {
-                // The run's full extent in the journal — not bounded by
+                // The run's full extent in the journal, not bounded by
                 // `through`, so a partially covered advance is named
                 // rather than half-folded.
                 let mut ops = vec![op.clone()];
@@ -186,7 +186,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                             None => break,
                         },
                     };
-                    // A run is one establishing batch — the fuse envelope's
+                    // A run is one establishing batch, the fuse envelope's
                     // ops journal as consecutive entries of the SAME entry
                     // era. Consecutive system entries of DIFFERENT entry
                     // eras are separately committed eras that happen to be
@@ -217,7 +217,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                             // operation awaits the next acquisition round
                             // (after the view's era walked).
                             trace!(
-                                "FOLD_W batch@{:?}: era {:?} > window {:?} — STOP",
+                                "FOLD_W batch@{:?}: era {:?} > window {:?}, STOP",
                                 next,
                                 extended.current().era,
                                 window
@@ -241,7 +241,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     .map_err(|error| CommitFold::Breach { slot: next, error })?;
                 if window.is_some_and(|successor| extended.current().era > successor) {
                     trace!(
-                        "FOLD_W op@{:?}: era {:?} > window {:?} — STOP",
+                        "FOLD_W op@{:?}: era {:?} > window {:?}, STOP",
                         next,
                         extended.current().era,
                         window
@@ -275,7 +275,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// ordinary establishing `Prepare` and the fuse envelope: one era
     /// transition at a time (gate 3), one establishing operation at a time
     /// (gate 4), the §8.7.2 preconditions of the fold itself (gate 5), and
-    /// the closed intersection obligations (gate 6, Q1) — R2 across the
+    /// the closed intersection obligations (gate 6, Q1), R2 across the
     /// boundary FIRST, then R1 / self-intersection / fence-restart within
     /// the resulting era. Returns the validated successor table.
     fn reconfigure_gates(
@@ -310,7 +310,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             tail = next;
         }
-        // Gate 5: the fold's preconditions (§8.7.2) — the operation is
+        // Gate 5: the fold's preconditions (§8.7.2), the operation is
         // tried against the current configuration at the slot it would
         // occupy.
         let next_table = self
@@ -341,19 +341,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///    ([`PlanRefusal::ReconfigurePivot`]);
     /// 2. the node is the `Normal` primary of its current view
     ///    ([`PlanRefusal::NotPrimary`], as for any proposal);
-    /// 3. the era table has NOT advanced past the current view — the
+    /// 3. the era table has NOT advanced past the current view, the
     ///    committed operation establishing the next era awaits the
     ///    ordinary view change into it (§8.7.8), and a second advance
     ///    would put the accepted frontier outside §8.7.3's relation
     ///    ([`PlanRefusal::EraTransitionOutstanding`]);
-    /// 4. no earlier system operation sits accepted-but-uncommitted —
+    /// 4. no earlier system operation sits accepted-but-uncommitted,
     ///    the fold that runs at commit must be the fold the pre-proposal
     ///    gate validated ([`PlanRefusal::ReconfigureOutstanding`]);
     /// 5. the §8.7.2 preconditions of the fold itself
     ///    ([`PlanRefusal::Reconfigure`]);
     /// 6. the closed intersection obligations (Q1): R2 across the
-    ///    boundary FIRST — so a cross-era refusal names the cross-era
-    ///    witness — then R1, self-intersection and fence-restart within
+    ///    boundary FIRST, so a cross-era refusal names the cross-era
+    ///    witness, then R1, self-intersection and fence-restart within
     ///    the resulting era ([`PlanRefusal::ReconfigureQuorum`]).
     ///
     /// A refusal at any gate never enters the log. The pivot never
@@ -369,7 +369,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let record = self
             .current_record()
             .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
-        // Gate 2: the proposer is the view's primary — the same ruling as
+        // Gate 2: the proposer is the view's primary, the same ruling as
         // an ordinary proposal's.
         let is_primary = self.progress.status() == Status::Normal
             && record.config.primary(current.view) == Some(self.own);
@@ -402,7 +402,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The recipients and the overlap machine (§8.7.6–§8.7.7). Without
         // a pivot the establishing Prepare goes to every backup and the
         // era awaits the ordinary view change. With a pivot it goes only
-        // to `qII − {L}` — the commit vote set under both configurations —
+        // to `qII − {L}`, the commit vote set under both configurations,
         // and the machine arms: `v'` is named NOW (§8.7.7 step 5's least
         // view past the current one selecting this node under the NEW
         // order), an unrepresentable `v'` refusing the proposal outright
@@ -451,7 +451,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             });
         }
         // The proposal: an ordinary entry, stamped with the era that
-        // authorizes its slot (§8.7.3) — the table has not advanced yet
+        // authorizes its slot (§8.7.3), the table has not advanced yet
         // (gate 3), so the stamp is the current view's era.
         let entry = LogEntry {
             slot,
@@ -503,11 +503,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The proposal of an armed schedule's establishing batch
     /// (`docs/uvrr-fuse.md` §4): the fuse envelope when the batch packs at
     /// least two operations within the envelope budget
-    /// ([`FUSE_MAX_OPS`]), the ordinary establishing `Prepare` otherwise —
+    /// ([`FUSE_MAX_OPS`]), the ordinary establishing `Prepare` otherwise,
     /// the fallback IS the ordinary path, unchanged. The plan-execution
     /// machine proposes through here (§8 of the fuse doc); the
     /// forced-reincarnation machine proposes its steps through
-    /// [`Self::plan_reconfigure`] — one `Batch` entry per era, the
+    /// [`Self::plan_reconfigure`], one `Batch` entry per era, the
     /// ordinary pipeline.
     pub(in crate::replica) fn plan_step_proposal(
         &self,
@@ -524,8 +524,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The fuse builder (`docs/uvrr-fuse.md` §4): the leader-side emission
     /// of an armed schedule's establishing batch of at least two
-    /// operations. One `Fuse` per recipient backup — header `first_slot` =
-    /// the next unsent slot, body = the batch's operations in plan order —
+    /// operations. One `Fuse` per recipient backup, header `first_slot` =
+    /// the next unsent slot, body = the batch's operations in plan order,
     /// one proposal record per packed slot (the leader's own vote is
     /// implicit, as in the ordinary path), and one journaled entry per
     /// packed slot, each stamped with the ballot's era (§1). The gates are
@@ -545,7 +545,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let record = self
             .current_record()
             .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
-        // Gate 2: the proposer is the view's primary — the same ruling as
+        // Gate 2: the proposer is the view's primary, the same ruling as
         // an ordinary proposal's.
         let is_primary = self.progress.status() == Status::Normal
             && record.config.primary(current.view) == Some(self.own);
@@ -635,7 +635,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// A `Fuse` envelope's acceptor transition (`docs/uvrr-fuse.md` §3).
     /// The envelope is ATOMIC (§2): the packed schedule folds whole or the
-    /// whole envelope is refused — there is no partial fold and no wire
+    /// whole envelope is refused, there is no partial fold and no wire
     /// nack. Receiving a `Fuse` is defined as receiving the equivalent
     /// sequence of `Prepare`s at the same ballot, one per slot, in batch
     /// order, so the header guards are `plan_prepare`'s, run once, and the
@@ -649,16 +649,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// ([`Self::plan_fuse_batch`]), never delivered back to itself.
     ///
     /// The explode: `first_slot` must be the accept frontier's successor;
-    /// each packed op then folds against the schedule's own fold chain —
+    /// each packed op then folds against the schedule's own fold chain,
     /// the validation runs on the clone, exactly as `plan_prepare` folds an
-    /// arriving system entry — and the frontier advances per op. The
+    /// arriving system entry, and the frontier advances per op. The
     /// journaled entries are stamped with the ballot's era (`docs/uvrr-fuse.md`
     /// §1: the header carries the ballot shared by every packed op), which is
     /// also what any retransmission of a packed slot's `Prepare` must carry.
     /// Nothing commits: the era table folds at commit (§8.7.1), so the
     /// candidate carries the published configuration unchanged. All ops
     /// accepted: one `FuseOk` to the sender, its header slot the LAST
-    /// accepted slot, its acks one accepted slot per op in batch order —
+    /// accepted slot, its acks one accepted slot per op in batch order,
     /// no range encodings. Any refusal drops the envelope with the one
     /// named outcome, zero effects.
     pub(in crate::replica) fn plan_fuse(
@@ -738,7 +738,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             return self.drop_plan(Diagnostic::FuseRefusal, kind);
         }
         // The explode: the schedule folds on the clone, one op at its own
-        // slot, each precondition judged at its point in the sequence — the
+        // slot, each precondition judged at its point in the sequence, the
         // same perimeter an individual `Prepare`'s system entry meets. A
         // refusal anywhere refuses the whole envelope (§3 step 4: never a
         // partial fold). The folded table is the validation's witness; the
@@ -802,7 +802,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// §8.7.7 steps 1 and 4, at the commit of the establishing operation:
     /// the fold that just established the successor era records the pivot
     /// that carries the transition ([`EraTable::with_transition_pivot`]),
-    /// and the `PlannedViewChange` solicitation goes to `qI − {L}` —
+    /// and the `PlannedViewChange` solicitation goes to `qI − {L}`,
     /// NEVER to `qII − {L}`, whose ordinary prepare stream is the one the
     /// non-stop transition exists to preserve. The solicitation rides the
     /// same published transition as the fold, so the machine's `solicited`
@@ -845,7 +845,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             },
             body: Body::PlannedViewChange {},
         };
-        // `qI − {L}` — the view-change vote set under config(e) — routed
+        // `qI − {L}`, the view-change vote set under config(e), routed
         // under the CURRENT era: its members are era-e members, and a
         // member the reconfiguration removes must still get its vote in.
         let effects = planned
@@ -873,17 +873,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// A `PlannedViewChange` solicitation (§8.7.7 step 2): the serving
     /// primary of the current view is gathering planned evidence for the
     /// transition view `v'` it names in the successor era. This is NOT a
-    /// fence — the recipient retains `current_view = v`, stays `Normal`,
+    /// fence, the recipient retains `current_view = v`, stays `Normal`,
     /// and keeps accepting valid era-e `Prepare`. It answers from its own
-    /// bounded suffix with `EvidenceKind::Planned` (step 3) — transient
-    /// evidence, never counted toward a fence quorum — proved against the
+    /// bounded suffix with `EvidenceKind::Planned` (step 3), transient
+    /// evidence, never counted toward a fence quorum, proved against the
     /// CURRENT era, the one the answer speaks from.
     ///
     /// The answer carries no authority, so the guards are deliberately
     /// light: every verification that matters re-fires at the `StartView`
     /// install. A recipient whose table does not yet record the successor
     /// era opens a fetch toward the leader for the range past its
-    /// frontier — the suffix fallback (§13.1 step 5 applied to the
+    /// frontier, the suffix fallback (§13.1 step 5 applied to the
     /// overlap): the establishing operation arrives by ordinary state
     /// transfer under the CURRENT view, the commit frontier walks it, and
     /// the era folds, which is what makes the leader's later
@@ -900,8 +900,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let header = message.header;
         let current = self.progress.current();
         // The solicitation names the SUCCESSOR era. Anything else is
-        // stale — the transition is done (a duplicate past the install)
-        // or superseded — or unevaluable, when the era is further out
+        // stale, the transition is done (a duplicate past the install)
+        // or superseded, or unevaluable, when the era is further out
         // than one past the current.
         if Some(header.view.era) != current.era.next() {
             if self.progress.config().record(header.view.era).is_none() {
@@ -977,13 +977,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// A `DoViewChange` carrying PLANNED evidence (§8.7.7 step 4), at the
-    /// pivot leader: a vote in the planned quorum, and nothing else — it
+    /// pivot leader: a vote in the planned quorum, and nothing else, it
     /// never enters the ordinary attempt and never counts toward a
     /// `Role::Fence` quorum. The guards are total and named; the shape
     /// rules are the ordinary evidence path's.
     ///
-    /// When every `qI` member has answered — the leader's own membership
-    /// in `qI` is its casting vote — the leader publishes the transition
+    /// When every `qI` member has answered, the leader's own membership
+    /// in `qI` is its casting vote, the leader publishes the transition
     /// as ONE step (step 5): `v'` joins current and retained, and
     /// `StartView(v')` goes to every member of config(e+1) (step 6) with
     /// the leader's history, its committed frontier, and the successor
@@ -1010,7 +1010,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let header = message.header;
         let current = self.progress.current();
         // Evidence answers a solicited machine naming this very view;
-        // anything else is stale — an answer past the transition, an
+        // anything else is stale, an answer past the transition, an
         // answer to a machine a fence superseded, or a forgery.
         let Some(planned) = self.planned.clone() else {
             return self.drop_plan(
@@ -1045,7 +1045,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // Shape: the header slot names the reported accepted frontier;
         // the frontiers are a legal chain; the suffix is a contiguous
         // ascending run ending at the frontier; the era proof matches the
-        // CURRENT era's record — the era the responder still speaks from.
+        // CURRENT era's record, the era the responder still speaks from.
         let record = self
             .current_record()
             .ok_or(PlanRefusal::Progress(ProgressError::EraSlotDiscipline))?;
@@ -1081,7 +1081,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // §8.7.7 step 5: the casting vote and the switch are ONE
         // published transition. `v'` was named at proposal; the frontiers
-        // and the configuration history are exactly the published ones —
+        // and the configuration history are exactly the published ones,
         // the era-(e+1) stream's proposals keep accumulating under the
         // new view.
         let own_accepted = self.progress.accepted();

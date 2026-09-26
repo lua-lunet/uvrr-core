@@ -23,7 +23,7 @@ const LIB_RS: &str = include_str!("../src/lib.rs");
 
 /// Returns the body of the `[name]` table: the text after the header line up to
 /// the next line beginning with `[`. A sub-table (`[name.sub]`) terminates the
-/// section, which is the conservative reading here — it can only cause a false
+/// section, which is the conservative reading here, it can only cause a false
 /// failure, never a false pass, and this crate's manifest has no sub-tables under
 /// the tables interrogated below.
 fn table<'a>(manifest: &'a str, name: &str) -> Option<&'a str> {

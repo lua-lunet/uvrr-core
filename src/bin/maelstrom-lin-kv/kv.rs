@@ -4,7 +4,7 @@
 //!
 //! Replay-safe under the core's at-least-once application boundary (§11): a
 //! node that restores a committed history re-executes it, and re-executing a
-//! prefix of these operations converges to the same state — a write sets the
+//! prefix of these operations converges to the same state, a write sets the
 //! same value again, a repeated compare-and-set fails its precondition without
 //! mutating, a read is inert. `Replica` treats payloads as opaque, so the
 //! service swaps in with no change to the replication core.

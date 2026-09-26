@@ -35,7 +35,7 @@ fn op_id(lsb: u64) -> OperationId {
     OperationId { msb: 0, lsb }
 }
 
-/// A view in era 1 — the era every node here bootstraps into.
+/// A view in era 1, the era every node here bootstraps into.
 fn view(number: u32) -> ViewId {
     ViewId {
         era: Era(1),
@@ -43,7 +43,7 @@ fn view(number: u32) -> ViewId {
     }
 }
 
-/// A view in era 2 — the era the first committed reconfiguration
+/// A view in era 2, the era the first committed reconfiguration
 /// establishes.
 fn era2_view(number: u32) -> ViewId {
     ViewId {
@@ -72,7 +72,7 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
 }
 
 /// The primary of a view under the genesis order 0, 1, 2 (§1.2) while every
-/// member votes — the voter-only succession reduces to the modular position
+/// member votes, the voter-only succession reduces to the modular position
 /// rule with no learner present. A configuration with a weight-0 member
 /// asserts its primary from the era table instead (§8.4).
 fn primary_of(view: ViewId) -> NodeId {
@@ -85,7 +85,7 @@ fn current_era(h: &Harness, id: NodeId) -> Era {
     h.era_table(id).expect("the node is live").current().era
 }
 
-/// The member weights of the node's current configuration, in order —
+/// The member weights of the node's current configuration, in order,
 /// the configuration equality a reconfiguration script asserts.
 fn current_weights(h: &Harness, id: NodeId) -> Vec<u64> {
     let table = h.era_table(id).expect("the node is live");
@@ -133,11 +133,11 @@ fn tick_into_view_change(h: &mut Harness, id: NodeId, target: ViewId) {
 }
 
 /// Drives a complete view change to `target` among the live nodes: the
-/// target's primary — the era table's voter-only succession names it
-/// (§8.4) — times out first, the exchange runs out, every live node
+/// target's primary, the era table's voter-only succession names it
+/// (§8.4), times out first, the exchange runs out, every live node
 /// installs the new view. The driver is a VOTING member by construction:
 /// a weight-0 member is never the primary (§8.7.8) and does not drive
-/// view change (§5.1 — suspicion is a voting member's act).
+/// view change (§5.1, suspicion is a voting member's act).
 fn drive_view_change(h: &mut Harness, live: &[NodeId], target: ViewId) {
     let prime = h
         .era_table(live[0])
@@ -155,13 +155,13 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId], target: ViewId) {
 }
 
 // ---------------------------------------------------------------------
-// 1. Genesis is ordinary committed log history — no special casing.
+// 1. Genesis is ordinary committed log history, no special casing.
 // ---------------------------------------------------------------------
 #[test]
 fn genesis_is_law() {
     let mut h = Harness::provision(3);
     for id in [n(0), n(1), n(2)] {
-        // VOID occupies slot 1 in era 0; INIT occupies slot 2 in era 1 —
+        // VOID occupies slot 1 in era 0; INIT occupies slot 2 in era 1,
         // two ordinary committed system entries, nothing privileged
         // (§8.7.1, §8.7.2).
         let void = h.journal_entry(id, VOID_SLOT).expect("genesis entry");
@@ -205,7 +205,7 @@ fn genesis_is_law() {
             StepOutcome::PlanRefused(PlanRefusal::NotPrimary { .. })
         ));
     }
-    // Identical provisioning — three nodes, one genesis: after the
+    // Identical provisioning, three nodes, one genesis: after the
     // bootstrap tick the primary serves the first real slot.
     bootstrap(&mut h);
     let outcome = h.propose(n(0), op_id(1), b"x");
@@ -223,7 +223,7 @@ fn stop_the_world_reconfigure_advances_the_era() {
     let mut h = cluster();
     bootstrap(&mut h);
 
-    // The primary proposes INCREMENT(n2) through the ordinary pipeline —
+    // The primary proposes INCREMENT(n2) through the ordinary pipeline,
     // one published proposal, Prepare effects to the era-1 membership,
     // the entry stamped with the era that authorizes its slot (§8.7.3:
     // the table has not advanced yet, so the stamp is the view's era).
@@ -251,7 +251,7 @@ fn stop_the_world_reconfigure_advances_the_era() {
     assert_eq!(own.era, Era(1));
 
     // One PrepareOk completes the era-1 commit quorum (QII_1 = 2 of
-    // weight 3): the COMMIT of slot 3 establishes era 2 (§8.7.1) — and
+    // weight 3): the COMMIT of slot 3 establishes era 2 (§8.7.1), and
     // not one step earlier.
     assert_eq!(current_era(&h, n(0)), Era(1), "accepted is not established");
     h.deliver_all();
@@ -277,7 +277,7 @@ fn stop_the_world_reconfigure_advances_the_era() {
     assert_eq!(current_weights(&h, n(1)), vec![1, 1, 2]);
     assert_eq!(current_weights(&h, n(2)), vec![1, 1, 2]);
 
-    // The view has NOT changed — only the era advanced — and subsequent
+    // The view has NOT changed, only the era advanced, and subsequent
     // proposals are stamped with, and counted under, the era their slots
     // authorize: era 2, inside the overlap §8.7.3's relation admits.
     let outcome = h.propose(n(0), op_id(1), b"after");
@@ -303,8 +303,8 @@ fn stop_the_world_reconfigure_advances_the_era() {
 // ---------------------------------------------------------------------
 // 2b. The establishing era completes under the leader's own continuous
 //     stream (§8.7.4, §8.7.8): while a stop-the-world transition is
-//     OUTSTANDING — the committed history has established the successor
-//     era, the current view has not entered it — the primary's own
+//     OUTSTANDING, the committed history has established the successor
+//     era, the current view has not entered it, the primary's own
 //     proposals are not proof of view life. The stream keeps committing,
 //     the fence arms and fires on the same timeout as an idle primary,
 //     and the view change enters the established-but-unentered era.
@@ -320,7 +320,7 @@ fn stop_the_world_join_completes_under_a_continuous_stream() {
 
     // The stop-the-world join: the establishing entry proposes and
     // commits through the ordinary pipeline. The era advances; the view
-    // does not — the transition is OUTSTANDING.
+    // does not, the transition is OUTSTANDING.
     let outcome = h.reconfigure(
         n(0),
         SystemOperation::Join {
@@ -342,7 +342,7 @@ fn stop_the_world_join_completes_under_a_continuous_stream() {
     );
     assert_eq!(current_weights(&h, n(0)), vec![1, 1, 1, 0]);
 
-    // The stream KEEPS committing while the transition is outstanding —
+    // The stream KEEPS committing while the transition is outstanding,
     // and the clock advances, as a live host's does. Every round ticks
     // the whole cluster, then proposes, then delivers: exactly the
     // traffic that would otherwise refresh the primary's baseline. More
@@ -396,7 +396,7 @@ fn era_slot_relation_is_enforced_at_accept() {
     bootstrap(&mut h);
 
     // A forged Prepare from the current primary, in the current view, at
-    // the next slot — everything legal except the era. Three fabrications:
+    // the next slot, everything legal except the era. Three fabrications:
     // below the view's era, inside the relation's +1 window but naming an
     // era no committed operation has established, and beyond the window.
     for forged_era in [0, 2, 3] {
@@ -435,7 +435,7 @@ fn era_slot_relation_is_enforced_at_accept() {
     }
 
     // The honest +1: a committed reconfiguration establishes era 2, and
-    // the NEXT proposal — still in view (1, 0) — is stamped era 2 and
+    // the NEXT proposal, still in view (1, 0), is stamped era 2 and
     // accepted at the backups (§8.7.3's overlap sentence).
     let outcome = h.reconfigure(n(0), SystemOperation::Increment(n(2)), None);
     assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -476,7 +476,7 @@ fn committed_configuration_survives_reclamation() {
     assert!(matches!(outcome, StepOutcome::Published { .. }));
 
     // The next proposal moves the frontier and the reclaim drops the
-    // whole slabs at or below the checkpoint (§4) — genesis AND the
+    // whole slabs at or below the checkpoint (§4), genesis AND the
     // establishing entry are gone from the journal.
     h.propose(n(0), op_id(1), b"x");
     assert!(
@@ -498,7 +498,7 @@ fn committed_configuration_survives_reclamation() {
     // An era-2 view change runs over the reclaimed prefix: the evidence
     // suffix is bounded by the retained window, the slots the node itself
     // checkpoint-authorized away are fixed by §9.2's quorum-identity
-    // argument, and the view installs — from the era table, never from
+    // argument, and the view installs, from the era table, never from
     // the reclaimed entries.
     drive_view_change(&mut h, &[n(0), n(1), n(2)], era2_view(1));
     assert_eq!(primary_of(era2_view(1)), n(1));
@@ -525,7 +525,7 @@ fn committed_configuration_survives_reclamation() {
 fn primary_crash_mid_reconfiguration_never_half_installs() {
     // Case A: one backup accepted the establishing operation before the
     // crash. The era-1 view change carries it into the new history
-    // (§9.3), still uncommitted — the era has NOT advanced...
+    // (§9.3), still uncommitted, the era has NOT advanced...
     let mut h = cluster();
     bootstrap(&mut h);
     let outcome = h.reconfigure(n(0), SystemOperation::Increment(n(1)), None);
@@ -546,7 +546,7 @@ fn primary_crash_mid_reconfiguration_never_half_installs() {
     assert_eq!(current_era(&h, n(2)), Era(1));
 
     // ...until the new primary's next proposal gathers the quorum that
-    // re-commits slot 3 — and the era advances exactly there (§8.7.1).
+    // re-commits slot 3, and the era advances exactly there (§8.7.1).
     h.propose(n(1), op_id(1), b"after");
     h.deliver_all();
     assert_eq!(snap(&h, n(1)).committed, 4);
@@ -588,17 +588,17 @@ fn primary_crash_mid_reconfiguration_never_half_installs() {
 // ---------------------------------------------------------------------
 // 3. The pre-proposal intersection gate (Q1): an operation whose QI_e /
 //    QII_(e+1) intersection can be empty is refused BEFORE the proposal,
-//    carrying the witness — the two disjoint vote sets that cannot both
+//    carrying the witness, the two disjoint vote sets that cannot both
 //    be legal.
 // ---------------------------------------------------------------------
 
 /// Fixed-threshold quorum strategy (test-only): thresholds per role,
 /// independent of the membership. Six members of weight 1 each, fence 4 /
-/// view-change 4 / commit 3, is legality-symmetric WITHIN one era — but
+/// view-change 4 / commit 3, is legality-symmetric WITHIN one era, but
 /// INCREMENT(n0) takes the weights to (2,1,1,1,1,1): the same fixed
 /// thresholds then admit a disjoint view-change quorum {n1,n2,n3,n4}
 /// (weight 4, under era e) and commit quorum {n0,n5} (weight 3, under era
-/// e+1) — the Q1 violation `validate_transition` must refuse.
+/// e+1), the Q1 violation `validate_transition` must refuse.
 struct Thresholds {
     fence: u64,
     view_change: u64,
@@ -666,7 +666,7 @@ fn unsafe_transition_is_refused_pre_proposal_with_its_witness() {
         .publish(promoted)
         .expect("the bootstrap tick installs");
 
-    // The unsafe operation: refused BEFORE proposal, with the witness —
+    // The unsafe operation: refused BEFORE proposal, with the witness,
     // and the log is untouched.
     let view = replica.journal().view();
     let refusal = replica
@@ -700,7 +700,7 @@ fn unsafe_transition_is_refused_pre_proposal_with_its_witness() {
 }
 
 // ---------------------------------------------------------------------
-// 4. The §8.7.2 preconditions refuse by name — before the log moves.
+// 4. The §8.7.2 preconditions refuse by name, before the log moves.
 // ---------------------------------------------------------------------
 #[test]
 fn precondition_refusals_are_named_and_leave_the_log_untouched() {
@@ -728,7 +728,7 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
     h.deliver_all();
     assert_eq!(current_era(&h, n(0)), Era(2));
     // ...the ordinary view change carries the cluster into era 2, and
-    // the voter-only succession (§8.4) makes n2 — the second VOTER — the
+    // the voter-only succession (§8.4) makes n2, the second VOTER, the
     // primary of view 1: a weight-0 member is never the primary (§8.7.8).
     drive_view_change(&mut h, &[n(0), n(1), n(2)], era2_view(1));
     let era2 = h.era_table(n(0)).expect("the node is live");
@@ -773,7 +773,7 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
         PlanRefusal::Reconfigure(ConfigError::NonZeroWeight(n(0))),
     );
 
-    // A legal JOIN commits: the joined member is a LEARNER — the fold
+    // A legal JOIN commits: the joined member is a LEARNER, the fold
     // grants weight 0, whatever the operator asked for (§8.7.2; rules §2, R2).
     let outcome = h.reconfigure(
         n(2),
@@ -793,8 +793,8 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
 }
 
 // ---------------------------------------------------------------------
-// 7. VOID and INIT outside genesis are refused — at the gate and at the
-//    accept path — and a fabricated genesis replay never enters the log.
+// 7. VOID and INIT outside genesis are refused, at the gate and at the
+//    accept path, and a fabricated genesis replay never enters the log.
 // ---------------------------------------------------------------------
 #[test]
 fn void_and_init_outside_genesis_are_refused() {
@@ -808,7 +808,7 @@ fn void_and_init_outside_genesis_are_refused() {
         outcome,
         StepOutcome::PlanRefused(PlanRefusal::Reconfigure(ConfigError::AlreadyInitialised))
     );
-    // INIT after genesis — a duplicate — same refusal.
+    // INIT after genesis, a duplicate, same refusal.
     let outcome = h.reconfigure(
         n(0),
         SystemOperation::Init {
@@ -822,7 +822,7 @@ fn void_and_init_outside_genesis_are_refused() {
     );
     assert_eq!(snap(&h, n(0)).accepted, 2, "the log is untouched");
 
-    // A fabricated VOID Prepare at an ordinary slot — genesis replay —
+    // A fabricated VOID Prepare at an ordinary slot, genesis replay,
     // never enters a backup's log: the accept path runs the same fold
     // (§8.7.2) and drops the entry by name.
     let forged = Message {

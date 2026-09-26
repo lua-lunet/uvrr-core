@@ -1,7 +1,7 @@
 //! Rejoin under churn: a behind node must converge back into a serving
 //! cluster whose view keeps advancing.
 //!
-//! The live traces named the blocked transition — a `StartView` landing
+//! The live traces named the blocked transition, a `StartView` landing
 //! exactly on the restarted node's current view while it fences, and
 //! `GapDetected` fetches that never complete before the next churn
 //! completion resets the attempt. This corpus strips the phi/jitter host
@@ -97,7 +97,7 @@ fn fence_target(h: &Harness, node: NodeId) -> ViewId {
 }
 
 /// Drives the view change the fence machinery targets, asserting every
-/// node in `live` installs it. The driver is any live `Normal` member —
+/// node in `live` installs it. The driver is any live `Normal` member,
 /// two live members of a three-node unit cluster reach the fence quorum.
 fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> ViewId {
     let target = fence_target(h, live[0]);
@@ -120,7 +120,7 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> ViewId {
 
 /// One churn round: silence long enough for every live `Normal` member to
 /// suspect the primary, then the drain that completes the rotation. The
-/// cluster's view advances by one at a polite, regular cadence — no phi,
+/// cluster's view advances by one at a polite, regular cadence, no phi,
 /// no jitter, nothing but the S4 suspicion rule.
 fn rotate(h: &mut Harness, live: &[NodeId]) {
     let before = current_view(h, live[0]);
@@ -135,7 +135,7 @@ fn rotate(h: &mut Harness, live: &[NodeId]) {
 /// The cluster serves `ops` more operations through the current view's
 /// primary and drains the traffic. The primary is picked among every up
 /// node: the churn may well have rotated into the restarted member. A
-/// refusal is storm weather — the primary may be mid-attempt — and the
+/// refusal is storm weather, the primary may be mid-attempt, and the
 /// attempt is simply skipped.
 fn serve(h: &mut Harness, all: &[NodeId], ops: &mut u64) {
     for _ in 0..2 {
@@ -225,8 +225,8 @@ fn a_restarted_node_adopts_completions_while_the_cluster_churns() {
     h.assert_safety();
 }
 
-/// The storm shape: the cluster rotates back-to-back — a new attempt is
-/// under way every couple of ticks, matching the live run's ~4 views/s —
+/// The storm shape: the cluster rotates back-to-back, a new attempt is
+/// under way every couple of ticks, matching the live run's ~4 views/s,
 /// while the restarted node chases. The node must still converge: adopt a
 /// completion or win an attempt before the next rotation retargets it.
 #[test]
@@ -277,14 +277,14 @@ fn a_restarted_node_converges_under_a_dense_churn_storm() {
 }
 
 /// The live run's distinguishing ingredient: the restarted node's host
-/// polls the §14.2 forced view upward on a timer — `current + 1`, blind to
+/// polls the §14.2 forced view upward on a timer, `current + 1`, blind to
 /// what the cluster is completing. Every forced view moves the node's
 /// current one past the in-flight attempt, and the adoption rule refuses a
 /// `StartView` one view behind (`StartViewFromStaleView`). The node must
 /// still converge: the host's poll keeps firing while the completions keep
 /// arriving, and something has to give.
 ///
-/// The escalation fires the poll on EVERY round — the live trace's ~90
+/// The escalation fires the poll on EVERY round, the live trace's ~90
 /// views/s climb, a forced view per arrival in the limbo.
 #[test]
 fn a_forced_view_poll_on_the_restarted_node_still_converges() {
@@ -305,7 +305,7 @@ fn a_forced_view_poll_on_the_restarted_node_still_converges() {
     h.restart_with(n(0)).expect("the disk reopens");
 
     // The storm runs, and the host's forced-view poll fires on the
-    // restarted node every round — blindly, current + 1.
+    // restarted node every round, blindly, current + 1.
     let mut converged = false;
     for round in 0..120 {
         h.tick_all();
@@ -343,13 +343,13 @@ fn a_forced_view_poll_on_the_restarted_node_still_converges() {
 
 /// The live storm's second dimension: the node is not merely behind in
 /// views but in slots, and the host's `view_change_budget` cuts every
-/// `StartView` suffix to a sliver — so every completion the restarted node
+/// `StartView` suffix to a sliver, so every completion the restarted node
 /// receives starts past its frontier (`GapDetected`) and demands a fetch
 /// that must survive the churn. The node must still converge.
 #[test]
 fn a_frontier_gap_rejoins_through_the_fetch_under_churn() {
     // The budget carries exactly one journal entry: every StartView
-    // suffix, every chunk, one slot wide — the storm's budget-cut shape.
+    // suffix, every chunk, one slot wide, the storm's budget-cut shape.
     let per_entry = operation_entry(3, 1, b"o").packed_len();
     let mut h = Harness::with_knobs(
         3,
@@ -386,7 +386,7 @@ fn a_frontier_gap_rejoins_through_the_fetch_under_churn() {
 
     // The rejoin drive with light churn. Every completion arrives with a
     // one-entry suffix that starts past n0's frontier: GapDetected, fetch,
-    // one chunk per round trip — while the cluster keeps rotating.
+    // one chunk per round trip, while the cluster keeps rotating.
     let mut converged = false;
     for round in 0..400 {
         h.tick_all();
@@ -419,7 +419,7 @@ fn a_frontier_gap_rejoins_through_the_fetch_under_churn() {
 }
 
 /// The dirty-boot bump: the crashed genesis member comes back under a NEW
-/// identity that no configuration names — every peer discards it by name
+/// identity that no configuration names, every peer discards it by name
 /// (`UnknownSender`) until the announcement machine seats it. The
 /// announcement must carry it through the forced sequence into voting
 /// membership, and the seated member must then survive the churn.
@@ -499,8 +499,8 @@ fn a_reincarnated_identity_is_seated_by_the_forced_sequence_then_survives_churn(
     h.assert_safety();
 }
 
-/// A `StartView` for the very view a member is fencing into — the delta-0
-/// case the live traces dropped sixty-four times — installs the offered
+/// A `StartView` for the very view a member is fencing into, the delta-0
+/// case the live traces dropped sixty-four times, installs the offered
 /// history: the adoption rule admits "fencing into this very view"
 /// (§13.1), the offer names the view's primary, and the suffix verifies
 /// against the member's journal.

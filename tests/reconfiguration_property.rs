@@ -4,9 +4,9 @@
 //! (rules §5, §8; R1, R13, R14).
 //!
 //! Unlike `reconfiguration_plan.rs`'s corpus (hand-picked streams from the
-//! genesis shape), this file generates both the starting configuration —
+//! genesis shape), this file generates both the starting configuration,
 //! every node independently 0, 1 or 2, inflated through the checked
-//! `Snapshot` constructor — and the operation stream, including streams
+//! `Snapshot` constructor, and the operation stream, including streams
 //! that are illegal (a `Leave` at a positive weight, a `Decrement` at 0, an
 //! `Increment` at the cap, a `Double` with a 2 present, a `Halve` with an
 //! odd weight, a batch moving more than mass 1, a nested batch). The
@@ -15,7 +15,7 @@
 //! 1. every weight of every applied era is inside {0, 1, 2}, integral,
 //!    never negative (R1's closure);
 //! 2. per applied era, the per-node mass moved Σ|Δw| over the union of
-//!    touched nodes is ≤ 1, OR the era is a solitary scaling op — exactly
+//!    touched nodes is ≤ 1, OR the era is a solitary scaling op, exactly
 //!    the R13/R14 rule, recomputed here from the era's own weight tables;
 //! 3. every admitted transition passes the exhaustive closed gate
 //!    `vrr::quorum::validate_transition` (the mechanical intersection
@@ -69,7 +69,7 @@ fn arb_start() -> impl Strategy<Value = Configuration> {
 }
 
 /// One stream op: the six membership/weight verbs plus a raw op list inside
-/// a batch (which the fold refuses as a nested batch — an illegal shape the
+/// a batch (which the fold refuses as a nested batch, an illegal shape the
 /// property must also hold for). The arithmetic verbs aim at the identity
 /// set; joins and leaves may name the join pool too, so refusals arise
 /// naturally at every boundary.
@@ -88,7 +88,7 @@ fn op_strategy() -> impl Strategy<Value = SystemOperation> {
     ]
 }
 
-/// The verbs without the batch wrapper — the raw op list a batch carries.
+/// The verbs without the batch wrapper, the raw op list a batch carries.
 fn raw_op_strategy() -> impl Strategy<Value = SystemOperation> {
     prop_oneof![
         3 => (0u32..3).prop_map(|id| SystemOperation::Increment(n(id))),
@@ -107,7 +107,7 @@ fn stream_strategy() -> impl Strategy<Value = Vec<SystemOperation>> {
     prop::collection::vec(op_strategy(), 0..8)
 }
 
-/// The node → weight table, recomputed from the public member list — the
+/// The node → weight table, recomputed from the public member list, the
 /// oracle's own view of a configuration, no planner internals involved.
 fn weight_table(config: &Configuration) -> BTreeMap<NodeId, u32> {
     config
@@ -125,7 +125,7 @@ fn order(config: &Configuration) -> Vec<NodeId> {
     config.order().iter().map(|m| m.node).collect()
 }
 
-/// Property 1: every weight of every applied era is inside {0, 1, 2} —
+/// Property 1: every weight of every applied era is inside {0, 1, 2},
 /// integral and non-negative by the `u32` type, capped by R1 here.
 fn assert_domain(config: &Configuration) {
     for weight in weights(config) {
@@ -154,7 +154,7 @@ fn touched(op: &SystemOperation, config: &Configuration) -> Vec<NodeId> {
 }
 
 /// Property 2, recomputed from first principles: the per-node mass moved
-/// across the era boundary, Σ|Δw| over the union of touched nodes, is ≤ 1 —
+/// across the era boundary, Σ|Δw| over the union of touched nodes, is ≤ 1,
 /// OR the era is a solitary scaling op (exactly the R13/R14 rule). Absent
 /// members count as weight 0: a `Join` adds a 0-weight node, a `Leave`
 /// removes one, both move no mass.
@@ -191,7 +191,7 @@ fn assert_quorum_safe(prev: &Configuration, next: &Configuration) {
 }
 
 /// Folds `ops` one op per `apply` from `start`, returning the final weights
-/// and order. Every op of an accepted plan must fold step by step — the
+/// and order. Every op of an accepted plan must fold step by step, the
 /// batch never legalized anything the flat fold cannot.
 fn fold_flat(start: &Configuration, ops: &[SystemOperation]) -> (Vec<u32>, Vec<NodeId>) {
     let mut config = start.clone();

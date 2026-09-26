@@ -4,7 +4,7 @@
 //! `V_g ⌢ V_g`), and decision Q1.
 //!
 //! These obligations are closed for modification. No host, feature flag, quorum
-//! strategy, or extension may weaken them, so they are not documented advice — they are
+//! strategy, or extension may weaken them, so they are not documented advice, they are
 //! executed. The required property: **a proposal that would violate an intersection
 //! obligation is refused before it is proposed**, never detected after the fact, because
 //! after the fact the violating configuration may already be committed and the safety
@@ -38,8 +38,8 @@ pub use crate::ids::Fault;
 
 /// What drove a transition, summarised to exactly what the legality rules need.
 ///
-/// The checker never sees the host's bytes — an operation's payload, a
-/// journal record, an application effect — because legality is a property of the
+/// The checker never sees the host's bytes, an operation's payload, a
+/// journal record, an application effect, because legality is a property of the
 /// state pair and the *kind* of the input, not of the input's content. A peer
 /// message is the one input whose header is itself protocol state, so it is the
 /// one input that carries fields: the tag, for the header-slot table (rule 7) and
@@ -75,7 +75,7 @@ pub enum InputKind {
 ///
 /// This table resolves the question: the 20-byte header (W1) has a slot field for
 /// framing regularity, but not every message names a slot in the protocol sense, and a
-/// fabricated position in a fence or restart message is worse than none — it is
+/// fabricated position in a fence or restart message is worse than none, it is
 /// a claim about history the message never made. The table is public so the
 /// view-change and restart paths cite it rather than re-deciding it, and it lives
 /// here rather than in
@@ -160,7 +160,7 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
 /// modification). The replica runs this on every old→new pair **before** publish,
 /// inside the §12 serialized interval.
 ///
-/// A `Some` result means the candidate is **discarded and the node faults** — the
+/// A `Some` result means the candidate is **discarded and the node faults**, the
 /// checker never repairs a candidate. Repair would make the checker a second,
 /// quieter transition function: the pair it published would not be the pair the
 /// replica computed, and the divergence between "what the protocol decided" and
@@ -176,9 +176,9 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
 ///    monotone frontiers never regress. `accepted` may shorten only across a
 ///    history re-selection, signalled by `retained` changing.
 /// 2. **View succession** (§8.7.3, W1): `current` never regresses; a change is a
-///    legal successor — delegated to `ViewId::is_legal_successor`, never
+///    legal successor, delegated to `ViewId::is_legal_successor`, never
 ///    re-derived.
-/// 3. **Retained provenance** (§1.3): `retained` changes only on re-selection —
+/// 3. **Retained provenance** (§1.3): `retained` changes only on re-selection,
 ///    restart, or a `DoViewChange`/`StartView`/`NewState` peer message.
 /// 4. **Revision**: exactly +1, so a stale plan is rejected by comparison (§12).
 /// 5. **Sticky fault** (§5 invariant 5, S3): a faulted `old` admits no `new` at
@@ -209,16 +209,16 @@ pub fn legal(old: &Progress, new: &Progress, input: &InputKind) -> Option<Fault>
     None
 }
 
-/// Rule 5 — sticky fault (§5 invariant 5, S3). A faulted `old` admits no `new`:
+/// Rule 5, sticky fault (§5 invariant 5, S3). A faulted `old` admits no `new`:
 /// the node has already declared it cannot say what its durable state is, and no
 /// transition changes that. Returns the fault `old` holds, never a fresh one.
 fn rule5_sticky_fault(old: &Progress) -> Option<Fault> {
     old.fault()
 }
 
-/// Rule 1 — the frontier chain holds on `new`, and `committed`, `applied` and
+/// Rule 1, the frontier chain holds on `new`, and `committed`, `applied` and
 /// `checkpoint` never regress (§1.3). `accepted` never regresses either, except
-/// across a history re-selection — signalled by `retained` changing — because
+/// across a history re-selection, signalled by `retained` changing, because
 /// §9.1 ranks candidate histories by `retained_view` first: a shorter history
 /// retained from a later view lawfully displaces a longer one from an earlier
 /// view, and the installed frontier replaces the local one.
@@ -235,7 +235,7 @@ fn rule1_frontiers_violated(old: &Progress, new: &Progress) -> bool {
     new.accepted() < old.accepted() && new.retained() == old.retained()
 }
 
-/// Rule 2 — `current` never regresses, and a change strictly increases the view
+/// Rule 2, `current` never regresses, and a change strictly increases the view
 /// with era equal or +1. The rule is `ViewId::is_legal_successor`'s; this
 /// function only applies it, because two copies of an inequality are two chances
 /// to get it wrong.
@@ -243,9 +243,9 @@ fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {
     new.current() != old.current() && !old.current().is_legal_successor(new.current())
 }
 
-/// Rule 3 — `retained` identifies the provenance of the retained history (§1.3),
+/// Rule 3, `retained` identifies the provenance of the retained history (§1.3),
 /// so it changes only when that history was re-selected. The re-selection inputs
-/// are the peer messages that install a history — `DoViewChange`, the one that
+/// are the peer messages that install a history, `DoViewChange`, the one that
 /// completes the new primary's quorum (§9.1), `StartView`, and `NewState`
 /// (state transfer, §4). The match is exhaustive so a new tag forces a
 /// ruling here rather than inheriting one.
@@ -263,7 +263,7 @@ fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) ->
             | Tag::PlannedViewChange
             | Tag::GetState
             | Tag::Reincarnation
-            // The rejoin gossip's request carries frontiers only — it makes
+            // The rejoin gossip's request carries frontiers only, it makes
             // no history claim (`docs/uvrr-rejoin-gossip-and-witnesses.md`
             // §2–§3), so it can never reselect a retained history.
             | Tag::GossipRequest => false,
@@ -284,22 +284,22 @@ fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) ->
     !reselects
 }
 
-/// Rule 4 — `revision` advances by exactly one per published transition (§12).
+/// Rule 4, `revision` advances by exactly one per published transition (§12).
 /// Checked addition: a wrapped revision would make a stale plan indistinguishable
 /// from a current one, so exhaustion faults rather than wraps.
 fn rule4_revision_violated(old: &Progress, new: &Progress) -> bool {
     old.revision().checked_add(1) != Some(new.revision())
 }
 
-/// Rule 6 — era/slot discipline on `new` (§8.7.3, W1): the era authorising the
-/// accepted frontier is the current view's era or its successor — the successor
+/// Rule 6, era/slot discipline on `new` (§8.7.3, W1): the era authorising the
+/// accepted frontier is the current view's era or its successor, the successor
 /// case being overlap mode (§8.7.7). Construction enforces this too; the gate
 /// restates it because the gate must not trust how the candidate was built.
 fn rule6_era_slot_violated(new: &Progress) -> bool {
     new.check_era_discipline().is_err()
 }
 
-/// Rule 7 — the per-tag header-slot table ([`header_slot_role`]).
+/// Rule 7, the per-tag header-slot table ([`header_slot_role`]).
 fn rule7_header_slot_violated(input: &InputKind) -> bool {
     match input {
         InputKind::PeerMessage { tag, slot } => !header_slot_role(*tag).admits(*slot),

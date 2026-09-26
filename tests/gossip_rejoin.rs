@@ -1,15 +1,15 @@
 //! Rejoin gossip: the anti-wedge design as explicit message-level tests.
 //!
 //! The brief this corpus pins (`docs/uvrr-rejoin-gossip-and-witnesses.md`):
-//! a node outside the cluster gossips to find it — the join gossip carries
+//! a node outside the cluster gossips to find it, the join gossip carries
 //! its frontiers, every node that hears it lists the sender as a
-//! gossip-witness, and the leader — only the leader — streams all phase-2s
+//! gossip-witness, and the leader, only the leader, streams all phase-2s
 //! and commits to that list, push-first, until the joiner promotes (and is
 //! then dropped from the list) or forever (a statically registered witness
 //! is never purged). The `GossipRequest` is the gap half of the same
 //! gossip: any node that cannot commit in order fires it at every node,
 //! and only the node that believes itself leader answers with the missing
-//! range and a fresh commit — a cluster member is pushed but never listed.
+//! range and a fresh commit, a cluster member is pushed but never listed.
 //!
 //! Every assertion is on the wire or on the witness list itself, not on
 //! end states alone: the messages the design names are the messages the
@@ -145,7 +145,7 @@ fn gossip_request(prepared: Slot, committed: Slot) -> Message {
 
 /// The join gossip, crash-reincarnation flavour: the bumped identity
 /// announces its pair, and every node that hears the announcement lists
-/// the joiner in its gossip-witness list — not only the leader — while the
+/// the joiner in its gossip-witness list, not only the leader, while the
 /// leader's immediate push of the missed range is on the wire.
 #[test]
 fn the_join_gossip_lists_the_announcer_at_every_node() {
@@ -183,7 +183,7 @@ fn the_join_gossip_lists_the_announcer_at_every_node() {
 
 /// A statically registered witness is a passive data sink outside the
 /// roster: the leader streams it all phase-2s and commits from startup,
-/// and it never appears in any configuration — it cannot vote.
+/// and it never appears in any configuration, it cannot vote.
 #[test]
 fn a_static_witness_receives_the_stream_and_never_votes() {
     let mut h = cluster_with_static_witness();
@@ -264,7 +264,7 @@ fn a_successor_leader_resumes_the_witness_stream() {
 
 /// The gap half of the gossip: a member that cannot commit in order fires
 /// a `GossipRequest` at every node; the node that believes itself leader
-/// answers with the missing range — and no node lists a cluster member as
+/// answers with the missing range, and no node lists a cluster member as
 /// a witness (the push, not the list, is the answer). The same one message
 /// from a cold node IS the join: pushed and listed everywhere.
 #[test]
@@ -348,7 +348,7 @@ fn a_gossip_request_pushes_the_missing_range_and_lists_no_member() {
 }
 
 /// The safety half of the brief, pinned: a stream message from an older
-/// view than the sink holds never moves the sink backwards — the witness
+/// view than the sink holds never moves the sink backwards, the witness
 /// applies commits in order or refuses them, never rewinds.
 #[test]
 fn a_stale_stream_message_never_moves_the_sink_backwards() {
@@ -398,7 +398,7 @@ fn a_stale_stream_message_never_moves_the_sink_backwards() {
 
 /// Promotion closes the witness entry: when the joiner's weight commits,
 /// every node scans its gossip-witness list and drops the now-voting
-/// member — duplicate delivery would be safe, the drop saves the IO.
+/// member, duplicate delivery would be safe, the drop saves the IO.
 #[test]
 fn promotion_removes_the_joined_voter_from_every_witness_list() {
     let mut h = cluster();

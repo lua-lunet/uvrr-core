@@ -6,20 +6,20 @@
 //! configuration ([`Plan::validate_against`]) and answers with one verdict;
 //! on acceptance the [`PlannedSequence`] machine is armed and steps through
 //! the plan's batches while the cluster keeps running normally: one step per
-//! era, each proposed through [`plan_step_proposal`] — the fuse envelope
+//! era, each proposed through [`plan_step_proposal`], the fuse envelope
 //! when the step packs at least two operations within the envelope budget,
 //! the ordinary establishing `Prepare` otherwise
 //! (`docs/uvrr-fuse.md` §4). The forced-reincarnation machine steps its own
-//! sequence the same way — one step per era on a tick — through
+//! sequence the same way, one step per era on a tick, through
 //! [`plan_reconfigure`] (§8 of the fuse doc).
 //!
 //! The machine is volatile like every attempt state: a leader crash discards
-//! it, and the dumb-operator contract hands continuation to the operator — a
+//! it, and the dumb-operator contract hands continuation to the operator, a
 //! new leader executes nothing automatically; the plan is re-solicited against
 //! the configuration that committed. A step the gates refuse is drift: a plan
 //! computed to be legal cannot become illegal, so the refusal means the
 //! cluster changed underneath the plan, and aborting is the correct behaviour
-//! — the machine clears and [`Diagnostic::PlanAborted`] names it.
+//!, the machine clears and [`Diagnostic::PlanAborted`] names it.
 //!
 //! [`plan_reconfigure`]: super::Replica::plan_reconfigure
 //! [`plan_step_proposal`]: super::Replica::plan_step_proposal
@@ -47,7 +47,7 @@ const NOT_LEADER: &str = "the replica is not the leader of its current view";
 ///
 /// Volatile by design: a leader crash discards it, and the operator re-plans
 /// from the configuration that committed. The steps are never stored anywhere
-/// else — the configuration history is their only authority.
+/// else, the configuration history is their only authority.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(in crate::replica) struct PlannedSequence {
     /// One batch per era, in commit order, exactly as accepted.
@@ -65,9 +65,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// answers `Rejected` with the named precondition. The acceptance rule is
     /// [`Plan::validate_against`] verbatim; a plan whose FIRST step is
     /// immediately plannable proposes it in the same transition (mirroring
-    /// `plan_reincarnation`'s arm-and-propose). A gate refusal there — the
+    /// `plan_reincarnation`'s arm-and-propose). A gate refusal there, the
     /// closed intersection gate is the one gate the fold-based validation
-    /// does not run — propagates as the named [`PlanRefusal`] and arms
+    /// does not run, propagates as the named [`PlanRefusal`] and arms
     /// nothing: the plan never started, so there is no verdict to answer.
     pub(in crate::replica) fn plan_submit_plan(
         &self,
@@ -124,10 +124,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The tick-driven continuation: the armed leader proposes the next
-    /// accepted step. The drift gate runs first — a step the current
+    /// accepted step. The drift gate runs first, a step the current
     /// committed configuration refuses is dead whatever the pipeline's
     /// readiness, so the machine clears and [`Diagnostic::PlanAborted`]
-    /// names the step. `None` leaves the tick to the ordinary machinery —
+    /// names the step. `None` leaves the tick to the ordinary machinery,
     /// the machine sits armed and inert until the conditions return.
     pub(in crate::replica) fn plan_execution_continuation(
         &self,
@@ -170,14 +170,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The commit-advance hook: what a commit frontier advance `(from,
     /// through]` does to the armed machine. Each step is ONE establishing
     /// batch, so a committed range covering exactly the machine's next step
-    /// advances the machine — and the LAST step's commit is the completion:
+    /// advances the machine, and the LAST step's commit is the completion:
     /// the machine clears. A foreign establishing operation advances
     /// nothing; the continuation re-gates the pending step against the
     /// configuration that changed underneath it.
     ///
     /// The journal shape of one establishing batch is either a single
     /// `Batch` entry (the ordinary `Prepare` path) or a maximal run of
-    /// consecutive system entries — the packed schedule a fuse envelope
+    /// consecutive system entries, the packed schedule a fuse envelope
     /// carried, one op per consecutive slot (`docs/uvrr-fuse.md` §1). Both
     /// fold as the one batch they are, so the hook matches both: a run of
     /// two or more system entries compares as `Batch(ops)`; a singleton

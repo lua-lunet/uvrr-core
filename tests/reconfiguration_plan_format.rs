@@ -4,7 +4,7 @@
 //!
 //! The lib-level solver schedules are pinned in `tests/reconfiguration_solver.rs`
 //! and `tests/reconfiguration_plan.rs`; what is pinned here is the plan artefact
-//! itself — the paper's two-era and six-era replacement schedules expressed as
+//! itself, the paper's two-era and six-era replacement schedules expressed as
 //! plan JSONL, the codec round trip, the leader-side acceptance rule, and the
 //! `uvrr-reconfig` binary.
 
@@ -114,7 +114,7 @@ fn five_node_replacement_is_the_six_batch_schedule() {
 }
 
 /// The acceptance rule: a plan whose initial configuration differs from the
-/// current committed one — wrong weights, wrong order, wrong membership — is
+/// current committed one, wrong weights, wrong order, wrong membership, is
 /// rejected by name.
 #[test]
 fn plans_drifted_from_the_committed_configuration_are_rejected_by_name() {
@@ -160,14 +160,14 @@ fn plans_drifted_from_the_committed_configuration_are_rejected_by_name() {
         .expect("the fresh plan is valid");
 }
 
-/// A plan whose steps no longer fold — legal when computed, drift afterwards —
+/// A plan whose steps no longer fold, legal when computed, drift afterwards,
 /// is refused at the step, not at the header: the initial matches, the fold
 /// refuses.
 #[test]
 fn a_step_that_no_longer_folds_is_refused_at_the_step() {
     let start = config(vec![m(0, 1), m(1, 1), m(2, 1)]);
     // A legal plan on its own initial: decrement node 2, then promote node 1
-    // while the drained node 2 leaves — every batch folds.
+    // while the drained node 2 leaves, every batch folds.
     let legal = Plan {
         initial: start.order().to_vec(),
         steps: vec![

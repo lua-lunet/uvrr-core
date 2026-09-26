@@ -5,9 +5,9 @@
 //!
 //! ```text
 //! qI ∩ qII = {L}
-//! qI  legal under config(e)   — view-change family
-//! qII legal under config(e)   — commit family
-//! qII legal under config(e+1) — commit family
+//! qI  legal under config(e)  , view-change family
+//! qII legal under config(e)  , commit family
+//! qII legal under config(e+1), commit family
 //! ```
 //!
 //! For unweighted threshold quorums the cardinality rule is `|qI| + |qII| =
@@ -31,7 +31,7 @@ fn n(id: u32) -> NodeId {
     )
 }
 
-/// A view in era 1 — the era every node here bootstraps into.
+/// A view in era 1, the era every node here bootstraps into.
 #[allow(dead_code)]
 fn view(number: u32) -> ViewId {
     ViewId {
@@ -163,7 +163,7 @@ fn construction_is_deterministic() {
     assert_eq!(first, second, "same inputs produce the same pivot");
 }
 
-/// A low-weight leader with no legal split gets `None` — fallback to
+/// A low-weight leader with no legal split gets `None`, fallback to
 /// stop-the-world, never a fault.
 #[test]
 fn construction_falls_back_without_fault() {
@@ -320,7 +320,7 @@ fn validation_rejects_qii_not_legal_under_next() {
 
 /// A test-local threshold strategy: each role admits exactly the sets
 /// whose weight meets a fixed threshold. This is the shape of Q1's
-/// six-node counterexample — the gate must catch unsafe *policies*.
+/// six-node counterexample, the gate must catch unsafe *policies*.
 struct Thresholds {
     commit: u64,
     view_change: u64,
@@ -358,7 +358,7 @@ fn valid_pivot_does_not_bypass_transition_gate() {
     // restart=4. INCREMENT of n0 takes the next config to weights
     // [2,1,1,1,1,1] (total 7), where a disjoint view-change quorum
     // {n1,n2,n3,n4} (weight 4, under era e) and commit quorum {n0,n5}
-    // (weight 3, under era e+1) exist — the R2 forward violation
+    // (weight 3, under era e+1) exist, the R2 forward violation
     // validate_transition must refuse.
     let order: Vec<NodeId> = (0..6).map(n).collect();
     let strategy = Thresholds {

@@ -18,7 +18,7 @@
 //! ```
 //!
 //! All values are whole milliseconds. `attempt` is the host's count of failed or
-//! interrupted election attempts since the last commit or adopt — host state; the
+//! interrupted election attempts since the last commit or adopt, host state; the
 //! core holds none of this. The host draws `j` uniformly from `[0, span)`, arms
 //! `fixed + j` as that attempt's suspicion deadline, and translates it into host
 //! ticks for `primary_timeout`.
@@ -27,21 +27,21 @@
 //!
 //! - **Unit = 2·rtt.** The first window is one unit, split evenly into a fixed and
 //!   a uniform random half, so the first suspicion deadline falls in
-//!   `[unit/2, unit)`: the earliest it can fire is `unit/2 = rtt` — a full round
+//!   `[unit/2, unit)`: the earliest it can fire is `unit/2 = rtt`, a full round
 //!   trip. An answer in flight from a live primary lands before the earliest
 //!   suspicion, and the random half adds up to one more round trip of margin. A
-//!   unit of 20 ms presumes an RTT of ~10 ms — ~5 ms one-way between servers in
+//!   unit of 20 ms presumes an RTT of ~10 ms, ~5 ms one-way between servers in
 //!   two DCs.
-//! - **Doubling.** Each failed or interrupted election attempt doubles the window —
-//!   unit, `2·unit`, `4·unit`, … — because a duel that repeats under a flat window
+//! - **Doubling.** Each failed or interrupted election attempt doubles the window,
+//!   unit, `2·unit`, `4·unit`, …, because a duel that repeats under a flat window
 //!   repeats forever.
 //! - **The fixed half grows** so a duel survivor gets real work done inside its
 //!   window: a node that has just won an election must fit a `Prepare`/`Commit`
 //!   round before its own next suspicion fires.
 //! - **The random half widens** so dueling hosts' timers spread: the next pair of
 //!   deadlines decorrelate, and one node completes its election while the other
-//!   waits. The host draws the value; the spread is the whole point, so the span —
-//!   not a constant — is what must grow with the window.
+//!   waits. The host draws the value; the spread is the whole point, so the span,
+//!   not a constant, is what must grow with the window.
 //! - **The cap** is a backstop against a partition that keeps attempts failing for
 //!   a long time: past it, the schedule stops growing and keeps firing at
 //!   [`CAP_MILLIS`]. It binds the whole schedule, including attempt 0: a unit
@@ -53,7 +53,7 @@
 //! Both functions are total: multiplication saturates rather than wrapping, the
 //! doubling exponent clamps at 63 because `2^63` already exceeds the cap for every
 //! unit above zero, and attempt counts past the one that reaches the cap saturate
-//! there forever. A zero unit yields zero windows — a host that has disabled
+//! there forever. A zero unit yields zero windows, a host that has disabled
 //! tick-driven suspicion has no schedule to compute.
 
 /// The window cap, in milliseconds: the backstop past which the doubling stops.

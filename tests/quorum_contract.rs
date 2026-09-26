@@ -1,4 +1,4 @@
-//! Contract for `vrr::quorum` — the `QuorumStrategy` extension point and the closed
+//! Contract for `vrr::quorum`, the `QuorumStrategy` extension point and the closed
 //! gate that no strategy can override.
 //!
 //! Spec §8.3 (the diskless obligations `F_g ⌢ R_g` and `V_g ⌢ V_g`), §8.4 (weighted
@@ -12,14 +12,14 @@
 //!    decides only `is_quorum`; `validate_era`/`validate_transition` are free functions
 //!    that mechanically discharge the intersection obligations, and a refusal is final.
 //!    Test 1 is Q1's six-node counterexample, detected before the unsafe `INCREMENT`
-//!    can be proposed — the whole reason the gate exists.
+//!    can be proposed, the whole reason the gate exists.
 //! 2. **`WeightedMajority` re-proves §8.7.5 computationally.** Every configuration
 //!    reachable from genesis by at most four operations on 3–6 initial members, and
 //!    every single-step transition between them, validates. A proof we can re-run is
 //!    worth more than a proof we cite.
 //! 3. **Every refusal carries a genuine witness.** The two subsets in a `QuorumError`
 //!    are disjoint, each is a quorum of its claimed family under its claimed
-//!    configuration — re-checked here through the strategy's own `is_quorum` — and
+//!    configuration, re-checked here through the strategy's own `is_quorum`, and
 //!    neither has a proper subset that is a quorum (inclusion-minimality), so an
 //!    operator is shown exactly the two vote sets that cannot both be legal.
 //! 4. **Both directions of the era boundary are checked.** Overlap mode sends era `e`
@@ -50,7 +50,7 @@ const N5: NodeId = NodeId(5);
 /// The six unit-weight members of Q1's counterexample profile.
 const SIX: [NodeId; 6] = [N0, N1, N2, N3, N4, N5];
 
-/// A void configuration followed by `Init` over `order`, at the two genesis slots —
+/// A void configuration followed by `Init` over `order`, at the two genesis slots,
 /// the only way a `Configuration` can come to exist, which is the property under test
 /// in `configuration_contract.rs` and the precondition for every argument here.
 fn initialised(order: &[NodeId]) -> Configuration {
@@ -67,7 +67,7 @@ fn initialised(order: &[NodeId]) -> Configuration {
 }
 
 /// A test-local threshold strategy: each role admits exactly the sets whose weight
-/// meets a fixed threshold. This is the shape of every deliberate violation below —
+/// meets a fixed threshold. This is the shape of every deliberate violation below,
 /// the gate must catch unsafe *policies*, and a threshold table is how an operator
 /// would actually write one.
 struct Thresholds {
@@ -117,7 +117,7 @@ fn members_of(universe: &[NodeId], mask: u32) -> Vec<NodeId> {
 
 /// Re-checks a gate-produced witness through the strategy's own predicate: the two
 /// subsets must be disjoint, each must genuinely be a quorum of its claimed family
-/// under its claimed configuration, and no proper subset of either may be a quorum —
+/// under its claimed configuration, and no proper subset of either may be a quorum,
 /// a witness that could be trimmed would send an operator chasing members that are
 /// not part of the violation.
 fn assert_genuine_witness(
@@ -159,7 +159,7 @@ fn assert_genuine_witness(
 
 /// The six-node profile of Q1: commit threshold 3, view-change threshold 4, unit
 /// weights, `T = 6`. Within era `e` the families intersect (`3 + 4 > 6`), so
-/// `validate_era` accepts the strategy — the danger is exclusively cross-era, which is
+/// `validate_era` accepts the strategy, the danger is exclusively cross-era, which is
 /// why a per-era check cannot substitute for the transition gate.
 fn q1_scenario() -> (Thresholds, Configuration, Configuration) {
     let strategy = Thresholds {
@@ -178,7 +178,7 @@ fn q1_scenario() -> (Thresholds, Configuration, Configuration) {
 /// `INCREMENT(n0)` against the six-node profile must be refused as `R2Violation` with
 /// the witness Q1 worked out by hand: view-change quorum `{n1,n2,n3,n4}` under era `e`
 /// against commit quorum `{n0,n5}` under era `e+1`. Detecting this after the
-/// reconfiguration commits is worthless — the divergence is already reachable.
+/// reconfiguration commits is worthless, the divergence is already reachable.
 #[test]
 fn q1_counterexample_is_refused_with_its_witness() {
     let (strategy, current, next) = q1_scenario();
@@ -202,7 +202,7 @@ fn q1_counterexample_is_refused_with_its_witness() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. WeightedMajority always validates — §8.7.5, re-run
+// 2. WeightedMajority always validates, §8.7.5, re-run
 // ---------------------------------------------------------------------------
 
 /// Every configuration reachable from genesis by at most four §8.7.2 operations on
@@ -214,7 +214,7 @@ fn q1_counterexample_is_refused_with_its_witness() {
 /// succession position and the identity of a zero-weight learner change no quorum
 /// family (§8.4: weight 0 grants no voting authority), so enumerating positions and
 /// fresh ids would multiply the work without enlarging the set of *families* under
-/// test. Everything else — the member every weight operation names — is enumerated in
+/// test. Everything else, the member every weight operation names, is enumerated in
 /// full.
 fn reachable() -> (Vec<Configuration>, Vec<(Configuration, Configuration)>) {
     let mut configurations = Vec::new();
@@ -275,7 +275,7 @@ fn reachable() -> (Vec<Configuration>, Vec<(Configuration, Configuration)>) {
 
 /// The computational re-verification of §8.7.5: `validate_era` passes on every
 /// reachable configuration and `validate_transition` passes on every single-step edge
-/// — both directions of the boundary, since the gate checks both.
+///, both directions of the boundary, since the gate checks both.
 #[test]
 fn weighted_majority_validates_every_reachable_era_and_transition() {
     let strategy = WeightedMajority;
@@ -298,12 +298,12 @@ fn weighted_majority_validates_every_reachable_era_and_transition() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Obligation isolation — one violated obligation, one specific variant
+// 3. Obligation isolation, one violated obligation, one specific variant
 // ---------------------------------------------------------------------------
 
 /// A commit family that admits singletons violates `R1` even when every other family
 /// is a strict majority: `{n0}` commits while `{n1,n2}` changes the view. The refusal
-/// must be `R1Violation`, and `validate_era` must reach it — the self-intersection and
+/// must be `R1Violation`, and `validate_era` must reach it, the self-intersection and
 /// fence/restart checks hold for this strategy, so the variant cannot be arriving
 /// from a different obligation.
 #[test]
@@ -363,7 +363,7 @@ fn non_self_intersecting_view_family_is_named() {
 
 /// Fence and restart families of threshold 1 over three members leave `R1` and the
 /// view self-intersection intact (both majorities) but admit a disjoint fence/restart
-/// pair — a recovering replica could miss the volatile evidence that a view was fenced
+/// pair, a recovering replica could miss the volatile evidence that a view was fenced
 /// (§8.3). The refusal must be `FenceRestartViolation`.
 #[test]
 fn disjoint_fence_and_restart_families_are_named() {
@@ -441,8 +441,8 @@ impl QuorumStrategy for ParityCommit {
     }
 }
 
-/// Both eras are individually legal under `ParityCommit` — `R1`, self-intersection and
-/// fence/restart all hold in each — and the forward transition check passes. The
+/// Both eras are individually legal under `ParityCommit`, `R1`, self-intersection and
+/// fence/restart all hold in each, and the forward transition check passes. The
 /// refusal must come from the reverse direction alone, witnessed by `{n0,n1,n2}`
 /// against `{n3,n4,n5}`.
 #[test]
@@ -477,19 +477,19 @@ fn forward_safe_reverse_unsafe_transition_is_refused() {
 // ---------------------------------------------------------------------------
 
 /// For `WeightedMajority`, `threshold()` must agree with the quorum family found by
-/// brute-force enumeration — the declared threshold and the actual family may not
+/// brute-force enumeration, the declared threshold and the actual family may not
 /// drift apart, because diagnostics and minimal-quorum construction trust the
 /// declared value while safety rests on the actual one.
 ///
 /// The precise universal statement is **family agreement**: a set is a quorum iff its
 /// weight meets `threshold()`, checked here over every subset. Plain equality between
 /// `threshold()` and the smallest weight of any quorum does *not* hold under
-/// indivisible weights — `(2,2,0)` is reachable (`DECREMENT`, then `DOUBLE`), has
+/// indivisible weights, `(2,2,0)` is reachable (`DECREMENT`, then `DOUBLE`), has
 /// `T = 4` and threshold 3, yet no subset weighs exactly 3, so the lightest quorum
 /// weighs 4. §8.4 flags exactly this: the threshold inequality is sufficient but not
 /// necessary for every indivisible weight assignment. What is asserted, beyond family
 /// agreement, is that the enumerated lightest quorum weighs exactly the smallest
-/// *attainable* weight at or above the declared threshold — so the two coincide
+/// *attainable* weight at or above the declared threshold, so the two coincide
 /// whenever `floor(T/2) + 1` is attainable, which is every unit-weight case.
 #[test]
 fn weighted_majority_threshold_matches_enumerated_minimum() {
@@ -540,7 +540,7 @@ fn weighted_majority_threshold_matches_enumerated_minimum() {
 /// The membership cap is a validation-cost bound, not a protocol limit: 17-member
 /// `Init` and `Join` past 16 are refused by the fold with a named cap, so no
 /// over-cap `Configuration` can ever reach the gate. At the cap itself, the gate's
-/// `2^16` enumeration is expected to be routine — validated here, once, on the
+/// `2^16` enumeration is expected to be routine, validated here, once, on the
 /// boundary.
 #[test]
 fn membership_cap_is_enforced_by_the_fold_and_the_gate_runs_at_the_cap() {
@@ -594,8 +594,8 @@ fn membership_cap_is_enforced_by_the_fold_and_the_gate_runs_at_the_cap() {
 // ---------------------------------------------------------------------------
 
 /// Every refusal produced above is re-examined: the witness subsets are disjoint,
-/// each is a quorum of its claimed family under its claimed configuration — through
-/// the strategy's own `is_quorum`, not the gate's word — and neither can be trimmed.
+/// each is a quorum of its claimed family under its claimed configuration, through
+/// the strategy's own `is_quorum`, not the gate's word, and neither can be trimmed.
 /// A refusal an operator cannot act on is worse than none, and an un-trimmed or
 /// fabricated witness is one nobody can act on.
 #[test]

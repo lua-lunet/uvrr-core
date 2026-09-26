@@ -10,7 +10,7 @@
 //! The core owns sequencing and completeness; the host owns sizing. There is no
 //! `MAX_DATAGRAM` and no chunk-size constant here (decision W5). The core reports how
 //! much it has and what it still needs, and the host decides how many bytes travel per
-//! datagram — because a host that must fit a chunk into its own framing cannot be served
+//! datagram, because a host that must fit a chunk into its own framing cannot be served
 //! by a constant this crate guessed at compile time.
 //!
 //! When requested history is locally unavailable the host says so (§4). The core does not
@@ -28,7 +28,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The fetch half of a gap ruling (§10, §13.1 step 5): a `GetState`
     /// for `from` onward under `view`, addressed to `to`, and the volatile
     /// cursor the answering `NewState` chunks install against. The header
-    /// slot is the requester's accepted frontier — the slot the fetch
+    /// slot is the requester's accepted frontier, the slot the fetch
     /// resumes after (the per-tag table's Frontier role).
     pub(in crate::replica) fn fetch(
         &self,
@@ -60,11 +60,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// A qualified higher-view signal (§10): a normal-operation message
     /// from the legitimate primary of a view past the node's current one
     /// (the caller has verified the attribution). The message proves the
-    /// node stale — but it is NOT installation evidence (§13.4's hint
+    /// node stale, but it is NOT installation evidence (§13.4's hint
     /// rule), so the node ceases lower-view participation by fencing into
     /// the message's view through the ordinary change pipeline, fetches
     /// the history it lacks from the sender, and installs only when the
-    /// qualified evidence — the `StartView` — arrives.
+    /// qualified evidence, the `StartView`, arrives.
     pub(in crate::replica) fn plan_higher_view_signal(
         &self,
         journal: &J::View,
@@ -90,10 +90,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// in budget-bounded chunks (W5). Serving is read-only retransmission
     /// of durable journal content: it never mutates the responder and
     /// cannot alter committed state, so a node is never fenced with
-    /// respect to SERVING — fencing governs participation, not serving.
+    /// respect to SERVING, fencing governs participation, not serving.
     /// The serving gate is therefore the cluster-legality gate alone (the
-    /// sender is a member of the requested era's configuration or — the
-    /// learner acquisition rule (`docs/uvrr-reincarnation.md` §10) — of
+    /// sender is a member of the requested era's configuration or, the
+    /// learner acquisition rule (`docs/uvrr-reincarnation.md` §10), of
     /// the responder's current committed configuration, a weight-0
     /// learner included) plus the statuses whose journal is not servable:
     /// `Restarting` or `Joining` (the node's history is not yet proved
@@ -102,11 +102,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// node serves exactly like a `Normal` one, and the request's view is
     /// a correlation token (VRR-2012's §10 recovery nonce), not a serving
     /// condition: the response header echoes it so the recipient's
-    /// open-fetch qualification — the real gate — can match the answer to
+    /// open-fetch qualification, the real gate, can match the answer to
     /// the fetch it opened. When the requested era is outside the
     /// responder's retention window the requested-era disjunct is simply
-    /// unavailable — the window moved past the era a boot-fenced learner
-    /// fetches under — and the current-configuration disjunct decides
+    /// unavailable, the window moved past the era a boot-fenced learner
+    /// fetches under, and the current-configuration disjunct decides
     /// alone; the chunk is the same verified history either way. The chunk
     /// is a contiguous ascending run from `from`, never a byte past the
     /// host's transport budget (W4); `more` tells the requester the
@@ -126,7 +126,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The cluster-legality gate, with the learner acquisition rule
         // (`docs/uvrr-reincarnation.md` §10): a sender that is not a member
         // of the REQUESTED era's configuration may still be served when it
-        // is a member of the responder's current committed configuration —
+        // is a member of the responder's current committed configuration,
         // any weight, a weight-0 learner included. A learner behind the
         // commit frontier can only name the eras its own table holds, and
         // the era that admitted it is by definition not one of them; R6
@@ -134,7 +134,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // read-only retransmission of durable journal content, and the
         // responder's current configuration is exactly the membership the
         // §6 ingress check admits messages FROM. A node outside the current
-        // configuration — a foreign identity, a superseded old identity —
+        // configuration, a foreign identity, a superseded old identity,
         // is refused as before.
         let served = self
             .progress
@@ -166,7 +166,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // Pack the chunk: contiguous ascending from the requested base,
         // stopping at the frontier, at a journal hole, or one entry before
-        // the budget would overflow — the suffix never exceeds the budget
+        // the budget would overflow, the suffix never exceeds the budget
         // by a byte (W4). An empty chunk cannot advance the requester's
         // cursor (the base is ahead of the frontier, below retention, or
         // one entry over the budget), so it is not served at all.
@@ -201,7 +201,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         };
         // The response header echoes the REQUEST's view: a correlation
         // token (VRR-2012's §10 recovery nonce), never the responder's current
-        // view — the recipient's open-fetch qualification matches the
+        // view, the recipient's open-fetch qualification matches the
         // answer against the fetch it opened, and the send routes in the
         // request's era so it reaches the requester under the same
         // membership the request arrived under.
@@ -229,14 +229,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// A `NewState` chunk (§10, §13.1 step 5): history the node actively
     /// fetched, installed through the same suffix ruling as the
-    /// view-change and state-transfer paths — contiguity against the local
+    /// view-change and state-transfer paths, contiguity against the local
     /// journal, no committed-slot conflict (the one deliberate fault),
     /// committed frontier monotone. Only a chunk answering the open fetch
-    /// is protocol-qualified evidence at all; anything else — another
+    /// is protocol-qualified evidence at all; anything else, another
     /// view, another sender, no open fetch, a range the node already
-    /// holds — is a named drop, never a fault. The chunk is HISTORY, not
+    /// holds, is a named drop, never a fault. The chunk is HISTORY, not
     /// the completing ruling: a fenced node's committed frontier waits
-    /// for its own path's qualified evidence (the `StartView`) — with
+    /// for its own path's qualified evidence (the `StartView`), with
     /// the §10 learner acquisition exception: the boot-fenced node's own
     /// open fetch is its qualified evidence, so a fenced entry node
     /// (`Restarting` or `Joining`) at its boot fence takes the chunk's committed frontier and folds
@@ -290,7 +290,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // Shape first (§13.1): the header slot names the covered range's
         // end; the entries are a contiguous ascending run ending there; an
         // empty chunk never claims more remains. A FINAL chunk's committed
-        // frontier never exceeds the covered range — an honest responder's
+        // frontier never exceeds the covered range, an honest responder's
         // committed never exceeds its frontier, and `more` clear means the
         // chunk reached it. A partial chunk's committed legitimately runs
         // past the chunk; the install caps at the covered frontier.
@@ -302,13 +302,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             return self.drop_plan(Diagnostic::MalformedTransfer, kind);
         }
         // The chunk qualifies as protocol evidence through one of two
-        // routes, both fenced (§10): the node's own open fetch — the view
-        // and the responder must be the ones the node asked — or, for a
+        // routes, both fenced (§10): the node's own open fetch, the view
+        // and the responder must be the ones the node asked, or, for a
         // node still at its boot fence that opened NO fetch, the leader's
         // missed-range push (`docs/uvrr-reincarnation.md` §7): the
         // announcement named the node's past-life frontiers and the
         // leader's ack pushed what it missed, under the view the
-        // ANNOUNCEMENT carried — the one the node already holds. The
+        // ANNOUNCEMENT carried, the one the node already holds. The
         // pushed chunk passes the same verification the fetched chunk
         // does: the suffix ruling below verifies it against the local
         // journal before anything folds. A boot-fenced node that HAS an
@@ -374,7 +374,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let mutation = match self.check_suffix(journal, entries, through, committed, Slot::NONE) {
             SuffixCheck::Install(mutation) => mutation,
             // A reordered chunk: it cannot be verified against the local
-            // journal until its prefix arrives. Named, kept waiting — the
+            // journal until its prefix arrives. Named, kept waiting, the
             // fetch stays open and the in-flight chunks close it.
             SuffixCheck::Gap { expected, got } => {
                 return self.drop_plan(Diagnostic::GapDetected { expected, got }, kind);
@@ -390,15 +390,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
         };
         // The install moves the accepted frontier only; the committed
-        // frontier moves on the current view's own transfer — while the
+        // frontier moves on the current view's own transfer, while the
         // node is fenced, the completing ruling owns it. The one §10
         // exception is the boot-fenced node's OWN acquisition: a node
         // still at its boot fence (`Restarting` or `Joining` with
-        // `current == retained` — it has adopted nothing) that opened this
+        // `current == retained`, it has adopted nothing) that opened this
         // fetch itself may take the chunk's committed frontier and fold
         // the system operations it covers. That is the speculative
         // learner acquisition `docs/uvrr-reincarnation.md` §10 states: the
-        // learner acquires state by streaming while never voting — the
+        // learner acquires state by streaming while never voting, the
         // chunk is history it actively fetched, every entry verified
         // against its local journal by the suffix ruling above, and the
         // fold input is the same verified history every other fold path
@@ -425,12 +425,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // committed frontier (§13.1 step 5). The offer is the node's own
         // knowledge of a committed selection; its staleness gate refuses
         // an offer that claims less than the node durably holds, so an
-        // acquisition that runs past it — live, the responder keeps
-        // committing while the fetch is in flight — would strand the
+        // acquisition that runs past it, live, the responder keeps
+        // committing while the fetch is in flight, would strand the
         // retained ruling forever, and with it the fenced learner: the
         // `StartView` is one-shot and no later route installs an
-        // already-entered view. Folding what the offer needs — and no
-        // further — keeps the offer installable; the era's stream (R6
+        // already-entered view. Folding what the offer needs, and no
+        // further, keeps the offer installable; the era's stream (R6
         // reaches learners) carries the tail. The cap never undershoots
         // the fold: the offer's selection covers everything committed at
         // its view, its own era's establishing operation included. An
@@ -457,7 +457,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             "NEW_STATE take={:?} (cap={:?}) new_accepted={:?} new_committed={:?}",
             take, boot_cap, new_accepted, new_committed
         );
-        // §8.7.1: the committed frontier moved — fold the system
+        // §8.7.1: the committed frontier moved, fold the system
         // operations the advance newly covers. A fold refusal here is a
         // chunk that contradicts committed history the configuration
         // cannot hold: the same breach as the conflict arm above (§9.2).
@@ -468,7 +468,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // would establish an era more than one past `era(current)`, the
         // committed and accepted frontiers stop at the fold's frontier,
         // and the durable view's era walks into the era the folded table
-        // established (the view number is preserved — no view change
+        // established (the view number is preserved, no view change
         // runs here; the node stays fenced and adopts no history). The
         // chunk's tail past the fold is re-fetched by the acquisition's
         // next round (the cursor below, or the re-retain's fetch once the
@@ -500,7 +500,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             // The chunk's committed frontier would split an
             // establishing batch (`docs/uvrr-fuse.md`): the chunk is
-            // malformed, dropped by name — the fetch cursor resumes
+            // malformed, dropped by name, the fetch cursor resumes
             // the range.
             Err(CommitFold::SplitBatch) => {
                 return self.drop_plan(Diagnostic::FuseRefusal, kind);
@@ -597,7 +597,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The walk's target, when the fold walked the view into the era
         // the folded table established. The acquisition's next round
         // rides it: the re-issued fetch (below) carries the walked view,
-        // whose era record the folded table holds — a fetch that stayed
+        // whose era record the folded table holds, a fetch that stayed
         // on the boot view would name an era the table's two-era
         // retention window has walked past, and the answering chunk
         // would be unevaluable at the very guard that reads it.
@@ -643,7 +643,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // the fetch. The boot acquisition's window-capped fold is partial
         // by construction when it stopped short of the chunk's own
         // coverage (`new_committed < through`): the fetch stays open
-        // either way, so the next round folds the tail — and rides the
+        // either way, so the next round folds the tail, and rides the
         // view the candidate now carries (the walk's target, when the
         // fold walked) so the answering chunk's era record is one the
         // folded table still holds.

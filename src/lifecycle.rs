@@ -2,7 +2,7 @@
 //! boundary, and the typestate driver that owns the write schedules
 //! (`docs/uvrr-boot-gate.md`).
 //!
-//! The crate owns the machine — which marker, which copies, when, and in
+//! The crate owns the machine, which marker, which copies, when, and in
 //! what order. The host owns the writes: it implements
 //! [`LifecycleStore`] with its durable mechanics (a superblock quorum, or
 //! plain marker files in a test) and plugs it into the driver. Every
@@ -11,7 +11,7 @@
 //! classification's verdict is carried in proof tokens no host can
 //! construct.
 //!
-//! A crash is the absence of transitions — no write, no state, nothing
+//! A crash is the absence of transitions, no write, no state, nothing
 //! (`docs/uvrr-reincarnation.md` §1: a crash is final for the protocol
 //! identity).
 
@@ -30,13 +30,13 @@ use crate::ids::NodeId;
 /// ```
 ///
 /// No `Started` state is written: no safety logic looks for `Started`, it
-/// looks for `Stopped` — the extra superblock write buys no safety and is
+/// looks for `Stopped`, the extra superblock write buys no safety and is
 /// elided.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Marker {
     /// The stop command was received (`Running ──stop──> Stopping`, 4x).
-    /// The node has stopped sending; the drain — the host flushes WALs and
-    /// grids — has not yet been proven, so this state vouches for nothing.
+    /// The node has stopped sending; the drain, the host flushes WALs and
+    /// grids, has not yet been proven, so this state vouches for nothing.
     Stopping,
     /// The `Stopping ──drain──> Stopped` transition completed (4x). The
     /// drain happened strictly between the `Stopping` write and this one,
@@ -46,12 +46,12 @@ pub enum Marker {
     /// The `Stopped ──boot, 2-of-4──> Restarting` transition completed
     /// (4x). The node restarted a CONTROLLED shutdown under the same
     /// identity: a member with complete state, no amnesia, ticking the
-    /// full protocol — suspecting a silent primary like any backup.
+    /// full protocol, suspecting a silent primary like any backup.
     Restarting,
     /// The `crash ──boot, no 2-of-4 Stopped──> Joining` transition
     /// completed (bump, 4x). The identity was reincarnated under a bumped
-    /// incarnation: NOT a member — it neither votes nor drives view
-    /// change — until the forced sequence seats it.
+    /// incarnation: NOT a member, it neither votes nor drives view
+    /// change, until the forced sequence seats it.
     Joining,
 }
 
@@ -77,9 +77,9 @@ pub struct SuperblockCopies {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RestartClass {
     /// 2-of-4 copies hold `Stopped`: the transition completed, the drain
-    /// is proven, there is no amnesiac risk — the clean stop.
+    /// is proven, there is no amnesiac risk, the clean stop.
     Stopped,
-    /// No stopped quorum — a crash, a torn marker set, or death mid-join:
+    /// No stopped quorum, a crash, a torn marker set, or death mid-join:
     /// no controlled shutdown. This identity is dead.
     NotStopped,
 }
@@ -87,7 +87,7 @@ pub enum RestartClass {
 /// Why a restart refused (§5.1; the refusals of the Zig twin's `open`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RestartRefusal {
-    /// No identity cohort reaches the open threshold — 2 of 4: the marker
+    /// No identity cohort reaches the open threshold, 2 of 4: the marker
     /// set is torn beyond the quorum read (`QuorumLost` in the twin).
     QuorumLost,
     /// The bump would wrap the identity space; the identity that could not
@@ -100,15 +100,15 @@ pub enum RestartRefusal {
 /// What a restart decided (§5.1's decision table).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RestartDecision {
-    /// A stopped quorum: continue under the same identity — a member with
-    /// complete state, no amnesia — and write `Restarting` to all four
+    /// A stopped quorum: continue under the same identity, a member with
+    /// complete state, no amnesia, and write `Restarting` to all four
     /// copies (the boot of a controlled shutdown).
     Continue {
         /// The identity the node continues under.
         identity: NodeId,
     },
-    /// No stopped quorum: the identity is dead. Bump it — exactly one
-    /// past the quorum-resolved identity — and write `Joining` to all
+    /// No stopped quorum: the identity is dead. Bump it, exactly one
+    /// past the quorum-resolved identity, and write `Joining` to all
     /// four copies. The pair IS the commitment (§4): the wire phase
     /// always follows.
     Bump {
@@ -123,12 +123,12 @@ impl SuperblockCopies {
     /// The quorum read (§5.1; the Zig twin's `open`, `zig/uvrr/store.zig`
     /// lines 116–147). The boot question is *did the transition complete?*,
     /// answered by 2-of-4 copies holding the state to the right of the
-    /// transition — the twin's open threshold.
+    /// transition, the twin's open threshold.
     ///
     /// The working quorum resolves the identity: the copies agreeing on one
     /// identity form a cohort; a cohort reaching the open threshold (2 of
     /// 4) is a working cohort; the winner is the HIGHEST-identity working
-    /// cohort (higher-identity-wins INSIDE the working quorum — never the
+    /// cohort (higher-identity-wins INSIDE the working quorum, never the
     /// highest identity observed across all copies, which a lone stale or
     /// superseded copy cannot impose). The verdict reads the winner's
     /// cohort: [`RestartClass::Stopped`] ⟺ it holds ≥2 `Stopped` copies;
@@ -141,7 +141,7 @@ impl SuperblockCopies {
     /// by sequence where this simplified twin, without the sequence
     /// hash-chain, orders by identity).
     ///
-    /// Returns `None` when no cohort reaches the threshold — the torn
+    /// Returns `None` when no cohort reaches the threshold, the torn
     /// marker set with no quorum (the twin's `QuorumLost`).
     #[must_use]
     pub fn classify(&self) -> Option<(RestartClass, NodeId)> {
@@ -151,7 +151,7 @@ impl SuperblockCopies {
         // The blank zero pattern is no identity (the pair is one-indexed
         // in both halves, `docs/uvrr-boot-gate.md` §5): a blank copy forms
         // no cohort, so a marker set whose only cohort is blank reads as
-        // NO identity cohort reaching the open threshold — a torn set,
+        // NO identity cohort reaching the open threshold, a torn set,
         // never a zero identity to bump. A crash picks up its actual
         // identity; nothing self-resets to zero.
         let mut cohorts: Vec<(NodeId, usize, usize)> = Vec::new();
@@ -190,19 +190,19 @@ impl SuperblockCopies {
     /// the decision leaves on disk (§5.1's decision table).
     ///
     /// * Stopped quorum → [`RestartDecision::Continue`]; the copies are
-    ///   written `(identity, Restarting)` 4x — the boot of a controlled
+    ///   written `(identity, Restarting)` 4x, the boot of a controlled
     ///   shutdown. The node is a member with complete state: it ticks the
     ///   full protocol.
     /// * No stopped quorum → [`RestartDecision::Bump`]; the copies are
-    ///   written `(new, Joining)` 4x — the reincarnation. The bumped
+    ///   written `(new, Joining)` 4x, the reincarnation. The bumped
     ///   identity is the counter one past the quorum-resolved identity,
     ///   checked: a counter at the sixteenth bit of lives is the last the
     ///   packing holds, and the bump refuses rather than wraps.
     ///
     /// The uniform 4x write is the repair: every copy that disagreed with
-    /// the working quorum is rewritten from the decision — 4-of-4,
+    /// the working quorum is rewritten from the decision, 4-of-4,
     /// satisfying the twin's repair-to-≥3-of-4 behaviour. A node dying
-    /// mid-join reads no stopped quorum and reincarnates again — the table
+    /// mid-join reads no stopped quorum and reincarnates again, the table
     /// makes that fall out.
     ///
     /// # Errors
@@ -230,7 +230,7 @@ impl SuperblockCopies {
     }
 
     /// The stop command (§5.1): `Running ──stop──> Stopping`, written to
-    /// all four copies. The node has stopped sending — no disk flush sits
+    /// all four copies. The node has stopped sending, no disk flush sits
     /// on the protocol's hot path; the drain, flushes of WALs and grids,
     /// is the HOST's and sits strictly between this write and
     /// [`SuperblockCopies::finish_stop`].
@@ -240,7 +240,7 @@ impl SuperblockCopies {
     }
 
     /// The drain's proof (§5.1): `Stopping ──drain──> Stopped`, written to
-    /// all four copies — callable only AFTER the host drain completed. The
+    /// all four copies, callable only AFTER the host drain completed. The
     /// marker order IS the drain's proof: the drain happened strictly
     /// between the `Stopping` write and this one, so a `Stopped` copy
     /// vouches for the WAL under it, and 2-of-4 `Stopped` at boot proves
@@ -254,7 +254,7 @@ impl SuperblockCopies {
 
     /// The identity the node's own copies record: the highest of the four
     /// (§2's higher-identity-wins read rule). The live node's copies are
-    /// its own uniform 4x writes — the identity was resolved at boot by
+    /// its own uniform 4x writes, the identity was resolved at boot by
     /// the quorum read ([`SuperblockCopies::classify`]); this is that
     /// identity's live read, not the boot resolution.
     fn read_identity(&self) -> NodeId {
@@ -297,7 +297,7 @@ session_debug!(First, Clean, Crashed, Running, Halting, Draining, Halted);
 // The host boundary
 // ---------------------------------------------------------------------------
 
-/// The host's durable mechanics for the boot gate — everything the crate
+/// The host's durable mechanics for the boot gate, everything the crate
 /// cannot do itself and everything the host must NOT decide itself
 /// (`docs/uvrr-boot-gate.md` §6).
 ///
@@ -312,21 +312,21 @@ pub trait LifecycleStore {
 
     /// The quorum read: the working set of copies as the store observed
     /// them (`docs/uvrr-boot-gate.md` §2). `None` when no marker has ever
-    /// been written — the first life, which has no durable identity yet.
+    /// been written, the first life, which has no durable identity yet.
     ///
     /// The read takes the MINIMUM progress across the working copies: a
     /// crash during marker writes must never read as a clean stop
     /// (`uvrr-termination-obligations.md` §3).
     fn read_copies(&mut self) -> Result<Option<SuperblockCopies>, Self::Error>;
 
-    /// The forced write of a decided rewrite: every copy, durably —
+    /// The forced write of a decided rewrite: every copy, durably,
     /// flushed before the call returns, because the marker vouches for
     /// what the drain has already put beneath it (`docs/uvrr-boot-gate.md`
     /// §3).
     fn commit(&mut self, copies: &SuperblockCopies) -> Result<(), Self::Error>;
 
     /// The drain: the host forces its WALs and grids to stable storage.
-    /// The driver calls this strictly between the two halt rounds — the
+    /// The driver calls this strictly between the two halt rounds, the
     /// `Stopped` marker is written only over a proven drain
     /// (`uvrr-termination-obligations.md` §1).
     fn drain(&mut self) -> Result<(), Self::Error>;
@@ -348,7 +348,7 @@ pub trait LifecycleStore {
 pub struct Vouched(NodeId);
 
 impl Vouched {
-    /// The quorum-resolved identity the clean start vouches for — the
+    /// The quorum-resolved identity the clean start vouches for, the
     /// identity the resume may take.
     #[must_use]
     pub fn identity(&self) -> NodeId {
@@ -357,7 +357,7 @@ impl Vouched {
 }
 
 /// The crashed classification's replacement pair: the superseded identity
-/// and its bump (`docs/uvrr-reincarnation.md` §4 — the pair IS the
+/// and its bump (`docs/uvrr-reincarnation.md` §4, the pair IS the
 /// commitment; the wire phase always follows). Minted only by
 /// [`Crashed::pair`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -369,7 +369,7 @@ pub struct Bumped {
 }
 
 /// Proof that the engine itself observed the reincarnated node seated:
-/// `Normal` at voting weight (`docs/uvrr-boot-gate.md` §6 — the deferred
+/// `Normal` at voting weight (`docs/uvrr-boot-gate.md` §6, the deferred
 /// latch's witness). Minted only by
 /// [`Replica::rejoined`](crate::replica::Replica::rejoined); no host can
 /// construct it, so the dirty path's latch is unreachable until the
@@ -394,7 +394,7 @@ pub enum BootError<E> {
     /// The store refused: the read or the latch write failed. The store
     /// is handed back to the caller with the error.
     Store(E),
-    /// The marker set is torn beyond the quorum read — no identity cohort
+    /// The marker set is torn beyond the quorum read, no identity cohort
     /// reaches the open threshold. A host that cannot classify from
     /// durable state is unsafe (`docs/uvrr-boot-gate.md`): it must refuse
     /// to start.
@@ -411,10 +411,10 @@ pub enum BootOutcome<S> {
     /// identity yet. The host names its genesis incarnation and latches.
     First(First<S>),
     /// A stopped quorum: the previous process reached its drain point.
-    /// The clean start — one latch round, then the same-identity resume.
+    /// The clean start, one latch round, then the same-identity resume.
     Clean(Clean<S>),
     /// No stopped quorum: the previous process crashed; the identity is
-    /// dead. The reincarnation — the pair is decided here, the latch
+    /// dead. The reincarnation, the pair is decided here, the latch
     /// defers to the seated witness.
     Crashed(Crashed<S>),
 }
@@ -446,7 +446,7 @@ impl<S: LifecycleStore> First<S> {
         &self.store
     }
 
-    /// The latch: `(identity, Joining)` written 4x — the anchor the next
+    /// The latch: `(identity, Joining)` written 4x, the anchor the next
     /// boot reads. A first life has nothing to vouch for, so nothing is
     /// checked; the write exists so that a crash later reads as a crash.
     ///
@@ -490,7 +490,7 @@ impl<S: LifecycleStore> Clean<S> {
         self.identity
     }
 
-    /// The latch: `(identity, Restarting)` written 4x — the boot-gate
+    /// The latch: `(identity, Restarting)` written 4x, the boot-gate
     /// latch, before the first message is processed, so that a later
     /// crash can never be mistaken for this clean start
     /// (`docs/uvrr-boot-gate.md` §3). Returns the running session and
@@ -538,8 +538,8 @@ impl<S: LifecycleStore> Crashed<S> {
 
     /// The replacement pair: the superseded identity and its bump, one
     /// past the quorum-resolved identity (`docs/uvrr-reincarnation.md`
-    /// §4). The pair IS the commitment — the wire announcement carries
-    /// it — and it is idempotent: a crash between this decision and the
+    /// §4). The pair IS the commitment, the wire announcement carries
+    /// it, and it is idempotent: a crash between this decision and the
     /// latch re-reads the old markers and re-decides the same pair, so
     /// the replay is absorbed.
     ///
@@ -558,12 +558,12 @@ impl<S: LifecycleStore> Crashed<S> {
         })
     }
 
-    /// The deferred latch: `(new, Joining)` written 4x — only after the
+    /// The deferred latch: `(new, Joining)` written 4x, only after the
     /// engine's seated observation ([`Replica::rejoined`]) mints the
     /// [`Rejoined`] witness. The flush is never paid at the boundary of
     /// an uninitialised start (`docs/uvrr-boot-gate.md` §3); a crash
     /// before this write re-reads the old markers, re-decides the same
-    /// pair, and replays — the deferral is safe by construction.
+    /// pair, and replays, the deferral is safe by construction.
     ///
     /// # Errors
     ///
@@ -594,7 +594,7 @@ impl<S: LifecycleStore> Crashed<S> {
 
 /// A running process's session with its marker store: created by a latch
 /// at boot, consumed by [`Running::begin_stop`] at halt. The store rides
-/// inside — the runtime reaches it with [`Running::store_mut`] for its own
+/// inside, the runtime reaches it with [`Running::store_mut`] for its own
 /// durable writes between the marker transitions.
 pub struct Running<S> {
     store: S,
@@ -616,7 +616,7 @@ impl<S: LifecycleStore> Running<S> {
     }
 
     /// Round one of the controlled halt: `(identity, Stopping)` written
-    /// 4x. The node has stopped sending; the drain — the host's — sits
+    /// 4x. The node has stopped sending; the drain, the host's, sits
     /// strictly between this write and [`Draining::finish_stop`]
     /// (`docs/uvrr-boot-gate.md` §3).
     ///
@@ -641,7 +641,7 @@ impl<S: LifecycleStore> Running<S> {
     }
 }
 
-/// The halt has begun: round one is durable. The drain is next — nothing
+/// The halt has begun: round one is durable. The drain is next, nothing
 /// else is legal.
 pub struct Halting<S> {
     store: S,
@@ -651,7 +651,7 @@ pub struct Halting<S> {
 impl<S: LifecycleStore> Halting<S> {
     /// The drain: the host forces its WALs and grids to stable storage.
     /// The `Stopped` marker of [`Draining::finish_stop`] vouches for
-    /// exactly this, so the order is not a recommendation — it is the
+    /// exactly this, so the order is not a recommendation, it is the
     /// only type path to the flushed state.
     ///
     /// # Errors
@@ -677,7 +677,7 @@ pub struct Draining<S> {
 
 impl<S: LifecycleStore> Draining<S> {
     /// Round two of the controlled halt: `(identity, Stopped)` written
-    /// 4x — the drain's proof. The process may exit; the next boot's
+    /// 4x, the drain's proof. The process may exit; the next boot's
     /// quorum read vouches for everything beneath this marker.
     ///
     /// # Errors
@@ -692,31 +692,22 @@ impl<S: LifecycleStore> Draining<S> {
             }; 4],
         };
         match self.store.commit(&copies) {
-            Ok(()) => Ok(Halted {
-                store: self.store,
-                identity: self.identity,
-            }),
+            Ok(()) => Ok(Halted { store: self.store }),
             Err(error) => Err((self, error)),
         }
     }
 }
 
 /// The controlled halt is complete: both rounds durable, the drain
-/// proven. The store is handed back — the process exits.
+/// proven. The store is handed back, the process exits.
 pub struct Halted<S> {
     store: S,
-    identity: NodeId,
 }
 
 impl<S> Halted<S> {
     /// The store, for inspection or teardown.
     pub fn into_store(self) -> S {
         self.store
-    }
-
-    /// The halted identity.
-    pub fn identity(&self) -> NodeId {
-        self.identity
     }
 }
 
@@ -732,7 +723,7 @@ impl<S> Halted<S> {
 /// # Errors
 ///
 /// [`BootError::QuorumLost`] when the marker set is torn beyond the
-/// quorum read — a host that cannot classify from durable state is
+/// quorum read, a host that cannot classify from durable state is
 /// unsafe and must refuse to start; [`BootError::Store`] when the read
 /// itself refused, handing the store back.
 pub fn boot<S: LifecycleStore>(mut store: S) -> Result<BootOutcome<S>, (S, BootError<S::Error>)> {

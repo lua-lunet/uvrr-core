@@ -13,12 +13,12 @@
 //! 1.  a higher-view `Prepare` from the legitimate primary of the view it
 //!     names pulls a laggard into the qualified transfer path: it ceases
 //!     lower-view participation, fetches the missing range, and installs
-//!     from the qualified `StartView` — the message itself installs
+//!     from the qualified `StartView`, the message itself installs
 //!     nothing;
 //! 2.  a bare higher-view hint with no qualified evidence installs
 //!     nothing and faults nothing; the node awaits evidence;
-//! 3.  a forged `NewState` — wrong view, non-contiguous range, regressed
-//!     committed frontier, unsolicited sender — is a named drop and
+//! 3.  a forged `NewState`, wrong view, non-contiguous range, regressed
+//!     committed frontier, unsolicited sender, is a named drop and
 //!     never a fault;
 //! 4.  the active fetch is chunked under the host's transport budget
 //!     with a `more` cursor, resumes from the cursor, and tolerates
@@ -27,17 +27,17 @@
 //!     missing range and completes on an ordinary tick, closing the
 //!     budget-truncation wait;
 //! 6.  a `StartView` whose suffix gapped at the fence re-runs its ruling
-//!     on an ordinary tick once the fetched range has arrived — no
+//!     on an ordinary tick once the fetched range has arrived, no
 //!     repeated offer from the primary is required;
 //! 7.  a `NewState` chunk lost mid-stream re-issues the fetch from its
-//!     cursor on an ordinary tick — the fetch never stalls silently;
+//!     cursor on an ordinary tick, the fetch never stalls silently;
 //! 8.  a chunk answering a fetch whose range a `StartView` has since
 //!     installed is a named drop or a harmless close, never a
 //!     mis-install;
 //! 9.  the new primary that cannot construct the selected history from
 //!     budget-truncated evidence fetches the missing range from the
-//!     selected reporter — a fenced view is no bar to SERVING, which is
-//!     read-only retransmission — and the stalled win completes on an
+//!     selected reporter, a fenced view is no bar to SERVING, which is
+//!     read-only retransmission, and the stalled win completes on an
 //!     ordinary tick.
 
 #[path = "harness/mod.rs"]
@@ -104,7 +104,7 @@ fn cluster() -> Harness {
     )
 }
 
-/// An operation log entry at `slot` — the era-1 genesis kind every
+/// An operation log entry at `slot`, the era-1 genesis kind every
 /// pre-reconfiguration journal holds.
 fn operation_entry(slot: u64, lsb: u64, payload: &[u8]) -> LogEntry {
     LogEntry {
@@ -262,7 +262,7 @@ fn higher_view_prepare_pulls_laggard_into_qualified_transfer() {
         "no acknowledgement for the old view"
     );
 
-    // The qualified evidence — the in-flight StartView — installs first:
+    // The qualified evidence, the in-flight StartView, installs first:
     // it was packed when the change completed, so it names the selected
     // history through slot 3 with committed frontier 3.
     h.deliver_tag(n(2), Tag::StartView);
@@ -273,7 +273,7 @@ fn higher_view_prepare_pulls_laggard_into_qualified_transfer() {
     assert_eq!(snap(&h, n(2)).committed, 3);
 
     // The fetch is answered now: a current-view transfer at a Normal
-    // node — the history and the committed frontier both move (§13.3's
+    // node, the history and the committed frontier both move (§13.3's
     // frontier rides the chunk).
     h.deliver_tag(n(1), Tag::GetState);
     let chunk = h
@@ -324,7 +324,7 @@ fn bare_higher_view_hint_is_never_installation_evidence() {
     bootstrap(&mut h);
     commit_one(&mut h, n(0), 1, b"a");
 
-    // A Commit advertising view 2 from n1 — but view 2's primary under
+    // A Commit advertising view 2 from n1, but view 2's primary under
     // the genesis order is n2. Nothing qualifies this header as the
     // view's evidence (§13.4): no fence, no fetch, no install, no fault.
     let hint = Message {
@@ -359,7 +359,7 @@ fn bare_higher_view_hint_is_never_installation_evidence() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. A forged NewState is rejected — and is never a fault.
+// 3. A forged NewState is rejected, and is never a fault.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -496,7 +496,7 @@ fn chunked_transfer_resumes_from_cursor_and_tolerates_reordering() {
     h.heal();
 
     // The laggard meets the newest Prepare first: a gap it cannot close
-    // locally — and the gap now fetches (§13.1 step 5).
+    // locally, and the gap now fetches (§13.1 step 5).
     let newest = Message {
         header: Header {
             tag: Tag::Prepare,
@@ -590,7 +590,7 @@ fn chunked_transfer_resumes_from_cursor_and_tolerates_reordering() {
     );
     assert_eq!(snap(&h, n(2)).accepted, 3);
 
-    // A duplicate chunk — a range the node already holds whole — is a
+    // A duplicate chunk, a range the node already holds whole, is a
     // named stale drop.
     h.inject(
         n(0),
@@ -648,7 +648,7 @@ fn chunked_transfer_resumes_from_cursor_and_tolerates_reordering() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. The standing refusal: a Restarting node refuses a GetState — its
+// 11. The standing refusal: a Restarting node refuses a GetState, its
 //     history is not yet proved current, so the named drop
 //     TransferNotServed stands and nothing is served.
 // ---------------------------------------------------------------------------

@@ -3,30 +3,30 @@
 //!
 //! The classes:
 //!
-//! * **A** — the Voting Weights worked examples (the halve/double and
+//! * **A**, the Voting Weights worked examples (the halve/double and
 //!   ±1-unit rules the forced sequence is grounded in) as ordinary
 //!   reconfigurations, at the configuration-fold level and through the
 //!   live replica path.
-//! * **B** — a backup crashed dirty: restart-as-new-identity, the
+//! * **B**, a backup crashed dirty: restart-as-new-identity, the
 //!   `Reincarnation` announcement, the leader's forced sequence, every
 //!   intermediate era quorum-safe, final membership correct (rejoin).
-//! * **D** — the marker transition machine (§5.1): the EXHAUSTIVE closed
-//!   4-copy domain (4⁴ = 256 assignments) — 2-of-4 `Stopped` ⟺ the clean
+//! * **D**, the marker transition machine (§5.1): the EXHAUSTIVE closed
+//!   4-copy domain (4⁴ = 256 assignments), 2-of-4 `Stopped` ⟺ the clean
 //!   stop, every other assignment bumps, the identity resolved INSIDE the
 //!   working quorum (higher-identity-wins, never across all copies),
 //!   all-`Joining` reincarnates again; plus the stop path
 //!   (`begin_stop`/`finish_stop`, the marker order as the drain's proof)
 //!   and continuation commitment.
-//! * **E** — membership discard: messages from an unknown or superseded
+//! * **E**, membership discard: messages from an unknown or superseded
 //!   identity ignored by the leader.
-//! * **F** — the reincarnated weight-0 standby: the memo stream keeps it
+//! * **F**, the reincarnated weight-0 standby: the memo stream keeps it
 //!   current without a fetch; the §10 self-fetch route pinned separately;
 //!   never votes, cannot influence.
-//! * **G** — mutation negative controls: mutated variants are rejected.
+//! * **G**, mutation negative controls: mutated variants are rejected.
 //!
 //! The old amnesia-era corpus (the classic §4.3 recovery tests) was
 //! deleted with the classic recovery path; this corpus is its
-//! replacement — the same restart/freshness surface, now the
+//! replacement, the same restart/freshness surface, now the
 //! Crash-Stop-Self-Evict protocol, which has no recovery protocol to test.
 
 mod harness;
@@ -156,16 +156,16 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> (ViewId, NodeId) {
 }
 
 /// Reincarnates a crashed backup through the forced sequence, stopping at
-/// the named point. Shared by B, E and F: the choreography — dirty
+/// the named point. Shared by B, E and F: the choreography, dirty
 /// restart, announcement, the forced batches each followed by the ordinary
-/// view change into the era it established, the idempotent re-announce —
+/// view change into the era it established, the idempotent re-announce,
 /// is one script, and the classes observe it at different depths. Each
 /// forced step is a `Batch` and commits ONE era through the ordinary
 /// reconfiguration pipeline (§5; rules §6).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Stop {
     /// Stop after the announcement armed the machine and the first forced
-    /// batch — `[Decrement(old), Join(new)]` — committed: the old identity
+    /// batch, `[Decrement(old), Join(new)]`, committed: the old identity
     /// sits at weight 0 and the new identity is a weight-0 learner.
     AfterFirstEra,
     /// Run the whole sequence: the new identity rejoins at weight 1, the
@@ -180,7 +180,7 @@ enum Stop {
 fn reincarnate_backup(h: &mut Harness, stop: Stop) -> NodeId {
     bootstrap(h);
     // The node is RUNNING when the volatile state is lost: an accepted
-    // operation, then the crash — the superblocks hold the running
+    // operation, then the crash, the superblocks hold the running
     // sentinel, so the restart is dirty by construction (§2).
     let outcome = h.propose(n(0), op_id(1), b"x");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -195,7 +195,7 @@ fn reincarnate_backup(h: &mut Harness, stop: Stop) -> NodeId {
     let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     // One delivery pass carries the announcement (the backups drop it by
-    // name) AND the leader's first forced `Prepare` — for the batch
+    // name) AND the leader's first forced `Prepare`, for the batch
     // `[Decrement(old), Join(new)]` as ONE establishing operation.
     h.deliver_all();
     assert_eq!(
@@ -210,8 +210,8 @@ fn reincarnate_backup(h: &mut Harness, stop: Stop) -> NodeId {
     }
 
     // The next forced batch waits for the view change into era 2, then the
-    // re-announce (§8) recomputes the remainder from the intermediate era —
-    // the old identity at weight 0, the new identity joined at 0 — which is
+    // re-announce (§8) recomputes the remainder from the intermediate era,
+    // the old identity at weight 0, the new identity joined at 0, which is
     // exactly the second era of the weight-1 row: `[Increment(new),
     // Leave(old)]` (rules §6).
     let (target, _) = drive_view_change(h, &[n(0), n(1)]);
@@ -269,7 +269,7 @@ fn weights(config: &Configuration) -> Vec<u64> {
 /// Every consecutive pair of the sequence is quorum-safe: the closed gate
 /// accepts the transition (R2 across the boundary, R1 and self-
 /// intersection within the resulting era) and the resulting era admits a
-/// quorum. This is the blog's rule — halve/double-all or ±1-unit — made
+/// quorum. This is the blog's rule, halve/double-all or ±1-unit, made
 /// mechanical: each step of the worked examples obeys it, so consecutive
 /// majority families intersect, which is what every intermediate era's
 /// standalone safety rests on.
@@ -293,7 +293,7 @@ fn assert_era_safe(steps: &[Configuration]) {
 
 /// The unit-scale ±1 rules (§5) the §6 sequence is built from: the old
 /// identity driven to 0 by the subtract-one rule, departed, the new
-/// identity joined at 0 in the old succession position, then promoted —
+/// identity joined at 0 in the old succession position, then promoted,
 /// each step a distinct configuration, every intermediate quorum-safe, the
 /// final membership the rejoin. Under the era rule (rules §4, R14) the
 /// middle two steps share one era; this corpus pins the per-step rules
@@ -412,8 +412,8 @@ fn a_doubled_scale_corner_is_the_blog_table_c() {
     assert_era_safe(&[c0, c1, c2, c3, c4, c5, c6, c7]);
 }
 
-/// The blog's `{3, 4, 5, 6, 7}` observation — consecutive unit totals have
-/// overlapping majorities, skipping one violates it — through the live
+/// The blog's `{3, 4, 5, 6, 7}` observation, consecutive unit totals have
+/// overlapping majorities, skipping one violates it, through the live
 /// replica path: `Join` at weight 0 (total unchanged), then two unit
 /// increments. Every intermediate era commits, and the quorum gate (Q1)
 /// is what made each proposal legal.
@@ -452,7 +452,7 @@ fn a_skipped_unit_is_refused_by_the_gate() {
     bootstrap(&mut h);
     // Leave requires weight 0, so the skip is expressed as its
     // precondition violation instead: departing a member that still votes
-    // is refused by name — the one-unit route is the ONLY departure route.
+    // is refused by name, the one-unit route is the ONLY departure route.
     let outcome = h.reconfigure(n(0), SystemOperation::Leave(n(1)), None);
     assert_eq!(
         outcome,
@@ -465,7 +465,7 @@ fn a_skipped_unit_is_refused_by_the_gate() {
 // ---------------------------------------------------------------------------
 
 /// A backup crashed while running: dirty restart under a new identity, the
-/// announcement, the forced sequence — every intermediate era quorum-safe
+/// announcement, the forced sequence, every intermediate era quorum-safe
 /// (each proposal passed the closed gate; the safety checker held
 /// throughout), and the final membership is the rejoin: the old identity
 /// gone, the new identity at weight 1 in the old succession position.
@@ -479,7 +479,7 @@ fn b_backup_crashed_reincarnates_and_rejoins() {
     // voting members folded (the rejoined node acquires the streamed
     // history through the memo stream's ack, which lands the missed
     // range and the establishing prepare before the promotion era
-    // commits — voting authority is a matter for the committed
+    // commits, voting authority is a matter for the committed
     // `Increment`, which this corpus does not exercise).
     for id in [n(0), n(1)] {
         assert!(
@@ -700,21 +700,21 @@ fn copies(marks: [Marker; 4], identity: u32) -> SuperblockCopies {
 }
 
 /// The closed 4-copy domain, EXHAUSTIVE: every assignment of the four
-/// marker states to four copies — 4⁴ = 256, all cheap. For each
+/// marker states to four copies, 4⁴ = 256, all cheap. For each
 /// assignment:
 ///
-/// * the verdict is `Stopped` ⟺ ≥2 copies hold `Stopped` — 2-of-4 of the
+/// * the verdict is `Stopped` ⟺ ≥2 copies hold `Stopped`, 2-of-4 of the
 ///   state right of the Stopping→Stopped transition, the clean stop;
 /// * the quorum-resolved identity is the single written identity;
 /// * a stopped quorum continues: `Continue { identity }` and
-///   `(identity, Restarting)` 4x — a member with complete state;
+///   `(identity, Restarting)` 4x, a member with complete state;
 /// * EVERY non-clean assignment bumps: `Bump { old, new }` and
-///   `(new, Joining)` 4x — a crash, a torn marker set, and death
+///   `(new, Joining)` 4x, a crash, a torn marker set, and death
 ///   mid-join all reincarnate.
 ///
 /// The mid-join case falls out of the table and is asserted explicitly:
 /// all-`Joining` reads no stopped quorum, bumps, writes `Joining` again,
-/// and the rewritten set reincarnates AGAIN — the commitment never wedges.
+/// and the rewritten set reincarnates AGAIN, the commitment never wedges.
 #[test]
 fn d_marker_domain_exhaustive() {
     // Minted once: the whole exhaustive domain runs at the drawn identity,
@@ -786,7 +786,7 @@ fn d_marker_domain_exhaustive() {
         }
     }
 
-    // Death mid-join: all-`Joining` reincarnates again — and again.
+    // Death mid-join: all-`Joining` reincarnates again, and again.
     let mid_join = copies([Marker::Joining; 4], life.0);
     let (decision, rejoined) = mid_join.restart().expect("the bump succeeds");
     assert_eq!(
@@ -813,7 +813,7 @@ fn d_marker_domain_exhaustive() {
 }
 
 /// The stop path (§5.1): the stop command writes `Stopping` 4x; the
-/// drain — flush WALs and grids — is the HOST's and sits strictly
+/// drain, flush WALs and grids, is the HOST's and sits strictly
 /// between the two marker writes; after it `finish_stop` writes
 /// `Stopped` 4x. The marker order is the drain's proof, so the completed
 /// stop boots as a member with complete state: `Continue` and
@@ -831,7 +831,7 @@ fn d_stop_path_marks_the_drain() {
             .all(|copy| copy.marker == Marker::Stopping)
     );
     // The host drains here: flush the WALs and the grids. No marker
-    // write in between — the marker order is the drain's proof.
+    // write in between, the marker order is the drain's proof.
     let stopped = stopping.finish_stop();
     assert!(
         stopped
@@ -852,7 +852,7 @@ fn d_stop_path_marks_the_drain() {
 
 /// The identity is resolved INSIDE the working quorum
 /// (higher-identity-wins), never highest-observed-across-all: the
-/// highest identity whose cohort reaches the open threshold — 2 of 4 —
+/// highest identity whose cohort reaches the open threshold, 2 of 4,
 /// wins; a lone copy at a higher identity cannot impose it.
 #[test]
 fn d_identity_resolved_inside_the_working_quorum() {
@@ -907,7 +907,7 @@ fn d_identity_resolved_inside_the_working_quorum() {
 }
 
 /// Continuation commitment: once bumped, the node ALWAYS continues under
-/// the bumped identity — the identity never regresses, and the next
+/// the bumped identity, the identity never regresses, and the next
 /// restart re-enters the same protocol from it.
 #[test]
 fn d_continuation_commitment() {
@@ -920,7 +920,7 @@ fn d_continuation_commitment() {
         panic!("no stopped quorum bumps");
     };
     // The wire phase runs; the node then restarts AGAIN: no stopped
-    // quorum once more, and the identity only moves forward — each step
+    // quorum once more, and the identity only moves forward, each step
     // the counter one past, by the machine's own lawful bump, never by
     // arithmetic on the packed value.
     let (second, rebumped) = bumped.restart().expect("the second bump succeeds");
@@ -933,7 +933,7 @@ fn d_continuation_commitment() {
                 .expect("the mint leaves two lives of headroom"),
         }
     );
-    // A clean stop then a restart continues the committed identity —
+    // A clean stop then a restart continues the committed identity,
     // never a reversion to anything lower.
     let stopped = rebumped.finish_stop();
     let (third, continued) = stopped.restart().expect("the clean path continues");
@@ -973,8 +973,8 @@ fn d_identity_exhaustion_refuses() {
 // ---------------------------------------------------------------------------
 
 /// The leader discards messages from identities outside the current
-/// committed configuration — an unknown identity, and the superseded old
-/// identity after its eviction — by name, and the discard never disturbs
+/// committed configuration, an unknown identity, and the superseded old
+/// identity after its eviction, by name, and the discard never disturbs
 /// a live commit.
 #[test]
 fn e_membership_discard() {
@@ -1046,7 +1046,7 @@ fn e_membership_discard() {
 /// The reincarnated weight-0 standby: the memo stream keeps it current.
 /// The ack's missed-range push and every leader-originated prepare and
 /// commit land at it (addressed TO a non-member, §6); it folds the
-/// committed operations they carry, adopts no view and stays fenced —
+/// committed operations they carry, adopts no view and stays fenced,
 /// and its own answers are discarded before they are ever counted. The
 /// §10 self-fetch route stays available but is not needed: no fetch is
 /// opened.
@@ -1079,7 +1079,7 @@ fn f_standby_streams_current_without_fetch_and_cannot_influence() {
 
     // The era the join committed awaits the ordinary view change
     // (§8.7.4); the fence view's recipients are the era that includes the
-    // standby, so the StartView reaches it and installs — the standby,
+    // standby, so the StartView reaches it and installs, the standby,
     // already current, adopts the view through the ordinary install.
     let _ = drive_view_change(&mut h, &[n(0), n(1)]);
     assert_eq!(
@@ -1089,7 +1089,7 @@ fn f_standby_streams_current_without_fetch_and_cannot_influence() {
     );
     assert_eq!(current_era(&h, bumped), Era(2));
 
-    // Its vote is discarded, named, before counting — the weight is still
+    // Its vote is discarded, named, before counting, the weight is still
     // 0, so no quorum ever counts it.
     h.inject(
         bumped,
@@ -1127,8 +1127,8 @@ fn f_standby_streams_current_without_fetch_and_cannot_influence() {
 }
 
 /// The §10 self-fetch route stays available: a boot-fenced standby whose
-/// memo'd stream was lost — the ack's establishing prepare and the commit
-/// it rode both dropped — retains the fence view's StartView offer, fetches
+/// memo'd stream was lost, the ack's establishing prepare and the commit
+/// it rode both dropped, retains the fence view's StartView offer, fetches
 /// the missing range under its boot view, folds the era that admitted it
 /// through the §10 acquisition, and completes the catch-up through the
 /// ordinary install. It never voted and stays fenced throughout.
@@ -1164,7 +1164,7 @@ fn f_boot_fetch_route_acquires_the_admitting_era() {
     // the ruling retains the offer and fetches the missing range under
     // the boot view, the leader serves the fetch (the standby is a member
     // of the leader's current committed configuration), and the boot-fenced
-    // acquisition folds the era that admitted it — the standby never
+    // acquisition folds the era that admitted it, the standby never
     // voted, adopted nothing, and stays fenced.
     let _ = drive_view_change(&mut h, &[n(0), n(1)]);
     assert_eq!(
@@ -1181,7 +1181,7 @@ fn f_boot_fetch_route_acquires_the_admitting_era() {
     // The stream arrives and is processed: the standby, boot-fenced and
     // outside every configuration it can name, takes the committed
     // operations the leader-originated stream carries at its boot fence
-    // (§10) — no view adopted, no vote ever counted.
+    // (§10), no view adopted, no vote ever counted.
     let outcome = h.propose(n(1), op_id(2), b"y");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
@@ -1202,7 +1202,7 @@ fn f_boot_fetch_route_acquires_the_admitting_era() {
     );
     assert_eq!(current_era(&h, bumped), Era(2));
 
-    // Its vote is discarded, named, before counting — the weight is still
+    // Its vote is discarded, named, before counting, the weight is still
     // 0, so no quorum ever counts it.
     h.inject(
         bumped,
@@ -1460,7 +1460,7 @@ fn g_mutation_negative_controls() {
         h.diagnostic(n(0)),
         Some(Diagnostic::ReincarnationRefused { .. })
     ));
-    // A non-leader recipient drops the announcement — the bumped node
+    // A non-leader recipient drops the announcement, the bumped node
     // re-announces until a stable leader exists (§8).
     let to_backup = Message {
         header: Header {
@@ -1520,7 +1520,7 @@ fn encode(message: &Message) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 /// The generator's idempotence: at the leader-crash intermediate eras, the
-/// recomputed eras are exactly the remaining ones — never a re-run of a
+/// recomputed eras are exactly the remaining ones, never a re-run of a
 /// committed step (§8; rules §6). Every element is one era's establishing
 /// `Batch`.
 #[test]
@@ -1536,7 +1536,7 @@ fn forced_steps_recompute_exactly_the_remaining_suffix() {
             INIT_SLOT,
         )
         .expect("Init");
-    // Full sequence from genesis: the weight-1 row of the §6 table —
+    // Full sequence from genesis: the weight-1 row of the §6 table,
     // exactly two eras, the crossing batch then the promotion batch.
     let full = forced_steps(&genesis, n(2), n(3));
     assert_eq!(
@@ -1556,7 +1556,7 @@ fn forced_steps_recompute_exactly_the_remaining_suffix() {
         ]
     );
     // The canonical first era committed: the old identity at weight 0, the
-    // new identity joined at 0 — the recompute is the weight-1 row's second
+    // new identity joined at 0, the recompute is the weight-1 row's second
     // era, and nothing else.
     let era1 = genesis
         .apply(&SystemOperation::Decrement(n(2)), Slot(3))
@@ -1577,7 +1577,7 @@ fn forced_steps_recompute_exactly_the_remaining_suffix() {
         ])]
     );
     // The observed intermediate era where the decrement committed but the
-    // join has not: the §6 weight-0 row — join and leave in one zero-mass
+    // join has not: the §6 weight-0 row, join and leave in one zero-mass
     // era, then the promotion.
     let d1 = genesis
         .apply(&SystemOperation::Decrement(n(2)), Slot(3))
@@ -1597,7 +1597,7 @@ fn forced_steps_recompute_exactly_the_remaining_suffix() {
     );
     // The intermediate era where the old identity is already evicted: the
     // new identity joins in the old succession position... which is gone;
-    // it appends. Join alone, then promote — the §6 evicted row.
+    // it appends. Join alone, then promote, the §6 evicted row.
     let d2 = d1
         .apply(&SystemOperation::Leave(n(2)), Slot(4))
         .expect("the fold accepts the departure");
@@ -1691,7 +1691,7 @@ fn h_the_announcement_must_be_attributed_to_the_new_identity() {
 
     // The violation, exactly as the wire carried it: the correct body,
     // delivered with sender = the OLD identity. The leader refuses by
-    // name, and the fused walk never arms — the wedge their rig sat in.
+    // name, and the fused walk never arms, the wedge their rig sat in.
     let mis_attributed = Message {
         header: Header {
             tag: Tag::Reincarnation,
@@ -1720,8 +1720,8 @@ fn h_the_announcement_must_be_attributed_to_the_new_identity() {
         "no fused batch commits off a mis-attributed announcement"
     );
 
-    // The compliant delivery of the SAME pair — sender = the bumped
-    // node — commits the fused batch in one pass: the protocol's part is
+    // The compliant delivery of the SAME pair, sender = the bumped
+    // node, commits the fused batch in one pass: the protocol's part is
     // proven, and the obligation is the host's attribution, not the
     // announcement's content.
     let outcome = h.reincarnate(bumped, n(2));

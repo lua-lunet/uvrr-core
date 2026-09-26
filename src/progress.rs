@@ -13,7 +13,7 @@
 //! # The invariant set, checked on every construction
 //!
 //! Constructors and transitions are the only way in, and each validates the **full**
-//! invariant set on its result — not only the field it changed. The checker is cheap;
+//! invariant set on its result, not only the field it changed. The checker is cheap;
 //! the alternative is trusting the caller, and a `Progress` that violates these must
 //! be unrepresentable through the public API:
 //!
@@ -24,7 +24,7 @@
 //!   carry no relation, because in them `current` is not an authority to
 //!   participate;
 //! - era/slot discipline (§8.7.3, W1): the era authorising `accepted` is
-//!   `era(current)` or `era(current) + 1` — the `+1` case is overlap mode;
+//!   `era(current)` or `era(current) + 1`, the `+1` case is overlap mode;
 //! - `fault` is sticky (§5 invariant 5): a faulted value admits no transition.
 //!
 //! `revision` increases by exactly one per published transition and exists for
@@ -40,13 +40,13 @@
 //! be the authority that declares itself sound again, so no transition clears a
 //! fault and the replica refuses all further input (§5 invariant 5, §12's
 //! `Indeterminate persistence result -> Faulted`). Re-entering the protocol is a
-//! host lifecycle event — a controlled start over vouched durable state, or
+//! host lifecycle event, a controlled start over vouched durable state, or
 //! reincarnation after a crash (`docs/uvrr-boot-gate.md` §1: a start is not a
-//! recovery) — not a state transition the core performs on itself.
+//! recovery), not a state transition the core performs on itself.
 //!
 //! `status` is process control as well as protocol state. A reopened node that has
 //! not proved its state current starts fenced and restarting, whatever status was
-//! last observed before failure — which is why [`Progress::genesis`] is
+//! last observed before failure, which is why [`Progress::genesis`] is
 //! [`Status::Joining`] and not `Normal`. The pre-failure status is evidence
 //! about the past, not authority over the present; [`Progress::reconstitute`]
 //! accepts any status because it restores *evidence*, and downgrading that evidence
@@ -62,7 +62,7 @@ use crate::ids::{Era, Fault, Slot, ViewId};
 ///
 /// The relations to `current` and `retained` are stated on [`Progress`] and checked
 /// by [`Progress::check`]; they are not restated here because an enum variant cannot
-/// enforce them — only the constructor boundary can.
+/// enforce them, only the constructor boundary can.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Status {
@@ -104,7 +104,7 @@ impl Status {
 
     /// The status's name, for every surface a human reads (a log line, a
     /// diagnostic dump, a trace): `state=joining`, never `state=4`. The
-    /// snapshot word and every comparison stay numeric — the name is for
+    /// snapshot word and every comparison stay numeric, the name is for
     /// humans only, and it is stated here next to the numbering it names
     /// so the two cannot drift apart.
     #[must_use]
@@ -191,7 +191,7 @@ pub enum ProgressError {
     AlreadyFaulted(Fault),
     /// The era authorising `accepted` is not `era(current)` or `era(current) + 1`
     /// (§8.7.3, W1), or the configuration table can no longer name the era of the
-    /// accepted frontier — which means the frontier and the table disagree about
+    /// accepted frontier, which means the frontier and the table disagree about
     /// history and no candidate built on both is coherent.
     EraSlotDiscipline,
     /// A configuration swap moved the era table backwards. Eras are established by
@@ -210,7 +210,7 @@ pub enum ProgressError {
 /// Every field is `u64`, `u32` or `bool`: no pointers, no `Arc`, no enum with a
 /// niche, so a bitwise copy is a complete value and a torn read is detectable by
 /// sequence number rather than by content. The configuration history is
-/// deliberately absent — it is not POD, and a diagnostic reader that needs it holds
+/// deliberately absent, it is not POD, and a diagnostic reader that needs it holds
 /// the `Arc<EraTable>` it obtained inside the transition interval.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ProgressSnapshot {
@@ -267,15 +267,15 @@ impl Progress {
     ///
     /// This pins the meaning of `ViewId::INITIAL` (ruled
     /// here): it is the **genesis view**, the `(era 0, view 0)` pair a freshly
-    /// provisioned node advertises. Era 0 is the void configuration —
-    /// quorum-impossible by arithmetic, not by guard — and view 0 is the first
+    /// provisioned node advertises. Era 0 is the void configuration,
+    /// quorum-impossible by arithmetic, not by guard, and view 0 is the first
     /// primary term once `Init` commits (§1.2: `primary(0) = order[0]`). It is not
     /// "no view": a freshly provisioned node has a real genesis view, so no
     /// `Option<ViewId>` appears anywhere in the crate.
     ///
     /// The status is the caller's fenced entry state (`Restarting` on reopen,
     /// `Joining` on provision) per §5: a node that has not proved its
-    /// state current starts fenced, and genesis is the uniform case of that rule —
+    /// state current starts fenced, and genesis is the uniform case of that rule,
     /// fresh and reopened nodes enter the protocol the same way, through the
     /// boot gate and then an installed view.
     ///
@@ -302,7 +302,7 @@ impl Progress {
     /// The general validated constructor: every field named, the full invariant
     /// set checked on the result.
     ///
-    /// This is the restart path — the host read its durable record back and offers
+    /// This is the restart path, the host read its durable record back and offers
     /// it as evidence. §5's rule that a reopened node starts fenced regardless of
     /// the observed status is the replica's boot rule (§5), not enforced here:
     /// `reconstitute` restores evidence about the past, and evidence is not
@@ -313,7 +313,7 @@ impl Progress {
     /// The first failed invariant: [`ProgressError::FrontierChain`],
     /// [`ProgressError::StatusViewRelation`], or [`ProgressError::EraSlotDiscipline`].
     /// A `fault` argument is accepted because a faulted record is still
-    /// structurally valid — stickiness is about transitions, not existence.
+    /// structurally valid, stickiness is about transitions, not existence.
     #[allow(clippy::too_many_arguments)]
     // Ten parameters because the record has ten fields; a bundle struct would be
     // the same ten names under another name, and this constructor runs once per
@@ -506,7 +506,7 @@ impl Progress {
     /// # Errors
     ///
     /// [`ProgressError::AlreadyFaulted`]; [`ProgressError::FrontierRegress`] if
-    /// `accepted` is behind the current frontier — acceptance never un-happens;
+    /// `accepted` is behind the current frontier, acceptance never un-happens;
     /// [`ProgressError::FrontierChain`] or [`ProgressError::EraSlotDiscipline`] on
     /// the result.
     pub fn with_accepted(&self, accepted: Slot) -> Result<Progress, ProgressError> {
@@ -522,7 +522,7 @@ impl Progress {
     /// # Errors
     ///
     /// [`ProgressError::AlreadyFaulted`]; [`ProgressError::FrontierRegress`];
-    /// [`ProgressError::FrontierChain`] if `committed` exceeds `accepted` — a
+    /// [`ProgressError::FrontierChain`] if `committed` exceeds `accepted`, a
     /// commit frontier cannot claim what the journal does not record (§5
     /// invariant 2).
     pub fn with_committed(&self, committed: Slot) -> Result<Progress, ProgressError> {
@@ -553,7 +553,7 @@ impl Progress {
     /// # Errors
     ///
     /// [`ProgressError::AlreadyFaulted`]; [`ProgressError::FrontierRegress`];
-    /// [`ProgressError::FrontierChain`] if `checkpoint` exceeds `applied` — a
+    /// [`ProgressError::FrontierChain`] if `checkpoint` exceeds `applied`, a
     /// checkpoint cannot claim state the application has not incorporated.
     pub fn with_checkpoint(&self, checkpoint: Slot) -> Result<Progress, ProgressError> {
         self.refuse_if_faulted()?;
@@ -564,7 +564,7 @@ impl Progress {
     }
 
     /// Enters `target` as a fence: status [`Status::ViewChange`], `current`
-    /// advanced, `retained` untouched — no history has been re-selected yet (§1.3,
+    /// advanced, `retained` untouched, no history has been re-selected yet (§1.3,
     /// §9.1).
     ///
     /// # Errors
@@ -573,7 +573,7 @@ impl Progress {
     /// `target` is a legal successor of `current` (delegated to
     /// `ViewId::is_legal_successor`, never re-derived here);
     /// [`ProgressError::StatusViewRelation`] if the retained history is from a
-    /// later view than `target` — that state must be replayed or re-acquired by
+    /// later view than `target`, that state must be replayed or re-acquired by
     /// state transfer, not fenced into a view change.
     pub fn with_view_change(&self, target: ViewId) -> Result<Progress, ProgressError> {
         self.refuse_if_faulted()?;
@@ -594,7 +594,7 @@ impl Progress {
     /// The installed frontier may be **shorter** than the local one: §9.1 ranks
     /// candidate histories by `retained_view` first, so a shorter history retained
     /// from a later view displaces a longer one from an earlier view. It may never
-    /// drop below `committed` — that is the chain check, and it is exactly the
+    /// drop below `committed`, that is the chain check, and it is exactly the
     /// safety content of the view-change rule.
     ///
     /// # Errors
@@ -622,7 +622,7 @@ impl Progress {
     }
 
     /// Changes only the process-control status. Entering `Normal` through here
-    /// requires `current == retained` — checked on the result like everything
+    /// requires `current == retained`, checked on the result like everything
     /// else.
     ///
     /// # Errors
@@ -638,7 +638,7 @@ impl Progress {
     /// # Errors
     ///
     /// [`ProgressError::AlreadyFaulted`]; [`ProgressError::ConfigRegress`] if the
-    /// table's current era is behind the receiver's — committed reconfiguration
+    /// table's current era is behind the receiver's, committed reconfiguration
     /// has no inverse; [`ProgressError::EraSlotDiscipline`] if the new table can
     /// no longer name the era of the accepted frontier.
     pub fn with_config(&self, config: Arc<EraTable>) -> Result<Progress, ProgressError> {
@@ -654,7 +654,7 @@ impl Progress {
     ///
     /// # Errors
     ///
-    /// [`ProgressError::AlreadyFaulted`] carrying the fault already held — the
+    /// [`ProgressError::AlreadyFaulted`] carrying the fault already held, the
     /// first fault is the only one there is to report.
     pub fn with_fault(&self, fault: Fault) -> Result<Progress, ProgressError> {
         self.refuse_if_faulted()?;

@@ -10,9 +10,9 @@
 //!
 //! The load-bearing property of the whole design: **nothing externally
 //! observable is released before publication**. `plan` computes a candidate and
-//! releases nothing — not an effect, not an observation write, not a journal
+//! releases nothing, not an effect, not an observation write, not a journal
 //! mutation. `publish` runs the closed [`legal`] gate, and only then installs
-//! the candidate, writes the observation, and releases the effects — or, in an
+//! the candidate, writes the observation, and releases the effects, or, in an
 //! external-stability mode, emits the [`PersistenceIntent`] and parks
 //! everything else until the host's [`StabilityResult`] arrives as an ordinary
 //! serialized input (S2). Observation changes on publish, never on plan (B1).
@@ -26,7 +26,7 @@
 //! No clock read occurs anywhere beneath this module. Every input carries the
 //! host tick (S4). `Input::Tick` exists as an ordinary event, not as a
 //! timer callback, so a harness can replay sloppy, late, early and reordered
-//! timeouts deterministically — a timeout the core cannot be *told* about is a
+//! timeouts deterministically, a timeout the core cannot be *told* about is a
 //! timeout no test can reproduce.
 //!
 //! `StabilityResult` is three-way (decision S3): `Stable { receipt }`,
@@ -38,7 +38,7 @@
 //!
 //! Dispatch over inputs is exhaustive `match` with no wildcard arms. An input
 //! whose handler is future work is refused with the named, tested
-//! [`PlanRefusal::Unsupported`] — never a silent no-op, never a placeholder
+//! by the named refusal the input class earns, never a silent no-op, never a placeholder
 //! handler.
 //!
 //! # Normal operation
@@ -54,12 +54,12 @@
 //!
 //! # View change
 //!
-//! VRR-2012 §5 is live: tick-driven timeout detection (S4 — the knob is
+//! VRR-2012 §5 is live: tick-driven timeout detection (S4, the knob is
 //! [`ViewChangeKnobs::primary_timeout`], and only same-view `Prepare`/`Commit`
 //! from the legitimate primary count as activity), the `StartViewChange`
 //! fence (`Role::Fence` through the strategy, Q1), `DoViewChange` evidence
 //! (`Role::ViewChange`), and `StartView` installation. History selection
-//! ranks by `retained` view first, then `accepted` frontier (§1.3) — the
+//! ranks by `retained` view first, then `accepted` frontier (§1.3), the
 //! §9.2 counterexample is the load-bearing test of the rule. Suffixes are
 //! bounded newest-first under [`ViewChangeKnobs::view_change_budget`] and
 //! encoded ascending (§13.1; W4: `Pack::packed_len` is normative, never
@@ -67,8 +67,8 @@
 //! local slot is the view-change path's one deliberate fault-on-peer-input: silent
 //! repair would hide a safety breach, so the node declares
 //! [`Fault::IllegalTransition`]. A suffix the recipient cannot construct
-//! history from is a named gap — [`Diagnostic::GapDetected`], never a
-//! fault — whose fetch half (§10, §13.1 step 5) rides the same
+//! history from is a named gap, [`Diagnostic::GapDetected`], never a
+//! fault, whose fetch half (§10, §13.1 step 5) rides the same
 //! transition: a `GetState` for the missing range, and the installed
 //! chunks re-run the stalled ruling.
 //!
@@ -76,22 +76,22 @@
 //!
 //! The core orders opaque operations and nothing else. A host proposal
 //! carries an [`OperationId`] the proposing host assigns; the core replicates
-//! it inside the log entry, never inspects it, and never deduplicates on it —
+//! it inside the log entry, never inspects it, and never deduplicates on it,
 //! the same identity proposed twice is two operations, at two slots, applied
 //! twice. Commitment releases `Effect::Apply` with the slot, the identity and
 //! the payload, in slot order, at every node; the host's acknowledgement is
 //! `Input::Applied { slot }` with no result, because the boundary is one-way
-//! and the core never answers a proposal. Answering a proposer — and any
-//! exactly-once policy — is the host's affair above the boundary.
+//! and the core never answers a proposal. Answering a proposer, and any
+//! exactly-once policy, is the host's affair above the boundary.
 //!
 //! The system-slot ruling (§11): `applied` walks EVERY slot. A committed
 //! system operation (the genesis `Void`/`Init` of §8.7.2) is core-internal
-//! — it emits no `Apply` upcall and expects no acknowledgement — but it
+//!, it emits no `Apply` upcall and expects no acknowledgement, but it
 //! advances `applied` the moment the contiguous committed prefix allows,
 //! on every path that moves the committed or applied frontier. The host's `Input::Checkpointed { through }` is
 //! accepted only when `through <= applied`; the published checkpoint
 //! frontier is the sole reclamation authorization (§4, S1), applied to the
-//! default journal by [`Replica::reclaim_journal`] — lazy, whole slabs at
+//! default journal by [`Replica::reclaim_journal`], lazy, whole slabs at
 //! a time, never the tail, opportunistic on append.
 //!
 //! [`legal`]: crate::invariant::legal
@@ -134,7 +134,7 @@ pub use reincarnation::forced_steps;
 /// One host event with the host tick attached (§6, S4).
 ///
 /// `at` is host observation metadata sampled when the host began dispatching
-/// the event — never a timestamp received from a peer.
+/// the event, never a timestamp received from a peer.
 #[derive(Clone, Debug)]
 pub struct TimedInput {
     /// The host tick at dispatch time (S4).
@@ -148,7 +148,7 @@ pub struct TimedInput {
 ///
 /// Every variant is dispatched by an exhaustive match in
 /// [`Replica::plan`]; a variant whose handler is future work is refused
-/// with [`PlanRefusal::Unsupported`] today. Adding a variant is a compile
+/// with the named refusal the input class earns today. Adding a variant is a compile
 /// error at every dispatch site, which is the point: no input is ever
 /// silently absorbed.
 #[derive(Clone, Debug)]
@@ -164,7 +164,7 @@ pub enum Input {
         message: Message,
     },
     /// An operation the host proposes for ordering (§6, §11.1): its identity
-    /// is the host's to assign, and the core carries it opaque — replicated
+    /// is the host's to assign, and the core carries it opaque, replicated
     /// inside the entry, handed back on `Effect::Apply`, never inspected and
     /// never deduplicated on (B2).
     Propose {
@@ -175,8 +175,8 @@ pub enum Input {
     /// genesis primary (see the `plan_tick` handler); the view-change
     /// timeout bookkeeping belongs to that path. On a node with
     /// nothing to decide it remains the smallest honest transition: no
-    /// protocol state moves, and the interval machinery — revision, gate,
-    /// stability handshake — is genuinely exercised by it.
+    /// protocol state moves, and the interval machinery, revision, gate,
+    /// stability handshake, is genuinely exercised by it.
     Tick,
     /// The host's report on the one outstanding [`PersistenceIntent`] (S2/S3).
     StabilityConfirmation {
@@ -195,7 +195,7 @@ pub enum Input {
     },
     /// The host checkpointed application state through a slot (§5's
     /// checkpoint frontier, §11). Accepted only when `through` is at or
-    /// below the applied frontier — a checkpoint cannot claim state the
+    /// below the applied frontier, a checkpoint cannot claim state the
     /// application has not incorporated. The published frontier is the
     /// sole reclamation authorization (§4, S1).
     Checkpointed {
@@ -225,10 +225,10 @@ pub enum Input {
     /// The host reports that this node bumped its identity (the dirty
     /// path of `docs/uvrr-reincarnation.md` §2): the node was running as
     /// `old`, its volatile state was lost, and it reopened under a new
-    /// identity — its `own`. The node answers the wire phase (§4) with a
+    /// identity, its `own`. The node answers the wire phase (§4) with a
     /// `Reincarnation(old, own)` announcement to the current primary: the
     /// one message a non-member is entitled to send (§6). A node that is
-    /// already a voting member announces nothing — a clean life continues.
+    /// already a voting member announces nothing, a clean life continues.
     Reincarnate {
         /// The identity the node operated under before the loss.
         old: NodeId,
@@ -249,7 +249,7 @@ pub enum Input {
     /// the cluster is in and the view it should move to, arriving at the
     /// node that is (claimed to be) the leader. A valid abdication emits the
     /// standard view-change messages for the target view and steps the
-    /// leader down in the same transition — no new wire message exists.
+    /// leader down in the same transition, no new wire message exists.
     Abdicate {
         /// The abdication message.
         message: Abdication,
@@ -317,13 +317,6 @@ pub enum PlanRefusal {
         /// The revision the confirmation named.
         got: u64,
     },
-    /// No handler exists for this input yet. Named and tested — the honest
-    /// behaviour for inputs whose handlers are future work — never a silent
-    /// no-op and never a placeholder handler.
-    Unsupported {
-        /// The legality-relevant summary of the refused input.
-        input: InputKind,
-    },
     /// The journal view offered for planning disagrees with the published
     /// accepted frontier (§5 invariant 1). §12's interval begins with an
     /// atomic read of published state and journal view; a host that hands the
@@ -354,7 +347,7 @@ pub enum PlanRefusal {
     },
     /// An [`Input::Abdicate`] the §12 validation refused: the CAS, the
     /// receiver-is-primary check, or the delta rule. Bad input, never a
-    /// fault — the message turns into no protocol traffic.
+    /// fault, the message turns into no protocol traffic.
     Abdication(AbdicationRefusal),
     /// An [`Input::Applied`] the node could not accept: a duplicate, an
     /// out-of-order completion, or a completion for a slot that is not yet
@@ -394,14 +387,14 @@ pub enum PlanRefusal {
     Reconfigure(ConfigError),
     /// An [`Input::Reconfigure`] the closed intersection gate refuses
     /// (§8.7.4, Q1): R2 across the era boundary, or R1 / self-intersection
-    /// / fence-restart within the resulting era. Carries the witness —
+    /// / fence-restart within the resulting era. Carries the witness,
     /// the disjoint vote sets that cannot both be legal. The refusal runs
     /// BEFORE the proposal; the operation never entered the log.
     ReconfigureQuorum(QuorumError),
     /// An [`Input::Reconfigure`] whose host-supplied pivot fails the
     /// §8.7.6 pivot condition: duplicate members, an intersection past
     /// the leader, the leader absent, or a set that is not a legal quorum
-    /// under its named configuration. Bad input, never a fault — the
+    /// under its named configuration. Bad input, never a fault, the
     /// operation never entered the log.
     ReconfigurePivot(PivotError),
     /// An [`Input::Reconfigure`] while the era table is already one era
@@ -433,8 +426,8 @@ pub enum PlanRefusal {
     },
     /// An [`Input::AdminForceView`] naming an era other than the node's
     /// current era (§14.2): either an era whose establishing operation the
-    /// replica does not hold as committed — the membership order it names
-    /// was never decided — or a superseded one. The forced change maps its
+    /// replica does not hold as committed, the membership order it names
+    /// was never decided, or a superseded one. The forced change maps its
     /// target under the CURRENT membership order.
     AdminEraNotCurrent {
         /// The node's current era.
@@ -454,7 +447,7 @@ pub enum PlanRefusal {
     /// past the current one selecting the leader under the new order, and
     /// §8.7.3 forbids wraparound): the non-stop transition cannot be
     /// planned. The refusal runs BEFORE the proposal; the operation never
-    /// entered the log. The host may retry without a pivot — the
+    /// entered the log. The host may retry without a pivot, the
     /// stop-the-world path names no `v'`.
     ReconfigureViewExhausted {
         /// The current view, at the exhausted end of the view space.
@@ -477,7 +470,7 @@ pub enum PublishRefusal {
         got: u64,
     },
     /// The closed [`legal`] gate rejected the candidate. The candidate is
-    /// DISCARDED — never repaired, never installed — and the node faults with
+    /// DISCARDED, never repaired, never installed, and the node faults with
     /// the reported fault (the closed gate's contract).
     ///
     /// [`legal`]: crate::invariant::legal
@@ -522,7 +515,7 @@ pub enum PublishOutcome {
 /// The host's view-change knobs (W5).
 ///
 /// Both are policy, not consensus rules: correctness never depends on their
-/// values. `primary_timeout` is measured in host ticks (S4 — the core reads
+/// values. `primary_timeout` is measured in host ticks (S4, the core reads
 /// no clock): a `Normal` backup that has seen no same-view `Prepare` or
 /// `Commit` from the legitimate primary for more than `primary_timeout`
 /// ticks enters the next view change. `0` disables tick-driven suspicion
@@ -532,7 +525,7 @@ pub enum PublishOutcome {
 /// `view_change_budget` bounds the byte size of the history suffix carried
 /// by `DoViewChange` and `StartView` (§13.1). The core's obligation is
 /// exactness (W4): entries are packed newest-first and the wire suffix never
-/// exceeds the budget by a byte — an entry that does not fit stops the
+/// exceeds the budget by a byte, an entry that does not fit stops the
 /// packing, so a budget smaller than the newest entry yields no suffix at
 /// all, which §13.1 explicitly permits.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -544,7 +537,7 @@ pub struct ViewChangeKnobs {
     pub view_change_budget: usize,
 }
 
-/// Why construction — provision, join, resume, or reincarnate — was refused.
+/// Why construction, provision, join, resume, or reincarnate, was refused.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LifecycleRefusal {
     /// `own` is not in the genesis order. A node cannot provision as a cluster
@@ -555,7 +548,7 @@ pub enum LifecycleRefusal {
     Configuration(ConfigError),
     /// The Q1 gate refused the configuration: the declared strategy admits
     /// disjoint quorums, so no intersection obligation holds. Runs at
-    /// construction — an illegal configuration is refused before the replica
+    /// construction, an illegal configuration is refused before the replica
     /// exists, not discovered at the first view change.
     Quorum(QuorumError),
     /// The offered progress record failed the invariant set of
@@ -590,7 +583,7 @@ pub enum LifecycleRefusal {
 ///
 /// The configuration history is deliberately absent: an `Arc<EraTable>` is not
 /// a durable value, so the later-life constructors take it as a separate
-/// argument — the host
+/// argument, the host
 /// reconstructs it from the journal it also persists. Not every field must
 /// survive a crash; which do is a property of the host's declared durability
 /// profile (§5), and every constructor treats the whole record as evidence about the
@@ -615,7 +608,7 @@ pub struct PersistedProgress {
     /// The publication revision, for stale-plan rejection continuity (§12).
     pub revision: u64,
     /// The sticky fault, if the node had declared itself unfit. Faults
-    /// survive restart — they are part of progress (§5 invariant 5).
+    /// survive restart, they are part of progress (§5 invariant 5).
     pub fault: Option<Fault>,
 }
 
@@ -638,7 +631,7 @@ impl From<&Progress> for PersistedProgress {
 /// The journal half of a planned transition (§4's two mutations, or none).
 ///
 /// Carried by [`PlannedTransition`] so the plan computes against a journal
-/// view and the publish applies to the journal itself — the plan/publish
+/// view and the publish applies to the journal itself, the plan/publish
 /// split made concrete for the one piece of state besides [`Progress`] the
 /// pipeline mutates. No planner emits a mutation yet; the handlers that do
 /// are the protocol handlers'.
@@ -720,7 +713,7 @@ pub struct PlannedTransition {
     /// A deliberate fault the transition declares at publish (the
     /// view-change path's one
     /// fault-on-peer-input: a `StartView` suffix conflicting at a committed
-    /// slot). The candidate is discarded without installing — the same
+    /// slot). The candidate is discarded without installing, the same
     /// outcome the closed gate produces, declared by the planner because the
     /// breach is visible only against the journal, which the gate never sees.
     fault: Option<Fault>,
@@ -733,7 +726,7 @@ pub struct PlannedTransition {
 /// A slot installed by a view change (§9.1) gets its record re-seeded from
 /// the entry alone, and a `PrepareOk` for a HIGHER slot can vouch for this
 /// one: acceptance is prefix-contiguous, so an acknowledgement vouches for
-/// every lower uncommitted slot (VRR-2012 §4's cumulative acknowledgement) —
+/// every lower uncommitted slot (VRR-2012 §4's cumulative acknowledgement),
 /// without the record, an installed tail could never commit.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct Proposal {
@@ -744,7 +737,7 @@ struct Proposal {
 /// One replica's `DoViewChange` evidence, as collected by the designated new
 /// primary (§9.1): the provenance and frontiers the ranking rule (§1.3)
 /// compares and the bounded suffix the selection may need (§13.1). The era
-/// proof is validated at receipt and not stored — after validation it has
+/// proof is validated at receipt and not stored, after validation it has
 /// said everything it had to say.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct Evidence {
@@ -764,7 +757,7 @@ struct Evidence {
 /// quorum, and the selected history once the evidence quorum completes.
 ///
 /// Volatile by design: the fence is VRR-2012's volatile `StartViewChange`
-/// exchange (§9.3 — the core never substitutes a persisted view record for
+/// exchange (§9.3, the core never substitutes a persisted view record for
 /// it), so a crash discards the attempt and the node reopens fenced
 /// `Restarting` (§5's boot rule). The durable half is `Progress.current`,
 /// which already advanced past every earlier view at entry.
@@ -778,7 +771,7 @@ struct ViewChangeVolatile {
     /// quorum completes (§9.1's ordering: evidence follows the fence).
     evidence: BTreeMap<NodeId, Evidence>,
     /// The selected history, once an evidence quorum holds and the ranking
-    /// rule (§1.3) has run — and the reporter whose history was selected,
+    /// rule (§1.3) has run, and the reporter whose history was selected,
     /// which an unconstructible selection fetches the missing range from
     /// (§13.1 step 5).
     selected: Option<(NodeId, Evidence)>,
@@ -799,12 +792,12 @@ enum ViewChangeUpdate {
 }
 
 /// The volatile state-transfer cursor (§10, §13.1 step 5): the one open
-/// fetch — the view it rides, the responder it asked, and the first slot
+/// fetch, the view it rides, the responder it asked, and the first slot
 /// it still needs. A `NewState` is protocol-qualified evidence only while
 /// it answers this record; anything else is a named drop, never a fault.
 ///
 /// Volatile by design: a crash discards the cursor and the reopened node
-/// re-fetches under a fresh ruling. A fresh fetch replaces an older one wholesale — the old
+/// re-fetches under a fresh ruling. A fresh fetch replaces an older one wholesale, the old
 /// cursor's answers are then stale.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct TransferVolatile {
@@ -868,7 +861,7 @@ enum StalledUpdate {
 /// far, by sender.
 ///
 /// The evidence is TRANSIENT: it completes the planned quorum and nothing
-/// else. It is never a fence vote — `PlannedViewChange` fences no one — and
+/// else. It is never a fence vote, `PlannedViewChange` fences no one, and
 /// it is never counted toward a `Role::Fence` or ordinary
 /// `Role::ViewChange` quorum; the two kinds are distinguishable on the wire
 /// by [`EvidenceKind`] and routed by it. Volatile like the ordinary attempt:
@@ -884,14 +877,14 @@ struct PlannedOverlap {
     pivot: Pivot,
     /// The transition view `v'` (§8.7.7 step 5): the least view past the
     /// current one selecting this node under the NEW order, named when the
-    /// operation was proposed — an unrepresentable `v'` refused the
+    /// operation was proposed, an unrepresentable `v'` refused the
     /// proposal, so the machine always holds a legal target.
     target: ViewId,
     /// Whether the `PlannedViewChange` solicitation went out: it rides the
     /// commit transition that folds the establishing operation (§8.7.7
     /// step 1's evidence round runs while the era-(e+1) stream continues).
     solicited: bool,
-    /// The planned evidence gathered so far, by sender — votes only. The
+    /// The planned evidence gathered so far, by sender, votes only. The
     /// leader's own history is authoritative (every committed entry of the
     /// era sits at the primary that proposed it or in the history it
     /// installed), so no selection runs over these suffixes.
@@ -908,7 +901,7 @@ enum PlannedOverlapUpdate {
     /// Install machine state (armed at proposal, solicited at the fold, a
     /// counted evidence answer).
     Set(PlannedOverlap),
-    /// The machine is over — the transition published — or superseded: any
+    /// The machine is over, the transition published, or superseded: any
     /// fence or ordinary view-change install abandons it (the ordinary
     /// path then carries the era with the history).
     Clear,
@@ -929,8 +922,8 @@ enum ReincarnationUpdate {
 
 /// The gossip half of [`Bookkeeping`]: what a transition does to the
 /// node's gossip-witness list (`docs/uvrr-rejoin-gossip-and-witnesses.md`
-/// §3). Every node that hears a join gossip — the announcement or the
-/// gossip request — records the sender, leader or not.
+/// §3). Every node that hears a join gossip, the announcement or the
+/// gossip request, records the sender, leader or not.
 #[derive(Clone, Debug, Default)]
 enum WitnessesUpdate {
     /// The list is untouched.
@@ -996,10 +989,10 @@ enum SuffixCheck {
     Conflict,
 }
 
-/// The volatile-bookkeeping half of a planned transition — §6's `state ->
+/// The volatile-bookkeeping half of a planned transition, §6's `state ->
 /// state` made concrete for the records that are not part of the durable §5
 /// record. Computed by `plan`, carried by the transition, applied by
-/// `install` — and by the completion of a parked transition, so a `Failed`
+/// `install`, and by the completion of a parked transition, so a `Failed`
 /// confirmation discards the record updates with the candidate (S3).
 #[derive(Clone, Debug, Default)]
 struct Bookkeeping {
@@ -1025,7 +1018,7 @@ struct Bookkeeping {
     witnesses: WitnessesUpdate,
     /// Refresh of the primary-activity baseline (S4): the tick of a
     /// same-view `Prepare`/`Commit` from the legitimate primary, or of a
-    /// `StartView` adoption — the new primary has just proved itself alive.
+    /// `StartView` adoption, the new primary has just proved itself alive.
     activity: Option<Tick>,
 }
 
@@ -1033,8 +1026,8 @@ impl PlannedTransition {
     /// Replaces the candidate, leaving every other field intact.
     ///
     /// **Test hook, documented as such** (`tests/replica_contract.rs` gate
-    /// test): no honest planner output can violate the frontier rules —
-    /// [`Progress`] transitions validate their results — so a test that wants
+    /// test): no honest planner output can violate the frontier rules,
+    /// [`Progress`] transitions validate their results, so a test that wants
     /// to prove the publish gate fires needs a way to smuggle a bad candidate
     /// past the planner. That is the point of the hook's existence: it can
     /// only get a bad candidate TO the gate, never past it, which is exactly
@@ -1137,7 +1130,7 @@ struct ParkedTransition {
     effects: Vec<Effect>,
     /// What drove the original transition: the completion publishes the
     /// original candidate, so the gate re-checks it against the original
-    /// kind — the confirmation is the durability signal, not the cause.
+    /// kind, the confirmation is the durability signal, not the cause.
     kind: InputKind,
     /// The volatile-bookkeeping half, applied only on `Stable` (S3).
     bookkeeping: Bookkeeping,
@@ -1208,17 +1201,17 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// legitimate primary, or of the last view adoption (S4). The baseline
     /// the timeout in [`ViewChangeKnobs::primary_timeout`] measures from.
     primary_activity: Tick,
-    /// The in-flight view-change attempt, if any. Volatile — the
+    /// The in-flight view-change attempt, if any. Volatile, the
     /// VRR-2012 fence exchange is volatile by design (§9.3).
     view_change: Option<ViewChangeVolatile>,
     /// The one open state-transfer fetch, if any (§10, §13.1 step 5).
-    /// Volatile — a crash discards it; the reopened node re-fetches under
+    /// Volatile, a crash discards it; the reopened node re-fetches under
     /// a fresh ruling.
     transfer: Option<TransferVolatile>,
     /// The gap-ruled `StartView` offer awaiting its fetch, if any
     /// (§13.1 step 5). Volatile, exactly like the cursor.
     stalled: Option<StalledStartView>,
-    /// The non-stop overlap transition in flight, if any (§8.7.7) — live
+    /// The non-stop overlap transition in flight, if any (§8.7.7), live
     /// only at the pivot leader. Volatile: a crash discards the machine
     /// and the reopened node's path is the ordinary view change.
     planned: Option<PlannedOverlap>,
@@ -1231,7 +1224,7 @@ pub struct Replica<J: Journal, Q: QuorumStrategy> {
     /// (`docs/weighted-reconfiguration-solver.md`): the accepted plan's
     /// batches. Volatile like every attempt state: a leader crash discards
     /// it, and the dumb-operator contract hands continuation to the
-    /// operator — the plan is re-solicited against the configuration that
+    /// operator, the plan is re-solicited against the configuration that
     /// committed.
     plan_execution: Option<plan_execution::PlannedSequence>,
     /// The gossip-witness list (`docs/uvrr-rejoin-gossip-and-witnesses.md`
@@ -1267,7 +1260,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `accepted == committed == Slot(2)`; `applied == Slot(2)` (the §11
     /// system-slot ruling: both genesis slots are core-internal and walk
     /// `applied` by themselves) and `checkpoint == Slot(0)`; status
-    /// [`Status::Joining`] — the genesis ruling (§1.3),
+    /// [`Status::Joining`], the genesis ruling (§1.3),
     /// §5's boot rule made uniform: a fresh node and a reopened node enter
     /// the protocol the same way, fenced until they prove their state
     /// current. Nothing about a fresh cluster is special-cased into `Normal`.
@@ -1297,8 +1290,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             return Err(LifecycleRefusal::JournalNotEmpty);
         }
         // The genesis fold: `Void` establishes era 0 at its ordinal, `Init`
-        // establishes era 1 at its (§8.7.2). Configuration legality —
-        // duplicates, the cap, the ordinals — is decided here, at
+        // establishes era 1 at its (§8.7.2). Configuration legality,
+        // duplicates, the cap, the ordinals, is decided here, at
         // construction.
         let table = EraTable::genesis()
             .extend(&SystemOperation::Void, VOID_SLOT)
@@ -1342,8 +1335,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             view: View::INITIAL,
         };
         // The §11 system-slot ruling, applied at birth: the genesis history
-        // is system operations only — core-internal, committed by
-        // construction, never upcalled — so `applied` is born having walked
+        // is system operations only, core-internal, committed by
+        // construction, never upcalled, so `applied` is born having walked
         // them both.
         let progress = Progress::reconstitute(
             view,
@@ -1365,7 +1358,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The first life of a joining identity: no past beyond the shared
     /// genesis (§10's learner acquisition entry). The journal and the
-    /// persisted record must carry exactly the genesis prefix — anything
+    /// persisted record must carry exactly the genesis prefix, anything
     /// longer is a prior life and must enter through [`Replica::resume`]
     /// or [`Replica::reincarnate`], so no member's past can be restored
     /// through this constructor.
@@ -1395,14 +1388,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// latched (`docs/uvrr-boot-gate.md` §6).
     ///
     /// The [`Vouched`] token is minted only by the boot gate's clean
-    /// classification — a stopped-quorum read. No token, no same-identity
+    /// classification, a stopped-quorum read. No token, no same-identity
     /// constructor: the amnesiac blank boot of classic crash-recovery is
     /// unrepresentable, not refused. The persisted progress is evidence
     /// about the past, not authority over the present: whatever status was
     /// last observed before failure, the node reopens in
     /// [`Status::Restarting`] (§5's boot rule) and becomes normal only
     /// after local restoration establishes adequate state. The persisted
-    /// fault, if any, is preserved — faults survive restart because they
+    /// fault, if any, is preserved, faults survive restart because they
     /// are part of progress (§5 invariant 5).
     ///
     /// # Refusals
@@ -1434,7 +1427,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// classification. The node reopens fenced in [`Status::Restarting`],
     /// a weight-0 non-member until the forced sequence seats it; the
     /// cached journal and progress remain evidence, never authority. The
-    /// engine does not interpret the durable identity — the pair is the
+    /// engine does not interpret the durable identity, the pair is the
     /// host's durable band, carried for the wire announcement.
     ///
     /// # Refusals
@@ -1456,7 +1449,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The seated observation: the deferred latch's witness
     /// (`docs/uvrr-boot-gate.md` §3). `Some` iff this node is `Normal` at
-    /// voting weight — the engine itself observed the rejoin complete.
+    /// voting weight, the engine itself observed the rejoin complete.
     /// Only this method mints [`Rejoined`]; the dirty fast start's latch
     /// is unreachable without it.
     #[must_use]
@@ -1553,10 +1546,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// Seeds the gossip-witness list at startup (`docs/uvrr-rejoin-gossip-and-witnesses.md`
     /// §4): the statically registered witnesses the deployment configuration
-    /// names — out-of-region sinks that follow the stream forever. Duplicates
+    /// names, out-of-region sinks that follow the stream forever. Duplicates
     /// and this node's own identity are dropped; a witness that is also a
     /// member is a configuration error the list cannot fix, so the entry is
-    /// refused by omission (the list never names a voter — the same
+    /// refused by omission (the list never names a voter, the same
     /// invariant the publish path enforces after every promotion).
     pub fn with_witnesses(mut self, witnesses: &[NodeId]) -> Self {
         for &witness in witnesses {
@@ -1610,7 +1603,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// Phase one of the pipeline (§7 step 2): compute the candidate, the
-    /// persistence intent, and the effects — and release nothing.
+    /// persistence intent, and the effects, and release nothing.
     ///
     /// `journal` must be a view of this replica's journal consistent with the
     /// published state: §12's interval begins with an atomic read of the two,
@@ -1620,17 +1613,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// Releases nothing: no effect, no observation write, no journal
     /// mutation, no state change of any kind. That is the sentence the whole
-    /// design stands on — nothing externally observable is released before
+    /// design stands on, nothing externally observable is released before
     /// publication.
     ///
     /// # Refusals
     ///
-    /// [`PlanRefusal::Faulted`] if the node is faulted — every input,
+    /// [`PlanRefusal::Faulted`] if the node is faulted, every input,
     /// ticks and confirmations included; [`PlanRefusal::TransitionOutstanding`]
     /// if a transition is parked awaiting its confirmation;
     /// [`PlanRefusal::NoTransitionOutstanding`] or
     /// [`PlanRefusal::ConfirmationMismatch`] for a confirmation that does
-    /// not match the one outstanding intent; [`PlanRefusal::Unsupported`]
+    /// not match the one outstanding intent; the named refusal of the input
     /// for an input whose handler is future work;
     /// [`PlanRefusal::JournalViewDivergence`] for an incoherent journal
     /// view; [`PlanRefusal::Progress`] if the candidate fails its own
@@ -1725,19 +1718,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// genesis view, and it IS `config.primary(View(0))` under its
     /// configuration. Rationale: at initial provisioning the genesis is
     /// complete and committed by construction, so there is no prior state
-    /// to be amnesiac about — the §14.2 objection does not apply to initial
+    /// to be amnesiac about, the §14.2 objection does not apply to initial
     /// provisioning, only to reopen. A reopened node either changed view
     /// (`current.view != 0`) or holds post-genesis history (`accepted >
     /// 2`), and both exclude it here; its path is state transfer (VRR-2012's §10
     /// recovery).
     /// The promotion happens on a tick, not in `provision`, so construction
-    /// starts fenced — provision in `Joining`, reopen in `Restarting` — and the
+    /// starts fenced, provision in `Joining`, reopen in `Restarting`, and the
     /// promotion is an explicit protocol step the trace shows.
     ///
     /// On promotion the new primary announces its committed frontier to
     /// every backup (§13.3): that is how an idle cluster's backups learn
     /// the view. An amnesiac-restarted genesis primary satisfies the
-    /// condition too — its proposals are then refused by every backup that
+    /// condition too, its proposals are then refused by every backup that
     /// holds post-genesis history ([`Diagnostic::ConflictingEntry`]), so
     /// the view stalls but cannot diverge; deposing it is the view change
     /// below.
@@ -1748,7 +1741,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// change. Silence is measured from the last same-view `Prepare` or
     /// `Commit` from the legitimate primary (or the last view adoption);
     /// the primary of the current view never suspects itself, and a
-    /// `Joining` node or already-`ViewChange` node has nothing to suspect —
+    /// `Joining` node or already-`ViewChange` node has nothing to suspect,
     /// a stalled attempt is state transfer's repair (§10), not a fresh timeout.
     fn plan_tick(&self, journal: &J::View, at: Tick) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
@@ -1779,21 +1772,21 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .with_activity(at));
         }
         // The marker machine's ruling (§5.1 of `docs/vrr-durability-model.md`):
-        // a `Restarting` node completed a controlled shutdown — its flush
+        // a `Restarting` node completed a controlled shutdown, its flush
         // happened in the drain between `Stopping` and `Stopped`, not on the
-        // hot path — so it is a member with complete state and no amnesia: it
+        // hot path, so it is a member with complete state and no amnesia: it
         // ticks the full protocol and suspects a silent primary exactly like
         // a `Normal` backup. A `Joining` node is not a member: no vote, no
-        // view change — the membership checks drop anything it emits — and
+        // view change, the membership checks drop anything it emits, and
         // its tick drives only its own re-drive (the announcement re-send and
         // the §10 acquisition re-run). The suspicion is therefore a VOTING
         // member's act: the voting-weight check in the gate is what keeps a
         // boot-fenced weight-0 learner (the §10 acquisition state, held under
         // the same fenced entry statuses) out of the view-change machinery.
-        // Any voting member can fire — the primary of the current view
-        // included: it refreshes its baseline only on its own proposals — and
+        // Any voting member can fire, the primary of the current view
+        // included: it refreshes its baseline only on its own proposals, and
         // not at all while a stop-the-world era transition is outstanding
-        // ([`Self::stop_the_world_transition_outstanding`]) — so an idle
+        // ([`Self::stop_the_world_transition_outstanding`]), so an idle
         // primary, and a primary whose own stream is holding an establishing
         // era open, time out into the next view exactly like a backup with a
         // silent primary. A solo primary's change still cannot complete (the
@@ -1822,18 +1815,18 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // §13.1 step 5: a gap-ruled `StartView` re-runs its ruling on an
         // ordinary tick once state transfer has supplied the missing
-        // range — the retained offer is replanned exactly as delivered,
+        // range, the retained offer is replanned exactly as delivered,
         // so the install keeps its peer-message kind and every guard of
         // the delivery path re-fires. A still-unconstructible suffix
         // falls through: the fetch is still open, and the retry below
         // keeps it moving.
         if let Some(offer) = self.stalled.clone() {
             // An equal-view offer is a duplicate for a node that has
-            // adopted the view — `Normal` service or a `ViewChange` fence
+            // adopted the view, `Normal` service or a `ViewChange` fence
             // protecting it. A node still at its boot fence has adopted
             // nothing (`current == retained`): the equal-view offer is its
             // first adoption of the selection, and the revival is the
-            // route the acquisition's cap points at — the cap keeps the
+            // route the acquisition's cap points at, the cap keeps the
             // node's durable frontier installable for exactly this offer.
             let boot_fenced =
                 matches!(self.progress.status(), Status::Restarting | Status::Joining)
@@ -1873,7 +1866,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // §13.1 step 5: the new primary's stalled WIN re-runs on an
         // ordinary tick once state transfer has supplied the missing
-        // range — the kept attempt's selection is re-driven through the
+        // range, the kept attempt's selection is re-driven through the
         // ordinary pipeline, so a now-constructible history installs and
         // broadcasts `StartView`. The precheck keeps an ordinary tick
         // honest: no attempt, no completed selection, or a still-
@@ -1906,7 +1899,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                         // The re-drive keeps the win's peer-message kind:
                         // the install re-selects `retained`, a transition
                         // the legality gate admits only for the evidence
-                        // that drove the win (§9.1) — never for a bare
+                        // that drove the win (§9.1), never for a bare
                         // tick. The header slot is the selected history's
                         // accepted frontier (rule 7's Frontier role).
                         return self.continue_view_change(
@@ -1925,7 +1918,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
         }
         // §10: an open fetch re-issues its `GetState` on an ordinary tick
-        // — a lost request or a lost chunk otherwise leaves the cursor
+        //, a lost request or a lost chunk otherwise leaves the cursor
         // open with nothing asking, and the fetch stalls silently. The
         // re-issue resumes from the cursor; the answering chunks are the
         // duplicates and reorderings the install path already tolerates.
@@ -1955,7 +1948,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // The plan-execution continuation (the solver doc): the armed
         // leader proposes the next accepted step on an ordinary tick, the
-        // same way — each committed step established a new era, and the
+        // same way, each committed step established a new era, and the
         // next waits for the view change into it.
         if let Some(plan) = self.plan_execution_continuation(journal) {
             return plan;
@@ -1977,18 +1970,18 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The §11.1 acknowledgement: the next applied slot in order advances
     /// `applied` and resolves the slot's proposal record. A completion for
-    /// any other slot — a duplicate, an out-of-order report, or a slot that
-    /// is not yet committed — is the named
+    /// any other slot, a duplicate, an out-of-order report, or a slot that
+    /// is not yet committed, is the named
     /// [`PlanRefusal::UnexpectedApplied`], refused without state change.
     /// Nothing is emitted: the acknowledgement carries no result, and the
     /// core never answers a proposal (B2).
     ///
     /// The §11 system-slot ruling: `applied` walks every slot. A committed
-    /// system operation is core-internal — it emits no `Apply` upcall and
-    /// expects no acknowledgement — but it advances `applied` the moment
+    /// system operation is core-internal, it emits no `Apply` upcall and
+    /// expects no acknowledgement, but it advances `applied` the moment
     /// the contiguous committed prefix allows (see [`Self::applied_walk`]).
     /// The next slot the host can report is therefore always an operation
-    /// slot; a report naming a system slot is a duplicate — the walk
+    /// slot; a report naming a system slot is a duplicate, the walk
     /// already crossed it.
     fn plan_applied(
         &self,
@@ -2039,15 +2032,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The host's checkpoint report (§5's checkpoint frontier, §11):
-    /// accepted only when `through <= applied` — a checkpoint cannot claim
-    /// state the application has not incorporated — and otherwise refused
+    /// accepted only when `through <= applied`, a checkpoint cannot claim
+    /// state the application has not incorporated, and otherwise refused
     /// as [`PlanRefusal::CheckpointExceedsApplied`] without state change.
     /// A report at or below the published frontier is a duplicate:
     /// accepted as an identity transition, moving nothing.
     ///
     /// The published frontier is the SOLE reclamation authorization (§4,
     /// S1): what it permits the default journal to drop is applied by
-    /// [`Replica::reclaim_journal`], lazily, on a later append — never by
+    /// [`Replica::reclaim_journal`], lazily, on a later append, never by
     /// this transition itself.
     fn plan_checkpointed(&self, through: Slot) -> Result<PlannedTransition, PlanRefusal> {
         let applied = self.progress.applied();
@@ -2072,7 +2065,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The applied frontier after walking every committed system slot the
     /// contiguous prefix allows (the §11 system-slot ruling): `applied`
-    /// walks EVERY slot — a committed system operation emits no `Apply`
+    /// walks EVERY slot, a committed system operation emits no `Apply`
     /// upcall (it is core-internal, folded into the configuration on
     /// commit) but it advances `applied` exactly like an acknowledged
     /// operation slot. `overlay` supplies the entries an in-transition
@@ -2106,7 +2099,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The `Apply` effects for the newly committed slots `(from, through]`,
-    /// in slot order (§11.1): operation payloads only — system slots commit,
+    /// in slot order (§11.1): operation payloads only, system slots commit,
     /// but the application boundary is not theirs.
     fn apply_effects(
         &self,
@@ -2194,11 +2187,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// Builds a candidate over the published record, changing exactly the
     /// named fields, with the revision advanced by one (§12). The caller
     /// supplies the configuration history the candidate carries: the
-    /// published table, or — when the transition moves the commit
-    /// frontier — the table folded over the system operations the advance
+    /// published table, or, when the transition moves the commit
+    /// frontier, the table folded over the system operations the advance
     /// newly covers (§8.7.1, see `reconfiguration::fold_committed`).
     /// `Progress::reconstitute` validates the full invariant set on the
-    /// result, and the publish gate re-checks the pair — the two checks are
+    /// result, and the publish gate re-checks the pair, the two checks are
     /// the belt and the braces.
     fn candidate_with(
         &self,
@@ -2230,14 +2223,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// Builds the install candidate: `current` and `retained` join at
-    /// `view` (§1.3 — the history was selected by this change), status is
+    /// `view` (§1.3, the history was selected by this change), status is
     /// `Normal`, and the frontiers become the installed history's, with
     /// `applied` the §11 walk over that history (system slots committed by
     /// the install advance it without an upcall) and `config` the
     /// configuration history folded over the system operations the
     /// installed committed frontier covers (§8.7.1). The accepted frontier
     /// may regress across the re-selection (gate rule 1 admits it exactly
-    /// then); the committed frontier never does — the callers guard it
+    /// then); the committed frontier never does, the callers guard it
     /// before this candidate is ever built.
     fn install_candidate(
         &self,
@@ -2311,7 +2304,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// A breach: the journal and the configuration history disagree about
-    /// a COMMITTED slot (a fold refusal the commit frontier covers — see
+    /// a COMMITTED slot (a fold refusal the commit frontier covers, see
     /// `reconfiguration::fold_committed`). That is the same class of
     /// breach as a committed-slot conflict (§9.1): the transition declares
     /// [`Fault::IllegalTransition`], never guesses a repair.
@@ -2323,8 +2316,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The fence target of the next view change (§9.1, §8.7.8): the next
-    /// view in the CURRENT era, or — when the committed history has
-    /// established the successor era — the next view in THAT era. A
+    /// view in the CURRENT era, or, when the committed history has
+    /// established the successor era, the next view in THAT era. A
     /// replica may propose a view only in an era whose establishing
     /// operation its accepted history holds (§8.7.3); the table's newest
     /// era is established by a COMMITTED operation, which every legal
@@ -2344,7 +2337,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// Whether a stop-the-world era transition is OUTSTANDING at this
     /// serving primary (§8.7.4): the committed configuration history has
     /// established the successor era and the current view has not entered
-    /// it, and no planned overlap machine is armed — the non-stop
+    /// it, and no planned overlap machine is armed, the non-stop
     /// transition (§8.7.6–§8.7.7) completes by solicited evidence, never
     /// by a fence, so it does not count. While outstanding, the primary's
     /// own proposals do not refresh its suspicion baseline (S4): they are
@@ -2368,7 +2361,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// Plan the resolution of the one outstanding interval (S2/S3).
     ///
-    /// `Stable` plans the parked candidate itself — the confirmation is the
+    /// `Stable` plans the parked candidate itself, the confirmation is the
     /// durability signal, not a new transition, so the completion carries the
     /// original kind and the gate re-checks the original candidate against
     /// it. `Failed` plans a revision-advancing resolution over the unchanged
@@ -2433,10 +2426,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// The closed [`legal`] gate runs on every old→candidate pair before
     /// anything installs. A `Some` from the gate DISCARDS the candidate and
-    /// sticky-faults the node — never repair, never install (the closed
+    /// sticky-faults the node, never repair, never install (the closed
     /// gate's contract). In [`Stability::Volatile`] the candidate then installs, the
     /// observation is written, and the effects release. In every other mode
-    /// exactly one effect releases — the [`Effect::Persist`] intent — and the
+    /// exactly one effect releases, the [`Effect::Persist`] intent, and the
     /// transition parks until the matching
     /// [`Input::StabilityConfirmation`] completes it (S2). Completions
     /// publish immediately in every mode: the barrier has already completed,
@@ -2474,7 +2467,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             self.fault_node(fault);
             return Err(PublishRefusal::IllegalCandidate(fault));
         }
-        // The gate stands between every candidate and publication — not the
+        // The gate stands between every candidate and publication, not the
         // planner. A violation discards the candidate and faults the node;
         // the previously published state stays visible and observable.
         if let Some(fault) = legal(&self.progress, &planned.candidate, &planned.kind) {
@@ -2537,7 +2530,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// Installs a gated candidate: journal mutation first (so §5 invariant 1
-    /// — published accepted equals the journal's frontier — holds of the
+    ///, published accepted equals the journal's frontier, holds of the
     /// pair), then the progress record, then the observation writes (B1),
     /// then the volatile bookkeeping.
     fn install(
@@ -2610,8 +2603,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
         }
         // The list never names a voter (`docs/uvrr-rejoin-gossip-and-witnesses.md`
-        // §3): whenever an install changes what anyone is — the promotion
-        // commit above, or any other reconfiguration — the scan drops every
+        // §3): whenever an install changes what anyone is, the promotion
+        // commit above, or any other reconfiguration, the scan drops every
         // node the committed configuration now counts at weight one or more.
         // A statically registered witness is outside every configuration, so
         // the scan can never purge it (§4).
@@ -2640,8 +2633,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// Records a sticky fault and publishes it (§5 invariant 5, B1).
     ///
-    /// `with_fault` fails only on an existing fault — every call site has
-    /// already established `self.progress.fault().is_none()` — or on
+    /// `with_fault` fails only on an existing fault, every call site has
+    /// already established `self.progress.fault().is_none()`, or on
     /// revision exhaustion, where the `u64` revision space is spent and no
     /// further transition of any kind, including the fault record, is
     /// representable (see [`ProgressError::RevisionExhausted`]).
@@ -2686,12 +2679,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// A `Commit` datagram for `committed` to every other member of the
-    /// current configuration (§13.3), and — while the machine is armed and
-    /// the node is still outside the cluster — a memo-stream copy to the
+    /// current configuration (§13.3), and, while the machine is armed and
+    /// the node is still outside the cluster, a memo-stream copy to the
     /// reincarnated standby (§7 of `docs/uvrr-reincarnation.md`: the
     /// leader streams every phase-1 and phase-2 message it ORIGINATES to
     /// the announced-and-not-yet-member node). `Effect::Send.era` is the
-    /// era under which the sending decision was made (W1) — in normal
+    /// era under which the sending decision was made (W1), in normal
     /// operation, the current era.
     fn broadcast_commit(&self, committed: Slot) -> Vec<Effect> {
         let current = self.progress.current();
@@ -2720,7 +2713,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The era proof for `era` (§8.7.8): the establishing operation and the
-    /// slot it committed at, read from the node's bounded era records — the
+    /// slot it committed at, read from the node's bounded era records, the
     /// recipient checks the claim against its configuration history. The
     /// journal may already have reclaimed the establishing entry (S1).
     fn era_proof(&self, _journal: &J::View, era: Era) -> Result<EraProof, PlanRefusal> {
@@ -2774,7 +2767,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             bytes = total;
         }
         // Below the overlay (or the whole range, without one): the
-        // journal's retained window, newest first — but only when the
+        // journal's retained window, newest first, but only when the
         // overlay packed whole. A packing that broke before exhausting
         // the overlay stops entirely (§13.1 permits a short suffix,
         // never a holed one): journal entries below the overlay's base
@@ -2817,7 +2810,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// suffix: the suffix must reach back to the local frontier's successor
     /// or below, and every shared slot must agree. A shared slot at or
     /// below the local COMMITTED frontier that disagrees is
-    /// [`SuffixCheck::Conflict`] — the one deliberate fault of the
+    /// [`SuffixCheck::Conflict`], the one deliberate fault of the
     /// view-change path. A
     /// suffix that starts past the frontier's successor, or an empty suffix
     /// that cannot prove the installed history is already held, is
@@ -2827,7 +2820,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `discharged` is the frontier the host's installed application state
     /// vouches for (§4, §11), [`Slot::NONE`] on every path but the
     /// completed transfer install: an offered slot the journal physically
-    /// let go (S1) is unverifiable — ordinarily a [`SuffixCheck::Gap`] —
+    /// let go (S1) is unverifiable, ordinarily a [`SuffixCheck::Gap`],
     /// but reclamation only ever drops slots at or below the published
     /// checkpoint, and the checkpoint never exceeds the committed frontier
     /// the install covers, so every slot the journal let go is one the
@@ -2846,7 +2839,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let Some(base) = suffix.first().map(|entry| entry.slot) else {
             // No suffix at all (§13.1 permits it): adopt only when the
             // installed history is exactly the local one and every held
-            // entry is committed — committed entries are quorum-identical,
+            // entry is committed, committed entries are quorum-identical,
             // so nothing needs checking. Anything else is unverifiable.
             if accepted == local_accepted && committed == local_accepted {
                 return SuffixCheck::Install(JournalMutation::None);
@@ -2881,9 +2874,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 }
                 // Physically let go (S1): unverifiable, reported honestly.
                 // The offer reached back PAST the slot the node cannot
-                // verify, so `got` — the offer's base, per the
-                // diagnostic's doc — sits at or below `expected` here.
-                // A slot at or below `discharged` is vouched for —
+                // verify, so `got`, the offer's base, per the
+                // diagnostic's doc, sits at or below `expected` here.
+                // A slot at or below `discharged` is vouched for,
                 // by the host's installed application state on the
                 // transfer-install path, or by the node's own published
                 // checkpoint on the view-change path (§4): the caller
@@ -2924,9 +2917,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `EvidenceKind::Planned` for exactly the machine's transition view,
     /// from a member the machine's pivot names in `qI`. The §6
     /// membership-discard admits exactly this message past the gate; every
-    /// other guard of the planned-evidence path — the solicited machine,
+    /// other guard of the planned-evidence path, the solicited machine,
     /// the transition view, the `qI` vote set, the shape rules, the era
-    /// proof — still applies at the counting site
+    /// proof, still applies at the counting site
     /// ([`Self::plan_planned_evidence`]). A non-member's ordinary
     /// view-change traffic stays refused by name.
     fn planned_evidence_solicited(&self, from: NodeId, message: &Message) -> bool {
@@ -2947,8 +2940,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The gossip-witness half of a join gossip
     /// (`docs/uvrr-rejoin-gossip-and-witnesses.md` §3): every node that
-    /// hears the announcement or the request — leader or not, whatever the
-    /// transition's own outcome — records the sender, unless the committed
+    /// hears the announcement or the request, leader or not, whatever the
+    /// transition's own outcome, records the sender, unless the committed
     /// configuration already counts it a voter. The list never names a
     /// member; the publish-path scan holds that invariant against the
     /// promotions this node has not heard about yet.
@@ -2976,7 +2969,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// drop), it refreshes the suspicion baseline (S4). A higher-view
     /// `Prepare`/`Commit` from the legitimate primary of the view it names
     /// is proof the node is stale (§10): the node fences into that view
-    /// and fetches — but the message itself installs nothing (§13.4).
+    /// and fetches, but the message itself installs nothing (§13.4).
     fn plan_peer(
         &self,
         journal: &J::View,
@@ -2987,16 +2980,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ) -> Result<PlannedTransition, PlanRefusal> {
         // The §6 membership-discard check (`docs/uvrr-reincarnation.md`):
         // a message FROM a node outside the current committed
-        // configuration — a superseded old identity, or any other
-        // non-member — is discarded. Three exceptions, each the message
+        // configuration, a superseded old identity, or any other
+        // non-member, is discarded. Three exceptions, each the message
         // that makes or keeps a membership: the `Reincarnation`
         // announcement is the bumped node's entry ticket, the
         // `GossipRequest` is the rejoin gossip's entry ticket (the join
         // half and the gap half of `docs/uvrr-rejoin-gossip-and-witnesses.md`
-        // §2–§3 — every node that hears either records the sender as a
+        // §2–§3, every node that hears either records the sender as a
         // gossip-witness), and the reconfiguration's own solicited
         // planned evidence is the vote the construction
-        // solicited — the pivot puts a departing member inside `qI`
+        // solicited, the pivot puts a departing member inside `qI`
         // precisely so its answer completes the planned quorum
         // (§8.7.7), so the discard treating that one answer as hostile
         // input is a conflation of the transition with the departure.
@@ -3025,13 +3018,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 header.view == current && self.primary_of(header.view) == Some(from)
             }
             // A same-view PrepareOk at the serving primary: its proposals
-            // are landing, so the view is alive (the primary's baseline) —
+            // are landing, so the view is alive (the primary's baseline),
             // EXCEPT while a stop-the-world era transition is OUTSTANDING
             // ([`Self::stop_the_world_transition_outstanding`], §8.7.4):
             // the primary's own proposals are then exactly the activity
             // that would keep the fence from ever arming, and the
             // establishing era completes only through the fence into the
-            // established-but-unentered era (§8.7.8) — they are not proof
+            // established-but-unentered era (§8.7.8), they are not proof
             // of view life while it is outstanding.
             Body::PrepareOk {} => {
                 header.view == current
@@ -3040,7 +3033,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     && !self.stop_the_world_transition_outstanding()
             }
             // A same-view Fuse from the legitimate primary: the equivalent
-            // sequence of `Prepare`s (`docs/uvrr-fuse.md` §1) — the
+            // sequence of `Prepare`s (`docs/uvrr-fuse.md` §1), the
             // primary is alive (a backup's baseline).
             Body::Fuse { .. } => {
                 header.view == current && self.primary_of(header.view) == Some(from)
@@ -3101,7 +3094,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .map(|plan| self.with_join_gossip_witness(plan, from)),
             // The rejoin gossip's request (`docs/uvrr-rejoin-gossip-and-witnesses.md`
             // §2–§3): every node that hears it records the sender; the
-            // leader — only the node that believes itself leader — answers
+            // leader, only the node that believes itself leader, answers
             // with the push above the sender's frontier and a fresh commit.
             Body::GossipRequest { .. } => self
                 .plan_gossip_request(journal, from, message, kind)
@@ -3111,8 +3104,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             Body::Fuse { ops } => self.plan_fuse(journal, from, message, ops, at, kind),
             // The leader's fuse acks (`docs/uvrr-fuse.md` §4 step 3, §2):
             // one FuseOk is ONE atomic vote; the leader counts the sender
-            // once on the first message in batch — the header slot's
-            // coverage, the acks body never examined — and emits the
+            // once on the first message in batch, the header slot's
+            // coverage, the acks body never examined, and emits the
             // per-era commit.
             Body::FuseOk { .. } => self.plan_fuse_ok(journal, from, message, kind),
             // The backups already learn commitment through the ordinary
@@ -3131,7 +3124,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The proposal records for the uncommitted tail of an installed
     /// history (§9.1): an installed slot carries no `PrepareOk` votes yet,
     /// and a `PrepareOk` for a HIGHER slot vouches for it (acceptance is
-    /// prefix-contiguous) — without the record, an installed tail could
+    /// prefix-contiguous), without the record, an installed tail could
     /// never commit. Every installed uncommitted slot is seeded, operation
     /// and system alike: a committed-but-unapplied system operation the
     /// view change carries is re-committed by the next commit cascade
@@ -3169,7 +3162,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
 /// The §1.3 ranking rule (spec §9.2's load-bearing sentence): the selected
 /// history is the greatest by `retained` view FIRST, then `accepted`
-/// frontier. Ranking by `accepted` alone is the published counterexample —
+/// frontier. Ranking by `accepted` alone is the published counterexample,
 /// a longer history retained from an EARLIER view can miss entries
 /// committed under a later one. Ties take the lowest sender id, so every
 /// honest new primary computes the same selection from the same evidence.
@@ -3195,7 +3188,7 @@ fn select_history(evidence: &BTreeMap<NodeId, Evidence>) -> (NodeId, Evidence) {
 
 /// The structural shape of a view-change suffix (§13.1): a contiguous
 /// ascending run of real slots ending exactly at the accepted frontier.
-/// Empty is always well-formed — a budget may admit no entry at all.
+/// Empty is always well-formed, a budget may admit no entry at all.
 fn suffix_shape_ok(suffix: &[LogEntry], accepted: Slot) -> bool {
     let mut expected: Option<Slot> = None;
     for entry in suffix {
@@ -3214,14 +3207,14 @@ fn suffix_shape_ok(suffix: &[LogEntry], accepted: Slot) -> bool {
     }
 }
 
-/// The lazy reclamation wiring over the default journal — inherent to the
+/// The lazy reclamation wiring over the default journal, inherent to the
 /// concrete type, because the portable `Journal` contract deliberately
 /// does not name reclamation (S1, and `tests/journal_contract.rs` enforces
 /// the omission mechanically).
 impl Replica<SegmentedLog, crate::quorum::WeightedMajority> {
     /// Offers the published checkpoint frontier to the journal as the
     /// reclamation authorization (§4, S1): whole slabs whose final slot
-    /// the frontier covers are dropped — never the tail, never a slot past
+    /// the frontier covers are dropped, never the tail, never a slot past
     /// it. The host calls this opportunistically (the lazy moment is the
     /// next append after a checkpoint publishes); with no checkpoint
     /// published it is a no-op however old the history, because the
@@ -3240,7 +3233,7 @@ impl Replica<SegmentedLog, crate::quorum::WeightedMajority> {
 
 /// The progress half of the persistence intent: [`ProgressIntent::Record`]
 /// when any durable §5 field moved, [`ProgressIntent::Unchanged`] when only
-/// the revision did — the revision is §12 interval bookkeeping, not part of
+/// the revision did, the revision is §12 interval bookkeeping, not part of
 /// the durable record.
 fn progress_intent(old: &Progress, new: &Progress) -> ProgressIntent {
     let changed = old.current() != new.current()

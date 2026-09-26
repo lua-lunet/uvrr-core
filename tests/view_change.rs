@@ -27,7 +27,7 @@ fn n(id: u32) -> NodeId {
     )
 }
 
-/// A view in era 1 — every scenario here is same-era (W1).
+/// A view in era 1, every scenario here is same-era (W1).
 fn view(number: u32) -> ViewId {
     ViewId {
         era: Era(1),
@@ -260,7 +260,7 @@ fn committed_entries_survive_a_mid_pipeline_crash() {
 
 // 3. A divergent uncommitted tail is discarded: the new primary's selected
 //    history ends at slot 2, and the healed old primary drops its private
-//    slot 3 — asserted by journal inspection, not merely the frontier.
+//    slot 3, asserted by journal inspection, not merely the frontier.
 #[test]
 fn divergent_uncommitted_tail_is_discarded() {
     let mut h = cluster();
@@ -293,7 +293,7 @@ fn divergent_uncommitted_tail_is_discarded() {
 // 4. The §9.2 counterexample (with §1.3's ranking rule): ranking evidence by
 //    `accepted` alone would select n0's longer history (accepted 5, retained
 //    view 0) and displace the entry committed at slot 4 under view 1. The
-//    normative ranking — `retained` view first, then `accepted` — selects
+//    normative ranking, `retained` view first, then `accepted`, selects
 //    n2's shorter history (accepted 4, retained view 1) and the committed
 //    entry survives. This is the load-bearing test of the ranking rule.
 #[test]
@@ -361,7 +361,7 @@ fn retained_view_outranks_accepted_frontier_section_9_2_counterexample() {
     );
     assert!(
         *retained < view(1),
-        "n0's retained view is older than n2's (1,1) — retained-first ranking must refuse it"
+        "n0's retained view is older than n2's (1,1), retained-first ranking must refuse it"
     );
 
     // The normative ranking (§1.3) keeps n2's history: delivering the
@@ -510,7 +510,7 @@ fn bounded_suffix_rules_section_13_1() {
     let per_entry = probe.packed_len();
     // The budget admits exactly one operation entry: the §13.1 suffix packs
     // newest-first inside the budget and stops, which §13.1 explicitly
-    // permits (a short — even empty — suffix is well-formed).
+    // permits (a short, even empty, suffix is well-formed).
     let mut h = Harness::with_knobs(
         3,
         ViewChangeKnobs {
@@ -537,7 +537,7 @@ fn bounded_suffix_rules_section_13_1() {
     assert_eq!(snap(&h, n(2)).committed, 2);
 
     // View change among {n1, n2} with n0 down: n2's evidence suffix packs
-    // the newest genesis entries its budget admits — and never a byte
+    // the newest genesis entries its budget admits, and never a byte
     // beyond it (W4).
     h.partition(vec![n(0)], vec![n(1), n(2)]);
     tick_into_view_change(&mut h, n(1), view(1));
@@ -571,9 +571,9 @@ fn bounded_suffix_rules_section_13_1() {
     );
 
     // Complete the change: n1 is the winner (its own history). n2 sits on
-    // n1's side of the partition — but n2 is missing history below the
+    // n1's side of the partition, but n2 is missing history below the
     // suffix base: slot 3 is unverifiable (base 4 > accepted + 1 = 3).
-    // GapDetected, no fault, no adoption — and the fetch half of the
+    // GapDetected, no fault, no adoption, and the fetch half of the
     // ruling (§13.1 step 5) asks the new primary for the missing range.
     h.deliver_tag(n(1), Tag::StartViewChange); // n2's fence completes n1's fence quorum
     h.deliver_tag(n(1), Tag::DoViewChange); // n1 wins and broadcasts StartView
@@ -598,14 +598,14 @@ fn bounded_suffix_rules_section_13_1() {
     assert_eq!(request.header.slot, Slot(2));
 
     // The rest of the exchange: the fetch is served chunk by chunk under
-    // the budget; n2 stays fenced — the completing ruling is the
-    // StartView's, already spent — and nothing faults.
+    // the budget; n2 stays fenced, the completing ruling is the
+    // StartView's, already spent, and nothing faults.
     h.deliver_all();
     assert!(!snap(&h, n(2)).faulted);
     assert_eq!(status_of(&h, n(2)), Status::ViewChange);
     assert_eq!(snap(&h, n(2)).accepted, 4, "the chunks filled the gap");
 
-    // The StartView carries the newest entry under the budget — exactly
+    // The StartView carries the newest entry under the budget, exactly
     // one. n0's copy was partition-held at broadcast time; heal surfaces
     // it for inspection.
     h.heal();
@@ -696,7 +696,7 @@ fn two_view_changes_for_one_view_cannot_both_complete() {
     drive_view_change(&mut h, n(1), n(2), view(1));
 
     // n0 heals late, still in view 0; its StartViewChange for view 1 is
-    // stale at n1 (Normal) — it cannot recruit a fence quorum for a view
+    // stale at n1 (Normal), it cannot recruit a fence quorum for a view
     // whose change already completed.
     h.drop_held();
     h.heal();
@@ -764,8 +764,8 @@ fn two_view_changes_for_one_view_cannot_both_complete() {
 
 // 10. A retried proposal across the change: the proposer's in-flight entry
 //     is discarded with the old primary's tail, the retry is refused during
-//     the change with redirection, and afterwards the retried operation —
-//     the same host-assigned identity — commits at a fresh slot and
+//     the change with redirection, and afterwards the retried operation,
+//     the same host-assigned identity, commits at a fresh slot and
 //     applies exactly once in the surviving history. The core tracks
 //     nothing about the retry (§11.1, B2); exactly-once across the
 //     discard-and-retry window is the host's deduplication policy above
@@ -798,8 +798,8 @@ fn retried_proposal_across_the_change() {
     assert_eq!(snap(&h, n(1)).accepted, 2);
     assert_eq!(h.journal_entries(n(1)).len(), 2);
 
-    // The retry is accepted fresh under view 1 — the core does not
-    // deduplicate, so the same identity takes the next slot — and commits
+    // The retry is accepted fresh under view 1, the core does not
+    // deduplicate, so the same identity takes the next slot, and commits
     // exactly once.
     h.propose(n(1), op_id(1), b"x");
     h.deliver_all();
@@ -818,7 +818,7 @@ fn retried_proposal_across_the_change() {
     );
 
     // The old primary heals and adopts: its private slot 3 is replaced by
-    // the selected history (which happens to carry the same payload — the
+    // the selected history (which happens to carry the same payload, the
     // retry found its way), and every journal holds the entry exactly once.
     h.heal();
     h.deliver_all();
@@ -839,13 +839,13 @@ fn retried_proposal_across_the_change() {
 
 // 12. The §13.1 bounded suffix under an early packing break: the winner's
 //     budget may stop the packing of the selected suffix part-way (an
-//     entry exceeds the remaining budget — the budget is host policy, W5,
+//     entry exceeds the remaining budget, the budget is host policy, W5,
 //     so a peer's evidence may honestly carry more than the winner's
 //     budget admits). The packing then stops entirely: walking the journal
 //     below the selected suffix's base would emit a suffix with a hole
 //     between the packed journal entries and the unpacked selected entries
 //     above, and §13.1's shape rule refuses a non-contiguous offer at
-//     every backup — the change could never complete.
+//     every backup, the change could never complete.
 #[test]
 fn bounded_suffix_packing_break_never_emits_a_hole() {
     let probe = LogEntry {
@@ -859,7 +859,7 @@ fn bounded_suffix_packing_break_never_emits_a_hole() {
     let small = probe.packed_len();
     // Admits exactly three small entries: the selected suffix's newest two
     // pack, its big entry breaks the packing, and the remaining budget
-    // still has room for one more small journal entry — the hole shape.
+    // still has room for one more small journal entry, the hole shape.
     let budget = 3 * small;
     let mut h = Harness::with_knobs(
         3,
@@ -968,7 +968,7 @@ fn bounded_suffix_packing_break_never_emits_a_hole() {
 
 // 13. The §4 status gate is named: a node mid view change drops even
 //     SAME-VIEW traffic from the legitimate primary, and the drop names the
-//     status gate — `ViewMismatch` is reserved for a view that differs. The
+//     status gate, `ViewMismatch` is reserved for a view that differs. The
 //     churn-window rejoin hunt printed `ViewMismatch { got == current }`
 //     thousands of times because both the Prepare and the Commit handlers
 //     folded the status refusal into the view check.
@@ -981,7 +981,7 @@ fn a_same_view_message_at_a_fencing_node_names_the_status_gate() {
     apply_all(&mut h, [0, 1, 2]);
 
     // Partition the primary; n(0) hears nothing more from view 0 and its
-    // timeout fences it into view 1 — the view the serving cluster is on.
+    // timeout fences it into view 1, the view the serving cluster is on.
     h.partition(vec![n(0)], vec![n(1), n(2)]);
     tick_into_view_change(&mut h, n(0), view(1));
 

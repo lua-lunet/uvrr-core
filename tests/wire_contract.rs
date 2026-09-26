@@ -1,4 +1,4 @@
-//! Contract for `vrr::wire` — the normative binary codec substrate.
+//! Contract for `vrr::wire`, the normative binary codec substrate.
 //!
 //! Spec §11 (opaque client payloads), §13.1 (bounded view-change suffix), and decisions
 //! W1 (explicit `ViewId`, 20-byte big-endian header), W3 (own binary codec, serde
@@ -15,7 +15,7 @@
 //!
 //! 1. **The wire is pinned by golden vectors.** `Header` is exactly 20 bytes in a
 //!    stated order, and `OperationId` is big-endian. A golden vector is the only test that
-//!    catches a symmetric mistake — an encoder and decoder that agree with each other
+//!    catches a symmetric mistake, an encoder and decoder that agree with each other
 //!    and disagree with the specification round-trip perfectly.
 //! 2. **`packed_len()` is normative, not advisory (W3).** It equals the byte count
 //!    `pack_into` writes, for every value. The §13.1 suffix budget is a sum only if
@@ -31,7 +31,7 @@
 //!    size. A grep-as-test is crude and is exactly right: it makes an absence into a
 //!    property the build checks.
 //!
-//! Groups 5, 7 and 10 are exhaustive loops rather than samplers — the domains are tiny
+//! Groups 5, 7 and 10 are exhaustive loops rather than samplers, the domains are tiny
 //! and total coverage is strictly stronger than any number of random draws.
 
 use proptest::prelude::*;
@@ -124,7 +124,7 @@ fn header_golden_vector() {
 // ---------------------------------------------------------------------------
 
 /// An `OperationId` is 16 bytes, most-significant word first, each word
-/// big-endian — like every other integer on this wire (W4). The identity is
+/// big-endian, like every other integer on this wire (W4). The identity is
 /// opaque to the core (§11.1, B2), but its wire shape is pinned by a vector
 /// so two hosts cannot disagree about the byte order.
 #[test]
@@ -359,7 +359,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(2048))]
 
     /// Totality is the headline property of this module. Arbitrary bytes must produce
-    /// `Ok` or `Err`, never a panic — in release as well as debug, which is why
+    /// `Ok` or `Err`, never a panic, in release as well as debug, which is why
     /// `cargo test --release` is a required gate for this file. An overflow that only
     /// `debug_assert` catches is a production bug that the test suite hid.
     #[test]
@@ -441,7 +441,7 @@ fn non_canonical_bool_is_out_of_domain() {
 /// The `LengthPrefixOverflow` / `Incomplete` boundary.
 ///
 /// Rule: a declared length is `Incomplete` whenever the total byte count it implies is
-/// *representable*, and `LengthPrefixOverflow` only when it is not — that is, when
+/// *representable*, and `LengthPrefixOverflow` only when it is not, that is, when
 /// `cursor_offset + declared_len` overflows `usize`. A prefix that merely exceeds the
 /// bytes currently in hand is unsatisfied, not impossible, because the host may still
 /// be reassembling; telling it "malformed" would make it drop a peer over a fragment
@@ -497,7 +497,7 @@ fn length_prefix_boundary() {
 }
 
 /// A message with trailing garbage is not a message. `unpack_from` calls `finish()`, so
-/// the surplus is reported with its count rather than silently ignored — a decoder that
+/// the surplus is reported with its count rather than silently ignored, a decoder that
 /// ignores a suffix cannot detect a framing bug in the host's reassembly.
 #[test]
 fn trailing_bytes_are_rejected() {
@@ -662,7 +662,7 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
     // The whole numbering, including both boundaries of the reserved space.
     // Discriminants 1, 11 and 12 belonged to the retired recovery-exchange
     // tags and the retired client-datagram tags (B2: client traffic is a
-    // host concern, never a core datagram); they stay reserved — reuse
+    // host concern, never a core datagram); they stay reserved, reuse
     // would collide with deployments that still carry the old numbering on
     // a wire.
     for candidate in 2u32..=10 {
@@ -854,7 +854,7 @@ fn fuse_zero_count_is_malformed() {
 
 /// A count that disagrees with the payload the envelope actually carries is
 /// refused, not guessed at. A count below the ops present leaves trailing
-/// bytes (`Malformed`); a count above them runs off the end (`Incomplete` —
+/// bytes (`Malformed`); a count above them runs off the end (`Incomplete`,
 /// the established distinction of this codec, group 5: a fragment may still be
 /// arriving, so a short supply is unsatisfied, not garbage). Neither decode
 /// accepts a mismatched envelope.
@@ -918,8 +918,8 @@ fn fuse_unknown_op_discriminant_is_malformed() {
 }
 
 /// The cache-line-scale claim (`docs/uvrr-fuse.md` §2): a full-cluster
-/// reconfiguration is at most seven operations, and the whole envelope —
-/// header included — travels well under a nominal 1300-byte payload. The
+/// reconfiguration is at most seven operations, and the whole envelope,
+/// header included, travels well under a nominal 1300-byte payload. The
 /// codec carries no size constant (W5); this is a property of the encoded
 /// shape, checked here rather than assumed.
 #[test]

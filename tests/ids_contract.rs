@@ -9,13 +9,13 @@
 //!
 //! 1. every identifier is layout-identical to its primitive, so the C ABI can
 //!    pass them by value without a conversion layer that could disagree with itself;
-//! 2. no successor wraps — every arithmetic edge is `None`, never a silently reused
+//! 2. no successor wraps, every arithmetic edge is `None`, never a silently reused
 //!    view or slot, because a reused view number is unrecoverable divergence;
 //! 3. `ViewId::is_legal_successor` is the single point of truth for §8.7.3's surviving
 //!    era/view relation, and its truth table is pinned exhaustively so a later change
 //!    cannot loosen it by accident;
-//! 4. the W1 ordering claim — that `(era, view)` and `(view, era)` lexicographic
-//!    orders coincide on legal histories — is discharged by proptest here rather than
+//! 4. the W1 ordering claim, that `(era, view)` and `(view, era)` lexicographic
+//!    orders coincide on legal histories, is discharged by proptest here rather than
 //!    asserted in a comment, because it is the whole justification for the derived
 //!    `Ord` on `ViewId` being safe to use in the §10 higher-view rule.
 //!
@@ -221,8 +221,8 @@ fn constructors_agree_with_legality() {
 
 /// The era-exhaustion branch of `is_legal_successor`: at `Era::MAX` the
 /// era-`+1` successor is unrepresentable, so "era unchanged" is the only legal
-/// successor left. The branch exists because §8.7.3 forbids wraparound — a reused
-/// era would make `config(e)` ambiguous — and it had no direct test.
+/// successor left. The branch exists because §8.7.3 forbids wraparound, a reused
+/// era would make `config(e)` ambiguous, and it had no direct test.
 #[test]
 fn legal_successor_at_era_exhaustion() {
     let base = ViewId {
@@ -256,7 +256,7 @@ fn legal_successor_at_era_exhaustion() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Ordering agreement — the W1 claim
+// 4. Ordering agreement, the W1 claim
 // ---------------------------------------------------------------------------
 
 /// Generates a legal history: a strictly increasing view sequence with a non-decreasing
@@ -288,7 +288,7 @@ proptest! {
     /// and `(view, era)` coincide, because era advances only as views advance. The
     /// derived `Ord` on `ViewId { era, view }` is therefore usable for the §10
     /// higher-view rule without consulting configuration state. Pairs on which the two
-    /// disagree are illegal and are rejected upstream, not silently ordered — which is
+    /// disagree are illegal and are rejected upstream, not silently ordered, which is
     /// why this is a test over legal histories and not over arbitrary pairs.
     #[test]
     fn orderings_agree_on_legal_pairs(history in legal_history()) {

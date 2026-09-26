@@ -1,13 +1,13 @@
 //! Witness stream plays: the two exact walk-throughs of
 //! `docs/uvrr-reincarnation.md` §7–§8 as message choreography.
 //!
-//! * **Play A (three nodes)** — n1 isolated, n3 crashes and reincarnates
+//! * **Play A (three nodes)**, n1 isolated, n3 crashes and reincarnates
 //!   as a witness; the leader streams phase-2 but cannot commit; the
 //!   network heals, the isolated node gap-detects and fetches, its
 //!   cumulative ack completes every outstanding slot, the leader commits
 //!   in slot order, and the streamed join batches carry the witness to
-//!   full membership — it leaves the leader's witness list.
-//! * **Play B (five nodes)** — an isolated leader in a minority keeps its
+//!   full membership, it leaves the leader's witness list.
+//! * **Play B (five nodes)**, an isolated leader in a minority keeps its
 //!   witness current on uncommitted slots; the leader crashes, the
 //!   majority elects a new leader; the witness re-announces on its own
 //!   timer, the new leader's stream OVERRIDES the dead view's uncommitted
@@ -129,7 +129,7 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> ViewId {
 fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
     let mut h = Harness::with_knobs(3, knobs());
     bootstrap(&mut h);
-    // Leadership on n(1) — the walk's "n2(l)": the first fence moves the
+    // Leadership on n(1), the walk's "n2(l)": the first fence moves the
     // cluster to view 1, whose primary is position 1.
     drive_view_change(&mut h, &[n(0), n(1), n(2)]);
     let outcome = h.propose(n(1), op_id(1), b"x");
@@ -170,7 +170,7 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
     // The slot-4/5 prepares to n(0) are lost; the heal delivers nothing
     // stale. The next proposal (slot 6) is n(0)'s first sight of the
     // stream: past its frontier, so the contiguity gap rule drops it and
-    // opens the fetch — the walk's "requests retransmission".
+    // opens the fetch, the walk's "requests retransmission".
     h.drop_held();
     h.heal();
     let outcome = h.propose(n(1), op_id(3), b"z");
@@ -196,7 +196,7 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
     );
     // The next proposal lands cleanly; n(0)'s ack vouches cumulatively
     // for every outstanding slot it covers, and the leader commits the
-    // whole tail in slot order — the establishing batch first.
+    // whole tail in slot order, the establishing batch first.
     let outcome = h.propose(n(1), op_id(4), b"w");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
@@ -214,7 +214,7 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
     assert_eq!(
         snap(&h, bumped).committed,
         7,
-        "the witness holds the live commit stream — current indefinitely"
+        "the witness holds the live commit stream, current indefinitely"
     );
     assert_eq!(
         current_era(&h, bumped),
@@ -249,7 +249,7 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
     );
 
     // "Left the leader's witness list": its vote is now REQUIRED. In the
-    // era-3 unit cluster, isolate one incumbent — the leader and the
+    // era-3 unit cluster, isolate one incumbent, the leader and the
     // promoted member are exactly a quorum, and the commit waits on the
     // promoted member's ack.
     drive_view_change(&mut h, &[n(0), n(1), bumped]);
@@ -279,7 +279,7 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
     assert_eq!(
         snap(&h, leader).committed,
         before + 1,
-        "the promoted member's vote completes the quorum — it is no witness"
+        "the promoted member's vote completes the quorum, it is no witness"
     );
     h.assert_safety();
 }
@@ -287,7 +287,7 @@ fn play_a_isolated_backup_reincarnated_witness_heal_and_slot_order_commit() {
 /// Play B: five nodes, the isolated leader and its witness in the
 /// minority, keep-up with no commits; the leader crashes, the majority
 /// elects; the witness re-announces on its own timer; and the dead view's
-/// uncommitted slots on the witness are OVERRIDDEN — not by the memo
+/// uncommitted slots on the witness are OVERRIDDEN, not by the memo
 /// stream (a boot-fenced witness drops a higher view's stream by design:
 /// its only route back is its own fetch through the boot fence), but by
 /// the fence into the era that admits it: the StartView suffix install
@@ -315,7 +315,7 @@ fn play_b_isolated_leader_dies_new_leader_overrides_witness_tail() {
     h.deliver_to(n(0));
 
     // The minority: old leader and witness. The witness plays keep-up on
-    // the dead view's uncommitted slots — the DOUBLE at slot 4 and a
+    // the dead view's uncommitted slots, the DOUBLE at slot 4 and a
     // client op "z" at slot 5.
     h.partition(vec![n(0), bumped], vec![n(1), n(2), n(3)]);
     h.deliver_all();
@@ -347,13 +347,13 @@ fn play_b_isolated_leader_dies_new_leader_overrides_witness_tail() {
     // The old leader crashes; the network heals. The witness's own timer
     // re-announces; the new leader acks and recomputes the sequence from
     // the committed configuration (era 1): the first step is DOUBLE again,
-    // at slot 4 — the SAME slot the witness filled for the dead view.
+    // at slot 4, the SAME slot the witness filled for the dead view.
     h.crash(n(0));
     h.heal();
     let outcome = h.reincarnate(bumped, n(4));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_to(n(1));
-    // The new leader's slot 5 is a client op "y" — a DIFFERENT value
+    // The new leader's slot 5 is a client op "y", a DIFFERENT value
     // from the dead view's uncommitted "z" the witness holds there.
     let outcome = h.propose(n(1), op_id(3), b"y");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -368,7 +368,7 @@ fn play_b_isolated_leader_dies_new_leader_overrides_witness_tail() {
     // boot-fenced at the dead view, and a higher view's Prepare/Commit is
     // a ViewMismatch drop by design (its route back is its own fetch, not
     // view adoption). Its announced frontier (5) is AHEAD of the leader's
-    // committed frontier, so the ack's missed-range push is empty — the
+    // committed frontier, so the ack's missed-range push is empty, the
     // divergent tail is invisible to the leader. For now the witness is
     // simply behind; it votes nowhere, so this is availability, not safety.
     assert_eq!(
@@ -379,7 +379,7 @@ fn play_b_isolated_leader_dies_new_leader_overrides_witness_tail() {
 
     // The recomputed sequence commits at the majority: the view change
     // into era 2, the re-announce, and `[Join(new), Increment(new)]`
-    // establishes era 3 — the new join attempt at slots the new leader
+    // establishes era 3, the new join attempt at slots the new leader
     // chose.
     drive_view_change(&mut h, &[n(1), n(2), n(3)]);
     let outcome = h.reincarnate(bumped, n(4));
@@ -395,8 +395,8 @@ fn play_b_isolated_leader_dies_new_leader_overrides_witness_tail() {
     // the era the committed join established is the witness's convergence
     // point: the era_proof on the view-change evidence lets it fold the
     // establishing batch, the StartView suffix install REPLACES the dead
-    // view's uncommitted tail with the majority's history — slot 5's "z"
-    // becomes the committed "y" — and the witness lands as a voter.
+    // view's uncommitted tail with the majority's history, slot 5's "z"
+    // becomes the committed "y", and the witness lands as a voter.
     drive_view_change(&mut h, &[n(1), n(2), n(3)]);
     for _ in 0..4 {
         h.tick_all();
@@ -419,7 +419,7 @@ fn play_b_isolated_leader_dies_new_leader_overrides_witness_tail() {
 }
 
 /// The continuation Play B does not narrate: the forced sequence is NOT
-/// done at the join — the old identity still owes its eviction batches
+/// done at the join, the old identity still owes its eviction batches
 /// (Decrement, Leave, …). The next re-announce arms the next batch while
 /// the witness (a voter since the join) has not yet folded the era the
 /// next fence targets. The fence must still complete: a reincarnation
@@ -504,7 +504,7 @@ fn play_b_tail_sequence_fence_completes_with_promoted_witness_behind() {
         // suspicion deposes an unserved primary, so rounds beyond the
         // suspicion horizon would fence the serving cluster into the dead
         // old identity's succession slot. The convergence must hold while
-        // the cluster serves — the shape the play witnesses.
+        // the cluster serves, the shape the play witnesses.
         let observer = [n(1), n(2), n(3)]
             .iter()
             .copied()

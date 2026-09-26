@@ -37,7 +37,7 @@ impl Incoming {
 /// workload understands; 11 is a *definite* failure ("this did not happen"),
 /// which we may only claim when the core provably refused to append. 12 is
 /// the membership host's own pre-gate: a request the bench roster cannot
-/// possibly satisfy (`malformed-request` — definite, before the core).
+/// possibly satisfy (`malformed-request`, definite, before the core).
 pub mod error {
     pub const TEMPORARILY_UNAVAILABLE: u32 = 11;
     pub const MALFORMED_REQUEST: u32 = 12;
@@ -135,7 +135,7 @@ impl KvResponse {
 }
 
 /// Hex, so a VRR datagram survives Maelstrom's JSON transport while still
-/// going through the real `Pack`/`Unpack` codec — including the 20-byte
+/// going through the real `Pack`/`Unpack` codec, including the 20-byte
 /// binary header. Avoids adding a base64 dependency to the harness.
 pub fn to_hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
