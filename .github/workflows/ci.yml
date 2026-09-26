@@ -2,9 +2,11 @@ name: CI
 
 # Lane split modeled on the sibling lua-lunet/lunet-locks CI (itself modeled
 # on upstream lua-lunet/lunet): regular builds (pull requests, pushes to the
-# working branches) run the fast Linux lane; tagged builds (v*) add macOS,
-# package per-platform release archives of the C ABI library, and
-# publish-release creates the GitHub release.
+# working branches) run the fast Linux lane; tagged builds (v*) verify the
+# tag matches the manifest version, add macOS, package per-platform release
+# archives of the C ABI library, and publish-release creates the GitHub
+# release. A release tag publishes only when Cargo.toml's version equals the
+# tag: the bump is part of the change that earns the release.
 
 on:
   pull_request:
@@ -29,6 +31,26 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - uses: actions/checkout@v4
+      # The release discipline, checked once before the lanes start: a v*
+      # tag publishes only when the manifest version equals the tag. A
+      # forgotten bump blocks the release instead of shipping a lie.
+      # Branch and PR builds have no tag and skip this step.
+      - name: Verify the tag matches the manifest version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          CARGO=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ -z "$CARGO" ]; then
+            echo "could not read the manifest version" >&2
+            exit 1
+          fi
+          if [ "$TAG" != "$CARGO" ]; then
+            echo "tag v$TAG does not match manifest version $CARGO" >&2
+            exit 1
+          fi
       - id: set-matrix
         run: |
           # The lane: Linux amd64 + arm64 + macOS — the branch rules require the macos status check on every run.
@@ -91,20 +113,20 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --release --all-features
-          stage="vrr-core-${{ matrix.target_key }}"
+          stage="uvrr-core-${{ matrix.target_key }}"
           mkdir -p "$stage"
           if [ "${{ runner.os }}" = "macOS" ]; then
             cp target/release/libvrr.dylib target/release/libvrr.a "$stage/"
           else
             cp target/release/libvrr.so target/release/libvrr.a "$stage/"
           fi
-          tar czf "vrr-core-${{ matrix.target_key }}.tar.gz" -C "$stage" .
+          tar czf "uvrr-core-${{ matrix.target_key }}.tar.gz" -C "$stage" .
       - name: Upload release archive
         if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target_key }}
-          path: vrr-core-${{ matrix.target_key }}.tar.gz
+          path: uvrr-core-${{ matrix.target_key }}.tar.gz
           retention-days: 5
 
   # Tagged builds only, modeled on the sibling's publish-release: runs after
@@ -128,8 +150,8 @@ jobs:
           set -euo pipefail
           ls -la release-assets
           for target in linux-amd64 linux-arm64 macos; do
-            test -f "release-assets/vrr-core-$target.tar.gz" || {
-              echo "missing release asset: vrr-core-$target.tar.gz" >&2
+            test -f "release-assets/uvrr-core-$target.tar.gz" || {
+              echo "missing release asset: uvrr-core-$target.tar.gz" >&2
               exit 1
             }
           done
@@ -138,6 +160,6 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            release-assets/vrr-core-linux-amd64.tar.gz
-            release-assets/vrr-core-linux-arm64.tar.gz
-            release-assets/vrr-core-macos.tar.gz
+            release-assets/uvrr-core-linux-amd64.tar.gz
+            release-assets/uvrr-core-linux-arm64.tar.gz
+            release-assets/uvrr-core-macos.tar.gz
