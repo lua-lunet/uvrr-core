@@ -223,3 +223,9 @@ latencies
 loopback
 pipelined
 unrepresentable
+addressability
+discoverability
+gafni
+osdi
+pillai
+sosp
