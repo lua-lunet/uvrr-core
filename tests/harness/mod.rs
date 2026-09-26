@@ -2017,6 +2017,19 @@ impl Harness {
     // Observation and the trace
     // ------------------------------------------------------------------
 
+    /// The queued envelopes in delivery order, read-only: a compliance
+    /// runner records the post-input drain as an exact sequence. Held
+    /// datagrams (partitioned traffic) are not queued and are not
+    /// listed; undelivered traffic to down nodes stays queued and is.
+    #[must_use]
+    pub fn queued_envelopes(&self) -> Vec<(NodeId, NodeId, Message)> {
+        self.network
+            .queue
+            .iter()
+            .map(|e| (e.from, e.to, e.message.clone()))
+            .collect()
+    }
+
     /// The node's latest published observation, or `None` if it is down.
     #[must_use]
     pub fn snapshot(&self, id: NodeId) -> Option<ProgressSnapshot> {
