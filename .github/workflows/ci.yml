@@ -44,10 +44,13 @@ jobs:
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
-      # Pinned to the crate's declared floor (rust-version = "1.85"), so every
-      # lane doubles as the MSRV check; the default toolchain profile omits
-      # rustfmt and clippy, which the gate requires.
-      - uses: dtolnay/rust-toolchain@1.85
+      # One toolchain: CI builds with exactly the toolchain the crate is
+      # built and released with locally (recorded in AGENTS.md and
+      # Cargo.toml's rust-version). There is no separate MSRV lane and no
+      # deliberate older pin: a toolchain exists to build this code, and a
+      # version CI does not share with the developers hides lint drift
+      # until it blocks a release.
+      - uses: dtolnay/rust-toolchain@1.96
         with:
           components: rustfmt, clippy
       - name: Ensure ripgrep
