@@ -104,7 +104,7 @@ fn assembled(op: OperationId) -> Harness {
 fn run_case(sender: Sender, v: Rel, s: Rel) {
     let (system, crash) = mint_pair();
     let op = OperationId {
-        msb: u64::from(system.get()) << 16 | u64::from(crash.get()),
+        msb: (u64::from(system.get()) << 16) | u64::from(crash.get()),
         lsb: 1,
     };
     assert!(

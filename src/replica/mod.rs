@@ -1834,34 +1834,32 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             let adoptable = offer.message.header.view > current
                 || (offer.message.header.view == current
                     && (self.progress.status() == Status::ViewChange || boot_fenced));
-            if adoptable {
-                if let Body::StartView {
+            if adoptable
+                && let Body::StartView {
                     suffix,
                     accepted,
                     committed,
                     era_proof,
                 } = &offer.message.body
-                {
-                    if matches!(
-                        self.check_suffix(journal, suffix, *accepted, *committed, Slot::NONE),
-                        SuffixCheck::Install(_)
-                    ) {
-                        return self.plan_start_view(
-                            journal,
-                            offer.from,
-                            &offer.message,
-                            suffix,
-                            *accepted,
-                            *committed,
-                            era_proof,
-                            at,
-                            InputKind::PeerMessage {
-                                tag: Tag::StartView,
-                                slot: offer.message.header.slot,
-                            },
-                        );
-                    }
-                }
+                && matches!(
+                    self.check_suffix(journal, suffix, *accepted, *committed, Slot::NONE),
+                    SuffixCheck::Install(_)
+                )
+            {
+                return self.plan_start_view(
+                    journal,
+                    offer.from,
+                    &offer.message,
+                    suffix,
+                    *accepted,
+                    *committed,
+                    era_proof,
+                    at,
+                    InputKind::PeerMessage {
+                        tag: Tag::StartView,
+                        slot: offer.message.header.slot,
+                    },
+                );
             }
         }
         // §13.1 step 5: the new primary's stalled WIN re-runs on an
@@ -1872,49 +1870,48 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // honest: no attempt, no completed selection, or a still-
         // unconstructible suffix falls through to the fetch retry below,
         // which re-issues the `GetState` from the cursor.
-        if self.progress.status() == Status::ViewChange {
-            if let Some(view_change) = self.view_change.clone() {
-                if let Some((_, selected)) = &view_change.selected {
-                    let committed = view_change
-                        .evidence
-                        .values()
-                        .map(|member| member.committed)
-                        .max()
-                        .unwrap_or(self.progress.committed())
-                        .max(self.progress.committed());
-                    if committed <= selected.accepted
-                        && matches!(
-                            self.check_suffix(
-                                journal,
-                                &selected.suffix,
-                                selected.accepted,
-                                committed,
-                                self.progress.checkpoint(),
-                            ),
-                            SuffixCheck::Install(_)
-                        )
-                    {
-                        let selected_accepted = selected.accepted;
-                        let candidate = self.identity_candidate()?;
-                        // The re-drive keeps the win's peer-message kind:
-                        // the install re-selects `retained`, a transition
-                        // the legality gate admits only for the evidence
-                        // that drove the win (§9.1), never for a bare
-                        // tick. The header slot is the selected history's
-                        // accepted frontier (rule 7's Frontier role).
-                        return self.continue_view_change(
-                            journal,
-                            candidate,
-                            view_change,
-                            Vec::new(),
-                            at,
-                            InputKind::PeerMessage {
-                                tag: Tag::DoViewChange,
-                                slot: selected_accepted,
-                            },
-                        );
-                    }
-                }
+        if self.progress.status() == Status::ViewChange
+            && let Some(view_change) = self.view_change.clone()
+            && let Some((_, selected)) = &view_change.selected
+        {
+            let committed = view_change
+                .evidence
+                .values()
+                .map(|member| member.committed)
+                .max()
+                .unwrap_or(self.progress.committed())
+                .max(self.progress.committed());
+            if committed <= selected.accepted
+                && matches!(
+                    self.check_suffix(
+                        journal,
+                        &selected.suffix,
+                        selected.accepted,
+                        committed,
+                        self.progress.checkpoint(),
+                    ),
+                    SuffixCheck::Install(_)
+                )
+            {
+                let selected_accepted = selected.accepted;
+                let candidate = self.identity_candidate()?;
+                // The re-drive keeps the win's peer-message kind:
+                // the install re-selects `retained`, a transition
+                // the legality gate admits only for the evidence
+                // that drove the win (§9.1), never for a bare
+                // tick. The header slot is the selected history's
+                // accepted frontier (rule 7's Frontier role).
+                return self.continue_view_change(
+                    journal,
+                    candidate,
+                    view_change,
+                    Vec::new(),
+                    at,
+                    InputKind::PeerMessage {
+                        tag: Tag::DoViewChange,
+                        slot: selected_accepted,
+                    },
+                );
             }
         }
         // §10: an open fetch re-issues its `GetState` on an ordinary tick
@@ -2616,10 +2613,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             self.proposals.insert(slot, proposal);
         }
         for (slot, node) in bookkeeping.oks {
-            if let Some(proposal) = self.proposals.get_mut(&slot) {
-                if !proposal.oks.contains(&node) {
-                    proposal.oks.push(node);
-                }
+            if let Some(proposal) = self.proposals.get_mut(&slot)
+                && !proposal.oks.contains(&node)
+            {
+                proposal.oks.push(node);
             }
         }
         for slot in bookkeeping.resolved {
@@ -3146,13 +3143,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 Some(entry) => Some(entry),
                 None => journal.get(cursor),
             };
-            if let Some(entry) = entry {
-                if matches!(
+            if let Some(entry) = entry
+                && matches!(
                     entry.payload,
                     Payload::Operation { .. } | Payload::System(_)
-                ) {
-                    proposals.push((cursor, Proposal { oks: Vec::new() }));
-                }
+                )
+            {
+                proposals.push((cursor, Proposal { oks: Vec::new() }));
             }
             slot = cursor.next();
         }

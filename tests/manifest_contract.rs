@@ -145,9 +145,10 @@ fn uuid_appears_nowhere() {
 #[test]
 fn msrv_is_declared() {
     assert!(
-        MANIFEST.contains("rust-version = \"1.85\""),
-        "rust-version = \"1.85\" must be declared; edition 2024 sets the floor \
-         and clippy's msrv lints enforce it"
+        MANIFEST.contains("rust-version = \"1.96\""),
+        "rust-version = \"1.96\" must be declared: one toolchain, the one the \
+         crate is built and released with locally and in CI (AGENTS.md); \
+         no lane builds with a version the others do not share"
     );
 }
 

@@ -359,16 +359,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // entry the piggyback did not commit must fold onto the
             // post-piggyback table BEFORE it may be accepted, a peer's
             // invalid operation is dropped by name, never journaled.
-            if let Payload::System(op) = &entry.payload {
-                if let Err(error) = config.extend(op, entry.slot) {
-                    return self.drop_plan(
-                        Diagnostic::InvalidSystemOperation {
-                            slot: entry.slot,
-                            error,
-                        },
-                        kind,
-                    );
-                }
+            if let Payload::System(op) = &entry.payload
+                && let Err(error) = config.extend(op, entry.slot)
+            {
+                return self.drop_plan(
+                    Diagnostic::InvalidSystemOperation {
+                        slot: entry.slot,
+                        error,
+                    },
+                    kind,
+                );
             }
             // Era authorization (§8.7.3, §8.7.8): the entry's era must
             // name an era the committed history has established, the

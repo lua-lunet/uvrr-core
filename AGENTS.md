@@ -174,6 +174,16 @@ applies to it with double force, the branch rule AND a cleanup rule.
   worktree unless the User said so; they read the existing checkout and the
   git history.
 
+## Toolchain
+
+One toolchain: Rust 1.96. CI builds with exactly the toolchain the crate
+is built and released with locally (`rustc 1.96.0`, recorded in
+`Cargo.toml`'s `rust-version` and pinned in `.github/workflows/ci.yml`).
+There is no separate MSRV lane and no deliberate older pin: a toolchain
+exists to build this code, and any version CI does not share with the
+developers hides lint drift until it blocks a release. Raising the
+toolchain is a deliberate act that moves all three places at once.
+
 ## Tool inventory and submodule policy
 
 The deliverable crate is sans-I/O with zero runtime dependencies; that

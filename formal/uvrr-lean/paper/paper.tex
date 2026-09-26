@@ -185,6 +185,8 @@ reconfiguration: agreement does not depend on a fixed bound on outstanding slots
 \subsection{Processes, state and identity}
 The agreement model is asynchronous and non-Byzantine. Messages may be delayed, and an old message retains the identity that issued it. Each incarnation has a logical identity distinct from its physical host. The lifecycle must ensure that an identity never produces new protocol actions after a replacement incarnation takes over.
 
+A node identity is universally unique and never recycled, and it is durable before any startup emission. This is the obligation Paxos places on ballots~\cite{pms}, applied to node identity: a bump assigns a value that no life of any node has used or will use. The boot marker carries the identity as the durable pair \{system identifier, counter\}, the packing of a unique per-processor identifier with an increasing counter that Disk Paxos describes for ballot numbers~\cite{diskpaxos}. The identity write is amortised into the single small boot-fence write of the following paragraph, so no flush is added to any critical path.
+
 A clean stop first quiesces protocol processing, then flushes the state required for restart, and finally records a durable stopped marker. On startup, a valid stopped marker permits the process to reload that state and enter \emph{Restarting} with the same identity. Before sending protocol messages it durably records that it is running again. This boot fence prevents a later crash from being mistaken for another clean restart. A restarting process retains its promises and accepted state, so ordinary timeout processing is permitted by the design.
 
 Without a valid clean-stop marker, startup enters \emph{Joining} under a fresh identity. The old identity is crash-stopped. Cached state may reduce transfer work, but it provides no voting authority. The joiner asks the leader to evict the old incarnation and admit the new one; the leader can send missing state while coordinating the change. A joiner does not vote or initiate a view change. Its authority comes from the committed configuration, never from the fact that it shares a host with a former voter.
@@ -219,7 +221,7 @@ This is Turner's casting-vote condition~\cite{turner}. The leader first sends pr
 
 After receiving those promises, the leader chooses the suffix boundary $k$ and makes its own promise locally. Phase one is then complete without another network exchange for the leader's response. Proposals at $b'$ must still obey the normal rule for preserving values reported by phase one. Figure~\ref{fig:overlap} shows the message order.
 
-Decision quorums follow the era of the \emph{slot}, not simply the era associated with a ballot. Consequently, continuing to decide later-era slots at $b$ also requires a quorum valid for those slots. In the concrete pivot below, the active quorum is a majority in both adjoining eras.
+Decision quorums follow the era of the \emph{slot}, not simply the era associated with a ballot. Consequently, continuing to decide later-era slots at $b$ also requires a quorum valid for those slots. A value accepted under a leader that has failed is committed at the same slot by the new leader's per-slot install; it is not a new value at the slot and not a violation. In the concrete pivot below, the active quorum is a majority in both adjoining eras.
 
 \begin{figure*}[t]
 \centering
@@ -433,6 +435,18 @@ CORFU provides a concrete precedent for compact configuration metadata alongside
 ZooKeeper and etcd are established ways to supply coordination separately from an application. ZooKeeper offers linearizable state changes and per-client ordering, while local reads have weaker semantics~\cite{zookeeper}. etcd documents strict serializability for its key-value operations and distinguishes default linearizable reads from optional serializable reads~\cite{etcd-guarantees}. An application must choose the operation semantics it actually needs.
 
 A separately operated service also brings deployment and resource costs. For scale, etcd's version 3.6 hardware guide gives a small-cluster example with dedicated two-vCPU, 8 GB AWS machines~\cite{etcd-hardware}. etcd can itself be embedded in a Go application~\cite{etcd-embed}. The proposed combination here is small application-owned state, volatile normal-path replication, and replacement through fresh identities and overlapping quorums.
+
+\subsection{The host's obligations}
+Discoverability, addressability, identity, and durability are first-class
+obligations of the host. Each is stated over happens-before relations of the
+host's input and output to the network, to the boot fence, and to the durable
+state: no protocol message leaves before the boot fence records that the
+process runs, and no announcement names a new identity before that identity is
+flushed. A cold stop of all replicas followed by a cold start resumes in the
+same era, because the era is durable in the marker. These relations rest on the
+behaviour of the storage layer: a single flushed flag is not reliable enough on
+real file systems~\cite{allfs,optimistic-crash}, which is why the marker is a
+quorum of copies rather than a flag.
 
 \subsection{Scope}
 \paragraph{Implementation correspondence}
@@ -856,6 +870,10 @@ Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters
 \bibitem{vrr} B. Liskov and J. Cowling, ``Viewstamped replication revisited,'' MIT CSAIL, Tech. Rep. MIT-CSAIL-TR-2012-021, 2012. [Online]. Available: \url{https://hdl.handle.net/1721.1/71763}
 \bibitem{diskless} E. Michael, D. R. K. Ports, N. Kr. Sharma, and A. Szekeres, ``Providing stable storage for the diskless crash-recovery failure model,'' University of Washington, Tech. Rep. UW-CSE-16-08-02, Aug. 25, 2016. [Online]. Available: \url{https://syslab.cs.washington.edu/papers/diskless-tr16.pdf}
 \bibitem{par} R. Alagappan, A. Ganesan, E. Lee, A. Albarghouthi, V. Chidambaram, A. C. Arpaci-Dusseau, and R. H. Arpaci-Dusseau, ``Protocol-aware recovery for consensus-based storage,'' in \emph{USENIX FAST}, 2018. [Online]. Available: \url{https://www.usenix.org/system/files/conference/fast18/fast18-alagappan.pdf}
+\bibitem{pms} L. Lamport, ``Paxos made simple,'' \emph{ACM SIGACT News}, vol. 32, no. 4, pp. 51--58, 2001.
+\bibitem{diskpaxos} E. Gafni and L. Lamport, ``Disk Paxos,'' \emph{Distributed Computing}, vol. 16, no. 1, pp. 1--20, 2003. [Online]. Available: \url{https://lamport.azurewebsites.net/pubs/disk-paxos-disc.pdf}
+\bibitem{allfs} T. S. Pillai, V. Chidambaram, R. Alagappan, A. C. Arpaci-Dusseau, and R. H. Arpaci-Dusseau, ``All file systems are not created equal: On the complexity of crafting crash consistent applications,'' in \emph{USENIX OSDI}, 2014. [Online]. Available: \url{https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-pillai.pdf}
+\bibitem{optimistic-crash} V. Chidambaram, T. S. Pillai, A. C. Arpaci-Dusseau, and R. H. Arpaci-Dusseau, ``Optimistic crash consistency: Application-aware fully-extensible crash consistency,'' in \emph{ACM SOSP}, 2013, doi: \href{https://doi.org/10.1145/2517349.2522726}{10.1145/2517349.2522726}.
 \bibitem{turner} D. Turner, ``Unbounded pipelining in dynamically reconfigurable Paxos clusters,'' revision 1A9DBA37, Aug. 14, 2017. [Online]. Available: \url{https://github.com/DaveCTurner/paxos-membership}. The proof artifact includes the consulted PDF and its digest.
 \bibitem{motivation} S. Massey, ``Viewstamped replication revisited,'' Aug. 12, 2026. [Online]. Available: \url{https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/}
 \bibitem{corfu} M. Balakrishnan, D. Malkhi, J. D. Davis, V. Prabhakaran, M. Wei, and T. Wobber, ``CORFU: A Distributed Shared Log,'' \emph{ACM Trans. Comput. Syst.}, vol. 31, no. 4, Art. 10, Dec. 2013, doi: \href{https://doi.org/10.1145/2535930}{10.1145/2535930}.
