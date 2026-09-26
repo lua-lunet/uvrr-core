@@ -1,6 +1,6 @@
 //! Sans-I/O Viewstamped Replication Revisited (VRR-2012).
 //!
-//! `vrr-core` is a library with a C ABI, not a framework. It never tells the host what
+//! `uvrr-core` is a library with a C ABI, not a framework. It never tells the host what
 //! to do. The whole of it is one total function,
 //!
 //! ```text

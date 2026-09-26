@@ -1,4 +1,4 @@
-# vrr-core: the Rust suite, and the Maelstrom node the core is checked with.
+# uvrr-core: the Rust suite, and the Maelstrom node the core is checked with.
 #
 # Prerequisites for the Maelstrom targets: `mise install` (JDK 25 + Leiningen
 # 2.11.2) and `gnuplot` on PATH for Jepsen's latency/rate plots. Without gnuplot
