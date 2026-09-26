@@ -1,6 +1,6 @@
 [package]
 name = "uvrr-core"
-version = "0.10.2"
+version = "0.10.3"
 edition = "2024"
 # Edition 2024 requires 1.85, which sets this floor. Enforced by clippy's msrv
 # lints, so a newer API cannot creep in unnoticed.
