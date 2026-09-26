@@ -500,10 +500,10 @@ impl SegmentedLog {
         // The tail is physical history like any slab and is not exempt: a checkpoint
         // at or past the frontier covers it, so seal it first and let the whole-slab
         // rule below apply uniformly.
-        if let Some(frontier) = self.frontier() {
-            if frontier <= checkpoint {
-                self.seal_tail();
-            }
+        if let Some(frontier) = self.frontier()
+            && frontier <= checkpoint
+        {
+            self.seal_tail();
         }
         let covered = self.boundaries.partition_point(|&(first, len)| {
             // Slabs are never empty; `first + len - 1` is the slab's final slot, and

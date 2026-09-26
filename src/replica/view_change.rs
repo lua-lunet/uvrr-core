@@ -549,11 +549,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             trace!("OFFER: retainable={}", retainable);
             if retainable {
                 let mut plan = plan.with_stalled_offer(from, message.clone());
-                if self.transfer.is_none() {
-                    if let Some(next_slot) = self.progress.committed().next() {
-                        let (effect, fetch) = self.fetch(current, from, next_slot);
-                        plan = plan.with_fetch(effect, fetch);
-                    }
+                if self.transfer.is_none()
+                    && let Some(next_slot) = self.progress.committed().next()
+                {
+                    let (effect, fetch) = self.fetch(current, from, next_slot);
+                    plan = plan.with_fetch(effect, fetch);
                 }
                 return Ok(plan);
             }

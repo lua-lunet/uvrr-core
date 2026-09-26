@@ -412,7 +412,7 @@ impl QuorumStrategy for ParityCommit {
     fn is_quorum(&self, role: Role, config: &Configuration, members: &[NodeId]) -> bool {
         let threshold = match role {
             Role::Commit => {
-                if config.total() % 2 == 0 {
+                if config.total().is_multiple_of(2) {
                     3
                 } else {
                     4
@@ -429,7 +429,7 @@ impl QuorumStrategy for ParityCommit {
     fn threshold(&self, role: Role, config: &Configuration) -> Option<u64> {
         let threshold = match role {
             Role::Commit => {
-                if config.total() % 2 == 0 {
+                if config.total().is_multiple_of(2) {
                     3
                 } else {
                     4

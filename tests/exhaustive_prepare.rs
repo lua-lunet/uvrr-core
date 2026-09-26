@@ -112,7 +112,7 @@ fn released(outcome: &StepOutcome) -> Vec<(NodeId, Message)> {
 #[rustfmt::skip]
 fn run_case(seq: u64, boot: Boot, v: Rel, s: Rel, p: Rel) {
     let (system, crash) = mint_pair();
-    let op = OperationId { msb: u64::from(system.get()) << 16 | u64::from(crash.get()), lsb: seq };
+    let op = OperationId { msb: (u64::from(system.get()) << 16) | u64::from(crash.get()), lsb: seq };
     assert!(op.msb != 0 && op.lsb != 0, "the mint never draws a zero half");
     let mut h = cluster_at_view_one();
     let receiver = n(2);

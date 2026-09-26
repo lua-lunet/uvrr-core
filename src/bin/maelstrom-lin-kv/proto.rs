@@ -150,7 +150,7 @@ pub fn to_hex(bytes: &[u8]) -> String {
 pub fn from_hex(text: &str) -> Option<Vec<u8>> {
     // `%` rather than `is_multiple_of`, which is only stable since 1.87 and
     // would raise this crate's MSRV for the sake of a parity check.
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return None;
     }
     let digits = text.as_bytes();

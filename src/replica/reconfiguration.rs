@@ -967,11 +967,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The suffix fallback opens only when the successor era is not
         // yet recorded: the establishing operation is exactly what the
         // fetched range must supply.
-        if self.progress.config().record(header.view.era).is_none() {
-            if let Some(next) = accepted.next() {
-                let (effect, fetch) = self.fetch(current, from, next);
-                return Ok(plan.with_fetch(effect, fetch));
-            }
+        if self.progress.config().record(header.view.era).is_none()
+            && let Some(next) = accepted.next()
+        {
+            let (effect, fetch) = self.fetch(current, from, next);
+            return Ok(plan.with_fetch(effect, fetch));
         }
         Ok(plan)
     }

@@ -93,7 +93,7 @@ fn assembled() -> Harness {
     for _ in 0..=TIMEOUT { h.tick(n(1)); }
     h.deliver_all();
     let (system, crash) = mint_pair();
-    let op = OperationId { msb: u64::from(system.get()) << 16 | u64::from(crash.get()), lsb: 1 };
+    let op = OperationId { msb: (u64::from(system.get()) << 16) | u64::from(crash.get()), lsb: 1 };
     let header = Header { tag: Tag::Prepare, view: view(1), slot: Slot(5) };
     let entry = LogEntry {
         slot: Slot(5),
@@ -120,7 +120,7 @@ fn released(outcome: &StepOutcome) -> Vec<(NodeId, Message)> {
 #[rustfmt::skip]
 fn run_case(sender: Sender, v: Rel, t: Rel, more: More) {
     let (system, crash) = mint_pair();
-    let op = OperationId { msb: u64::from(system.get()) << 16 | u64::from(crash.get()), lsb: 2 };
+    let op = OperationId { msb: (u64::from(system.get()) << 16) | u64::from(crash.get()), lsb: 2 };
     assert!(op.msb != 0 && op.lsb != 0, "the mint never draws a zero half");
     let mut h = assembled();
     let receiver = n(2);

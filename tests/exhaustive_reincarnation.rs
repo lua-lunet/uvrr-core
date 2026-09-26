@@ -117,7 +117,7 @@ fn released(outcome: &StepOutcome) -> Vec<(NodeId, Message)> {
 fn run_case(role: Role, sender: Sender, pair: Pair, r: Rel) {
     let (old_system, old_crash) = mint_pair();
     let (new_system, new_crash) = mint_pair();
-    let op = OperationId { msb: u64::from(old_system.get()) << 16 | u64::from(old_crash.get()), lsb: 1 };
+    let op = OperationId { msb: (u64::from(old_system.get()) << 16) | u64::from(old_crash.get()), lsb: 1 };
     assert!(op.msb != 0 && op.lsb != 0, "the mint never draws a zero half");
     let _ = op;
     let old = NodeId::new(old_system, old_crash);

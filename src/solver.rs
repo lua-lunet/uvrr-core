@@ -137,10 +137,10 @@ pub fn solve(
     };
     if same_order {
         for scale in [SystemOperation::Double, SystemOperation::Halve] {
-            if let Ok(c) = current.apply(&scale, Slot(0)) {
-                if c.order() == target.order() {
-                    return Ok(current.plan(&[scale])?);
-                }
+            if let Ok(c) = current.apply(&scale, Slot(0))
+                && c.order() == target.order()
+            {
+                return Ok(current.plan(&[scale])?);
             }
         }
         for (is_live, increase) in [(false, false), (true, true), (true, false), (false, true)] {
