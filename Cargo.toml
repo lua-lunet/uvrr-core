@@ -1,6 +1,6 @@
 [package]
-name = "vrr-core"
-version = "0.1.0"
+name = "uvrr-core"
+version = "0.10.0"
 edition = "2024"
 # Edition 2024 requires 1.85, which sets this floor. Enforced by clippy's msrv
 # lints, so a newer API cannot creep in unnoticed.
@@ -22,7 +22,7 @@ exclude = ["maelstrom/", "store/", ".state/", "mise.toml", ".gitmodules"]
 # `name = "vrr"` deliberately differs from the package name. The cdylib and
 # staticlib artifacts are named after the lib target, and the C ABI symbol
 # prefix and the shared-object name a LuaJIT host dlopens are `vrr`, not
-# `vrr_core`.
+# `uvrr_core`.
 [lib]
 name = "vrr"
 crate-type = ["rlib", "cdylib", "staticlib"]

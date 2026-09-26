@@ -1,4 +1,4 @@
-//! Manifest contract: the published dependency surface of `vrr-core`.
+//! Manifest contract: the published dependency surface of `uvrr-core`.
 //!
 //! This is a gate, not a smoke test. It asserts properties of `Cargo.toml` and
 //! `src/lib.rs` that a later change cannot silently regress by adding a convenient
@@ -10,8 +10,8 @@
 //! correct for a manifest this crate controls.
 //!
 //! Desired property, stated once so it survives any rewrite of the assertions: a
-//! consumer who writes `vrr-core = "0.1"` with `default-features = false` pulls in
-//! zero transitive crates, so that `vrr-core` can be vendored into a build with a
+//! consumer who writes `uvrr-core = "0.1"` with `default-features = false` pulls in
+//! zero transitive crates, so that `uvrr-core` can be vendored into a build with a
 //! frozen or audited dependency set (decision W2, W3).
 
 /// The manifest under test, embedded at compile time so the assertions cannot
