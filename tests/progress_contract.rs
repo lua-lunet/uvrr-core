@@ -17,8 +17,8 @@
 //!    (§12) is rejected by comparison;
 //! 5. `invariant::legal` enforces each numbered rule of the transition contract,
 //!    one violating and one passing triple per rule;
-//! 6. era/slot discipline: `era(accepted)` is `era(current)` or `era(current) + 1`
-//!    — the `+1` boundary (overlap mode) passes, `+2` is refused at construction;
+//! 6. era/slot discipline: `era(accepted)` is `era(current)` or `era(current) + 1`,
+//!    the `+1` boundary (overlap mode) passes, `+2` is refused at construction;
 //! 7. the seqlock never returns a torn read, under a writer/reader race;
 //! 8. `ViewId::INITIAL` is the genesis view: `Progress::genesis` advertises it,
 //!    fenced and restarting, per §5.
@@ -43,7 +43,7 @@ use vrr::wire::Tag;
 ///
 /// The per-era operations obey the weight domain {0, 1, 2} (rules §1, R1): era 2
 /// promotes the sole member to weight 2, and every later era joins a fresh
-/// weight-0 learner and leaves it — zero-mass eras (R14), so the sequence is
+/// weight-0 learner and leaves it, zero-mass eras (R14), so the sequence is
 /// legal however long the fixture runs.
 fn table_upto(era: u32) -> Arc<EraTable> {
     let node = NodeId(0);
@@ -118,7 +118,7 @@ fn normal(
 }
 
 // ---------------------------------------------------------------------------
-// 1. Frontier chain — exhaustive over a small space
+// 1. Frontier chain, exhaustive over a small space
 // ---------------------------------------------------------------------------
 
 /// Every tuple `(checkpoint, applied, committed, accepted)` over `0..=3` is either
@@ -170,7 +170,7 @@ fn frontier_chain_is_exhaustively_enforced() {
 // ---------------------------------------------------------------------------
 
 /// `Normal` requires `current == retained`; `ViewChange` requires `current >=
-/// retained`. `Restarting` and `Replaying` carry no relation — §1.3 states that in
+/// retained`. `Restarting` and `Replaying` carry no relation, §1.3 states that in
 /// those statuses `current` is not an authority to participate, so constraining it
 /// would forbid states a restarting node legitimately holds.
 #[test]
@@ -213,7 +213,7 @@ fn status_view_relation_is_enforced() {
 // ---------------------------------------------------------------------------
 
 /// A faulted progress refuses every transition, reporting the fault it already
-/// holds — never a new one. This is what S3 buys: an indeterminate persistence
+/// holds, never a new one. This is what S3 buys: an indeterminate persistence
 /// result stops the node instead of letting it guess what its durable state is.
 #[test]
 fn fault_is_sticky_across_every_transition() {
@@ -309,7 +309,7 @@ fn revision_advances_by_exactly_one() {
 // 5. The `legal` rule table
 // ---------------------------------------------------------------------------
 
-/// Rule 1 — monotone frontiers never regress; `accepted` may shorten only across
+/// Rule 1, monotone frontiers never regress; `accepted` may shorten only across
 /// a history re-selection (rule 3's set), because §9.1 ranks `retained_view`
 /// first: a shorter history retained from a later view displaces a longer one
 /// from an earlier view.
@@ -383,7 +383,7 @@ fn rule1_accepted_may_shorten_only_on_reselection() {
     );
 }
 
-/// Rule 2 — `current` never regresses, and a view change is a legal successor:
+/// Rule 2, `current` never regresses, and a view change is a legal successor:
 /// view strictly up, era equal or +1 (delegated to `ViewId::is_legal_successor`).
 #[test]
 fn rule2_view_succession() {
@@ -427,7 +427,7 @@ fn rule2_view_succession() {
     );
 }
 
-/// Rule 3 — `retained` identifies the provenance of the retained history (§1.3);
+/// Rule 3, `retained` identifies the provenance of the retained history (§1.3);
 /// it changes only when that history was re-selected by a peer message
 /// that installs one (`DoViewChange` completing the new primary's quorum,
 /// `StartView`, `NewState`).
@@ -473,7 +473,7 @@ fn rule3_retained_changes_only_on_reselection() {
     }
 }
 
-/// Rule 7 — the per-tag header-slot table. The table
+/// Rule 7, the per-tag header-slot table. The table
 /// itself is pinned exhaustively; each role then gets its violating and passing
 /// transitions below.
 #[test]
@@ -511,7 +511,7 @@ fn rule7_header_slot_table_is_the_documented_one() {
 }
 
 /// Rule 7, `Operation` class: `Prepare`/`PrepareOk` name a log position, and
-/// position 0 holds nothing — the first operation of a legitimate history is
+/// position 0 holds nothing, the first operation of a legitimate history is
 /// `Void` at slot 1 (§8.7.2).
 #[test]
 fn rule7_operation_tags_must_name_a_slot() {
@@ -532,7 +532,7 @@ fn rule7_operation_tags_must_name_a_slot() {
 }
 
 /// Rule 7, `Absent` class: these tags carry no meaningful slot, so the
-/// only legal value is the sentinel `Slot(0)` — never a fabricated position.
+/// only legal value is the sentinel `Slot(0)`, never a fabricated position.
 #[test]
 fn rule7_absent_tags_must_send_the_sentinel() {
     let table = genesis_table();
@@ -552,7 +552,7 @@ fn rule7_absent_tags_must_send_the_sentinel() {
 }
 
 /// Rule 7, `Frontier` class: these tags carry the frontier they speak about, and
-/// every slot value is meaningful — `Slot(0)` is the empty frontier a genesis
+/// every slot value is meaningful, `Slot(0)` is the empty frontier a genesis
 /// node legitimately reports. The class has no violating value at the header
 /// level by design: whether a claimed frontier is *believable* is a transition
 /// rule of the replica, not a property of the header.
@@ -582,8 +582,8 @@ fn rule7_frontier_tags_admit_any_slot() {
 
 /// The boundary case: `era(accepted) == era(current) + 1` is overlap mode and is
 /// legal; `+2` skips a configuration whose intersection obligations were never
-/// checked (Q1) and is refused. Enforcement is at construction — an undisciplined
-/// value is unrepresentable — with `legal` rule 6 as the belt-and-braces check on
+/// checked (Q1) and is refused. Enforcement is at construction, an undisciplined
+/// value is unrepresentable, with `legal` rule 6 as the belt-and-braces check on
 /// every candidate.
 #[test]
 fn era_slot_discipline_boundary() {
@@ -667,8 +667,8 @@ fn observation_read_returns_latest_write() {
 }
 
 /// The race B1 exists to win: one writer publishing an incrementing counter,
-/// readers asserting `doubled == value * 2` on every read. A torn read — half of
-/// one write, half of another — violates that relation, so any seqlock bug that
+/// readers asserting `doubled == value * 2` on every read. A torn read, half of
+/// one write, half of another, violates that relation, so any seqlock bug that
 /// returns one fails here. Run under `--release`; debug runs
 /// exercise the same interleavings more slowly.
 #[test]
@@ -730,7 +730,7 @@ fn observation_never_returns_a_torn_read() {
 // ---------------------------------------------------------------------------
 
 /// The ruling (resolved here): `ViewId::INITIAL` is pinned as
-/// the **genesis view** — the `(era 0, view 0)` pair a freshly provisioned node
+/// the **genesis view**, the `(era 0, view 0)` pair a freshly provisioned node
 /// advertises. Era 0 is the void configuration, quorum-impossible by arithmetic
 /// (see `Configuration::void`), and view 0 is the first primary term once `Init`
 /// commits. It is not "no view": a freshly provisioned node has a real genesis
@@ -830,7 +830,7 @@ fn transitions_validate_their_results() {
     );
 
     // View installation completes a change: retained and current join, status
-    // Normal, and the installed frontier may shorten — but never below
+    // Normal, and the installed frontier may shorten, but never below
     // `committed`.
     let installed = progress
         .with_view_change(view(0, 4))

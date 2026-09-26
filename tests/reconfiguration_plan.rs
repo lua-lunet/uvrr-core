@@ -9,7 +9,7 @@
 //!
 //! Every batch folded here is committed as ONE era by the fold, and every
 //! consecutive pair of committed configurations is checked against the closed
-//! gate `vrr::quorum::validate_transition` — the exhaustive disjoint-pair search
+//! gate `vrr::quorum::validate_transition`, the exhaustive disjoint-pair search
 //! the rules doc §8 names as the mechanical form of the intersection argument.
 
 use proptest::prelude::*;
@@ -140,7 +140,7 @@ fn assert_weight_domain(steps: &[Configuration]) {
 
 /// Any number of learners may join in one era: each `Join` moves no mass
 /// (`|0 − 0| = 0`), so R14 admits them without bound, and the quorum families
-/// are unchanged (R4) — the exhaustive gate agrees. The planner keeps the whole
+/// are unchanged (R4), the exhaustive gate agrees. The planner keeps the whole
 /// stream in ONE era for the same reason.
 #[test]
 fn many_zero_weight_joins_commit_one_era() {
@@ -263,8 +263,8 @@ fn two_unit_changes_in_one_era_refused() {
     );
 }
 
-/// The identity swap — `[DECREMENT(c), JOIN(d), INCREMENT(d), LEAVE(c)]` on
-/// `(a:1, b:1, c:1)` — has net total change 0 yet moves mass 2, and its
+/// The identity swap, `[DECREMENT(c), JOIN(d), INCREMENT(d), LEAVE(c)]` on
+/// `(a:1, b:1, c:1)`, has net total change 0 yet moves mass 2, and its
 /// endpoint's era-`e` majority `{b, c}` and era-`e+1` majority `{a, d}` are
 /// disjoint (§4). The per-node mass is the checkable condition; the net total
 /// would admit the swap it exists to forbid.
@@ -289,7 +289,7 @@ fn identity_swap_refused_despite_zero_net() {
 // §5: the reduce-left partitioner
 // ---------------------------------------------------------------------------
 
-/// The reincarnation four — `[DECREMENT(c), JOIN(d), INCREMENT(d), LEAVE(c)]` —
+/// The reincarnation four, `[DECREMENT(c), JOIN(d), INCREMENT(d), LEAVE(c)]`,
 /// split into exactly two eras: after `DECREMENT(c), JOIN(d)` the mass moved is
 /// 1, so the batch closes; the next era takes `INCREMENT(d), LEAVE(c)` (mass
 /// 1). The canonical two-era form `(a:1,b:1,c:1) → (a:1,b:1,c:0,d:0) →
@@ -531,7 +531,7 @@ fn leave_refuses_at_positive_weight() {
     );
 }
 
-/// After any legal sequence — the grids, the reincarnation eras — every weight
+/// After any legal sequence, the grids, the reincarnation eras, every weight
 /// is still inside {0, 1, 2} (R1): the closure the domain argument rests on.
 #[test]
 fn weights_never_leave_the_domain() {
@@ -597,7 +597,7 @@ fn genesis_and_nested_batches_are_refused() {
 // §7: the blog grids, row by row
 // ---------------------------------------------------------------------------
 
-/// Grid 1 — the unit hot swap. Op stream `JOIN(Z), INCREMENT(Z), DECREMENT(Y),
+/// Grid 1, the unit hot swap. Op stream `JOIN(Z), INCREMENT(Z), DECREMENT(Y),
 /// LEAVE(Y)` → eras `[JOIN(Z), INCREMENT(Z)]` then `[DECREMENT(Y), LEAVE(Y)]`.
 /// Every row of the grid is one committed era, and every consecutive pair
 /// passes the exhaustive gate.
@@ -624,11 +624,11 @@ fn grid_one_is_reproduced_row_by_row() {
     assert_weight_domain(&configs);
 }
 
-/// Grid 2 — the doubled-scale safe replacement. Op stream `DOUBLE, JOIN(Z),
+/// Grid 2, the doubled-scale safe replacement. Op stream `DOUBLE, JOIN(Z),
 /// INCREMENT(Z), DECREMENT(Y), DECREMENT(Y), LEAVE(Y), INCREMENT(Z), HALVE` →
 /// eras `[DOUBLE]`, `[JOIN(Z), INCREMENT(Z)]`, `[DECREMENT(Y)]`,
 /// `[DECREMENT(Y), LEAVE(Y)]`, `[INCREMENT(Z)]`, `[HALVE]`. The final `HALVE`
-/// is integral because the joiner was driven to weight 2 first — the doubled
+/// is integral because the joiner was driven to weight 2 first, the doubled
 /// corner that makes the return to unit weights possible at all.
 #[test]
 fn grid_two_is_reproduced_row_by_row() {
@@ -848,8 +848,8 @@ fn snapshot_serde_round_trip_and_tamper() {
     assert_eq!(decoded, snapshot);
     assert_eq!(decoded.inflate(), Ok(with_learner));
 
-    // Tampering with a member's weight deserializes fine — serde cannot check
-    // domain membership — and the checked constructor refuses it.
+    // Tampering with a member's weight deserializes fine, serde cannot check
+    // domain membership, and the checked constructor refuses it.
     let mut tampered = snapshot.clone();
     tampered.order[0].weight = Weight(9);
     assert_eq!(
@@ -887,7 +887,7 @@ fn snapshot_plus_wal_fold_equals_the_flat_stream() {
         .collect();
 
     // Replay the WAL from the inflated snapshot: one Batch entry per era, one
-    // apply per entry — the fold is the replay (§9).
+    // apply per entry, the fold is the replay (§9).
     let restored = genesis
         .to_snapshot()
         .inflate()
@@ -898,7 +898,7 @@ fn snapshot_plus_wal_fold_equals_the_flat_stream() {
     // The flat stream, one era per op.
     let flat = fold_from(&restored, &stream);
 
-    // Same membership, same weights — the eras differ by design (the batch
+    // Same membership, same weights, the eras differ by design (the batch
     // collapses them), the state does not.
     assert_eq!(weights(&from_wal), weights(&flat));
     assert_eq!(order(&from_wal), order(&flat));
@@ -952,8 +952,8 @@ proptest! {
 
 fn op_strategy() -> impl Strategy<Value = SystemOperation> {
     // Weighted toward the legal majority: arithmetic over the member range,
-    // joins over fresh identities. Refusals still happen — a member at the cap,
-    // a leave at a positive weight — and those are exactly the streams the
+    // joins over fresh identities. Refusals still happen, a member at the cap,
+    // a leave at a positive weight, and those are exactly the streams the
     // property skips, but the accept rate keeps the case count meaningful.
     prop_oneof![
         3 => (0u32..3).prop_map(|id| SystemOperation::Increment(n(id))),

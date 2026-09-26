@@ -5,7 +5,7 @@
 //!
 //! * **The forced weight sequence** (§5; rules §6): given a committed
 //!   configuration and the announced `(old, new)` pair, the remaining
-//!   eras the leader must commit — the §6 table computed for the old
+//!   eras the leader must commit, the §6 table computed for the old
 //!   identity's observed state, each era ONE `Batch` establishing
 //!   operation: the old identity's weight driven to 0 by unit decrements
 //!   (the subtract-one rule, always era-safe), the crossing batch
@@ -15,37 +15,37 @@
 //!   evicted the join/promotion form the table names. Steps the observed
 //!   eras already committed are not re-run: the announcement is idempotent
 //!   over the current configuration, which is what makes a leader crash
-//!   mid-sequence harmless (§8) — whichever safe era the crash lands in,
+//!   mid-sequence harmless (§8), whichever safe era the crash lands in,
 //!   the next leader recomputes the remaining eras from the configuration
 //!   that era committed.
 //! * **The leader machine**: the pair the announcement armed, and the
 //!   tick-driven continuation that proposes the next step through the
-//!   ordinary reconfiguration pipeline — one establishing operation at a
+//!   ordinary reconfiguration pipeline, one establishing operation at a
 //!   time, each commit a distinct era (§5), every step gated by the same
 //!   closed gates any host-proposed operation passes.
 //! * **The marker transition machine** (§5.1 of `docs/vrr-durability-model.md`,
 //!   the boot decision of `docs/uvrr-reincarnation.md` §1): the pure Rust twin
 //!   of the vendored TigerBeetle store (`zig/uvrr/store.zig`). The four
-//!   superblock markers are an ordered transition system —
+//!   superblock markers are an ordered transition system,
 //!   `Running ──stop──> Stopping ──drain──> Stopped ──boot, 2-of-4──>
 //!   Restarting`, and `Running ──crash──> (markers unchanged) ──boot, no
-//!   2-of-4 Stopped──> Joining` — each state naming the transition that must
+//!   2-of-4 Stopped──> Joining`, each state naming the transition that must
 //!   have completed for it to exist. uVRR performs **no disk flushes on the
 //!   normal path**: the stop command writes `Stopping` 4x
-//!   ([`crate::lifecycle::SuperblockCopies::begin_stop`]), the HOST drains — flushes WALs and
-//!   grids — strictly between the two marker writes, and
+//!   ([`crate::lifecycle::SuperblockCopies::begin_stop`]), the HOST drains, flushes WALs and
+//!   grids, strictly between the two marker writes, and
 //!   [`crate::lifecycle::SuperblockCopies::finish_stop`] writes `Stopped` 4x; the marker order
 //!   is the drain's proof, so a `Stopped` copy vouches for the WAL under it.
-//!   At boot the quorum read answers one question — *did the transition
-//!   complete?* — with 2-of-4 copies holding `Stopped` (the twin's open
+//!   At boot the quorum read answers one question, *did the transition
+//!   complete?*, with 2-of-4 copies holding `Stopped` (the twin's open
 //!   threshold), the working quorum resolving the identity
 //!   higher-identity-wins INSIDE the quorum: a stopped quorum continues under
-//!   the same identity and writes `Restarting` 4x — a member with complete
-//!   state, no amnesia, ticking the full protocol; no stopped quorum — a
-//!   crash, a torn marker set, or death mid-join — means the identity is
-//!   dead: the node bumps it and reincarnates, writing `Joining` 4x — not a
+//!   the same identity and writes `Restarting` 4x, a member with complete
+//!   state, no amnesia, ticking the full protocol; no stopped quorum, a
+//!   crash, a torn marker set, or death mid-join, means the identity is
+//!   dead: the node bumps it and reincarnates, writing `Joining` 4x, not a
 //!   member, no vote, no view change. No `Started` state is written: no
-//!   safety logic looks for `Started`, it looks for `Stopped` — the extra
+//!   safety logic looks for `Started`, it looks for `Stopped`, the extra
 //!   superblock write buys no safety and is elided. The marker writes are
 //!   durable-on-write (flushed), the only disk traffic outside the stop
 //!   path.
@@ -69,7 +69,7 @@ use super::{
 /// Volatile by design: a leader crash discards it, and the bumped node
 /// re-announces to the stable leader (§8), whose first act is to recompute
 /// the remaining steps from the configuration the observed intermediate era
-/// committed. The steps are never stored — the configuration history is
+/// committed. The steps are never stored, the configuration history is
 /// their only authority.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(in crate::replica) struct ForcedSequence {
@@ -85,7 +85,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// remaining forced step.
     ///
     /// Only the leader of its current view drives the sequence (§5); only
-    /// the NEW identity may claim the pair — the announcement's sender is
+    /// the NEW identity may claim the pair, the announcement's sender is
     /// the transport-attributed restarted node, and a message whose sender
     /// is not the identity it names is a forgery, dropped. The announcement
     /// is idempotent: steps the observed eras already committed are not
@@ -94,8 +94,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// re-drives it on a tick.
     ///
     /// The immediate ack (§4, §7) rides the SAME transition, ahead of the
-    /// proposal: the missed range — from the announcement's past-life
-    /// prepared frontier up to the leader's committed frontier — as an
+    /// proposal: the missed range, from the announcement's past-life
+    /// prepared frontier up to the leader's committed frontier, as an
     /// ordinary [`Body::NewState`] chunk addressed to the standby. Messages
     /// TO a non-member are legal (§6). The chunk's header view is the
     /// ANNOUNCEMENT's view: the standby evaluates the chunk against the
@@ -147,7 +147,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .ok_or(ProgressError::EraSlotDiscipline)
             .map_err(PlanRefusal::Progress)?;
         // The immediate ack: the missed range, evaluated once per
-        // announcement (§7's streaming order — the ack precedes the first
+        // announcement (§7's streaming order, the ack precedes the first
         // reconfiguration).
         let ack = self.missed_range_push(journal, announced_view, new, prepared);
         match forced_steps(&record.config, old, new).into_iter().next() {
@@ -169,8 +169,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     }
                     // The ack transition's own establishing prepare is
                     // leader-originated: the memo stream's first beat
-                    // rides it. The machine arms at install — after
-                    // this emission — so the ordinary emission site
+                    // rides it. The machine arms at install, after
+                    // this emission, so the ordinary emission site
                     // cannot yet see it; the standby copy is made
                     // here, addressed to the announced node.
                     let establishing = plan.effects.iter().find_map(|effect| match effect {
@@ -204,8 +204,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The missed-range push (§7 step 1): one ordinary [`Body::NewState`]
     /// chunk covering the slots the announced node's past-life journal
-    /// lacks — from its prepared frontier's successor through the leader's
-    /// committed frontier — addressed to the standby under `view`, the
+    /// lacks, from its prepared frontier's successor through the leader's
+    /// committed frontier, addressed to the standby under `view`, the
     /// view the announcement carried. The chunk is budget-bounded the way
     /// the §10 serving path bounds one; a range that does not fit one
     /// chunk marks `more`, and the standby's own §10 fetch resumes the
@@ -266,7 +266,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The memo-stream target (§7): the announced node while the machine
-    /// is armed and it does not yet VOTE — outside the committed
+    /// is armed and it does not yet VOTE, outside the committed
     /// configuration, or joined at weight 0 (the overlap window's
     /// ordinary addressing names the old configuration, which does not
     /// reach a joined standby until the view change into its era). Once
@@ -287,7 +287,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The stream targets (`docs/uvrr-rejoin-gossip-and-witnesses.md` §3):
-    /// the memo target (§7) plus the gossip-witness list — the leader
+    /// the memo target (§7) plus the gossip-witness list, the leader
     /// pushes all phase-2s and commits to every node the join gossip has
     /// named, as if those nodes were part of the cluster. A witness the
     /// committed configuration already counts at weight one or more is
@@ -318,13 +318,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The rejoin gossip's request (`docs/uvrr-rejoin-gossip-and-witnesses.md`
     /// §2–§3): the sender's frontiers, fired at every node. Every node that
-    /// hears it records the sender — that half rides the dispatch's
+    /// hears it records the sender, that half rides the dispatch's
     /// [`Self::with_join_gossip_witness`] wrap, whatever this planner
     /// rules. Only the node that believes itself leader answers: the push
     /// of everything above the sender's prepared frontier (§7 step 1's
     /// own machinery, evaluated under the view the request carried, the
     /// same discipline as the announcement ack), then an immediate fresh
-    /// commit. A cluster member is pushed but never listed — the wrap's
+    /// commit. A cluster member is pushed but never listed, the wrap's
     /// membership check withholds the list entry, so the answer is the
     /// push, not the list.
     pub(in crate::replica) fn plan_gossip_request(
@@ -346,7 +346,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let is_leader = self.progress.status() == Status::Normal
             && self.primary_of(self.progress.current()) == Some(self.own);
         // A non-leader hears the gossip and records the sender; it does
-        // not answer — the resend loop, not this node, covers a request
+        // not answer, the resend loop, not this node, covers a request
         // lost in flight.
         if !is_leader {
             return self.drop_plan(Diagnostic::None, kind);
@@ -379,7 +379,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The tick-driven continuation (§5, §8): the armed leader re-drives
-    /// the sequence. `None` leaves the tick to the ordinary machinery —
+    /// the sequence. `None` leaves the tick to the ordinary machinery,
     /// the machine sits armed and inert until the conditions return.
     pub(in crate::replica) fn plan_forced_continuation(
         &self,
@@ -458,20 +458,20 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The bumped node's announcement (§4): `Input::Reincarnate` reports
     /// the pair and the node sends `Reincarnation(old, own)` to every
-    /// member of the configuration it can still name — the one message a
+    /// member of the configuration it can still name, the one message a
     /// non-member is entitled to send (§6's ingress rule exempts it; it is
     /// the entry ticket). The announcement carries the node's PAST-LIFE
-    /// frontiers — what it had committed and what it had prepared — read
+    /// frontiers, what it had committed and what it had prepared, read
     /// at the send path from the durable state it reopened with: the
     /// prepared frontier is the journal view's accepted frontier, the
     /// committed frontier the published record's (§5 invariant 1 holds
     /// the pair in agreement at `reopen`). The leader's immediate ack
     /// pushes exactly the range past them.
     ///
-    /// A member already voting at weight ≥ 1 has nothing to announce — a
+    /// A member already voting at weight ≥ 1 has nothing to announce, a
     /// clean life continues (§2's clean path); the transition is the
-    /// identity. Everything else — a fresh identity, or a weight-0 learner
-    /// re-announcing to a stable leader (§8) — sends.
+    /// identity. Everything else, a fresh identity, or a weight-0 learner
+    /// re-announcing to a stable leader (§8), sends.
     pub(in crate::replica) fn plan_reincarnate(
         &self,
         journal: &J::View,
@@ -511,8 +511,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // The announcement goes to every member of the configuration the
         // node can still name (§4: the leader acts on it; the backups drop
-        // it by name). A bumped node's own view may be stale — the leader
-        // it last knew may have died (§8) — so the announcement is
+        // it by name). A bumped node's own view may be stale, the leader
+        // it last knew may have died (§8), so the announcement is
         // addressed cluster-wide and discovery is the recipients', not the
         // announcer's: no leader election is invented here.
         let record = self
@@ -553,7 +553,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
 /// The forced weight sequence the leader must still commit (§5; rules §6), read
 /// from the CURRENT committed configuration: each element is ONE era's
-/// establishing operation — a [`SystemOperation::Batch`] — and the sequence is
+/// establishing operation, a [`SystemOperation::Batch`], and the sequence is
 /// the §6 schedule computed for the observed configuration.
 ///
 /// A five-node unit cluster uses six eras: `Double`, `Join + Increment(new)`,
@@ -571,7 +571,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 /// | already evicted | `Batch([Join(new)])`, then `Batch([Increment(new)])` |
 ///
 /// The new identity joins at weight 0 in the old identity's succession position
-/// (appended when the old identity is already gone — a leader-crash intermediate
+/// (appended when the old identity is already gone, a leader-crash intermediate
 /// era that removed before adding), then is promoted. Apart from the solitary
 /// scaling eras, each era is a unit batch or a zero-mass batch under R14.
 /// Subtract-one, add-one and weight-0-join steps move at most one unit of
@@ -581,7 +581,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 ///
 /// Steps the configuration has already committed are absent: a leader crash
 /// mid-sequence leaves a legal starting point whose recomputation continues the
-/// sequence exactly where it stopped (§8; rules §6 — recomputation is idempotent
+/// sequence exactly where it stopped (§8; rules §6, recomputation is idempotent
 /// over the CURRENT configuration, which is what makes a leader dying at any point
 /// of the sequence harmless).
 #[must_use]
@@ -616,7 +616,7 @@ pub fn forced_steps(
         }
         if weight >= 1 {
             // The crossing era: old reaches weight 0 and the new identity joins
-            // as a learner in the old succession position — mass exactly 1,
+            // as a learner in the old succession position, mass exactly 1,
             // quorum-safe on its own. The join is present only when the new
             // identity is not already a member (a recompute that lands after a
             // prior era's join must not re-join).
@@ -654,7 +654,7 @@ pub fn forced_steps(
             }
             Some(0) => {
                 // A recompute mid-sequence: the join already committed, so the
-                // remaining eras are the weight-1 table's second era — promote,
+                // remaining eras are the weight-1 table's second era, promote,
                 // then the zero-weight departure (mass 1).
                 eras.push(SystemOperation::Batch(vec![
                     SystemOperation::Increment(new),
@@ -671,7 +671,7 @@ pub fn forced_steps(
         match new_weight {
             None => {
                 // The old identity is already evicted: join at weight 0 (a
-                // zero-mass era), then promote (a unit era) — the table's last
+                // zero-mass era), then promote (a unit era), the table's last
                 // row.
                 eras.push(SystemOperation::Batch(vec![SystemOperation::Join {
                     node: new,

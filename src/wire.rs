@@ -73,7 +73,7 @@ pub enum UnpackError {
     /// Ran out of input.
     ///
     /// `needed` is the **total** byte count required to make progress past the point
-    /// that failed, measured from the start of the buffer handed to the cursor — not the
+    /// that failed, measured from the start of the buffer handed to the cursor, not the
     /// remaining shortfall. A host can therefore use it directly as a reservation size
     /// without having to remember how much it already had.
     Incomplete {
@@ -95,7 +95,7 @@ pub enum Malformed {
     UnknownTag(u32),
     /// A length prefix declared a total size not representable on this target, so no
     /// input could ever satisfy it. Merely exceeding the bytes currently in hand is
-    /// [`UnpackError::Incomplete`], not this — see [`UnpackCursor::opaque`].
+    /// [`UnpackError::Incomplete`], not this, see [`UnpackCursor::opaque`].
     LengthPrefixOverflow,
     /// A complete value was decoded and input remained. A message with a suffix is not a
     /// message: ignoring the surplus would hide a framing bug in the host's reassembly,
@@ -107,7 +107,7 @@ pub enum Malformed {
     /// A field required to be zero was not. Reserved space that a decoder tolerates is
     /// reserved space a later revision cannot use.
     ReservedFieldNonZero,
-    /// A newtype's checked domain rejected the decoded value — a `bool` byte other than
+    /// A newtype's checked domain rejected the decoded value, a `bool` byte other than
     /// `0x00` or `0x01`, for instance. Accepting a non-canonical encoding gives one
     /// message two byte strings and forfeits any later argument that a message has a
     /// canonical form.
@@ -148,7 +148,7 @@ pub enum PackError {
 /// "nothing was written on failure" guarantee of [`PackError::BufferTooSmall`] a
 /// property of the type rather than a discipline each [`Pack`] impl must remember. The
 /// cost is that an impl whose `packed_len` under-reports panics instead of returning an
-/// error — which is the right trade, because such an impl violates the normative W3
+/// error, which is the right trade, because such an impl violates the normative W3
 /// contract and the defect is in this crate rather than in the host's input.
 pub struct PackWriter<'a> {
     buf: &'a mut [u8],
@@ -534,7 +534,7 @@ pub trait Pack {
     /// bytes [`Pack::pack`] writes, for every value, always. An upper bound is not
     /// acceptable: §13.1 constructs a suffix by adding entries until a budget would be
     /// exceeded, and with an inexact length that loop becomes a search with a re-encode
-    /// per candidate. It is also why W4 forbids varints — a value-dependent width makes
+    /// per candidate. It is also why W4 forbids varints, a value-dependent width makes
     /// the budget a function of the data rather than of the shape.
     fn packed_len(&self) -> usize;
 
@@ -646,7 +646,7 @@ impl_newtype!(View, u32);
 impl_newtype!(Slot, u64);
 impl_newtype!(Tick, u64);
 
-// `OperationId` (§11.1) is two `u64` words, most significant first, each big-endian —
+// `OperationId` (§11.1) is two `u64` words, most significant first, each big-endian,
 // W4, like every other integer on this wire. The byte order is a decision this module
 // owns (a host reading a hex dump sees the identity in the order it wrote it), and it
 // is pinned by a golden vector in `tests/wire_contract.rs`, because a round trip cannot
@@ -703,15 +703,15 @@ impl Unpack for ViewId {
 /// compiled from a different revision of this file must agree with it, and "whatever the
 /// compiler assigned" is not an agreement.
 ///
-/// `0` is not a tag. It is reserved so that an all-zero buffer — a zeroed page, an
-/// unwritten scratch buffer, a datagram padded by a transport — decodes as
+/// `0` is not a tag. It is reserved so that an all-zero buffer, a zeroed page, an
+/// unwritten scratch buffer, a datagram padded by a transport, decodes as
 /// [`Malformed::UnknownTag`] rather than as a valid message. A codec in which the
 /// absence of a message is a message cannot report a framing bug.
 ///
 /// Discriminants `1`, `11` and `12` are retired: they belonged to the deleted
 /// classic recovery-exchange tags and the client-datagram tags,
 /// which left the wire when the client boundary became a host concern (§11.1, B2).
-/// They stay reserved — reassigning them would collide with any deployment still
+/// They stay reserved, reassigning them would collide with any deployment still
 /// carrying the old numbering on a wire.
 #[repr(u32)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -747,13 +747,13 @@ pub enum Tag {
     /// under view `v` while it collects planned evidence from `qI - {L}`, and step 5 has
     /// each recipient record the planned target *separately* from `current_view`. A
     /// recipient that fenced on it would stall the very stream the non-stop transition
-    /// exists to preserve, and it is also sent to a different set of peers — `qI - {L}`
+    /// exists to preserve, and it is also sent to a different set of peers, `qI - {L}`
     /// and never `qII - {L}`.
     ///
     /// A shared tag with a boolean would make "is this a fence" a runtime property of a
     /// field rather than of the message type. Every handler would then have to branch
     /// correctly on that field, and a handler that forgot to would silently either fence
-    /// when it must not or fail to fence when it must — the first stalls, the second
+    /// when it must not or fail to fence when it must, the first stalls, the second
     /// diverges. With distinct tags the dispatch *is* the check, and a handler cannot
     /// omit it because it never sees the other message.
     PlannedViewChange = 8,
@@ -795,7 +795,7 @@ pub enum Tag {
 impl Tag {
     /// The tag's name, for every surface a human reads (a trace line, a
     /// diagnostic dump, an extraction): `tag=prepare`, never `tag=2`. The
-    /// wire discriminant and every comparison stay numeric — the name is
+    /// wire discriminant and every comparison stay numeric, the name is
     /// for humans only, and it is stated here next to the numbering it
     /// names so the two cannot drift apart.
     #[must_use]
@@ -895,7 +895,7 @@ impl Unpack for Tag {
 
 /// The 20-byte prefix of every protocol datagram.
 ///
-/// Encoded big-endian as `(tag: u32, era: u32, view: u32, slot: u64)` — decision W1 and
+/// Encoded big-endian as `(tag: u32, era: u32, view: u32, slot: u64)`, decision W1 and
 /// Amendment A1, superseding §8.7.3's packed `view = (era << k) | index`.
 ///
 /// # Why era is a header field rather than derived
@@ -904,7 +904,7 @@ impl Unpack for Tag {
 /// instant**: step 2 keeps streaming client operations to `qII` under view `v` while
 /// step 4 solicits planned evidence from `qI - {L}` for a view `v'` whose era is `e+1`.
 /// The era authorizing a message is therefore a transport-visible routing fact about
-/// that message, not an attribute of the sender's current state — and it is not
+/// that message, not an attribute of the sender's current state, and it is not
 /// reconstructible from a view number without the configuration history that the packed
 /// encoding presumed. §8.7.3's own relation `era(view) <= era(slot) <= era(view) + 1`
 /// makes the point: under the packed scheme a host wanting to route or shed by era would
@@ -916,12 +916,12 @@ impl Unpack for Tag {
 ///
 /// # Why `slot` is in the header
 ///
-/// Not every message names a slot in the protocol sense — `StartViewChange` carries no
+/// Not every message names a slot in the protocol sense, `StartViewChange` carries no
 /// operation. It is in the header regardless, because a fixed-width header gives every
 /// body a fixed offset, which is the same argument W4 makes for fixed-width integers: a
 /// size should be a sum, not a parse. What the field *means* is fixed per tag by
-/// [`crate::invariant::header_slot_role`]: an operation position, a frontier, or —
-/// for messages that speak about no slot at all — the sentinel `Slot(0)`, the one
+/// [`crate::invariant::header_slot_role`]: an operation position, a frontier, or,
+/// for messages that speak about no slot at all, the sentinel `Slot(0)`, the one
 /// value that can never be confused with a real position, because the first position
 /// of a legitimate history is `Void` at slot 1 (§8.7.2). The wire layer stays
 /// agnostic: it encodes 20 bytes for every tag and asks no questions.

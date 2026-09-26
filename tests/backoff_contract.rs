@@ -1,4 +1,4 @@
-//! Contract for `vrr::backoff` — the recommended randomized-timeout schedule,
+//! Contract for `vrr::backoff`, the recommended randomized-timeout schedule,
 //! as pure arithmetic.
 //!
 //! Decision S4 externalises the clock: the host owns the timers and the
@@ -11,17 +11,17 @@
 //! 2. **Windows double from the unit and split evenly.** `window(u, a)` is
 //!    `min(u·2^a, 5000)` with `fixed = jitter = window/2`, checked
 //!    exhaustively over units × attempts against an independent iterative
-//!    reference — a second derivation of the same schedule that must agree
+//!    reference, a second derivation of the same schedule that must agree
 //!    with the module's closed form.
 //! 3. **The recommendation's worked example is pinned exactly**: a 10 ms RTT
 //!    sizes a 20 ms unit, whose windows run (10,10), (20,20), (40,40), … until
 //!    the cap binds at attempt 8 (20·2^8 = 5120 > 5000), after which every
-//!    attempt count — an absurd one included — saturates at (2500, 2500).
+//!    attempt count, an absurd one included, saturates at (2500, 2500).
 
 use vrr::backoff::{CAP_MILLIS, unit_from_rtt, window};
 
 /// The window of `attempt` under `unit`, by iterated doubling with an early
-/// exit at the cap — the schedule stated as a loop rather than the module's
+/// exit at the cap, the schedule stated as a loop rather than the module's
 /// closed form, so agreement between the two is evidence and not tautology.
 fn reference_window(unit: u64, attempt: u64) -> u64 {
     let mut whole = unit;

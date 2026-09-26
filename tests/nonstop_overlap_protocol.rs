@@ -30,7 +30,7 @@ fn op_id(lsb: u64) -> OperationId {
     OperationId { msb: 0, lsb }
 }
 
-/// A view in era 1 — the era every node here bootstraps into.
+/// A view in era 1, the era every node here bootstraps into.
 fn view(number: u32) -> ViewId {
     ViewId {
         era: Era(1),
@@ -38,7 +38,7 @@ fn view(number: u32) -> ViewId {
     }
 }
 
-/// A view in era 2 — the era the committed reconfiguration establishes.
+/// A view in era 2, the era the committed reconfiguration establishes.
 fn era2_view(number: u32) -> ViewId {
     ViewId {
         era: Era(2),
@@ -58,7 +58,7 @@ fn overlap_pivot() -> Pivot {
 }
 
 /// The transition view the pivot names (§8.7.7 step 5): the least view
-/// past (1, 0) selecting position 0 under the era-2 order — view 3,
+/// past (1, 0) selecting position 0 under the era-2 order, view 3,
 /// since views 1 and 2 select the other members.
 fn transition_view() -> ViewId {
     era2_view(3)
@@ -134,7 +134,7 @@ fn deliver(h: &mut Harness, id: NodeId, tag: Tag) -> DeliveryOutcome {
 }
 
 /// Delivers the queued datagram with `tag` and header `slot` to `id`,
-/// asserting it exists — the way a script picks among several queued
+/// asserting it exists, the way a script picks among several queued
 /// datagrams of one tag.
 fn deliver_matching(h: &mut Harness, id: NodeId, tag: Tag, slot: Slot) -> DeliveryOutcome {
     h.deliver_to_matching(id, tag, slot)
@@ -190,7 +190,7 @@ fn overlap_transition_runs_the_seven_steps_without_stopping_the_stream() {
         "acceptance establishes nothing"
     );
 
-    // Step 2: acceptance through qII, then the commit — the era folds,
+    // Step 2: acceptance through qII, then the commit, the era folds,
     // the pivot lands on the era record, and the solicitation goes to
     // `qI − {L}` (never `qII − {L}`) while the leader stays in view
     // (1, 0).
@@ -229,7 +229,7 @@ fn overlap_transition_runs_the_seven_steps_without_stopping_the_stream() {
     );
 
     // Step 3: the qI recipient answers with PLANNED evidence and RETAINS
-    // its view — no fence, still Normal in (1, 0) — and opens the suffix
+    // its view, no fence, still Normal in (1, 0), and opens the suffix
     // fallback fetch for the establishing operation it never saw.
     let answer = deliver(&mut h, n(2), Tag::PlannedViewChange);
     let sent = sends(&answer.outcome);
@@ -258,7 +258,7 @@ fn overlap_transition_runs_the_seven_steps_without_stopping_the_stream() {
     );
     assert_eq!(current_view(&h, n(2)), view(0), "current_view = v retained");
 
-    // Step 4 (interleaved): the client stream continues — an ordinary
+    // Step 4 (interleaved): the client stream continues, an ordinary
     // era-(e+1) prepare commits through qII while the planned exchange
     // is mid-flight.
     let proposal = h.propose(n(0), op_id(1), b"overlap-a");
@@ -294,7 +294,7 @@ fn overlap_transition_runs_the_seven_steps_without_stopping_the_stream() {
     );
 
     // Step 5: the responder's fetch folds the era through the ordinary
-    // state-transfer path — still no view change anywhere.
+    // state-transfer path, still no view change anywhere.
     deliver(&mut h, n(0), Tag::GetState);
     deliver(&mut h, n(2), Tag::NewState);
     assert_eq!(
@@ -310,7 +310,7 @@ fn overlap_transition_runs_the_seven_steps_without_stopping_the_stream() {
     );
     assert_eq!(current_view(&h, n(2)), view(0));
 
-    // Step 6: the planned answer completes the quorum — the casting vote
+    // Step 6: the planned answer completes the quorum, the casting vote
     // and the switch are ONE published transition, and StartView(v')
     // goes to every member of config(e+1).
     let transition = deliver(&mut h, n(0), Tag::DoViewChange);
@@ -367,7 +367,7 @@ fn overlap_transition_runs_the_seven_steps_without_stopping_the_stream() {
     }
     h.propose(n(0), op_id(2), b"overlap-b");
     // The light responder's answer does NOT commit: {n0, n2} weighs 2
-    // under the era-2 threshold 3 — the transition's whole point is that
+    // under the era-2 threshold 3, the transition's whole point is that
     // qII, not qI, carries the stream.
     deliver_matching(&mut h, n(2), Tag::Prepare, Slot(5));
     deliver_matching(&mut h, n(0), Tag::PrepareOk, Slot(5));
@@ -457,7 +457,7 @@ fn reordered_start_view_is_retained_and_installed_by_the_tick_redrive() {
     bootstrap(&mut h);
     establish(&mut h);
 
-    // The responder answers and opens its fetch — but the leader's
+    // The responder answers and opens its fetch, but the leader's
     // transition completes BEFORE the fetch does: the StartView arrives
     // at a node whose table does not yet record the successor era.
     deliver(&mut h, n(2), Tag::PlannedViewChange);
@@ -503,7 +503,7 @@ fn leader_serves_the_fetch_across_its_own_switch() {
 
     // The responder's fetch reaches the leader only AFTER the leader has
     // switched: serving is read-only retransmission, and a known era is
-    // a known era (§13.1) — the leader answers from view v' for the
+    // a known era (§13.1), the leader answers from view v' for the
     // current-view request.
     deliver(&mut h, n(2), Tag::PlannedViewChange);
     deliver(&mut h, n(0), Tag::DoViewChange);
@@ -532,8 +532,8 @@ fn transition_view_exhaustion_refuses_the_proposal_before_the_log() {
     let mut h = cluster();
     bootstrap(&mut h);
 
-    // Establish era 2 with weights [2, 1, 1] — the shape that keeps a
-    // pivot legal — and walk the leader to the last representable view:
+    // Establish era 2 with weights [2, 1, 1], the shape that keeps a
+    // pivot legal, and walk the leader to the last representable view:
     // the forced change lands at MAX − 1 (the fence that could never be
     // superseded is itself refused), and one ordinary suspicion-driven
     // change lands at MAX.
@@ -568,8 +568,8 @@ fn transition_view_exhaustion_refuses_the_proposal_before_the_log() {
     h.deliver_all();
     h.assert_safety();
     // One ordinary change past the forced view: a backup suspects the
-    // silent primary, the fence and the evidence reach n0 — the primary
-    // of (2, MAX) — and the quorum installs the last representable view.
+    // silent primary, the fence and the evidence reach n0, the primary
+    // of (2, MAX), and the quorum installs the last representable view.
     for _ in 0..=TIMEOUT {
         h.tick(n(1));
     }

@@ -28,11 +28,11 @@
 //!     and the three-way `StabilityResult` completes, discards, or faults;
 //! 5.  exactly one transition is ever outstanding (§12);
 //! 6.  revision discipline: a stale plan and a double publish are both rejected;
-//! 7.  a faulted replica refuses EVERY `Input` variant — this test is an
+//! 7.  a faulted replica refuses EVERY `Input` variant, this test is an
 //!     exhaustive match over `Input`, so a new variant fails to compile here
 //!     until it is handled;
 //! 8.  `invariant::legal` is genuinely on the publish path: a candidate that
-//!     violates a frontier rule is discarded and the node faults — never repair;
+//!     violates a frontier rule is discarded and the node faults, never repair;
 //! 9.  SANS-I/O is mechanical: the three modules contain no clock, no network,
 //!     no filesystem, no thread spawn;
 //! 10. every `Body` variant round-trips the normative codec with an exact
@@ -176,7 +176,7 @@ impl QuorumStrategy for AnythingQuorums {
 
 // ---------------------------------------------------------------------------
 // The boot-gate token helper: a minimal in-test store whose stopped quorum
-// mints the clean start's `Vouched` — the only same-identity proof.
+// mints the clean start's `Vouched`, the only same-identity proof.
 // ---------------------------------------------------------------------------
 
 struct CopiesStore {
@@ -226,7 +226,7 @@ fn clean_vouched() -> Vouched {
 /// both genesis slots are core-internal and walk `applied` by themselves)
 /// and `checkpoint == Slot(0)`, fenced in
 /// `Restarting` (the genesis ruling: a fresh node and a reopened node are
-/// uniform — fenced until they prove their state current). Nothing about a
+/// uniform, fenced until they prove their state current). Nothing about a
 /// fresh cluster is special-cased into `Normal`.
 #[test]
 fn provision_constructs_exactly_the_genesis_state() {
@@ -364,7 +364,7 @@ fn provision_refuses_a_non_member() {
 }
 
 /// A duplicate or over-cap genesis order is refused by the configuration fold,
-/// surfacing through `LifecycleRefusal` — genesis legality is decided at
+/// surfacing through `LifecycleRefusal`, genesis legality is decided at
 /// construction, not discovered at the first view change.
 #[test]
 fn provision_surfaces_configuration_refusals() {
@@ -416,7 +416,7 @@ fn provision_runs_the_quorum_gate_on_genesis() {
 
 /// Provisioning over a journal that already holds history is refused: a
 /// non-empty journal is evidence of a prior life, and `provision` must not
-/// silently overwrite it — that overwrite is the amnesiac voter of §14.2.
+/// silently overwrite it, that overwrite is the amnesiac voter of §14.2.
 #[test]
 fn provision_refuses_a_non_empty_journal() {
     let result = Replica::provision(
@@ -434,7 +434,7 @@ fn provision_refuses_a_non_empty_journal() {
 // 2. Resume (the vouched later life)
 // ---------------------------------------------------------------------------
 
-/// A consistent persisted progress and journal reopens — fenced `Restarting`
+/// A consistent persisted progress and journal reopens, fenced `Restarting`
 /// whatever status was persisted, per §5's boot rule: the pre-failure status
 /// is evidence about the past, not authority over the present.
 #[test]
@@ -495,7 +495,7 @@ fn resume_refuses_progress_journal_divergence() {
     );
 }
 
-/// Faults survive restart — they are part of progress (§5 invariant 5). A
+/// Faults survive restart, they are part of progress (§5 invariant 5). A
 /// persisted fault reopens as a faulted replica that refuses all input, at
 /// both the plan and the publish gate.
 #[test]
@@ -540,7 +540,7 @@ fn resume_preserves_a_persisted_fault() {
 // ---------------------------------------------------------------------------
 
 /// Volatile mode: `plan` computes and releases nothing; `publish` installs,
-/// writes the observation, and releases the effects — exactly once. The
+/// writes the observation, and releases the effects, exactly once. The
 /// observation changes on publish, never on plan (B1): **nothing externally
 /// observable is released before publication**. On the genesis-primary
 /// fixture (this
@@ -621,7 +621,7 @@ fn external_stability_parks_confirms_and_faults_three_ways() {
     let observer = replica.observer();
 
     // Publish parks: exactly one effect, the persistence intent; the
-    // observation is untouched — publication has not happened yet.
+    // observation is untouched, publication has not happened yet.
     let planned = replica.plan(&tick(1), &view_of(&replica)).expect("plan");
     match replica.publish(planned).expect("publish parks") {
         PublishOutcome::Parked { revision, effects } => {
@@ -691,7 +691,7 @@ fn external_stability_parks_confirms_and_faults_three_ways() {
     );
 
     // Failed (determinate, S3): the candidate is discarded, the previously
-    // published state stays visible — frontiers unchanged, no fault.
+    // published state stays visible, frontiers unchanged, no fault.
     let planned = replica.plan(&tick(2), &view_of(&replica)).expect("plan");
     match replica.publish(planned).expect("publish") {
         PublishOutcome::Parked { revision, .. } => assert_eq!(revision, 1),
@@ -724,7 +724,7 @@ fn external_stability_parks_confirms_and_faults_three_ways() {
     );
     assert_eq!(replica.progress().fault(), None);
 
-    // A confirmation with nothing outstanding is rejected — the volatile
+    // A confirmation with nothing outstanding is rejected, the volatile
     // replica has never parked anything.
     let volatile = provision_volatile();
     assert_eq!(
@@ -767,7 +767,7 @@ fn external_stability_parks_confirms_and_faults_three_ways() {
 // 5. One outstanding transition (§12)
 // ---------------------------------------------------------------------------
 
-/// While a confirmation is pending, no second transition may be planned — the
+/// While a confirmation is pending, no second transition may be planned, the
 /// §12 serialized interval admits exactly one outstanding transition. After
 /// the confirmation lands, planning resumes.
 #[test]
@@ -780,7 +780,7 @@ fn exactly_one_transition_is_outstanding() {
         PublishOutcome::Published { .. } => panic!("external mode must park"),
     }
 
-    // Every non-confirmation input is refused while the interval is open —
+    // Every non-confirmation input is refused while the interval is open,
     // the outstanding check precedes dispatch, so even an otherwise
     // unsupported input reports the real reason.
     assert_eq!(
@@ -851,7 +851,7 @@ fn stale_and_double_publishes_are_revision_mismatches() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Fault refusal — exhaustive over `Input`
+// 7. Fault refusal, exhaustive over `Input`
 // ---------------------------------------------------------------------------
 
 /// A faulted node refuses EVERY input, ticks and confirmations included (§5
@@ -987,10 +987,10 @@ fn a_faulted_replica_refuses_every_input_variant() {
 /// The closed checker runs before every publish and is not bypassed: a
 /// candidate that violates a frontier rule (here: `committed` regresses below
 /// the published frontier) is DISCARDED and the node faults with
-/// `Fault::IllegalTransition` — never repaired, never installed.
+/// `Fault::IllegalTransition`, never repaired, never installed.
 ///
-/// No honest planner output can violate the chain — `Progress` transitions
-/// validate their results — so the candidate is injected through the
+/// No honest planner output can violate the chain, `Progress` transitions
+/// validate their results, so the candidate is injected through the
 /// documented test hook [`vrr::replica::PlannedTransition::substitute_candidate_for_gate_testing`].
 /// That is the point of the test: the hook can only smuggle a bad candidate
 /// PAST the planner, and the publish gate still stops it, which proves the
@@ -1120,7 +1120,7 @@ fn message(tag: Tag, slot: Slot, body: Body) -> Message {
 
 /// Every `Body` variant through `Pack`/`Unpack` with an exact `packed_len`
 /// (W3: the §13.1 suffix budget sums these), and every body's header slot
-/// satisfying its `header_slot_role` — Operation tags name a real slot,
+/// satisfying its `header_slot_role`, Operation tags name a real slot,
 /// Absent tags carry the sentinel, Frontier tags admit every value.
 #[test]
 fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {

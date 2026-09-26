@@ -90,7 +90,7 @@ fn valid_fuse_is_accepted_as_a_whole() {
     let mut h = Harness::provision(3);
     bootstrap(&mut h);
 
-    // The schedule: `[Join(new), Increment(new)]` — the shape of the
+    // The schedule: `[Join(new), Increment(new)]`, the shape of the
     // five-node replacement's second batch (`docs/uvrr-reincarnation.md`
     // §5), legal under R1–R15 for the fresh three-node cluster: `n(3)` is
     // absent, so the join inserts a learner at the succession end and the
@@ -193,7 +193,7 @@ fn stale_view_fuse_is_refused_as_a_whole() {
     bootstrap(&mut h);
 
     // The same legal schedule, but the header names the genesis view
-    // (era 0, view 0) — below the acceptor's current view (1, 0). Era 0 is
+    // (era 0, view 0), below the acceptor's current view (1, 0). Era 0 is
     // evaluable (the void record is retained) and names no primary, so the
     // sender cannot be the primary of the message's view.
     let stale = Message {
@@ -242,8 +242,8 @@ fn stale_view_fuse_is_refused_as_a_whole() {
 fn malformed_fuse_is_dropped_without_partial_accept() {
     // Unrepresentability note (§3 step 4): an op refusing MID-batch with a
     // passing header is unreachable by the atomic batch property. The
-    // schedule folds as one unit — the perimeter judges the whole sequence
-    // before any effect is released — so a refusal names the whole envelope
+    // schedule folds as one unit, the perimeter judges the whole sequence
+    // before any effect is released, so a refusal names the whole envelope
     // at its first refusing op and there is no partial fold to observe. A
     // test cannot construct the mid-batch refusal without forging a
     // schedule no planner would certify, which §3 rules out of scope.
@@ -252,7 +252,7 @@ fn malformed_fuse_is_dropped_without_partial_accept() {
 
     // The malformed-decode drop: a valid 20-byte header tagging `Fuse`,
     // then a body whose first op carries an unknown discriminant. The
-    // codec refuses it (`OutOfDomain`) — the host drops the datagram
+    // codec refuses it (`OutOfDomain`), the host drops the datagram
     // before the core ever sees it, so no diagnostic reaches the
     // observation and nothing can be journaled.
     let mut bytes = encode_header(&Header {
@@ -274,7 +274,7 @@ fn malformed_fuse_is_dropped_without_partial_accept() {
     }
 
     // The host's drop leaves the core untouched: journal unchanged, no
-    // reply, no diagnostic — the malformed datagram never arrived.
+    // reply, no diagnostic, the malformed datagram never arrived.
     assert_journal_unchanged_and_refused(&h, n(1));
     assert_eq!(h.diagnostic(n(1)), Some(Diagnostic::None));
     assert!(h.peek_queued(n(0), Tag::FuseOk).is_none());
@@ -342,7 +342,7 @@ fn accepted_fuse_reply_slots_are_explicit_not_ranges() {
     };
 
     // The reply shape, asserted elementwise: one accepted slot per op, in
-    // batch order — three values, no range arithmetic anywhere.
+    // batch order, three values, no range arithmetic anywhere.
     let send = effects.first().expect("the FuseOk is the one effect");
     let Effect::Send { to, message, .. } = send else {
         panic!("the effect is a Send, not {send:?}");
@@ -553,7 +553,7 @@ fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
 
     // ONE CommitBatch queued per backup, alongside the ordinary commit
     // announcement the backups' frontiers advance through. The second
-    // backup's ack is still queued — it arrives to a schedule whose slots
+    // backup's ack is still queued, it arrives to a schedule whose slots
     // are already committed and is dropped by name.
     assert_eq!(
         h.queued_len(),
@@ -617,7 +617,7 @@ fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
 
 /// THE PIN (`docs/uvrr-fuse.md` §2): majority is computed on the first
 /// message in batch. A `FuseOk` is one atomic vote vouching for the whole
-/// envelope — a node processes the full datagram before reading any other
+/// envelope, a node processes the full datagram before reading any other
 /// message, so a partial or staggered acks body is wire evidence the
 /// leader never examines for counting. The backup `n(1)` HAS accepted the
 /// batch (its journal holds both packed slots); only its reply's acks
@@ -626,8 +626,8 @@ fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
 /// count `n(1)` once, cumulatively onto every outstanding slot the header
 /// covers: when the next backup's genuine `FuseOk` lands, both packed
 /// slots hold quorum and the commit fires. The elementwise counter would
-/// mark "just those slots" — slot 4 never holds `n(1)`'s vote, and the
-/// batch never commits — the Red result this test is named after.
+/// mark "just those slots", slot 4 never holds `n(1)`'s vote, and the
+/// batch never commits, the Red result this test is named after.
 #[test]
 fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
     // Four nodes: the commit quorum is three, so the forged subset vote
@@ -663,7 +663,7 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
     assert_eq!(h.snapshot(n(2)).expect("live").accepted, 4);
 
     // The forged subset: `n(1)` HAS accepted (the journal above), but its
-    // reply names only the batch's first slot — the header slot the last,
+    // reply names only the batch's first slot, the header slot the last,
     // exactly as the acceptor stamps. One atomic vote, whatever the body
     // says.
     let subset = Message {
@@ -689,7 +689,7 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
     );
 
     // The leader re-delivers `n(1)`'s genuine FuseOk: the sender is
-    // already counted on the header slot's coverage — a harmless but
+    // already counted on the header slot's coverage, a harmless but
     // named duplicate, exactly the ordinary rule's repeat handling.
     let outcome = h
         .deliver_tag(n(0), Tag::FuseOk)
@@ -697,7 +697,7 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
     assert!(matches!(outcome.outcome, StepOutcome::Published { .. }));
 
     // The next backup's genuine FuseOk completes the quorum on BOTH
-    // packed slots — the header-slot vouch telescoped the batch — and
+    // packed slots, the header-slot vouch telescoped the batch, and
     // the commit fires: the cascade commits the batch whole.
     let outcome = h
         .deliver_tag(n(0), Tag::FuseOk)
@@ -763,11 +763,11 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
 /// THE REPRODUCTION for the CommitBatch verdict (`docs/uvrr-fuse.md` §4
 /// step 4). Review flagged an unconfirmed analytic claim: the closed
 /// era/slot discipline (§8.7.3, invariant rule 6) appears to refuse ONE
-/// commit transition folding across two era-establishing slots — the table
+/// commit transition folding across two era-establishing slots, the table
 /// would sit at `view_era + 2`, outside the +1 window. The state is built
 /// through the public acceptor path: the packed schedule is accepted at
-/// the backups, and the commit announcement that covers both slots —
-/// exactly the transition the leader's cascade would run — is delivered.
+/// the backups, and the commit announcement that covers both slots,
+/// exactly the transition the leader's cascade would run, is delivered.
 /// The test asserts the resolved behaviour: the packed schedule's slots
 /// commit in ONE transition, folding as the ONE establishing batch they
 /// are, and the era table records it. The Red result this Green assertion
@@ -792,7 +792,7 @@ fn commit_batch_across_two_era_establishing_slots_folds_as_one_batch() {
     assert_eq!(h.snapshot(n(1)).expect("live").accepted, 4);
     assert_eq!(h.snapshot(n(1)).expect("live").committed, 2);
 
-    // The commit transition that covers both slots — the announcement the
+    // The commit transition that covers both slots, the announcement the
     // leader's cascade emits at quorum.
     let commit = Message {
         header: Header {
@@ -838,7 +838,7 @@ fn oversized_schedule_falls_back_to_ordinary_prepares() {
     let mut h = Harness::provision(3);
     bootstrap(&mut h);
 
-    // One establishing batch packing eight zero-mass joins — one past the
+    // One establishing batch packing eight zero-mass joins, one past the
     // builder's envelope budget (`FUSE_MAX_OPS`, justified by the nominal
     // 1300-byte payload check in `tests/wire_contract.rs`).
     let joins: Vec<SystemOperation> = (0..8)
@@ -865,7 +865,7 @@ fn oversized_schedule_falls_back_to_ordinary_prepares() {
         "the verdict surfaces: {effects:?}"
     );
 
-    // The fallback: the ordinary per-op path — ONE `Prepare` carrying the
+    // The fallback: the ordinary per-op path, ONE `Prepare` carrying the
     // batch, and no envelope anywhere.
     assert!(h.peek_queued(n(1), Tag::Fuse).is_none());
     assert!(h.peek_queued(n(2), Tag::Fuse).is_none());
@@ -875,7 +875,7 @@ fn oversized_schedule_falls_back_to_ordinary_prepares() {
     );
 
     // The batch commits as ONE era; the final committed state is the fold
-    // of the same schedule the fuse path would have carried — the two
+    // of the same schedule the fuse path would have carried, the two
     // paths are the same sequence of logical accepts (§4 step 5).
     quiesce(&mut h);
     let snapshot = h.snapshot(n(0)).expect("live");
@@ -930,7 +930,7 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
     }
     assert_eq!(h.snapshot(n(1)).expect("live").accepted, 4);
 
-    // One ack: own + one backup = two of three needed — the round is in
+    // One ack: own + one backup = two of three needed, the round is in
     // flight, nothing is committed.
     h.deliver_tag(n(0), Tag::FuseOk);
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 2);
@@ -995,7 +995,7 @@ fn client_operations_are_not_blocked_by_the_fuse_round() {
     let outcome = h.submit_plan(n(0), join_and_promote_step());
     assert!(matches!(outcome, StepOutcome::Published { .. }));
 
-    // The envelopes land; the acks are withheld — the round is in flight.
+    // The envelopes land; the acks are withheld, the round is in flight.
     h.deliver_tag(n(1), Tag::Fuse);
     h.deliver_tag(n(2), Tag::Fuse);
 
@@ -1059,7 +1059,7 @@ fn fuse_acks_until_committed(h: &mut Harness, leader: NodeId, through: u64) {
 }
 
 /// Asserts the queue holds exactly one datagram per named recipient, all
-/// with `tag` — the per-era emission shape: one per backup, nothing else.
+/// with `tag`, the per-era emission shape: one per backup, nothing else.
 /// The caller quiesces between eras, so the queue is otherwise empty and
 /// the count is the whole emission.
 fn assert_one_queued_per(h: &Harness, recipients: &[NodeId], tag: Tag) {
@@ -1088,7 +1088,7 @@ fn propose_next_step(h: &mut Harness, leader: NodeId) {
 }
 
 /// The wire half of one fused era: exactly ONE Fuse per named backup
-/// (the RTT accounting — the queue is otherwise empty), the envelopes
+/// (the RTT accounting, the queue is otherwise empty), the envelopes
 /// land, the acks telescope, the commit fires. The caller asserts the
 /// era row afterwards.
 fn fuse_round(h: &mut Harness, leader: NodeId, backups: &[NodeId], committed_through: u64) {
@@ -1111,7 +1111,7 @@ fn fuse_round(h: &mut Harness, leader: NodeId, backups: &[NodeId], committed_thr
 }
 
 /// The wire half of one ordinary era: exactly ONE `Prepare` per named
-/// backup — a single-op batch needs no envelope (§4 step 1) — and no Fuse
+/// backup, a single-op batch needs no envelope (§4 step 1), and no Fuse
 /// anywhere. The commit completes on the ordinary PrepareOk cascade.
 fn prepare_round(h: &mut Harness, leader: NodeId, backups: &[NodeId], committed_through: u64) {
     assert_one_queued_per(h, backups, Tag::Prepare);
@@ -1175,7 +1175,7 @@ fn view_change_between_eras(h: &mut Harness, leader: NodeId, target: ViewId, liv
 /// driven end to end through the fuse path: one Fuse per backup per era,
 /// the acks telescoping, the commits firing per era, and the final
 /// configuration the plan's steps reach. Two round trips for the whole
-/// forced schedule — single digits, as §6 promises.
+/// forced schedule, single digits, as §6 promises.
 #[test]
 fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
     let mut h = Harness::provision(3);
@@ -1195,7 +1195,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
         "the verdict surfaces: {effects:?}"
     );
 
-    // Era 2 — the crossing batch proposed WITH the verdict: two ops, one
+    // Era 2, the crossing batch proposed WITH the verdict: two ops, one
     // Fuse per backup of the era-1 cluster, and the body carries the
     // schedule in plan order at the shared ballot.
     for to in [n(1), n(2)] {
@@ -1252,8 +1252,8 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
     );
     view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2)]);
 
-    // Era 3 — the eviction batch: three backups of the era-2 cluster (the
-    // weight-0 standbys included — they accept and journal, their acks
+    // Era 3, the eviction batch: three backups of the era-2 cluster (the
+    // weight-0 standbys included, they accept and journal, their acks
     // count nothing), one Fuse each. The schedule's second round trip.
     propose_next_step(&mut h, n(0));
     fuse_round(&mut h, n(0), &[n(1), n(3), n(2)], 6);
@@ -1286,8 +1286,8 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
 /// (`docs/uvrr-reincarnation.md` §5, rules §6) driven end to end through
 /// the fuse path: the solitary scaling batches travel as ordinary
 /// establishing `Prepare`s, the two-op batches travel as one Fuse per
-/// backup, every era commits through one round trip — six round trips for
-/// the whole sequence — and the era table advances through all seven
+/// backup, every era commits through one round trip, six round trips for
+/// the whole sequence, and the era table advances through all seven
 /// configurations the schedule names.
 #[test]
 fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
@@ -1296,7 +1296,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
 
     // The schedule (rules §6): `[DOUBLE]`, `[JOIN(new), INCREMENT(new)]`,
     // `[DECREMENT(old)]`, `[DECREMENT(old), LEAVE(old)]`, `[INCREMENT(new)]`,
-    // `[HALVE]` — old `n(4)`, new `n(5)` joined at the old identity's
+    // `[HALVE]`, old `n(4)`, new `n(5)` joined at the old identity's
     // succession position. The plan carries it as one operator artefact.
     let plan = Plan {
         initial: vec![
@@ -1338,7 +1338,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
         "the verdict surfaces: {effects:?}"
     );
 
-    // Era 2 — `[DOUBLE]` is solitary (R13): the ordinary establishing
+    // Era 2, `[DOUBLE]` is solitary (R13): the ordinary establishing
     // `Prepare`, one per backup, no envelope. Proposed with the verdict.
     prepare_round(&mut h, n(0), &[n(1), n(2), n(3), n(4)], 3);
     let table = h.era_table(n(0)).expect("live");
@@ -1370,7 +1370,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     );
     view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3), n(4)]);
 
-    // Era 3 — the introduce batch packs two ops: ONE Fuse per backup of
+    // Era 3, the introduce batch packs two ops: ONE Fuse per backup of
     // the doubled era-2 cluster. The second round trip.
     propose_next_step(&mut h, n(0));
     fuse_round(&mut h, n(0), &[n(1), n(2), n(3), n(4)], 5);
@@ -1411,7 +1411,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     );
     view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3), n(4)]);
 
-    // Era 4 — the first solitary `DECREMENT(old)`: ordinary path, one
+    // Era 4, the first solitary `DECREMENT(old)`: ordinary path, one
     // `Prepare` per backup of the era-3 cluster. The new identity (a
     // weight-1 voter now) and the old identity both receive it.
     propose_next_step(&mut h, n(0));
@@ -1446,7 +1446,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     );
     view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3), n(4)]);
 
-    // Era 5 — the remove batch packs two ops: ONE Fuse per backup of the
+    // Era 5, the remove batch packs two ops: ONE Fuse per backup of the
     // era-4 cluster. The third round trip; the old identity leaves.
     propose_next_step(&mut h, n(0));
     fuse_round(&mut h, n(0), &[n(1), n(2), n(3), n(5), n(4)], 8);
@@ -1482,7 +1482,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     );
     view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3), n(4)]);
 
-    // Era 6 — the solitary `INCREMENT(new)`: ordinary path. The joiner
+    // Era 6, the solitary `INCREMENT(new)`: ordinary path. The joiner
     // reaches the doubled corner that makes the final halve integral.
     propose_next_step(&mut h, n(0));
     prepare_round(&mut h, n(0), &[n(1), n(2), n(3), n(5)], 9);
@@ -1504,7 +1504,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
         ]
     );
 
-    // The view change into era 6: the old identity left with era 5 —
+    // The view change into era 6: the old identity left with era 5,
     // it is addressed by nothing now and installs nothing.
     let target = view_selecting(&h, n(0), Era(6));
     assert_eq!(
@@ -1516,7 +1516,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     );
     view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3)]);
 
-    // Era 7 — the final `HALVE`: ordinary path, and the sequence's last
+    // Era 7, the final `HALVE`: ordinary path, and the sequence's last
     // round trip. Six eras, six round trips, every era quorum-safe.
     propose_next_step(&mut h, n(0));
     prepare_round(&mut h, n(0), &[n(1), n(2), n(3), n(5)], 10);
@@ -1551,7 +1551,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
 // ---------------------------------------------------------------------------
 // 12. Even-sized configurations, unit voting weights (§8.5: even-sized
 //     clusters optimisation): the eager strict majority of an even
-//     total — `N/2 + 1` votes including the leader's — decides the fused
+//     total, `N/2 + 1` votes including the leader's, decides the fused
 //     batch. The acks telescope, so the batch commits whole at exactly
 //     that many acks, and the per-era `CommitBatch` joins the ordinary
 //     commit announcement.
@@ -1571,7 +1571,7 @@ fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority()
     bootstrap(&mut h);
 
     // Four unit voters: the strict majority of the even total is three
-    // (§8.4's eager `2n → n+1`) — the leader plus TWO acks, one fewer
+    // (§8.4's eager `2n → n+1`), the leader plus TWO acks, one fewer
     // than the odd-sized equivalent would demand of the next size up.
     let outcome = h.submit_plan(
         n(0),
@@ -1590,7 +1590,7 @@ fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority()
 
     // Three backups, one Fuse each: the whole emission, one round trip.
     assert_one_queued_per(&h, &[n(1), n(2), n(3)], Tag::Fuse);
-    // One ack: the leader's implicit vote plus one — two of three — the
+    // One ack: the leader's implicit vote plus one, two of three, the
     // round stays in flight.
     h.deliver_tag(n(1), Tag::Fuse);
     h.deliver_tag(n(0), Tag::FuseOk);
@@ -1610,7 +1610,7 @@ fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority()
     );
 
     // The per-era emission: one `CommitBatch` per backup naming one
-    // committed frontier per packed slot, no ranges — and the ordinary
+    // committed frontier per packed slot, no ranges, and the ordinary
     // commit announcement is what advances the backups.
     for to in [n(1), n(2), n(3)] {
         let message = h
@@ -1667,7 +1667,7 @@ fn even_sized_six_node_cluster_commits_the_fused_batch_with_an_eager_majority() 
     let mut h = Harness::provision(6);
     bootstrap(&mut h);
 
-    // Six unit voters: the strict majority of the even total is four —
+    // Six unit voters: the strict majority of the even total is four,
     // the leader plus THREE acks.
     let outcome = h.submit_plan(
         n(0),
@@ -1694,7 +1694,7 @@ fn even_sized_six_node_cluster_commits_the_fused_batch_with_an_eager_majority() 
     // Five backups, one Fuse each: the whole emission, one round trip.
     assert_one_queued_per(&h, &[n(1), n(2), n(3), n(4), n(5)], Tag::Fuse);
 
-    // Two acks: three of four — the round stays in flight.
+    // Two acks: three of four, the round stays in flight.
     for &to in &[n(1), n(2), n(3)] {
         h.deliver_tag(to, Tag::Fuse);
     }

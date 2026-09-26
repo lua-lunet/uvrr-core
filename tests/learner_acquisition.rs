@@ -1,12 +1,12 @@
 //! Learner acquisition (§10): a joined weight-0 member folds the era that
 //! admitted it through its own fetch, stays fenced while its weight is 0,
-//! and — only after a committed `INCREMENT` grants it weight —
+//! and, only after a committed `INCREMENT` grants it weight,
 //! participates in the era's quorum arithmetic.
 //!
 //! The gap this corpus pins: the establishing operation's fan-out reaches
 //! configuration members only, the serving gate judged the sender against
 //! the requested era's configuration, and the boot fence never moved the
-//! committed frontier — so a fresh join could never fold its admitting era
+//! committed frontier, so a fresh join could never fold its admitting era
 //! and no fresh join converged. The learner acquisition rule
 //! (`docs/uvrr-reincarnation.md` §10) closes it with the ordinary state
 //! transfer: the leader serves a member of its current committed
@@ -14,9 +14,9 @@
 //! evidence.
 //!
 //! The retention rule's full admission vocabulary: a far-future offer is
-//! retained only when it NAMES the boot-fenced member — through the `Join`
+//! retained only when it NAMES the boot-fenced member, through the `Join`
 //! that inserts it, the `Increment` that promotes it, or a batch carrying
-//! either — and an offer naming nobody (a departure, a scaling op) is
+//! either, and an offer naming nobody (a departure, a scaling op) is
 //! dropped `UnevaluableEra` with the boot fence untouched. The
 //! acquisition's era-window walk re-issues its fetch under the WALKED
 //! view, so the two-era retention window cannot evict the record the next
@@ -146,7 +146,7 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> (ViewId, NodeId) {
 }
 
 /// Drives the view change the fence machinery targets, asserting every
-/// node in `live` installs it — and delivering to `live` only: the
+/// node in `live` installs it, and delivering to `live` only: the
 /// announcement a fenced member outside `live` would receive stays queued,
 /// so the script stages it (`deliver_tag`) or discards it (`drop_queued`).
 /// The shape [`drive_view_change`] uses for a cluster whose live set is
@@ -185,7 +185,7 @@ fn fence_among(h: &mut Harness, live: &[NodeId]) -> ViewId {
     target
 }
 
-/// Joins `n(3)` at weight 0 (stop-the-world — no pivot exists for a
+/// Joins `n(3)` at weight 0 (stop-the-world, no pivot exists for a
 /// membership change), drives the ordinary view change into the era the
 /// join committed, and runs the §10 learner acquisition to completion:
 /// the StartView one era past the learner's boot table retains its offer
@@ -223,7 +223,7 @@ fn joined_and_caught_up(h: &mut Harness) -> ViewId {
     );
 
     // The fence into era 2 announces the view to every member of the new
-    // configuration — the learner included. The offer is one era past its
+    // configuration, the learner included. The offer is one era past its
     // boot table: retained, fetched under the boot view, served, folded,
     // and installed on the next ordinary tick.
     let (target, _) = drive_view_change(h, &[n(0), n(1), n(2)]);
@@ -253,7 +253,7 @@ fn joined_and_caught_up(h: &mut Harness) -> ViewId {
     target
 }
 
-/// Admits `joiner` at the next appended position (stop-the-world — no
+/// Admits `joiner` at the next appended position (stop-the-world, no
 /// pivot exists for a membership change), drives the ordinary view change
 /// into the era the join committed, exactly as [`joined_and_caught_up`]
 /// does for the first joiner, and runs the joiner's §10 catch-up: the
@@ -279,7 +279,7 @@ fn admit_joiner(h: &mut Harness, joiner: NodeId, position: u32) -> ViewId {
     target
 }
 
-/// Ticks the learner between delivery rounds until it is caught up — the
+/// Ticks the learner between delivery rounds until it is caught up, the
 /// amended tick shape this corpus uses throughout: a real sans-I/O host
 /// ticks, so each ordinary tick re-runs the retained offer's stalled
 /// ruling, each round folds one era (the §8.7.3 window) and the next
@@ -302,14 +302,14 @@ fn catch_up(h: &mut Harness, learner: NodeId) {
 }
 
 /// A joiner admitted SEVERAL eras past its boot table: boot three genesis voters, admit three joiners across
-/// successive eras — one committed `Join` per era — then promote the
+/// successive eras, one committed `Join` per era, then promote the
 /// second joiner. The promoted joiner folds the eras its boot table is
-/// behind on through the §10 acquisition, era by era — one fold per
+/// behind on through the §10 acquisition, era by era, one fold per
 /// stalled-ruling re-run (the §8.7.3 window caps each round at one era
 /// past the view it carries), the next round proceeds, and the offer
-/// installs once its era is evaluable — never voting in an era it has not
+/// installs once its era is evaluable, never voting in an era it has not
 /// folded. The voter-only succession then designates it for a view it can
-/// evaluate, and the cluster commits under the new configuration — first
+/// evaluate, and the cluster commits under the new configuration, first
 /// under its own leadership, then with one incumbent partitioned, when
 /// its vote is the difference.
 #[test]
@@ -327,7 +327,7 @@ fn a_joiner_admitted_several_eras_past_its_boot_table_when_promoted_keeps_the_cl
     catch_up(&mut h, n(4));
 
     // The promotion of the second joiner: era 5 folds under the new
-    // configuration — order [0, 1, 2, 3, 4, 5], the promoted joiner the
+    // configuration, order [0, 1, 2, 3, 4, 5], the promoted joiner the
     // fourth voter.
     let promote_primary =
         primary_of(&h, n(0), current_view(&h, n(0))).expect("a live view names its primary");
@@ -353,7 +353,7 @@ fn a_joiner_admitted_several_eras_past_its_boot_table_when_promoted_keeps_the_cl
     assert_eq!(current_view(&h, n(4)), era5);
     assert_eq!(snap(&h, n(4)).committed, snap(&h, n(0)).committed);
 
-    // Electable: the voter-only succession walks to the promoted joiner —
+    // Electable: the voter-only succession walks to the promoted joiner,
     // view 7 of era 5 selects the fourth voter.
     for expected in [View(5), View(6), View(7)] {
         let (target, _) = drive_view_change(&mut h, &[n(0), n(1), n(2), n(3)]);
@@ -389,7 +389,7 @@ fn a_joiner_admitted_several_eras_past_its_boot_table_when_promoted_keeps_the_cl
 
     // And its vote is required: with one incumbent partitioned, the
     // era-5 arithmetic (total 4, threshold 3) commits only with the
-    // promoted joiner's vote — the leader and one incumbent weigh 2.
+    // promoted joiner's vote, the leader and one incumbent weigh 2.
     h.partition(vec![n(2)], vec![n(0), n(1), n(3), n(4)]);
     let outcome = h.propose(n(4), op_id(31), b"vote-required");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -406,7 +406,7 @@ fn a_joiner_admitted_several_eras_past_its_boot_table_when_promoted_keeps_the_cl
 }
 
 /// A joined learner folds the era that admitted it, catches up to the
-/// leader's frontiers, and serves the same applied history — without ever
+/// leader's frontiers, and serves the same applied history, without ever
 /// influencing a quorum while its weight is 0.
 #[test]
 fn joined_learner_folds_its_admitting_era_and_catches_up() {
@@ -425,7 +425,7 @@ fn joined_learner_folds_its_admitting_era_and_catches_up() {
     h.assert_safety();
 }
 
-/// While its weight is 0 the learner cannot influence any quorum — its
+/// While its weight is 0 the learner cannot influence any quorum, its
 /// acknowledgement is discarded, named, before counting, and a proposal
 /// does not commit on the leader's and the learner's votes alone. After a
 /// committed `INCREMENT` the same learner's vote is required: with one
@@ -436,7 +436,7 @@ fn learner_cannot_influence_until_its_committed_increment_then_participates() {
     let mut h = cluster();
     let target = joined_and_caught_up(&mut h);
     // The primary of the era-2 view proposes the promotion. The learner's
-    // vote — injected at the primary — is discarded by name: weight 0
+    // vote, injected at the primary, is discarded by name: weight 0
     // counts against no quorum (R4), even for its own promotion.
     let outcome = h.reconfigure(n(1), SystemOperation::Increment(n(3)), None);
     assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -469,7 +469,7 @@ fn learner_cannot_influence_until_its_committed_increment_then_participates() {
     );
 
     // The ordinary view change into the era the promotion established:
-    // the next view selects position 2 — n(2).
+    // the next view selects position 2, n(2).
     let (era3_target, _) = drive_view_change(&mut h, &[n(0), n(1), n(2), n(3)]);
     assert_eq!(era3_target.era, Era(3));
     assert_eq!(primary_of(&h, n(0), era3_target), Some(n(2)));
@@ -501,7 +501,7 @@ fn learner_cannot_influence_until_its_committed_increment_then_participates() {
 
 /// The learner acquisition gate admits current-configuration members
 /// only: a foreign identity is refused by name, on the same serving gate
-/// the rule opened — and the refusal never faults the responder.
+/// the rule opened, and the refusal never faults the responder.
 #[test]
 fn the_serving_gate_still_refuses_a_non_member() {
     let mut h = cluster();
@@ -531,15 +531,15 @@ fn the_serving_gate_still_refuses_a_non_member() {
 /// The live acquisition shape: the responder's committed frontier RUNS
 /// between the retained offer and the answering chunk. The establishing
 /// fan-out reaches members only, so the learner's first sight of its
-/// admitting era is the fence's `StartView` — one or more eras past its boot
+/// admitting era is the fence's `StartView`, one or more eras past its boot
 /// table, retained with a fetch (§13.1 step 5). Live, the primary keeps
 /// committing while the fetch is in flight, so the answering chunk's
-/// committed frontier runs past the offer's — and the acquisition that takes
+/// committed frontier runs past the offer's, and the acquisition that takes
 /// the chunk's frontier whole strands the offer forever: the retained
 /// ruling's staleness gate then refuses an offer that claims less than the
 /// node durably holds, no tick ever completes it, and the learner is fenced
-/// for good. The acquisition therefore folds what the retained offer needs —
-/// the chunk's frontier, capped by the offer's own committed frontier — and
+/// for good. The acquisition therefore folds what the retained offer needs,
+/// the chunk's frontier, capped by the offer's own committed frontier, and
 /// the offer installs on the next ordinary tick; the era's stream (R6
 /// reaches learners) carries the tail.
 #[test]
@@ -549,7 +549,7 @@ fn the_acquisition_completes_when_the_responder_runs_ahead_of_the_offer() {
     h.boot_as(n(3))
         .expect("the joiner boots over genesis knowledge");
     // Client operations commit before the join, so the fetched chunk
-    // carries operation slots — the §11 upcalls a live stream supplies.
+    // carries operation slots, the §11 upcalls a live stream supplies.
     for lsb in 1..=2u64 {
         let outcome = h.propose(n(0), op_id(lsb), format!("op{lsb}").as_bytes());
         assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -570,7 +570,7 @@ fn the_acquisition_completes_when_the_responder_runs_ahead_of_the_offer() {
     assert_eq!(current_era(&h, n(0)), Era(2), "the join committed");
     assert_eq!(current_era(&h, n(3)), Era(1), "the learner is fenced");
 
-    // The fence into era 2 — driven and delivered among the incumbents
+    // The fence into era 2, driven and delivered among the incumbents
     // only, so the era-2 `StartView` sits queued at the learner, unused.
     let target = fence_target(&h, n(0));
     for _ in 0..=TIMEOUT {
@@ -587,7 +587,7 @@ fn the_acquisition_completes_when_the_responder_runs_ahead_of_the_offer() {
         "the incumbents entered the established era"
     );
     // The era-2 primary (view 1 selects position 1) commits MORE client
-    // operations — the responder now runs ahead of the retained offer.
+    // operations, the responder now runs ahead of the retained offer.
     let win_committed = snap(&h, n(1)).committed;
     for lsb in 10..=11u64 {
         let outcome = h.propose(n(1), op_id(lsb), format!("op{lsb}").as_bytes());
@@ -646,7 +646,7 @@ fn the_acquisition_completes_when_the_responder_runs_ahead_of_the_offer() {
 
 /// The serving gate answers a fetch whose requested era the responder's
 /// retention window has moved past. The window is two eras (§8.7.1): a
-/// reincarnated node — or any boot-fenced learner — fetches under an era of
+/// reincarnated node, or any boot-fenced learner, fetches under an era of
 /// its OWN choosing, its boot view, and an incumbent that has folded two
 /// reconfigurations since no longer retains that record. Serving is
 /// read-only retransmission of durable journal content to a member the
@@ -657,7 +657,7 @@ fn the_serving_gate_answers_a_fetch_from_a_past_window_era() {
     let mut h = cluster();
     joined_and_caught_up(&mut h);
     // A second reconfiguration folds era 3 at every incumbent: the
-    // retention window is now [2, 3] and era 1 — the learner's boot era —
+    // retention window is now [2, 3] and era 1, the learner's boot era,
     // is evicted.
     let outcome = h.reconfigure(n(1), SystemOperation::Double, None);
     assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -703,15 +703,15 @@ fn the_serving_gate_answers_a_fetch_from_a_past_window_era() {
 /// The negative arm of the §10 retention rule (`plan_start_view`'s
 /// non-retainable far-future arm): a far-future offer whose establishing
 /// operation does NOT name the boot-fenced member is dropped
-/// `UnevaluableEra` with nothing retained — no stalled offer, no fetch
-/// opened — and the boot fence stands. A scaling era (`Double`) is the
+/// `UnevaluableEra` with nothing retained, no stalled offer, no fetch
+/// opened, and the boot fence stands. A scaling era (`Double`) is the
 /// establishing operation that names nobody: not the `Join` that inserts,
 /// not the `Increment` that promotes, not a batch carrying either, so the
 /// offer is not the recipient's catch-up route.
 ///
 /// The staging: `n(3)` boots over genesis, joins in era 2, and never sees
-/// the era-2 announcement — the script discards it (`drop_queued`), the
-/// same script decision the network's drop is — so its table still holds
+/// the era-2 announcement, the script discards it (`drop_queued`), the
+/// same script decision the network's drop is, so its table still holds
 /// only the genesis fold when the era-3 announcement (established by the
 /// `Double`) arrives: three eras past the boot view, one past `next`.
 #[test]
@@ -724,8 +724,8 @@ fn a_far_future_offer_that_names_nobody_is_dropped_at_the_boot_fence() {
     let boot_committed = snap(&h, n(3)).committed;
 
     // The join commits era 2 at the incumbents; the learner's first sight
-    // of it would be the fence's announcement — retained by the overlap
-    // arm — which the script stages away.
+    // of it would be the fence's announcement, retained by the overlap
+    // arm, which the script stages away.
     let outcome = h.reconfigure(
         n(0),
         SystemOperation::Join {
@@ -745,7 +745,7 @@ fn a_far_future_offer_that_names_nobody_is_dropped_at_the_boot_fence() {
     );
     h.drop_queued(n(3));
 
-    // Era 3 folds under the `Double` — no membership change, no naming.
+    // Era 3 folds under the `Double`, no membership change, no naming.
     let outcome = h.reconfigure(n(1), SystemOperation::Double, None);
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
@@ -755,7 +755,7 @@ fn a_far_future_offer_that_names_nobody_is_dropped_at_the_boot_fence() {
 
     // The learner's first sight of its admitting era: a far-future offer
     // that names nobody. Dropped by name; no stalled offer is retained and
-    // no fetch is opened — the sender sees no GetState.
+    // no fetch is opened, the sender sees no GetState.
     h.deliver_tag(n(3), Tag::StartView);
     assert_eq!(
         h.diagnostic(n(3)),
@@ -799,13 +799,13 @@ fn a_far_future_offer_that_names_nobody_is_dropped_at_the_boot_fence() {
 
 /// The `Increment` admission arm: a boot-fenced member still waiting on
 /// its own `Join`'s history is ADMITTED by the far-future era whose
-/// establishing operation is the `Increment` that promotes it — the offer
+/// establishing operation is the `Increment` that promotes it, the offer
 /// is retained with a fetch under the boot view, the acquisition folds the
 /// admitting eras, and the offer installs on the ordinary tick.
 ///
 /// The staging: `n(3)` boots over genesis, joins in era 2, and the script
 /// discards the era-2 announcement (`drop_queued`) so the learner is still
-/// boot-fenced when the `Increment` promotes it in era 3 — the era-3
+/// boot-fenced when the `Increment` promotes it in era 3, the era-3
 /// announcement is the learner's first sight, two eras past its boot view.
 #[test]
 fn a_far_future_offer_naming_the_boot_fenced_member_through_its_increment_is_retained() {
@@ -849,7 +849,7 @@ fn a_far_future_offer_naming_the_boot_fenced_member_through_its_increment_is_ret
     assert_eq!(
         h.diagnostic(n(3)),
         Some(Diagnostic::UnevaluableEra { era: Era(3) }),
-        "the offer is unevaluable at the boot fence — and retained"
+        "the offer is unevaluable at the boot fence, and retained"
     );
     assert!(
         h.peek_queued(n(2), Tag::GetState).is_some(),
@@ -870,14 +870,14 @@ fn a_far_future_offer_naming_the_boot_fenced_member_through_its_increment_is_ret
 }
 
 /// The `Batch` admission arm: a far-future offer whose establishing
-/// operation is a batch carrying the admitting operation — a batch whose
+/// operation is a batch carrying the admitting operation, a batch whose
 /// first sub-operation names a DIFFERENT member, so the retention decision
-/// must walk the batch's sub-operations — is retained, fetched, and
+/// must walk the batch's sub-operations, is retained, fetched, and
 /// installed, exactly as a single `Join` or `Increment` offer is.
 ///
 /// The staging: `n(3)` joins in era 2 with the era-2 announcement staged
 /// away; era 3 is established by `Batch([Join { n(4) }, Increment(n(3))])`
-/// — one committed operation, one era, the learner named only inside the
+///, one committed operation, one era, the learner named only inside the
 /// batch. `n(4)`'s process is never started: the establishing fan-out
 /// reaches configuration members, and a member whose process never boots
 /// has its stream recorded undeliverable, by the harness's own terms.
@@ -933,7 +933,7 @@ fn a_far_future_offer_naming_the_boot_fenced_member_through_a_batch_is_retained(
     assert_eq!(
         h.diagnostic(n(3)),
         Some(Diagnostic::UnevaluableEra { era: Era(3) }),
-        "the offer is unevaluable at the boot fence — and retained"
+        "the offer is unevaluable at the boot fence, and retained"
     );
     assert!(
         h.peek_queued(n(2), Tag::GetState).is_some(),
@@ -956,18 +956,18 @@ fn a_far_future_offer_naming_the_boot_fenced_member_through_a_batch_is_retained(
 /// window cannot evict the record the next chunk needs. The acquisition
 /// crosses TWO era windows: a chunk three eras past the boot view folds
 /// one era per round, each round re-issuing its fetch under the view the
-/// fold walked to — the third round's chunk names an era the folded table
+/// fold walked to, the third round's chunk names an era the folded table
 /// still holds, and the offer installs. A fetch that stayed on the boot
 /// view would, after the second fold, name the boot era the table has
 /// walked past, and the third chunk would be unevaluable at the very
-/// guard that reads it — the acquisition wedged, the offer stranded.
+/// guard that reads it, the acquisition wedged, the offer stranded.
 ///
 /// The staging: `n(3)` joins in era 2 with the announcement staged away;
 /// eras 3 and 4 fold (`Double`, then the `Increment` promoting the
-/// learner — the era-4 offer's establishing operation names it) before the
+/// learner, the era-4 offer's establishing operation names it) before the
 /// learner's first sight: the era-4 announcement, three eras past the
 /// boot view. `n(3)` is inserted at the succession FRONT so the era-4
-/// view's primary is an incumbent — the learner under test must be a
+/// view's primary is an incumbent, the learner under test must be a
 /// backup the fence can announce to, never the primary the fence waits
 /// on.
 #[test]
@@ -991,7 +991,7 @@ fn the_walked_fetch_rides_the_walked_view_across_two_era_windows() {
     fence_among(&mut h, &[n(0), n(1), n(2)]);
     h.drop_queued(n(3));
 
-    // Two more eras commit before the learner's first sight — era 3 by
+    // Two more eras commit before the learner's first sight, era 3 by
     // the `Double`, era 4 by the learner's own promotion.
     let outcome = h.reconfigure(n(1), SystemOperation::Double, None);
     assert!(matches!(outcome, StepOutcome::Published { .. }));

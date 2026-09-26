@@ -4,23 +4,23 @@
 //! worse than none. The properties pinned here, each of which the protocol
 //! suites are entitled to assume:
 //!
-//! 1. determinism — the same script run twice produces byte-identical step
+//! 1. determinism, the same script run twice produces byte-identical step
 //!    traces;
-//! 2. force-feed — `inject` reaches a node with exactly the outcome of a
+//! 2. force-feed, `inject` reaches a node with exactly the outcome of a
 //!    queued delivery of the same datagram, and a legitimate
 //!    `Prepare` from the view-0 primary is adopted and accepted by a
 //!    `Restarting` backup while a proposal to a non-primary is the
 //!    named `NotPrimary` refusal;
-//! 3. partition accounting — datagrams sent across a partition are held,
+//! 3. partition accounting, datagrams sent across a partition are held,
 //!    counted, and deliverable after `heal`; an explicit drop is recorded;
-//! 4. crash/restart — deliveries to a down node are recorded undeliverable;
+//! 4. crash/restart, deliveries to a down node are recorded undeliverable;
 //!    a reopen yields the recorded `Restarting` state and
 //!    `restart_with` restores the recorded disk under the boot rule;
-//! 5. fault declaration discipline — an undeclared fault fails the step with
+//! 5. fault declaration discipline, an undeclared fault fails the step with
 //!    the full trace; the same script with `expect_fault` passes;
-//! 6. the safety checker is not vacuous — one planted violation per rule,
+//! 6. the safety checker is not vacuous, one planted violation per rule,
 //!    each flagged with its own variant;
-//! 7. tick monotonicity — the harness clock never goes backwards and every
+//! 7. tick monotonicity, the harness clock never goes backwards and every
 //!    `TimedInput` carries the current value.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -282,7 +282,7 @@ fn inject_reaches_the_node_exactly_as_a_queued_delivery() {
 // 3. Partition accounting
 // ---------------------------------------------------------------------------
 
-/// Datagrams crossing the partition are held — not dropped — counted, and
+/// Datagrams crossing the partition are held, not dropped, counted, and
 /// deliverable after `heal`. An explicit drop is recorded in the trace.
 #[test]
 fn partition_holds_counts_and_releases_on_heal() {
@@ -346,7 +346,7 @@ fn crash_makes_deliveries_undeliverable_and_restart_restores() {
     h.tick(n(0)); // revision 1
     h.tick(n(0)); // revision 2
     // The down window: n(0) takes the controlled halt (its restart is the
-    // clean path — a crashed identity cannot resume), n(1) crashes (its
+    // clean path, a crashed identity cannot resume), n(1) crashes (its
     // undeliverable delivery below is the subject).
     h.halt(n(0));
     h.crash(n(1));
@@ -427,7 +427,7 @@ fn an_undeclared_fault_fails_loudly_and_a_declared_fault_passes() {
 /// [`NodeEvidence`]. A checker that has never failed is not a checker.
 #[test]
 fn the_safety_checker_catches_planted_violations() {
-    // A sound cluster passes — the positive control, through the harness
+    // A sound cluster passes, the positive control, through the harness
     // itself rather than planted evidence.
     let mut h = Harness::provision(3);
     h.tick_all();

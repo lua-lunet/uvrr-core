@@ -7,8 +7,8 @@
 //! recovery nonce).
 //!
 //! A [`Message`] is the 20-byte [`Header`] followed by a one-byte body
-//! discriminant and the body fields. The kind travels twice — once as the
-//! header's `u32` [`Tag`], once as the body's `u8` discriminant — and the two
+//! discriminant and the body fields. The kind travels twice, once as the
+//! header's `u32` [`Tag`], once as the body's `u8` discriminant, and the two
 //! must agree: a disagreement is malformed, never guessed at, because the wire
 //! cannot say which field lied. Body discriminants mirror the [`Tag`] numbering
 //! exactly, and `0` is reserved for the same reason it is reserved in
@@ -109,10 +109,10 @@ pub enum Body {
     /// Solicitation of planned view-change evidence during overlap mode
     /// (§8.7.7 step 4). NOT a fence: the recipient keeps accepting `Prepare`
     /// in the current view, which is exactly why this is a distinct tag rather
-    /// than a flag on `StartViewChange` — see [`Tag::PlannedViewChange`].
+    /// than a flag on `StartViewChange`, see [`Tag::PlannedViewChange`].
     PlannedViewChange {},
     /// A request for the history range the requester lacks (§4, §13.1
-    /// step 5). The header slot is the requester's accepted frontier —
+    /// step 5). The header slot is the requester's accepted frontier,
     /// the slot the fetch resumes after. The responder streams the range
     /// back in budget-bounded chunks (W5).
     GetState {
@@ -130,7 +130,7 @@ pub enum Body {
         through: Slot,
         /// The sender's committed frontier at send time.
         committed: Slot,
-        /// Whether the sender's accepted frontier sits past `through` —
+        /// Whether the sender's accepted frontier sits past `through`,
         /// the requester resumes with a fresh `GetState` from the cursor.
         more: bool,
     },
@@ -150,7 +150,7 @@ pub enum Body {
         /// The slot the node had committed in its past life
         /// ([`Slot::NONE`] when it had committed nothing).
         committed: Slot,
-        /// The node's past-life accepted (prepared) frontier — the slot its
+        /// The node's past-life accepted (prepared) frontier, the slot its
         /// journal held through.
         prepared: Slot,
     },
@@ -183,8 +183,8 @@ pub enum Body {
     /// §2–§3): the sender's frontiers, fired at every node. A node that
     /// cannot commit in order asks for the missing range; a node outside the
     /// cluster uses it as its join. Only the node that believes itself
-    /// leader answers — the push of everything above the sender's prepared
-    /// frontier, then a fresh commit — and a sender inside the cluster is
+    /// leader answers, the push of everything above the sender's prepared
+    /// frontier, then a fresh commit, and a sender inside the cluster is
     /// pushed but never listed as a gossip-witness.
     GossipRequest {
         /// The sender's accepted (prepared) frontier; the push resumes at
@@ -198,7 +198,7 @@ pub enum Body {
 /// Whether view-change evidence is ordinary or planned (§8.7.7).
 ///
 /// The distinction decides which quorum the new primary is completing, but it
-/// does not fence the sender or the recipient — that is why it is a body field
+/// does not fence the sender or the recipient, that is why it is a body field
 /// and not a tag, in contrast to [`Tag::PlannedViewChange`], whose entire
 /// content is the fencing difference.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -256,7 +256,7 @@ impl Body {
     ///
     /// The `expect` is unreachable by construction: [`Tag::as_u32`] yields
     /// 2..=17, and the conversion is a `try_from` rather than a cast because
-    /// the crate forbids `as` between integer widths — a tag added past 255
+    /// the crate forbids `as` between integer widths, a tag added past 255
     /// fails loudly here instead of truncating onto the wire.
     fn discriminant(&self) -> u8 {
         u8::try_from(self.tag().as_u32()).expect("tag discriminants fit in a u8 (2..=17)")

@@ -8,7 +8,7 @@
 //! - `Effect::Apply` is emitted in strict slot order and never above
 //!   `committed` (§11.1).
 //! - `Input::Applied { slot }` carries no result (B2); a duplicate or
-//!   out-of-order report — including one above `committed` — is rejected
+//!   out-of-order report, including one above `committed`, is rejected
 //!   without state change.
 //! - `Input::Checkpointed { through }` is accepted only when
 //!   `through <= applied`; the published checkpoint frontier is the SOLE
@@ -16,8 +16,8 @@
 //!   final slot the checkpoint covers, never the tail, opportunistically
 //!   on append (§4, S1).
 //! - The system-slot ruling (§11): `applied` walks EVERY slot. The genesis
-//!   system operations (`Void`@1, `Init`@2, §8.7.2) are core-internal —
-//!   they emit no `Apply` upcall and expect no acknowledgement — but they
+//!   system operations (`Void`@1, `Init`@2, §8.7.2) are core-internal,
+//!   they emit no `Apply` upcall and expect no acknowledgement, but they
 //!   advance `applied` the moment the contiguous committed prefix allows.
 
 mod harness;
@@ -165,8 +165,8 @@ fn duplicate_applied_is_rejected_without_state_change() {
     h.assert_safety();
 }
 
-// 3. An out-of-order `Applied` — skipping a slot, or naming a slot above
-//    the committed frontier — is rejected without state change (§11.1).
+// 3. An out-of-order `Applied`, skipping a slot, or naming a slot above
+//    the committed frontier, is rejected without state change (§11.1).
 #[test]
 fn out_of_order_applied_is_rejected() {
     let mut h = Harness::provision(3);
@@ -295,7 +295,7 @@ fn checkpoint_authorizes_lazy_whole_slab_reclaim() {
         );
         assert!(
             h.journal_entry(id, Slot(5)).is_some() && h.journal_entry(id, Slot(6)).is_some(),
-            "entries above the checkpoint remain readable — the tail is never reclaimed"
+            "entries above the checkpoint remain readable, the tail is never reclaimed"
         );
         assert_eq!(
             snap(&h, id).accepted,
@@ -349,7 +349,7 @@ fn get_state_below_retained_base_is_refused() {
         "the checkpoint-authorized drop fired: slots 1..=4 are physically gone"
     );
 
-    // A lagging peer asks for the range from slot 1 — below the retained
+    // A lagging peer asks for the range from slot 1, below the retained
     // base. The header slot is the requester's accepted frontier (the
     // per-tag table's Frontier role).
     let view = ViewId {

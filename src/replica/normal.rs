@@ -49,7 +49,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The stamp is the newest COMMITTED configuration's era (§8.7.3):
         // the current view's era when no reconfiguration is in flight, one
         // past it inside the overlap a committed establishing operation
-        // opened — the relation's +1 sentence admits exactly that case.
+        // opened, the relation's +1 sentence admits exactly that case.
         let era = self.progress.config().current().era;
         let entry = LogEntry {
             slot,
@@ -116,9 +116,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// The bootstrap rule: a fenced entry (`Restarting` or `Joining`) backup
     /// receiving a legitimate
-    /// `Prepare` for its current view — with `current == retained`, so
+    /// `Prepare` for its current view, with `current == retained`, so
     /// entering `Normal` re-selects nothing and rule 3 of the legality gate
-    /// is untouched — adopts the view and enters `Normal` (§4's own
+    /// is untouched, adopts the view and enters `Normal` (§4's own
     /// mechanism; the fresh cluster has nothing to recover). The
     /// piggybacked committed frontier is taken on every accepted or
     /// re-acknowledged `Prepare` (§13.3).
@@ -126,7 +126,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The gap rule (§13.1 step 5): a `Prepare` past the accepted
     /// frontier's successor is dropped and reported as
     /// [`Diagnostic::GapDetected`], and the fetch half of the ruling rides
-    /// the same transition — a `GetState` for the missing range goes to
+    /// the same transition, a `GetState` for the missing range goes to
     /// the primary. The host obligation rides with it (`docs/architecture.md`,
     /// the contiguity gap rule): a host detects `slot > local frontier` at its
     /// boundary and treats the epoch as stalled until state transfer repairs
@@ -165,11 +165,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             );
         }
         // A Prepare from the legitimate primary of a HIGHER view is proof
-        // the node is stale (§10) — never installation evidence (§13.4):
+        // the node is stale (§10), never installation evidence (§13.4):
         // fence into the advertised view and fetch, install only from the
         // qualified evidence. The one §10 exception: a node still at its
-        // boot fence that is OUTSIDE every configuration it can name —
-        // the reincarnated standby (`docs/uvrr-reincarnation.md` §10) —
+        // boot fence that is OUTSIDE every configuration it can name,
+        // the reincarnated standby (`docs/uvrr-reincarnation.md` §10),
         // takes the committed operations the leader-originated stream
         // carries at its boot fence instead: adopting the advertised
         // view here would leave the boot fence behind, and the standby's
@@ -190,7 +190,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // rule above). Anything else is a view change or a state transfer, and
         // the message drops. A differing view is a view mismatch; a
         // matching view refused by the status is the status gate, named
-        // as such — the churn-window hunt read `ViewMismatch { got ==
+        // as such, the churn-window hunt read `ViewMismatch { got ==
         // current }` as an era disagreement when the refusal was the
         // receiver's status all along.
         if header.view != current {
@@ -217,8 +217,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The bootstrap rule adopts a fenced entry node that the view's
         // configuration counts as a member: the fresh cluster has nothing
         // to recover (§4's own mechanism). A boot-fenced node OUTSIDE
-        // every configuration it can name — the reincarnated standby
-        // (§10 of `docs/uvrr-reincarnation.md`) — takes the committed
+        // every configuration it can name, the reincarnated standby
+        // (§10 of `docs/uvrr-reincarnation.md`), takes the committed
         // operations the stream carries but adopts no view and stays
         // fenced: it never votes, and the promotion era's committed
         // reconfiguration is what admits it.
@@ -257,7 +257,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let accepted = self.progress.accepted();
         if entry.slot <= accepted {
             // Idempotent retransmission: never re-append. The held entry
-            // must BE the proposed one — a slot is assigned once (§1.3).
+            // must BE the proposed one, a slot is assigned once (§1.3).
             let Some(held) = journal.get(entry.slot) else {
                 return Err(PlanRefusal::JournalEntryUnavailable { slot: entry.slot });
             };
@@ -269,7 +269,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // §8.7.1: the era table folds the system operations the
             // advance newly covers. Every entry in the range is journaled
             // here, so a fold refusal is committed history the
-            // configuration cannot hold — the breach faults.
+            // configuration cannot hold, the breach faults.
             let config =
                 match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
                     Ok(config) => config,
@@ -312,7 +312,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 },
                 kind,
             )?;
-            // §13.1 step 5: the fetch half of the gap ruling — ask the
+            // §13.1 step 5: the fetch half of the gap ruling, ask the
             // primary for the missing range.
             let (effect, fetch) = self.fetch(current, from, next);
             return Ok(plan.with_fetch(effect, fetch));
@@ -322,9 +322,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // §8.7.1: the era table folds exactly what the commit frontier
         // newly covers; the arriving entry is visible to the fold through
         // the overlay. A fold refusal AT the arriving slot names the
-        // peer's entry — the operation is invalid against the committed
+        // peer's entry, the operation is invalid against the committed
         // prefix, so the entry drops and nothing installs; below it, the
-        // refusal names committed history the configuration cannot hold —
+        // refusal names committed history the configuration cannot hold,
         // the breach faults.
         let overlay = [entry.clone()];
         let config = match self.fold_committed(
@@ -357,7 +357,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if new_committed < entry.slot {
             // The system-operation perimeter (§8.7.2): an arriving system
             // entry the piggyback did not commit must fold onto the
-            // post-piggyback table BEFORE it may be accepted — a peer's
+            // post-piggyback table BEFORE it may be accepted, a peer's
             // invalid operation is dropped by name, never journaled.
             if let Payload::System(op) = &entry.payload {
                 if let Err(error) = config.extend(op, entry.slot) {
@@ -371,7 +371,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 }
             }
             // Era authorization (§8.7.3, §8.7.8): the entry's era must
-            // name an era the committed history has established — the
+            // name an era the committed history has established, the
             // relation above admitted the +1 window; only the fold can
             // say whether a committed operation actually opened it.
             if config.current().era < entry.era {
@@ -406,7 +406,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// primary of the current view, the view matches, the sender is a
     /// member of the current configuration, the slot is outstanding, the
     /// sender is not already counted. Then the vote is recorded and the
-    /// STRATEGY — the only quorum authority (Q1) — is asked; on a quorum
+    /// STRATEGY, the only quorum authority (Q1), is asked; on a quorum
     /// the committed frontier advances over the contiguous accepted tail,
     /// the newly committed operation slots emit `Apply` in slot order
     /// (§11.1), and the new frontier is announced to every backup (§13.3).
@@ -437,13 +437,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // Commit votes are counted under the NEWEST COMMITTED
         // configuration (§8.7.3's overlap sentence): slots stamped by the
         // era a committed establishing operation opened are authorized by
-        // that era's QII, and R2 — gated before the operation was ever
-        // proposed (§8.7.4) — is what makes the pair safe. Membership and
+        // that era's QII, and R2, gated before the operation was ever
+        // proposed (§8.7.4), is what makes the pair safe. Membership and
         // the strategy's decision both come from that record (Q1).
         let record = self.progress.config().current();
         // The §6 membership-discard rule (`docs/uvrr-reincarnation.md`):
         // a sender outside the configuration is unknown; a sender whose
-        // weight is 0 is a learner — it receives history but contributes
+        // weight is 0 is a learner, it receives history but contributes
         // nothing to any quorum, so its vote is dropped before it is ever
         // counted.
         match record.config.weight_of(from) {
@@ -468,7 +468,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // Acceptance is prefix-contiguous, so this acknowledgement vouches
         // for every lower uncommitted slot (VRR-2012 §4's cumulative
         // acknowledgement): the vote is recorded against every outstanding
-        // slot up to the acknowledged one — including slots a view change
+        // slot up to the acknowledged one, including slots a view change
         // installed, whose records the new primary re-seeded.
         let mut oks: Vec<(Slot, NodeId)> = Vec::new();
         let mut covered = self.progress.committed();
@@ -482,13 +482,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             covered = next;
         }
         // Then the cascade over the contiguous accepted tail: a slot
-        // commits when its Commit quorum lands (the strategy decides —
+        // commits when its Commit quorum lands (the strategy decides,
         // Q1), and commits pull every earlier quorum-holding slot with
         // them (§4). The in-flight vote counts for the whole covered
         // range, because it vouches for the whole range. The cascade is
         // SEGMENT-ATOMIC: a maximal run of consecutive system entries is
         // the one establishing batch a fuse envelope packed
-        // (`docs/uvrr-fuse.md` §1) and commits whole or not at all — an
+        // (`docs/uvrr-fuse.md` §1) and commits whole or not at all, an
         // establishing batch's era is established by the whole fold.
         let mut committed = self.progress.committed();
         while let Some(next) = committed.next() {
@@ -533,10 +533,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
                 .with_bookkeeping(bookkeeping));
         }
-        // §8.7.1: the commit frontier moved — fold the system operations
+        // §8.7.1: the commit frontier moved, fold the system operations
         // the advance newly covers. Every entry in the range is
         // journaled (the cascade walks the accepted tail), so a fold
-        // refusal is committed history the configuration cannot hold —
+        // refusal is committed history the configuration cannot hold,
         // the breach faults.
         let config = match self.fold_committed(journal, &[], self.progress.committed(), committed) {
             Ok(config) => config,
@@ -553,7 +553,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // §8.7.7 steps 1 and 4: an armed non-stop machine whose
         // establishing operation this advance committed records its pivot
         // on the new era's record and solicits the planned evidence of
-        // `qI − {L}` — the solicitation rides THIS published transition,
+        // `qI − {L}`, the solicitation rides THIS published transition,
         // while the era-(e+1) client stream continues uninterrupted.
         let (config, solicitation, planned_update) = self.overlap_solicitation(config, committed);
         // The plan-execution commit hook (the solver doc): a committed
@@ -572,8 +572,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let mut effects = self.apply_effects(journal, self.progress.committed(), committed)?;
         effects.extend(self.broadcast_commit(committed));
         // The per-era commit emission (`docs/uvrr-fuse.md` §4): an
-        // establishing batch the advance committed — the packed schedule a
-        // fuse envelope carried — is announced as one `CommitBatch` naming
+        // establishing batch the advance committed, the packed schedule a
+        // fuse envelope carried, is announced as one `CommitBatch` naming
         // its slots' committed frontiers, no ranges.
         effects.extend(self.commit_batch_effects(journal, self.progress.committed(), committed));
         effects.extend(solicitation);
@@ -587,8 +587,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// Any node's `Commit` handler (§4, §13.3): advance
-    /// `committed = min(header.committed, accepted)` — the frontier never
-    /// claims what the journal does not record (§5 invariant 2) — and emit
+    /// `committed = min(header.committed, accepted)`, the frontier never
+    /// claims what the journal does not record (§5 invariant 2), and emit
     /// `Apply` for the newly committed operation slots in slot order (§11.1).
     /// A fenced entry backup adopts the view under the same rule as
     /// `Prepare`.
@@ -621,12 +621,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         let current = self.progress.current();
         // A Commit from the legitimate primary of a HIGHER view: the same
-        // qualified staleness signal as a higher-view Prepare (§10) —
+        // qualified staleness signal as a higher-view Prepare (§10),
         // fence and fetch, never install from the hint (§13.4). The one
         // §10 exception, as in `plan_prepare`: a boot-fenced standby
         // outside every configuration it can name takes the commit
         // frontier the leader-originated stream carries at its boot fence
-        // (`docs/uvrr-reincarnation.md` §10), staying fenced — the
+        // (`docs/uvrr-reincarnation.md` §10), staying fenced, the
         // frontier is clamped by the journal as ever (§5 invariant 2).
         if header.view > current {
             let boot_fence = matches!(self.progress.status(), Status::Restarting | Status::Joining)
@@ -686,11 +686,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 false,
             ));
         }
-        // §8.7.1: the commit frontier moved — fold the system operations
+        // §8.7.1: the commit frontier moved, fold the system operations
         // the advance newly covers. Every entry in the range is
         // journaled (the frontier never claims what the journal does not
         // record), so a fold refusal is committed history the
-        // configuration cannot hold — the breach faults.
+        // configuration cannot hold, the breach faults.
         let config =
             match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
                 Ok(config) => config,
@@ -717,8 +717,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The commit cascade's atomic segment beginning at `next`: a maximal
-    /// run of consecutive system entries — the establishing batch a fuse
-    /// envelope packed (`docs/uvrr-fuse.md` §1) — commits whole, and any
+    /// run of consecutive system entries, the establishing batch a fuse
+    /// envelope packed (`docs/uvrr-fuse.md` §1), commits whole, and any
     /// other slot commits alone. The run is bounded by the accepted
     /// frontier, which is where the journal's system tail ends.
     fn commit_segment(&self, journal: &J::View, next: Slot, accepted: Slot) -> (Slot, Slot) {
@@ -741,11 +741,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The per-era commit emission (`docs/uvrr-fuse.md` §4 step 4): ONE
     /// `CommitBatch` per establishing batch the advance `(from, through]`
-    /// committed — a maximal run of two or more consecutive system
+    /// committed, a maximal run of two or more consecutive system
     /// entries, the packed schedule a fuse envelope carried. Each batch's
     /// message lists the committed frontier after each of its slots, in
     /// batch order, no ranges, and travels to every backup (and the memo
-    /// standby) as a broadcast — the commit is not a round trip. The
+    /// standby) as a broadcast, the commit is not a round trip. The
     /// ordinary singleton establishing batch keeps the plain `Commit`
     /// announcement it has always had.
     fn commit_batch_effects(&self, journal: &J::View, from: Slot, through: Slot) -> Vec<Effect> {
@@ -800,14 +800,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The primary's `FuseOk` handler (`docs/uvrr-fuse.md` §4 step 3,
     /// §2): one `FuseOk` is ONE atomic vote vouching for the whole
-    /// envelope — a node processes the full datagram before reading any
+    /// envelope, a node processes the full datagram before reading any
     /// other message, so the leader counts a majority response on the
     /// FIRST message in batch and telescopes the remaining slots. The
-    /// guards mirror `plan_prepare_ok` — `Normal`, own is the primary of
+    /// guards mirror `plan_prepare_ok`, `Normal`, own is the primary of
     /// the current view, the view matches, the sender is a member voting
     /// with weight ≥ 1, the HEADER slot an outstanding proposal slot (a
     /// delayed duplicate of a committed slot is harmless but named), the
-    /// sender not already counted on that record — with the fuse
+    /// sender not already counted on that record, with the fuse
     /// vocabulary's one named outcome (`Diagnostic::FuseRefusal`). The
     /// `acks` body is the acceptor's wire evidence and is never examined
     /// for counting: the sender is vouched cumulatively onto every
@@ -816,7 +816,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ///
     /// The commit cascade is `plan_prepare_ok`'s, segment-atomic: the
     /// packed schedule's slots share their ackers (§2), so the batch's
-    /// quorum lands whole — the establishing batch commits as the ONE era
+    /// quorum lands whole, the establishing batch commits as the ONE era
     /// it is, the commit cascade runs in slot order, and the per-era
     /// `CommitBatch` joins the ordinary commit announcement. The
     /// leader's own ack is implicit, as today.
@@ -851,7 +851,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The header slot must be an outstanding proposal slot: the ONE
         // atomic vote is counted against the coverage the header names,
         // and a delayed duplicate of a committed slot is harmless but
-        // named — `plan_prepare_ok`'s stale handling.
+        // named, `plan_prepare_ok`'s stale handling.
         let slot = header.slot;
         let proposal = if slot <= self.progress.committed() {
             None
@@ -865,7 +865,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             return self.drop_plan(Diagnostic::FuseRefusal, kind);
         }
         // The sender is vouched cumulatively onto every outstanding slot
-        // the header slot covers — `plan_prepare_ok`'s bookkeeping pairs,
+        // the header slot covers, `plan_prepare_ok`'s bookkeeping pairs,
         // driven by the header's coverage (§2: majority is computed on
         // the first message in batch; the remaining slots telescope).
         let mut oks: Vec<(Slot, NodeId)> = Vec::new();
@@ -925,10 +925,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
                 .with_bookkeeping(bookkeeping));
         }
-        // §8.7.1: the commit frontier moved — fold the system operations
+        // §8.7.1: the commit frontier moved, fold the system operations
         // the advance newly covers. The packed schedule folds as the ONE
         // establishing batch it is; a fold refusal is committed history
-        // the configuration cannot hold — the breach faults.
+        // the configuration cannot hold, the breach faults.
         let config = match self.fold_committed(journal, &[], self.progress.committed(), committed) {
             Ok(config) => config,
             Err(CommitFold::Unavailable(slot)) => {

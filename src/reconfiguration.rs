@@ -6,11 +6,11 @@
 //! `(taken ops, configuration so far, mass moved)`. For each incoming operation:
 //!
 //! 1. try the operation against the accumulated in-batch configuration;
-//! 2. if the growing batch stays legal — R13–R15 and every per-op boundary at its
-//!    point in the sequence — **take** it: extend the taken list and the
+//! 2. if the growing batch stays legal, R13–R15 and every per-op boundary at its
+//!    point in the sequence, **take** it: extend the taken list and the
 //!    configuration;
-//! 3. if it would violate a rule, **pass only the prior list**: close the batch —
-//!    the taken ops become one era's establishing operation — and retry the
+//! 3. if it would violate a rule, **pass only the prior list**: close the batch,
+//!    the taken ops become one era's establishing operation, and retry the
 //!    operation as the first op of the next batch.
 //!
 //! The legality oracle for every what-if is [`Configuration::apply`] itself, on a
@@ -23,7 +23,7 @@
 //! one era because each moves no mass (R14); the reincarnation four split into the
 //! canonical two; a scaling op forces the next op into a new batch (R13); and a batch
 //! is never nested nor seeded with genesis (R15). A stream operation that is illegal
-//! even alone refuses the plan outright — the partitioner invents no eras around a
+//! even alone refuses the plan outright, the partitioner invents no eras around a
 //! boundary the fold refuses.
 
 use crate::configuration::{ConfigError, Configuration, SystemOperation};
@@ -34,8 +34,8 @@ use crate::wire::{Header, Tag};
 
 /// One committed era of a planned reconfiguration (rules §4, §5).
 ///
-/// `ops` become ONE [`SystemOperation::Batch`] establishing operation — one era, one
-/// WAL entry (§9) — and `config` is the configuration that era establishes: the fold
+/// `ops` become ONE [`SystemOperation::Batch`] establishing operation, one era, one
+/// WAL entry (§9), and `config` is the configuration that era establishes: the fold
 /// of the batch onto the previous era's configuration. The planner never stores
 /// steps; a [`Configuration::plan`] result is a proposal the leader still evaluates
 /// against the current committed configuration.
@@ -57,7 +57,7 @@ impl Configuration {
     ///
     /// * No genesis operation in the stream (R15: [`ConfigError::GenesisNotPlannable`]).
     /// * Every taken batch obeys the batch rules R13–R15 and every sub-operation's
-    ///   own boundary at its point in the sequence — the same refusals the fold
+    ///   own boundary at its point in the sequence, the same refusals the fold
     ///   produces, surfaced from the what-if (`EmptyBatch` cannot occur here: a
     ///   batch is only ever closed with at least one taken op).
     /// * An operation that is illegal even as the first op of a fresh batch refuses
@@ -128,7 +128,7 @@ impl Configuration {
 /// `docs/uvrr-reconfiguration-rules.md`). It is a reconfiguration message sent
 /// by an administrator to the leader; it is not a folded batch operation and
 /// it never changes a weight, so it is not a [`SystemOperation`] and carries
-/// no wire encoding — the host→replica input is its whole shape. Its two
+/// no wire encoding, the host→replica input is its whole shape. Its two
 /// fields are the CAS pair: the view the sender believes the cluster is in,
 /// and the view the cluster should move to (§12 names both "eras": the
 /// schedule the delta rule bounds is the primary-succession schedule, which
@@ -171,7 +171,7 @@ pub enum AbdicationRefusal {
     /// The delta rule refused a target at or behind the named view (§12
     /// check 3: eras do not move backwards). A succession term at the end of
     /// its space has no nameable successor, so an abdication there refuses
-    /// on this variant too — every nameable target is at or behind it.
+    /// on this variant too, every nameable target is at or behind it.
     NonPositiveDelta {
         /// The named current term.
         current: View,
@@ -212,7 +212,7 @@ pub fn validate_abdication(
     current: ViewId,
     receiver: NodeId,
 ) -> Result<AbdicationEmission, AbdicationRefusal> {
-    // Check 1: the CAS — the cluster is in the view the message names.
+    // Check 1: the CAS, the cluster is in the view the message names.
     if message.current != current {
         return Err(AbdicationRefusal::NotTheNamedEra {
             current,

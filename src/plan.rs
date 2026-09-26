@@ -4,8 +4,8 @@
 //!
 //! A [`Plan`] is serde-free: it is the core's type, built from the solver's
 //! schedule ([`crate::solver`]) and replayed by the leader one batch per era.
-//! The JSONL form exists only at the tool perimeter — the codec below is
-//! feature-gated — and a plan crossing that perimeter is validated once, on
+//! The JSONL form exists only at the tool perimeter, the codec below is
+//! feature-gated, and a plan crossing that perimeter is validated once, on
 //! the way in, against the same transition gates the leader applies
 //! ([`Plan::validate_against`]). The core never sees JSON.
 
@@ -20,8 +20,8 @@ use crate::ids::Era;
 /// A computed reconfiguration: the membership it starts from, and one batch of
 /// operations per era, in commit order.
 ///
-/// `initial` is the configuration the plan was computed against — membership
-/// order included, because order is succession — and `steps[i]` is the batch
+/// `initial` is the configuration the plan was computed against, membership
+/// order included, because order is succession, and `steps[i]` is the batch
 /// that establishes the era after step `i − 1`. The plan carries nothing the
 /// ordinary protocol does not already carry: each step is committed as ONE
 /// [`SystemOperation::Batch`], exactly as any other reconfiguration.
@@ -111,8 +111,8 @@ fn fold_steps(
 impl Plan {
     /// Checks the plan against the leader's current committed configuration.
     ///
-    /// The plan's `initial` must equal the committed configuration —
-    /// membership, succession order and weights all compared — and every step
+    /// The plan's `initial` must equal the committed configuration,
+    /// membership, succession order and weights all compared, and every step
     /// must fold through the ordinary transition gates
     /// ([`Configuration::apply`]). A plan that was legal when computed but has
     /// drifted is rejected by name, never committed.

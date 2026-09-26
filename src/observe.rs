@@ -4,12 +4,12 @@
 //! thread, a metrics scraper, or a LuaJIT host holding the C ABI must read progress
 //! without taking any lock the transition path takes: **a reader never blocks a
 //! writer or another reader, and observation cannot delay the §12 serialized
-//! transition interval** — a replica that stalls its transition to service a scrape
+//! transition interval**, a replica that stalls its transition to service a scrape
 //! has converted observability into a liveness fault.
 //!
 //! The mechanism is a single-writer seqlock over a POD snapshot: even sequence
 //! means stable, odd means write in progress, a torn read retries. Chosen over an
-//! `Arc` swap because there is **no reclamation race to prove** — nothing is freed,
+//! `Arc` swap because there is **no reclamation race to prove**, nothing is freed,
 //! so no epoch, hazard pointer, or deferred drop whose soundness every later module
 //! would have to re-establish. The cost is reader spin under a write storm; writes
 //! are bounded by the transition rate. This module and the future `ffi` module are
@@ -28,7 +28,7 @@ use crate::configuration::ConfigError;
 use crate::ids::{Era, NodeId, Slot, ViewId};
 use crate::progress::Status;
 
-/// Why a published transition dropped its peer input — or `None`, when it
+/// Why a published transition dropped its peer input, or `None`, when it
 /// dropped nothing.
 ///
 /// Normal operation made total (VRR-2012 §4): invalid peer input is dropped
@@ -74,7 +74,7 @@ pub enum Diagnostic {
     /// still sits at its boot fence. A node mid view change or replaying
     /// drops even same-view traffic; the status names the refusing state.
     StatusGate {
-        /// The view the message named — equal to the node's current view.
+        /// The view the message named, equal to the node's current view.
         got: ViewId,
         /// The node's current view.
         current: ViewId,
@@ -98,7 +98,7 @@ pub enum Diagnostic {
         entry: Slot,
     },
     /// A `Prepare` carrying a system operation the configuration fold
-    /// refuses (§8.7.2's preconditions, run at accept — the peer's entry,
+    /// refuses (§8.7.2's preconditions, run at accept, the peer's entry,
     /// never the node's committed history, is what fails here, so the
     /// entry is dropped and nothing installs; a refusal in COMMITTED
     /// history is the fold breach that faults instead).
@@ -186,7 +186,7 @@ pub enum Diagnostic {
         /// The transport-attributed sender.
         sender: NodeId,
     },
-    /// A `PrepareOk` from a member whose weight is 0 — a learner (§8.4).
+    /// A `PrepareOk` from a member whose weight is 0, a learner (§8.4).
     /// The learner receives history but contributes nothing to any quorum
     /// (`docs/uvrr-reincarnation.md` §6: its messages are discarded on
     /// ingress), so its acknowledgement is dropped before it is ever
@@ -198,7 +198,7 @@ pub enum Diagnostic {
     /// A `Reincarnation` announcement (§4 of the doc) that the recipient
     /// cannot act on: the recipient is not the leader of its current view,
     /// or the message's sender is not the new identity it names. Dropped,
-    /// never faulted — the bumped node re-sends until a stable leader
+    /// never faulted, the bumped node re-sends until a stable leader
     /// exists (§8 of the doc).
     ReincarnationRefused {
         /// The transport-attributed sender.
@@ -207,15 +207,15 @@ pub enum Diagnostic {
         view: ViewId,
     },
     /// A `StartViewChange` for a view at or behind the node's fence target
-    /// (§9.1). The change it fences has already happened — or a later one is
-    /// already under way — so the vote cannot count twice (V_g ⌢ V_g, §8.3).
+    /// (§9.1). The change it fences has already happened, or a later one is
+    /// already under way, so the vote cannot count twice (V_g ⌢ V_g, §8.3).
     StaleViewChange {
         /// The view the fence named.
         got: ViewId,
         /// The node's current fence target or installed view.
         current: ViewId,
     },
-    /// `DoViewChange` evidence for a view the node is not fencing into — a
+    /// `DoViewChange` evidence for a view the node is not fencing into, a
     /// finished or superseded change (§9.1). Also the outcome for a
     /// `StartView` whose committed frontier claims less than the node
     /// already durably holds: an honest quorum can never produce it, and
@@ -227,7 +227,7 @@ pub enum Diagnostic {
         current: ViewId,
     },
     /// `DoViewChange` evidence arrived at a node that is fencing into the
-    /// named view but is not its designated primary — the evidence was never
+    /// named view but is not its designated primary, the evidence was never
     /// solicited here (§9.1).
     EvidenceNotCollected {
         /// The transport-attributed sender.
@@ -263,7 +263,7 @@ pub enum Diagnostic {
     /// The leader's armed plan-execution machine aborted
     /// (`docs/weighted-reconfiguration-solver.md`): a step the plan's own
     /// acceptance validation folded was refused by the reconfiguration
-    /// gates — a plan computed to be legal cannot become illegal, so the
+    /// gates, a plan computed to be legal cannot become illegal, so the
     /// refusal means the cluster changed underneath the plan. The machine
     /// cleared; the operator re-plans from the configuration that committed.
     PlanAborted {
@@ -279,7 +279,7 @@ pub enum Diagnostic {
 /// A single-writer, multi-reader seqlock over a `Copy` snapshot.
 ///
 /// The observed type is `progress::ProgressSnapshot`: a flat record of
-/// `u64`/`u32`/`bool`. `T: Copy` is the structural half of the POD requirement —
+/// `u64`/`u32`/`bool`. `T: Copy` is the structural half of the POD requirement,
 /// no `Drop`, no owned heap state, a bitwise copy is a complete value.
 pub struct Observation<T: Copy> {
     /// Even means stable, odd means a write is in progress.
@@ -288,10 +288,10 @@ pub struct Observation<T: Copy> {
 }
 
 // SAFETY (`Send`): `T: Send` is required because `read` returns an owned copy on
-// the caller's thread — the value crosses threads by value, never by reference.
+// the caller's thread, the value crosses threads by value, never by reference.
 // SAFETY (`Sync`): shared references admit `read` from any thread and `write`
-// from the claimed owner. Payload accesses are volatile — Rust's designated
-// mechanism for memory that may change asynchronously — so a racing read/write
+// from the claimed owner. Payload accesses are volatile, Rust's designated
+// mechanism for memory that may change asynchronously, so a racing read/write
 // pair is not a data race in the aliasing sense, and no reference into the cell
 // ever escapes. Consistency of the returned value is argued at `read`.
 unsafe impl<T: Copy + Send> Send for Observation<T> {}
@@ -309,7 +309,7 @@ impl<T: Copy> Observation<T> {
 
     /// Publishes `snapshot`: claim odd, store payload, release even. §12
     /// guarantees one transition owner, so the claim never contends in a correct
-    /// host — but it is a compare-exchange rather than an assumption, so a second
+    /// host, but it is a compare-exchange rather than an assumption, so a second
     /// writer serializes instead of corrupting the sequence parity. Safety never
     /// depends on the host's promise.
     pub fn write(&self, snapshot: T) {
@@ -338,7 +338,7 @@ impl<T: Copy> Observation<T> {
         }
         // SAFETY: the odd claim makes this thread the only writer and readers
         // never mutate. `write_volatile` because the store races reader copy-outs
-        // by design — tearing there is detected by the sequence protocol — so the
+        // by design, tearing there is detected by the sequence protocol, so the
         // store must not be split, merged, or elided. `T: Copy`: a complete value
         // is written and no `Drop` of the old contents is skipped.
         unsafe { ptr::write_volatile(self.cell.get(), snapshot) };
@@ -348,7 +348,7 @@ impl<T: Copy> Observation<T> {
     }
 
     /// The latest stable snapshot, by value: zero allocation, no refcount, no
-    /// reclamation — exactly why B1 chose this over an `Arc` swap.
+    /// reclamation, exactly why B1 chose this over an `Arc` swap.
     ///
     /// Torn reads are never returned. The copy-out may race a writer and tear,
     /// but a torn value is detected, never returned: a write overlapping the

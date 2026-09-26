@@ -4,7 +4,7 @@
 //! The administrator's message names the view the cluster is in and the view
 //! it should move to. The leader validates, in order: the CAS, the
 //! receiver-is-primary check, and the delta rule
-//! `0 < (target − current) ≤ N` — each a named refusal. On a valid
+//! `0 < (target − current) ≤ N`, each a named refusal. On a valid
 //! abdication the leader emits the standard view-change message set for the
 //! target view and steps down in the same transition: no new wire message
 //! exists, and the successor the target schedule names resumes as primary
@@ -325,7 +325,7 @@ fn valid_abdic_relocation_emits_the_standard_view_change() {
 
     // The emission is exactly the standard view-change message set for the
     // target view: one StartViewChange per other member, header slot absent,
-    // routed under the target view's era. No new tag appears — every tag on
+    // routed under the target view's era. No new tag appears, every tag on
     // the emission is an existing protocol tag.
     assert_eq!(effects.len(), 5, "one datagram per other member");
     let mut recipients = Vec::new();
@@ -352,7 +352,7 @@ fn valid_abdic_relocation_emits_the_standard_view_change() {
 
     // The leader stepped down in the same transition: it is fenced at the
     // target view, and a proposal is redirected to the successor the
-    // target's schedule names — order[4 mod 6] = n4 = DC3:a.
+    // target's schedule names, order[4 mod 6] = n4 = DC3:a.
     assert_eq!(
         status_of(&h, n(0)),
         Status::ViewChange,
@@ -392,7 +392,7 @@ fn the_abdicating_leader_is_leader_no_more() {
     assert!(matches!(outcome, StepOutcome::Published { .. }));
 
     // The standard view-change pipeline carries the handover: the successor
-    // the target era's schedule names — n4 — resumes as primary.
+    // the target era's schedule names, n4, resumes as primary.
     h.deliver_all();
     for &id in &ids {
         assert_eq!(status_of(&h, id), Status::Normal, "{id:?} settled");

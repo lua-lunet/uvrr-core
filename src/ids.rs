@@ -264,7 +264,7 @@ const _: () = assert!(size_of::<Tick>() == size_of::<u64>());
 const _: () = assert!(align_of::<Tick>() == align_of::<u64>());
 
 /// An operation's identity at the application boundary (§11.1, B2): 128
-/// bits the proposing host assigns, and the core carries opaque — proposed
+/// bits the proposing host assigns, and the core carries opaque, proposed
 /// with the operation, replicated inside its log entry, and handed back on
 /// `Effect::Apply`. The core never generates one, never inspects one, and
 /// never deduplicates on one: the same identity proposed twice is two
@@ -274,11 +274,11 @@ const _: () = assert!(align_of::<Tick>() == align_of::<u64>());
 /// host's name for the operation (a split such as `{client, sequence}` is
 /// the host's scheme, invisible here), the pair is `Ord`, `Hash` and `Copy`
 /// with machine-level comparisons, and the W3 wire codec fixes the byte
-/// order — most significant word first, both words big-endian — at the one
+/// order, most significant word first, both words big-endian, at the one
 /// place byte order is a decision rather than an accident.
 ///
 /// `#[repr(C)]` so the layout is as fixed as the newtypes': `msb` at offset
-/// 0, `lsb` at offset 8, no padding — a host handing the identity across an
+/// 0, `lsb` at offset 8, no padding, a host handing the identity across an
 /// FFI boundary reads the words where it wrote them.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -296,7 +296,7 @@ const _: () = assert!(align_of::<OperationId>() == align_of::<u64>());
 /// One host operation at the application boundary (§11.1, B2): the identity
 /// the proposing host assigned and the opaque bytes to be ordered. This is
 /// the unit `Input::Propose` carries; commitment hands its parts back on
-/// `Effect::Apply` — same identity, same bytes, at every replica.
+/// `Effect::Apply`, same identity, same bytes, at every replica.
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Operation {
@@ -395,7 +395,7 @@ impl Slot {
 /// therefore `(era, view)`.
 ///
 /// On any legal pair the orderings `(era, view)` and `(view, era)` coincide, because era
-/// advances only as views advance — a higher era implies a higher view within any single
+/// advances only as views advance, a higher era implies a higher view within any single
 /// legitimate history. Pairs on which the two orderings disagree are illegal and are
 /// rejected by `invariant`, not silently ordered. `Ord` is therefore a total order that
 /// is only *meaningful* on validated pairs, and callers must validate before they
@@ -412,7 +412,7 @@ pub struct ViewId {
 }
 
 impl ViewId {
-    /// The **genesis view**: [`Era::INITIAL`] and [`View::INITIAL`] — the view a
+    /// The **genesis view**: [`Era::INITIAL`] and [`View::INITIAL`], the view a
     /// freshly provisioned node advertises, pinned by `Progress::genesis` (the
     /// genesis ruling, §1.3). Era 0 is the void configuration, quorum-impossible by arithmetic,
     /// and view 0 is the first primary term once `Init` commits (§1.2:
@@ -483,7 +483,7 @@ impl ViewId {
 /// This is the arithmetic a primary uses to choose its own next view during a planned
 /// view change (spec §8.7.7 step 4). It knows nothing about membership; the caller
 /// supplies `index` and `members` from the configuration it has already validated, which
-/// is why this lives in `ids` and not in `configuration` — it is modular arithmetic over
+/// is why this lives in `ids` and not in `configuration`, it is modular arithmetic over
 /// §1.2's `primary(v) = order[v mod N]`, with no notion of who occupies the slot.
 ///
 /// The result normally skips views. That is correct: §8.7.3 states that view-number gaps
@@ -491,8 +491,8 @@ impl ViewId {
 /// member.
 ///
 /// Returns `None` rather than panicking when `members == 0` or `index >= members`. Both
-/// are unsatisfiable rather than erroneous — no view selects a member of an empty
-/// configuration — and the core does not abort a host process over an argument it can
+/// are unsatisfiable rather than erroneous, no view selects a member of an empty
+/// configuration, and the core does not abort a host process over an argument it can
 /// refuse. `None` is also returned when the least satisfying view is not representable;
 /// there is no wraparound (§8.7.3), so a cluster that exhausts the view space stops
 /// rather than reuses a primary term.
@@ -538,8 +538,8 @@ pub fn next_view_selecting(current: View, index: u32, members: u32) -> Option<Vi
 ///
 /// This enum lives in `ids`, not in `invariant`, by architectural ruling: `Fault` names
 /// fault *kinds* and is identity-level state carried inside `Progress`. Placing it in
-/// `invariant` would close a module cycle — `invariant::legal` consumes `Progress`
-/// while `progress` would have to import `Fault` back from `invariant` — and the
+/// `invariant` would close a module cycle, `invariant::legal` consumes `Progress`
+/// while `progress` would have to import `Fault` back from `invariant`, and the
 /// architecture prohibits cycles. `invariant` re-exports it so existing citations keep
 /// compiling.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -566,9 +566,9 @@ impl Fault {
     /// convention observed by whichever code happens to hold a `Fault`. There is
     /// deliberately no clear, reset, or `try_recover` path anywhere in the crate; a
     /// reviewer encountering that absence should read this method and conclude it is the
-    /// design, not an oversight. Restart from a fault is a host lifecycle event — the
+    /// design, not an oversight. Restart from a fault is a host lifecycle event, the
     /// node is restarted and re-establishes a coherent state through the ordinary
-    /// restart path (§5 invariant 5) — not a state transition the core can perform on
+    /// restart path (§5 invariant 5), not a state transition the core can perform on
     /// itself, because a node that has lost track of its own durable state cannot be the
     /// authority that declares itself sound again.
     #[must_use]

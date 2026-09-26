@@ -4,15 +4,15 @@
 //! VRR-2012 §5: tick-driven timeout detection (S4), the `StartViewChange`
 //! fence (`Role::Fence` through the strategy, Q1), `DoViewChange` evidence
 //! (`Role::ViewChange`), and `StartView` installation. History selection
-//! ranks by `retained` view first, then `accepted` frontier (§1.3) — the
+//! ranks by `retained` view first, then `accepted` frontier (§1.3), the
 //! §9.2 counterexample is the load-bearing test of the rule. Suffixes are
 //! bounded newest-first under [`ViewChangeKnobs::view_change_budget`] and
 //! encoded ascending (§13.1; W4). A `StartView` suffix that conflicts with a
 //! committed local slot is this path's one deliberate fault-on-peer-input:
 //! silent repair would hide a safety breach, so the node declares
 //! [`Fault::IllegalTransition`]. A suffix the recipient cannot construct
-//! history from is a named gap — [`Diagnostic::GapDetected`], never a fault
-//! — whose fetch half (§10, §13.1 step 5) rides the same transition.
+//! history from is a named gap, [`Diagnostic::GapDetected`], never a fault
+//!, whose fetch half (§10, §13.1 step 5) rides the same transition.
 
 use super::reconfiguration::CommitFold;
 use super::*;
@@ -21,11 +21,11 @@ use crate::trace;
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// Enters the view change for `target` (VRR-2012 §5, spec §9.1): the
-    /// durable view advances and fences (`Progress` keeps `retained` — the
+    /// durable view advances and fences (`Progress` keeps `retained`, the
     /// history is not re-selected by entering), the fence vote set starts
     /// at the node's own plus any already-heard `StartViewChange` senders,
     /// and the node's own `StartViewChange` broadcasts to every other
-    /// member. The fence quorum (`Role::Fence`, Q1) may complete at entry —
+    /// member. The fence quorum (`Role::Fence`, Q1) may complete at entry,
     /// the joining `StartViewChange` can be the one that closes it.
     pub(in crate::replica) fn enter_view_change(
         &self,
@@ -70,7 +70,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The host-forced view change (§14.2): drive the ORDINARY
     /// fence/evidence/install pipeline into `target`, whose primary is
     /// the member `primary(target)` names under the current membership
-    /// order — no state is installed from the host's say-so. The target
+    /// order, no state is installed from the host's say-so. The target
     /// must strictly advance the view within the current era or the
     /// established-but-unentered era: a non-advancing target is bad
     /// input, an era the committed configuration history has not
@@ -110,7 +110,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `docs/uvrr-reconfiguration-rules.md`): the validation function names
     /// the standard view-change emission or the refusal, and a valid
     /// abdication arms the emission and the leader's step-down in the SAME
-    /// transition — the node enters the target view's ordinary view change
+    /// transition, the node enters the target view's ordinary view change
     /// carrying exactly the validated emission, so its further messages are
     /// discarded by the standard membership and fence checks of that view
     /// and the successor its schedule names resumes as primary. The
@@ -150,7 +150,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// Runs the attempt forward after its volatile state changed: fence
-    /// quorum first (§9.1's ordering — evidence follows the fence), then,
+    /// quorum first (§9.1's ordering, evidence follows the fence), then,
     /// at the designated new primary, the evidence quorum (`Role::View
     /// Change`, Q1) and the install. Every quorum question goes to the
     /// strategy; no count is computed here.
@@ -209,7 +209,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 )? {
                     WinOutcome::Installed(plan) => return Ok(*plan),
                     // §13.1 step 5: the selected history cannot be
-                    // constructed from the collected evidence — fetch the
+                    // constructed from the collected evidence, fetch the
                     // missing range from the reporter whose history was
                     // selected, stamped with the TARGET view from the gap
                     // base. The attempt and its selection are kept; the
@@ -234,8 +234,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                         // Open the fetch once: the gap ruling's first
                         // insufficient outcome asks the selected reporter
                         // for the missing range. A later insufficient
-                        // outcome — a duplicate evidence delivery, or the
-                        // tick re-drive before the range has arrived —
+                        // outcome, a duplicate evidence delivery, or the
+                        // tick re-drive before the range has arrived,
                         // leaves the open fetch alone: its chunks and the
                         // tick's cursor retry own the repair.
                         if self.transfer.is_none() {
@@ -260,7 +260,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The node's own evidence for the attempt at `target` (§9.1): the
     /// retained provenance, both frontiers, the bounded suffix (§13.1),
-    /// ordinary kind — and the era proof, attached only when the evidence
+    /// ordinary kind, and the era proof, attached only when the evidence
     /// is sent (§8.7.8).
     fn own_evidence(&self, journal: &J::View) -> Evidence {
         Evidence {
@@ -310,15 +310,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// A `StartViewChange` (§9.1): a fence vote for the view it names.
     ///
-    /// - Behind or at the fence target: [`Diagnostic::StaleViewChange`] —
+    /// - Behind or at the fence target: [`Diagnostic::StaleViewChange`],
     ///   the change it fences is done or superseded, and a fence vote never
     ///   counts twice (V_g ⌢ V_g, §8.3).
-    /// - Ahead: the node joins — the durable view advances (fencing every
+    /// - Ahead: the node joins, the durable view advances (fencing every
     ///   earlier view), the vote set starts at `{own, sender}`, and the
     ///   node's own `StartViewChange` re-broadcasts. An in-progress attempt
     ///   at a lower target is superseded whole.
     /// - At the target of the in-progress attempt: a vote. When the votes
-    ///   form a `Role::Fence` quorum (Q1 — the strategy answers, no count
+    ///   form a `Role::Fence` quorum (Q1, the strategy answers, no count
     ///   is computed here), the node records its own evidence and reports
     ///   it to the designated new primary.
     pub(in crate::replica) fn plan_start_view_change(
@@ -393,8 +393,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         // Planned evidence belongs to the non-stop overlap path
-        // (§8.7.7): it is routed by its kind — distinguishable on the
-        // wire — and never lands in the ordinary attempt, where it would
+        // (§8.7.7): it is routed by its kind, distinguishable on the
+        // wire, and never lands in the ordinary attempt, where it would
         // count toward a quorum it is not a vote in.
         if evidence == EvidenceKind::Planned {
             return self.plan_planned_evidence(
@@ -466,12 +466,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// A `StartView` (§9.1, §13.1): the designated new primary installing
     /// the selected history.
     ///
-    /// The adoption rule: any node the change passed by — `Normal` or
-    /// `Restarting` in an earlier view, or fencing into this very view —
+    /// The adoption rule: any node the change passed by, `Normal` or
+    /// `Restarting` in an earlier view, or fencing into this very view,
     /// installs the offered history, provided it can VERIFY it: the suffix
     /// must reach back to a slot the node can check (its frontier, or a
     /// shared slot whose entry agrees). A suffix that starts past the
-    /// node's frontier is a gap — named [`Diagnostic::GapDetected`], kept
+    /// node's frontier is a gap, named [`Diagnostic::GapDetected`], kept
     /// fenced, never faulted; the fetch half of the ruling (§13.1 step 5)
     /// rides the same transition and the installed chunks repair the
     /// journal for the next offer.
@@ -499,20 +499,20 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // A `StartView` one era past the current is the overlap
             // transition's offer arriving before the establishing
             // operation did (§8.7.7, a reordering): the ruling is the
-            // gap ruling's (§13.1 step 5) — retain the offer, fetch the
+            // gap ruling's (§13.1 step 5), retain the offer, fetch the
             // missing range from the new primary under the CURRENT view,
             // and re-run the ruling on an ordinary tick once the range
             // has folded the era that makes the offer evaluable.
             //
             // An offer MORE than one era past is the §10 learner
-            // acquisition's catch-up route when — and only when — the
+            // acquisition's catch-up route when, and only when, the
             // recipient is still at its boot fence (`Restarting` at
             // `current == retained`, the reopen state: it has adopted
             // nothing) and the offer NAMES it: the offered era's
             // establishing operation admits the node (a `Join`, the
             // `Increment` that promotes it, or a batch carrying either).
-            // The node stays fenced — it adopts nothing here, its votes
-            // are never counted, and it serves nothing — the acquisition
+            // The node stays fenced, it adopts nothing here, its votes
+            // are never counted, and it serves nothing, the acquisition
             // (`docs/uvrr-reincarnation.md` §10) is the same ordinary
             // state transfer, and the offered era's fold makes the offer
             // evaluable for the ordinary install that completes the
@@ -590,7 +590,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // An honest selection covers everything the node durably committed:
         // the commit quorum intersects the evidence quorum, and the ranking
         // rule keeps the committed prefix (§9.2). An offer that claims less
-        // is evidence shaped like knowledge the node already holds — stale,
+        // is evidence shaped like knowledge the node already holds, stale,
         // never believed, never fatal.
         if committed < self.progress.committed() || accepted < self.progress.committed() {
             return self.drop_plan(
@@ -604,7 +604,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The node's own published checkpoint discharges the reclaimed prefix
         // (§4): every reclaimed slot is at or below it, hence at or below
         // the committed frontier, so §9.2's quorum-identity argument fixes
-        // the entry — a legal offer carries it, and the install writes
+        // the entry, a legal offer carries it, and the install writes
         // nothing there. Without the discharge no reclaimed node could
         // ever verify an offer that reaches past its retained base.
         let mutation = match self.check_suffix(
@@ -618,7 +618,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             SuffixCheck::Gap { expected, got } => {
                 let plan = self.drop_plan(Diagnostic::GapDetected { expected, got }, kind)?;
                 // §13.1 step 5: the recipient cannot construct the offered
-                // history — fetch the missing range from the new primary.
+                // history, fetch the missing range from the new primary.
                 // The node stays fenced; the retained offer re-runs the
                 // ruling on an ordinary tick once the range has arrived.
                 let (effect, fetch) = self.fetch(header.view, from, expected);
@@ -635,7 +635,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         };
         let applied = self.applied_walk(journal, suffix, self.progress.applied(), committed)?;
         // §8.7.1: the installed history's committed frontier may cover
-        // system operations this node never folded — the era advances
+        // system operations this node never folded, the era advances
         // with the install, exactly as if the commit had arrived in
         // order. A fold refusal in the installed COMMITTED history is
         // the same breach as a committed-slot conflict (§9.1): declare
@@ -648,7 +648,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 }
                 // The installed frontier would split an establishing
                 // batch (`docs/uvrr-fuse.md`): the offer is malformed,
-                // dropped by name — the stalled-offer machinery is the
+                // dropped by name, the stalled-offer machinery is the
                 // repair.
                 Err(CommitFold::SplitBatch) => {
                     return self.drop_plan(Diagnostic::FuseRefusal, kind);
@@ -679,7 +679,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// (§9.1): the selected history becomes the node's own, `committed`
     /// advances to the greatest frontier the quorum truthfully reported
     /// (each report is a commit quorum's product, and the selected history
-    /// contains every committed entry — §9.2's argument), the newly
+    /// contains every committed entry, §9.2's argument), the newly
     /// committed operation slots apply in slot order (§11.1), and `StartView`
     /// broadcasts the selection with a freshly packed bounded suffix
     /// (§13.1). The uncommitted tail's proposal records are re-seeded from
@@ -745,7 +745,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             committed,
         )?;
         // §8.7.1: the selected history's committed frontier may cover
-        // system operations this node never folded — the era advances
+        // system operations this node never folded, the era advances
         // with the install. A fold refusal in the selected COMMITTED
         // history is the same breach as a committed-slot conflict (§9.1):
         // declare it, never guess a repair.
@@ -761,7 +761,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             // The selected frontier would split an establishing batch
             // (`docs/uvrr-fuse.md`): the evidence is malformed, the
-            // attempt installs nothing — the offer is dropped by name
+            // attempt installs nothing, the offer is dropped by name
             // and the node stays fenced for a fresh attempt.
             Err(CommitFold::SplitBatch) => {
                 return Ok(WinOutcome::Installed(Box::new(
@@ -818,8 +818,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 }
 
-/// Whether `op` — the establishing operation a `StartView` offer's era
-/// proof carries — names `node` as a member the era admits: the `Join`
+/// Whether `op`, the establishing operation a `StartView` offer's era
+/// proof carries, names `node` as a member the era admits: the `Join`
 /// that inserts it, the `Increment` that promotes it, or a batch carrying
 /// either. A departure (`Decrement`, `Leave`) does not admit; the offer
 /// is the node's catch-up route (§10), and a departing node is not

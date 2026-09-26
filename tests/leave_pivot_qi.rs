@@ -1,6 +1,6 @@
 //! The Leave-pivot `qI` finding: a `Leave` whose pivot places
-//! the departing member inside `qI` — the standby rides into `qI` on the
-//! §8.7.6 cardinality rule (`|qI| + |qII| = N + 1`) — must still complete
+//! the departing member inside `qI`, the standby rides into `qI` on the
+//! §8.7.6 cardinality rule (`|qI| + |qII| = N + 1`), must still complete
 //! its planned quorum. The construction explicitly solicits the departed
 //! identity's vote (`src/replica/reconfiguration.rs`: "`qI − {L}` ... a
 //! member the reconfiguration removes must still get its vote in"), so the
@@ -26,7 +26,7 @@ fn n(id: u32) -> NodeId {
     )
 }
 
-/// A view in era 2 — the era the standby-bearing `DECREMENT` establishes.
+/// A view in era 2, the era the standby-bearing `DECREMENT` establishes.
 fn era2_view(number: u32) -> ViewId {
     ViewId {
         era: Era(2),
@@ -34,7 +34,7 @@ fn era2_view(number: u32) -> ViewId {
     }
 }
 
-/// A view in era 3 — the era the planned `Leave` establishes.
+/// A view in era 3, the era the planned `Leave` establishes.
 fn era3_view(number: u32) -> ViewId {
     ViewId {
         era: Era(3),
@@ -99,7 +99,7 @@ fn deliver(h: &mut Harness, id: NodeId, tag: Tag) -> harness::DeliveryOutcome {
 
 /// The era table one `Leave(n3)` past `table`: the fold the Leave's own
 /// establishing slot would record. The slot is one past the primary's
-/// accepted frontier — where the entry will sit.
+/// accepted frontier, where the entry will sit.
 fn era_after_leave(table: &EraTable, accepted: Slot) -> EraTable {
     table
         .extend(
@@ -114,8 +114,8 @@ fn the_departed_qi_members_solicited_planned_vote_is_counted() {
     let mut h = cluster();
     bootstrap(&mut h);
 
-    // Phase 1: drive n3's weight to zero — the stop-the-world `DECREMENT`
-    // commits at slot 3 and establishes era 2 (weights 1, 1, 1, 0) — then
+    // Phase 1: drive n3's weight to zero, the stop-the-world `DECREMENT`
+    // commits at slot 3 and establishes era 2 (weights 1, 1, 1, 0), then
     // the ordinary view change carries the cluster into the established
     // era (§8.7.8). n1 is the primary of era-2 view 1: the voters are
     // n0, n1, n2 (§8.4; a standby is never the primary).
@@ -140,9 +140,9 @@ fn the_departed_qi_members_solicited_planned_vote_is_counted() {
     }
 
     // Phase 2: the planned Leave. The pivot is `construct_pivot`'s own
-    // answer for (config(e), config(e+1), leader n1): qII = {n0, n1} — a
-    // commit quorum under both configurations — and qI = {n1, n2, n3} — a
-    // view-change quorum under config(e) — with the cardinality rule
+    // answer for (config(e), config(e+1), leader n1): qII = {n0, n1}, a
+    // commit quorum under both configurations, and qI = {n1, n2, n3}, a
+    // view-change quorum under config(e), with the cardinality rule
     // |qI| + |qII| = N + 1 forcing the departing standby n3 into qI.
     let table = h.era_table(n(1)).expect("the primary is live");
     let accepted = Slot(snap(&h, n(1)).accepted);
@@ -163,7 +163,7 @@ fn the_departed_qi_members_solicited_planned_vote_is_counted() {
 
     // The proposal routes its establishing Prepare to `qII − {L}` = {n0}
     // only; the acceptance completes qII and the commit folds era 3
-    // (weights 1, 1, 1 — n3 is gone) and solicits `qI − {L}` = {n2, n3}.
+    // (weights 1, 1, 1, n3 is gone) and solicits `qI − {L}` = {n2, n3}.
     let outcome = h.reconfigure(n(1), SystemOperation::Leave(n(3)), Some(pivot));
     assert!(
         matches!(outcome, StepOutcome::Published { .. }),
@@ -197,8 +197,8 @@ fn the_departed_qi_members_solicited_planned_vote_is_counted() {
         "n2 holds no slot 4: its fold waits for the offer route (§10)"
     );
 
-    // The solicitation reaches BOTH qI recipients — the serving member n2
-    // and the departing n3 — and both answer with planned evidence,
+    // The solicitation reaches BOTH qI recipients, the serving member n2
+    // and the departing n3, and both answer with planned evidence,
     // retaining their views.
     deliver(&mut h, n(2), Tag::PlannedViewChange);
     let answer_outcome = deliver(&mut h, n(3), Tag::PlannedViewChange);
@@ -220,7 +220,7 @@ fn the_departed_qi_members_solicited_planned_vote_is_counted() {
     // Correct behavior (§8.7.7, and the solicitation's own ruling: "a
     // member the reconfiguration removes must still get its vote in"):
     // the departed identity's solicited planned evidence completes the
-    // quorum — the transition publishes as ONE step (the switch to v' and
+    // quorum, the transition publishes as ONE step (the switch to v' and
     // the StartView to config(e+1)), and no drop was named for it.
     deliver(&mut h, n(1), Tag::DoViewChange);
     assert!(
@@ -244,7 +244,7 @@ fn the_departed_qi_members_solicited_planned_vote_is_counted() {
     // so its offer installs directly. n2 holds no slot 4: its offer is
     // retained, the fetch it opened at the solicitation folds era 3
     // through the ordinary state transfer, and the tick re-runs the
-    // retained ruling — the ordinary install (§10).
+    // retained ruling, the ordinary install (§10).
     deliver(&mut h, n(0), Tag::StartView);
     deliver(&mut h, n(2), Tag::StartView);
     assert_eq!(current_view(&h, n(0)), era3_view(4), "n0 installs v'");

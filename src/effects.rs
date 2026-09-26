@@ -5,7 +5,7 @@
 //! callbacks), S3 (three-way stability), W1 (era as a transport-visible fact).
 //!
 //! The output half of `tick + message + state -> state + list(messages)`. An effect is an
-//! inert description — send this datagram, persist this frontier, apply up to this slot —
+//! inert description, send this datagram, persist this frontier, apply up to this slot,
 //! never a closure, a channel handle, or a callback. The required property: **the effect
 //! list is inspectable, replayable and assertable without executing it**, so a test can
 //! diff the intended I/O of two runs and a host can reorder or batch effects under its
@@ -21,7 +21,7 @@
 //! an effect may only be released once the state supporting it has reached the
 //! stability level the host declared. The core enforces that by construction:
 //! in every mode except [`Stability::Volatile`] a published transition releases
-//! exactly one effect — [`Effect::Persist`] — and parks the rest until the
+//! exactly one effect, [`Effect::Persist`], and parks the rest until the
 //! host's [`StabilityResult`] arrives as an ordinary serialized input (S2).
 //! Calling a mutation "journalled" does not establish durability; the property
 //! is that the barrier completed before the dependent effect became
@@ -65,7 +65,7 @@ pub enum Effect {
     /// slot order (§11.1). The operation's identity rides along exactly as
     /// the proposing host assigned it: the core never inspects it and never
     /// deduplicates on it, so the same identity may arrive at any number of
-    /// slots. Answering the proposer — and any exactly-once policy — is the
+    /// slots. Answering the proposer, and any exactly-once policy, is the
     /// host's affair above the boundary (B2), never the core's.
     Apply {
         /// The committed slot to apply.
@@ -129,8 +129,8 @@ pub enum JournalIntent {
 
 /// The durability requirement of one published transition (§6, §7).
 ///
-/// `revision` names the intent: it is the base revision of the transition —
-/// the revision of the published state the candidate was computed against —
+/// `revision` names the intent: it is the base revision of the transition,
+/// the revision of the published state the candidate was computed against,
 /// and the host's confirmation names it back, which is how the §12 serialized
 /// interval matches a confirmation to the one outstanding transition.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -150,8 +150,8 @@ pub struct PersistenceIntent {
 /// behaves accordingly: [`Stability::Volatile`] releases at `publish`; every
 /// other level parks the transition behind [`Effect::Persist`] until the host
 /// confirms. `Deferred`, `Forced` and `ExternalTransaction` differ in what the
-/// host's confirmation *means* — acceptance for later durability, a local
-/// crash barrier, a wider transaction — and that meaning is the host's
+/// host's confirmation *means*, acceptance for later durability, a local
+/// crash barrier, a wider transaction, and that meaning is the host's
 /// contract with its own storage, not something the core can distinguish.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stability {
@@ -180,7 +180,7 @@ pub enum Stability {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum StabilityResult {
     /// The intent reached the declared stability level. `receipt` is the
-    /// host's opaque evidence — the core carries it, never interprets it.
+    /// host's opaque evidence, the core carries it, never interprets it.
     Stable {
         /// Host-supplied evidence of durability.
         receipt: Box<[u8]>,

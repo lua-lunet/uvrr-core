@@ -3,26 +3,26 @@
 //!
 //! The classes:
 //!
-//! * **A** — the identity×marker cohort matrix: the torn-copy domain
+//! * **A**, the identity×marker cohort matrix: the torn-copy domain
 //!   with mixed identities, exhaustively enumerated over three
 //!   identities and four markers (12⁴ = 20 736 assignments), every
-//!   verdict checked against an independently recomputed oracle — the
+//!   verdict checked against an independently recomputed oracle, the
 //!   working cohort, higher-identity-wins inside it, `Stopped` ⟺ the
 //!   winner cohort holds ≥2 `Stopped`, and `QuorumLost` ⟺ no cohort
 //!   reaches the open threshold.
-//! * **B** — the fixed write schedules, asserted against the harness
+//! * **B**, the fixed write schedules, asserted against the harness
 //!   gate's operation log: the first life's anchor, the controlled
 //!   halt's two rounds with the drain strictly between, the clean
 //!   start's single latch round, and the dirty fast start's deferred
 //!   latch.
-//! * **C** — the deferral witness: the reincarnation's latch is
+//! * **C**, the deferral witness: the reincarnation's latch is
 //!   unreachable until the engine's seated observation mints it; the
 //!   markers hold the honest not-stopped evidence throughout the
 //!   catch-up.
-//! * **D** — the wedge guard: the kill-shape markers classify crashed,
+//! * **D**, the wedge guard: the kill-shape markers classify crashed,
 //!   the same-identity resume refuses (error-on-crashed is the
 //!   contract), and the only path onward is reincarnation.
-//! * **E** — the re-crash replay: a crash between the pair's decision
+//! * **E**, the re-crash replay: a crash between the pair's decision
 //!   and the deferred latch re-reads the old markers and re-decides
 //!   the same pair.
 
@@ -148,7 +148,7 @@ fn oracle(states: [(u32, Marker); 4]) -> Option<(bool, u32)> {
 /// The torn-copy domain with mixed identities, exhaustively: every
 /// assignment of (identity, marker) to each of the four copies, over
 /// three identities and the four markers. Every verdict must match the
-/// independent oracle — the cohort rule never lets a lone superseded
+/// independent oracle, the cohort rule never lets a lone superseded
 /// copy impose its identity, never reads a stop the winner cohort did
 /// not vouch, and never classifies a marker set with no working cohort
 /// as anything but lost.
@@ -231,7 +231,7 @@ fn cluster() -> Harness {
     )
 }
 
-/// The first life's anchor: one read, one `Joining` round — durable
+/// The first life's anchor: one read, one `Joining` round, durable
 /// before the node answers anything, so a later crash reads as a crash.
 #[test]
 fn b_the_first_life_latches_its_anchor_once() {
@@ -244,7 +244,7 @@ fn b_the_first_life_latches_its_anchor_once() {
     );
 }
 
-/// The controlled halt: `Stopping` 4x, the drain, `Stopped` 4x — the
+/// The controlled halt: `Stopping` 4x, the drain, `Stopped` 4x, the
 /// drain strictly between the rounds, because the `Stopped` marker
 /// vouches for exactly it.
 #[test]
@@ -294,7 +294,7 @@ fn c_the_reincarnations_latch_defers_to_the_seated_witness() {
     h.deliver_all();
     assert_eq!(current_era(&h, n(0)), vrr::ids::Era(2));
     // Mid-catch-up: the gate has read the crash's markers and written
-    // nothing — the flush is not paid at the boundary of an
+    // nothing, the flush is not paid at the boundary of an
     // uninitialised start, and the node is a weight-0 learner.
     assert_eq!(
         h.gate_ops(bumped),
@@ -304,7 +304,7 @@ fn c_the_reincarnations_latch_defers_to_the_seated_witness() {
 
     // The forced sequence's second step: the ordinary view change into
     // era 2, then the re-announce carries the final `[Increment(new),
-    // Leave(old)]` batch — the node seats at weight 1.
+    // Leave(old)]` batch, the node seats at weight 1.
     drive_view_change(&mut h, &[n(0), n(1)]);
     assert_eq!(
         h.gate_ops(bumped),
@@ -315,7 +315,7 @@ fn c_the_reincarnations_latch_defers_to_the_seated_witness() {
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     assert_eq!(current_era(&h, n(0)), vrr::ids::Era(3));
-    // Seated: the harness's settle fired the deferred latch — one
+    // Seated: the harness's settle fired the deferred latch, one
     // `Joining` round at the bumped identity (the crashed anchor was the
     // first life's packed identity, the latch its next crash counter),
     // over the running state.
@@ -331,7 +331,7 @@ fn c_the_reincarnations_latch_defers_to_the_seated_witness() {
 // D. The wedge guard
 // ---------------------------------------------------------------------------
 
-/// The kill shape — markers left at the running sentinel by a crash —
+/// The kill shape, markers left at the running sentinel by a crash,
 /// classify crashed, and the same-identity resume refuses loudly. The
 /// blank same-identity boot that wedged downstream has no constructor:
 /// error-on-crashed is the contract.
@@ -344,7 +344,7 @@ fn d_a_crashed_identity_cannot_resume() {
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
     h.crash(n(2));
-    // The markers hold the running sentinel: restart_with must refuse —
+    // The markers hold the running sentinel: restart_with must refuse,
     // and the harness refuses by contract, not by returning an error
     // silently misread as a join.
     h.restart_with(n(2)).expect("refuses before this point");
@@ -356,7 +356,7 @@ fn d_a_crashed_identity_cannot_resume() {
 
 /// A crash between the pair's decision and the deferred latch replays:
 /// the next boot re-reads the old markers, re-classifies crashed, and
-/// re-decides the SAME pair — the eventual latch writes the same bumped
+/// re-decides the SAME pair, the eventual latch writes the same bumped
 /// identity, never a double bump.
 #[test]
 fn e_a_recrash_between_decision_and_latch_replays_the_same_pair() {
@@ -377,7 +377,7 @@ fn e_a_recrash_between_decision_and_latch_replays_the_same_pair() {
     h.crash(bumped);
 
     // The replay: the same marker directory, the same classification,
-    // the same pair — the bump is a pure function of the quorum-resolved
+    // the same pair, the bump is a pure function of the quorum-resolved
     // identity. The announcement replays idempotently at the leader.
     let replay = bumped
         .next_life()

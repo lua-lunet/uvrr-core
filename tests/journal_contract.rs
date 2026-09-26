@@ -1,4 +1,4 @@
-//! Contract for `vrr::journal` — the §4 logical journal capabilities, `LogEntry`, and
+//! Contract for `vrr::journal`, the §4 logical journal capabilities, `LogEntry`, and
 //! the default `SegmentedLog`.
 //!
 //! Spec §4 (the four capabilities, and the explicit absence of any fifth) and decisions
@@ -10,8 +10,8 @@
 //! 1. **Contiguity is the journal's structural invariant, not the caller's memory.**
 //!    `accept` refuses a non-contiguous or regressive batch and leaves the log
 //!    unchanged when it refuses.
-//! 2. **A view is a snapshot.** Sealed slabs are shared by `Arc` — asserted by pointer
-//!    identity, not by contents — so a later append, suffix install, or reclaim cannot
+//! 2. **A view is a snapshot.** Sealed slabs are shared by `Arc`, asserted by pointer
+//!    identity, not by contents, so a later append, suffix install, or reclaim cannot
 //!    reach into a view already handed to a planned transition.
 //! 3. **`install_suffix` is copy-on-write at slab granularity.** A wholly superseded
 //!    slab is dropped (refcount observed); a partially superseded slab is copied up to
@@ -24,7 +24,7 @@
 //! 5. **The wire form of an entry is exact.** `packed_len` is the byte count, the
 //!    payload discriminant reserves 0, and an untrusted length prefix yields
 //!    `Incomplete`, never a pre-allocation (mirroring the `Init` decode decision).
-//! 6. **The traits carry no reclamation vocabulary, mechanically** — see
+//! 6. **The traits carry no reclamation vocabulary, mechanically**, see
 //!    `s1_gate_traits_carry_no_reclamation_vocabulary`.
 //!
 //! The deterministic groups are exhaustive loops over small domains rather than
@@ -67,7 +67,7 @@ fn run(from: u64, len: u64) -> Vec<LogEntry> {
     (0..len).map(|i| client(Slot(from + i))).collect()
 }
 
-/// A genesis `Void` at [`VOID_SLOT`] — slot 1, the first entry of a legitimate
+/// A genesis `Void` at [`VOID_SLOT`], slot 1, the first entry of a legitimate
 /// history (§8.7.2's fixed ordinals; slot 0 is the sentinel, never a position).
 fn genesis() -> LogEntry {
     LogEntry {
@@ -112,7 +112,7 @@ fn append_single_and_batch_advance_the_frontier() {
 
 /// The refusal a contiguous-frontier log must produce for `batch`: the first entry
 /// that is not exactly the expected successor. A gap is `NonContiguous`; a regressive
-/// slot names a position already accepted and is `SlotOccupied` — the causes differ
+/// slot names a position already accepted and is `SlotOccupied`, the causes differ
 /// and so do the variants.
 fn expected_refusal(next: Slot, batch: &[LogEntry]) -> JournalError {
     let mut expected = next;
@@ -672,7 +672,7 @@ proptest! {
     fn interleaving_preserves_last_writer_per_slot(ops in proptest::collection::vec(op_strategy(), 1..60)) {
         let mut log = SegmentedLog::with_tail_capacity(3);
         // Shadow history: index `i` holds the entry last installed at slot `i + 1`
-        // — history begins at slot 1, the genesis anchor.
+        //, history begins at slot 1, the genesis anchor.
         let mut shadow: Vec<LogEntry> = Vec::new();
 
         for op in ops {
@@ -802,7 +802,7 @@ fn genesis_begins_at_slot_one_and_is_explicit() {
     assert_eq!(log.view().accepted(), None);
 
     // The sentinel is refused outright: slot 0 can never hold an entry, and an
-    // offer below the anchor reports the slot as occupied — the caller drops it
+    // offer below the anchor reports the slot as occupied, the caller drops it
     // rather than fetching history for a position that does not exist.
     assert_eq!(
         log.accept(&[client(Slot(0))]),
@@ -1013,8 +1013,8 @@ proptest! {
 /// a ruling).
 ///
 /// Mechanism, chosen and documented: a source-text scan of the trait definition
-/// slices, pinned as a test. The alternative — a const-assertion or trait-bound
-/// pattern — cannot express "this method does not exist", because Rust has no
+/// slices, pinned as a test. The alternative, a const-assertion or trait-bound
+/// pattern, cannot express "this method does not exist", because Rust has no
 /// negative trait bound and no way to name a method that must not be there. A text
 /// scan can, and it fails the build at `cargo test` the moment someone adds
 /// `reclaim`, `truncate` or `retain(` to either trait. Its known hole is cosmetic:
@@ -1068,7 +1068,7 @@ fn s1_gate_traits_carry_no_reclamation_vocabulary() {
     );
 }
 
-/// The inherent escape hatch exists on `SegmentedLog` only — that placement is the
+/// The inherent escape hatch exists on `SegmentedLog` only, that placement is the
 /// split made physical. Asserted by calling it through the concrete type (this test
 /// fails to compile if the method moves or is renamed) and by the trait scan above
 /// (which fails if it is ever promoted into a trait).

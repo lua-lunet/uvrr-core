@@ -1,4 +1,4 @@
-//! Contract for `vrr::configuration` — era, membership, voting weights, and the
+//! Contract for `vrr::configuration`, era, membership, voting weights, and the
 //! reconfiguration operation alphabet.
 //!
 //! Spec §8.7.1 (configuration and era), §8.7.2 (the operation alphabet and its
@@ -100,7 +100,7 @@ fn three() -> Configuration {
 /// test, so a test-only constructor would weaken the thing it was helping to check.
 ///
 /// The domain is {0, 1, 2} (rules §1, R1), so `target` is 1 (what `Init` supplies) or 2
-/// (`Init` then `Double`) — `Double` and `Increment` are the only weight-raising
+/// (`Init` then `Double`), `Double` and `Increment` are the only weight-raising
 /// operations in the alphabet, `Double` is global, and the cap refuses anything higher.
 /// Per-member asymmetry is built afterwards with `Join` (weight 0) and `Increment`.
 fn raise_all(nodes: &[NodeId], target: u32) -> Configuration {
@@ -145,7 +145,7 @@ fn shape(config: &Configuration) -> Vec<(NodeId, u32)> {
 // ---------------------------------------------------------------------------
 
 /// Era 0 has empty `order` and total weight 0, so **no legal quorum of any kind
-/// exists** — the impossibility is arithmetic, not a guard. §8.7.1's quorum condition
+/// exists**, the impossibility is arithmetic, not a guard. §8.7.1's quorum condition
 /// `sum(W(n) for n in S) >= floor(T/2) + 1` reads `0 >= 1` on the void configuration and
 /// is unsatisfiable by the empty set and by every other set. This test pins the
 /// arithmetic rather than the guard, because a guard can be forgotten and
@@ -174,7 +174,7 @@ fn void_has_no_primary() {
 
 /// Only `Void` may be applied to the void configuration. Every other operation names a
 /// member, a weight or a position that does not exist yet, and the refusal is
-/// `NotInitialised` rather than `NotAMember` — the cluster has no membership at all, and
+/// `NotInitialised` rather than `NotAMember`, the cluster has no membership at all, and
 /// reporting a missing member would suggest one could be supplied.
 #[test]
 fn void_refuses_every_operation_but_void_and_init() {
@@ -429,7 +429,7 @@ fn increment_requires_membership() {
 /// quietly break the §8.7.5 `T -> T+1` closure argument, which is stated over the
 /// *actual* new total.
 ///
-/// The cap is a *reachable* protocol state — `Init` at 1, `Double` to 2 — which is why
+/// The cap is a *reachable* protocol state, `Init` at 1, `Double` to 2, which is why
 /// this test needs no escape hatch to reach the boundary.
 #[test]
 fn increment_refuses_at_the_weight_cap() {
@@ -581,7 +581,7 @@ fn join_requires_absence_and_a_valid_position() {
 
 /// `Leave(n)` requires `n ∈ order` and `W(n) == 0` (§8.7.2; rules §2, R12). A positive
 /// weight refuses with `NonZeroWeight`, distinct from `NotAMember`: the host's next
-/// step differs — one calls for `Decrement`, the other for a corrected node id.
+/// step differs, one calls for `Decrement`, the other for a corrected node id.
 #[test]
 fn leave_requires_membership_and_zero_weight() {
     let config = three();
@@ -783,7 +783,7 @@ fn double_refuses_a_member_at_the_cap() {
     );
 
     // A single out-of-domain candidate refuses the whole operation, even when every
-    // other member would have doubled fine — and one member at weight 0 (a learner,
+    // other member would have doubled fine, and one member at weight 0 (a learner,
     // R4) is not an obstacle: 0 doubles to 0, inside the domain.
     let learner = with_weights(&[N0, N1], &[2, 1])
         .apply(
@@ -928,7 +928,7 @@ fn alphabet() -> Vec<SystemOperation> {
 
 /// Exhaustive, not sampled: every sequence of length 0..=4 over a 6-symbol alphabet,
 /// which is `1 + 6 + 36 + 216 + 1296 = 1555` walks. The property is the era state
-/// machine itself — era increases by exactly 1 per *accepted* operation, a refused
+/// machine itself, era increases by exactly 1 per *accepted* operation, a refused
 /// operation is a no-op on the table, and `established_by` is the slot the caller
 /// supplied. That triple is what makes §8.7.8's "a replica may propose era `e` only if
 /// it holds the operation establishing `e`" checkable by construction: era and
@@ -1067,7 +1067,7 @@ proptest! {
 // ---------------------------------------------------------------------------
 
 /// The sum a quorum evaluator asks for, and the three ways it must refuse to answer:
-/// an unknown member, a member named twice, and — not a refusal — a weight-0 member,
+/// an unknown member, a member named twice, and, not a refusal, a weight-0 member,
 /// which contributes nothing (§8.4). Duplicate rejection *here* is what stops a set from
 /// voting twice; a quorum evaluator that deduplicated for itself would be a second copy
 /// of the rule.
@@ -1133,11 +1133,11 @@ fn primary_is_modular_over_the_host_supplied_order() {
     }
 }
 
-/// The succession is VOTER-ONLY (§8.4): a learner — weight 0 — is never
+/// The succession is VOTER-ONLY (§8.4): a learner, weight 0, is never
 /// elected primary. A whole-order modular rule selects the weight-0 member at
 /// its position, and a learner cannot serve as primary: its vote counts for
 /// nothing (R4) and, in the era that admitted it, its boot table may not even
-/// name the era — the view change then waits forever on evidence the
+/// name the era, the view change then waits forever on evidence the
 /// designated primary cannot evaluate. The index is over the positive-weight
 /// members' sequence, in host order; the learner keeps its succession
 /// position for `Join`'s insertion arithmetic and is skipped by the primary

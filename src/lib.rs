@@ -14,26 +14,21 @@
 //! specification is `docs/vrr-durability-model.md`, and every
 //! section reference in this crate is to that document.
 //!
-//! # State of this crate
+//! # The modules
 //!
-//! The old alpha implementation was cut rather than patched: it encoded a
-//! mutable `&mut self step() -> Vec<Output>` transition, an embedded advisory-lock
-//! service, JSON in the datagram path, and a caller-supplied restart nonce. All four
-//! are contradicted by the contract above.
-//!
-//! The rewrite is landing layer by layer, `ids -> wire -> configuration -> {journal,
-//! progress} -> quorum -> replica`. `ids` (identity newtypes, `ViewId`, the `Fault`
+//! `ids` (identity newtypes, the durable pair, `ViewId`, the `Fault`
 //! taxonomy), `wire` (the normative binary codec), `configuration` (era, membership,
 //! weights, the reconfiguration fold), `journal` (the four logical journal
 //! capabilities), `progress` (the `Progress` record), `observe` (seqlock observation),
 //! `invariant` (the closed transition-legality checker), `quorum` (the strategy and the
 //! closed intersection gate), `message` (the protocol bodies), `effects` (the host
 //! effect vocabulary), `backoff` (the recommended randomized-timeout schedule, as
-//! pure arithmetic for the host) and `replica` (the plan/publish/confirm pipeline and
-//! lifecycle) are real modules with contract tests. `replica` is split into `normal` (§4
-//! `Prepare`/`PrepareOk`/`Commit`), `view_change` (§9), `restart` (§10, §6.1),
-//! `transfer` (state transfer, §13.1 step 5) and `reconfiguration` (§8.7.1–§8.7.8),
-//! whose path is not yet implemented.
+//! pure arithmetic for the host), `lifecycle` (the boot gate and the typestate
+//! marker driver) and `replica` (the plan/publish/confirm pipeline and the
+//! lifecycle) carry contract tests. `replica` is split into `normal` (§4
+//! `Prepare`/`PrepareOk`/`Commit`), `view_change` (§9),
+//! `transfer` (state transfer, §13.1 step 5), `reincarnation` (§10, §6.1) and
+//! `reconfiguration` (§8.7.1–§8.7.8).
 
 // `deny`, not `forbid`: `observe` publishes a POD snapshot through a seqlock and the
 // future `ffi` module crosses the C ABI. Each will carry one scoped
@@ -76,7 +71,7 @@ pub mod wire;
 /// Compile-time trace logging of the protocol's internal state at the top and
 /// the bottom of processing (the `trace` feature). When the feature is off
 /// the macro expands to nothing: the statements it guards are removed from
-/// the build entirely — zero production overhead. This is the observability
+/// the build entirely, zero production overhead. This is the observability
 /// affordance for a downstream host tracing its own problems against the
 /// core: every step boundary, planner branch, fold step, and refusal is
 /// named at the point it happens.

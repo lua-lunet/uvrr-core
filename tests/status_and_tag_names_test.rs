@@ -1,7 +1,7 @@
 //! The human surfaces of the process-control state and the wire tags:
 //! every status and every tag carries a name stated next to the numbering
 //! it names, so no log, trace, or diagnostic dump ever asks a human to
-//! memorise an integer. The numeric encodings themselves are pinned here —
+//! memorise an integer. The numeric encodings themselves are pinned here,
 //! a rename or a renumber that moves a word off the wire is caught.
 
 use vrr::progress::Status;

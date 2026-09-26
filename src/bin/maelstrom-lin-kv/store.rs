@@ -12,22 +12,22 @@
 //! ```
 //!
 //! The journal region is append-only: each newly journaled entry is
-//! encoded once — a `u32` length frame and the core's own wire codec
+//! encoded once, a `u32` length frame and the core's own wire codec
 //! packs the [`LogEntry`], so the host invents no second codec for
-//! history it did not define — appended at the active header's byte
+//! history it did not define, appended at the active header's byte
 //! cursor and fsynced. The header is a fixed-size slot holding exactly
 //! what a restart must decide from: the four-superblock copies of §2,
 //! the genesis roster, the §5 persisted progress record, and the
 //! journal region's base slot, entry count and byte length. Committing
-//! a transition writes the INACTIVE slot — a monotone sequence number
-//! and a checksum over the slot — and fsyncs it. The slot is the
+//! a transition writes the INACTIVE slot, a monotone sequence number
+//! and a checksum over the slot, and fsyncs it. The slot is the
 //! commit point.
 //!
 //! Two slots, alternating: a torn slot write (a crash between the write
 //! and its fsync) fails the slot's checksum and the loader falls back
-//! to the other slot — the last committed state, never a torn read and
-//! never a bricked node. Bytes the active slot does not count — a torn
-//! append, or the dead tail a view-change install replaced — are not
+//! to the other slot, the last committed state, never a torn read and
+//! never a bricked node. Bytes the active slot does not count, a torn
+//! append, or the dead tail a view-change install replaced, are not
 //! durable evidence: the loader reads exactly the counted prefix, and
 //! the next append overwrites the rest.
 //!
@@ -35,7 +35,7 @@
 //!
 //! Per published transition: the new entries are appended and fsynced
 //! FIRST, the header slot is written and fsynced SECOND, and only then
-//! does the host route the released effects — durable before
+//! does the host route the released effects, durable before
 //! observable, so a kill loses at most the in-flight input. A storage
 //! failure at either step is determinate: the node stops (exit
 //! nonzero, Jepsen restarts it from the last committed slot) rather
@@ -49,19 +49,19 @@
 //! The committed prefix never changes under the node's feet: every
 //! shared slot of an offered suffix is checked, and a disagreement at
 //! or below the committed frontier is a fault, never an install (the
-//! core's `check_suffix`, §9.1) — so the store's per-transition work
+//! core's `check_suffix`, §9.1), so the store's per-transition work
 //! compares only the uncommitted tail `(committed, frontier]`, entry
 //! digests against the durable mirror. Matching slots stand; the
 //! lowest mismatch truncates the durable region below it and the
 //! replaced tail re-appends. Steady state, the walk is the in-flight
-//! window and the write is the new entries — O(new) per transition; an
+//! window and the write is the new entries, O(new) per transition; an
 //! install pays only the tail it actually diverges on.
 //!
 //! The bench never reclaims (`S1` allows it), so the retained window's
 //! base is stable; a base that moves is a named refusal, never a
-//! re-basing guess. The first life builds the whole file once — temp
+//! re-basing guess. The first life builds the whole file once, temp
 //! file, fsync, atomic rename, fsync of the directory, the §7 `Forced`
-//! barrier shape — and the reopen path (§2) reads the active slot and
+//! barrier shape, and the reopen path (§2) reads the active slot and
 //! its counted prefix. A file no slot of which vouches for itself, a
 //! short journal region, or a malformed frame is a crash artifact,
 //! answered with the core's reopen refusal path: a named refusal and a
@@ -104,7 +104,7 @@ const FAULT_NONE: u8 = 0;
 
 /// The fixed roster area inside a slot: a `u32` count then each name as
 /// a `u32`-prefixed opaque. A roster whose framed size does not fit is
-/// refused at creation — the bench's `node_ids` are Maelstrom ids, a
+/// refused at creation, the bench's `node_ids` are Maelstrom ids, a
 /// handful of short strings.
 const ROSTER_AREA: usize = 4096;
 
@@ -204,7 +204,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// The directory could not be created — the persistence home is
+    /// The directory could not be created, the persistence home is
     /// unusable, and the node must not claim durability it cannot
     /// deliver.
     pub fn open(dir: &Path, node: &str) -> io::Result<Store> {
@@ -221,10 +221,10 @@ impl Store {
         self.log.is_some()
     }
 
-    /// Reads the node's state file — the valid slot with the higher
-    /// sequence number, then exactly its counted entry prefix — and
+    /// Reads the node's state file, the valid slot with the higher
+    /// sequence number, then exactly its counted entry prefix, and
     /// arms the mirror for the commits that follow. Any decode failure
-    /// — magic, version, checksum, short read, malformed field — is a
+    ///, magic, version, checksum, short read, malformed field, is a
     /// named refusal: the file is evidence the node cannot vouch for.
     ///
     /// # Errors
@@ -294,15 +294,15 @@ impl Store {
         })
     }
 
-    /// The first life: builds the whole file — slot A committed at
+    /// The first life: builds the whole file, slot A committed at
     /// sequence 1, slot B zeroed (it fails the magic until the first
-    /// commit flips to it), the journal region — through a temp file,
+    /// commit flips to it), the journal region, through a temp file,
     /// fsync, atomic rename, fsync of the directory, then arms the
     /// mirror. Once per life, not per transition.
     ///
     /// # Errors
     ///
-    /// A named refusal — the store's own defect class — or any storage
+    /// A named refusal, the store's own defect class, or any storage
     /// failure. A failed temp write or rename leaves no file (or the
     /// temp file aside, unread by any loader), so the durable evidence
     /// never names a state the node did not reach.
@@ -378,10 +378,10 @@ impl Store {
     /// returns.
     ///
     /// The delta against the mirror: slots at or below the committed
-    /// frontier are quorum-identical and never recompared (§9.2 — the
+    /// frontier are quorum-identical and never recompared (§9.2, the
     /// core's `check_suffix` faults on a committed-slot disagreement,
     /// so an install cannot alter them); the uncommitted tail
-    /// `(committed, frontier]` is digest-walked — matching slots
+    /// `(committed, frontier]` is digest-walked, matching slots
     /// stand, the lowest mismatch truncates the durable region below
     /// it, and the journal's entries from there to the accepted
     /// frontier append. A journal that no longer holds a slot the
@@ -389,7 +389,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// A named refusal — the store's own defect class — or any storage
+    /// A named refusal, the store's own defect class, or any storage
     /// failure. Both are the caller's determinate stop.
     pub fn commit(
         &mut self,
@@ -458,7 +458,7 @@ impl Store {
         }
         // The barrier: the entries are durable before the slot that
         // counts them, and the slot is durable before the caller routes
-        // anything. Nothing to append still commits the header — the
+        // anything. Nothing to append still commits the header, the
         // progress record moved (a tick's revision included).
         if !region.is_empty() {
             log.file
@@ -493,13 +493,13 @@ impl Store {
     /// The clean stop's drain (the marker machine's T1: the host flushes
     /// WALs and grids strictly between the `Stopping` and `Stopped`
     /// writes). This store's WAL is the journal region and its grid is
-    /// the header slot — one file — and every commit already fsyncs both,
+    /// the header slot, one file, and every commit already fsyncs both,
     /// so the drain is the file's own fsync: the flush that lets a
     /// `Stopped` copy vouch for the state under it.
     ///
     /// # Errors
     ///
-    /// The file cannot be flushed — the stop cannot prove its drain, so
+    /// The file cannot be flushed, the stop cannot prove its drain, so
     /// the caller must not write `Stopped`.
     pub fn drain(&mut self) -> Result<(), String> {
         let log = self.log.as_mut().ok_or("drain on an unarmed store")?;
@@ -514,7 +514,7 @@ impl Store {
 pub enum StoreError {
     /// No state file: a first life. The host provisions.
     Absent,
-    /// The file exists but is not a self-consistent record — a crash
+    /// The file exists but is not a self-consistent record, a crash
     /// artifact, bit rot, or an unreadable path. The core's reopen
     /// refusal path, never a panic.
     Corrupt(String),
@@ -546,7 +546,7 @@ impl NodeState {
     ///
     /// # Errors
     ///
-    /// The retained window is not physically whole — a host defect; the
+    /// The retained window is not physically whole, a host defect; the
     /// persist is refused.
     pub fn snapshot(
         copies: SuperblockCopies,
@@ -638,7 +638,7 @@ impl SlotBytes {
         Ok(())
     }
 
-    /// Reads one slot. `None` is an uncommitted or torn slot — not an
+    /// Reads one slot. `None` is an uncommitted or torn slot, not an
     /// error: the other slot may vouch for the file.
     fn decode(buf: &[u8]) -> Option<SlotBytes> {
         if get_u32(buf, 0) != MAGIC || get_u32(buf, 4) != VERSION {
@@ -824,7 +824,7 @@ fn fault_word(fault: Fault) -> u8 {
 
 /// A roster name must be printable ASCII (a Maelstrom id) and distinct:
 /// the genesis order is a set, and a duplicate name would fold an illegal
-/// configuration at reopen that the Q1 gate would then refuse — the
+/// configuration at reopen that the Q1 gate would then refuse, the
 /// refusal belongs at the boundary that read the evidence.
 fn name_checked(name: &str, seen: &[String]) -> Option<String> {
     if name.is_empty()

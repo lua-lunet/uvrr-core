@@ -5,7 +5,7 @@
 //!
 //! The bootstrap (the genesis ruling, §1.3): a `Restarting` node whose journal holds
 //! the complete committed genesis (slots 1–2, nothing missing) and which IS
-//! `config.primary(View(0))` enters `Normal` on a tick — at initial
+//! `config.primary(View(0))` enters `Normal` on a tick, at initial
 //! provisioning there is no prior state to be amnesiac about, so the §14.2
 //! objection does not apply; the tick keeps construction uniform. Backups
 //! adopt the view from a legitimate primary `Prepare`/`Commit` (§4's own
@@ -84,7 +84,7 @@ fn prepare(slot: u64, committed: u64, operation_id: OperationId, payload: &[u8])
     }
 }
 
-/// The `Apply` slots one step released, in release order — the
+/// The `Apply` slots one step released, in release order, the
 /// duplicate-delivery assertions are stated over these.
 fn apply_slots(effects: &[Effect]) -> Vec<Slot> {
     effects
@@ -317,7 +317,7 @@ fn commit_lands_on_a_weighted_majority_not_unanimity() {
 }
 
 /// No deduplication at the boundary (§11.1, B2): the same [`OperationId`]
-/// proposed twice is TWO operations to the core — two slots, two commits,
+/// proposed twice is TWO operations to the core, two slots, two commits,
 /// two `Apply` effects, each carrying the identity the host assigned.
 /// Exactly-once is the host's deduplication policy above the boundary,
 /// never the core's.
@@ -330,7 +330,7 @@ fn duplicate_proposal_is_a_distinct_operation() {
     assert_eq!(
         h.snapshot(n(0)).expect("up").accepted,
         4,
-        "the duplicate identity took the next slot — nothing was dropped"
+        "the duplicate identity took the next slot, nothing was dropped"
     );
 
     h.deliver_all();
@@ -400,7 +400,7 @@ fn duplicate_prepare_is_idempotent() {
     assert_eq!(
         h.snapshot(n(1)).expect("up").accepted,
         3,
-        "still one journal entry — a re-append would have faulted through the journal"
+        "still one journal entry, a re-append would have faulted through the journal"
     );
 
     // The second PrepareOk is the harmless delayed duplicate at the primary.
@@ -422,7 +422,7 @@ fn duplicate_prepare_is_idempotent() {
 }
 
 /// An out-of-order `Prepare` is a gap: dropped, reported as `GapDetected`,
-/// never faulted — and the fetch half of the ruling (§13.1 step 5) rides
+/// never faulted, and the fetch half of the ruling (§13.1 step 5) rides
 /// the same transition, asking the primary for the missing range. The
 /// missing `Prepare` closes the gap; the re-offered slot then completes
 /// the chain. The re-offer stands in for the primary's retransmit.
@@ -501,7 +501,7 @@ fn out_of_order_prepare_gap_is_dropped_and_recovered() {
 #[test]
 fn proposals_to_non_primaries_are_not_primary_refusals() {
     // The fenced genesis primary is not yet Normal: NotPrimary, not a silent
-    // no-op. It names itself — it IS the primary of its current view, just
+    // no-op. It names itself, it IS the primary of its current view, just
     // not yet serving it.
     let mut fresh = Harness::provision(3);
     assert_eq!(
@@ -513,7 +513,7 @@ fn proposals_to_non_primaries_are_not_primary_refusals() {
     );
 
     let mut h = bootstrapped();
-    // n1 is the primary of view 1 — but the current view is 0, so it is the
+    // n1 is the primary of view 1, but the current view is 0, so it is the
     // primary of the wrong view: NotPrimary, redirecting to n0. n2 is a
     // plain backup, same redirection.
     assert_eq!(
@@ -642,7 +642,7 @@ fn the_legality_gate_stands_under_load() {
 
 /// The boundary carries identity end to end, at every node (§11.1): every
 /// `Apply` names the slot and the proposing host's [`OperationId`], in slot
-/// order, and the host's `Applied` acknowledgement is a bare slot — no
+/// order, and the host's `Applied` acknowledgement is a bare slot, no
 /// result travels back, and no node ever emits a reply (B2).
 #[test]
 fn apply_carries_the_proposals_identity() {
@@ -681,8 +681,8 @@ fn apply_carries_the_proposals_identity() {
     h.assert_safety();
 }
 
-/// A duplicate `Commit` to a backup — same view, same committed frontier,
-/// redelivered by a lossy transport — is a silent no-effect transition: no
+/// A duplicate `Commit` to a backup, same view, same committed frontier,
+/// redelivered by a lossy transport, is a silent no-effect transition: no
 /// diagnostic, no second `Apply`, and the frontier does not move. The
 /// redelivery is the very datagram the primary emitted, captured from the
 /// queue and re-enqueued.
@@ -738,10 +738,10 @@ fn duplicate_commit_to_a_backup_is_a_silent_no_effect() {
     h.assert_safety();
 }
 
-/// A duplicate `Prepare` to a backup — same slot, same entry — delivered
+/// A duplicate `Prepare` to a backup, same slot, same entry, delivered
 /// after the backup accepted the original: the primary's retransmit now
 /// piggybacks the committed frontier (§13.3), so the first copy commits
-/// and applies the slot; the second is a bare re-acknowledgement — a
+/// and applies the slot; the second is a bare re-acknowledgement, a
 /// fresh `PrepareOk`, no re-append, and no second `Apply`. The re-offer
 /// stands in for the primary's retransmit, the harness's documented
 /// fabrication path.
@@ -813,8 +813,8 @@ fn duplicate_prepare_reacknowledges_without_reapplying() {
     h.assert_safety();
 }
 
-/// A duplicate `PrepareOk` at the primary — the same backup's
-/// acknowledgement delivered twice for one proposal — is the named
+/// A duplicate `PrepareOk` at the primary, the same backup's
+/// acknowledgement delivered twice for one proposal, is the named
 /// [`Diagnostic::DuplicatePrepareOk`] drop while the slot is still
 /// outstanding: no vote is double-counted, the commit fires exactly once
 /// when the quorum later lands, and the slot applies exactly once. Five
@@ -971,9 +971,9 @@ fn stale_commit_after_frontier_advanced_is_a_no_op() {
     h.assert_safety();
 }
 
-/// A duplicate `Commit` arriving at the applied boundary — after the host
+/// A duplicate `Commit` arriving at the applied boundary, after the host
 /// performed the slot's `Apply` and acknowledged it with `Input::Applied`
-/// (§11.1) — re-emits nothing: the applied frontier stands and the slot's
+/// (§11.1), re-emits nothing: the applied frontier stands and the slot's
 /// upcall fired exactly once within the life.
 #[test]
 fn duplicate_commit_after_host_acknowledgement_does_not_reemit() {

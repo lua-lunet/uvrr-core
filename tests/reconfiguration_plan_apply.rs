@@ -1,6 +1,6 @@
 //! The leader side of plan/apply (`docs/weighted-reconfiguration-solver.md`):
 //! the verdict, the plan-execution machine, the drift abort, the admin-first
-//! dual-queue rule, and the leader-crash discard — over the in-memory harness
+//! dual-queue rule, and the leader-crash discard, over the in-memory harness
 //! (no real UDP, no PAXE packing at this layer).
 
 mod harness;
@@ -61,7 +61,7 @@ fn quiesce(h: &mut Harness) {
 /// The two-era plan every execution script runs: join node 3 as a learner
 /// (era 2), promote it (era 3). Both folds are legal from the genesis
 /// `(1, 1, 1)`, and the learner's weight 0 keeps the era-2 voter succession
-/// intact — view 3 selects the leader again, so one §14.2 forced change
+/// intact, view 3 selects the leader again, so one §14.2 forced change
 /// carries the boundary while the machine stays armed at it.
 fn join_then_promote() -> Plan {
     Plan {
@@ -78,7 +78,7 @@ fn join_then_promote() -> Plan {
 
 /// The view of the era the plan's first step establishes that retains the
 /// leader: the learner's weight 0 keeps three voters, so view 3 selects the
-/// node at voter position 0 — the leader that holds the machine.
+/// node at voter position 0, the leader that holds the machine.
 fn retained_era_view() -> ViewId {
     ViewId {
         era: Era(2),
@@ -132,7 +132,7 @@ fn accepted_plan_executes_both_eras_amid_client_traffic() {
         "the plan's first step is era 2's establishing batch"
     );
 
-    // Client traffic between eras — the cluster keeps running normally.
+    // Client traffic between eras, the cluster keeps running normally.
     assert!(matches!(
         h.propose(n(0), op_id(2), b"between"),
         StepOutcome::Published { .. }
@@ -142,8 +142,8 @@ fn accepted_plan_executes_both_eras_amid_client_traffic() {
 
     // The era boundary: the machine is armed with the second step pending,
     // and the established-but-unentered era awaits the view change (§8.7.8).
-    // The §14.2 forced change retains the leader — view 3 selects it under
-    // the era-2 voter succession — and the machine survives the change.
+    // The §14.2 forced change retains the leader, view 3 selects it under
+    // the era-2 voter succession, and the machine survives the change.
     assert!(matches!(
         h.force_view(n(0), retained_era_view()),
         StepOutcome::Published { .. }
@@ -181,7 +181,7 @@ fn accepted_plan_executes_both_eras_amid_client_traffic() {
     );
 
     // The machine cleared with the last step's commit: further ticks propose
-    // no establishing batch and record no abort — a still-armed machine
+    // no establishing batch and record no abort, a still-armed machine
     // would either re-propose the promotion (era 4) or abort by name.
     h.tick_all();
     h.tick_all();
@@ -363,7 +363,7 @@ fn admin_first_polling_puts_the_first_era_in_flight_before_client_traffic() {
         }]))
     );
 
-    // Only now does the regular queue surface its command — the plan's
+    // Only now does the regular queue surface its command, the plan's
     // first era was in flight before the client command was proposed.
     assert!(matches!(
         h.propose(n(0), op_id(1), b"client"),

@@ -5,7 +5,7 @@
 //! processes, relays the lines they emit to the node each line addresses
 //! (client replies are collected instead), and injects `init` and lin-kv
 //! client operations. What is asserted is the adapter's end of the
-//! integration — the init handshake, the bootstrap to a serving primary,
+//! integration, the init handshake, the bootstrap to a serving primary,
 //! replication through the hex-carried binary datagrams, forwarding from a
 //! backup to the primary, and the lin-kv reply bodies Knossos later rules
 //! on. The nemesis and the linearizability verdict are Maelstrom's own run,
@@ -39,7 +39,7 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long a whole scripted cluster may keep serving client traffic.
 /// The membership lifecycle serializes its verbs through the
 /// stop-the-world gate (§8.7.8), so each verb polls through the era
-/// transition in flight — roughly `PRIMARY_TIMEOUT_TICKS` ticks per verb.
+/// transition in flight, roughly `PRIMARY_TIMEOUT_TICKS` ticks per verb.
 const CLUSTER_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// A spawned node process. Lines for the node go to `to_node`; lines the
@@ -149,7 +149,7 @@ impl Node {
     }
 
     /// A kill the way the nemesis does it: SIGKILL, stdin closed, the
-    /// process reaped — the volatile state is lost, the state dir is not.
+    /// process reaped, the volatile state is lost, the state dir is not.
     fn kill(&mut self) {
         self.to_node = None;
         let _ = self.child.kill();
@@ -269,8 +269,8 @@ impl Drop for Node {
     }
 }
 
-/// Asserts the shape of a reply body — `in_reply_to` and the expected
-/// `type` — and returns it for further field assertions.
+/// Asserts the shape of a reply body, `in_reply_to` and the expected
+/// `type`, and returns it for further field assertions.
 fn assert_reply(reply: &Value, in_reply_to: u64, kind: &str) -> Value {
     let body = reply.get("body").cloned().expect("a reply carries a body");
     assert_eq!(
@@ -367,7 +367,7 @@ impl RelayedCluster {
 
     /// Removes a node from the peer map, so its stdin closes (the relay's
     /// cloned sender was the last one holding it open) and the process
-    /// sees EOF — the clean-shutdown path's trigger.
+    /// sees EOF, the clean-shutdown path's trigger.
     fn detach(&self, label: &str) {
         self.senders
             .lock()
@@ -483,7 +483,7 @@ fn two_node_cluster_replicates_a_forwarded_write() {
 /// The host's membership pre-gate runs before the core is touched: a join
 /// naming an id outside the bench roster (fixed by `node_ids`) is a
 /// definite malformed request, answered with Maelstrom's own
-/// `malformed-request` code — the core is never touched.
+/// `malformed-request` code, the core is never touched.
 #[test]
 fn join_refuses_an_id_outside_the_bench_roster() {
     if binary().is_none() {
@@ -535,8 +535,8 @@ fn members_of(body: &Value) -> Vec<(String, u64)> {
 }
 
 /// One membership RPC, retried until the cluster answers `*_ok`. A
-/// refusal is definite — the core's gates ran before the proposal, the
-/// operation never entered the log — so a retry after one is honest, and
+/// refusal is definite, the core's gates ran before the proposal, the
+/// operation never entered the log, so a retry after one is honest, and
 /// it is also how the stop-the-world gate (§8.7.4, §8.7.8: one era
 /// transition outstanding at a time, the next verb waits for the view
 /// change into the established era) is driven. An unanswered verb whose
@@ -630,8 +630,8 @@ fn membership_verbs_make_and_unmake_a_member() {
 // machine's boot decision (the core's own restart table: a stopped
 // quorum continues under the same identity, anything else resurrects
 // under a bumped one). A kill-restart must become an honest
-// `Node::reopen` — the bumped identity re-enters through the core's
-// reincarnation machinery — and a fresh or cleanly stopped node must
+// `Node::reopen`, the bumped identity re-enters through the core's
+// reincarnation machinery, and a fresh or cleanly stopped node must
 // behave exactly as its markers say.
 // ---------------------------------------------------------------------------
 
@@ -646,7 +646,7 @@ fn state_dir(name: &str) -> PathBuf {
 /// The configuration view a definite membership refusal echoes, polled
 /// until it names exactly `wanted`. `join` of a member the configuration
 /// already holds never enters the log, so the reply is immediate and
-/// carries the answering node's current view — the convergence evidence
+/// carries the answering node's current view, the convergence evidence
 /// of a reincarnation cycle, read through the public surface.
 fn converged_members(
     cluster: &RelayedCluster,
@@ -685,7 +685,7 @@ fn converged_members(
 }
 
 /// One lin-kv client op retried until the cluster answers `ok_type`. A
-/// refusal is definite — the operation provably never entered the log —
+/// refusal is definite, the operation provably never entered the log,
 /// so a retry after one is honest, and it is also how a reopener still
 /// catching up (fenced, or naming a stale view) is driven. The deadline
 /// asserts only the healthy path.
@@ -733,7 +733,7 @@ fn client_ok(
 /// Three nodes, a fresh state dir, a committed write, and then the nemesis:
 /// `n2` is killed mid-life and respawned against the SAME state dir. The
 /// restart must be a dirty `Node::reopen` (the stderr diagnostic names the
-/// bump — reopen, not provision), the core's reincarnation machinery must
+/// bump, reopen, not provision), the core's reincarnation machinery must
 /// walk the forced sequence until the bumped identity is a voter again
 /// (the announcement, the forced batches, the era transitions between
 /// them), the superseded identity must be gone, and the committed history
@@ -757,7 +757,7 @@ fn committed_state_survives_a_kill_restart_with_the_same_state_dir() {
     let cluster = RelayedCluster::start(&mut [&mut n0, &mut n1, &mut n2]);
     std::thread::sleep(Duration::from_millis(500));
 
-    // The write commits (quorum 2 of 3) and is answered — from this
+    // The write commits (quorum 2 of 3) and is answered, from this
     // moment it is durable in every node's state file, written through
     // before the reply left the proposing node.
     n0.send(
@@ -781,10 +781,10 @@ fn committed_state_survives_a_kill_restart_with_the_same_state_dir() {
     assert_reply(&cluster.recv_client(), 4, "write_ok");
 
     // The restart against the same state dir. The node was operating
-    // when it died, so the file holds its boot write — no stopped
-    // quorum — and the marker machine's boot decision is the resurrect
+    // when it died, so the file holds its boot write, no stopped
+    // quorum, and the marker machine's boot decision is the resurrect
     // (T3): the bump. The stderr diagnostic is the test-visible reopen
-    // evidence — the bumped identity, announced, the forced sequence to
+    // evidence, the bumped identity, announced, the forced sequence to
     // follow.
     let mut n2 = Node::spawn_with(Some(&dir.to_string_lossy()));
     n2.init("n2", &["n0", "n1", "n2"]);
@@ -832,8 +832,8 @@ fn committed_state_survives_a_kill_restart_with_the_same_state_dir() {
 }
 
 /// A state dir that holds no state file for the node: the first life. The
-/// provision path is exactly the unpersisted host's — the same fenced
-/// `Joining` start, the same bootstrap adoption, the same serving —
+/// provision path is exactly the unpersisted host's, the same fenced
+/// `Joining` start, the same bootstrap adoption, the same serving,
 /// and the lifecycle diagnostic names it.
 #[test]
 fn a_fresh_state_dir_provisions_as_today() {
@@ -866,8 +866,8 @@ fn a_fresh_state_dir_provisions_as_today() {
     );
 }
 
-/// A clean stop (stdin EOF) walks the marker machine's T1 — `Stopping`,
-/// the drain, `Stopped` — so the next init under the same state dir
+/// A clean stop (stdin EOF) walks the marker machine's T1, `Stopping`,
+/// the drain, `Stopped`, so the next init under the same state dir
 /// reads the stopped quorum and reopens CLEANLY, under the same identity
 /// (T2): no bump, no announcement. The committed history survives, and
 /// the reopener rejoins the live cluster's serving.
@@ -897,13 +897,13 @@ fn a_clean_shutoff_reopens_under_the_same_identity() {
     assert_reply(&cluster.recv_client(), 2, "write_ok");
 
     // The clean stop: stdin closes (the relay's sender is detached
-    // first — it was the last one holding the pipe open), the node's EOF
+    // first, it was the last one holding the pipe open), the node's EOF
     // arm walks the T1 marker writes, and the process exits on its own.
     cluster.detach("n2");
     n2.eof();
 
     // The respawn reads the stopped quorum and reopens under the same
-    // identity — the clean path (T2), no bump — and rejoins the live
+    // identity, the clean path (T2), no bump, and rejoins the live
     // cluster's serving view.
     let mut n2 = Node::spawn_with(Some(&dir.to_string_lossy()));
     n2.init("n2", &["n0", "n1", "n2"]);
@@ -923,7 +923,7 @@ fn a_clean_shutoff_reopens_under_the_same_identity() {
 
 /// A torn state file is a crash artifact, not an input: the host refuses
 /// the reopen by name, answers `error`, and exits nonzero so Jepsen
-/// restarts the node — never a panic.
+/// restarts the node, never a panic.
 #[test]
 fn a_corrupt_state_file_refuses_to_start() {
     if binary().is_none() {
@@ -965,7 +965,7 @@ fn a_corrupt_state_file_refuses_to_start() {
 /// The volatile default is the absence of a store, observed from the
 /// outside: nodes spawned without the env, with the system temp root they
 /// would fall back to pointed at a private directory, provision and serve
-/// committed traffic while that directory stays empty — no state file is
+/// committed traffic while that directory stays empty, no state file is
 /// opened, written or fsynced anywhere.
 #[test]
 fn the_volatile_default_serves_with_no_file_io() {
@@ -1007,6 +1007,6 @@ fn the_volatile_default_serves_with_no_file_io() {
         .count();
     assert_eq!(
         written, 0,
-        "the volatile default writes nothing — not even a fallback store"
+        "the volatile default writes nothing, not even a fallback store"
     );
 }

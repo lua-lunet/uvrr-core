@@ -5,14 +5,14 @@
 //!
 //! `Journal` is a trait over exactly the semantics §4 enumerates: identify the accepted
 //! frontier, read history, record acceptance, record a view selection. "Journal" names a
-//! host strategy, not a file — it implies no WAL, no table, no mutable array, and no
+//! host strategy, not a file, it implies no WAL, no table, no mutable array, and no
 //! indefinite retention.
 //!
 //! There is deliberately no reclamation, rotation, segment-management or retention
 //! operation in either trait, because none of those is a VRR-2012 state transition
 //! (decision S1). A host may implement any retention policy it likes without telling
 //! the core, provided it either satisfies a protocol read or reports the requested
-//! history unavailable — at which point state transfer must obtain an
+//! history unavailable, at which point state transfer must obtain an
 //! adequate state elsewhere (VRR-2012's §10 recovery; our design admits it only
 //! era-proof-guarded, `docs/uvrr-reincarnation.md`). Adding a retention knob to the trait would convert a host
 //! policy into a protocol obligation and thereby preclude a legal host, which
@@ -26,8 +26,8 @@
 //! contract. A unit or stress run that never reclaims at all is a legitimate
 //! configuration, not a leak.
 //!
-//! History begins at slot 1. Slot 0 is the crate-wide "no slot" sentinel — reserved
-//! by wire headers and empty frontiers (`invariant::header_slot_role`) — and never a
+//! History begins at slot 1. Slot 0 is the crate-wide "no slot" sentinel, reserved
+//! by wire headers and empty frontiers (`invariant::header_slot_role`), and never a
 //! position. The one accept anchor is [`VOID_SLOT`], the slot `Void` occupies at
 //! genesis (§8.7.2's fixed ordinals): an empty log's first batch must begin there,
 //! and there is no construction knob that moves it. One sentinel, one anchor.
@@ -81,7 +81,7 @@ pub struct LogEntry {
 /// accepted into history.
 ///
 /// The operation carries its host-assigned identity IN the entry (§11.1, B2): the
-/// identity makes the entry self-describing across a view change — an installed
+/// identity makes the entry self-describing across a view change, an installed
 /// history hands every operation back to the application with the identity the
 /// proposer gave it, without trusting any volatile record. The core never inspects
 /// the identity and never deduplicates on it: that policy lives in the host.
@@ -139,7 +139,7 @@ impl Unpack for LogEntry {
                 // Borrowed from the cursor and copied only here, at the boundary where
                 // the journal takes ownership. `UnpackCursor::opaque` bounds the read
                 // by the input actually present, so an adversarial length prefix
-                // reports `Incomplete` and never pre-allocates — the same decision
+                // reports `Incomplete` and never pre-allocates, the same decision
                 // `Init`'s untrusted member count decode follows.
                 let bytes = c.opaque()?;
                 Payload::Operation {
@@ -160,7 +160,7 @@ impl Unpack for LogEntry {
 /// Why a journal mutation was refused.
 ///
 /// One variant per cause, so a test asserting a refusal asserts *which* precondition
-/// failed — a test that can only observe `is_err()` passes when the journal refuses
+/// failed, a test that can only observe `is_err()` passes when the journal refuses
 /// for the wrong reason. Carries the slots the caller needs to replay without a second
 /// round trip.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -215,7 +215,7 @@ pub enum JournalError {
 /// The read-only snapshot handed to a planned transition: the journal as it was when
 /// the transition was planned.
 ///
-/// Spec §4's read capabilities — identify the accepted frontier and read history —
+/// Spec §4's read capabilities, identify the accepted frontier and read history,
 /// and nothing else. The snapshot is cheap by construction: the default implementation
 /// is an `Arc` bump per sealed slab, not a copy, so taking one never walks the
 /// history. What that costs is paid at the mutation site instead: a later
@@ -239,8 +239,8 @@ pub trait JournalView {
 
     /// The physical presence bounds: the first and last slot actually held.
     ///
-    /// `first` may exceed the checkpoint the host last published — the host owes no
-    /// promptness (S1) — and exceeds `last` when nothing is held at all. These bounds
+    /// `first` may exceed the checkpoint the host last published, the host owes no
+    /// promptness (S1), and exceeds `last` when nothing is held at all. These bounds
     /// are physical facts, not logical ones: the accepted frontier reported by
     /// [`JournalView::accepted`] is unaffected by what has been let go.
     fn retained(&self) -> (Slot, Slot);
@@ -252,7 +252,7 @@ pub trait JournalView {
     /// [`RangeOutcome`]; entries are never invented to complete a range. A range that
     /// starts below the retained frontier is refused outright rather than partially
     /// served: §4 requires unavailable history to be *reported*, and a partial copy
-    /// would masquerade as a complete prefix — the shortfall case is the honest one
+    /// would masquerade as a complete prefix, the shortfall case is the honest one
     /// because it names the frontier it stopped at.
     fn copy_out(&self, from: Slot, to: Slot, into: &mut Vec<LogEntry>) -> RangeOutcome;
 }
@@ -260,8 +260,8 @@ pub trait JournalView {
 /// The write side of the journal: spec §4's two mutations, plus the snapshot a
 /// transition is planned against. Nothing else.
 ///
-/// A fifth capability — discarding history, rotation, size or age thresholds, any
-/// retention knob at all — is host policy and never enters this contract (decision
+/// A fifth capability, discarding history, rotation, size or age thresholds, any
+/// retention knob at all, is host policy and never enters this contract (decision
 /// S1; §4 names four capabilities and states that no physical management operation is
 /// a VRR-2012 state transition). The absence is enforced mechanically by a gate in
 /// `tests/journal_contract.rs`, so a method added here next year breaks the build
@@ -326,7 +326,7 @@ pub enum RangeOutcome {
     /// A shortfall past the frontier is not an error: the frontier moves while a
     /// transfer is in flight, and the requester can ask again for the remainder.
     Short {
-        /// The last slot actually copied — the accepted frontier at read time.
+        /// The last slot actually copied, the accepted frontier at read time.
         through: Slot,
     },
     /// The request started below the retained frontier; nothing was copied.
@@ -349,8 +349,8 @@ pub enum RangeOutcome {
 /// A sealed, immutable run of contiguous entries.
 ///
 /// Sealed means exactly that: nothing mutates a slab after construction. Views share
-/// slabs by `Arc`, and a mutation that would reach into one — a suffix install that
-/// supersedes part of it — copies the retained prefix into a fresh slab and seals
+/// slabs by `Arc`, and a mutation that would reach into one, a suffix install that
+/// supersedes part of it, copies the retained prefix into a fresh slab and seals
 /// that instead. The fields are private so the only slabs that exist are sealed ones.
 #[derive(Debug)]
 pub struct Slab {
@@ -373,8 +373,8 @@ impl Slab {
 /// - History is a sequence of immutable [`Slab`]s plus one mutable tail. A slab seals
 ///   when the tail fills; sealing moves the tail into an `Arc` and starts a fresh
 ///   tail, so the per-entry bookkeeping cost is paid once per slab.
-/// - Lookup is a binary search over recorded slab boundaries — `(first_slot, len)`
-///   per slab — so slabs may be any size and the search never reads a neighbouring
+/// - Lookup is a binary search over recorded slab boundaries, `(first_slot, len)`
+///   per slab, so slabs may be any size and the search never reads a neighbouring
 ///   slab's entry. No linked list, no per-entry allocation.
 /// - [`SegmentedLog::view`] clones the slab `Arc`s and snapshots the tail: O(number
 ///   of slabs), not O(entries). This is the cheap candidate-state fork the
@@ -385,13 +385,13 @@ impl Slab {
 ///
 /// # Genesis
 ///
-/// Every log's history begins at [`VOID_SLOT`] — slot 1, where `Void` stands at
+/// Every log's history begins at [`VOID_SLOT`], slot 1, where `Void` stands at
 /// the start of a legitimate history (§8.7.2). Slot 0 is the sentinel, not a
 /// position, so the first batch accepted must start at the anchor and an offer
 /// below it is refused. There is deliberately no `first_slot` construction
 /// knob. A replica restored by state transfer holds a transferred history
-/// whose early slots it has let go of — which is this type plus
-/// [`SegmentedLog::reclaim_through`], not a different construction — so
+/// whose early slots it has let go of, which is this type plus
+/// [`SegmentedLog::reclaim_through`], not a different construction, so
 /// `accepted()` returning `None` means "no history" without ambiguity, and the
 /// contiguity rule has one starting point rather than two.
 #[derive(Debug)]
@@ -437,7 +437,7 @@ impl SegmentedLog {
     /// The one construction knob. A capacity of zero is clamped to one rather than
     /// honoured, because a slab that can hold nothing makes the seal condition one
     /// that can never drain. There is no file policy, no fsync and no durability
-    /// opinion here, and there never will be — that is the whole point of the S1
+    /// opinion here, and there never will be, that is the whole point of the S1
     /// split: durability is the host's strategy, this is the in-memory fulfilment of
     /// the four §4 capabilities.
     #[must_use]
@@ -484,7 +484,7 @@ impl SegmentedLog {
     /// Reclaims physical history at or below `checkpoint`, dropping whole covered
     /// slabs.
     ///
-    /// **Not part of the [`Journal`] trait** — inherent to this type, because
+    /// **Not part of the [`Journal`] trait**, inherent to this type, because
     /// reclamation is host policy and the portable contract must not name it (S1).
     /// A slab goes only when its final slot is at or below `checkpoint`; a partially
     /// covered slab is retained whole, so `retained().0` advances only across
@@ -493,7 +493,7 @@ impl SegmentedLog {
     ///
     /// Called by the replica only after a published `Checkpointed` transition, and
     /// may be invoked opportunistically on `accept`. Never on a schedule, never on a
-    /// timer — and a run that never calls this at all is a legitimate configuration,
+    /// timer, and a run that never calls this at all is a legitimate configuration,
     /// not a leak: the host may retain exactly the currently required logical history
     /// or substantially more (§4), and the core has no opinion about which.
     pub fn reclaim_through(&mut self, checkpoint: Slot) {
@@ -514,8 +514,8 @@ impl SegmentedLog {
         self.slabs.drain(..covered);
         self.boundaries.drain(..covered);
         // `first` tracks the physical survivor: the first sealed slab if any remain,
-        // else the tail's first entry — the tail is physical history too and is not
-        // implied by a checkpoint below the frontier — else one past the frontier,
+        // else the tail's first entry, the tail is physical history too and is not
+        // implied by a checkpoint below the frontier, else one past the frontier,
         // where "past" itself does not exist at the end of the slot space.
         if let Some(&(first, _)) = self.boundaries.first() {
             self.first_slot = first;
@@ -541,7 +541,7 @@ impl Journal for SegmentedLog {
     }
 
     fn accept(&mut self, entries: &[LogEntry]) -> Result<(), JournalError> {
-        // An empty batch is a no-op, not an error — and must not consult the
+        // An empty batch is a no-op, not an error, and must not consult the
         // frontier, so that it stays a no-op even at the end of the slot space.
         let Some(first_entry) = entries.first() else {
             return Ok(());
@@ -568,7 +568,7 @@ impl Journal for SegmentedLog {
         }
 
         // A batch at least a tail in size, offered to an empty tail, seals directly
-        // as one larger slab — never split to fit the tail. This is what makes bulk
+        // as one larger slab, never split to fit the tail. This is what makes bulk
         // peer catch-up cheap: a transferred chunk of history becomes a single slab
         // (one allocation, one boundary record) rather than a per-entry copy through
         // the tail. Variable slab sizes are supported by construction, and this is
@@ -626,7 +626,7 @@ impl Journal for SegmentedLog {
         }
 
         // Copy-on-write at slab granularity. Slabs wholly at or after `from` are
-        // dropped — the `Arc` refcount does the reclamation, so a view still holding
+        // dropped, the `Arc` refcount does the reclamation, so a view still holding
         // one is undisturbed. A partially superseded slab is *copied* up to `from`
         // and re-sealed under a fresh `Arc`, never mutated in place, because other
         // views may hold the original: views immutable is the property, this copy is
@@ -634,7 +634,7 @@ impl Journal for SegmentedLog {
         //
         // A pristine log anchors its physical window at the cut: `from` is the
         // first position of the history being installed. This is what lets a
-        // genesis history (Void at slot 1, per §8.7.2's fixed ordinals — slot 0
+        // genesis history (Void at slot 1, per §8.7.2's fixed ordinals, slot 0
         // is the sentinel, not a position; see `invariant::header_slot_role`) be
         // installed by `install_suffix`; `accept` on an empty log anchors at the
         // same slot (pinned by `tests/journal_contract.rs`).
@@ -671,7 +671,7 @@ impl Journal for SegmentedLog {
 
 /// A [`SegmentedLog`] snapshot: the journal as it was when [`Journal::view`] ran.
 ///
-/// Sealed slabs are shared with the log — and with every other view — by `Arc`; the
+/// Sealed slabs are shared with the log, and with every other view, by `Arc`; the
 /// tail is copied once into an immutable slice. That is the whole cost model: taking
 /// a view is O(number of slabs), never O(entries), and no later mutation of the log
 /// can reach into a view, because the log's own mutations treat every sealed slab as

@@ -3,7 +3,7 @@
 //! The host forces entry into a chosen view; the core drives the
 //! ORDINARY fence/evidence/install pipeline into it, so the new primary
 //! is exactly the member the target's view number names under the
-//! current membership order — no state is installed from the host's
+//! current membership order, no state is installed from the host's
 //! say-so. The target must strictly advance the view within the current
 //! era: a non-advancing target is bad input, an era other than the
 //! current one is not the membership order the forcing maps under (an
@@ -13,7 +13,7 @@
 //! The properties pinned here:
 //!
 //! 1.  a forced change installs the chosen primary through the ordinary
-//!     pipeline — the old primary fences and redirects, the new one
+//!     pipeline, the old primary fences and redirects, the new one
 //!     serves;
 //! 2.  non-advancing, uncommitted-era, and exhausted targets are the
 //!     named refusals;
@@ -124,8 +124,8 @@ fn admin_forced_view_installs_the_chosen_primary_through_the_ordinary_pipeline()
     bootstrap(&mut h);
     commit_one(&mut h, n(0), 1, b"a"); // slot 3 committed everywhere
 
-    // The host forces view 1 — whose primary under the genesis
-    // membership order is n1 — at the SERVING primary itself.
+    // The host forces view 1, whose primary under the genesis
+    // membership order is n1, at the SERVING primary itself.
     let outcome = h.force_view(n(0), view(1));
     assert!(
         matches!(outcome, StepOutcome::Published { .. }),
@@ -280,7 +280,7 @@ fn admin_force_view_into_the_established_era() {
     bootstrap(&mut h);
 
     // A committed reconfiguration establishes era 2. The view has NOT
-    // changed — only the era table advanced (§8.7.1). The current view
+    // changed, only the era table advanced (§8.7.1). The current view
     // is still (1, 0) but the committed configuration history names
     // era 2 as established.
     let outcome = h.reconfigure(n(0), SystemOperation::Increment(n(2)), None);
@@ -296,7 +296,7 @@ fn admin_force_view_into_the_established_era() {
     );
 
     // The operator forces a view into the established-but-unentered era.
-    // The target names era 2, view 1 — the first view past the current
+    // The target names era 2, view 1, the first view past the current
     // one, in the new era.
     let target = ViewId {
         era: Era(2),

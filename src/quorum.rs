@@ -10,8 +10,8 @@
 //! without editing the protocol.
 //!
 //! `QuorumStrategy` is an extension point; the intersection obligations it must satisfy
-//! are not. The obligations — `R1: QI_e ⌢ QII_e` and `R2: QI_e ⌢ QII_(e+1)` (§8.7.4),
-//! plus the diskless `F_g ⌢ R_g` and `V_g ⌢ V_g` (§8.3) — are discharged by
+//! are not. The obligations, `R1: QI_e ⌢ QII_e` and `R2: QI_e ⌢ QII_(e+1)` (§8.7.4),
+//! plus the diskless `F_g ⌢ R_g` and `V_g ⌢ V_g` (§8.3), are discharged by
 //! [`validate_era`] and [`validate_transition`], **free functions the core calls**, not
 //! trait methods. That placement is the Q1 ruling made concrete: a strategy value
 //! decides only [`QuorumStrategy::is_quorum`], and no strategy, feature flag or host
@@ -20,8 +20,8 @@
 //!
 //! The discharge is exhaustive subset enumeration over the membership, using the
 //! complement identity: two families fail to intersect iff some quorum of one has a
-//! complement that is a quorum of the other. Every refusal carries the **witness** —
-//! the two disjoint subsets that violate the obligation — because a refusal that
+//! complement that is a quorum of the other. Every refusal carries the **witness**,
+//! the two disjoint subsets that violate the obligation, because a refusal that
 //! cannot show the operator *why* is a refusal nobody can act on.
 //! [`configuration::MAX_MEMBERS`] bounds the enumeration at `2^16` predicate
 //! evaluations, which is what makes the cap a validation-cost bound rather than a
@@ -44,7 +44,7 @@ use crate::ids::NodeId;
 ///
 /// Exhaustive on purpose: there is no wildcard arm over `Role` anywhere in the crate,
 /// so a fifth role added here is a compile error at every site that must take a
-/// position on it — the gate, the shipped strategy, and every test-local strategy —
+/// position on it, the gate, the shipped strategy, and every test-local strategy,
 /// rather than a silently defaulted case.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Role {
@@ -59,15 +59,15 @@ pub enum Role {
 }
 
 /// A quorum policy. Open for extension (Q1): a host supplies one value at
-/// construction. What a host may NOT do is weaken the closed obligations —
+/// construction. What a host may NOT do is weaken the closed obligations,
 /// [`validate_era`] and [`validate_transition`] are run by the core on every
 /// configuration and every proposed reconfiguration, and a refusal is final.
 ///
 /// # Contract a strategy must honour
 ///
 /// - **Monotonicity.** A superset of a quorum is a quorum. The gate's complement
-///   identity — two families fail to intersect iff some quorum's complement is a
-///   quorum of the other family — is only valid for upward-closed families, and every
+///   identity, two families fail to intersect iff some quorum's complement is a
+///   quorum of the other family, is only valid for upward-closed families, and every
 ///   quorum family in §8.2–§8.5 is upward-closed by construction.
 /// - **Strictness about membership.** Unknown or duplicated nodes in `members` are
 ///   refused (`false`), which [`Configuration::weight_of_set`] already implements for
@@ -76,7 +76,7 @@ pub enum Role {
 ///   configurations does not know; those subsets must simply fail the predicate.
 pub trait QuorumStrategy {
     /// Is `members` a quorum for `role` under `config`? The ONLY thing a strategy
-    /// decides. Everything else — intersection, cross-era closure — is checked
+    /// decides. Everything else, intersection, cross-era closure, is checked
     /// mechanically from this predicate.
     fn is_quorum(&self, role: Role, config: &Configuration, members: &[NodeId]) -> bool;
 
@@ -93,11 +93,11 @@ pub trait QuorumStrategy {
 /// a property of the pair of directions, not of the forward one alone.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum R2Direction {
-    /// `ViewChange_current ⌢ Commit_next` — R2 exactly as §8.7.4 states it: a view
+    /// `ViewChange_current ⌢ Commit_next`, R2 exactly as §8.7.4 states it: a view
     /// change in era `e` must not select a history that omits an operation committed
     /// under era `e+1`. This is the direction Q1's six-node counterexample violates.
     Forward,
-    /// `ViewChange_next ⌢ Commit_current` — `PrepareOk` evidence gathered under era
+    /// `ViewChange_next ⌢ Commit_current`, `PrepareOk` evidence gathered under era
     /// `e+1` must intersect a commit quorum under era `e`, or a view change in the
     /// new era can install a history the old era's committers never saw. Not a
     /// consequence of the forward direction when the two eras weight members
@@ -111,8 +111,8 @@ pub enum R2Direction {
 /// Every intersection refusal carries the **witness**: the two disjoint subsets that
 /// violate the obligation. A refusal that cannot show the operator *why* is a refusal
 /// nobody can act on, so the witness is part of the error type, not a log line. The
-/// subsets are inclusion-minimal — neither has a proper subset that is a quorum of
-/// its claimed family — so the witness names exactly the members whose votes cannot
+/// subsets are inclusion-minimal, neither has a proper subset that is a quorum of
+/// its claimed family, so the witness names exactly the members whose votes cannot
 /// both be legal.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum QuorumError {
@@ -161,7 +161,7 @@ pub enum QuorumError {
         restart: Vec<NodeId>,
     },
     /// A configuration presented to the gate exceeds [`MAX_MEMBERS`]. Unreachable
-    /// through the fold — `Init` and `Join` refuse past the cap first — but the gate
+    /// through the fold, `Init` and `Join` refuse past the cap first, but the gate
     /// does not trust its callers: its cost analysis assumes the bound, so it
     /// restates it rather than enumerating an unbounded membership.
     MembershipCapExceeded {
@@ -188,7 +188,7 @@ fn width_of(universe: &[NodeId]) -> u32 {
 
 /// Does some quorum of `family_a` have a complement (within `universe`) that is a
 /// quorum of `family_b`? By the complement identity that is exactly the failure of
-/// the two families to intersect — for the upward-closed families the trait contract
+/// the two families to intersect, for the upward-closed families the trait contract
 /// requires.
 ///
 /// This is the fast scan: `2^N` masks, two predicate evaluations each, which is the
@@ -213,7 +213,7 @@ fn disjoint_quorums_exist(
 /// The witness: an inclusion-minimal disjoint quorum pair, or `None` if the families
 /// intersect universally.
 ///
-/// Runs the fast scan first, then — only on the refusal path — a thorough pass that
+/// Runs the fast scan first, then, only on the refusal path, a thorough pass that
 /// enumerates subsets in increasing size and, for each `family_a` quorum, searches
 /// its complement for a smallest `family_b` quorum. The pair returned is minimal
 /// *unconditionally*, with no monotonicity assumption: the first subset `S` returned
@@ -223,7 +223,7 @@ fn disjoint_quorums_exist(
 /// complement of `S`, so no proper subset of `T` qualifies either.
 ///
 /// Cost: the valid path is the fast scan above. The refusal path is bounded by `3^N`
-/// predicate evaluations in the worst case — at `N <= 16` still well under a second,
+/// predicate evaluations in the worst case, at `N <= 16` still well under a second,
 /// and a refusal is a terminal preflight event, not steady state.
 fn find_disjoint_pair(
     strategy: &dyn QuorumStrategy,
@@ -281,13 +281,13 @@ fn check_cap(config: &Configuration) -> Result<(), QuorumError> {
 /// diskless VRR), and `Fence ⌢ Restart`.
 ///
 /// Each named obligation is discharged separately even though they coincide for
-/// [`WeightedMajority`] — where all four roles are the strict majority — because a
+/// [`WeightedMajority`], where all four roles are the strict majority, because a
 /// future strategy that splits roles is still fully gated, and a refusal must name
 /// the obligation it found, not the one that happens to share its arithmetic.
 ///
 /// Cost: three obligations, each a `2^N` subset scan with two predicate evaluations
 /// per subset on the valid path; `N <= `[`MAX_MEMBERS`], so at most 3 × 65536 × 2
-/// evaluations per call — microseconds. A refusal additionally runs the
+/// evaluations per call, microseconds. A refusal additionally runs the
 /// minimal-witness pass documented on [`find_disjoint_pair`].
 pub fn validate_era(
     strategy: &dyn QuorumStrategy,
@@ -342,11 +342,11 @@ pub fn validate_era(
 /// determinism; nodes a configuration does not know simply fail its predicate. The
 /// union of two fold-consecutive configurations never exceeds [`MAX_MEMBERS`] (the
 /// one membership-changing operations, `Join` and `Leave`, move exactly one member at
-/// weight 0), so the union check cannot fire on a legitimate transition — it exists
+/// weight 0), so the union check cannot fire on a legitimate transition, it exists
 /// because the gate does not assume its callers only present fold-consecutive pairs.
 ///
 /// Cost: two directions, each a `2^N` scan with two predicate evaluations per subset
-/// on the valid path; at most 2 × 65536 × 2 evaluations — microseconds.
+/// on the valid path; at most 2 × 65536 × 2 evaluations, microseconds.
 pub fn validate_transition(
     strategy: &dyn QuorumStrategy,
     current: &Configuration,
@@ -402,7 +402,7 @@ pub fn validate_transition(
 pub enum PivotError {
     /// A member appears twice in `qI`, twice in `qII`, or once in each
     /// beyond the shared leader. The pivot condition requires `qI ∩ qII =
-    /// {L}` exactly — no duplicates within a set, no second shared member.
+    /// {L}` exactly, no duplicates within a set, no second shared member.
     DuplicateMember(NodeId),
     /// The intersection of `qI` and `qII` is not exactly the leader.
     IntersectionNotLeader,
@@ -428,7 +428,7 @@ pub enum PivotError {
 /// every leg. It **terminates** because the powerset of a membership
 /// capped at [`MAX_MEMBERS`] is finite (`2^16` subsets at most). It is
 /// **deterministic** because the enumeration order is fixed and the first
-/// match is returned — same inputs, same pivot, every time.
+/// match is returned, same inputs, same pivot, every time.
 ///
 /// A leader that finds no split (non-pivotal, low-weight) gets `None`:
 /// the fallback to stop-the-world is a latency outcome, not an error.
@@ -537,7 +537,7 @@ pub fn validate_pivot(
 }
 
 /// The shipped default: strict weighted majority, `floor(T/2) + 1`, for every role
-/// (§8.4). All four roles coincide — the match is exhaustive rather than a wildcard
+/// (§8.4). All four roles coincide, the match is exhaustive rather than a wildcard
 /// so that a fifth role is a compile error here, not a silently defaulted case.
 ///
 /// §8.7.5 proves its closure across consecutive eras under the §8.7.2 operation
@@ -553,7 +553,7 @@ impl QuorumStrategy for WeightedMajority {
             Role::Commit | Role::ViewChange | Role::Restart | Role::Fence => config.total() / 2 + 1,
         };
         // Duplicates and unknown members are refused by `weight_of_set`, which is the
-        // single copy of that rule — a strategy that deduplicated for itself would
+        // single copy of that rule, a strategy that deduplicated for itself would
         // hold a second one.
         match config.weight_of_set(members) {
             Some(weight) => weight >= threshold,
