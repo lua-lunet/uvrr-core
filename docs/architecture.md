@@ -196,6 +196,66 @@ the host polls the admin ingress BEFORE the regular queue, so a plan never
 waits behind client traffic; the leader-side acceptance and execution rule
 the obligation serves is pinned in `docs/weighted-reconfiguration-solver.md`.
 
+### Liveness: the resend, the heartbeat, and the retransmit
+
+The core performs no clock reads and opens no sockets: every message it approves
+is released as an effect, once, and every timeout the cluster's liveness rests
+on is the host's. Whatever the timeout durations and whatever mechanism arms
+them, they are the host's. A repeated send is a relay of what the core has
+already released, never a message the host composes (the authorization rule for
+replayed messages of `vrr-durability-model.md` §13.2; retransmission is host
+transport policy there). The papers make the repeated send the implementation's
+matter: the protocol descriptions of Viewstamped Replication Revisited (2012)
+ignore "re-sending of messages that appear to have been lost" as a minor detail
+(§4.2; the same convention at §4.1's opening, "re-sending protocol messages that
+haven't received responses").
+
+**The leader's resend policy.** A leader that times out without the quorum
+response a message of its own emission awaits resends what it has not received a
+response on. The leader's record of each outstanding proposal holds the
+respondents so far (`proposals`, `src/replica/mod.rs:1176-1179`, the record
+shape at `src/replica/mod.rs:706-719`) and is resolved only by the applied
+acknowledgement (`src/replica/mod.rs:1996-1998`); the matters it has not
+received responses on are the records still standing. Phase-1 and phase-2
+traffic both get the policy: the repeated send covers the proposal whose
+`PrepareOk` quorum has not closed and the commit announcements that carry the
+frontier, and a resend is safe because each receiver is idempotent on repeats
+(a repeated `Prepare` re-acknowledges without re-applying,
+`tests/normal_operation.rs:384-385` and the duplicate-`PrepareOk` drop at
+`src/replica/normal.rs:465-467`; the commit handler takes the frontier each
+time, `src/replica/normal.rs:672-676`). The source convention is Viewstamped
+Replication Revisited (2012) §4.1, in which the primary re-sends a proposal that
+is lagging rather than proposing past it.
+
+**The heartbeat, one option among many.** A leader with no outstanding matters
+(no proposal record standing) and matching frontiers (its accepted and
+committed frontiers have met) may, on its timeout, send its last commit as a
+heartbeat, which serves both as the frontier announcement and as the proof of
+life the backups' suspicion reads. The option is suggestion-grade in the
+sources: the idle emission of the latest commit is one idle shape Viewstamped
+Replication Revisited (2012) §4.1 describes ("if the primary does not receive a
+new client request in a timely way, it instead informs the backups of the
+latest commit by sending them a ⟨COMMIT v, k⟩ message", with the paper's own
+note that there commit-number equals op-number, the frontiers matching), and
+the timeout measures of Paxos Made Simple (2001) are implementation
+suggestions, liveness instruments whose failure never touches safety. Any
+other leader timeout mechanism is allowable in its place; no mechanism is
+required, and the duration is the host's.
+
+**The view-change retransmit.** A node that times out on its view-change
+request set, the `StartViewChange` fence votes it has emitted and the
+`DoViewChange` evidence it owes the designated primary
+(`src/replica/view_change.rs:44-60` and `src/replica/view_change.rs:231-265`),
+retransmits the datagrams of that set: the attempt is volatile
+(`src/replica/mod.rs:1188-1191`) and nothing else will re-ask, so a lost
+request otherwise strands the attempt. The receiving side absorbs repeats: a
+fence vote is a set member, counted once (`src/replica/mod.rs:752-753`), and a
+repeated evidence delivery is absorbed on the sender's key, the first delivery
+standing, the vote counted once (`src/replica/view_change.rs:413-418`). The
+retransmit is the same host transport replay the papers leave to the
+implementation (Viewstamped Replication Revisited (2012) §4.2's ignored minor
+detail, quoted above).
+
 ## Decision record
 
 Each decision states context, decision, consequence. These are rulings, not proposals.

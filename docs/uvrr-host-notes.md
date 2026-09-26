@@ -56,3 +56,12 @@ id alongside the separate halves. The actual limit is the highest
 committed crash counter any node has held while a member of the cluster at
 any point, which exhausts at `u16::MAX` rejoins of the cluster: a minimum
 of `u16::MAX` cluster reconfigurations of headroom, which is ample.
+
+## The liveness practices
+
+The leader's resend policy, the heartbeat option, and the view-change
+retransmit are obligations, not practices: the normative statement of all
+three lives in `architecture.md`, under the host obligations for correct
+running (the liveness section). This note prescribes nothing about how a
+host times or transports them; timeouts and their mechanisms are the
+host's.
