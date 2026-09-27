@@ -43,8 +43,13 @@ relation already bounds it, an entry two eras past a node's view era is
 refused at accept, so no committed nomination can name a two-era jump.
 
 The nomination issues no `StartViewChange`, no fence, no evidence, no
-install: the bump is not a view change, it is a commit. A node not
-serving the named view, fenced, electing, replaying, or simply past
+install: the bump is not a view change, it is a commit. The bump is the
+era-boundary crossing: the view's era must equal the established era
+before the next establishing operation is proposed (§8.7.8's gate,
+`PlanRefusal::EraTransitionOutstanding`), and the bump enters it on the
+same published transition that carries the folded table, so a plan under
+a stable leader runs to its end without one view-change message. A node
+not serving the named view, fenced, electing, replaying, or simply past
 `from`, is outside the nomination's authority and does not bump; its own
 path, the fence, the install, or the acquisition, sets its view. Install
 transitions supersede the nomination outright: a `StartView` or NewState
@@ -80,17 +85,23 @@ across weight zero: an `Increment` from 0, or a `Decrement` to 0.
 
 `solve` and `solve_replacement` take the serving view, the view number
 the leader holds when the plan begins, and name it in every emitted
-nomination. The emission pass runs over the computed steps: walking with
-the running view `v`, the view the parameter names plus the offsets of
-the nominations already emitted, and the previous step's configuration,
-a step whose fold would move the leader, `primary(next, v)` naming a
-different node than `primary(previous, v)`, gains a
+nomination. The emission pass runs over the computed steps and gives
+EVERY step its rider: walking with the running view `v`, the view the
+parameter names plus the offsets of the nominations already emitted,
+and the previous step's configuration, a step gains a
 `Nominate { from: v, offset: u }` as its last sub-operation, `u` the
 least positive offset with `primary(next, v + u) == primary(previous, v)`.
-The running view advances by `u`; a step whose fold keeps the leader
-emits nothing. The chained `from` values are the views the cluster
-actually holds: each bump lands at the prior wrap's commit, before the
-next step is proposed.
+A wrap whose arithmetic would move the leader gets the re-electing
+offset; a step that keeps the leader gets the count, the least offset
+that preserves the index, which is the same view the machinery's own
+§13.4 selector would name for the boundary. Both enter the era the step
+establishes, which the next step's proposal requires. The running view
+advances by `u`; the chained `from` values are the views the cluster
+actually holds, each bump landing at the prior step's commit, before the
+next step is proposed. A step that evicts the serving leader from the
+voter sequence cannot keep it: that step emits the era-entering offset
+alone and the leadership passes to the arithmetic's choice; the next
+step's emission continues from the leader the new arithmetic names.
 
 The forced-reincarnation machine's own runtime recomputation
 (`replica::forced_steps`) emits no nominations: its §6 schedule is
@@ -104,8 +115,9 @@ takes the availability snapshot.
 
 * **The constant leader through the wrap.** At every committed slot, every
   live member whose own committed configuration gives it positive weight
-  computes the same leader: `record(view.era).primary(view.view)` names
-  the node the plan started under, at every step of every scenario.
+  computes the same leader: the configuration its committed history has
+  established, evaluated at its current view number, names the node the
+  plan started under, at every step of every scenario.
 * **Era adjacency.** The bump's era is the establishing run's era, exactly
   one past the receiver's pre-fold row, and the accept-time §8.7.3
   relation enforces the bound before the commit ever sees the entry.
@@ -149,29 +161,30 @@ The scenarios, in order:
 1. **Expansion 3 to 5** at serving view 3, leader `n(0)`: `solve` from the
    genesis `(1, 1, 1)` to `(1, 1, 1, 1, 1)`. The route drains and leaves
    the members to be reseated, joins the target order at weight zero
-   around the anchor, and promotes them; the wraps are the drain of the
-   first reseat and the promotions of the last three, and the plan ends at
-   view 10 with the unit-weight five.
+   around the anchor, and promotes them; twelve steps, twelve riders, the
+   plan ends at view 20 with the unit-weight five.
 2. **The three-node replacement** at serving view 3, leader `n(0)`:
-   `solve` from `(n0, n1, n2)` to `(n0, n1, n3)`. The wraps are the first
-   drain and the promotion of the fresh identity; the plan ends at view 6
-   with the old identity evicted and the fresh one seated at unit weight.
+   `solve` from `(n0, n1, n2)` to `(n0, n1, n3)`. Eight steps, eight
+   riders, the plan ends at view 12 with the old identity evicted and the
+   fresh one seated at unit weight.
 3. **The five-node crash-reincarnation replace** at serving view 5,
    leader `n(0)`: crash `n(4)`, reopen its bumped life, and
    `solve_replacement` over the six-era forced schedule, `Double`, the
    join and promotion of the bumped identity, the drain of the old, its
-   departure, the promotion, and `Halve`. The wraps are the bumped
-   identity's promotion, voters 5 to 6, and the old identity's drain to
-   zero, voters 6 to 5; the plan ends at view 10 with the unit-weight
-   five, the bumped identity in the old seat.
+   departure, the promotion, and `Halve`. Six steps, six riders; the plan
+   ends at view 30 with the unit-weight five, the bumped identity in the
+   old seat.
 
-The Red rung is the ladder run against the un-nominated solver: the
-assertion fails at the first wrap's committed slot, the modulo rule names
-a different node (the expansion names the drained member's successor at
-view 3, the replacement likewise, and the reincarnation names the crashed
-identity itself, a leader no live node can serve). The emission pass and
-the commit-time bump make the same ladder green, the constant leader at
-every committed slot of all three scenarios. The bumped life's own
-seating is the §10 acquisition, the rejoin path's business, and is not
-the ladder's assertion: the scenario asserts the plan's commits and the
-leader's constancy at the serving voters.
+The Red rung is the ladder run against the un-nominated solver, and it
+fails twice over: the assertion fails at the first wrap's committed slot,
+the modulo rule names a different node at the unchanged view number (the
+expansion and the replacement both name the drained member's successor at
+view 3), and the plan cannot even cross its era boundaries, the §8.7.8
+gate refuses the second establishing operation while the view lags the
+established era (`EraTransitionOutstanding`, the face the
+crash-reincarnation scenario reaches first, at its second step). The
+emission pass and the commit-time bump make the same ladder green, the
+constant leader at every committed slot of all three scenarios. The
+bumped life's own seating is the §10 acquisition, the rejoin path's
+business, and is not the ladder's assertion: the scenario asserts the
+plan's commits and the leader's constancy at the serving voters.
