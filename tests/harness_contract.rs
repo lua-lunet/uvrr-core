@@ -28,7 +28,9 @@ use std::sync::Arc;
 
 use uvrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use uvrr::effects::{Effect, Stability, StabilityResult};
-use uvrr::ids::{CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, Tick, View, ViewId};
+use uvrr::ids::{
+    CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, Tick, View, ViewId,
+};
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, Message};
 use uvrr::progress::{ProgressSnapshot, Status};
