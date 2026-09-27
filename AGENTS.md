@@ -89,6 +89,10 @@ No instruction conflicts with Andon; if one appears to, Andon wins.
 - The user may ask to park work by a branch and tag that is not going into main you MUST raise a gh issue naming the parted tag as future work. 
 - Releases MUST be from a tag on main never any feature branch. For as long as we are in a 0.x.y alpha you are FORBIDDEN from adding complexity to perseve prior state of behavour any new version requires all state reset and can and should break all API up until 1.a.b-Mx milestones. 
 
+## PRs And Push
+
+You MUST use the skill gh-actions-poll if it is installed. You are FOBRIDDEN from using a `gh pr view` loop to attempt to poll.  
+
 ## Inner loop and observability
 
 - Lint, typecheck, and test locally. CI is the slowest feedback available; it is a gate,
