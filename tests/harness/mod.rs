@@ -832,15 +832,29 @@ impl Harness {
             })
             .collect();
         let mut nodes = Vec::with_capacity(n);
-        // FIXME(#115): the root name is unique only within a process, yet
-        // finished processes leave their roots behind in the shared temp
-        // directory, so a later process reusing the id boots over markers
-        // it never wrote and the first `boot` misclassifies.
-        let gate_root = std::env::temp_dir().join(format!(
-            "uvrr-harness-{}-{}",
-            std::process::id(),
-            GATE_ROOT_SEQ.fetch_add(1, Ordering::SeqCst),
-        ));
+        // The root is unique across processes, not only within one: the
+        // name carries the process id and the construction instant, and the
+        // directory is claimed atomically with `create_dir`, retrying on a
+        // collision, so a fresh process can never open a root that a
+        // finished process left behind in the shared temp directory.
+        let gate_root = {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("the system clock is after the epoch")
+                .as_nanos();
+            loop {
+                let candidate = std::env::temp_dir().join(format!(
+                    "uvrr-harness-{}-{nanos}-{}",
+                    std::process::id(),
+                    GATE_ROOT_SEQ.fetch_add(1, Ordering::SeqCst),
+                ));
+                match fs::create_dir(&candidate) {
+                    Ok(()) => break candidate,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("the gate root directory creates: {error}"),
+                }
+            }
+        };
         let mut gates = Vec::with_capacity(n);
         let mut sessions = Vec::with_capacity(n);
         let mut gate_logs = Vec::with_capacity(n);
