@@ -10,7 +10,7 @@ mod harness;
 
 use harness::{DeliveryOutcome, Harness, StepOutcome};
 use uvrr::configuration::SystemOperation;
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 
 use uvrr::message::{Body, Message};
 use uvrr::progress::Status;
@@ -31,16 +31,16 @@ fn op_id(lsb: u64) -> OperationId {
 }
 
 /// A view in era 1, the era every node here bootstraps into.
-fn view(number: u32) -> ViewId {
-    ViewId {
+fn view(number: u32) -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(number),
     }
 }
 
 /// A view in era 2, the era the committed reconfiguration establishes.
-fn era2_view(number: u32) -> ViewId {
-    ViewId {
+fn era2_view(number: u32) -> Ballot {
+    Ballot {
         era: Era(2),
         view: View(number),
     }
@@ -60,7 +60,7 @@ fn overlap_pivot() -> Pivot {
 /// The transition view the pivot names (§8.7.7 step 5): the least view
 /// past (1, 0) selecting position 0 under the era-2 order, view 3,
 /// since views 1 and 2 select the other members.
-fn transition_view() -> ViewId {
+fn transition_view() -> Ballot {
     era2_view(3)
 }
 
@@ -93,10 +93,10 @@ fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-/// The node's current view as a `ViewId`.
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+/// The node's current view as a `Ballot`.
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }

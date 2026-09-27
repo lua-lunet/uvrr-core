@@ -32,7 +32,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// resumes after (the per-tag table's Frontier role).
     pub(in crate::replica) fn fetch(
         &self,
-        view: ViewId,
+        view: Ballot,
         to: NodeId,
         from: Slot,
     ) -> (Effect, TransferVolatile) {
@@ -69,7 +69,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         &self,
         journal: &J::View,
         from: NodeId,
-        view: ViewId,
+        view: Ballot,
         at: Tick,
         kind: InputKind,
     ) -> Result<PlannedTransition, PlanRefusal> {

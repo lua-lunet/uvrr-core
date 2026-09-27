@@ -3,7 +3,7 @@
 //! Spec §1.2 (view and configuration generation), §1.3 (slots and frontiers), and
 //! decision W1.
 //!
-//! A view is an explicit `ViewId { era: u32, view: u32 }`.
+//! A view is an explicit `Ballot { era: u32, view: u32 }`.
 //!
 //! Identifiers are supplied by the host (decision W2): `OperationId` is 128
 //! host-chosen bits the core carries opaque. The core never mints one, so it needs
@@ -397,24 +397,24 @@ impl Slot {
 /// That claim is discharged by `tests/ids_contract.rs`, not by this comment.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ViewId {
+pub struct Ballot {
     /// The configuration generation authorising this view (§8.7.1).
     pub era: Era,
     /// The primary-succession number within that generation (§1.2).
     pub view: View,
 }
 
-impl ViewId {
+impl Ballot {
     /// The **genesis view**: [`Era::INITIAL`] and [`View::INITIAL`], the view a
     /// freshly provisioned node advertises, pinned by `Progress::genesis` (the
     /// genesis ruling, §1.3). Era 0 is the void configuration, quorum-impossible by arithmetic,
     /// and view 0 is the first primary term once `Init` commits (§1.2:
     /// `primary(0) = order[0]`). It is not "no view": a freshly provisioned node
-    /// has a real genesis view, so no `Option<ViewId>` appears anywhere. Named
-    /// rather than a `Default` impl, because a `ViewId` that nobody chose can
+    /// has a real genesis view, so no `Option<Ballot>` appears anywhere. Named
+    /// rather than a `Default` impl, because a `Ballot` that nobody chose can
     /// reach a journal record and a `StartView` message, where it is
     /// indistinguishable from the genesis view.
-    pub const INITIAL: ViewId = ViewId {
+    pub const INITIAL: Ballot = Ballot {
         era: Era::INITIAL,
         view: View::INITIAL,
     };
@@ -424,8 +424,8 @@ impl ViewId {
     /// The ordinary view change: the configuration is unchanged, so only the primary
     /// term advances (§9.1).
     #[must_use]
-    pub fn next_in_era(self) -> Option<ViewId> {
-        self.view.next().map(|view| ViewId {
+    pub fn next_in_era(self) -> Option<Ballot> {
+        self.view.next().map(|view| Ballot {
             era: self.era,
             view,
         })
@@ -438,9 +438,9 @@ impl ViewId {
     /// independently because they cannot alias (W1), so exhausting one must not silently
     /// alter the other.
     #[must_use]
-    pub fn next_in_next_era(self) -> Option<ViewId> {
+    pub fn next_in_next_era(self) -> Option<Ballot> {
         match (self.era.next(), self.view.next()) {
-            (Some(era), Some(view)) => Some(ViewId { era, view }),
+            (Some(era), Some(view)) => Some(Ballot { era, view }),
             (None, _) | (_, None) => None,
         }
     }
@@ -460,7 +460,7 @@ impl ViewId {
     /// a view jump of two is accepted, since skipping an era means skipping a
     /// configuration whose intersection obligations were never checked (§8.7.4, Q1).
     #[must_use]
-    pub fn is_legal_successor(self, next: ViewId) -> bool {
+    pub fn is_legal_successor(self, next: Ballot) -> bool {
         let view_advances = next.view > self.view;
         let era_legal = match self.era.next() {
             Some(era_plus_one) => next.era == self.era || next.era == era_plus_one,

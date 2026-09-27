@@ -18,7 +18,7 @@
 mod harness;
 
 use harness::Harness;
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::message::{Body, Message};
 use uvrr::progress::Status;
 use uvrr::wire::{Header, Tag};
@@ -71,15 +71,15 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
     Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }
 }
 
-fn primary_of(h: &Harness, observer: NodeId, view: ViewId) -> Option<NodeId> {
+fn primary_of(h: &Harness, observer: NodeId, view: Ballot) -> Option<NodeId> {
     h.era_table(observer)?
         .record(view.era)
         .and_then(|record| record.config.primary(view.view))
@@ -130,7 +130,7 @@ fn gossip_request(prepared: Slot, committed: Slot) -> Message {
     Message {
         header: Header {
             tag: Tag::GossipRequest,
-            view: ViewId {
+            view: Ballot {
                 era: Era(1),
                 view: View(0),
             },
@@ -372,7 +372,7 @@ fn a_stale_stream_message_never_moves_the_sink_backwards() {
     let stale = Message {
         header: Header {
             tag: Tag::NewState,
-            view: ViewId {
+            view: Ballot {
                 era: Era(1),
                 view: View(0),
             },

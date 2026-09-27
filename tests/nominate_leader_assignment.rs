@@ -17,7 +17,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use uvrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use uvrr::ids::{Era, NodeId, Slot, View, ViewId};
+use uvrr::ids::{Ballot, Era, NodeId, Slot, View};
 use uvrr::reconfiguration::EraStep;
 use uvrr::solver::{solve, solve_replacement};
 
@@ -59,7 +59,7 @@ fn quiesce(h: &mut Harness) {
 fn serve_at(h: &mut Harness, view: u32) {
     h.force_view(
         n(0),
-        ViewId {
+        Ballot {
             era: Era(1),
             view: View(view),
         },
@@ -190,7 +190,7 @@ fn expansion_keeps_the_leader_constant() {
     assert_eq!(
         steps
             .iter()
-            .filter(|step | matches!(step.ops.as_slice(), [SystemOperation::Increment(_)]))
+            .filter(|step| matches!(step.ops.as_slice(), [SystemOperation::Increment(_)]))
             .count(),
         4,
         "the route promotes all four reseated members"
@@ -250,7 +250,7 @@ fn crash_reincarnation_replace_keeps_the_leader_constant() {
     bootstrap(&mut h);
     h.force_view(
         n(0),
-        ViewId {
+        Ballot {
             era: Era(1),
             view: View(5),
         },
@@ -270,10 +270,7 @@ fn crash_reincarnation_replace_keeps_the_leader_constant() {
         .expect("the bumped life reopens fenced");
 
     let start = committed_config(&h, n(0));
-    let live: Vec<NodeId> = (0..4)
-        .map(n)
-        .chain(std::iter::once(bumped))
-        .collect();
+    let live: Vec<NodeId> = (0..4).map(n).chain(std::iter::once(bumped)).collect();
     let steps = solve_replacement(&start, n(4), bumped, &live).expect("the replacement solves");
     assert_eq!(steps.len(), 6, "the five-node schedule is the forced six");
     drive_steps(&mut h, &live, n(0), &steps, "crash-reincarnation");

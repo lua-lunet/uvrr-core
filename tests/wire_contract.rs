@@ -1,7 +1,7 @@
 //! Contract for `uvrr::wire`, the normative binary codec substrate.
 //!
 //! Spec §11 (opaque client payloads), §13.1 (bounded view-change suffix), and decisions
-//! W1 (explicit `ViewId`, 20-byte big-endian header), W3 (own binary codec, serde
+//! W1 (explicit `Ballot`, 20-byte big-endian header), W3 (own binary codec, serde
 //! optional), W5 (no datagram sizing in the core), W4 (fixed-width big-endian, no
 //! varints).
 //!
@@ -36,7 +36,7 @@
 
 use proptest::prelude::*;
 use uvrr::configuration::SystemOperation;
-use uvrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
+use uvrr::ids::{Ballot, Era, NodeId, OperationId, Slot, Tick, View};
 use uvrr::message::{Body, Message};
 use uvrr::wire::{Header, Malformed, Pack, PackError, Tag, Unpack, UnpackCursor, UnpackError};
 
@@ -92,7 +92,7 @@ fn header_golden_vector() {
 
     let header = Header {
         tag: Tag::Prepare,
-        view: ViewId {
+        view: Ballot {
             era: Era(0x0102_0304),
             view: View(0x0506_0708),
         },
@@ -170,7 +170,7 @@ fn any_header() -> impl Strategy<Value = Header> {
     )
         .prop_map(|(tag_index, era, view, slot)| Header {
             tag: ALL_TAGS[tag_index],
-            view: ViewId {
+            view: Ballot {
                 era: Era(era),
                 view: View(view),
             },
@@ -214,7 +214,7 @@ proptest! {
 // 4. Round trip
 // ---------------------------------------------------------------------------
 
-/// `unpack_from(encode(x)) == x`, for every primitive, every `ids` newtype, `ViewId`,
+/// `unpack_from(encode(x)) == x`, for every primitive, every `ids` newtype, `Ballot`,
 /// `Tag`, and `Header`. `unpack_from` rejects trailing bytes, so this simultaneously
 /// asserts that each encoding consumes exactly its own bytes.
 fn round_trip<T>(value: T)
@@ -250,7 +250,7 @@ proptest! {
         round_trip(Slot(d));
         round_trip(Tick(d));
         round_trip(OperationId { msb: d, lsb: d });
-        round_trip(ViewId { era: Era(c), view: View(c) });
+        round_trip(Ballot { era: Era(c), view: View(c) });
         round_trip(header);
     }
 }
@@ -293,7 +293,7 @@ fn round_trip_every_tag() {
 fn every_prefix_of_a_header_is_incomplete() {
     let header = Header {
         tag: Tag::StartView,
-        view: ViewId {
+        view: Ballot {
             era: Era(7),
             view: View(9),
         },
@@ -366,7 +366,7 @@ proptest! {
     fn arbitrary_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..400)) {
         let _ = Header::unpack_from(&bytes);
         let _ = Tag::unpack_from(&bytes);
-        let _ = ViewId::unpack_from(&bytes);
+        let _ = Ballot::unpack_from(&bytes);
         let _ = OperationId::unpack_from(&bytes);
         let _ = bool::unpack_from(&bytes);
 
@@ -503,7 +503,7 @@ fn length_prefix_boundary() {
 fn trailing_bytes_are_rejected() {
     let header = Header {
         tag: Tag::Commit,
-        view: ViewId::INITIAL,
+        view: Ballot::INITIAL,
         slot: Slot::NONE,
     };
     let mut bytes = encode(&header);
@@ -530,7 +530,7 @@ fn trailing_bytes_are_rejected() {
 fn pack_into_makes_no_partial_write() {
     let header = Header {
         tag: Tag::DoViewChange,
-        view: ViewId {
+        view: Ballot {
             era: Era(1),
             view: View(2),
         },
@@ -699,7 +699,7 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
 fn fuse_header(first_slot: Slot) -> Header {
     Header {
         tag: Tag::Fuse,
-        view: ViewId {
+        view: Ballot {
             era: Era(1),
             view: View(0),
         },
@@ -794,7 +794,7 @@ fn fuseok_and_commitbatch_round_trip() {
     let fuseok = Message {
         header: Header {
             tag: Tag::FuseOk,
-            view: ViewId {
+            view: Ballot {
                 era: Era(1),
                 view: View(0),
             },
@@ -807,7 +807,7 @@ fn fuseok_and_commitbatch_round_trip() {
     let commit_batch = Message {
         header: Header {
             tag: Tag::CommitBatch,
-            view: ViewId {
+            view: Ballot {
                 era: Era(1),
                 view: View(0),
             },
@@ -836,7 +836,7 @@ fn fuse_zero_count_is_malformed() {
     for tag in [Tag::Fuse, Tag::FuseOk, Tag::CommitBatch] {
         let header = Header {
             tag,
-            view: ViewId::INITIAL,
+            view: Ballot::INITIAL,
             slot: Slot(3),
         };
         let mut bytes = encode(&header);
@@ -971,7 +971,7 @@ fn fuse_full_cluster_shape_is_well_under_the_payload_budget() {
 fn serde_round_trip_header() {
     let header = Header {
         tag: Tag::PlannedViewChange,
-        view: ViewId {
+        view: Ballot {
             era: Era(4),
             view: View(11),
         },
@@ -983,7 +983,7 @@ fn serde_round_trip_header() {
     // The exact string, not a parsed `Value`: serde_json emits struct fields in
     // declaration order, so the literal pins the field set *and* the order, whereas a
     // `Value` comparison would sort the keys and lose the ordering assertion. `Tag` is a
-    // fieldless enum, so it travels as its variant name; `ViewId` nests rather than
+    // fieldless enum, so it travels as its variant name; `Ballot` nests rather than
     // flattening, because it is a struct field and not `#[serde(flatten)]`.
     assert_eq!(
         json, r#"{"tag":"PlannedViewChange","view":{"era":4,"view":11},"slot":1234}"#,
@@ -1018,7 +1018,7 @@ fn serde_round_trip_ids() {
         lsb: u64::MAX,
     });
     assert_round_trip(OperationId { msb: 0, lsb: 42 });
-    assert_round_trip(ViewId {
+    assert_round_trip(Ballot {
         era: Era(1),
         view: View(2),
     });
@@ -1036,7 +1036,7 @@ fn serde_round_trip_ids() {
 fn unpack_to_json_renders_a_binary_header() {
     let header = Header {
         tag: Tag::PlannedViewChange,
-        view: ViewId {
+        view: Ballot {
             era: Era(2),
             view: View(5),
         },

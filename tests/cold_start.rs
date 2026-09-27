@@ -60,7 +60,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use uvrr::configuration::{INIT_SLOT, SystemOperation};
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::lifecycle::{CopyState, Marker, RestartDecision, SuperblockCopies};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
@@ -118,9 +118,9 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
     Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }
@@ -130,7 +130,7 @@ fn current_era(h: &Harness, id: NodeId) -> Era {
     h.era_table(id).expect("the node is live").current().era
 }
 
-fn primary_of(h: &Harness, observer: NodeId, view: ViewId) -> Option<NodeId> {
+fn primary_of(h: &Harness, observer: NodeId, view: Ballot) -> Option<NodeId> {
     h.era_table(observer)?
         .record(view.era)
         .and_then(|record| record.config.primary(view.view))
@@ -138,9 +138,9 @@ fn primary_of(h: &Harness, observer: NodeId, view: ViewId) -> Option<NodeId> {
 
 /// Drives the view change the fence machinery targets, asserting every
 /// live node installs it (the `tests/reincarnation.rs` idiom).
-fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> ViewId {
+fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> Ballot {
     let current = current_view(h, live[0]);
-    let target = ViewId {
+    let target = Ballot {
         era: current_era(h, live[0]),
         view: View(current.view.0 + 1),
     };
@@ -234,7 +234,7 @@ fn host_stop(identity: u32) -> (RestartDecision, SuperblockCopies) {
 /// weights (2, 2), the ordinary view change into that era, and one more
 /// committed operation inside it (slot 6). Every node ends `Normal` at
 /// era-2 view 1 with `accepted == committed == 6`.
-fn post_genesis_history(h: &mut Harness) -> ViewId {
+fn post_genesis_history(h: &mut Harness) -> Ballot {
     bootstrap(h);
     commit_quiet(h, n(0), 1, b"one");
     commit_quiet(h, n(0), 2, b"two");
@@ -294,7 +294,7 @@ fn staggered_genesis_start_completes() {
     assert_eq!(status_of(&h, n(0)), Status::ViewChange, "the fence fired");
     assert_eq!(
         current_view(&h, n(0)),
-        ViewId {
+        Ballot {
             era: Era(1),
             view: View(1)
         },
@@ -326,7 +326,7 @@ fn staggered_genesis_start_completes() {
     // primary serves.
     assert_eq!(
         elected,
-        ViewId {
+        Ballot {
             era: Era(1),
             view: View(1)
         },
@@ -380,7 +380,7 @@ fn staggered_genesis_start_completes() {
 fn post_genesis_cold_restart_completes_through_the_machine() {
     let mut h = cluster();
     let folded = post_genesis_history(&mut h);
-    let target = ViewId {
+    let target = Ballot {
         era: folded.era,
         view: View(folded.view.0 + 1),
     };
@@ -632,7 +632,7 @@ fn crash_shape_bumps_and_joins_without_membership() {
         Message {
             header: Header {
                 tag: Tag::StartViewChange,
-                view: ViewId {
+                view: Ballot {
                     era: current_era(&h, n(0)),
                     view: View(current_view(&h, n(0)).view.0 + 1),
                 },

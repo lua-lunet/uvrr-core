@@ -20,7 +20,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome, mint_id, mint_pair};
 use uvrr::effects::Effect;
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
 use uvrr::replica::ViewChangeKnobs;
@@ -36,8 +36,8 @@ fn n(id: u32) -> NodeId {
     )
 }
 
-fn view(number: u32) -> ViewId {
-    ViewId {
+fn view(number: u32) -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(number),
     }

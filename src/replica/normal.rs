@@ -982,7 +982,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 /// The `PrepareOk` a backup answers a `Prepare` with (§4): the view is the
 /// view it accepted under, the slot the slot it accepted (W1: the header
 /// slot names what the message speaks about).
-fn prepare_ok(view: ViewId, to: NodeId, slot: Slot) -> Effect {
+fn prepare_ok(view: Ballot, to: NodeId, slot: Slot) -> Effect {
     Effect::Send {
         to,
         era: view.era,

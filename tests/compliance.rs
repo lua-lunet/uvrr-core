@@ -19,7 +19,7 @@ use compliance::{
     pair_of, prepare, prepare_ok, view, wire_hex,
 };
 use uvrr::configuration::SystemOperation;
-use uvrr::ids::{Era, Slot, View, ViewId};
+use uvrr::ids::{Ballot, Era, Slot, View};
 
 /// Where the corpus lives.
 const CORPUS: &str = "tests/compliance/corpus";
@@ -169,14 +169,14 @@ fn settled_setup() -> Vec<Op> {
 /// The view and the primary of a setup's end state, through the public
 /// interface: the snapshot's era and view, and the configuration's
 /// primary of that view.
-fn probe_primary(setup: &[Op], node: &str) -> (ViewId, String) {
+fn probe_primary(setup: &[Op], node: &str) -> (Ballot, String) {
     let mut probe = Executor::run_setup(setup).expect("the probe setup runs");
     let id = probe.id_of(node).expect("the corpus identity is lawful");
     let snapshot = probe
         .harness()
         .snapshot(id)
         .expect("the probed node is live");
-    let view = ViewId {
+    let view = Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     };
@@ -194,7 +194,7 @@ fn probe_primary(setup: &[Op], node: &str) -> (ViewId, String) {
 
 /// The view and the accepted and committed frontiers of a setup's end
 /// state, through the public interface.
-fn probe_state(setup: &[Op], node: &str) -> (ViewId, u64, u64) {
+fn probe_state(setup: &[Op], node: &str) -> (Ballot, u64, u64) {
     let mut probe = Executor::run_setup(setup).expect("the probe setup runs");
     let id = probe.id_of(node).expect("the corpus identity is lawful");
     let snapshot = probe
@@ -202,7 +202,7 @@ fn probe_state(setup: &[Op], node: &str) -> (ViewId, u64, u64) {
         .snapshot(id)
         .expect("the probed node is live");
     (
-        ViewId {
+        Ballot {
             era: Era(snapshot.era),
             view: View(snapshot.view),
         },
@@ -687,7 +687,7 @@ fn fuse_family() -> Vec<Case> {
     stale.push(Op::DeliverAll);
     let (current, stale_accepted, _) = probe_state(&stale, "2:1");
     let stale_slot = Slot(stale_accepted + 1);
-    let stale_view = ViewId {
+    let stale_view = Ballot {
         era: current.era,
         view: View(current.view.0 - 1),
     };

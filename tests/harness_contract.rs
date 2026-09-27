@@ -29,7 +29,7 @@ use std::sync::Arc;
 use uvrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use uvrr::effects::{Effect, Stability, StabilityResult};
 use uvrr::ids::{
-    CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, Tick, View, ViewId,
+    Ballot, CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, Tick, View,
 };
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, Message};
@@ -53,8 +53,8 @@ fn n(id: u32) -> NodeId {
     )
 }
 
-fn genesis_view() -> ViewId {
-    ViewId {
+fn genesis_view() -> Ballot {
+    Ballot {
         era: Era(1),
         view: View::INITIAL,
     }
@@ -271,7 +271,7 @@ fn inject_reaches_the_node_exactly_as_a_queued_delivery() {
     assert_eq!(
         refusal,
         StepOutcome::PlanRefused(PlanRefusal::NotPrimary {
-            view: ViewId {
+            view: Ballot {
                 era: Era(1),
                 view: View(0),
             },

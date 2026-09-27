@@ -47,7 +47,7 @@ use holey_journal::HoleyLog;
 
 use uvrr::configuration::{ConfigError, Configuration, SystemOperation};
 use uvrr::effects::{Effect, Stability, StabilityResult};
-use uvrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
+use uvrr::ids::{Ballot, Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View};
 use uvrr::invariant::{InputKind, header_slot_role};
 use uvrr::journal::{Journal, JournalView, LogEntry, LogView, Payload, SegmentedLog};
 use uvrr::lifecycle::{
@@ -80,8 +80,8 @@ fn order3() -> Vec<NodeId> {
     vec![NodeId(0), NodeId(1), NodeId(2)]
 }
 
-fn genesis_view() -> ViewId {
-    ViewId {
+fn genesis_view() -> Ballot {
+    Ballot {
         era: Era(1),
         view: View::INITIAL,
     }
@@ -317,7 +317,7 @@ fn let_go_shared_slot_reports_the_unverifiable_slot_and_offer_base() {
             message: Message {
                 header: Header {
                     tag: Tag::StartView,
-                    view: ViewId {
+                    view: Ballot {
                         era: Era(1),
                         view: View(1),
                     },
@@ -924,7 +924,7 @@ fn a_faulted_replica_refuses_every_input_variant() {
             pivot: None,
         },
         Input::AdminForceView {
-            target: ViewId {
+            target: Ballot {
                 era: Era(1),
                 view: View(9),
             },

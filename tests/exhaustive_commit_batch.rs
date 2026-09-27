@@ -17,7 +17,7 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use uvrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, Slot, SystemId, View};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
 use uvrr::replica::ViewChangeKnobs;
@@ -32,8 +32,8 @@ fn n(id: u32) -> NodeId {
     )
 }
 
-fn view(number: u32) -> ViewId {
-    ViewId {
+fn view(number: u32) -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(number),
     }
@@ -83,7 +83,7 @@ fn run_case(role: Role, v: Rel) {
         Role::Backup => n(2),
     };
     let before = h.snapshot(receiver).expect("the receiver is live");
-    let current = ViewId {
+    let current = Ballot {
         era: Era(before.era),
         view: View(before.view),
     };

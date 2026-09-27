@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use uvrr::configuration::{Member, SystemOperation, Weight};
 use uvrr::effects::Effect;
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::journal::Payload;
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
@@ -43,8 +43,8 @@ fn bootstrap(h: &mut Harness) {
 
 /// The view every node here bootstraps into: era 1, view 0, primary `n(0)`
 /// under the genesis order `[0, 1, 2]` (§1.2).
-fn current_view() -> ViewId {
-    ViewId {
+fn current_view() -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(0),
     }
@@ -199,7 +199,7 @@ fn stale_view_fuse_is_refused_as_a_whole() {
     let stale = Message {
         header: Header {
             tag: Tag::Fuse,
-            view: ViewId {
+            view: Ballot {
                 era: Era::INITIAL,
                 view: View(0),
             },
@@ -938,7 +938,7 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
     // The leadership loss: the pending fuse slots die with the epoch.
     let outcome = h.force_view(
         n(1),
-        ViewId {
+        Ballot {
             era: Era(1),
             view: View(1),
         },
@@ -1134,7 +1134,7 @@ fn prepare_round(h: &mut Harness, leader: NodeId, backups: &[NodeId], committed_
 /// The least view in `era` past the node's current one whose voter-only
 /// succession (§8.4) names `leader` primary: the between-eras view change
 /// that keeps the plan machine's leader in the chair.
-fn view_selecting(h: &Harness, leader: NodeId, era: Era) -> ViewId {
+fn view_selecting(h: &Harness, leader: NodeId, era: Era) -> Ballot {
     let snapshot = h.snapshot(leader).expect("live");
     let table = h.era_table(leader).expect("live");
     let record = table
@@ -1143,7 +1143,7 @@ fn view_selecting(h: &Harness, leader: NodeId, era: Era) -> ViewId {
     for index in snapshot.view + 1.. {
         let view = View(index);
         if record.config.primary(view) == Some(leader) {
-            return ViewId { era, view };
+            return Ballot { era, view };
         }
     }
     unreachable!("a view selecting the leader is representable")
@@ -1152,7 +1152,7 @@ fn view_selecting(h: &Harness, leader: NodeId, era: Era) -> ViewId {
 /// Drives the ordinary view change into `target` with `leader` as both
 /// the driver and the designated primary, asserting every live node
 /// installs it.
-fn view_change_between_eras(h: &mut Harness, leader: NodeId, target: ViewId, live: &[NodeId]) {
+fn view_change_between_eras(h: &mut Harness, leader: NodeId, target: Ballot, live: &[NodeId]) {
     let outcome = h.force_view(leader, target);
     assert!(
         matches!(outcome, StepOutcome::Published { .. }),
@@ -1244,7 +1244,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
     let target = view_selecting(&h, n(0), Era(2));
     assert_eq!(
         target,
-        ViewId {
+        Ballot {
             era: Era(2),
             view: View(2)
         },
@@ -1363,7 +1363,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     let target = view_selecting(&h, n(0), Era(2));
     assert_eq!(
         target,
-        ViewId {
+        Ballot {
             era: Era(2),
             view: View(5)
         }
@@ -1404,7 +1404,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     let target = view_selecting(&h, n(0), Era(3));
     assert_eq!(
         target,
-        ViewId {
+        Ballot {
             era: Era(3),
             view: View(6)
         }
@@ -1439,7 +1439,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     let target = view_selecting(&h, n(0), Era(4));
     assert_eq!(
         target,
-        ViewId {
+        Ballot {
             era: Era(4),
             view: View(12)
         }
@@ -1475,7 +1475,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     let target = view_selecting(&h, n(0), Era(5));
     assert_eq!(
         target,
-        ViewId {
+        Ballot {
             era: Era(5),
             view: View(15)
         }
@@ -1509,7 +1509,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     let target = view_selecting(&h, n(0), Era(6));
     assert_eq!(
         target,
-        ViewId {
+        Ballot {
             era: Era(6),
             view: View(20)
         }

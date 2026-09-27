@@ -18,7 +18,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome, mint_id};
 use uvrr::effects::Effect;
-use uvrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, Slot, SystemId, View};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
 use uvrr::progress::Status;
@@ -35,7 +35,7 @@ fn n(id: u32) -> NodeId {
 }
 
 #[rustfmt::skip]
-fn view(number: u32) -> ViewId { ViewId { era: Era(1), view: View(number) } }
+fn view(number: u32) -> Ballot { Ballot { era: Era(1), view: View(number) } }
 
 /// The relation of one numeric field against the receiver's own value.
 #[rustfmt::skip]

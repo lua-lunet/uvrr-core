@@ -13,7 +13,7 @@ use uvrr::configuration::{
     ConfigError, Configuration, INIT_SLOT, SystemOperation, VOID_SLOT, Weight,
 };
 use uvrr::effects::{Effect, Stability};
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, Tick, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, Tick, View};
 use uvrr::journal::{Journal, JournalView, LogEntry, Payload, SegmentedLog};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
@@ -36,8 +36,8 @@ fn op_id(lsb: u64) -> OperationId {
 }
 
 /// A view in era 1, the era every node here bootstraps into.
-fn view(number: u32) -> ViewId {
-    ViewId {
+fn view(number: u32) -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(number),
     }
@@ -45,8 +45,8 @@ fn view(number: u32) -> ViewId {
 
 /// A view in era 2, the era the first committed reconfiguration
 /// establishes.
-fn era2_view(number: u32) -> ViewId {
-    ViewId {
+fn era2_view(number: u32) -> Ballot {
+    Ballot {
         era: Era(2),
         view: View(number),
     }
@@ -57,10 +57,10 @@ fn snap(h: &Harness, id: NodeId) -> ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-/// The node's current view as a `ViewId`.
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+/// The node's current view as a `Ballot`.
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }
@@ -75,7 +75,7 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
 /// member votes, the voter-only succession reduces to the modular position
 /// rule with no learner present. A configuration with a weight-0 member
 /// asserts its primary from the era table instead (§8.4).
-fn primary_of(view: ViewId) -> NodeId {
+fn primary_of(view: Ballot) -> NodeId {
     n(view.view.0 % 3)
 }
 
@@ -124,7 +124,7 @@ fn bootstrap(h: &mut Harness) {
 
 /// Ticks a node until its timeout fires (one tick past the knob),
 /// asserting it fenced into exactly `target`.
-fn tick_into_view_change(h: &mut Harness, id: NodeId, target: ViewId) {
+fn tick_into_view_change(h: &mut Harness, id: NodeId, target: Ballot) {
     for _ in 0..=TIMEOUT {
         h.tick(id);
     }
@@ -138,7 +138,7 @@ fn tick_into_view_change(h: &mut Harness, id: NodeId, target: ViewId) {
 /// installs the new view. The driver is a VOTING member by construction:
 /// a weight-0 member is never the primary (§8.7.8) and does not drive
 /// view change (§5.1, suspicion is a voting member's act).
-fn drive_view_change(h: &mut Harness, live: &[NodeId], target: ViewId) {
+fn drive_view_change(h: &mut Harness, live: &[NodeId], target: Ballot) {
     let prime = h
         .era_table(live[0])
         .expect("the driver is live")
@@ -955,7 +955,7 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
         // Keep the live n1 as primary using the public administrative input;
         // the ordinary fence/evidence/install exchange still runs in full.
         let current = current_view(&h, n(1));
-        let target = ViewId {
+        let target = Ballot {
             era: expected.era(),
             view: uvrr::ids::next_view_selecting(
                 current.view,
@@ -1052,7 +1052,7 @@ fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
                     .filter(|m| m.weight.0 > 0)
                     .map(|m| m.node)
                     .collect();
-                let target = ViewId {
+                let target = Ballot {
                     era: step.config.era(),
                     view: uvrr::ids::next_view_selecting(
                         current_view(&h, n(leader)).view,

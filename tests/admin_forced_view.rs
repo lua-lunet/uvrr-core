@@ -25,7 +25,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use uvrr::configuration::SystemOperation;
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, SystemId, View};
 use uvrr::progress::{ProgressSnapshot, Status};
 use uvrr::replica::{PlanRefusal, ViewChangeKnobs};
 use uvrr::wire::Tag;
@@ -41,8 +41,8 @@ fn n(id: u32) -> NodeId {
     )
 }
 
-fn view(number: u32) -> ViewId {
-    ViewId {
+fn view(number: u32) -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(number),
     }
@@ -57,10 +57,10 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
     Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-/// The node's current view as a `ViewId`.
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+/// The node's current view as a `Ballot`.
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }
@@ -192,7 +192,7 @@ fn admin_force_view_rejects_non_advancing_uncommitted_era_and_exhausted_targets(
 
     // An era the replica does not hold the establishing operation of as
     // committed: era 2 exists nowhere in this cluster.
-    let uncommitted_era = ViewId {
+    let uncommitted_era = Ballot {
         era: Era(2),
         view: View(1),
     };
@@ -208,7 +208,7 @@ fn admin_force_view_rejects_non_advancing_uncommitted_era_and_exhausted_targets(
     // The last representable view: the forced fence could never be
     // superseded, so the target is refused outright (§8.7.3 forbids
     // wraparound).
-    let exhausted = ViewId {
+    let exhausted = Ballot {
         era: Era(1),
         view: View(u32::MAX),
     };
@@ -298,7 +298,7 @@ fn admin_force_view_into_the_established_era() {
     // The operator forces a view into the established-but-unentered era.
     // The target names era 2, view 1, the first view past the current
     // one, in the new era.
-    let target = ViewId {
+    let target = Ballot {
         era: Era(2),
         view: View(1),
     };

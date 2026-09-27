@@ -8,7 +8,7 @@ mod harness;
 use harness::{Harness, StepOutcome};
 use uvrr::configuration::{Member, SystemOperation, Weight};
 use uvrr::effects::{Effect, PlanVerdict};
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::journal::Payload;
 use uvrr::observe::Diagnostic;
 use uvrr::plan::{Plan, PlanRejection};
@@ -79,8 +79,8 @@ fn join_then_promote() -> Plan {
 /// The view of the era the plan's first step establishes that retains the
 /// leader: the learner's weight 0 keeps three voters, so view 3 selects the
 /// node at voter position 0, the leader that holds the machine.
-fn retained_era_view() -> ViewId {
-    ViewId {
+fn retained_era_view() -> Ballot {
+    Ballot {
         era: Era(2),
         view: View(3),
     }
@@ -415,7 +415,7 @@ fn leader_crash_discards_the_machine_and_the_new_leader_continues_nothing() {
     assert!(matches!(
         h.force_view(
             n(1),
-            ViewId {
+            Ballot {
                 era: Era(2),
                 view: View(1)
             }

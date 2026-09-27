@@ -12,7 +12,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use uvrr::configuration::{EraTable, SystemOperation};
-use uvrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, Slot, SystemId, View};
 use uvrr::observe::Diagnostic;
 use uvrr::progress::Status;
 use uvrr::quorum::{WeightedMajority, construct_pivot};
@@ -27,16 +27,16 @@ fn n(id: u32) -> NodeId {
 }
 
 /// A view in era 2, the era the standby-bearing `DECREMENT` establishes.
-fn era2_view(number: u32) -> ViewId {
-    ViewId {
+fn era2_view(number: u32) -> Ballot {
+    Ballot {
         era: Era(2),
         view: View(number),
     }
 }
 
 /// A view in era 3, the era the planned `Leave` establishes.
-fn era3_view(number: u32) -> ViewId {
-    ViewId {
+fn era3_view(number: u32) -> Ballot {
+    Ballot {
         era: Era(3),
         view: View(number),
     }
@@ -71,10 +71,10 @@ fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-/// The node's current view as a `ViewId`.
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+/// The node's current view as a `Ballot`.
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }

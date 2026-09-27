@@ -56,7 +56,7 @@
 use std::sync::Arc;
 
 use crate::configuration::EraTable;
-use crate::ids::{Era, Fault, Slot, ViewId};
+use crate::ids::{Ballot, Era, Fault, Slot};
 
 /// The process-control half of the record (§1.3).
 ///
@@ -142,10 +142,10 @@ impl Status {
 #[derive(Clone, Debug)]
 pub struct Progress {
     /// Greatest view entered; the fence (§1.3).
-    current: ViewId,
+    current: Ballot,
     /// The view at which the current logical history was selected (§1.3). It
     /// identifies that history's provenance for the §9.1 ranking rule.
-    retained: ViewId,
+    retained: Ballot,
     /// Process control as well as protocol state; see the module docs.
     status: Status,
     /// Greatest slot the journal records (§5 invariant 1: the published value
@@ -182,7 +182,7 @@ pub enum ProgressError {
     /// `current < retained` (§1.3).
     StatusViewRelation,
     /// The target view is neither the view being entered nor a legal successor of
-    /// the current one (`ViewId::is_legal_successor`, §8.7.3: view strictly up,
+    /// the current one (`Ballot::is_legal_successor`, §8.7.3: view strictly up,
     /// era equal or +1).
     ViewSuccessor,
     /// The receiver is faulted. Carries the fault it already holds: a fault is
@@ -262,16 +262,16 @@ fn era_of_slot(table: &EraTable, slot: Slot) -> Option<Era> {
 }
 
 impl Progress {
-    /// The genesis record: [`ViewId::INITIAL`], fenced at the boot gate, every
+    /// The genesis record: [`Ballot::INITIAL`], fenced at the boot gate, every
     /// frontier at [`Slot::NONE`], revision 0, no fault.
     ///
-    /// This pins the meaning of `ViewId::INITIAL` (ruled
+    /// This pins the meaning of `Ballot::INITIAL` (ruled
     /// here): it is the **genesis view**, the `(era 0, view 0)` pair a freshly
     /// provisioned node advertises. Era 0 is the void configuration,
     /// quorum-impossible by arithmetic, not by guard, and view 0 is the first
     /// primary term once `Init` commits (§1.2: `primary(0) = order[0]`). It is not
     /// "no view": a freshly provisioned node has a real genesis view, so no
-    /// `Option<ViewId>` appears anywhere in the crate.
+    /// `Option<Ballot>` appears anywhere in the crate.
     ///
     /// The status is the caller's fenced entry state (`Restarting` on reopen,
     /// `Joining` on provision) per §5: a node that has not proved its
@@ -286,8 +286,8 @@ impl Progress {
     /// the table telling the caller it is not a genesis table.
     pub fn genesis(config: Arc<EraTable>) -> Result<Progress, ProgressError> {
         Progress::reconstitute(
-            ViewId::INITIAL,
-            ViewId::INITIAL,
+            Ballot::INITIAL,
+            Ballot::INITIAL,
             Status::Joining,
             Slot::NONE,
             Slot::NONE,
@@ -319,8 +319,8 @@ impl Progress {
     // the same ten names under another name, and this constructor runs once per
     // restart.
     pub fn reconstitute(
-        current: ViewId,
-        retained: ViewId,
+        current: Ballot,
+        retained: Ballot,
         status: Status,
         accepted: Slot,
         committed: Slot,
@@ -402,13 +402,13 @@ impl Progress {
 
     /// The greatest view entered; the fence (§1.3).
     #[must_use]
-    pub fn current(&self) -> ViewId {
+    pub fn current(&self) -> Ballot {
         self.current
     }
 
     /// The view at which the current logical history was selected (§1.3).
     #[must_use]
-    pub fn retained(&self) -> ViewId {
+    pub fn retained(&self) -> Ballot {
         self.retained
     }
 
@@ -571,11 +571,11 @@ impl Progress {
     ///
     /// [`ProgressError::AlreadyFaulted`]; [`ProgressError::ViewSuccessor`] unless
     /// `target` is a legal successor of `current` (delegated to
-    /// `ViewId::is_legal_successor`, never re-derived here);
+    /// `Ballot::is_legal_successor`, never re-derived here);
     /// [`ProgressError::StatusViewRelation`] if the retained history is from a
     /// later view than `target`, that state must be replayed or re-acquired by
     /// state transfer, not fenced into a view change.
-    pub fn with_view_change(&self, target: ViewId) -> Result<Progress, ProgressError> {
+    pub fn with_view_change(&self, target: Ballot) -> Result<Progress, ProgressError> {
         self.refuse_if_faulted()?;
         if !self.current.is_legal_successor(target) {
             return Err(ProgressError::ViewSuccessor);
@@ -606,7 +606,7 @@ impl Progress {
     /// `committed`.
     pub fn with_view_installed(
         &self,
-        view: ViewId,
+        view: Ballot,
         accepted: Slot,
     ) -> Result<Progress, ProgressError> {
         self.refuse_if_faulted()?;

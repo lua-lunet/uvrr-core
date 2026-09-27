@@ -13,7 +13,7 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::message::{Body, Message};
 use uvrr::progress::Status;
 use uvrr::wire::{Header, Pack, Tag};
@@ -67,9 +67,9 @@ fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }
@@ -79,7 +79,7 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
     Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-fn primary_of(h: &Harness, observer: NodeId, view: ViewId) -> Option<NodeId> {
+fn primary_of(h: &Harness, observer: NodeId, view: Ballot) -> Option<NodeId> {
     h.era_table(observer)?
         .record(view.era)
         .and_then(|record| record.config.primary(view.view))
@@ -88,9 +88,9 @@ fn primary_of(h: &Harness, observer: NodeId, view: ViewId) -> Option<NodeId> {
 /// The view-change target the fence machinery itself chooses for `node`:
 /// the next view in the era the committed history has established
 /// (§8.7.8).
-fn fence_target(h: &Harness, node: NodeId) -> ViewId {
+fn fence_target(h: &Harness, node: NodeId) -> Ballot {
     let current = current_view(h, node);
-    ViewId {
+    Ballot {
         era: current.era,
         view: View(current.view.0 + 1),
     }
@@ -99,7 +99,7 @@ fn fence_target(h: &Harness, node: NodeId) -> ViewId {
 /// Drives the view change the fence machinery targets, asserting every
 /// node in `live` installs it. The driver is any live `Normal` member,
 /// two live members of a three-node unit cluster reach the fence quorum.
-fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> ViewId {
+fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> Ballot {
     let target = fence_target(h, live[0]);
     let driver = live
         .iter()
@@ -313,7 +313,7 @@ fn a_forced_view_poll_on_the_restarted_node_still_converges() {
         let current = current_view(&h, n(0));
         h.force_view(
             n(0),
-            ViewId {
+            Ballot {
                 era: current.era,
                 view: View(current.view.0 + 1),
             },

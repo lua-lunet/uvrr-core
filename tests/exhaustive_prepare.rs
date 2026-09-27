@@ -13,7 +13,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome, mint_pair};
 use uvrr::effects::Effect;
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
@@ -32,7 +32,7 @@ fn n(id: u32) -> NodeId {
 }
 
 #[rustfmt::skip]
-fn view(number: u32) -> ViewId { ViewId { era: Era(1), view: View(number) } }
+fn view(number: u32) -> Ballot { Ballot { era: Era(1), view: View(number) } }
 
 #[rustfmt::skip]
 fn op_entry(slot: Slot, era: Era, id: OperationId) -> LogEntry {
@@ -40,7 +40,7 @@ fn op_entry(slot: Slot, era: Era, id: OperationId) -> LogEntry {
 }
 
 #[rustfmt::skip]
-fn prepare(view: ViewId, slot: Slot, entry: LogEntry, piggy: Slot) -> Message {
+fn prepare(view: Ballot, slot: Slot, entry: LogEntry, piggy: Slot) -> Message {
     Message {
         header: Header { tag: Tag::Prepare, view, slot },
         body: Body::Prepare { entry, committed: piggy },

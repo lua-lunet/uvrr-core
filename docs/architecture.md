@@ -67,7 +67,7 @@ the recommendation is documented on `ViewChangeKnobs`.
 
 | Module | Responsibility | Spec |
 |---|---|---|
-| `ids` | node, view, slot, message identity; `ViewId { era, view }` | §1.2, §1.3, A1 |
+| `ids` | node, view, slot, message identity; `Ballot { era, view }` | §1.2, §1.3, A1 |
 | `wire` | normative binary codec; optional serde and JSON bridges | §13.1, W3 |
 | `journal` | the four logical journal capabilities, and no fifth | §4, S1 |
 | `progress` | the `Progress` record and its cross-strategy invariants | §5 |
@@ -275,13 +275,13 @@ Section references are to `docs/uvrr-durability-model.md`.
 
 ### Identity & wire
 
-#### W1, Explicit `ViewId { era: u32, view: u32 }`, 20-byte big-endian header
+#### W1, Explicit `Ballot { era: u32, view: u32 }`, 20-byte big-endian header
 
 **Context.** Overlap mode (§8.7.7) has the primary address era `e` and era `e+1` in the
 same instant, so the era authorising a message is a transport-visible routing fact about
 that message, not an attribute of the sender's state.
 
-**Decision.** A view is `ViewId { era: u32, view: u32 }`. The wire header is 20 bytes
+**Decision.** A view is `Ballot { era: u32, view: u32 }`. The wire header is 20 bytes
 big-endian: `(tag: u32, era: u32, view: u32, slot: u64)`. No bit packing appears anywhere
 in the wire format.
 

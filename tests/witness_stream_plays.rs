@@ -16,7 +16,7 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::observe::Diagnostic;
 use uvrr::progress::Status;
 
@@ -51,9 +51,9 @@ fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }
@@ -89,9 +89,9 @@ fn weight_of(h: &Harness, id: NodeId, member: NodeId) -> Option<u64> {
 }
 
 /// The view-change target the fence machinery itself chooses for `node`.
-fn fence_target(h: &Harness, node: NodeId) -> ViewId {
+fn fence_target(h: &Harness, node: NodeId) -> Ballot {
     let current = current_view(h, node);
-    ViewId {
+    Ballot {
         era: current_era(h, node),
         view: View(current.view.0 + 1),
     }
@@ -99,7 +99,7 @@ fn fence_target(h: &Harness, node: NodeId) -> ViewId {
 
 /// Drives the view change the fence machinery targets, asserting every
 /// node in `live` installs it.
-fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> ViewId {
+fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> Ballot {
     let target = fence_target(h, live[0]);
     let driver = live
         .iter()

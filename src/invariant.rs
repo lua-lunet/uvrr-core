@@ -176,7 +176,7 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
 ///    monotone frontiers never regress. `accepted` may shorten only across a
 ///    history re-selection, signalled by `retained` changing.
 /// 2. **View succession** (§8.7.3, W1): `current` never regresses; a change is a
-///    legal successor, delegated to `ViewId::is_legal_successor`, never
+///    legal successor, delegated to `Ballot::is_legal_successor`, never
 ///    re-derived.
 /// 3. **Retained provenance** (§1.3): `retained` changes only on re-selection,
 ///    restart, or a `DoViewChange`/`StartView`/`NewState` peer message.
@@ -236,7 +236,7 @@ fn rule1_frontiers_violated(old: &Progress, new: &Progress) -> bool {
 }
 
 /// Rule 2, `current` never regresses, and a change strictly increases the view
-/// with era equal or +1. The rule is `ViewId::is_legal_successor`'s; this
+/// with era equal or +1. The rule is `Ballot::is_legal_successor`'s; this
 /// function only applies it, because two copies of an inequality are two chances
 /// to get it wrong.
 fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {

@@ -458,7 +458,7 @@ The preconditions are:
 
 #### 8.7.3 View-number construction
 
-A view is an explicit pair of the configuration era and the primary-succession number: `ViewId { era: u32, view: u32 }`. The primary is:
+A view is an explicit pair of the configuration era and the primary-succession number: `Ballot { era: u32, view: u32 }`. The primary is:
 
 ```text
 primary(view) = config(era).order[

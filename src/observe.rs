@@ -25,7 +25,7 @@ use core::ptr;
 use core::sync::atomic::{AtomicU64, Ordering, fence};
 
 use crate::configuration::ConfigError;
-use crate::ids::{Era, NodeId, Slot, ViewId};
+use crate::ids::{Ballot, Era, NodeId, Slot};
 use crate::progress::Status;
 
 /// Why a published transition dropped its peer input, or `None`, when it
@@ -57,16 +57,16 @@ pub enum Diagnostic {
         /// The transport-attributed sender.
         sender: NodeId,
         /// The view the message claimed.
-        view: ViewId,
+        view: Ballot,
     },
     /// The message's view differs from the node's current view and no
     /// adoption rule applies. View change and restart have their own
     /// adoption rules; normal operation drops the message.
     ViewMismatch {
         /// The view the message named.
-        got: ViewId,
+        got: Ballot,
         /// The node's current view.
-        current: ViewId,
+        current: Ballot,
     },
     /// The message's view matches the node's current view but the node's
     /// status refuses service (§9.1): only `Normal` serves the current
@@ -75,9 +75,9 @@ pub enum Diagnostic {
     /// drops even same-view traffic; the status names the refusing state.
     StatusGate {
         /// The view the message named, equal to the node's current view.
-        got: ViewId,
+        got: Ballot,
         /// The node's current view.
-        current: ViewId,
+        current: Ballot,
         /// The node's status that refused service.
         status: Status,
     },
@@ -87,7 +87,7 @@ pub enum Diagnostic {
         /// The entry's era.
         entry: Era,
         /// The view the entry arrived under.
-        view: ViewId,
+        view: Ballot,
     },
     /// A `Prepare` whose header slot disagrees with its entry's slot; the
     /// wire cannot say which field lied, so the message is dropped whole.
@@ -140,7 +140,7 @@ pub enum Diagnostic {
         /// The transport-attributed sender.
         sender: NodeId,
         /// The view the chunk carried.
-        view: ViewId,
+        view: Ballot,
     },
     /// A transfer message whose shape is malformed: the header slot
     /// disagrees with the covered range, the entries are not a contiguous
@@ -156,7 +156,7 @@ pub enum Diagnostic {
         /// The transport-attributed requester.
         sender: NodeId,
         /// The view the request named.
-        view: ViewId,
+        view: Ballot,
     },
     /// A `PrepareOk` reached a node that is not the `Normal` primary of its
     /// current view.
@@ -204,16 +204,16 @@ pub enum Diagnostic {
         /// The transport-attributed sender.
         sender: NodeId,
         /// The recipient's current view.
-        view: ViewId,
+        view: Ballot,
     },
     /// A `StartViewChange` for a view at or behind the node's fence target
     /// (§9.1). The change it fences has already happened, or a later one is
     /// already under way, so the vote cannot count twice (V_g ⌢ V_g, §8.3).
     StaleViewChange {
         /// The view the fence named.
-        got: ViewId,
+        got: Ballot,
         /// The node's current fence target or installed view.
-        current: ViewId,
+        current: Ballot,
     },
     /// `DoViewChange` evidence for a view the node is not fencing into, a
     /// finished or superseded change (§9.1). Also the outcome for a
@@ -222,9 +222,9 @@ pub enum Diagnostic {
     /// dropping keeps the claim observable without believing it.
     StaleEvidence {
         /// The view the evidence named.
-        got: ViewId,
+        got: Ballot,
         /// The node's current view.
-        current: ViewId,
+        current: Ballot,
     },
     /// `DoViewChange` evidence arrived at a node that is fencing into the
     /// named view but is not its designated primary, the evidence was never
@@ -233,7 +233,7 @@ pub enum Diagnostic {
         /// The transport-attributed sender.
         sender: NodeId,
         /// The view the evidence named.
-        view: ViewId,
+        view: Ballot,
     },
     /// A `StartView` whose sender is not the primary of the view it
     /// installs, under that view's era configuration (§1.2, §9.1). Only the
@@ -242,16 +242,16 @@ pub enum Diagnostic {
         /// The transport-attributed sender.
         sender: NodeId,
         /// The view the message claimed to install.
-        view: ViewId,
+        view: Ballot,
     },
     /// A `StartView` for a view behind the node's current view, or for the
     /// current view at a node already `Normal` in it (§9.1). The change it
     /// installs is done; the message is a retransmission or a straggler.
     StartViewFromStaleView {
         /// The view the message named.
-        got: ViewId,
+        got: Ballot,
         /// The node's current view.
-        current: ViewId,
+        current: Ballot,
     },
     /// A view-change message whose shape is malformed: header slot and body
     /// frontier disagree, the suffix is not a contiguous ascending run

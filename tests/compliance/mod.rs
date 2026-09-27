@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::harness::{Harness, StepOutcome};
 use uvrr::configuration::SystemOperation;
-use uvrr::ids::{Era, NodeId, OperationId, Slot, View, ViewId};
+use uvrr::ids::{Ballot, Era, NodeId, OperationId, Slot, View};
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, Message};
 use uvrr::progress::Status;
@@ -654,15 +654,15 @@ pub fn assert_expectation(case: &Case, captured: &Expect) -> Result<(), String> 
 // ----------------------------------------------------------------------
 
 /// The builder's re-export for the exporter families.
-pub fn view(number: u32) -> ViewId {
-    ViewId {
+pub fn view(number: u32) -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(number),
     }
 }
 
 /// A `Prepare` message as the exporter builds it.
-pub fn prepare(view: ViewId, slot: Slot, entry: LogEntry, committed: Slot) -> Message {
+pub fn prepare(view: Ballot, slot: Slot, entry: LogEntry, committed: Slot) -> Message {
     Message {
         header: Header {
             tag: Tag::Prepare,
@@ -674,7 +674,7 @@ pub fn prepare(view: ViewId, slot: Slot, entry: LogEntry, committed: Slot) -> Me
 }
 
 /// A `PrepareOk` message as the exporter builds it: a fabricated vote.
-pub fn prepare_ok(view: ViewId, slot: Slot) -> Message {
+pub fn prepare_ok(view: Ballot, slot: Slot) -> Message {
     Message {
         header: Header {
             tag: Tag::PrepareOk,
@@ -686,7 +686,7 @@ pub fn prepare_ok(view: ViewId, slot: Slot) -> Message {
 }
 
 /// A `GossipRequest` as the exporter builds it, at the view named.
-pub fn gossip_request(view: ViewId, prepared: Slot, committed: Slot) -> Message {
+pub fn gossip_request(view: Ballot, prepared: Slot, committed: Slot) -> Message {
     Message {
         header: Header {
             tag: Tag::GossipRequest,
@@ -701,7 +701,7 @@ pub fn gossip_request(view: ViewId, prepared: Slot, committed: Slot) -> Message 
 }
 
 /// A `Fuse` message as the exporter builds it, at the ballot named.
-pub fn fuse(view: ViewId, first_slot: Slot, ops: Vec<SystemOperation>) -> Message {
+pub fn fuse(view: Ballot, first_slot: Slot, ops: Vec<SystemOperation>) -> Message {
     Message {
         header: Header {
             tag: Tag::Fuse,

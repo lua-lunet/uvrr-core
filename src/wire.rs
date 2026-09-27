@@ -48,7 +48,7 @@
 
 use core::mem::size_of;
 
-use crate::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
+use crate::ids::{Ballot, Era, NodeId, OperationId, Slot, Tick, View};
 
 /// Byte width of the `u32` length prefix in front of an opaque payload.
 const LENGTH_PREFIX_LEN: usize = 4;
@@ -670,13 +670,13 @@ impl Unpack for OperationId {
     }
 }
 
-impl Pack for ViewId {
+impl Pack for Ballot {
     fn packed_len(&self) -> usize {
         self.era.packed_len() + self.view.packed_len()
     }
 
     fn pack(&self, w: &mut PackWriter<'_>) {
-        // Era before view, matching the W1 header layout, so a `ViewId` nested in a body
+        // Era before view, matching the W1 header layout, so a `Ballot` nested in a body
         // is byte-identical to the pair in the header and a host has one field order to
         // learn rather than two.
         self.era.pack(w);
@@ -684,11 +684,11 @@ impl Pack for ViewId {
     }
 }
 
-impl Unpack for ViewId {
+impl Unpack for Ballot {
     fn unpack(c: &mut UnpackCursor<'_>) -> Result<Self, UnpackError> {
         let era = Era::unpack(c)?;
         let view = View::unpack(c)?;
-        Ok(ViewId { era, view })
+        Ok(Ballot { era, view })
     }
 }
 
@@ -922,7 +922,7 @@ pub struct Header {
     /// Which message follows.
     pub tag: Tag,
     /// The era and view authorising the message (§8.7.1, §1.2).
-    pub view: ViewId,
+    pub view: Ballot,
     /// Operation position, frontier, or the sentinel `Slot(0)`, per
     /// [`crate::invariant::header_slot_role`].
     pub slot: Slot,
@@ -961,7 +961,7 @@ impl Unpack for Header {
         // field is interpreted, and so a host logging a rejected datagram has the kind
         // in hand rather than only a length.
         let tag = Tag::unpack(c)?;
-        let view = ViewId::unpack(c)?;
+        let view = Ballot::unpack(c)?;
         let slot = Slot::unpack(c)?;
         Ok(Header { tag, view, slot })
     }

@@ -19,7 +19,7 @@ mod harness;
 use harness::{Harness, StepOutcome};
 use uvrr::configuration::{Configuration, SystemOperation};
 use uvrr::effects::Stability;
-use uvrr::ids::{CrashCounter, Era, NodeId, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, SystemId, View};
 use uvrr::journal::{Journal, SegmentedLog};
 use uvrr::quorum::{QuorumStrategy, Role, WeightedMajority};
 use uvrr::replica::{Input, Pivot, PlanRefusal, Replica, ViewChangeKnobs};
@@ -33,8 +33,8 @@ fn n(id: u32) -> NodeId {
 
 /// A view in era 1, the era every node here bootstraps into.
 #[allow(dead_code)]
-fn view(number: u32) -> ViewId {
-    ViewId {
+fn view(number: u32) -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(number),
     }

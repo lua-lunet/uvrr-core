@@ -52,7 +52,7 @@ use std::sync::Arc;
 
 use crate::configuration::{ConfigError, EraTable};
 use crate::effects::Effect;
-use crate::ids::{Era, NodeId, Slot, Tick, View, ViewId, next_view_selecting};
+use crate::ids::{Ballot, Era, NodeId, Slot, Tick, View, next_view_selecting};
 use crate::journal::{JournalView, LogEntry, Payload};
 use crate::message::{Body, EraProof, EvidenceKind, Message};
 use crate::observe::Diagnostic;
@@ -112,7 +112,7 @@ pub const FUSE_MAX_OPS: usize = 7;
 /// run established, so the view lands in the new arithmetic directly. An
 /// overflowing `from + offset` is inert: the view space's exhaustion is
 /// the nomination's own dead end, never the node's.
-fn run_nominations(running: Option<ViewId>, ops: &[SystemOperation], era: Era) -> Option<ViewId> {
+fn run_nominations(running: Option<Ballot>, ops: &[SystemOperation], era: Era) -> Option<Ballot> {
     let mut running = running;
     for op in ops {
         let riders: &[SystemOperation] = match op {
@@ -131,7 +131,7 @@ fn run_nominations(running: Option<ViewId>, ops: &[SystemOperation], era: Era) -
                 continue;
             }
             if let Some(number) = from.0.checked_add(*offset) {
-                running = Some(ViewId {
+                running = Some(Ballot {
                     era,
                     view: View(number),
                 });
@@ -167,7 +167,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         overlay: &[LogEntry],
         from: Slot,
         through: Slot,
-    ) -> Result<(Arc<EraTable>, Option<ViewId>), CommitFold> {
+    ) -> Result<(Arc<EraTable>, Option<Ballot>), CommitFold> {
         let (table, _, _, bumped) =
             self.fold_committed_windowed(journal, overlay, from, through, None)?;
         Ok((table, bumped))
@@ -191,7 +191,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         from: Slot,
         through: Slot,
         window: Option<crate::ids::Era>,
-    ) -> Result<(Arc<EraTable>, Slot, bool, Option<ViewId>), CommitFold> {
+    ) -> Result<(Arc<EraTable>, Slot, bool, Option<Ballot>), CommitFold> {
         trace!(
             "FOLD_W from={:?} through={:?} window={:?} table_era={:?}",
             from,
@@ -208,7 +208,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // leader's instrument, never a fenced or electing node's).
         let mut running =
             (self.progress.status() == Status::Normal).then_some(self.progress.current());
-        let mut bumped: Option<ViewId> = None;
+        let mut bumped: Option<Ballot> = None;
         while let Some(next) = slot.next() {
             if next > through {
                 break;
@@ -484,7 +484,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 u32::try_from(index).expect("the membership order fits the view arithmetic");
             let view = next_view_selecting(current.view, index, members)
                 .ok_or(PlanRefusal::ReconfigureViewExhausted { current })?;
-            let target = ViewId {
+            let target = Ballot {
                 era: next_record.era,
                 view,
             };
@@ -1054,7 +1054,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         journal: &J::View,
         from: NodeId,
         message: &Message,
-        retained: ViewId,
+        retained: Ballot,
         accepted: Slot,
         committed: Slot,
         suffix: &[LogEntry],
