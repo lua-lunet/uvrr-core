@@ -554,13 +554,7 @@ impl Executor {
             members,
             weights,
             markers: Some(self.h.marker_states(id)),
-            witnesses: Some(
-                self.h
-                    .witnesses(id)
-                    .into_iter()
-                    .map(pair_of)
-                    .collect(),
-            ),
+            witnesses: Some(self.h.witnesses(id).into_iter().map(pair_of).collect()),
         }
     }
 
