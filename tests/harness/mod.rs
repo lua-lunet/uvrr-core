@@ -1894,6 +1894,31 @@ impl Harness {
             .unwrap_or_default()
     }
 
+    /// The node's marker-state write schedule, in order: every marker
+    /// round the gate wrote, as `<Marker>@<system>:<counter>`, and the
+    /// `drain` the halt schedule forces strictly between its rounds. The
+    /// compliance corpus asserts the protocol's marker states through
+    /// this, never the store's raw operation log
+    /// (`docs/uvrr-compliance.md` §3): the reads are the host's own
+    /// business and carry no marker state, so they are not listed.
+    #[must_use]
+    pub fn marker_states(&self, id: NodeId) -> Vec<String> {
+        self.gate_ops(id)
+            .iter()
+            .filter_map(|line| {
+                if line == "drain" {
+                    return Some("drain".to_string());
+                }
+                let rest = line.strip_prefix("commit:")?;
+                let (name, packed) = rest.split_once('@')?;
+                let identity = NodeId(packed.parse().ok()?);
+                let system = identity.system_id()?.get();
+                let counter = identity.crash_counter()?.get();
+                Some(format!("{name}@{system}:{counter}"))
+            })
+            .collect()
+    }
+
     /// Fires every deferred latch whose seated observation has arrived: a
     /// reincarnated node that has reached `Normal` at voting weight mints
     /// its witness, and the gate writes the deferred `(new, Joining)` 4x
@@ -2016,6 +2041,19 @@ impl Harness {
     // ------------------------------------------------------------------
     // Observation and the trace
     // ------------------------------------------------------------------
+
+    /// The queued envelopes in delivery order, read-only: a compliance
+    /// runner records the post-input drain as an exact sequence. Held
+    /// datagrams (partitioned traffic) are not queued and are not
+    /// listed; undelivered traffic to down nodes stays queued and is.
+    #[must_use]
+    pub fn queued_envelopes(&self) -> Vec<(NodeId, NodeId, Message)> {
+        self.network
+            .queue
+            .iter()
+            .map(|e| (e.from, e.to, e.message.clone()))
+            .collect()
+    }
 
     /// The node's latest published observation, or `None` if it is down.
     #[must_use]
