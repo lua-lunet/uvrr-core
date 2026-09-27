@@ -16,9 +16,9 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::observe::Diagnostic;
-use vrr::progress::Status;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::Status;
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -34,8 +34,8 @@ fn op_id(lsb: u64) -> OperationId {
 /// The timeout knob for the view-change scripts (S4).
 const TIMEOUT: u64 = 3;
 
-fn knobs() -> vrr::replica::ViewChangeKnobs {
-    vrr::replica::ViewChangeKnobs {
+fn knobs() -> uvrr::replica::ViewChangeKnobs {
+    uvrr::replica::ViewChangeKnobs {
         primary_timeout: TIMEOUT,
         view_change_budget: usize::MAX,
     }
@@ -47,7 +47,7 @@ fn bootstrap(h: &mut Harness) {
     h.assert_safety();
 }
 
-fn snap(h: &Harness, id: NodeId) -> vrr::progress::ProgressSnapshot {
+fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 

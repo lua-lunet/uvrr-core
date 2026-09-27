@@ -1,9 +1,16 @@
 [package]
 name = "uvrr-core"
-version = "0.10.2"
+version = "0.10.4"
 edition = "2024"
-# Edition 2024 requires 1.85, which sets this floor. Enforced by clippy's msrv
-# lints, so a newer API cannot creep in unnoticed.
+# One toolchain rule, recorded beside the fields it governs: CI builds with
+# exactly the toolchain the crate is built and released with locally,
+# `rustc 1.96.0` (this `rust-version` field and the toolchain pinned in
+# .github/workflows/ci.yml). There is no separate MSRV lane and no deliberate
+# older pin: a toolchain exists to build this code, and any version CI does
+# not share with the developers hides lint drift until it blocks a release.
+# Raising the toolchain is a deliberate act that moves the three places at
+# once. Edition 2024 requires 1.85, which sets this floor; clippy's msrv
+# lints enforce it, so a newer API cannot creep in unnoticed.
 rust-version = "1.96"
 description = "Sans-io Viewstamped Replication Revisited core (normal operation, view change, recovery, state transfer) with a C ABI for LuaJIT FFI."
 repository = "https://github.com/lua-lunet/uvrr-core"
@@ -19,12 +26,12 @@ categories = [
 ]
 exclude = ["maelstrom/", "store/", ".state/", "mise.toml", ".gitmodules"]
 
-# `name = "vrr"` deliberately differs from the package name. The cdylib and
+# `name = "uvrr"` deliberately differs from the package name. The cdylib and
 # staticlib artifacts are named after the lib target, and the C ABI symbol
-# prefix and the shared-object name a LuaJIT host dlopens are `vrr`, not
+# prefix and the shared-object name a LuaJIT host dlopens are `uvrr`, not
 # `uvrr_core`.
 [lib]
-name = "vrr"
+name = "uvrr"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 # The Maelstrom node. A binary, not a second crate: it needs the library and
@@ -39,19 +46,12 @@ required-features = ["maelstrom"]
 
 # The reconfiguration operator CLI. A binary, not a second crate: it needs the
 # library and the JSONL plan codec, and nothing needs it. Its dependencies
-# (clap, serde, serde_json) are the optional `cli` feature's, so a
+# (clap, serde, serde_json) are the optional `sysadmin_tool` feature's, so a
 # default-features consumer never builds it.
 [[bin]]
 name = "uvrr-reconfig"
 path = "src/bin/uvrr-reconfig/main.rs"
-required-features = ["cli"]
-
-# The sysadmin identity tool (init, print, bump) for the boot gate's identity
-# law. A binary, not a second crate: std only, no dependencies, no feature
-# gate, because a host that cannot name its nodes cannot boot one.
-[[bin]]
-name = "uvrr-hostid"
-path = "src/bin/uvrr-hostid/main.rs"
+required-features = ["sysadmin_tool"]
 
 # The TigerBeetle-superblock durability demo (examples/uvrr-reincarnation/).
 # It links the static library extracted from TigerBeetle's own superblock
@@ -66,8 +66,8 @@ required-features = ["uvrr"]
 # Every entry is optional, so a consumer's non-optional dependency set is empty
 # and `default-features = false` pulls in zero transitive crates. Enforced by
 # tests/manifest_contract.rs, which is a gate rather than a smoke test.
-# `cli` additionally adds the operator CLI (`uvrr-reconfig`, clap) and its
-# JSONL plan codec (serde_json) — both optional, never in a consumer's graph.
+# `sysadmin_tool` additionally adds the operator CLI (`uvrr-reconfig`, clap)
+# and its JSONL plan codec (serde_json): both optional, never in a consumer's graph.
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
@@ -76,8 +76,8 @@ clap = { version = "4", features = ["derive"], optional = true }
 # `serde` buys derives on the wire types only. It never becomes the wire format:
 # the binary codec in `wire` is normative so the spec §13.1 suffix budget stays
 # deterministic (decision P3). `maelstrom` adds the JSON debug bridge and the
-# Maelstrom node binary. `cli` adds the `uvrr-reconfig` operator binary and the
-# JSONL plan codec it exchanges with the leader.
+# Maelstrom node binary. `sysadmin_tool` adds the `uvrr-reconfig` operator
+# binary and the JSONL plan codec it exchanges with the leader.
 [features]
 # Gates examples/uvrr-reincarnation only; no dependencies behind it.
 uvrr = []
@@ -89,10 +89,10 @@ trace = []
 default = []
 serde = ["dep:serde", "dep:serde_json"]
 maelstrom = ["serde", "dep:serde_json"]
-cli = ["serde", "dep:serde_json", "dep:clap"]
+sysadmin_tool = ["serde", "dep:serde_json", "dep:clap"]
 
 # Build-time tooling for `cargo test`, not a consumer's supply chain: nothing here
-# reaches a crate that depends on `vrr-core`, and the [dependencies] gate above is
+# reaches a crate that depends on `uvrr-core`, and the [dependencies] gate above is
 # what protects the consumer. Bounded by an explicit allowlist rather than left open
 # — tests/manifest_contract.rs asserts this table names exactly {proptest,
 # serde_json}, so a further entry requires a P3 amendment rather than a quiet commit.

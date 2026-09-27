@@ -12,7 +12,7 @@
 //!     membership fields the reincarnation protocol needs.
 //!   * `uvrr_incarnation` (u64) and `uvrr_marker` (u8, the four-state
 //!     reincarnation marker `stopping`/`stopped`/`restarting`/`joining` of
-//!     `docs/vrr-durability-model.md` §5.1) as declared fields; the marker
+//!     `docs/uvrr-durability-model.md` §5.1) as declared fields; the marker
 //!     is masked out of the checksum like `copy` (torn marker writes must
 //!     not fork the checksum; see calculate_checksum).
 //!   * the identity bump and the marker transitions live in the synchronous
@@ -165,7 +165,7 @@ pub const SuperBlockHeader = extern struct {
     uvrr_incarnation: u64 = 0,
 
     /// PATCH: the reincarnation marker (§5.1 of
-    /// `docs/vrr-durability-model.md`; the Rust twin
+    /// `docs/uvrr-durability-model.md`; the Rust twin
     /// `src/replica/reincarnation.rs`): one of the four ordered states
     /// `stopping`, `stopped`, `restarting`, `joining`. The marker is
     /// per-copy durability state like `copy` — masked out of the checksum
@@ -297,7 +297,7 @@ comptime {
 /// quorum is 3/4).
 ///
 /// PATCH (the marker transition machine, §5.1 of
-/// `docs/vrr-durability-model.md`; the Rust twin
+/// `docs/uvrr-durability-model.md`; the Rust twin
 /// `src/replica/reincarnation.rs`): every marker transition is a new
 /// copyset — sequence advanced, `parent` hash-chained — written to all four
 /// copies. `begin_stop` writes `stopping`, the host drains strictly between,

@@ -6,7 +6,7 @@
 //! the packing is injective inside the u16 halves, the print form names the
 //! host identity left-padded to full width, and the types cost nothing.
 
-use vrr::ids::{CrashCounter, NodeId, SystemId};
+use uvrr::ids::{CrashCounter, NodeId, SystemId};
 
 fn sys(v: u16) -> SystemId {
     SystemId::new(v).expect("a non-zero system identifier is lawful")
@@ -82,50 +82,4 @@ fn the_types_cost_nothing() {
     assert_eq!(align_of::<CrashCounter>(), align_of::<u16>());
     // The pair is never wider than the wire form on the boundary.
     assert_eq!(size_of::<NodeId>(), size_of::<u32>());
-}
-
-#[test]
-fn the_hostid_tool_initialises_prints_and_bumps() {
-    let tool = env!("CARGO_BIN_EXE_uvrr-hostid");
-    let out = std::process::Command::new(tool)
-        .args(["init", "21", "112"])
-        .output()
-        .expect("the tool runs");
-    assert!(out.status.success());
-    let text = String::from_utf8(out.stdout).unwrap();
-    assert!(
-        text.contains("0002100112"),
-        "init prints the padded pair: {text}"
-    );
-    let packed = ((21u32 << 16) | 112u32).to_string();
-    assert!(text.contains(&packed), "init prints the packed u32: {text}");
-
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_uvrr-hostid"))
-        .args(["print", &packed])
-        .output()
-        .expect("the tool runs");
-    assert!(out.status.success());
-    assert!(
-        String::from_utf8(out.stdout)
-            .unwrap()
-            .contains("0002100112")
-    );
-
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_uvrr-hostid"))
-        .args(["bump", &packed])
-        .output()
-        .expect("the tool runs");
-    assert!(out.status.success());
-    assert!(
-        String::from_utf8(out.stdout)
-            .unwrap()
-            .contains("0002100113")
-    );
-
-    // Zero is refused, not defaulted.
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_uvrr-hostid"))
-        .args(["init", "0", "1"])
-        .output()
-        .expect("the tool runs");
-    assert!(!out.status.success());
 }

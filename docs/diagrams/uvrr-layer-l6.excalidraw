@@ -94,14 +94,14 @@
    "updated": 1,
    "link": null,
    "locked": false,
-   "text": "WHAT IT IS\ntests/reconfiguration_property.rs over generated\nop streams; solver output re-checked by\nvrr::quorum::validate_transition (disjoint-pair search)",
+   "text": "WHAT IT IS\ntests/reconfiguration_property.rs over generated\nop streams; solver output re-checked by\nuvrr::quorum::validate_transition (disjoint-pair search)",
    "fontSize": 13,
    "fontFamily": 5,
    "textAlign": "left",
    "verticalAlign": "top",
    "baseline": 11,
    "containerId": null,
-   "originalText": "WHAT IT IS\ntests/reconfiguration_property.rs over generated\nop streams; solver output re-checked by\nvrr::quorum::validate_transition (disjoint-pair search)",
+   "originalText": "WHAT IT IS\ntests/reconfiguration_property.rs over generated\nop streams; solver output re-checked by\nuvrr::quorum::validate_transition (disjoint-pair search)",
    "lineHeight": 1.25
   },
   {

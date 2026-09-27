@@ -53,7 +53,7 @@ byte-identical to upstream `src/*` except where listed below.
 - New fields: `uvrr_incarnation: u64` (reincarnation identity, checksummed)
   and `uvrr_marker: u8` (+ explicit `uvrr_marker_padding [3]u8`) — the
   four-state reincarnation marker `stopping`/`stopped`/`restarting`/
-  `joining` of `docs/vrr-durability-model.md` §5.1, as declared fields
+  `joining` of `docs/uvrr-durability-model.md` §5.1, as declared fields
   (`flags` stays zero as TB asserts).
 - `calculate_checksum`: patched to mask `uvrr_marker` before hashing, so all
   copies of one sequence share one checksum (the marker is per-copy
@@ -102,7 +102,7 @@ byte-identical to upstream `src/*` except where listed below.
   {identity u128, weight u16, learner u8}; capacity 12 members), checkpoint
   before WAL wrap or every N ops (N = host param), replay on open.
 - `uvrr/store.zig` — sync driver and the marker transition machine (§5.1 of
-  `docs/vrr-durability-model.md`; the twin of `src/replica/reincarnation.rs`):
+  `docs/uvrr-durability-model.md`; the twin of `src/replica/reincarnation.rs`):
   format (pristine `stopped` copyset), open = the boot (TB's 2-of-4 open
   quorum over the sequence hash-chain, higher-identity-wins inside the
   working quorum, the 2-of-4 `stopped` verdict, and the T2/T3 decision's

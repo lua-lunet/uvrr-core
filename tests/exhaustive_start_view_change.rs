@@ -17,13 +17,13 @@
 mod harness;
 
 use harness::{Harness, StepOutcome, mint_id};
-use vrr::effects::Effect;
-use vrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId, View, ViewId};
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::Status;
-use vrr::replica::ViewChangeKnobs;
-use vrr::wire::{Header, Tag};
+use uvrr::effects::Effect;
+use uvrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId, View, ViewId};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::Status;
+use uvrr::replica::ViewChangeKnobs;
+use uvrr::wire::{Header, Tag};
 
 const TIMEOUT: u64 = 3;
 

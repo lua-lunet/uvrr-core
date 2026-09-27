@@ -1751,7 +1751,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 )
                 .with_activity(at));
         }
-        // The marker machine's ruling (§5.1 of `docs/vrr-durability-model.md`):
+        // The marker machine's ruling (§5.1 of `docs/uvrr-durability-model.md`):
         // a `Restarting` node completed a controlled shutdown, its flush
         // happened in the drain between `Stopping` and `Stopped`, not on the
         // hot path, so it is a member with complete state and no amnesia: it

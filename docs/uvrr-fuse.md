@@ -6,7 +6,7 @@ receiving one `Fuse` is *defined* as receiving the equivalent sequence of `Prepa
 messages at the same ballot, one per slot, in batch order. Per-op safety is the
 ordinary accept path; only the wire shape changes. This document states what Fuse
 IS; the command alphabet and its boundaries are `docs/uvrr-reconfiguration-rules.md`,
-and the durability framing is `docs/vrr-durability-model.md` §13.8.
+and the durability framing is `docs/uvrr-durability-model.md` §13.8.
 
 ## 1. The envelope
 

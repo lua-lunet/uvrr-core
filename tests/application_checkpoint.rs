@@ -23,13 +23,13 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::effects::Effect;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::PlanRefusal;
-use vrr::wire::{Header, Tag};
+use uvrr::effects::Effect;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::{ProgressSnapshot, Status};
+use uvrr::replica::PlanRefusal;
+use uvrr::wire::{Header, Tag};
 
 /// Node id shorthand (the harness's own pattern).
 fn n(id: u32) -> NodeId {

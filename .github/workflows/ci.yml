@@ -92,11 +92,17 @@ jobs:
           set -euo pipefail
           cargo fmt --check
           cargo clippy --all-targets --all-features -- -D warnings
-          # The test lane covers lib, bins and integration tests. The `uvrr`
-          # demo example is excluded: it links the vendored TigerBeetle
-          # static library (`libuvrr_sb.a`), which is built by `zig/build.sh`
-          # on the host that packages tagged releases, and no runner
-          # checkout carries that artifact.
+          # The test lane runs fast first, then slow: the default-feature
+          # run compiles the maelstrom adapter tests to nothing and never
+          # boots the harness (the library, not the harness, is the
+          # deliverable); the second, slower run is the full feature set,
+          # driving the real maelstrom-lin-kv binary end to end and building
+          # the sysadmin_tool operator binary its format tests spawn. The `uvrr`
+          # demo example is excluded from both: it links the vendored
+          # TigerBeetle static library, which build.sh builds on the host
+          # that packages tagged releases, and no runner checkout carries
+          # that artifact.
+          cargo test --lib --bins --tests
           cargo test --all-features --lib --bins --tests
           cargo test --doc
           ! rg -n '#\[cfg\(test\)\]|mod tests' src
@@ -116,9 +122,9 @@ jobs:
           stage="uvrr-core-${{ matrix.target_key }}"
           mkdir -p "$stage"
           if [ "${{ runner.os }}" = "macOS" ]; then
-            cp target/release/libvrr.dylib target/release/libvrr.a "$stage/"
+            cp target/release/libuvrr.dylib target/release/libuvrr.a "$stage/"
           else
-            cp target/release/libvrr.so target/release/libvrr.a "$stage/"
+            cp target/release/libuvrr.so target/release/libuvrr.a "$stage/"
           fi
           tar czf "uvrr-core-${{ matrix.target_key }}.tar.gz" -C "$stage" .
       - name: Upload release archive

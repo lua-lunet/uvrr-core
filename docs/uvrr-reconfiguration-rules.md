@@ -232,7 +232,7 @@ intersections of integer sets", has standard names:
 | `DOUBLE`/`HALVE` change no quorum family | **common-factor normalization**: the majority threshold `floor(T/2) + 1` scales with `T`, so `18/27 = 2/3`, the "zero op" |
 | Even totals need one more than half, odd totals split exactly | `floor(T/2) + 1` is the strict-majority threshold: even `T` is "eager" (`2n → n+1`), odd `2n+1 → n+1` splits evenly |
 
-The exhaustive check the tests use is `vrr::quorum::validate_transition` (the full
+The exhaustive check the tests use is `uvrr::quorum::validate_transition` (the full
 disjoint-pair search across the union node set); the planner's unit rule is the
 cheap sufficient precondition a leader evaluates as a what-if, and every schedule
 this document admits passes the exhaustive check.

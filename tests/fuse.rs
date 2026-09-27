@@ -16,14 +16,14 @@ mod harness;
 use harness::{Harness, StepOutcome};
 use std::sync::Arc;
 
-use vrr::configuration::{Member, SystemOperation, Weight};
-use vrr::effects::Effect;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::journal::Payload;
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::plan::Plan;
-use vrr::wire::{Header, Pack, Tag, Unpack, UnpackError};
+use uvrr::configuration::{Member, SystemOperation, Weight};
+use uvrr::effects::Effect;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::journal::Payload;
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::plan::Plan;
+use uvrr::wire::{Header, Pack, Tag, Unpack, UnpackError};
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -463,7 +463,7 @@ fn leader_emits_one_fuse_per_backup_for_a_whole_schedule() {
         effects.iter().any(|effect| matches!(
             effect,
             Effect::AdminResponse {
-                verdict: vrr::effects::PlanVerdict::Accepted
+                verdict: uvrr::effects::PlanVerdict::Accepted
             }
         )),
         "the verdict surfaces: {effects:?}"
@@ -859,7 +859,7 @@ fn oversized_schedule_falls_back_to_ordinary_prepares() {
         effects.iter().any(|effect| matches!(
             effect,
             Effect::AdminResponse {
-                verdict: vrr::effects::PlanVerdict::Accepted
+                verdict: uvrr::effects::PlanVerdict::Accepted
             }
         )),
         "the verdict surfaces: {effects:?}"
@@ -880,14 +880,14 @@ fn oversized_schedule_falls_back_to_ordinary_prepares() {
     quiesce(&mut h);
     let snapshot = h.snapshot(n(0)).expect("live");
     assert_eq!(snapshot.committed, 3, "the batch committed at its slot");
-    let expected = vrr::configuration::Configuration::void()
-        .apply(&SystemOperation::Void, vrr::configuration::VOID_SLOT)
+    let expected = uvrr::configuration::Configuration::void()
+        .apply(&SystemOperation::Void, uvrr::configuration::VOID_SLOT)
         .and_then(|void| {
             void.apply(
                 &SystemOperation::Init {
                     order: vec![n(0), n(1), n(2)],
                 },
-                vrr::configuration::INIT_SLOT,
+                uvrr::configuration::INIT_SLOT,
             )
         })
         .and_then(|init| init.apply(&SystemOperation::Batch(joins), Slot(3)))
@@ -1189,7 +1189,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
         effects.iter().any(|effect| matches!(
             effect,
             Effect::AdminResponse {
-                verdict: vrr::effects::PlanVerdict::Accepted
+                verdict: uvrr::effects::PlanVerdict::Accepted
             }
         )),
         "the verdict surfaces: {effects:?}"
@@ -1332,7 +1332,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
         effects.iter().any(|effect| matches!(
             effect,
             Effect::AdminResponse {
-                verdict: vrr::effects::PlanVerdict::Accepted
+                verdict: uvrr::effects::PlanVerdict::Accepted
             }
         )),
         "the verdict surfaces: {effects:?}"

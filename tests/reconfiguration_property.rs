@@ -18,7 +18,7 @@
 //!    touched nodes is ≤ 1, OR the era is a solitary scaling op, exactly
 //!    the R13/R14 rule, recomputed here from the era's own weight tables;
 //! 3. every admitted transition passes the exhaustive closed gate
-//!    `vrr::quorum::validate_transition` (the mechanical intersection
+//!    `uvrr::quorum::validate_transition` (the mechanical intersection
 //!    argument, an independent component);
 //! 4. a refused stream leaves the configuration unchanged;
 //! 5. for accepted streams, folding the planned era sequence and folding
@@ -30,10 +30,10 @@ use std::collections::BTreeMap;
 use proptest::prelude::*;
 use proptest::test_runner::Config;
 
-use vrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use vrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId};
-use vrr::quorum::WeightedMajority;
-use vrr::reconfiguration::EraStep;
+use uvrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
+use uvrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId};
+use uvrr::quorum::WeightedMajority;
+use uvrr::reconfiguration::EraStep;
 
 /// The three-node identity set every stream speaks about, plus the small
 /// join pool that lets membership grow. The union stays far below
@@ -130,7 +130,7 @@ fn order(config: &Configuration) -> Vec<NodeId> {
 fn assert_domain(config: &Configuration) {
     for weight in weights(config) {
         assert!(
-            weight <= vrr::configuration::MAX_WEIGHT,
+            weight <= uvrr::configuration::MAX_WEIGHT,
             "weight {weight} left the domain {{0, 1, 2}}: {config:?}"
         );
     }
@@ -185,7 +185,7 @@ fn assert_mass_rule(prev: &Configuration, next: &Configuration, ops: &[SystemOpe
 
 /// Property 3: the exhaustive closed gate accepts the transition.
 fn assert_quorum_safe(prev: &Configuration, next: &Configuration) {
-    vrr::quorum::validate_transition(&WeightedMajority, prev, next).unwrap_or_else(|error| {
+    uvrr::quorum::validate_transition(&WeightedMajority, prev, next).unwrap_or_else(|error| {
         panic!("transition {prev:?} → {next:?} failed the gate: {error:?}")
     });
 }

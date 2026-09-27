@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+# The pre-push verification gate. The push is the unit of publication, so the
+# gate the CI lanes run runs here first: a push that has not passed it is not
+# a push, and the hook aborts it. Activate once with `make hooks` (or
+# `git config core.hooksPath .githooks`). Bypassing with --no-verify is a
+# deliberate act reserved for the user's hand.
+set -eu
+
+echo "pre-push: the verification gate runs before anything reaches the remote"
+
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+
+# The fast lane: the default-feature run never boots the maelstrom harness,
+# because the library, not the harness, is the deliverable.
+cargo test --lib --bins --tests
+
+# The full-feature lane: the real maelstrom binary end to end and the
+# sysadmin_tool operator binary its format tests spawn, the gate a push must
+# have passed locally.
+cargo test --all-features --lib --bins --tests
+
+cargo test --doc
+
+# The Lean formalisation: the proofs are first-class deliverables and the
+# build is their gate. Warm runs are seconds on the developer's machine.
+(cd formal/uvrr-lean && lake build)
+
+# The record checks, exactly as the CI lanes run them: each must find nothing.
+if rg -n '#\[cfg\(test\)\]|mod tests' src; then
+	echo "pre-push: inline test modules found under src" >&2
+	exit 1
+fi
+if rg -in 'paxos' src/ tests/; then
+	echo "pre-push: the banned name found in src or tests" >&2
+	exit 1
+fi
+if git ls-files | rg -v '^maelstrom|^research/|^formal/|\.github/' | xargs rg -n 'item[0-9]'; then
+	echo "pre-push: scratch-work numbering found in the product tree" >&2
+	exit 1
+fi < /dev/null
+
+echo "pre-push: the gate is green, the push proceeds"

@@ -19,13 +19,13 @@
 mod harness;
 
 use harness::{Harness, StepOutcome, mint_id, mint_pair};
-use vrr::configuration::SystemOperation;
-use vrr::effects::Effect;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::replica::ViewChangeKnobs;
-use vrr::wire::{Header, Tag};
+use uvrr::configuration::SystemOperation;
+use uvrr::effects::Effect;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::replica::ViewChangeKnobs;
+use uvrr::wire::{Header, Tag};
 
 const TIMEOUT: u64 = 3;
 
@@ -135,7 +135,7 @@ fn run_case(v: Rel, s: Rel, ops: Ops) {
                 released(&outcome));
             let held = h.journal_entry(receiver, first_slot).expect("the entry is journaled");
             assert!(
-                matches!(&held.payload, vrr::journal::Payload::System(op) if *op == packed),
+                matches!(&held.payload, uvrr::journal::Payload::System(op) if *op == packed),
                 "the folded entry carries the packed op: {:?}", held.payload
             );
         }

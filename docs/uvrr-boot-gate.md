@@ -170,9 +170,9 @@ beneath it; and a dual-ring WAL underneath. The flush literature is cited at
 reliable enough (Pillai et al., OSDI 2014; Chidambaram et al., SOSP 2013),
 which is why the marker is a quorum of copies and not a flag.
 
-## 7. The crate contract: `vrr::lifecycle`
+## 7. The crate contract: `uvrr::lifecycle`
 
-The crate owns the machine; the host owns the writes. `vrr::lifecycle`
+The crate owns the machine; the host owns the writes. `uvrr::lifecycle`
 ships the marker state machine, the quorum-read classification, and a
 **typestate driver** whose types fix the write schedules of §3, a
 transition called out of order has no type to be called on.

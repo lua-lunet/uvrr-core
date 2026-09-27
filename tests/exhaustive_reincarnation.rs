@@ -19,12 +19,12 @@
 mod harness;
 
 use harness::{Harness, StepOutcome, mint_pair};
-use vrr::effects::Effect;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::replica::ViewChangeKnobs;
-use vrr::wire::{Header, Tag};
+use uvrr::effects::Effect;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::replica::ViewChangeKnobs;
+use uvrr::wire::{Header, Tag};
 
 const TIMEOUT: u64 = 3;
 
@@ -167,10 +167,10 @@ fn run_case(role: Role, sender: Sender, pair: Pair, r: Rel) {
                 "the memo stream's first beat rides the establishing prepare: {sent:?}");
             assert_eq!(after.accepted, 3, "the first forced step is proposed");
             let held = h.journal_entry(receiver, Slot(3)).expect("the entry is journaled");
-            let joins = matches!(&held.payload, vrr::journal::Payload::System(
-                vrr::configuration::SystemOperation::Batch(ops))
+            let joins = matches!(&held.payload, uvrr::journal::Payload::System(
+                uvrr::configuration::SystemOperation::Batch(ops))
                 if matches!(ops.as_slice(),
-                    [vrr::configuration::SystemOperation::Join { node, .. }] if *node == new));
+                    [uvrr::configuration::SystemOperation::Join { node, .. }] if *node == new));
             assert!(joins, "the joining identity joins at weight zero: {:?}", held.payload);
         }
     }

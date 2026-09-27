@@ -4,8 +4,8 @@
 //! memorise an integer. The numeric encodings themselves are pinned here,
 //! a rename or a renumber that moves a word off the wire is caught.
 
-use vrr::progress::Status;
-use vrr::wire::Tag;
+use uvrr::progress::Status;
+use uvrr::wire::Tag;
 
 /// Every status word names itself, and the numbering is unchanged: the
 /// snapshot word and the wire stay numeric.

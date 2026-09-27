@@ -17,11 +17,11 @@
 mod harness;
 
 use harness::{Harness, StepOutcome, mint_pair};
-use vrr::effects::Effect;
-use vrr::ids::{CrashCounter, NodeId, OperationId, Slot, SystemId};
-use vrr::journal::Payload;
-use vrr::replica::{PlanRefusal, ViewChangeKnobs};
-use vrr::wire::Tag;
+use uvrr::effects::Effect;
+use uvrr::ids::{CrashCounter, NodeId, OperationId, Slot, SystemId};
+use uvrr::journal::Payload;
+use uvrr::replica::{PlanRefusal, ViewChangeKnobs};
+use uvrr::wire::Tag;
 
 const TIMEOUT: u64 = 3;
 const PAYLOAD: &[u8] = b"ordered";

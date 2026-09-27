@@ -10,10 +10,10 @@
 
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
-use vrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use vrr::ids::{CrashCounter, Era, NodeId, SystemId};
-use vrr::plan::{Plan, PlanRejection};
-use vrr::solver::solve_replacement;
+use uvrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
+use uvrr::ids::{CrashCounter, Era, NodeId, SystemId};
+use uvrr::plan::{Plan, PlanRejection};
+use uvrr::solver::solve_replacement;
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -194,7 +194,7 @@ fn a_step_that_no_longer_folds_is_refused_at_the_step() {
         illegal.validate_against(&start),
         Err(PlanRejection::Step {
             index: 1,
-            refusal: vrr::configuration::ConfigError::WeightUnderflow(n(2)),
+            refusal: uvrr::configuration::ConfigError::WeightUnderflow(n(2)),
         }),
         "the fold refuses the drifted step at its index"
     );
@@ -253,7 +253,7 @@ proptest! {
             current = current
                 .apply(
                     &SystemOperation::Batch(ops.clone()),
-                    vrr::ids::Slot(0),
+                    uvrr::ids::Slot(0),
                 )
                 .map_err(|error| TestCaseError::fail(format!("a step refuses: {error:?}")))?;
         }
@@ -272,7 +272,7 @@ proptest! {
 #[cfg(feature = "serde")]
 mod jsonl {
     use super::*;
-    use vrr::plan::{Plan, PlanCodecError};
+    use uvrr::plan::{Plan, PlanCodecError};
 
     /// The three-node plan's JSONL is exactly the schema's two-era form, and
     /// the codec round-trips it to the same plan.
@@ -407,16 +407,18 @@ mod jsonl {
 }
 
 /// The CLI surface: the real binary, driven exactly as an operator drives it.
-/// Without the `cli` feature there is no binary, and each test says so and
-/// passes vacuously.
-mod cli {
+/// Without the `sysadmin_tool` feature the module compiles to nothing: the
+/// test compilation, the binary's build and the binary-path environment
+/// variable are all keyed off the one flag and cannot disagree.
+#[cfg(feature = "sysadmin_tool")]
+mod sysadmin_tool_lane {
     use super::*;
     use std::net::UdpSocket;
     use std::process::{Command, Stdio};
 
-    fn binary() -> Option<&'static str> {
-        option_env!("CARGO_BIN_EXE_uvrr-reconfig")
-    }
+    /// The binary under test, guaranteed present and built by cargo when this
+    /// module compiles: the feature that gates the module gates the bin target.
+    const BINARY: &str = env!("CARGO_BIN_EXE_uvrr-reconfig");
 
     /// A scratch directory for the script's files, unique to the test process.
     fn scratch(name: &str) -> std::path::PathBuf {
@@ -431,7 +433,7 @@ mod cli {
     /// `plan --current --replace` prints the paper's two-era plan exactly.
     #[test]
     fn cli_plan_replace_prints_the_two_era_plan() {
-        let Some(binary) = binary() else { return };
+        let binary = BINARY;
         let dir = scratch("plan");
         let members = dir.join("members.jsonl");
         std::fs::write(
@@ -468,7 +470,7 @@ mod cli {
     #[cfg(feature = "serde")]
     #[test]
     fn cli_plan_target_prints_a_valid_plan() {
-        let Some(binary) = binary() else { return };
+        let binary = BINARY;
         let dir = scratch("target");
         let members = dir.join("members.jsonl");
         std::fs::write(
@@ -509,7 +511,7 @@ mod cli {
     /// verdict, and exits 0 on `accepted`, 1 on `rejected`.
     #[test]
     fn cli_apply_prints_the_verdict_and_sets_the_exit_code() {
-        let Some(binary) = binary() else { return };
+        let binary = BINARY;
         let dir = scratch("apply");
         let plan_path = dir.join("plan.jsonl");
         std::fs::write(&plan_path, THREE_NODE_PLAN).expect("the plan file is written");

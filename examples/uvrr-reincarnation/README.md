@@ -6,7 +6,7 @@ Drives the vendored TigerBeetle 0.17.9 IO + superblock stack (`zig/` — see
 
 ## Paths demonstrated
 
-The marker transition machine (§5.1 of `docs/vrr-durability-model.md`; the
+The marker transition machine (§5.1 of `docs/uvrr-durability-model.md`; the
 Rust twin `src/replica/reincarnation.rs`), over TB's actual code paths
 (darwin: `O_DSYNC` + `F_NOCACHE` + `F_FULLFSYNC` flush; linux: `O_DIRECT`):
 

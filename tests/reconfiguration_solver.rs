@@ -1,8 +1,8 @@
 use proptest::prelude::*;
-use vrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use vrr::ids::{Era, NodeId, Slot};
-use vrr::quorum::{WeightedMajority, validate_transition};
-use vrr::solver::{solve, solve_replacement};
+use uvrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
+use uvrr::ids::{Era, NodeId, Slot};
+use uvrr::quorum::{WeightedMajority, validate_transition};
+use uvrr::solver::{solve, solve_replacement};
 
 fn config(weights: &[u32]) -> Configuration {
     Snapshot {
@@ -135,7 +135,7 @@ fn endpoint_availability_and_scaling_are_explicit() {
     let c = config(&[1, 1, 2, 2]);
     assert!(matches!(
         solve(&c, &c, &[NodeId(0), NodeId(1)]),
-        Err(vrr::solver::SolveError::NoAvailableMajority {
+        Err(uvrr::solver::SolveError::NoAvailableMajority {
             target: false,
             available: 2,
             total: 6

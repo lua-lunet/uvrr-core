@@ -32,18 +32,18 @@
 mod harness;
 
 use harness::{Harness, StepOutcome, mint_pair};
-use vrr::configuration::{ConfigError, Configuration, INIT_SLOT, SystemOperation, VOID_SLOT};
-use vrr::effects::Effect;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::lifecycle::{
+use uvrr::configuration::{ConfigError, Configuration, INIT_SLOT, SystemOperation, VOID_SLOT};
+use uvrr::effects::Effect;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::lifecycle::{
     CopyState, Marker, RestartClass, RestartDecision, RestartRefusal, SuperblockCopies,
 };
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::Status;
-use vrr::quorum::{QuorumStrategy, Role, WeightedMajority};
-use vrr::replica::{PlanRefusal, forced_steps};
-use vrr::wire::{Header, Pack, Tag, Unpack, UnpackError};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::Status;
+use uvrr::quorum::{QuorumStrategy, Role, WeightedMajority};
+use uvrr::replica::{PlanRefusal, forced_steps};
+use uvrr::wire::{Header, Pack, Tag, Unpack, UnpackError};
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -63,7 +63,7 @@ const TIMEOUT: u64 = 3;
 fn cluster() -> Harness {
     Harness::with_knobs(
         3,
-        vrr::replica::ViewChangeKnobs {
+        uvrr::replica::ViewChangeKnobs {
             primary_timeout: TIMEOUT,
             view_change_budget: usize::MAX,
         },
@@ -76,7 +76,7 @@ fn bootstrap(h: &mut Harness) {
     h.assert_safety();
 }
 
-fn snap(h: &Harness, id: NodeId) -> vrr::progress::ProgressSnapshot {
+fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
@@ -275,7 +275,7 @@ fn weights(config: &Configuration) -> Vec<u64> {
 /// standalone safety rests on.
 fn assert_era_safe(steps: &[Configuration]) {
     for pair in steps.windows(2) {
-        vrr::quorum::validate_transition(&WeightedMajority, &pair[0], &pair[1])
+        uvrr::quorum::validate_transition(&WeightedMajority, &pair[0], &pair[1])
             .expect("the step is era-safe");
         let quorum = |config: &Configuration| {
             config
@@ -556,7 +556,7 @@ fn b_announcement_carries_past_life_frontiers() {
 fn b_leader_crash_mid_sequence_memo_dies_and_resumes() {
     let mut h = Harness::with_knobs(
         5,
-        vrr::replica::ViewChangeKnobs {
+        uvrr::replica::ViewChangeKnobs {
             primary_timeout: TIMEOUT,
             view_change_budget: usize::MAX,
         },
@@ -667,7 +667,7 @@ fn b_leader_crash_mid_sequence_memo_dies_and_resumes() {
                         Body::Prepare { entry, .. }
                             if matches!(
                                 &entry.payload,
-                                vrr::journal::Payload::System(
+                                uvrr::journal::Payload::System(
                                     SystemOperation::Batch(ops)
                                 ) if *ops == vec![SystemOperation::Double]
                             )
@@ -1011,10 +1011,10 @@ fn e_membership_discard() {
                 slot: Slot(4),
             },
             body: Body::Prepare {
-                entry: vrr::journal::LogEntry {
+                entry: uvrr::journal::LogEntry {
                     slot: Slot(4),
                     era: current_view(&h, n(0)).era,
-                    payload: vrr::journal::Payload::Operation {
+                    payload: uvrr::journal::Payload::Operation {
                         id: op_id(9),
                         payload: Box::from(b"foreign".as_slice()),
                     },
@@ -1308,7 +1308,7 @@ fn b_ack_pushes_missed_range_and_proposes_first_step_in_one_transition() {
                         Body::Prepare { entry, .. }
                             if matches!(
                                 &entry.payload,
-                                vrr::journal::Payload::System(
+                                uvrr::journal::Payload::System(
                                     SystemOperation::Batch(ops)
                                 )                                 if *ops
                                     == vec![
@@ -1336,7 +1336,7 @@ fn b_ack_pushes_missed_range_and_proposes_first_step_in_one_transition() {
                         Body::Prepare { entry, .. }
                             if matches!(
                                 &entry.payload,
-                                vrr::journal::Payload::System(
+                                uvrr::journal::Payload::System(
                                     SystemOperation::Batch(_)
                                 )
                             )

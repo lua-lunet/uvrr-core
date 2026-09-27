@@ -24,7 +24,7 @@
 //! [`check_cluster_safety`] re-derives the cluster-wide safety properties
 //! from observations, journals and the harness's own apply records, an
 //! independent second pair of eyes, redundant with the invariants
-//! [`vrr::progress::Progress`] enforces internally. Redundancy here is the
+//! [`uvrr::progress::Progress`] enforces internally. Redundancy here is the
 //! point; do not optimise it away. The rules, checked in this order so a
 //! violation surfaces as its own variant:
 //!
@@ -72,26 +72,26 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
-use vrr::effects::{Effect, PlanVerdict, Stability, StabilityResult};
-use vrr::ids::{
+use uvrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
+use uvrr::effects::{Effect, PlanVerdict, Stability, StabilityResult};
+use uvrr::ids::{
     CrashCounter, Era, Fault, NodeId, Operation, OperationId, Slot, SystemId, Tick, View, ViewId,
 };
-use vrr::journal::{Journal, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog};
-use vrr::lifecycle::{
+use uvrr::journal::{Journal, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog};
+use uvrr::lifecycle::{
     BootError, BootOutcome, CopyState, Crashed, LifecycleStore, Marker, Running, SuperblockCopies,
     boot,
 };
-use vrr::message::Message;
-use vrr::observe::Diagnostic;
-use vrr::plan::Plan;
-use vrr::progress::{Progress, ProgressSnapshot, Status};
-use vrr::quorum::WeightedMajority;
-use vrr::replica::{
+use uvrr::message::Message;
+use uvrr::observe::Diagnostic;
+use uvrr::plan::Plan;
+use uvrr::progress::{Progress, ProgressSnapshot, Status};
+use uvrr::quorum::WeightedMajority;
+use uvrr::replica::{
     Input, LifecycleRefusal, Observer, PersistedProgress, Pivot, PlanRefusal, PublishOutcome,
     PublishRefusal, Replica, TimedInput, ViewChangeKnobs,
 };
-use vrr::wire::Tag;
+use uvrr::wire::Tag;
 
 /// The boot-gate root sequence: one unique temporary root per harness, so
 /// parallel test targets never share marker directories.

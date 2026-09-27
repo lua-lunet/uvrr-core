@@ -21,11 +21,11 @@ and drain the outputs it produced. No sockets, no threads, no async runtime, no
 callbacks. The host owns transport, timers, and durability.
 
 ```rust
-use vrr::effects::Stability;
-use vrr::ids::{NodeId, Operation, OperationId, Tick};
-use vrr::journal::{Journal, SegmentedLog};
-use vrr::quorum::WeightedMajority;
-use vrr::replica::{Input, Replica, TimedInput, ViewChangeKnobs};
+use uvrr::effects::Stability;
+use uvrr::ids::{NodeId, Operation, OperationId, Tick};
+use uvrr::journal::{Journal, SegmentedLog};
+use uvrr::quorum::WeightedMajority;
+use uvrr::replica::{Input, Replica, TimedInput, ViewChangeKnobs};
 
 let mut replica = Replica::provision(
     NodeId(0),
@@ -65,17 +65,13 @@ To build and test without running the crash testing and network partitioning sim
 cargo test
 ```
 
-This repo includes an example binary that conforms to a trivial key-value store protocol so that the Kyle Kingsbury Maelstrom test harness may simulate network partitions, crashes and other error conditions. The Makefile can install and run the Kyle Kingsbury Maelstrom test harness as either a git submodule run run locally else in docker. See below. 
+The demo binary in this repo implements a trivial key-value store protocol so that the Maelstrom test harness may simulate network partitions and crashes. The Makefile runs the harness as a git submodule locally or in Docker.
 
 ## Why this exists
 
-This create simply offers the strong consistency during non-stop cluster reconfigurations without disk flushes. This is achieved by porting to Viewstemped Replication Revisited the leader casting vote technique from David Turner's technical report on unbounded pipelining in dynamically reconfigurable clusters (Tracsis, 2016, tessanddave.com).
+The concept of an external strong consistency service is one that has very sharp edges. It splits responsibility for quality, legitimacy, and performance across two product teams. Every client connected to the core is part of the full distributed system and must experience consistency. When there are silos of responsibility on the critical path then often no-ones hold themselves accountable the removal of every single source of outages. Crash safety is Crash-Stop-Self-Evict ("reincarnation"): see [docs/uvrr-reincarnation.md](docs/uvrr-reincarnation.md).
 
-This Rust crate exposes a C ABI for FFI. It scales down to offer a lightweight and embeddable strong consistency model. With a small amount of data, such as leader leases or advisory locks, it removes the need to run something like Zookeeper or etcd. 
-
-The concept of an external strong consistency service is one that has very sharp edges. It splits responsibility for quality, legitimacy, and performance across two product teams. Every client connected to the core is part of the full distributed system and must experience consistency. When there are silos of responsibility on the critical path then often no-ones hold themselves accountable the removal of every single source of outages. Crash safety is Crash-Stop-Self-Evict ("reincarnation"): see [docs/uvrr-reincarnation.md](docs/uvrr-reincarnation.md). 
-
-If you are curious to see if embedding strong consistency directly into your application reduces the complexity, costs and latencies of your system then try this crate. 
+If you are curious to see if embedding strong consistency directly into your application reduces the complexity, costs and latencies of your system then try this crate.
 
 ## Evidence
 
@@ -91,7 +87,21 @@ uses classic Docker commands and requires neither BuildKit nor a volume mount.
 `cargo test` runs the protocol-path tests, targeted
 regressions, and a deterministic seeded multi-replica cluster harness (K=3..7,
 loss / reorder / duplication / partition / crash-restart, safety asserted
-after *every* single step), plus proptest companions.
+after *every* single step), plus proptest companions. The default feature set
+never boots the Maelstrom harness: the library, not the harness, is the
+deliverable. Run the full lane with the harness before any push:
+
+```shell
+cargo test --features maelstrom
+```
+
+### The pre-push hook
+
+`make hooks` installs the repository's pre-push gate (it points git at the
+committed hooks with `git config core.hooksPath .githooks`). Before anything
+reaches the remote the hook runs the full verification gate, including the
+slow and expensive maelstrom lane. It is skippable with
+`git push --no-verify`; please do not skip it.
 
 In order to run the maelstrom targets you need to fetch maelstrom as a submodule with 
 
@@ -103,8 +113,8 @@ git submodule update
 `maelstrom-lin-kv` runs the core as a [Maelstrom](https://github.com/jepsen-io/maelstrom)
 node so Jepsen's Knossos checker verifies **linearizability**, strictly
 stronger than [sequential consistency](https://jepsen.io/consistency/models/sequential),
-under partition, process kill, and process pause. Latest: 10,880 operations at
-K=5 under all three nemeses, `:valid? true`, no failures.
+under partition, process kill, and process pause. The K=5 configuration runs
+under all three nemeses with `:valid? true` and no failures on recent runs.
 
 ```bash
 mise install          # JDK 25 + Leiningen 2.11.2
@@ -129,7 +139,7 @@ Or manually:
 
 ```bash
 make docker-build
-docker run --rm -e NODES=5 -e TIME_LIMIT=180 -e RATE=20 -e INTERVAL=10 vrr-core-maelstrom test-all
+docker run --rm -e NODES=5 -e TIME_LIMIT=180 -e RATE=20 -e INTERVAL=10 uvrr-core-maelstrom test-all
 ```
 
 See `Dockerfile.maelstrom` for the build definition.
@@ -146,11 +156,11 @@ the verdict.
 
 ## Status
 
-Pre-alpha. The protocol is covered by the tests above and by Maelstrom; the API is not stable. It is intended to be open to extension yet closed to modifications of the invalidate the invariants of the algorithm. This means that it is only like to change if new extension points are needed or if a bug is found. 
-
-The codebase is intented to stay small and has advasorial tests. An absence of new feature being pushed is an absence of bugs and regressions. 
-
-Due to the Yeti nature of the superior but little advertised technology we are unlikely to see a ton of users leading to a 1.0.0 release.
+Pre-alpha: the API is not stable. The protocol is covered by the tests above
+and by Maelstrom. The codebase is intended to stay small and has adversarial
+tests; an absence of new features is an absence of bugs and regressions. The
+core is open to extension and closed to modification that would invalidate
+the invariants of the algorithm.
 
 ## Attribution
 

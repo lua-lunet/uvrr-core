@@ -1,9 +1,9 @@
 # Architecture
 
-`vrr-core` is a SANS-I/O library with a C ABI, not a framework. It never tells the host
+`uvrr-core` is a SANS-I/O library with a C ABI, not a framework. It never tells the host
 what to do.
 
-Section references are to `docs/vrr-durability-model.md`. Rulings are the decision
+Section references are to `docs/uvrr-durability-model.md`. Rulings are the decision
 record at the end of this document.
 
 ## Closed for modification
@@ -128,6 +128,12 @@ arithmetic published for the host (the randomized-timeout recommendation, S4).
 The graph above is acyclic, and stays so by ruling. A proposed edge that would create a
 cycle is a signal that a responsibility is in the wrong module.
 
+Perimeter shapes are enforced at module perimeters: IO, network, storage, and
+boundaries between logic layers. Data crossing a perimeter is validated there,
+once. Maturities are never mixed in one unit of work: scaffolding for a spike
+and the core of a platform carry different obligations and do not belong in the
+same change.
+
 ## The contiguity gap rule
 
 Normal operation's contiguity guard (§13.1 step 5) drops a `Prepare` whose slot is
@@ -203,7 +209,7 @@ is released as an effect, once, and every timeout the cluster's liveness rests
 on is the host's. Whatever the timeout durations and whatever mechanism arms
 them, they are the host's. A repeated send is a relay of what the core has
 already released, never a message the host composes (the authorization rule for
-replayed messages of `vrr-durability-model.md` §13.2; retransmission is host
+replayed messages of `uvrr-durability-model.md` §13.2; retransmission is host
 transport policy there). The papers make the repeated send the implementation's
 matter: the protocol descriptions of Viewstamped Replication Revisited (2012)
 ignore "re-sending of messages that appear to have been lost" as a minor detail
@@ -265,7 +271,7 @@ and saying so.
 Identifiers are per-domain: `W` identity & wire, `S` durability & stability, `Q` quorum
 policy, `B` application boundary, `G` runtime guards & enforcement, `P` process & hygiene.
 Numbering is within the domain.
-Section references are to `docs/vrr-durability-model.md`.
+Section references are to `docs/uvrr-durability-model.md`.
 
 ### Identity & wire
 
@@ -278,7 +284,7 @@ wraparound.
 **Decision.** Superseded. A view is `ViewId { era: u32, view: u32 }`. The wire header is
 20 bytes big-endian: `(tag: u32, era: u32, view: u32, slot: u64)`. No bit packing appears
 anywhere in the wire format. Recorded as Amendment A1 at the end of
-`docs/vrr-durability-model.md`; §8.7.3 is left unedited so its reasoning survives.
+`docs/uvrr-durability-model.md`; §8.7.3 is left unedited so its reasoning survives.
 
 **Rationale.**
 

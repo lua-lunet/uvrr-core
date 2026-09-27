@@ -1,9 +1,9 @@
-# Dockerfile for running Maelstrom tests with vrr-core
-# Build with: docker build -f Dockerfile.maelstrom -t vrr-core-maelstrom .
+# Dockerfile for running Maelstrom tests with uvrr-core
+# Build with: docker build -f Dockerfile.maelstrom -t uvrr-core-maelstrom .
 # The image architecture matches the Docker daemon's native architecture.
 
 # Build stage: compile the Rust binary
-FROM rust:1.85-slim AS builder
+FROM rust:1.96-slim AS builder
 
 # Install required tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and build the Rust project
-WORKDIR /usr/src/vrr-core
+WORKDIR /usr/src/uvrr-core
 COPY . .
 RUN cargo build --release --features maelstrom --bin maelstrom-lin-kv
 
@@ -32,14 +32,14 @@ RUN curl -fsSL https://raw.githubusercontent.com/technomancy/leiningen/${LEIN_VE
     && chmod +x /usr/local/bin/lein
 
 # Copy entrypoint script, Maelstrom submodule and compiled binary
-WORKDIR /usr/src/vrr-core
-COPY docker-entrypoint.sh /usr/src/vrr-core/docker-entrypoint.sh
-COPY --from=builder /usr/src/vrr-core/target/release/maelstrom-lin-kv /usr/local/bin/
+WORKDIR /usr/src/uvrr-core
+COPY docker-entrypoint.sh /usr/src/uvrr-core/docker-entrypoint.sh
+COPY --from=builder /usr/src/uvrr-core/target/release/maelstrom-lin-kv /usr/local/bin/
 COPY maelstrom/ ./maelstrom/
 
 # Create a non-root user for running tests
 RUN useradd -m -u 1000 -U testuser \
-    && chown -R testuser:testuser /usr/src/vrr-core/maelstrom
+    && chown -R testuser:testuser /usr/src/uvrr-core/maelstrom
 USER testuser
 WORKDIR /home/testuser
 
@@ -51,5 +51,5 @@ ENV RATE=20
 ENV INTERVAL=10
 
 # Entry point that can be overridden
-ENTRYPOINT ["/usr/src/vrr-core/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/src/uvrr-core/docker-entrypoint.sh"]
 CMD ["test-all"]

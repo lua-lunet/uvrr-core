@@ -4,7 +4,7 @@
 
 ## Abstract
 
-This document defines the state, persistence, recovery, and concurrency boundary for a SANS-I/O implementation of Viewstamped Replication. `VSR-1988` denotes Brian M. Oki and Barbara H. Liskov's paper [*Viewstamped Replication: A New Primary Copy Method to Support Highly-Available Distributed Systems*](https://www.cs.princeton.edu/courses/archive/fall11/cos518/papers/viewstamped.pdf), presented at PODC in August 1988.[^oki-dissertation] `VRR-2012` denotes Barbara Liskov and James Cowling's later paper, [*Viewstamped Replication Revisited*](https://dspace.mit.edu/entities/publication/80846d94-fcd3-40e6-87fb-8d91fe99a5d1), published in 2012. `vrr-core` implements VRR-2012 only. VSR-1988 is discussed solely to explain the origin and purpose of the VRR-2012 view-change fence.
+This document defines the state, persistence, recovery, and concurrency boundary for a SANS-I/O implementation of Viewstamped Replication. `VSR-1988` denotes Brian M. Oki and Barbara H. Liskov's paper [*Viewstamped Replication: A New Primary Copy Method to Support Highly-Available Distributed Systems*](https://www.cs.princeton.edu/courses/archive/fall11/cos518/papers/viewstamped.pdf), presented at PODC in August 1988.[^oki-dissertation] `VRR-2012` denotes Barbara Liskov and James Cowling's later paper, [*Viewstamped Replication Revisited*](https://dspace.mit.edu/entities/publication/80846d94-fcd3-40e6-87fb-8d91fe99a5d1), published in 2012. `uvrr-core` implements VRR-2012 only. VSR-1988 is discussed solely to explain the origin and purpose of the VRR-2012 view-change fence.
 
 **On the word "recovery".** Where this document says *recovery* it names VRR-2012's own §4.3/§6.1 mechanism, quoted as literature about the cited design. uVRR removes it by construction: a controlled halt is not a crash, a controlled start is not a recovery, and a crashed identity returns only through Crash-Stop-Self-Evict reincarnation, reincarnation is not recovery (`docs/uvrr-boot-gate.md` §1 rules the words; `docs/uvrr-reincarnation.md` §1 rules the identities). Wherever uVRR's own path is described, this document says *state transfer*, *clean start*, or *reincarnation*, and says so.
 
@@ -22,7 +22,7 @@ The core exposes only state and operations required by VRR-2012. Physical layout
 |---|---|
 | `VSR-1988` | Brian M. Oki and Barbara H. Liskov, *Viewstamped Replication: A New Primary Copy Method to Support Highly-Available Distributed Systems*, ACM PODC, 1988. |
 | `VRR-2012` | Barbara Liskov and James Cowling, *Viewstamped Replication Revisited*, MIT-CSAIL-TR-2012-021, 2012. |
-| `vrr-core` | The Rust implementation under analysis. It is intended to implement VRR-2012. |
+| `uvrr-core` | The Rust implementation under analysis. It is intended to implement VRR-2012. |
 
 The phrases “revised VR” and “the revised protocol” are not used without the explicit identifier `VRR-2012`.
 
@@ -384,7 +384,7 @@ The *leader casting vote* is a pipelining optimisation rather than a safety cond
 
 ### 8.7 Planned extension: Unbounded VSR reconfiguration by voting weights
 
-`vrr-core` will support **Unbounded VSR**, a non-stop reconfiguration protocol corresponding to David Turner's unbounded-pipelining reconfiguration result (reference 5) but stated in VSR operations, views, and quorum evidence. This section is the normative design target. It is not a claim that the current implementation already supports reconfiguration.
+`uvrr-core` will support **Unbounded VSR**, a non-stop reconfiguration protocol corresponding to David Turner's unbounded-pipelining reconfiguration result (reference 5) but stated in VSR operations, views, and quorum evidence. This section is the normative design target. It is not a claim that the current implementation already supports reconfiguration.
 
 #### 8.7.1 Configuration
 
@@ -629,7 +629,7 @@ After restarting, `R` cannot participate in any lower view. Therefore the `Start
 
 Persisting only the view fence does not recover accepted operations, commitment, application state, or application completions. A replica which recovers only that fence remains unable to participate until the remaining state has been restored or recovered.
 
-This mechanism is not a selectable `vrr-core` protocol mode. `vrr-core` always retains the VRR-2012 `StartViewChange` exchange. A host may persist progress for recovery, but that persistence does not permit the core to omit or abbreviate the VRR-2012 view-change protocol.
+This mechanism is not a selectable `uvrr-core` protocol mode. `uvrr-core` always retains the VRR-2012 `StartViewChange` exchange. A host may persist progress for recovery, but that persistence does not permit the core to omit or abbreviate the VRR-2012 view-change protocol.
 
 ### 9.4 Three- and five-replica groups
 
@@ -639,7 +639,7 @@ The VRR-2012 quorum-memory failure envelope is determined by group size:
 - with five replicas, quorum memory tolerates two failed or recovering replicas;
 - survival of loss beyond `f` volatile replica states requires additional durable recovery state, not only a view number.
 
-The narrower operational envelope of a three-replica group may make local persistence attractive as a host recovery policy. It does not make VRR-2012 unsafe within its stated failure model, and it does not change the view-change sequence implemented by `vrr-core`.
+The narrower operational envelope of a three-replica group may make local persistence attractive as a host recovery policy. It does not make VRR-2012 unsafe within its stated failure model, and it does not change the view-change sequence implemented by `uvrr-core`.
 
 ### 9.5 `StartViewChange` is not a pre-vote
 
@@ -660,13 +660,13 @@ higher-view evidence
     -> install state only from protocol-qualified evidence
 ```
 
-VRR-2012 states that a replica receiving a normal message from a later view performs state transfer before processing it. The current `vrr-core` implementation instead ignores higher-view `Prepare` and `Commit` messages because their guards require exact view equality. Only `StartViewChange`, qualifying `DoViewChange`, and `StartView` paths advance `Replica.view`.
+VRR-2012 states that a replica receiving a normal message from a later view performs state transfer before processing it. The current `uvrr-core` implementation instead ignores higher-view `Prepare` and `Commit` messages because their guards require exact view equality. Only `StartViewChange`, qualifying `DoViewChange`, and `StartView` paths advance `Replica.view`.
 
 A rejection or NACK containing the higher view can accelerate convergence. It is a liveness optimisation, not part of the quorum-intersection safety argument.
 
 ## 11. Application boundary
 
-`vrr-core` orders opaque operations. It does not model clients, sockets, retries, deduplication, forwarding, or replies.
+`uvrr-core` orders opaque operations. It does not model clients, sockets, retries, deduplication, forwarding, or replies.
 
 An operation is:
 
@@ -842,7 +842,7 @@ The current code contains:
 - separate accepted, committed, and executed frontiers;
 - explicit `Restarting`, `Joining`, and `Replaying` statuses;
 - host strategies for the journal (`Journal`/`JournalView`, with the segmented in-memory implementation) and an explicit stability-completion boundary (`Stability`) gating dependent effects;
-- the lifecycle constructors behind the boot gate (`vrr::lifecycle`): `provision` establishes the genesis configuration and joins fenced `Joining`; `join` enters a fresh identity over the shared genesis prefix; `resume` continues a vouched clean stop and `reincarnate` replaces a crashed identity, both later lives start fenced `Restarting`;
+- the lifecycle constructors behind the boot gate (`uvrr::lifecycle`): `provision` establishes the genesis configuration and joins fenced `Joining`; `join` enters a fresh identity over the shared genesis prefix; `resume` continues a vouched clean stop and `reincarnate` replaces a crashed identity, both later lives start fenced `Restarting`;
 - the host-forced view change (`Input::AdminForceView`, §14.2): an ordinary fence/evidence/install pipeline driven from the host's say-so, never a state install from it, the arm a post-genesis cold start's first fence goes through (§5), the boot fence never self-arming from persisted knowledge;
 - the host-supplied `u64` event tick on every input, serving the classic recovery-nonce role (§6.1, S4);
 - the higher-view normal-message state-transfer behaviour specified by VRR-2012.

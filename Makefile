@@ -45,6 +45,11 @@ help:
 	@echo
 	@echo "Vars: NODES=$(NODES) TIME_LIMIT=$(TIME_LIMIT) RATE=$(RATE) INTERVAL=$(INTERVAL)"
 
+# One-time developer setup: point git at the committed hooks, so the pre-push
+# gate runs the full verification before anything reaches the remote.
+hooks:
+	git config core.hooksPath .githooks
+
 build:
 	cargo build --release --all-targets --features maelstrom
 
@@ -58,10 +63,10 @@ check:
 	# The Maelstrom adapter binary is feature-gated; the lane must build it.
 	cargo test --features maelstrom
 	# The uvrr-reconfig operator binary is feature-gated; the lane must build it.
-	cargo test --features "maelstrom cli"
+	cargo test --features "maelstrom sysadmin_tool"
 
 # The lanes run the node's volatile default: no state dir, no file I/O.
-# Persistence is opt-in — `MAELSTROM_VRR_STATE_DIR`, set per invocation.
+# Persistence is opt-in — `MAELSTROM_UVRR_STATE_DIR`, set per invocation.
 define run_maelstrom
 	cd maelstrom && $(LEIN) run test \
 		-w $(WORKLOAD) --bin $(BIN) \
@@ -90,7 +95,7 @@ RESURRECT_STATE ?= $(CURDIR)/.tmp/state-resurrect
 test-resurrect: build
 	rm -rf $(RESURRECT_STATE)
 	mkdir -p $(RESURRECT_STATE)
-	cd maelstrom && MAELSTROM_VRR_STATE_DIR=$(RESURRECT_STATE) $(LEIN) run test \
+	cd maelstrom && MAELSTROM_UVRR_STATE_DIR=$(RESURRECT_STATE) $(LEIN) run test \
 		-w $(WORKLOAD) --bin $(BIN) \
 		--node-count $(NODES) --time-limit $(TIME_LIMIT) \
 		--rate $(RATE) --concurrency 2n --nemesis kill --nemesis-interval $(INTERVAL)
@@ -110,7 +115,7 @@ labbook-serve:
 # Docker targets - no local JDK/Leiningen required
 # Works with Colima (no BuildKit, no volume mounts).
 # The image architecture matches the Docker daemon's native architecture.
-DOCKER_IMAGE ?= vrr-core-maelstrom
+DOCKER_IMAGE ?= uvrr-core-maelstrom
 DOCKER_FILE   ?= Dockerfile.maelstrom
 
 docker-build:
@@ -129,7 +134,7 @@ e2e: docker-build docker-run
 
 # TLA+ command-line model checking. The image contains the models, so the run
 # path works with Colima/classic Docker and deliberately uses no volume mount.
-TLA_IMAGE     ?= vrr-core-tla
+TLA_IMAGE     ?= uvrr-core-tla
 TLA_FILE      ?= Dockerfile.tla
 TLA_PLATFORM  ?= linux/arm64
 TLA_ARCH      ?= arm64
@@ -146,7 +151,7 @@ tla-build:
 # failing obligation cannot masquerade as the expected defect.
 define TLA_EXPECT_FAILURE_DOCKER
 expect_failure() { \
-	cfg="$$1"; needle="$$2"; shift 2; output="$$(mktemp -t vrr-tla.XXXXXX)"; \
+	cfg="$$1"; needle="$$2"; shift 2; output="$$(mktemp -t uvrr-tla.XXXXXX)"; \
 	if docker run --rm --platform $(TLA_PLATFORM) $(TLA_IMAGE) -workers $(TLA_WORKERS) "$$@" -config "$$cfg" VrrCoreEras.tla >"$$output" 2>&1; then \
 		cat "$$output"; rm -f "$$output"; echo "expected $$cfg to fail"; exit 1; \
 	fi; \
@@ -193,7 +198,7 @@ tla-local:
 	cd formal && java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config VrrCoreErasEven.cfg VrrCoreEras.tla
 	@cd formal && \
 	expect_failure() { \
-		cfg="$$1"; needle="$$2"; output="$$(mktemp -t vrr-tla-local.XXXXXX)"; \
+		cfg="$$1"; needle="$$2"; output="$$(mktemp -t uvrr-tla-local.XXXXXX)"; \
 		if java -XX:+UseParallelGC -jar "$(TLA2TOOLS_JAR)" -workers $(TLA_WORKERS) -config "$$cfg" VrrCoreEras.tla >"$$output" 2>&1; then \
 			cat "$$output"; rm -f "$$output"; echo "expected $$cfg to fail"; exit 1; \
 		fi; \

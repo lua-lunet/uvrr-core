@@ -65,3 +65,19 @@ three lives in `architecture.md`, under the host obligations for correct
 running (the liveness section). This note prescribes nothing about how a
 host times or transports them; timeouts and their mechanisms are the
 host's.
+
+## The genesis boot-fence practice
+
+- The boot fence markers the first boot reads are written by the sysadmin's
+  genesis command, not by the running process: a host that embeds the
+  application needs an equivalent of that command, whether the demo
+  binaries' genesis flag or its own writer. This is a recommendation, not
+  an obligation: a host that bootstraps its markers another way is the
+  host's business, provided what it writes satisfies the boot gate.
+- The system identifier a genesis write burns never begins at zero, for the
+  reason the identity law states: a zero read is an uninitialised field or
+  a corrupt marker, never an identity. The crash-restart counter of the
+  identity the host names on a restart obeys the same rule.
+- The worked example is the TigerBeetle-superblock demo
+  (`examples/uvrr-reincarnation/`), whose own README states what it
+  demonstrates; nothing here is kept current.

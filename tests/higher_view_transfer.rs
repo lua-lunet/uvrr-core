@@ -44,13 +44,13 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::journal::{LogEntry, Payload};
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::ViewChangeKnobs;
-use vrr::wire::{Header, Pack, Tag};
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::journal::{LogEntry, Payload};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::{ProgressSnapshot, Status};
+use uvrr::replica::ViewChangeKnobs;
+use uvrr::wire::{Header, Pack, Tag};
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -24,7 +24,7 @@ implementation's.
 
 | Component | Role |
 |---|---|
-| `vrr-core` | The sans-IO VRR core. One total function; the host owns time, transport, storage, packetization, and naming. The adapter instantiates `Replica<SegmentedLog, WeightedMajority>` running `Stability::Volatile`: protocol state lives in quorum memory, not local storage. |
+| `uvrr-core` | The sans-IO VRR core. One total function; the host owns time, transport, storage, packetization, and naming. The adapter instantiates `Replica<SegmentedLog, WeightedMajority>` running `Stability::Volatile`: protocol state lives in quorum memory, not local storage. |
 | Rust advisory-lock adapter | Owns the lock state machine, the tick clock, exactly-once reply correlation by `message_id`, and the durable recovery nonce. Executes only committed lock commands. |
 | Teal/Lunet service process | `lunet-run build/server.lua`. Owns the TCP client endpoint (newline-delimited JSON), the UDP peer sockets, peer source validation, and forwarding. |
 | LAL Peer Protocol | The service's raw-UDP framing and forwarding layer: envelope `\0LUNET_ADVISORY_LOCK_PEER\0` + kind + membership fingerprint + payload. The fingerprint is the first 16 lowercase hex characters of SHA-256 over the validated lexical member list. |

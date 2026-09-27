@@ -26,8 +26,8 @@ use std::cmp::Ordering;
 use std::mem::{align_of, size_of};
 
 use proptest::prelude::*;
-use vrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId, next_view_selecting};
-use vrr::invariant::Fault;
+use uvrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId, next_view_selecting};
+use uvrr::invariant::Fault;
 
 // ---------------------------------------------------------------------------
 // 1. Layout

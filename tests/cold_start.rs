@@ -30,7 +30,7 @@
 //!    then n(1) starts; both tick in lockstep rounds. The pin: a leader is
 //!    elected, a first value commits, both apply.
 //! 2. **Post-genesis cold restart through the marker machine**
-//!    (§5.1 of `docs/vrr-durability-model.md`): committed normal
+//!    (§5.1 of `docs/uvrr-durability-model.md`): committed normal
 //!    operations past the genesis plus one committed reconfiguration era,
 //!    then the HOST performs the controlled stop of each node,
 //!    `begin_stop`, the drain, `finish_stop`, and the boot's quorum read
@@ -59,13 +59,13 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::configuration::{INIT_SLOT, SystemOperation};
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::lifecycle::{CopyState, Marker, RestartDecision, SuperblockCopies};
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::Status;
-use vrr::wire::{Header, Tag};
+use uvrr::configuration::{INIT_SLOT, SystemOperation};
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::lifecycle::{CopyState, Marker, RestartDecision, SuperblockCopies};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::Status;
+use uvrr::wire::{Header, Tag};
 
 /// The timeout knob: a suspecting node, `Normal` backup or `Restarting`
 /// member (§5.1), fires after more than three ticks of silence (S4).
@@ -91,7 +91,7 @@ fn op_id(lsb: u64) -> OperationId {
 fn cluster() -> Harness {
     Harness::with_knobs(
         2,
-        vrr::replica::ViewChangeKnobs {
+        uvrr::replica::ViewChangeKnobs {
             primary_timeout: TIMEOUT,
             view_change_budget: usize::MAX,
         },
@@ -110,7 +110,7 @@ fn bootstrap(h: &mut Harness) {
     h.assert_safety();
 }
 
-fn snap(h: &Harness, id: NodeId) -> vrr::progress::ProgressSnapshot {
+fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 

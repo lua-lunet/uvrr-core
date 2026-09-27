@@ -25,13 +25,13 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::configuration::{Member, SystemOperation, Weight};
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::journal::{LogEntry, Payload};
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::plan::Plan;
-use vrr::wire::{Header, Tag};
+use uvrr::configuration::{Member, SystemOperation, Weight};
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::journal::{LogEntry, Payload};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::plan::Plan;
+use uvrr::wire::{Header, Tag};
 
 fn n(id: u32) -> NodeId {
     NodeId::new(

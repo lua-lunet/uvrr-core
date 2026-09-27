@@ -17,12 +17,12 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::configuration::{Configuration, SystemOperation};
-use vrr::effects::Stability;
-use vrr::ids::{CrashCounter, Era, NodeId, SystemId, View, ViewId};
-use vrr::journal::{Journal, SegmentedLog};
-use vrr::quorum::{QuorumStrategy, Role, WeightedMajority};
-use vrr::replica::{Input, Pivot, PlanRefusal, Replica, ViewChangeKnobs};
+use uvrr::configuration::{Configuration, SystemOperation};
+use uvrr::effects::Stability;
+use uvrr::ids::{CrashCounter, Era, NodeId, SystemId, View, ViewId};
+use uvrr::journal::{Journal, SegmentedLog};
+use uvrr::quorum::{QuorumStrategy, Role, WeightedMajority};
+use uvrr::replica::{Input, Pivot, PlanRefusal, Replica, ViewChangeKnobs};
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -69,17 +69,17 @@ fn bootstrap(h: &mut Harness) {
 /// Builds a configuration by applying a sequence of operations to genesis.
 fn config_with_weights(order: &[NodeId], weights: &[(NodeId, u32)]) -> Configuration {
     let void = Configuration::void()
-        .apply(&SystemOperation::Void, vrr::configuration::VOID_SLOT)
+        .apply(&SystemOperation::Void, uvrr::configuration::VOID_SLOT)
         .expect("Void at slot 1");
     let mut config = void
         .apply(
             &SystemOperation::Init {
                 order: order.to_vec(),
             },
-            vrr::configuration::INIT_SLOT,
+            uvrr::configuration::INIT_SLOT,
         )
         .expect("Init at slot 2");
-    let mut slot = vrr::configuration::INIT_SLOT;
+    let mut slot = uvrr::configuration::INIT_SLOT;
     for &(node, target_weight) in weights {
         let current = config.weight_of(node).expect("member exists").0;
         for _ in current..target_weight {
@@ -107,7 +107,7 @@ fn construction_finds_pivot_in_wxyz_sequence() {
     let next = config_with_weights(&[w, x, y, z], &[(y, 2)]);
 
     // The construction must find a pivot for leader W.
-    let pivot = vrr::replica::construct_pivot(&WeightedMajority, &current, &next, w)
+    let pivot = uvrr::replica::construct_pivot(&WeightedMajority, &current, &next, w)
         .expect("a pivotal leader finds a split");
 
     // qI ∩ qII = {W}
@@ -158,8 +158,8 @@ fn construction_is_deterministic() {
     let current = config_with_weights(&[w, x, y, z], &[(w, 2)]);
     let next = config_with_weights(&[w, x, y, z], &[(y, 2)]);
 
-    let first = vrr::replica::construct_pivot(&WeightedMajority, &current, &next, w);
-    let second = vrr::replica::construct_pivot(&WeightedMajority, &current, &next, w);
+    let first = uvrr::replica::construct_pivot(&WeightedMajority, &current, &next, w);
+    let second = uvrr::replica::construct_pivot(&WeightedMajority, &current, &next, w);
     assert_eq!(first, second, "same inputs produce the same pivot");
 }
 
@@ -176,7 +176,7 @@ fn construction_falls_back_without_fault() {
     let current = config_with_weights(&[w, x, y, z], &[]);
     let next = config_with_weights(&[w, x, y, z], &[(y, 2)]);
 
-    let pivot = vrr::replica::construct_pivot(&WeightedMajority, &current, &next, w);
+    let pivot = uvrr::replica::construct_pivot(&WeightedMajority, &current, &next, w);
     assert_eq!(pivot, None, "a non-pivotal leader falls back");
 }
 
@@ -194,7 +194,7 @@ fn valid_wxyz_pivot() -> (Configuration, Configuration, Pivot) {
 
     let current = config_with_weights(&[w, x, y, z], &[(w, 2)]);
     let next = config_with_weights(&[w, x, y, z], &[(y, 2)]);
-    let pivot = vrr::replica::construct_pivot(&WeightedMajority, &current, &next, w)
+    let pivot = uvrr::replica::construct_pivot(&WeightedMajority, &current, &next, w)
         .expect("construction succeeds");
     (current, next, pivot)
 }
@@ -205,11 +205,11 @@ fn validation_rejects_duplicate_members() {
     let (current, next, mut pivot) = valid_wxyz_pivot();
     pivot.q_i.push(w); // duplicate the leader in qI
 
-    let refusal = vrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
+    let refusal = uvrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
         .expect_err("duplicate members are refused");
     assert_eq!(
         refusal,
-        vrr::replica::PivotError::DuplicateMember(w),
+        uvrr::replica::PivotError::DuplicateMember(w),
         "named by the duplicated member"
     );
 }
@@ -223,11 +223,11 @@ fn validation_rejects_intersection_not_exactly_leader() {
     pivot.q_i.push(y);
 
     let w = n(0);
-    let refusal = vrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
+    let refusal = uvrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
         .expect_err("an intersection past the leader is refused");
     assert_eq!(
         refusal,
-        vrr::replica::PivotError::IntersectionNotLeader,
+        uvrr::replica::PivotError::IntersectionNotLeader,
         "named by the violation"
     );
 }
@@ -238,11 +238,11 @@ fn validation_rejects_leader_absent_from_qi() {
     let w = n(0);
     pivot.q_i.retain(|&node| node != w);
 
-    let refusal = vrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
+    let refusal = uvrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
         .expect_err("leader absent from qI is refused");
     assert_eq!(
         refusal,
-        vrr::replica::PivotError::LeaderAbsent,
+        uvrr::replica::PivotError::LeaderAbsent,
         "named by the violation"
     );
 }
@@ -253,11 +253,11 @@ fn validation_rejects_leader_absent_from_qii() {
     let w = n(0);
     pivot.q_ii.retain(|&node| node != w);
 
-    let refusal = vrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
+    let refusal = uvrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
         .expect_err("leader absent from qII is refused");
     assert_eq!(
         refusal,
-        vrr::replica::PivotError::LeaderAbsent,
+        uvrr::replica::PivotError::LeaderAbsent,
         "named by the violation"
     );
 }
@@ -269,11 +269,11 @@ fn validation_rejects_qi_not_legal_under_current() {
     let w = n(0);
     pivot.q_i = vec![w];
 
-    let refusal = vrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
+    let refusal = uvrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
         .expect_err("a qI that is not a view quorum is refused");
     assert_eq!(
         refusal,
-        vrr::replica::PivotError::QiNotLegal,
+        uvrr::replica::PivotError::QiNotLegal,
         "named by the violation"
     );
 }
@@ -285,11 +285,11 @@ fn validation_rejects_qii_not_legal_under_current() {
     let w = n(0);
     pivot.q_ii = vec![w];
 
-    let refusal = vrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
+    let refusal = uvrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
         .expect_err("a qII that is not a commit quorum under config(e) is refused");
     assert_eq!(
         refusal,
-        vrr::replica::PivotError::QiiNotLegalCurrent,
+        uvrr::replica::PivotError::QiiNotLegalCurrent,
         "named by the violation"
     );
 }
@@ -305,11 +305,11 @@ fn validation_rejects_qii_not_legal_under_next() {
     // Fix qI to keep the intersection exactly {W}: qI = (members \ qII) ∪ {W}
     pivot.q_i = vec![n(2), n(3), w];
 
-    let refusal = vrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
+    let refusal = uvrr::replica::validate_pivot(&WeightedMajority, &current, &next, w, &pivot)
         .expect_err("a qII that is not a commit quorum under config(e+1) is refused");
     assert_eq!(
         refusal,
-        vrr::replica::PivotError::QiiNotLegalNext,
+        uvrr::replica::PivotError::QiiNotLegalNext,
         "named by the violation"
     );
 }
@@ -383,8 +383,8 @@ fn valid_pivot_does_not_bypass_transition_gate() {
     // promotes itself on the first tick.
     let promoted = replica
         .plan(
-            &vrr::replica::TimedInput {
-                at: vrr::ids::Tick(1),
+            &uvrr::replica::TimedInput {
+                at: uvrr::ids::Tick(1),
                 event: Input::Tick,
             },
             &replica.journal().view(),
@@ -408,8 +408,8 @@ fn valid_pivot_does_not_bypass_transition_gate() {
     let view = replica.journal().view();
     let refusal = replica
         .plan(
-            &vrr::replica::TimedInput {
-                at: vrr::ids::Tick(2),
+            &uvrr::replica::TimedInput {
+                at: uvrr::ids::Tick(2),
                 event: Input::Reconfigure {
                     op: SystemOperation::Increment(n(0)),
                     pivot: Some(pivot),
@@ -523,7 +523,7 @@ fn five_node_weighted_replacement_checks_safety_and_live_pivots_at_every_boundar
     let new = n(5);
     let survivors = [n(0), n(1), n(2), n(3)];
     let initial = config_with_weights(&[n(0), n(1), n(2), n(3), old], &[]);
-    let steps = vrr::replica::forced_steps(&initial, old, new);
+    let steps = uvrr::replica::forced_steps(&initial, old, new);
     assert_eq!(
         steps.len(),
         6,
@@ -531,19 +531,19 @@ fn five_node_weighted_replacement_checks_safety_and_live_pivots_at_every_boundar
     );
 
     let mut current = initial.clone();
-    let mut slot = vrr::configuration::INIT_SLOT;
+    let mut slot = uvrr::configuration::INIT_SLOT;
     let expected_failed_overlap = [2, 2, 2, 2, 1, 1];
     for (boundary, step) in steps.iter().enumerate() {
         slot = slot.next().expect("slot space");
         let next = current.apply(step, slot).expect("the weighted step folds");
-        vrr::quorum::validate_transition(&WeightedMajority, &current, &next)
+        uvrr::quorum::validate_transition(&WeightedMajority, &current, &next)
             .expect("every weighted boundary preserves agreement safety");
         let pairs = legal_boundary_quorum_pairs(&current, &next);
         for leader in survivors {
             let valid_count = pairs
                 .iter()
                 .filter(|pivot| {
-                    vrr::replica::validate_pivot(&WeightedMajority, &current, &next, leader, pivot)
+                    uvrr::replica::validate_pivot(&WeightedMajority, &current, &next, leader, pivot)
                         .is_ok()
                 })
                 .count();
@@ -571,10 +571,10 @@ fn five_node_weighted_replacement_checks_safety_and_live_pivots_at_every_boundar
                     position: 4,
                 },
             ]),
-            vrr::configuration::INIT_SLOT.next().expect("slot space"),
+            uvrr::configuration::INIT_SLOT.next().expect("slot space"),
         )
         .expect("the shortened first boundary folds");
-    vrr::quorum::validate_transition(&WeightedMajority, &initial, &shortened)
+    uvrr::quorum::validate_transition(&WeightedMajority, &initial, &shortened)
         .expect("the shortened first boundary preserves agreement safety");
     assert_eq!(
         minimum_overlap_without(&legal_boundary_quorum_pairs(&initial, &shortened), old),
