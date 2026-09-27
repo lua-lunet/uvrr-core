@@ -53,6 +53,14 @@ name = "uvrr-reconfig"
 path = "src/bin/uvrr-reconfig/main.rs"
 required-features = ["sysadmin_tool"]
 
+# The flavoured-timeout policy tool. A binary, not a second crate: it is living
+# documentation for the timeout model, printing the matcher's opinion for a
+# state and a timeout flavour on the command line, runbook included. Std
+# only, no dependencies, no feature gate: the model is the library's own.
+[[bin]]
+name = "timeout-policy"
+path = "src/bin/timeout-policy/main.rs"
+
 # The TigerBeetle-superblock durability demo (examples/uvrr-reincarnation/).
 # It links the static library extracted from TigerBeetle's own superblock
 # source, which build.sh in that directory compiles with TigerBeetle's pinned
