@@ -52,7 +52,7 @@ use std::sync::Arc;
 
 use crate::configuration::{ConfigError, EraTable};
 use crate::effects::Effect;
-use crate::ids::{NodeId, Slot, Tick, ViewId, next_view_selecting};
+use crate::ids::{Era, NodeId, Slot, Tick, View, ViewId, next_view_selecting};
 use crate::journal::{JournalView, LogEntry, Payload};
 use crate::message::{Body, EraProof, EvidenceKind, Message};
 use crate::observe::Diagnostic;
@@ -104,6 +104,43 @@ pub(in crate::replica) enum CommitFold {
 /// logical accepts.
 pub const FUSE_MAX_OPS: usize = 7;
 
+/// The nomination riders one covered run carried, applied as the CAS bump
+/// (`docs/nominate-leader-assignment.md`): `running` is the view the node
+/// serves, `None` when it is not `Normal` and no nomination can match it.
+/// Each rider CAS-predicates on the running view number, the prior bumps
+/// of the same advance included, and its bump enters the era the carrying
+/// run established, so the view lands in the new arithmetic directly. An
+/// overflowing `from + offset` is inert: the view space's exhaustion is
+/// the nomination's own dead end, never the node's.
+fn run_nominations(running: Option<ViewId>, ops: &[SystemOperation], era: Era) -> Option<ViewId> {
+    let mut running = running;
+    for op in ops {
+        let riders: &[SystemOperation] = match op {
+            SystemOperation::Nominate { .. } => std::slice::from_ref(op),
+            SystemOperation::Batch(sub) => sub.as_slice(),
+            _ => continue,
+        };
+        for rider in riders {
+            let SystemOperation::Nominate { from, offset } = rider else {
+                continue;
+            };
+            let Some(view) = running else {
+                continue;
+            };
+            if view.view != *from {
+                continue;
+            }
+            if let Some(number) = from.0.checked_add(*offset) {
+                running = Some(ViewId {
+                    era,
+                    view: View(number),
+                });
+            }
+        }
+    }
+    running
+}
+
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The era table after folding the system operations the
     /// commit-frontier advance `(from, through]` newly covers (§8.7.1).
@@ -130,10 +167,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         overlay: &[LogEntry],
         from: Slot,
         through: Slot,
-    ) -> Result<Arc<EraTable>, CommitFold> {
-        Ok(self
-            .fold_committed_windowed(journal, overlay, from, through, None)?
-            .0)
+    ) -> Result<(Arc<EraTable>, Option<ViewId>), CommitFold> {
+        let (table, _, _, bumped) =
+            self.fold_committed_windowed(journal, overlay, from, through, None)?;
+        Ok((table, bumped))
     }
 
     /// The windowed form of the fold (§8.7.3, W1): `window` names the era
@@ -143,7 +180,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `stopped` marks the deferral, the tail is folded by the next
     /// round, once the caller's durable view has walked into the era the
     /// folded table established. `window = None` is the unbounded fold the
-    /// ordinary candidates run.
+    /// ordinary candidates run. The fourth element is the nomination bump
+    /// the covered runs carried (`docs/nominate-leader-assignment.md`):
+    /// the view a serving node publishes after the riders its commit
+    /// covered, `None` when no rider matched the node's view.
     pub(in crate::replica) fn fold_committed_windowed(
         &self,
         journal: &J::View,
@@ -151,7 +191,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         from: Slot,
         through: Slot,
         window: Option<crate::ids::Era>,
-    ) -> Result<(Arc<EraTable>, Slot, bool), CommitFold> {
+    ) -> Result<(Arc<EraTable>, Slot, bool, Option<ViewId>), CommitFold> {
         trace!(
             "FOLD_W from={:?} through={:?} window={:?} table_era={:?}",
             from,
@@ -163,6 +203,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         let mut covered = from;
         let mut slot = from;
         let mut window_stopped = false;
+        // The nomination CAS runs over the node's published view, and only
+        // a serving node can match a rider's `from` (the bump is the serving
+        // leader's instrument, never a fenced or electing node's).
+        let mut running =
+            (self.progress.status() == Status::Normal).then_some(self.progress.current());
+        let mut bumped: Option<ViewId> = None;
         while let Some(next) = slot.next() {
             if next > through {
                 break;
@@ -210,7 +256,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     if end > through {
                         return Err(CommitFold::SplitBatch);
                     }
-                    if let Ok(extended) = table.extend(&SystemOperation::Batch(ops), next) {
+                    if let Ok(extended) = table.extend(&SystemOperation::Batch(ops.clone()), next) {
                         if window.is_some_and(|successor| extended.current().era > successor) {
                             // The era window is spent: the fold stops
                             // before this slot, whose establishing
@@ -230,6 +276,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                             next,
                             extended.current().era
                         );
+                        running = run_nominations(running, &ops, extended.current().era);
+                        bumped = running.filter(|view| *view != self.progress.current());
                         table = Arc::new(extended);
                         covered = end;
                         slot = end;
@@ -254,6 +302,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     next,
                     extended.current().era
                 );
+                running =
+                    run_nominations(running, std::slice::from_ref(op), extended.current().era);
+                bumped = running.filter(|view| *view != self.progress.current());
                 table = Arc::new(extended);
                 covered = next;
                 slot = next;
@@ -263,12 +314,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
         }
         trace!(
-            "FOLD_W done: table_era={:?} covered={:?} stopped={}",
+            "FOLD_W done: table_era={:?} covered={:?} stopped={} bumped={:?}",
             table.current().era,
             covered,
-            window_stopped
+            window_stopped,
+            bumped
         );
-        Ok((table, covered, window_stopped))
+        Ok((table, covered, window_stopped, bumped))
     }
 
     /// The reconfiguration gates every proposal path runs, shared by the
@@ -464,6 +516,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             self.progress.committed(),
             self.progress.applied(),
             Arc::clone(self.progress.config()),
+            None,
         )?;
         let prepare = Message {
             header: Header {
@@ -621,6 +674,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             self.progress.committed(),
             self.progress.applied(),
             Arc::clone(self.progress.config()),
+            None,
         )?;
         Ok(self
             .candidate_plan(
@@ -789,6 +843,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             self.progress.committed(),
             self.progress.applied(),
             Arc::clone(self.progress.config()),
+            None,
         )?;
         Ok(self.candidate_plan(
             candidate,

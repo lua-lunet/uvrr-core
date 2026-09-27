@@ -1036,7 +1036,18 @@ fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
                 .map(n)
                 .chain(std::iter::once(bumped))
                 .collect();
-            let steps = uvrr::solver::solve_replacement(&start, n(killed), bumped, &live).unwrap();
+            let steps = uvrr::solver::solve_replacement(
+                &start,
+                n(killed),
+                bumped,
+                &live,
+                // The serving view the plan's riders name; this test drives
+                // its own view changes between eras and the machine
+                // recomputes the forced schedule at runtime, so the riders
+                // ride the solver's plans alone and stay inert here.
+                current_view(&h, n(leader)).view,
+            )
+            .unwrap();
             for (index, step) in steps.iter().enumerate() {
                 h.reincarnate(bumped, n(killed));
                 h.deliver_all();

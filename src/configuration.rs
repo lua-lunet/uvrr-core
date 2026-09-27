@@ -24,13 +24,16 @@
 //! # The operation alphabet, the batch, and the era rule (rules §3–§4, R7–R15)
 //!
 //! Reconfiguration operations (`VOID`, `INIT`, `JOIN`, `LEAVE`, `INCREMENT`,
-//! `DECREMENT`, `DOUBLE`, `HALVE`) are replicated history, not ambient state, so initial
-//! configuration construction is itself reconstructible from that history. One reconfiguration commits a
+//! `DECREMENT`, `DOUBLE`, `HALVE`, `NOMINATE`) are replicated history, not ambient
+//! state, so initial configuration construction is itself reconstructible from that
+//! history. One reconfiguration commits a
 //! [`SystemOperation::Batch`]: operations applied together, in order, establishing one
 //! era. A batch containing `Double` or `Halve` contains nothing else (R13); every other
 //! batch is a unit batch moving at most one unit of per-node mass (R14); genesis and
-//! nested batches are refused (R15). The planner that partitions an operation stream
-//! into legal batches is [`crate::reconfiguration`].
+//! nested batches are refused (R15). A `NOMINATE` rides a batch as a zero-mass
+//! passenger and never occupies a slot of its own
+//! (`docs/nominate-leader-assignment.md`). The planner that partitions an operation
+//! stream into legal batches is [`crate::reconfiguration`].
 //!
 //! The relation `era(view) + 1 >= era(slot) >= era(view)` bounds which configuration may
 //! authorize a slot. The `+1` case is overlap mode: an era-`e` view committing operations
@@ -362,6 +365,7 @@ impl Configuration {
     /// | `Halve` | every `W(n)` even (R10); no rounding |
     /// | `Join { node, position }` | `node ∉ order`; `len() < `[`MAX_MEMBERS`]; `position <= len()`; inserted at weight `0` (R11) |
     /// | `Leave(n)` | `n ∈ order`; `W(n) == 0` (R12) |
+    /// | `Nominate { from, offset }` | rider only: never solitary ([`ConfigError::SolitaryNomination`]); `offset >= 1` ([`ConfigError::ZeroNominationOffset`]); folds to the identical configuration inside a batch |
     /// | `Batch(ops)` | non-empty; no genesis op and no nested batch (R15); a batch containing `Double` or `Halve` is exactly that one op (R13); otherwise the unit rule, over the union of before/after memberships, `Σ_a |W_before(a) − W_after(a)| <= 1` (R14) |
     ///
     /// Every operation must leave `order` non-empty and `total() >= 1`, and only
@@ -445,6 +449,11 @@ impl Configuration {
             // rules §4 applier checks R13–R15 and folds the sub-operations
             // in order within that one era.
             SystemOperation::Batch(ops) => self.apply_batch(ops),
+            // A nomination is a rider, never an establishing operation of
+            // its own (`docs/nominate-leader-assignment.md`): its bump
+            // enters the era of the batch that carries it, so a solitary
+            // entry names an era nothing enters and is refused by name.
+            SystemOperation::Nominate { .. } => Err(ConfigError::SolitaryNomination),
             // A single operation is a one-element era of its own, exactly as
             // before the batch form existed: era first, then the per-op
             // preconditions of the in-era applier.
@@ -620,6 +629,18 @@ impl Configuration {
                     era: self.era,
                     order,
                 })
+            }
+            // A nomination moves no mass and no membership: the rider yields
+            // the identical configuration
+            // (`docs/nominate-leader-assignment.md`). The offset's strict
+            // positivity is the jump's first discipline
+            // (`formal/uvrr-lean/UVRR/ViewJump.lean`), checked at the fold so
+            // no committed batch carries a seat that names no increment.
+            SystemOperation::Nominate { offset, .. } => {
+                if *offset == 0 {
+                    return Err(ConfigError::ZeroNominationOffset);
+                }
+                Ok(self.clone())
             }
             // Unreachable from the two dispatchers: `apply` routes genesis and
             // batch operations elsewhere before the in-era applier runs, and
@@ -813,6 +834,15 @@ pub enum ConfigError {
     /// reachable *after* commitment, with no repair path that does not itself need a
     /// quorum.
     TotalWouldBeZero,
+    /// A `Nominate` occupied a slot of its own. The nomination is a rider: it rides
+    /// the establishing batch of the era its view bump enters
+    /// (`docs/nominate-leader-assignment.md`), so a solitary nomination entry names
+    /// an era its own bump never enters and is refused rather than established.
+    SolitaryNomination,
+    /// A `Nominate` named a zero offset. The jump strictly increases
+    /// (`formal/uvrr-lean/UVRR/ViewJump.lean`, the rule's first discipline), and a
+    /// zero-offset nomination would occupy a batch seat while naming no increment.
+    ZeroNominationOffset,
     /// The era space is exhausted: establishing the next era would wrap the `u32` era.
     /// §8.7.3 forbids wraparound, a reused era makes `config(e)` ambiguous and breaks
     /// the `R1`/`R2` intersection argument (§8.7.4), which is stated over consecutive
@@ -916,6 +946,23 @@ pub enum SystemOperation {
     /// Removes a member whose weight is 0 (R12). The second half of the only
     /// departure route; see [`Configuration::apply`].
     Leave(NodeId),
+    /// A view increment carried as a compare-and-swap at a committed slot
+    /// (`docs/nominate-leader-assignment.md`). Moves no mass and no
+    /// membership: folded in era it yields the identical configuration, so
+    /// it rides the establishing batch of the era whose positive-weight
+    /// sequence changes, and a node applying it at commit bumps its view
+    /// by `offset` when its published view number equals `from`. `from`
+    /// names the view number the proposing leader believes the cluster
+    /// holds, never a configuration-era claim; `offset` is strictly
+    /// positive.
+    Nominate {
+        /// The view number the cluster is expected to hold when this
+        /// commits.
+        from: View,
+        /// The increment, strictly positive: the least offset that
+        /// re-elects the leader under the era this batch establishes.
+        offset: u32,
+    },
     /// One reconfiguration: the sub-operations fold in order within ONE era, and
     /// the batch is that era's establishing operation (rules §4). Legal only when
     /// non-empty, free of genesis and nested batches (R15), solitary if it carries a
@@ -946,6 +993,7 @@ impl SystemOperation {
             SystemOperation::Join { .. } => 7,
             SystemOperation::Leave(_) => 8,
             SystemOperation::Batch(_) => 9,
+            SystemOperation::Nominate { .. } => 10,
         }
     }
 }
@@ -963,6 +1011,7 @@ impl Pack for SystemOperation {
             SystemOperation::Increment(_) | SystemOperation::Decrement(_) => 1 + 4,
             SystemOperation::Join { .. } => 1 + 4 + 4,
             SystemOperation::Leave(_) => 1 + 4,
+            SystemOperation::Nominate { .. } => 1 + 4 + 4,
             SystemOperation::Batch(ops) => 1 + 4 + ops.iter().map(Pack::packed_len).sum::<usize>(),
         }
     }
@@ -985,6 +1034,10 @@ impl Pack for SystemOperation {
             SystemOperation::Join { node, position } => {
                 node.pack(w);
                 w.u32(*position);
+            }
+            SystemOperation::Nominate { from, offset } => {
+                from.pack(w);
+                w.u32(*offset);
             }
             SystemOperation::Batch(ops) => {
                 let count = u32::try_from(ops.len())
@@ -1026,6 +1079,11 @@ impl Unpack for SystemOperation {
                 Ok(SystemOperation::Join { node, position })
             }
             8 => Ok(SystemOperation::Leave(NodeId::unpack(c)?)),
+            10 => {
+                let from = View::unpack(c)?;
+                let offset = c.u32()?;
+                Ok(SystemOperation::Nominate { from, offset })
+            }
             9 => {
                 let count = c.u32()?;
                 // No `with_capacity(count)`, for the same reason as `Init`: the

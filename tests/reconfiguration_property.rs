@@ -137,7 +137,9 @@ fn assert_domain(config: &Configuration) {
 }
 
 /// The nodes an op touches: the op's own member, or every member for the
-/// whole-configuration scaling ops.
+/// whole-configuration scaling ops. The nomination touches nothing: it
+/// moves no mass and no membership
+/// (`docs/nominate-leader-assignment.md`).
 fn touched(op: &SystemOperation, config: &Configuration) -> Vec<NodeId> {
     match op {
         SystemOperation::Increment(node)
@@ -147,9 +149,10 @@ fn touched(op: &SystemOperation, config: &Configuration) -> Vec<NodeId> {
         SystemOperation::Double | SystemOperation::Halve => {
             config.order().iter().map(|m| m.node).collect()
         }
-        SystemOperation::Void | SystemOperation::Init { .. } | SystemOperation::Batch(_) => {
-            Vec::new()
-        }
+        SystemOperation::Void
+        | SystemOperation::Init { .. }
+        | SystemOperation::Batch(_)
+        | SystemOperation::Nominate { .. } => Vec::new(),
     }
 }
 

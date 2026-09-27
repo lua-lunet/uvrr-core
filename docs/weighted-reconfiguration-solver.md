@@ -9,10 +9,19 @@ The target's exact membership order and weights are honoured; its era is ignored
 For identical ordered identities, the solver decreases unavailable weights,
 increases available weights, decreases available weights, then increases
 unavailable weights. This takes the minimum number of unit edits. Exact global
-doubling or halving takes one batch. For different identities or order, it uses
-an available one-voter intermediate, transfers the vote to a live target member
-when necessary, and constructs the target membership. This route is complete
-within the membership cap but can reduce tolerance of additional failures.
+doubling or halving takes one batch. For different identities or order, the
+longest common prefix the two orders share, member and weight alike, stays
+put: the current's tail drains and leaves, and the target's tail joins and
+takes its weights, each live joiner promoted at its join, the dead joiners'
+weights restored last. A prefix whose own mass cannot hold a majority falls
+back to the available one-voter intermediate, which reserves one live voter
+and transfers the vote to a live target member when necessary, complete
+within the membership cap but reducing tolerance of additional failures.
+The target's exact membership order and weights are honoured; its era is
+ignored. Every step carries a `Nominate` rider that bumps the view into
+the era the step establishes, keeping the leader constant through the plan
+(`docs/nominate-leader-assignment.md`); the serving view is an argument, a
+snapshot supplied by the operator like the availability.
 
 `solve_replacement(current, old, new, available)` retains the old member's weight
 and position under a fresh identity. It prefers the full standard schedule when

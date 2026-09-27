@@ -1992,6 +1992,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             committed,
             applied,
             Arc::clone(self.progress.config()),
+            None,
         )?;
         let bookkeeping = Bookkeeping {
             resolved: vec![slot],
@@ -2167,9 +2168,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// published table, or, when the transition moves the commit
     /// frontier, the table folded over the system operations the advance
     /// newly covers (§8.7.1, see `reconfiguration::fold_committed`).
-    /// `Progress::reconstitute` validates the full invariant set on the
-    /// result, and the publish gate re-checks the pair, the two checks are
-    /// the belt and the braces.
+    /// `view` is the nomination bump the same fold returned
+    /// (`docs/nominate-leader-assignment.md`): `Some` publishes the bumped
+    /// view as the node's current view, the serving view advanced by the
+    /// committed command, while the retained view, the retained history's
+    /// provenance, stays what it was, the bump re-selects nothing; `None`
+    /// keeps the published pair. `Progress::reconstitute` validates the
+    /// full invariant set on the result, and the publish gate re-checks
+    /// the pair, the two checks are the belt and the braces.
     fn candidate_with(
         &self,
         status: Status,
@@ -2177,6 +2183,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         committed: Slot,
         applied: Slot,
         config: Arc<EraTable>,
+        view: Option<ViewId>,
     ) -> Result<Progress, PlanRefusal> {
         let revision = self
             .progress
@@ -2184,8 +2191,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .checked_add(1)
             .ok_or(ProgressError::RevisionExhausted)
             .map_err(PlanRefusal::Progress)?;
+        let current = view.unwrap_or_else(|| self.progress.current());
         Progress::reconstitute(
-            self.progress.current(),
+            current,
             self.progress.retained(),
             status,
             accepted,
