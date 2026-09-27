@@ -45,6 +45,11 @@ help:
 	@echo
 	@echo "Vars: NODES=$(NODES) TIME_LIMIT=$(TIME_LIMIT) RATE=$(RATE) INTERVAL=$(INTERVAL)"
 
+# One-time developer setup: point git at the committed hooks, so the pre-push
+# gate runs the full verification before anything reaches the remote.
+hooks:
+	git config core.hooksPath .githooks
+
 build:
 	cargo build --release --all-targets --features maelstrom
 

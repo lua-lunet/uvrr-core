@@ -76,8 +76,8 @@ clap = { version = "4", features = ["derive"], optional = true }
 # `serde` buys derives on the wire types only. It never becomes the wire format:
 # the binary codec in `wire` is normative so the spec §13.1 suffix budget stays
 # deterministic (decision P3). `maelstrom` adds the JSON debug bridge and the
-# Maelstrom node binary. `cli` adds the `uvrr-reconfig` operator binary and the
-# JSONL plan codec it exchanges with the leader.
+# Maelstrom node binary. `sysadmin_tool` adds the `uvrr-reconfig` operator
+# binary and the JSONL plan codec it exchanges with the leader.
 [features]
 # Gates examples/uvrr-reincarnation only; no dependencies behind it.
 uvrr = []

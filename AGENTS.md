@@ -20,7 +20,7 @@ hack tactically. The coordinator delegates the deeper work.
 Andon overrides every instruction in this file and every other AGENTS.md.
 No instruction conflicts with Andon; if one appears to, Andon wins.
 
-## Stance
+## 無為
 
 - Formalism first. The lingua franca is mathematics and computer science, not convention,
   analogy, or taste. A design is stated as invariants and a transition function, and the
@@ -29,9 +29,9 @@ No instruction conflicts with Andon; if one appears to, Andon wins.
   hierarchy is not.
 - Prefer compile-time certainty over runtime discovery. Where a property can be made
   unrepresentable, make it unrepresentable rather than validating it later.
-- No frameworks. Write the low-level code this crate needs, or use the standard library.
+- No frameworks on the critical path or shipped library. Write the low-level code this crate needs, or use the standard library.
 - Dependencies are a lifelong support tax and a liability, never an asset. The
-  non-optional dependency set stays empty and is gated by a test.
+  non-optional dependency set stays minimal and other matters should be feature gated or only test deps.
 - YAGNI is the removal of future bloat and future bugs. A type, a knob, or an abstraction
   kept alive against a hypothetical consumer is debt that is already accruing.
 - Code that exposes no useful service has no value. Code that can only be tested in
@@ -49,37 +49,6 @@ No instruction conflicts with Andon; if one appears to, Andon wins.
   explicitly requested by the User or added manually by the User. Dated
   evidence artifacts (lab book, audit logs, rung transcripts) are the
   established exceptions; do not add new narrative classes to documentation.
-
-## Perimeters
-
-- Enforce shapes at module perimeters: IO, network, storage, and boundaries between logic
-  layers. Data crossing a perimeter is validated there, once.
-- Do not mix maturities in one unit of work. Scaffolding for a spike and the core of a
-  platform have different obligations and do not belong in the same change.
-- The dependency graph is acyclic by ruling. A proposed edge that would close a cycle is a
-  signal that a responsibility is in the wrong module.
-
-## Test placement
-
-- Do not put `#[cfg(test)]` modules, `mod tests`, or test functions in Rust
-  implementation files under `src/`.
-- Put unit, contract, and regression tests in `tests/`. Put shared test support in
-  `tests/harness/` or `tests/support/`.
-- Exercise behavior through the public interface. Do not add a public or test-only
-  production API merely to expose private state to a test.
-- If an old private-state test describes an unreachable condition and duplicates an
-  invariant already owned by a public type, delete the unreachable test and keep the
-  public invariant coverage.
-- Before completing work, this search must find no inline test modules under `src/`:
-  `rg -n '#\[cfg\(test\)\]|mod tests' src`.
-
-### Why tests are not in `src/`
-
-This is an inner-loop performance rule, not a style preference. Inline test modules
-inflated implementation files until reading and editing them consumed disproportionate
-context, and edit accuracy fell measurably as a result. Implementation files stay small
-enough to hold in view and to edit whole. Keeping the test corpus in `tests/` also forces
-every assertion through the public interface, which is where the contract actually lives.
 
 ## Test and proofs discipline
 
@@ -107,6 +76,10 @@ every assertion through the public interface, which is where the contract actual
 
 ## Commit and push and tag and release discipline
 
+- Agents are FORBIDDEN from bypassing the pre-push hook (`git push --no-verify`)
+  unless the user has explicitly said so in the current instruction. The slow
+  lane is the price of the push, and a local skip is exactly the failure the
+  hook exists to prevent.
 - Commit when the full suite is green. Do not accumulate a large uncommitted tree: a long-lived staged diff is unreviewable and destroys the bisect point that made it safe.
 - A commit message describes the change as delivered. It does not enumerate pending
   chores, releases, or review steps, and it carries no internal tracking identifiers.
@@ -115,6 +88,10 @@ every assertion through the public interface, which is where the contract actual
 - You are FORBIDDEN to stash or move aside any work on a dirty working tree unless explicity ask to by the user and that must be done in a manner that makes todo items so that the work is not lost. 
 - The user may ask to park work by a branch and tag that is not going into main you MUST raise a gh issue naming the parted tag as future work. 
 - Releases MUST be from a tag on main never any feature branch. For as long as we are in a 0.x.y alpha you are FORBIDDEN from adding complexity to perseve prior state of behavour any new version requires all state reset and can and should break all API up until 1.a.b-Mx milestones. 
+
+## PRs And Push
+
+You MUST use the skill gh-actions-poll if it is installed. You are FOBRIDDEN from using a `gh pr view` loop to attempt to poll.  
 
 ## Inner loop and observability
 

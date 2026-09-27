@@ -47,6 +47,7 @@ fn plan_replacement(start: &Configuration, old: NodeId, new: NodeId, live: &[Nod
 /// JSONL schema of `docs/weighted-reconfiguration-solver.md`. The ids are the
 /// lawful packed pairs: systems 1, 2, 3 at crash counter 1, and the
 /// reincarnated identity is system 4's first life.
+#[cfg(any(feature = "serde", feature = "sysadmin_tool"))]
 const THREE_NODE_PLAN: &str = concat!(
     "{\"kind\":\"plan\",\"version\":1,\"initial\":[{\"id\":65537,\"weight\":1},",
     "{\"id\":131073,\"weight\":1},{\"id\":196609,\"weight\":1}],",
@@ -412,10 +413,10 @@ mod jsonl {
 /// on that same feature: with the feature off it compiles to nothing — no
 /// spawn paths, no environment lookups, no guards. The module's compilation,
 /// the binary's build and the binary-path environment variable are all keyed
-/// off the one flag, so they cannot disagree; the verification gate runs the
-/// combined lane, where the tests are real.
+/// off the one flag, so they cannot disagree; the verification gate's
+/// full-feature lane is where the tests are real.
 #[cfg(feature = "sysadmin_tool")]
-mod cli {
+mod sysadmin_tool_lane {
     use super::*;
     use std::net::UdpSocket;
     use std::process::{Command, Stdio};

@@ -95,6 +95,14 @@ deliverable. Run the full lane with the harness before any push:
 cargo test --features maelstrom
 ```
 
+### The pre-push hook
+
+`make hooks` installs the repository's pre-push gate (it points git at the
+committed hooks with `git config core.hooksPath .githooks`). Before anything
+reaches the remote the hook runs the full verification gate, including the
+slow and expensive maelstrom lane. It is skippable with
+`git push --no-verify`; please do not skip it.
+
 In order to run the maelstrom targets you need to fetch maelstrom as a submodule with 
 
 ```shell

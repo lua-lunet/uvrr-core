@@ -128,6 +128,12 @@ arithmetic published for the host (the randomized-timeout recommendation, S4).
 The graph above is acyclic, and stays so by ruling. A proposed edge that would create a
 cycle is a signal that a responsibility is in the wrong module.
 
+Perimeter shapes are enforced at module perimeters: IO, network, storage, and
+boundaries between logic layers. Data crossing a perimeter is validated there,
+once. Maturities are never mixed in one unit of work: scaffolding for a spike
+and the core of a platform carry different obligations and do not belong in the
+same change.
+
 ## The contiguity gap rule
 
 Normal operation's contiguity guard (§13.1 step 5) drops a `Prepare` whose slot is
