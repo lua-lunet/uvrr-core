@@ -421,6 +421,137 @@ fn duplicate_prepare_is_idempotent() {
     h.assert_safety();
 }
 
+/// The frontier clause: a slot is assigned once in a legitimate history,
+/// so a re-offered `Prepare` for an accepted slot whose payload differs
+/// from the held entry is the named [`Diagnostic::ConflictingEntry`]
+/// drop. The held entry stands: nothing is journaled, no
+/// acknowledgement is emitted, and the state never changes. Without the
+/// guard the re-offer would re-append a contradicting entry or, worse,
+/// re-acknowledge the rewrite as the idempotent repeat admits.
+#[test]
+fn conflicting_reoffer_for_an_accepted_slot_is_a_named_drop() {
+    let mut h = bootstrapped();
+    h.propose(n(0), op_id(1), b"one"); // slot 3
+    h.deliver_to_matching(n(1), Tag::Prepare, Slot(3))
+        .expect("queued");
+    h.deliver_to_matching(n(0), Tag::PrepareOk, Slot(3))
+        .expect("queued");
+    assert_eq!(h.snapshot(n(0)).expect("up").committed, 3);
+    assert_eq!(h.snapshot(n(1)).expect("up").accepted, 3);
+
+    // The re-offer names slot 3 but contradicts the held entry: the
+    // fabricated retransmission, the harness's documented path.
+    h.send(n(0), n(1), prepare(3, 2, op_id(1), b"rewritten"));
+    let delivery = h
+        .deliver_to_matching(n(1), Tag::Prepare, Slot(3))
+        .expect("queued");
+    let StepOutcome::Published { effects, .. } = delivery.outcome else {
+        panic!("the drop publishes: {:?}", delivery.outcome);
+    };
+    assert!(
+        effects.is_empty(),
+        "the contradiction publishes nothing: {effects:?}"
+    );
+    assert_eq!(
+        h.diagnostic(n(1)),
+        Some(Diagnostic::ConflictingEntry { slot: Slot(3) }),
+        "the contradicting re-offer is a named drop"
+    );
+    let held = h
+        .journal_entry(n(1), Slot(3))
+        .expect("the held entry stands");
+    let Payload::Operation { payload, .. } = &held.payload else {
+        panic!("an operation slot: {:?}", held.payload);
+    };
+    assert_eq!(
+        payload.as_ref(),
+        b"one",
+        "the journal holds the accepted value, never the re-offer's"
+    );
+    assert_eq!(h.snapshot(n(1)).expect("up").accepted, 3, "no re-append");
+    assert_eq!(h.snapshot(n(1)).expect("up").committed, 2);
+    assert!(
+        h.peek_queued(n(0), Tag::PrepareOk).is_none(),
+        "no acknowledgement for the contradiction"
+    );
+
+    h.deliver_all();
+    for id in [n(0), n(1), n(2)] {
+        h.execute_apply_effects(id);
+    }
+    h.assert_safety();
+}
+
+/// The view clause: a `Prepare` whose header names a view of the current
+/// era whose primary the transport-attributed sender is not is the named
+/// [`Diagnostic::SenderNotPrimary`] drop, and the primary-attribution
+/// guard outranks both the §10 higher-view staleness signal and the
+/// exact-view mismatch, a forged attribution is never fenced on. The
+/// header names view 1, the primary the arithmetic names is n1, and the
+/// sender is n2: the refusal, nothing else, no fence into the named
+/// view, no mismatch, no acknowledgement, and no state change.
+#[test]
+fn a_prepare_from_the_non_primary_of_its_named_view_is_a_named_drop() {
+    let mut h = bootstrapped();
+    assert_eq!(h.snapshot(n(1)).expect("up").accepted, 2);
+
+    let forged = Message {
+        header: Header {
+            tag: Tag::Prepare,
+            view: ViewId {
+                era: Era(1),
+                view: View(1),
+            },
+            slot: Slot(3),
+        },
+        body: Body::Prepare {
+            entry: LogEntry {
+                slot: Slot(3),
+                era: Era(1),
+                payload: Payload::Operation {
+                    id: op_id(1),
+                    payload: b"impersonated".to_vec().into_boxed_slice(),
+                },
+            },
+            committed: Slot(2),
+        },
+    };
+    h.inject(n(2), n(1), forged);
+
+    assert_eq!(
+        h.diagnostic(n(1)),
+        Some(Diagnostic::SenderNotPrimary {
+            sender: n(2),
+            view: ViewId {
+                era: Era(1),
+                view: View(1),
+            },
+        }),
+        "the forged attribution is a named drop"
+    );
+    let snapshot = h.snapshot(n(1)).expect("up");
+    assert_eq!(
+        snapshot.accepted, 2,
+        "the forged attributor installs nothing"
+    );
+    assert_eq!(snapshot.committed, 2, "the frontier is unmoved");
+    assert_eq!(
+        snapshot.status,
+        Status::Normal.to_word(),
+        "never fenced on a forged attribution"
+    );
+    assert!(
+        h.peek_queued(n(2), Tag::GetState).is_none(),
+        "no fetch half rides the refusal: the message is not the §10 signal"
+    );
+    assert!(
+        h.queued_len() == 0,
+        "the drop emits nothing in either direction"
+    );
+
+    h.assert_safety();
+}
+
 /// An out-of-order `Prepare` is a gap: dropped, reported as `GapDetected`,
 /// never faulted, and the fetch half of the ruling (§13.1 step 5) rides
 /// the same transition, asking the primary for the missing range. The
