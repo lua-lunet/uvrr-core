@@ -166,7 +166,11 @@ applies to it with double force, the branch rule AND a cleanup rule.
 
 ## Stash is destructive
 
-Models like to stash then expect magically they will be around to pop. This is a fiction when an LLM stashes it is an attempted robbery in progress. A stash is a data loss witing to happen. This means that stashing is discouraged unless doing "human-on-the-loop" Sev1 fixes. During routine work you must follow the branch discipline and make a todo naming a branch must be checked it is  not lost, you can use "stash_" in the branch name, do a wip --no-verify commit naming its stashed work and what it was stashed as in "put asside to fix xxxx due to Andon/User ire", then checkout the code without the stashed work and continue.   
+Models like to stash then expect magically they will be around to pop. This is a fiction when an LLM stashes it is an attempted robbery in progress. A stash is a data loss witing to happen. This means that stashing is discouraged unless doing "human-on-the-loop" Sev1 fixes. During routine work you must follow the branch discipline and make a todo naming a branch must be checked it is  not lost, you can use "stash_" in the branch name, do a wip --no-verify commit naming its stashed work and what it was stashed as in "put asside to fix xxxx due to Andon/User ire", then checkout the code without the stashed work and continue. 
+
+## Destructive is destructive
+
+This codebase is safety first. This means you will never force push nor do a git reset or a stash drop or any action without a backup. You can tivially rsync into a .tmp folder using the .gitignore filter to have a "oops!" backup. If the potential loss is more than trivial then .tmp itself is not safe enough risky items are rare and blocking on a command to backup outside the repo. If the user is on the loop in a recovery then most certainly backup somewhere safer and the user will "allow once" to ensure the backup is saved yet cannot be casually deleted. Add a todo at the end to purge the backup if it was never needed. 
 
 ## Subagent delegation
 
