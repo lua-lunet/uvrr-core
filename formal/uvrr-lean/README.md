@@ -94,3 +94,24 @@ it does not prove that every conceivable scheme without overlap is unsafe.
 And passing the entire ladder is not yet an end-to-end uVRR or VRR-2012 proof.
 Whole-log view selection, repeated operational
 reconfiguration, client linearizability and progress remain integration work.
+
+## Proof tooling
+
+The formalization is written in plain Lean 4 with Mathlib as build-time
+proof tooling. Solvers and automation were surveyed before the work began;
+what contributed and what did not:
+
+- omega, built into Lean, zero install, routinely used.
+- Aesop, exercised (4/4 propositional theorems solved). Not a dependency
+  of the formalization. Record: `research/lean-solvers-cli-omega-aesop.md`.
+- lean-auto / Duper, exercised (2/3 theorems solved, T2 commutativity timed
+  out at 500 s). Not a dependency. Record:
+  `research/lean-solvers-cli-lean-auto.md`.
+- Veil, never tire-kicked: it pins v4.32.0 and pulls Mathlib, and the
+  formalization uses plain Lean by design. Record:
+  `research/tool-kick-tires.md`, `research/outcomes-paper.md`.
+- LeanLTL, never exercised beyond checkout: past-time operators remain
+  future work. Record: `research/outcomes-paper.md`.
+
+None of these are submodules. Experiment records live under `research/`;
+do not re-add the tools as submodules.
