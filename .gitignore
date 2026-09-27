@@ -1,5 +1,4 @@
 /target/
-Cargo.lock
 # Maelstrom run artifacts and per-node durable state.
 /maelstrom/store/
 /.state/
