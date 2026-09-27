@@ -96,13 +96,14 @@ jobs:
           # run compiles the maelstrom adapter tests to nothing and never
           # boots the harness (the library, not the harness, is the
           # deliverable); the second, slower run is the full feature set,
-          # driving the real maelstrom-lin-kv binary end to end. The `uvrr`
+          # driving the real maelstrom-lin-kv binary end to end and building
+          # the sysadmin_tool operator binary its format tests spawn. The `uvrr`
           # demo example is excluded from both: it links the vendored
           # TigerBeetle static library, which build.sh builds on the host
           # that packages tagged releases, and no runner checkout carries
           # that artifact.
           cargo test --lib --bins --tests
-          cargo test --features maelstrom --lib --bins --tests
+          cargo test --all-features --lib --bins --tests
           cargo test --doc
           ! rg -n '#\[cfg\(test\)\]|mod tests' src
           ! rg -in 'paxos' src/ tests/

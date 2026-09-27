@@ -15,9 +15,10 @@ cargo clippy --all-targets --all-features -- -D warnings
 # because the library, not the harness, is the deliverable.
 cargo test --lib --bins --tests
 
-# The maelstrom lane: the real binary end to end, the gate a push must have
-# passed locally.
-cargo test --features maelstrom --lib --bins --tests
+# The full-feature lane: the real maelstrom binary end to end and the
+# sysadmin_tool operator binary its format tests spawn, the gate a push must
+# have passed locally.
+cargo test --all-features --lib --bins --tests
 
 cargo test --doc
 

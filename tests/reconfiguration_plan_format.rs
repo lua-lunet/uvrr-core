@@ -407,9 +407,9 @@ mod jsonl {
 }
 
 /// The CLI surface: the real binary, driven exactly as an operator drives it.
-/// Without the `cli` feature there is no binary, and each test says so and
-/// passes vacuously.
-mod cli {
+/// Without the `sysadmin_tool` feature there is no binary, and each test
+/// says so and passes vacuously.
+mod sysadmin_tool_lane {
     use super::*;
     use std::net::UdpSocket;
     use std::process::{Command, Stdio};

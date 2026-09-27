@@ -3,7 +3,7 @@
 # The image architecture matches the Docker daemon's native architecture.
 
 # Build stage: compile the Rust binary
-FROM rust:1.85-slim AS builder
+FROM rust:1.96-slim AS builder
 
 # Install required tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
