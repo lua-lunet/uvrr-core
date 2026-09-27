@@ -448,11 +448,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // a sender outside the configuration is unknown; a sender whose
         // weight is 0 is a learner, it receives history but contributes
         // nothing to any quorum, so its vote is dropped before it is ever
-        // counted.
+        // counted. The arrival still asks the standing commit question
+        // (§4, R4): the learner's acknowledgement is not a vote, but a
+        // drained intermediate's sole voter is its own commit quorum, so
+        // the route's zero-mass steps commit without another voter's vote;
+        // at any era where the recorded votes hold no quorum the question
+        // changes nothing and the drop is the answer.
         match record.config.weight_of(from) {
             None => return self.drop_plan(Diagnostic::UnknownSender { sender: from }, kind),
             Some(weight) if weight.0 == 0 => {
-                return self.drop_plan(Diagnostic::LearnerSender { sender: from }, kind);
+                let committed = self.standing_commit_frontier(journal);
+                return self
+                    .finish_commit_quorum(journal, committed, Vec::new(), kind)
+                    .map(|plan| plan.with_diagnostic(Diagnostic::LearnerSender { sender: from }));
             }
             Some(_) => {}
         }
@@ -484,15 +492,25 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             covered = next;
         }
-        // Then the cascade over the contiguous accepted tail: a slot
-        // commits when its Commit quorum lands (the strategy decides,
-        // Q1), and commits pull every earlier quorum-holding slot with
-        // them (§4). The in-flight vote counts for the whole covered
-        // range, because it vouches for the whole range. The cascade is
-        // SEGMENT-ATOMIC: a maximal run of consecutive system entries is
-        // the one establishing batch a fuse envelope packed
-        // (`docs/uvrr-fuse.md` §1) and commits whole or not at all, an
-        // establishing batch's era is established by the whole fold.
+        // Then the cascade over the contiguous accepted tail, the
+        // arriving vote counted.
+        let committed = self.commit_cascade_frontier(journal, Some((from, slot)));
+        self.finish_commit_quorum(journal, committed, oks, kind)
+    }
+
+    /// The cascade over the contiguous accepted tail (§4): a slot commits
+    /// when its Commit quorum lands (the strategy decides, Q1), and
+    /// commits pull every earlier quorum-holding slot with them (§4).
+    /// `vote`, when a member's acknowledgement arrived, counts for the
+    /// whole covered range, because it vouches for the whole range; the
+    /// standing question passes `None`, the leader's own implicit vote
+    /// and the recorded acknowledgements alone. The cascade is
+    /// SEGMENT-ATOMIC: a maximal run of consecutive system entries is
+    /// the one establishing batch a fuse envelope packed
+    /// (`docs/uvrr-fuse.md` §1) and commits whole or not at all, an
+    /// establishing batch's era is established by the whole fold.
+    fn commit_cascade_frontier(&self, journal: &J::View, vote: Option<(NodeId, Slot)>) -> Slot {
+        let record = self.progress.config().current();
         let mut committed = self.progress.committed();
         while let Some(next) = committed.next() {
             if next > self.progress.accepted() {
@@ -506,7 +524,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 if let Some(outstanding) = self.proposals.get(&cursor) {
                     members.extend(outstanding.oks.iter().copied());
                 }
-                if cursor <= slot && !members.contains(&from) {
+                if let Some((from, slot)) = vote
+                    && cursor <= slot
+                    && !members.contains(&from)
+                {
                     members.push(from);
                 }
                 if !self
@@ -526,6 +547,32 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             committed = segment.1;
         }
+        committed
+    }
+
+    /// The standing commit question (§4, R4): the cascade with no arriving
+    /// vote, the leader's own implicit vote and the recorded
+    /// acknowledgements alone. A learner's arrival asks it, its own
+    /// acknowledgement counting against no quorum; a drained
+    /// intermediate's sole voter is its own commit quorum, so the
+    /// route's zero-mass steps commit without another voter's vote.
+    fn standing_commit_frontier(&self, journal: &J::View) -> Slot {
+        self.commit_cascade_frontier(journal, None)
+    }
+
+    /// The commit tail the `PrepareOk` and `FuseOk` quorums and the
+    /// standing question share: publish the bookkeeping quietly when the
+    /// cascade committed nothing, else fold the advance (§8.7.1, the
+    /// nomination's bump riding the same transition), run the overlap
+    /// solicitation and the plan-execution hooks, and announce the new
+    /// frontier (§13.3).
+    fn finish_commit_quorum(
+        &self,
+        journal: &J::View,
+        committed: Slot,
+        oks: Vec<(Slot, NodeId)>,
+        kind: InputKind,
+    ) -> Result<PlannedTransition, PlanRefusal> {
         let bookkeeping = Bookkeeping {
             oks,
             ..Bookkeeping::default()
@@ -845,12 +892,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
         // The §6 membership-discard rule (`docs/uvrr-reincarnation.md`),
         // as `plan_prepare_ok` runs it: a sender outside the configuration
-        // is unknown; a weight-0 sender is a learner contributing nothing.
+        // is unknown; a weight-0 sender is a learner contributing nothing,
+        // its acknowledgement not a vote. The arrival still asks the
+        // standing commit question, `plan_prepare_ok`'s learner rule.
         let record = self.progress.config().current();
         match record.config.weight_of(from) {
             None => return self.drop_plan(Diagnostic::FuseRefusal, kind),
             Some(weight) if weight.0 == 0 => {
-                return self.drop_plan(Diagnostic::FuseRefusal, kind);
+                let committed = self.standing_commit_frontier(journal);
+                return self
+                    .finish_commit_quorum(journal, committed, Vec::new(), kind)
+                    .map(|plan| plan.with_diagnostic(Diagnostic::FuseRefusal));
             }
             Some(_) => {}
         }
@@ -888,94 +940,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The cascade over the contiguous accepted tail, segment-atomic:
         // the packed schedule's slots share their ackers (the envelope is
         // atomic, §2), so the batch's quorum lands whole.
-        let mut committed = self.progress.committed();
-        while let Some(next) = committed.next() {
-            if next > self.progress.accepted() {
-                break;
-            }
-            let segment = self.commit_segment(journal, next, self.progress.accepted());
-            let mut holds = true;
-            let mut cursor = segment.0;
-            while cursor <= segment.1 {
-                let mut members: Vec<NodeId> = vec![self.own];
-                if let Some(outstanding) = self.proposals.get(&cursor) {
-                    members.extend(outstanding.oks.iter().copied());
-                }
-                if cursor <= header.slot && !members.contains(&from) {
-                    members.push(from);
-                }
-                if !self
-                    .strategy
-                    .is_quorum(Role::Commit, &record.config, &members)
-                {
-                    holds = false;
-                    break;
-                }
-                match cursor.next() {
-                    Some(follow) if follow <= segment.1 => cursor = follow,
-                    _ => break,
-                }
-            }
-            if !holds {
-                break;
-            }
-            committed = segment.1;
-        }
-        let bookkeeping = Bookkeeping {
-            oks,
-            ..Bookkeeping::default()
-        };
-        if committed == self.progress.committed() {
-            let candidate = self.identity_candidate()?;
-            return Ok(self
-                .candidate_plan(candidate, JournalMutation::None, Vec::new(), kind, false)
-                .with_bookkeeping(bookkeeping));
-        }
-        // §8.7.1: the commit frontier moved, fold the system operations
-        // the advance newly covers. The packed schedule folds as the ONE
-        // establishing batch it is; a fold refusal is committed history
-        // the configuration cannot hold, the breach faults.
-        let (config, bump) =
-            match self.fold_committed(journal, &[], self.progress.committed(), committed) {
-                Ok((config, bump)) => (config, bump),
-                Err(CommitFold::Unavailable(slot)) => {
-                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
-                }
-                Err(CommitFold::SplitBatch) => {
-                    return self.drop_plan(Diagnostic::FuseRefusal, kind);
-                }
-                Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
-            };
-        // §8.7.7 steps 1 and 4, as `plan_prepare_ok` runs them: an armed
-        // non-stop machine whose establishing operation this advance
-        // committed records its pivot and solicits the planned evidence.
-        let (config, solicitation, planned_update) = self.overlap_solicitation(config, committed);
-        // The plan-execution commit hook (the solver doc): a committed
-        // range covering the armed machine's next step's establishing
-        // batch advances it, and the last step's commit clears the
-        // machine (completion).
-        let plan_execution =
-            self.plan_execution_commit(journal, self.progress.committed(), committed);
-        let candidate = self.candidate_with(
-            Status::Normal,
-            self.progress.accepted(),
-            committed,
-            self.applied_walk(journal, &[], self.progress.applied(), committed)?,
-            config,
-            bump,
-        )?;
-        let mut effects = self.apply_effects(journal, self.progress.committed(), committed)?;
-        effects.extend(self.broadcast_commit(committed));
-        // The per-era commit emission (`docs/uvrr-fuse.md` §4 step 4).
-        effects.extend(self.commit_batch_effects(journal, self.progress.committed(), committed));
-        effects.extend(solicitation);
-        Ok(self
-            .candidate_plan(candidate, JournalMutation::None, effects, kind, false)
-            .with_bookkeeping(Bookkeeping {
-                planned: planned_update,
-                plan_execution,
-                ..bookkeeping
-            }))
+        let committed = self.commit_cascade_frontier(journal, Some((from, header.slot)));
+        self.finish_commit_quorum(journal, committed, oks, kind)
     }
 }
 

@@ -169,10 +169,14 @@ fn frontier_chain_is_exhaustively_enforced() {
 // 2. Status/view relations (§1.3)
 // ---------------------------------------------------------------------------
 
-/// `Normal` requires `current == retained`; `ViewChange` requires `current >=
-/// retained`. `Restarting` and `Replaying` carry no relation, §1.3 states that in
-/// those statuses `current` is not an authority to participate, so constraining it
-/// would forbid states a restarting node legitimately holds.
+/// `Normal` requires `current >= retained`; `ViewChange` requires `current >=
+/// retained`. `Normal` sits equal after an install and past it after a
+/// nomination's commit-time bump, which advances the serving view by a
+/// committed command without re-selecting the retained history; serving BELOW
+/// the retained view is unrepresentable. `Restarting` and `Replaying` carry no
+/// relation, §1.3 states that in those statuses `current` is not an authority
+/// to participate, so constraining it would forbid states a restarting node
+/// legitimately holds.
 #[test]
 fn status_view_relation_is_enforced() {
     let table = genesis_table();
@@ -192,10 +196,11 @@ fn status_view_relation_is_enforced() {
     };
 
     assert_eq!(
-        build(view(0, 1), view(0, 0), Status::Normal).unwrap_err(),
+        build(view(0, 0), view(0, 1), Status::Normal).unwrap_err(),
         ProgressError::StatusViewRelation
     );
-    assert!(build(view(0, 1), view(0, 1), Status::Normal).is_ok());
+    assert!(build(view(0, 0), view(0, 0), Status::Normal).is_ok());
+    assert!(build(view(0, 1), view(0, 0), Status::Normal).is_ok());
 
     assert_eq!(
         build(view(0, 0), view(0, 1), Status::ViewChange).unwrap_err(),

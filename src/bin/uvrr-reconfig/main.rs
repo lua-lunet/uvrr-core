@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use uvrr::configuration::{Configuration, Member, Snapshot, Weight};
-use uvrr::ids::{Era, NodeId};
+use uvrr::ids::{Era, NodeId, View};
 use uvrr::plan::Plan;
 use uvrr::solver::{solve, solve_replacement};
 
@@ -50,6 +50,11 @@ enum Command {
         /// The available identities, comma-separated.
         #[arg(long)]
         available: String,
+        /// The leader's serving view number, the view the plan's
+        /// nominations name (`docs/nominate-leader-assignment.md`): a
+        /// snapshot supplied by the operator, like the availability.
+        #[arg(long)]
+        view: u32,
         /// Write the plan JSONL here instead of standard output.
         #[arg(long)]
         out: Option<String>,
@@ -133,14 +138,16 @@ fn run_plan(
     target: Option<String>,
     replace: Option<String>,
     available: String,
+    view: u32,
     out: Option<String>,
 ) -> Result<(), String> {
     let current = configuration(&read_source(&current)?)?;
     let live = available_ids(&available)?;
+    let view = View(view);
     let steps = match (target, replace) {
         (Some(target), None) => {
             let target = configuration(&read_source(&target)?)?;
-            solve(&current, &target, &live)
+            solve(&current, &target, &live, view)
         }
         (None, Some(replace)) => {
             let (old, new) = replace
@@ -150,7 +157,7 @@ fn run_plan(
                 (Ok(old), Ok(new)) => (NodeId(old), NodeId(new)),
                 _ => return Err("expected --replace OLD:NEW with u32 identities".to_string()),
             };
-            solve_replacement(&current, old, new, &live)
+            solve_replacement(&current, old, new, &live, view)
         }
         _ => return Err("exactly one of --target or --replace is required".to_string()),
     }
@@ -219,8 +226,9 @@ fn main() {
             target,
             replace,
             available,
+            view,
             out,
-        } => run_plan(current, target, replace, available, out),
+        } => run_plan(current, target, replace, available, view, out),
         Command::Apply { plan, leader } => run_apply(plan, leader),
     };
     if let Err(error) = outcome {
