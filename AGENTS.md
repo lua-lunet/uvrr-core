@@ -88,10 +88,10 @@ No instruction conflicts with Andon; if one appears to, Andon wins.
 - You are FORBIDDEN to stash or move aside any work on a dirty working tree unless explicity ask to by the user and that must be done in a manner that makes todo items so that the work is not lost. 
 - The user may ask to park work by a branch and tag that is not going into main you MUST raise a gh issue naming the parted tag as future work. 
 - Releases MUST be from a tag on main never any feature branch. For as long as we are in a 0.x.y alpha you are FORBIDDEN from adding complexity to perseve prior state of behavour any new version requires all state reset and can and should break all API up until 1.a.b-Mx milestones. 
-
+- 
 ## PRs And Push
 
-You MUST use the skill gh-actions-poll if it is installed. You are FOBRIDDEN from using a `gh pr view` loop to attempt to poll. You are FORBIDDEN form using `gh pr checks 000 --watch` like commands. 
+You MUST use the skill gh-actions-poll if it is installed. You are FOBRIDDEN from using a `gh pr view` loop to attempt to poll. You are FORBIDDEN form using `gh pr checks 000 --watch` like commands. Beforea any push any outstanding todo about stashed items or branches must be checked whether they work has made it into the push as asked. If the user intended for them to be pushed but they have been deferred this must be explicitly acknowledge by adding an explicit todo to recover/resume/redo/pop/merge the moved aside work. That means add the new todo and rewrite the todo docs and only then mark the checking todo as complete. 
 
 ## Inner loop and observability
 
@@ -163,6 +163,14 @@ applies to it with double force, the branch rule AND a cleanup rule.
 - Read-only subagents (investigation, audit, survey) MUST NOT be given a
   worktree unless the User said so; they read the existing checkout and the
   git history.
+
+## Stash is destructive
+
+Models like to stash then expect magically they will be around to pop. This is a fiction when an LLM stashes it is an attempted robbery in progress. A stash is a data loss witing to happen. This means that stashing is discouraged unless doing "human-on-the-loop" Sev1 fixes. During routine work you must follow the branch discipline and make a todo naming a branch must be checked it is  not lost, you can use "stash_" in the branch name, do a wip --no-verify commit naming its stashed work and what it was stashed as in "put asside to fix xxxx due to Andon/User ire", then checkout the code without the stashed work and continue. 
+
+## Destructive is destructive
+
+This codebase is safety first. This means you will never force push nor do a git reset or a stash drop or any action without a backup. You can tivially rsync into a .tmp folder using the .gitignore filter to have a "oops!" backup. If the potential loss is more than trivial then .tmp itself is not safe enough risky items are rare and blocking on a command to backup outside the repo. If the user is on the loop in a recovery then most certainly backup somewhere safer and the user will "allow once" to ensure the backup is saved yet cannot be casually deleted. Add a todo at the end to purge the backup if it was never needed. 
 
 ## Subagent delegation
 
