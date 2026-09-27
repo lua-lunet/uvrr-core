@@ -1,4 +1,4 @@
-//! Contract for `vrr::journal`, the §4 logical journal capabilities, `LogEntry`, and
+//! Contract for `uvrr::journal`, the §4 logical journal capabilities, `LogEntry`, and
 //! the default `SegmentedLog`.
 //!
 //! Spec §4 (the four capabilities, and the explicit absence of any fifth) and decisions
@@ -34,12 +34,12 @@ use std::sync::Arc;
 
 use proptest::prelude::*;
 
-use vrr::configuration::{SystemOperation, VOID_SLOT};
-use vrr::ids::{Era, NodeId, OperationId, Slot};
-use vrr::journal::{
+use uvrr::configuration::{SystemOperation, VOID_SLOT};
+use uvrr::ids::{Era, NodeId, OperationId, Slot};
+use uvrr::journal::{
     Journal, JournalError, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog,
 };
-use vrr::wire::{Malformed, Pack, Unpack, UnpackError};
+use uvrr::wire::{Malformed, Pack, Unpack, UnpackError};
 
 // ---------------------------------------------------------------------------
 // Fixtures

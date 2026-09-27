@@ -23,7 +23,7 @@
 //!   ordinary reconfiguration pipeline, one establishing operation at a
 //!   time, each commit a distinct era (§5), every step gated by the same
 //!   closed gates any host-proposed operation passes.
-//! * **The marker transition machine** (§5.1 of `docs/vrr-durability-model.md`,
+//! * **The marker transition machine** (§5.1 of `docs/uvrr-durability-model.md`,
 //!   the boot decision of `docs/uvrr-reincarnation.md` §1): the pure Rust twin
 //!   of the vendored TigerBeetle store (`zig/uvrr/store.zig`). The four
 //!   superblock markers are an ordered transition system,

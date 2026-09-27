@@ -71,7 +71,7 @@ impl Node {
         command.stdin(Stdio::piped()).stdout(Stdio::piped());
         match state_dir {
             Some(dir) => {
-                command.env("MAELSTROM_VRR_STATE_DIR", dir);
+                command.env("MAELSTROM_UVRR_STATE_DIR", dir);
                 command.stderr(Stdio::piped());
             }
             None => {
@@ -89,7 +89,7 @@ impl Node {
         // The volatile default, made observable: no state dir reaches the
         // child (an inherited one is removed), and the system temp root the
         // node would fall back to is a private directory the test inspects.
-        command.env_remove("MAELSTROM_VRR_STATE_DIR");
+        command.env_remove("MAELSTROM_UVRR_STATE_DIR");
         command.env("TMPDIR", tmp);
         command.stderr(Stdio::piped());
         Node::start(command, true)
@@ -924,7 +924,7 @@ fn a_corrupt_state_file_refuses_to_start() {
 }
 
 // ---------------------------------------------------------------------------
-// The volatile default: `MAELSTROM_VRR_STATE_DIR` unset means no store at
+// The volatile default: `MAELSTROM_UVRR_STATE_DIR` unset means no store at
 // all. The node provisions the historical `Stability::Volatile` way and
 // serves lin-kv traffic without one byte of file I/O.
 // ---------------------------------------------------------------------------

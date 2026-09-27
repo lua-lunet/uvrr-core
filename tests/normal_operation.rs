@@ -11,15 +11,15 @@
 //! adopt the view from a legitimate primary `Prepare`/`Commit` (§4's own
 //! mechanism), never from ticks.
 
-use vrr::configuration::INIT_SLOT;
-use vrr::effects::Effect;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::journal::{LogEntry, Payload};
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::Status;
-use vrr::replica::PlanRefusal;
-use vrr::wire::{Header, Tag};
+use uvrr::configuration::INIT_SLOT;
+use uvrr::effects::Effect;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::journal::{LogEntry, Payload};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::Status;
+use uvrr::replica::PlanRefusal;
+use uvrr::wire::{Header, Tag};
 
 #[path = "harness/mod.rs"]
 mod harness;

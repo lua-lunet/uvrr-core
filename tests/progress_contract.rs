@@ -1,4 +1,4 @@
-//! Contract for `vrr::progress`, `vrr::invariant::legal`, and `vrr::observe`.
+//! Contract for `uvrr::progress`, `uvrr::invariant::legal`, and `uvrr::observe`.
 //!
 //! Spec §1.3 (current vs retained view, frontier chain), §5 (the progress record and
 //! its sticky fault), §6 (the delta transition), §8.7.3 (era/slot discipline), §12
@@ -26,12 +26,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use vrr::configuration::{EraTable, SystemOperation};
-use vrr::ids::{Era, NodeId, Slot, View, ViewId};
-use vrr::invariant::{Fault, HeaderSlotRole, InputKind, header_slot_role, legal};
-use vrr::observe::Observation;
-use vrr::progress::{Progress, ProgressError, Status};
-use vrr::wire::Tag;
+use uvrr::configuration::{EraTable, SystemOperation};
+use uvrr::ids::{Era, NodeId, Slot, View, ViewId};
+use uvrr::invariant::{Fault, HeaderSlotRole, InputKind, header_slot_role, legal};
+use uvrr::observe::Observation;
+use uvrr::progress::{Progress, ProgressError, Status};
+use uvrr::wire::Tag;
 
 // ---------------------------------------------------------------------------
 // Fixtures

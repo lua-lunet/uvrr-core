@@ -25,12 +25,12 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::configuration::SystemOperation;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, SystemId, View, ViewId};
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::Status;
-use vrr::wire::{Header, Tag};
+use uvrr::configuration::SystemOperation;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, SystemId, View, ViewId};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::Status;
+use uvrr::wire::{Header, Tag};
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -50,7 +50,7 @@ const TIMEOUT: u64 = 3;
 fn cluster() -> Harness {
     Harness::with_knobs(
         3,
-        vrr::replica::ViewChangeKnobs {
+        uvrr::replica::ViewChangeKnobs {
             primary_timeout: TIMEOUT,
             view_change_budget: usize::MAX,
         },
@@ -63,7 +63,7 @@ fn bootstrap(h: &mut Harness) {
     h.assert_safety();
 }
 
-fn snap(h: &Harness, id: NodeId) -> vrr::progress::ProgressSnapshot {
+fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
@@ -417,8 +417,8 @@ fn joined_learner_folds_its_admitting_era_and_catches_up() {
     let leader_committed = snap(&h, n(0)).committed;
     for slot in 1..=leader_committed {
         let (leader, learner) = (
-            h.journal_entry(n(0), vrr::ids::Slot(slot)),
-            h.journal_entry(n(3), vrr::ids::Slot(slot)),
+            h.journal_entry(n(0), uvrr::ids::Slot(slot)),
+            h.journal_entry(n(3), uvrr::ids::Slot(slot)),
         );
         assert_eq!(leader, learner, "slot {slot} matches the leader's");
     }
@@ -440,7 +440,7 @@ fn learner_cannot_influence_until_its_committed_increment_then_participates() {
     // counts against no quorum (R4), even for its own promotion.
     let outcome = h.reconfigure(n(1), SystemOperation::Increment(n(3)), None);
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    let promotion_slot = vrr::ids::Slot(snap(&h, n(1)).accepted);
+    let promotion_slot = uvrr::ids::Slot(snap(&h, n(1)).accepted);
     h.inject(
         n(3),
         n(1),
@@ -510,10 +510,10 @@ fn the_serving_gate_still_refuses_a_non_member() {
         header: Header {
             tag: Tag::GetState,
             view: current_view(&h, n(0)),
-            slot: vrr::ids::Slot(3),
+            slot: uvrr::ids::Slot(3),
         },
         body: Body::GetState {
-            from: vrr::ids::Slot(5),
+            from: uvrr::ids::Slot(5),
         },
     };
     let before = h.queued_len();
@@ -679,10 +679,10 @@ fn the_serving_gate_answers_a_fetch_from_a_past_window_era() {
                 era: Era(1),
                 view: View(0),
             },
-            slot: vrr::ids::Slot(2),
+            slot: uvrr::ids::Slot(2),
         },
         body: Body::GetState {
-            from: vrr::ids::Slot(3),
+            from: uvrr::ids::Slot(3),
         },
     };
     let before = h.queued_len();

@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use vrr::configuration::VOID_SLOT;
-use vrr::ids::Slot;
-use vrr::journal::{Journal, JournalError, JournalView, LogEntry, RangeOutcome};
+use uvrr::configuration::VOID_SLOT;
+use uvrr::ids::Slot;
+use uvrr::journal::{Journal, JournalError, JournalView, LogEntry, RangeOutcome};
 
 /// Test-local retention control. Slot zero means no drop request because it is
 /// the protocol sentinel and can never be a journal position.

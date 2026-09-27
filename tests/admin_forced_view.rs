@@ -24,11 +24,11 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::configuration::SystemOperation;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, SystemId, View, ViewId};
-use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::{PlanRefusal, ViewChangeKnobs};
-use vrr::wire::Tag;
+use uvrr::configuration::SystemOperation;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, SystemId, View, ViewId};
+use uvrr::progress::{ProgressSnapshot, Status};
+use uvrr::replica::{PlanRefusal, ViewChangeKnobs};
+use uvrr::wire::Tag;
 
 // ---------------------------------------------------------------------------
 // Helpers

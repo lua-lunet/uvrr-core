@@ -9,18 +9,18 @@
 //!
 //! Every batch folded here is committed as ONE era by the fold, and every
 //! consecutive pair of committed configurations is checked against the closed
-//! gate `vrr::quorum::validate_transition`, the exhaustive disjoint-pair search
+//! gate `uvrr::quorum::validate_transition`, the exhaustive disjoint-pair search
 //! the rules doc §8 names as the mechanical form of the intersection argument.
 
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
-use vrr::configuration::{
+use uvrr::configuration::{
     ConfigError, Configuration, INIT_SLOT, MAX_WEIGHT, Member, SystemOperation, VOID_SLOT, Weight,
 };
-use vrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId};
-use vrr::quorum::{QuorumStrategy, Role, WeightedMajority};
-use vrr::replica::forced_steps;
+use uvrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId};
+use uvrr::quorum::{QuorumStrategy, Role, WeightedMajority};
+use uvrr::replica::forced_steps;
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -64,7 +64,7 @@ fn fold_from(start: &Configuration, ops: &[SystemOperation]) -> Configuration {
 /// the committed sequence for the safety helpers above.
 fn committed_sequence(
     start: &Configuration,
-    steps: &[vrr::reconfiguration::EraStep],
+    steps: &[uvrr::reconfiguration::EraStep],
 ) -> Vec<Configuration> {
     let mut configs = vec![start.clone()];
     let mut config = start.clone();
@@ -105,7 +105,7 @@ fn shape(config: &Configuration) -> Vec<(NodeId, u32)> {
 /// is the rules doc §8's mechanical check over every boundary of the sequence.
 fn assert_era_safe(steps: &[Configuration]) {
     for pair in steps.windows(2) {
-        vrr::quorum::validate_transition(&WeightedMajority, &pair[0], &pair[1])
+        uvrr::quorum::validate_transition(&WeightedMajority, &pair[0], &pair[1])
             .expect("the transition is era-safe");
         let voters: Vec<NodeId> = pair[1]
             .order()
@@ -755,7 +755,7 @@ fn snapshot_inflates_to_the_configuration_it_serialized() {
 #[test]
 fn tampered_snapshots_are_refused_at_inflation() {
     // A weight outside {0, 1, 2}.
-    let over = vrr::configuration::Snapshot {
+    let over = uvrr::configuration::Snapshot {
         era: Era(1),
         order: vec![Member {
             node: n(0),
@@ -771,7 +771,7 @@ fn tampered_snapshots_are_refused_at_inflation() {
     );
 
     // A duplicated identity.
-    let duplicate = vrr::configuration::Snapshot {
+    let duplicate = uvrr::configuration::Snapshot {
         era: Era(1),
         order: vec![
             Member {
@@ -787,7 +787,7 @@ fn tampered_snapshots_are_refused_at_inflation() {
     assert_eq!(duplicate.inflate(), Err(ConfigError::DuplicateNode(n(0))));
 
     // A positive era with no members.
-    let empty = vrr::configuration::Snapshot {
+    let empty = uvrr::configuration::Snapshot {
         era: Era(1),
         order: vec![],
     };
@@ -797,7 +797,7 @@ fn tampered_snapshots_are_refused_at_inflation() {
     );
 
     // Era 0 carrying members: the void is empty by definition.
-    let void_with_members = vrr::configuration::Snapshot {
+    let void_with_members = uvrr::configuration::Snapshot {
         era: Era(0),
         order: vec![Member {
             node: n(0),
@@ -810,7 +810,7 @@ fn tampered_snapshots_are_refused_at_inflation() {
     );
 
     // A positive era whose total is 0: quorum-impossible after commitment.
-    let zero_total = vrr::configuration::Snapshot {
+    let zero_total = uvrr::configuration::Snapshot {
         era: Era(1),
         order: vec![Member {
             node: n(0),
@@ -823,7 +823,7 @@ fn tampered_snapshots_are_refused_at_inflation() {
     );
 
     // The void itself inflates: era 0, empty, total 0.
-    let void = vrr::configuration::Snapshot {
+    let void = uvrr::configuration::Snapshot {
         era: Era(0),
         order: vec![],
     };
@@ -843,7 +843,7 @@ fn snapshot_serde_round_trip_and_tamper() {
     let snapshot = with_learner.to_snapshot();
 
     let encoded = serde_json::to_string(&snapshot).expect("the snapshot serializes");
-    let decoded: vrr::configuration::Snapshot =
+    let decoded: uvrr::configuration::Snapshot =
         serde_json::from_str(&encoded).expect("the snapshot deserializes");
     assert_eq!(decoded, snapshot);
     assert_eq!(decoded.inflate(), Ok(with_learner));

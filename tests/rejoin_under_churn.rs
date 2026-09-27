@@ -13,10 +13,10 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::message::{Body, Message};
-use vrr::progress::Status;
-use vrr::wire::{Header, Pack, Tag};
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::message::{Body, Message};
+use uvrr::progress::Status;
+use uvrr::wire::{Header, Pack, Tag};
 
 const ALL: [NodeId; 3] = [n(0), n(1), n(2)];
 
@@ -32,11 +32,11 @@ fn op_id(lsb: u64) -> OperationId {
 }
 
 /// A journal entry as the wire packs it, for budget arithmetic.
-fn operation_entry(slot: u64, lsb: u64, payload: &[u8]) -> vrr::journal::LogEntry {
-    vrr::journal::LogEntry {
+fn operation_entry(slot: u64, lsb: u64, payload: &[u8]) -> uvrr::journal::LogEntry {
+    uvrr::journal::LogEntry {
         slot: Slot(slot),
         era: Era(1),
-        payload: vrr::journal::Payload::Operation {
+        payload: uvrr::journal::Payload::Operation {
             id: op_id(lsb),
             payload: payload.to_vec().into_boxed_slice(),
         },
@@ -50,7 +50,7 @@ const TIMEOUT: u64 = 3;
 fn cluster() -> Harness {
     Harness::with_knobs(
         3,
-        vrr::replica::ViewChangeKnobs {
+        uvrr::replica::ViewChangeKnobs {
             primary_timeout: TIMEOUT,
             view_change_budget: usize::MAX,
         },
@@ -63,7 +63,7 @@ fn bootstrap(h: &mut Harness) {
     h.assert_safety();
 }
 
-fn snap(h: &Harness, id: NodeId) -> vrr::progress::ProgressSnapshot {
+fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
@@ -353,7 +353,7 @@ fn a_frontier_gap_rejoins_through_the_fetch_under_churn() {
     let per_entry = operation_entry(3, 1, b"o").packed_len();
     let mut h = Harness::with_knobs(
         3,
-        vrr::replica::ViewChangeKnobs {
+        uvrr::replica::ViewChangeKnobs {
             primary_timeout: TIMEOUT,
             view_change_budget: per_entry,
         },

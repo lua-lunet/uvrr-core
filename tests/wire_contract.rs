@@ -1,4 +1,4 @@
-//! Contract for `vrr::wire`, the normative binary codec substrate.
+//! Contract for `uvrr::wire`, the normative binary codec substrate.
 //!
 //! Spec §11 (opaque client payloads), §13.1 (bounded view-change suffix), and decisions
 //! W1 (explicit `ViewId`, 20-byte big-endian header), W3 (own binary codec, serde
@@ -35,10 +35,10 @@
 //! and total coverage is strictly stronger than any number of random draws.
 
 use proptest::prelude::*;
-use vrr::configuration::SystemOperation;
-use vrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
-use vrr::message::{Body, Message};
-use vrr::wire::{Header, Malformed, Pack, PackError, Tag, Unpack, UnpackCursor, UnpackError};
+use uvrr::configuration::SystemOperation;
+use uvrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId};
+use uvrr::message::{Body, Message};
+use uvrr::wire::{Header, Malformed, Pack, PackError, Tag, Unpack, UnpackCursor, UnpackError};
 
 /// Every `Tag`, in discriminant order. Used by the round-trip and exhaustiveness
 /// groups. Kept as an explicit list rather than derived from a `Tag::ALL` constant so
@@ -202,9 +202,9 @@ proptest! {
         prop_assert_eq!(encode(&header).len(), Header::LEN);
 
         // Opaque bytes: a u32 big-endian length prefix and then the payload (§11).
-        prop_assert_eq!(vrr::wire::opaque_packed_len(&payload), 4 + payload.len());
-        let mut buf = vec![0u8; vrr::wire::opaque_packed_len(&payload)];
-        let written = vrr::wire::pack_opaque_into(&payload, &mut buf)
+        prop_assert_eq!(uvrr::wire::opaque_packed_len(&payload), 4 + payload.len());
+        let mut buf = vec![0u8; uvrr::wire::opaque_packed_len(&payload)];
+        let written = uvrr::wire::pack_opaque_into(&payload, &mut buf)
             .expect("exactly-sized buffer must suffice");
         prop_assert_eq!(written, 4 + payload.len());
     }
@@ -261,8 +261,8 @@ proptest! {
     /// inspects it).
     #[test]
     fn round_trip_opaque(payload in prop::collection::vec(any::<u8>(), 0..1024)) {
-        let mut buf = vec![0u8; vrr::wire::opaque_packed_len(&payload)];
-        vrr::wire::pack_opaque_into(&payload, &mut buf).expect("exactly sized");
+        let mut buf = vec![0u8; uvrr::wire::opaque_packed_len(&payload)];
+        uvrr::wire::pack_opaque_into(&payload, &mut buf).expect("exactly sized");
         let mut cursor = UnpackCursor::new(&buf);
         let seen = cursor.opaque().expect("self-produced encoding must decode");
         prop_assert_eq!(seen, payload.as_slice());
@@ -329,8 +329,8 @@ fn every_prefix_of_opaque_bytes_is_incomplete() {
         let payload: Vec<u8> = (0..payload_len)
             .map(|i| u8::try_from(i % 251).unwrap())
             .collect();
-        let mut bytes = vec![0u8; vrr::wire::opaque_packed_len(&payload)];
-        vrr::wire::pack_opaque_into(&payload, &mut bytes).expect("exactly sized");
+        let mut bytes = vec![0u8; uvrr::wire::opaque_packed_len(&payload)];
+        uvrr::wire::pack_opaque_into(&payload, &mut bytes).expect("exactly sized");
 
         for cut in 0..bytes.len() {
             let prefix = &bytes[..cut];
@@ -1043,7 +1043,7 @@ fn unpack_to_json_renders_a_binary_header() {
     };
     let bytes = encode(&header);
 
-    let rendered = vrr::wire::unpack_to_json::<Header>(&bytes).expect("must render");
+    let rendered = uvrr::wire::unpack_to_json::<Header>(&bytes).expect("must render");
     assert!(
         rendered.contains("PlannedViewChange"),
         "rendered: {rendered}"
@@ -1051,7 +1051,7 @@ fn unpack_to_json_renders_a_binary_header() {
     assert!(rendered.contains("77"), "rendered: {rendered}");
 
     assert!(
-        vrr::wire::unpack_to_json::<Header>(&[0u8; 4]).is_err(),
+        uvrr::wire::unpack_to_json::<Header>(&[0u8; 4]).is_err(),
         "a short buffer must not render"
     );
 }

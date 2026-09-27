@@ -1,4 +1,4 @@
-//! Contract for `vrr::quorum`, the `QuorumStrategy` extension point and the closed
+//! Contract for `uvrr::quorum`, the `QuorumStrategy` extension point and the closed
 //! gate that no strategy can override.
 //!
 //! Spec §8.3 (the diskless obligations `F_g ⌢ R_g` and `V_g ⌢ V_g`), §8.4 (weighted
@@ -29,9 +29,9 @@
 
 use std::collections::BTreeSet;
 
-use vrr::configuration::{Configuration, MAX_MEMBERS, SystemOperation};
-use vrr::ids::NodeId;
-use vrr::quorum::{
+use uvrr::configuration::{Configuration, MAX_MEMBERS, SystemOperation};
+use uvrr::ids::NodeId;
+use uvrr::quorum::{
     QuorumError, QuorumStrategy, R2Direction, Role, WeightedMajority, validate_era,
     validate_transition,
 };
@@ -55,13 +55,13 @@ const SIX: [NodeId; 6] = [N0, N1, N2, N3, N4, N5];
 /// in `configuration_contract.rs` and the precondition for every argument here.
 fn initialised(order: &[NodeId]) -> Configuration {
     let void = Configuration::void()
-        .apply(&SystemOperation::Void, vrr::configuration::VOID_SLOT)
+        .apply(&SystemOperation::Void, uvrr::configuration::VOID_SLOT)
         .expect("Void at slot 1 on the void configuration");
     void.apply(
         &SystemOperation::Init {
             order: order.to_vec(),
         },
-        vrr::configuration::INIT_SLOT,
+        uvrr::configuration::INIT_SLOT,
     )
     .expect("Init at slot 2 immediately after Void")
 }
@@ -170,7 +170,7 @@ fn q1_scenario() -> (Thresholds, Configuration, Configuration) {
     };
     let current = initialised(&SIX);
     let next = current
-        .apply(&SystemOperation::Increment(N0), vrr::ids::Slot(3))
+        .apply(&SystemOperation::Increment(N0), uvrr::ids::Slot(3))
         .expect("Increment on a member");
     (strategy, current, next)
 }
@@ -258,7 +258,7 @@ fn reachable() -> (Vec<Configuration>, Vec<(Configuration, Configuration)>) {
             for op in &alphabet {
                 // Any non-genesis slot: the fold consults `at` only for the two
                 // genesis ordinals.
-                let Ok(next) = config.apply(op, vrr::ids::Slot(3)) else {
+                let Ok(next) = config.apply(op, uvrr::ids::Slot(3)) else {
                     continue;
                 };
                 edges.push((config.clone(), next.clone()));
@@ -450,7 +450,7 @@ fn forward_safe_reverse_unsafe_transition_is_refused() {
     let strategy = ParityCommit;
     let current = initialised(&SIX);
     let next = current
-        .apply(&SystemOperation::Increment(N0), vrr::ids::Slot(3))
+        .apply(&SystemOperation::Increment(N0), uvrr::ids::Slot(3))
         .expect("Increment on a member");
 
     validate_era(&strategy, &current).expect("era e is internally legal");
@@ -546,16 +546,16 @@ fn weighted_majority_threshold_matches_enumerated_minimum() {
 fn membership_cap_is_enforced_by_the_fold_and_the_gate_runs_at_the_cap() {
     let seventeen: Vec<NodeId> = (0..17).map(NodeId).collect();
     let void = Configuration::void()
-        .apply(&SystemOperation::Void, vrr::configuration::VOID_SLOT)
+        .apply(&SystemOperation::Void, uvrr::configuration::VOID_SLOT)
         .expect("Void");
     assert_eq!(
         void.apply(
             &SystemOperation::Init {
                 order: seventeen.clone()
             },
-            vrr::configuration::INIT_SLOT,
+            uvrr::configuration::INIT_SLOT,
         ),
-        Err(vrr::configuration::ConfigError::MembershipCapExceeded { cap: MAX_MEMBERS })
+        Err(uvrr::configuration::ConfigError::MembershipCapExceeded { cap: MAX_MEMBERS })
     );
 
     let sixteen: Vec<NodeId> = seventeen[..16].to_vec();
@@ -564,7 +564,7 @@ fn membership_cap_is_enforced_by_the_fold_and_the_gate_runs_at_the_cap() {
             &SystemOperation::Init {
                 order: sixteen.clone(),
             },
-            vrr::configuration::INIT_SLOT,
+            uvrr::configuration::INIT_SLOT,
         )
         .expect("Init at exactly the cap");
     assert_eq!(at_cap.len(), MAX_MEMBERS);
@@ -581,9 +581,9 @@ fn membership_cap_is_enforced_by_the_fold_and_the_gate_runs_at_the_cap() {
                 node: NodeId(1000),
                 position: 0,
             },
-            vrr::ids::Slot(3),
+            uvrr::ids::Slot(3),
         ),
-        Err(vrr::configuration::ConfigError::MembershipCapExceeded { cap: MAX_MEMBERS })
+        Err(uvrr::configuration::ConfigError::MembershipCapExceeded { cap: MAX_MEMBERS })
     );
 
     validate_era(&WeightedMajority, &at_cap).expect("the gate runs at the cap");
@@ -676,7 +676,7 @@ fn every_refusal_witness_is_genuine_and_minimal() {
     // Test 4: the reverse-direction refusal.
     let reverse_current = initialised(&SIX);
     let reverse_next = reverse_current
-        .apply(&SystemOperation::Increment(N0), vrr::ids::Slot(3))
+        .apply(&SystemOperation::Increment(N0), uvrr::ids::Slot(3))
         .expect("Increment on a member");
     match validate_transition(&ParityCommit, &reverse_current, &reverse_next) {
         Err(QuorumError::R2Violation {

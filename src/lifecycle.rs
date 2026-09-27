@@ -304,7 +304,7 @@ session_debug!(First, Clean, Crashed, Running, Halting, Draining, Halted);
 /// The host implements exactly three operations; the driver owns which
 /// marker is written, to which copies, and in what order. A superblock
 /// quorum (four copies, checksummed, quorum-read) meets the contract
-/// (`docs/vrr-durability-model.md` §5.1); plain marker files meet it in a
+/// (`docs/uvrr-durability-model.md` §5.1); plain marker files meet it in a
 /// test harness.
 pub trait LifecycleStore {
     /// The store's failure type.

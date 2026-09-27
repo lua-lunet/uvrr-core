@@ -9,18 +9,18 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::configuration::{
+use uvrr::configuration::{
     ConfigError, Configuration, INIT_SLOT, SystemOperation, VOID_SLOT, Weight,
 };
-use vrr::effects::{Effect, Stability};
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, Tick, View, ViewId};
-use vrr::journal::{Journal, JournalView, LogEntry, Payload, SegmentedLog};
-use vrr::message::{Body, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::{ProgressSnapshot, Status};
-use vrr::quorum::{QuorumError, QuorumStrategy, R2Direction, Role};
-use vrr::replica::{Input, PlanRefusal, Replica, TimedInput, ViewChangeKnobs};
-use vrr::wire::{Header, Tag};
+use uvrr::effects::{Effect, Stability};
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, Tick, View, ViewId};
+use uvrr::journal::{Journal, JournalView, LogEntry, Payload, SegmentedLog};
+use uvrr::message::{Body, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::{ProgressSnapshot, Status};
+use uvrr::quorum::{QuorumError, QuorumStrategy, R2Direction, Role};
+use uvrr::replica::{Input, PlanRefusal, Replica, TimedInput, ViewChangeKnobs};
+use uvrr::wire::{Header, Tag};
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -892,7 +892,7 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
         .expect("the test never exhausts the counter");
     h.restart_as(n(4), bumped).expect("the bumped node reopens");
     let initial = h.era_table(n(0)).unwrap().current().config.clone();
-    let steps = vrr::replica::forced_steps(&initial, n(4), bumped);
+    let steps = uvrr::replica::forced_steps(&initial, n(4), bumped);
     assert_eq!(
         steps.len(),
         6,
@@ -946,7 +946,7 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
             );
         }
         assert_eq!(
-            vrr::replica::forced_steps(&expected, n(4), bumped),
+            uvrr::replica::forced_steps(&expected, n(4), bumped),
             steps[index + 1..]
         );
         if index == 0 {
@@ -957,7 +957,7 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
         let current = current_view(&h, n(1));
         let target = ViewId {
             era: expected.era(),
-            view: vrr::ids::next_view_selecting(
+            view: uvrr::ids::next_view_selecting(
                 current.view,
                 1,
                 expected.order().iter().filter(|m| m.weight.0 > 0).count() as u32,
@@ -1036,7 +1036,7 @@ fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
                 .map(n)
                 .chain(std::iter::once(bumped))
                 .collect();
-            let steps = vrr::solver::solve_replacement(&start, n(killed), bumped, &live).unwrap();
+            let steps = uvrr::solver::solve_replacement(&start, n(killed), bumped, &live).unwrap();
             for (index, step) in steps.iter().enumerate() {
                 h.reincarnate(bumped, n(killed));
                 h.deliver_all();
@@ -1054,7 +1054,7 @@ fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
                     .collect();
                 let target = ViewId {
                     era: step.config.era(),
-                    view: vrr::ids::next_view_selecting(
+                    view: uvrr::ids::next_view_selecting(
                         current_view(&h, n(leader)).view,
                         voters.iter().position(|&id| id == n(leader)).unwrap() as u32,
                         voters.len() as u32,

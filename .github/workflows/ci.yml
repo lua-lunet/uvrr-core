@@ -121,9 +121,9 @@ jobs:
           stage="uvrr-core-${{ matrix.target_key }}"
           mkdir -p "$stage"
           if [ "${{ runner.os }}" = "macOS" ]; then
-            cp target/release/libvrr.dylib target/release/libvrr.a "$stage/"
+            cp target/release/libuvrr.dylib target/release/libuvrr.a "$stage/"
           else
-            cp target/release/libvrr.so target/release/libvrr.a "$stage/"
+            cp target/release/libuvrr.so target/release/libuvrr.a "$stage/"
           fi
           tar czf "uvrr-core-${{ matrix.target_key }}.tar.gz" -C "$stage" .
       - name: Upload release archive

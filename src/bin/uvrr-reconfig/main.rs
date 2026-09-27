@@ -1,15 +1,15 @@
 //! The reconfiguration operator CLI: compute a plan, or submit one to a
 //! leader's admin port. `docs/weighted-reconfiguration-solver.md` records the
-//! interface; the JSONL schema it speaks is defined by `vrr::plan`.
+//! interface; the JSONL schema it speaks is defined by `uvrr::plan`.
 use std::io::Read;
 use std::net::UdpSocket;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use vrr::configuration::{Configuration, Member, Snapshot, Weight};
-use vrr::ids::{Era, NodeId};
-use vrr::plan::Plan;
-use vrr::solver::{solve, solve_replacement};
+use uvrr::configuration::{Configuration, Member, Snapshot, Weight};
+use uvrr::ids::{Era, NodeId};
+use uvrr::plan::Plan;
+use uvrr::solver::{solve, solve_replacement};
 
 /// The plan payload budget: one UDP datagram must carry the whole submission,
 /// header line included, and the leader's receive buffer is provisioned for

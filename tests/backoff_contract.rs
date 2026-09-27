@@ -1,4 +1,4 @@
-//! Contract for `vrr::backoff`, the recommended randomized-timeout schedule,
+//! Contract for `uvrr::backoff`, the recommended randomized-timeout schedule,
 //! as pure arithmetic.
 //!
 //! Decision S4 externalises the clock: the host owns the timers and the
@@ -18,7 +18,7 @@
 //!    the cap binds at attempt 8 (20·2^8 = 5120 > 5000), after which every
 //!    attempt count, an absurd one included, saturates at (2500, 2500).
 
-use vrr::backoff::{CAP_MILLIS, unit_from_rtt, window};
+use uvrr::backoff::{CAP_MILLIS, unit_from_rtt, window};
 
 /// The window of `attempt` under `unit`, by iterated doubling with an early
 /// exit at the cap, the schedule stated as a loop rather than the module's

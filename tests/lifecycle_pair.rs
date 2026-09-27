@@ -14,8 +14,8 @@ use std::path::PathBuf;
 mod harness;
 
 use harness::{TmpGate, mint_pair};
-use vrr::ids::{CrashCounter, NodeId, SystemId};
-use vrr::lifecycle::{
+use uvrr::ids::{CrashCounter, NodeId, SystemId};
+use uvrr::lifecycle::{
     CopyState, LifecycleStore, Marker, RestartClass, RestartDecision, RestartRefusal,
     SuperblockCopies,
 };

@@ -1,4 +1,4 @@
-//! Contract for `vrr::replica`, `vrr::effects` and `vrr::message`: the transition
+//! Contract for `uvrr::replica`, `uvrr::effects` and `uvrr::message`: the transition
 //! pipeline, the stability handshake, the lifecycle, and the wire vocabulary.
 //!
 //! Spec §5 (progress record), §6 (delta transition), §7 (serialized transition
@@ -45,22 +45,22 @@ mod holey_journal;
 
 use holey_journal::HoleyLog;
 
-use vrr::configuration::{ConfigError, Configuration, SystemOperation};
-use vrr::effects::{Effect, Stability, StabilityResult};
-use vrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
-use vrr::invariant::{InputKind, header_slot_role};
-use vrr::journal::{Journal, JournalView, LogEntry, LogView, Payload, SegmentedLog};
-use vrr::lifecycle::{
+use uvrr::configuration::{ConfigError, Configuration, SystemOperation};
+use uvrr::effects::{Effect, Stability, StabilityResult};
+use uvrr::ids::{Era, Fault, NodeId, Operation, OperationId, Slot, Tick, View, ViewId};
+use uvrr::invariant::{InputKind, header_slot_role};
+use uvrr::journal::{Journal, JournalView, LogEntry, LogView, Payload, SegmentedLog};
+use uvrr::lifecycle::{
     BootOutcome, CopyState, LifecycleStore, Marker, SuperblockCopies, Vouched, boot,
 };
-use vrr::message::{Body, EraProof, EvidenceKind, Message};
-use vrr::progress::{Progress, Status};
-use vrr::quorum::{QuorumError, QuorumStrategy, Role, WeightedMajority};
-use vrr::replica::{
+use uvrr::message::{Body, EraProof, EvidenceKind, Message};
+use uvrr::progress::{Progress, Status};
+use uvrr::quorum::{QuorumError, QuorumStrategy, Role, WeightedMajority};
+use uvrr::replica::{
     Input, LifecycleRefusal, PersistedProgress, PlanRefusal, PublishOutcome, PublishRefusal,
     Replica, TimedInput, ViewChangeKnobs,
 };
-use vrr::wire::{Header, Malformed, Pack, Tag, Unpack, UnpackError};
+use uvrr::wire::{Header, Malformed, Pack, Tag, Unpack, UnpackError};
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -341,7 +341,7 @@ fn let_go_shared_slot_reports_the_unverifiable_slot_and_offer_base() {
     replica.publish(plan).expect("the gap diagnostic publishes");
     assert_eq!(
         replica.observer().read_diagnostic(),
-        vrr::observe::Diagnostic::GapDetected {
+        uvrr::observe::Diagnostic::GapDetected {
             expected: Slot(3),
             got: Slot(2),
         }
@@ -930,7 +930,7 @@ fn a_faulted_replica_refuses_every_input_variant() {
             },
         },
         Input::SubmitPlan {
-            plan: vrr::plan::Plan {
+            plan: uvrr::plan::Plan {
                 initial: Vec::new(),
                 steps: Vec::new(),
             },
@@ -981,7 +981,7 @@ fn a_faulted_replica_refuses_every_input_variant() {
 ///
 /// No honest planner output can violate the chain, `Progress` transitions
 /// validate their results, so the candidate is injected through the
-/// documented test hook [`vrr::replica::PlannedTransition::substitute_candidate_for_gate_testing`].
+/// documented test hook [`uvrr::replica::PlannedTransition::substitute_candidate_for_gate_testing`].
 /// That is the point of the test: the hook can only smuggle a bad candidate
 /// PAST the planner, and the publish gate still stops it, which proves the
 /// gate and not the planner is what stands between a bad candidate and the

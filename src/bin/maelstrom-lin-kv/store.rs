@@ -44,7 +44,7 @@
 //! # The uncommitted tail (§9.2)
 //!
 //! Acceptances append at the tail. A view-change install REPLACES the
-//! divergent uncommitted tail ([`vrr::journal::Journal::install_suffix`]),
+//! divergent uncommitted tail ([`uvrr::journal::Journal::install_suffix`]),
 //! and an installed history can be shorter than the one it replaces.
 //! The committed prefix never changes under the node's feet: every
 //! shared slot of an offered suffix is checked, and a disagreement at
@@ -72,13 +72,13 @@ use std::fs::File;
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use vrr::ids::NodeId;
-use vrr::ids::{Era, Fault, Slot, View, ViewId};
-use vrr::journal::{JournalView, LogEntry};
-use vrr::lifecycle::{Marker, SuperblockCopies};
-use vrr::progress::Status;
-use vrr::replica::PersistedProgress;
-use vrr::wire::{Pack, Unpack};
+use uvrr::ids::NodeId;
+use uvrr::ids::{Era, Fault, Slot, View, ViewId};
+use uvrr::journal::{JournalView, LogEntry};
+use uvrr::lifecycle::{Marker, SuperblockCopies};
+use uvrr::progress::Status;
+use uvrr::replica::PersistedProgress;
+use uvrr::wire::{Pack, Unpack};
 
 /// File magic, as a big-endian word. A slot not opening with it is not
 /// a committed header.
@@ -92,14 +92,14 @@ const VERSION: u32 = 4;
 /// Marker words, stated as a table so reordering this source cannot
 /// renumber the file (the core's `Status::to_word` discipline). The
 /// four states of the core's marker transition machine, numbered in
-/// [`vrr::replica::Marker`]'s declaration order.
+/// [`uvrr::replica::Marker`]'s declaration order.
 const MARKER_STOPPING: u8 = 0;
 const MARKER_STOPPED: u8 = 1;
 const MARKER_RESTARTING: u8 = 2;
 const MARKER_JOINING: u8 = 3;
 
 /// Fault-word table, same discipline. `0` is "no fault"; the variants
-/// are numbered in declaration order of [`vrr::ids::Fault`].
+/// are numbered in declaration order of [`uvrr::ids::Fault`].
 const FAULT_NONE: u8 = 0;
 
 /// The fixed roster area inside a slot: a `u32` count then each name as
@@ -560,10 +560,10 @@ impl NodeState {
                 let (base, _) = journal_view.retained();
                 journal_view.copy_out(base, frontier, &mut entries)
             }
-            None => vrr::journal::RangeOutcome::Complete,
+            None => uvrr::journal::RangeOutcome::Complete,
         };
         match outcome {
-            vrr::journal::RangeOutcome::Complete => {}
+            uvrr::journal::RangeOutcome::Complete => {}
             other => return Err(format!("the retained window is not whole: {other:?}")),
         }
         Ok(NodeState {
@@ -657,7 +657,7 @@ impl SlotBytes {
                 MARKER_JOINING => Marker::Joining,
                 _ => return None,
             };
-            copies.push(vrr::lifecycle::CopyState { identity, marker });
+            copies.push(uvrr::lifecycle::CopyState { identity, marker });
         }
         let [a, b, d, e] = copies.try_into().expect("four copies were read");
         let count = get_u32(buf, AT_ROSTER) as usize;

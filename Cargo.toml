@@ -19,12 +19,12 @@ categories = [
 ]
 exclude = ["maelstrom/", "store/", ".state/", "mise.toml", ".gitmodules"]
 
-# `name = "vrr"` deliberately differs from the package name. The cdylib and
+# `name = "uvrr"` deliberately differs from the package name. The cdylib and
 # staticlib artifacts are named after the lib target, and the C ABI symbol
-# prefix and the shared-object name a LuaJIT host dlopens are `vrr`, not
+# prefix and the shared-object name a LuaJIT host dlopens are `uvrr`, not
 # `uvrr_core`.
 [lib]
-name = "vrr"
+name = "uvrr"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 # The Maelstrom node. A binary, not a second crate: it needs the library and
@@ -85,7 +85,7 @@ maelstrom = ["serde", "dep:serde_json"]
 cli = ["serde", "dep:serde_json", "dep:clap"]
 
 # Build-time tooling for `cargo test`, not a consumer's supply chain: nothing here
-# reaches a crate that depends on `vrr-core`, and the [dependencies] gate above is
+# reaches a crate that depends on `uvrr-core`, and the [dependencies] gate above is
 # what protects the consumer. Bounded by an explicit allowlist rather than left open
 # — tests/manifest_contract.rs asserts this table names exactly {proptest,
 # serde_json}, so a further entry requires a P3 amendment rather than a quiet commit.

@@ -1,4 +1,4 @@
-//! Contract for `vrr::configuration`, era, membership, voting weights, and the
+//! Contract for `uvrr::configuration`, era, membership, voting weights, and the
 //! reconfiguration operation alphabet.
 //!
 //! Spec §8.7.1 (configuration and era), §8.7.2 (the operation alphabet and its
@@ -8,7 +8,7 @@
 //! binary codec is normative and fixed-width).
 //!
 //! This file gates the *fold*, not quorum policy. Nothing here evaluates a quorum: that
-//! is the `QuorumStrategy` and its closed gate in `vrr::quorum`. What is gated here
+//! is the `QuorumStrategy` and its closed gate in `uvrr::quorum`. What is gated here
 //! is the set of configurations that can exist at all, because every later intersection
 //! argument (§8.7.4 `R1`/`R2`) is stated over configurations reachable by this fold and
 //! is meaningless over configurations that are not.
@@ -28,7 +28,7 @@
 //!    accepts `is_err()` passes when the implementation refuses for the wrong reason,
 //!    which is precisely the failure mode a precondition table exists to prevent.
 //! 4. **Nothing saturates and nothing rounds.** `Halve` on an odd weight is refused,
-//!    not floored; `Increment` and `Double` past [`vrr::configuration::MAX_WEIGHT`]
+//!    not floored; `Increment` and `Double` past [`uvrr::configuration::MAX_WEIGHT`]
 //!    are refused, not clamped; `Decrement` at weight 0 is refused, not a no-op.
 //!    §8.7.5's closure proofs are arithmetic identities over exact weights and a
 //!    rounded weight makes them vacuous. The domain is {0, 1, 2} (rules §1, R1), and
@@ -49,11 +49,11 @@
 use std::sync::Arc;
 
 use proptest::prelude::*;
-use vrr::configuration::{
+use uvrr::configuration::{
     ConfigError, Configuration, EraTable, MAX_MEMBERS, MAX_WEIGHT, Member, SystemOperation, Weight,
 };
-use vrr::ids::{Era, NodeId, Slot, View};
-use vrr::wire::{Malformed, Pack, Unpack, UnpackError};
+use uvrr::ids::{Era, NodeId, Slot, View};
+use uvrr::wire::{Malformed, Pack, Unpack, UnpackError};
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1239,7 +1239,7 @@ fn era_table_retains_a_three_era_window() {
 /// The retained records are shared, not copied: the `Arc` in the surviving previous-era
 /// record after an `extend` is pointer-identical to the one in the receiver. Without
 /// this, configuration history would be a per-advance deep copy, and `Progress`
-/// snapshots (`vrr::progress::Progress`) would allocate a configuration per publication.
+/// snapshots (`uvrr::progress::Progress`) would allocate a configuration per publication.
 #[test]
 fn era_table_shares_retained_arcs() {
     let table = era_table_three();
@@ -1326,7 +1326,7 @@ fn all_variants() -> Vec<SystemOperation> {
 }
 
 /// Round trip through the normative binary codec with `packed_len()` exact (W3, W4).
-/// `LogEntry` (`vrr::journal`) carries a typed `SystemOperation`, so this is the
+/// `LogEntry` (`uvrr::journal`) carries a typed `SystemOperation`, so this is the
 /// encoding a
 /// `Prepare` for a reconfiguration operation actually uses.
 #[test]

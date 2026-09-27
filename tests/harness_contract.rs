@@ -26,14 +26,14 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use vrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
-use vrr::effects::{Effect, Stability, StabilityResult};
-use vrr::ids::{CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, Tick, View, ViewId};
-use vrr::journal::{LogEntry, Payload};
-use vrr::message::{Body, Message};
-use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::PlanRefusal;
-use vrr::wire::{Header, Tag};
+use uvrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
+use uvrr::effects::{Effect, Stability, StabilityResult};
+use uvrr::ids::{CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, Tick, View, ViewId};
+use uvrr::journal::{LogEntry, Payload};
+use uvrr::message::{Body, Message};
+use uvrr::progress::{ProgressSnapshot, Status};
+use uvrr::replica::PlanRefusal;
+use uvrr::wire::{Header, Tag};
 
 use harness::{Harness, NodeEvidence, SafetyViolation, StepOutcome, check_cluster_safety};
 

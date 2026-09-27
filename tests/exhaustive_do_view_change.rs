@@ -19,15 +19,15 @@
 mod harness;
 
 use harness::{Harness, StepOutcome, mint_id, mint_pair};
-use vrr::configuration::SystemOperation;
-use vrr::effects::Effect;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::journal::{LogEntry, Payload};
-use vrr::message::{Body, EraProof, EvidenceKind, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::Status;
-use vrr::replica::ViewChangeKnobs;
-use vrr::wire::{Header, Tag};
+use uvrr::configuration::SystemOperation;
+use uvrr::effects::Effect;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::journal::{LogEntry, Payload};
+use uvrr::message::{Body, EraProof, EvidenceKind, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::Status;
+use uvrr::replica::ViewChangeKnobs;
+use uvrr::wire::{Header, Tag};
 
 const TIMEOUT: u64 = 3;
 const PAYLOAD: &[u8] = b"reported";

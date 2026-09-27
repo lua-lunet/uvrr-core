@@ -2,7 +2,7 @@
 //! `lin-kv` workload, so Knossos can check the protocol for linearizability
 //! under Maelstrom's partition / kill / pause nemeses.
 //!
-//! The core is used as a Rust library (`vrr::replica::Replica`), planner
+//! The core is used as a Rust library (`uvrr::replica::Replica`), planner
 //! architecture: every event becomes a [`TimedInput`], [`Replica::plan`]
 //! computes a transition against the published state and a journal view, and
 //! this host publishes it with [`Replica::publish`] and executes the released
@@ -18,7 +18,7 @@
 //! The bench host has two durability modes, fixed by the environment at
 //! init:
 //!
-//! - **Volatile, the default.** `MAELSTROM_VRR_STATE_DIR` unset or
+//! - **Volatile, the default.** `MAELSTROM_UVRR_STATE_DIR` unset or
 //!   empty: no store at all, no file is opened, written or fsynced, and
 //!   every construction takes the [`Stability::Volatile`] provision path:
 //!   first boot or kill-nemesis restart alike provisions fenced
@@ -28,7 +28,7 @@
 //!   host: a restarted node rejoins fenced, and the next view change
 //!   deposes any stale primary. A kill loses the process's state; the
 //!   survivors inside the fault bound keep serving.
-//! - **Persisted, opt-in.** `MAELSTROM_VRR_STATE_DIR` set: the state dir
+//! - **Persisted, opt-in.** `MAELSTROM_UVRR_STATE_DIR` set: the state dir
 //!   is the persistence home, and the write-through barrier and the
 //!   marker machine below govern it. The state file carries exactly
 //!   what the core considers durable: the §5 persisted progress record,
@@ -178,22 +178,22 @@ use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use serde_json::Value;
-use vrr::configuration::{SystemOperation, VOID_SLOT};
-use vrr::effects::{Effect, Stability};
-use vrr::ids::{CrashCounter, SystemId};
-use vrr::ids::{Era, NodeId, Operation, OperationId, Slot, Tick};
-use vrr::journal::{Journal, LogEntry, Payload, SegmentedLog};
-use vrr::lifecycle::{
+use uvrr::configuration::{SystemOperation, VOID_SLOT};
+use uvrr::effects::{Effect, Stability};
+use uvrr::ids::{CrashCounter, SystemId};
+use uvrr::ids::{Era, NodeId, Operation, OperationId, Slot, Tick};
+use uvrr::journal::{Journal, LogEntry, Payload, SegmentedLog};
+use uvrr::lifecycle::{
     BootError, BootOutcome, Clean, CopyState, Crashed, LifecycleStore, Marker, Running,
     SuperblockCopies, boot,
 };
-use vrr::message::{Body, Message};
-use vrr::progress::Status;
-use vrr::quorum::WeightedMajority;
-use vrr::replica::{
+use uvrr::message::{Body, Message};
+use uvrr::progress::Status;
+use uvrr::quorum::WeightedMajority;
+use uvrr::replica::{
     Input, PlanRefusal, PublishOutcome, Replica, TimedInput, ViewChangeKnobs, construct_pivot,
 };
-use vrr::wire::{Pack, Unpack};
+use uvrr::wire::{Pack, Unpack};
 
 use crate::kv::Kv;
 use crate::proto::{Incoming, KvRequest, KvResponse, Outgoing, error, from_hex, to_hex};
@@ -403,7 +403,7 @@ struct NodeRunner {
     /// operation's slot and the era to watch for its fold.
     pending: Vec<PendingMembership>,
     /// The persistence home, when the node opts in:
-    /// `MAELSTROM_VRR_STATE_DIR` set at init. `None` is the volatile
+    /// `MAELSTROM_UVRR_STATE_DIR` set at init. `None` is the volatile
     /// default, no store, no file I/O; the provision path is the
     /// historical one, and no write is ever issued. The store moves into
     /// the boot gate at init and rides inside the marker session for the
@@ -492,11 +492,11 @@ impl NodeRunner {
             }
             return;
         };
-        // The mode selection: a set, non-empty `MAELSTROM_VRR_STATE_DIR`
+        // The mode selection: a set, non-empty `MAELSTROM_UVRR_STATE_DIR`
         // opts the node into the persisted mode; unset or empty is the
         // volatile default, no store, no file I/O, the provision path
         // below.
-        self.store = match std::env::var("MAELSTROM_VRR_STATE_DIR") {
+        self.store = match std::env::var("MAELSTROM_UVRR_STATE_DIR") {
             Ok(dir) if !dir.is_empty() => match Store::open(std::path::Path::new(&dir), &node_id) {
                 Ok(store) => Some(store),
                 Err(reason) => self.refuse_node(
@@ -539,7 +539,7 @@ impl NodeRunner {
                 ) {
                     Ok(replica) => {
                         eprintln!(
-                            "vrr-init: node {node_id} provisions a fresh identity (volatile mode)"
+                            "uvrr-init: node {node_id} provisions a fresh identity (volatile mode)"
                         );
                         self.replica = Some(replica);
                     }
@@ -565,12 +565,12 @@ impl NodeRunner {
                     ) {
                         Ok(replica) => {
                             eprintln!(
-                                "vrr-init: node {node_id} provisions a fresh identity (first life)"
+                                "uvrr-init: node {node_id} provisions a fresh identity (first life)"
                             );
                             let gate = first.store();
                             gate.stage_create(
                                 members.clone(),
-                                vrr::replica::PersistedProgress::from(replica.progress()),
+                                uvrr::replica::PersistedProgress::from(replica.progress()),
                                 replica.journal().view(),
                             );
                             let anchored = Identity::genesis(index);
@@ -704,7 +704,7 @@ impl NodeRunner {
         ) {
             Ok(replica) => {
                 eprintln!(
-                    "vrr-init: node {} reopens cleanly (the stopped quorum proved the drain; identity {})",
+                    "uvrr-init: node {} reopens cleanly (the stopped quorum proved the drain; identity {})",
                     self.id, own
                 );
                 self.replica = Some(replica);
@@ -746,11 +746,11 @@ impl NodeRunner {
         }
         let pair = match crashed.pair() {
             Ok(pair) => pair,
-            Err(vrr::lifecycle::RestartRefusal::Exhausted(identity)) => self.refuse_node(
+            Err(uvrr::lifecycle::RestartRefusal::Exhausted(identity)) => self.refuse_node(
                 message,
                 format!("the identity space is spent at identity {identity}"),
             ),
-            Err(vrr::lifecycle::RestartRefusal::QuorumLost) => self.refuse_node(
+            Err(uvrr::lifecycle::RestartRefusal::QuorumLost) => self.refuse_node(
                 message,
                 "the marker set is torn: no identity cohort reaches the open threshold".into(),
             ),
@@ -792,7 +792,7 @@ impl NodeRunner {
         ) {
             Ok(replica) => {
                 eprintln!(
-                    "vrr-init: node {} reopens dirty: identity bumps {} -> {} (the latch defers to the seated witness)",
+                    "uvrr-init: node {} reopens dirty: identity bumps {} -> {} (the latch defers to the seated witness)",
                     self.id, crashed_identity, own
                 );
                 self.replica = Some(replica);
@@ -819,7 +819,7 @@ impl NodeRunner {
         &mut self,
         state: &NodeState,
         message: &Incoming,
-    ) -> Option<(SegmentedLog, std::sync::Arc<vrr::configuration::EraTable>)> {
+    ) -> Option<(SegmentedLog, std::sync::Arc<uvrr::configuration::EraTable>)> {
         let mut journal = SegmentedLog::new();
         if let Some(first) = state.entries.first() {
             if first.slot != VOID_SLOT {
@@ -862,7 +862,7 @@ impl NodeRunner {
     /// the diagnostic on stderr, `error` to the init request, nonzero exit
     /// so Jepsen restarts the node. Never a panic.
     fn refuse_node(&mut self, message: &Incoming, why: String) -> ! {
-        eprintln!("vrr-init: node {} refuses to start: {why}", self.id);
+        eprintln!("uvrr-init: node {} refuses to start: {why}", self.id);
         if let Some(msg_id) = message.msg_id() {
             self.reply(
                 &message.src,
@@ -888,7 +888,7 @@ impl NodeRunner {
             return;
         }
         if let Err(reason) = self.write_state() {
-            eprintln!("vrr-init: the state file failed write-through: {reason}");
+            eprintln!("uvrr-init: the state file failed write-through: {reason}");
             std::process::exit(1);
         }
     }
@@ -906,7 +906,7 @@ impl NodeRunner {
         let Some(copies) = self.copies else {
             return Ok(());
         };
-        let progress = vrr::replica::PersistedProgress::from(replica.progress());
+        let progress = uvrr::replica::PersistedProgress::from(replica.progress());
         let view = replica.journal().view();
         let roster = self.identity.roster.clone();
         let write = |store: &mut Store| {
@@ -951,7 +951,7 @@ impl NodeRunner {
             self.session = Some(session);
             return;
         };
-        let progress = vrr::replica::PersistedProgress::from(replica.progress());
+        let progress = uvrr::replica::PersistedProgress::from(replica.progress());
         let view = replica.journal().view();
         session.store_mut().stage_state(progress, view);
         // T1, the two-round halt: `Stopping` 4x, the drain, `Stopped` 4x,
@@ -964,16 +964,16 @@ impl NodeRunner {
                 Ok(draining) => {
                     if let Err((_, reason)) = draining.finish_stop() {
                         eprintln!(
-                            "vrr-init: the clean stop did not write the stopped marker: {reason}"
+                            "uvrr-init: the clean stop did not write the stopped marker: {reason}"
                         );
                     }
                 }
                 Err((_, reason)) => {
-                    eprintln!("vrr-init: the clean stop did not drain: {reason}");
+                    eprintln!("uvrr-init: the clean stop did not drain: {reason}");
                 }
             },
             Err((session, reason)) => {
-                eprintln!("vrr-init: the clean stop did not write the stopping marker: {reason}");
+                eprintln!("uvrr-init: the clean stop did not write the stopping marker: {reason}");
                 self.session = Some(session);
             }
         }
@@ -994,21 +994,21 @@ impl NodeRunner {
             self.deferred = Some(crashed);
             return;
         };
-        let progress = vrr::replica::PersistedProgress::from(replica.progress());
+        let progress = uvrr::replica::PersistedProgress::from(replica.progress());
         let view = replica.journal().view();
         crashed.store().stage_state(progress, view);
         match crashed.latch(witness) {
             Ok(session) => {
                 let new = session.identity();
                 eprintln!(
-                    "vrr-init: the deferred latch fired (identity {} seated; markers Joining)",
+                    "uvrr-init: the deferred latch fired (identity {} seated; markers Joining)",
                     new.0
                 );
                 self.copies = Some(lifecycle_markers(new, Marker::Joining));
                 self.session = Some(session);
             }
             Err((crashed, error)) => {
-                eprintln!("vrr-init: the deferred latch refused: {error:?}");
+                eprintln!("uvrr-init: the deferred latch refused: {error:?}");
                 self.deferred = Some(crashed);
             }
         }
@@ -1329,7 +1329,7 @@ impl NodeRunner {
     /// The concrete pivot for this leader under the fold of `operation`,
     /// when one exists (§8.7.6). A leader with no legal split gets `None`:
     /// the stop-the-world fallback is a latency outcome, not an error.
-    fn pivot_for(&self, operation: &SystemOperation) -> Option<vrr::replica::Pivot> {
+    fn pivot_for(&self, operation: &SystemOperation) -> Option<uvrr::replica::Pivot> {
         let replica = self.replica.as_ref()?;
         let progress = replica.progress();
         let current = progress.config().current();
@@ -1750,14 +1750,14 @@ enum StagedBeneath {
         /// The genesis roster the file is born with.
         roster: Vec<String>,
         /// The genesis progress record.
-        progress: vrr::replica::PersistedProgress,
+        progress: uvrr::replica::PersistedProgress,
         /// The (empty) journal the file is born with.
         view: <SegmentedLog as Journal>::View,
     },
     /// A boot's or a halt's marker rewrite over this durable state.
     State {
         /// The progress record written beneath the markers.
-        progress: vrr::replica::PersistedProgress,
+        progress: uvrr::replica::PersistedProgress,
         /// The journal written beneath the markers.
         view: <SegmentedLog as Journal>::View,
     },
@@ -1783,7 +1783,7 @@ impl Gate {
     fn stage_create(
         &self,
         roster: Vec<String>,
-        progress: vrr::replica::PersistedProgress,
+        progress: uvrr::replica::PersistedProgress,
         view: <SegmentedLog as Journal>::View,
     ) {
         *self.staged.borrow_mut() = StagedBeneath::Create {
@@ -1796,7 +1796,7 @@ impl Gate {
     /// Stages the durable state a marker rewrite lands over.
     fn stage_state(
         &self,
-        progress: vrr::replica::PersistedProgress,
+        progress: uvrr::replica::PersistedProgress,
         view: <SegmentedLog as Journal>::View,
     ) {
         *self.staged.borrow_mut() = StagedBeneath::State { progress, view };
@@ -1879,13 +1879,13 @@ impl LifecycleStore for Gate {
 fn fold_table(
     entries: &[LogEntry],
     committed: Slot,
-) -> Result<vrr::configuration::EraTable, String> {
-    let mut table = vrr::configuration::EraTable::genesis();
+) -> Result<uvrr::configuration::EraTable, String> {
+    let mut table = uvrr::configuration::EraTable::genesis();
     for entry in entries {
         if entry.slot > committed {
             break;
         }
-        if let vrr::journal::Payload::System(operation) = &entry.payload {
+        if let uvrr::journal::Payload::System(operation) = &entry.payload {
             table = table.extend(operation, entry.slot).map_err(|reason| {
                 format!(
                     "the persisted history does not fold at slot {}: {reason:?}",

@@ -11,13 +11,13 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::configuration::{EraTable, SystemOperation};
-use vrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId, View, ViewId};
-use vrr::observe::Diagnostic;
-use vrr::progress::Status;
-use vrr::quorum::{WeightedMajority, construct_pivot};
-use vrr::replica::ViewChangeKnobs;
-use vrr::wire::Tag;
+use uvrr::configuration::{EraTable, SystemOperation};
+use uvrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId, View, ViewId};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::Status;
+use uvrr::quorum::{WeightedMajority, construct_pivot};
+use uvrr::replica::ViewChangeKnobs;
+use uvrr::wire::Tag;
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -67,7 +67,7 @@ fn bootstrap(h: &mut Harness) {
 }
 
 /// The snapshot of a live node (tests never snapshot a crashed one).
-fn snap(h: &Harness, id: NodeId) -> vrr::progress::ProgressSnapshot {
+fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 

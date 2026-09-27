@@ -29,8 +29,8 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::ids::{CrashCounter, NodeId, OperationId, SystemId};
-use vrr::lifecycle::{CopyState, Marker, RestartClass, SuperblockCopies};
+use uvrr::ids::{CrashCounter, NodeId, OperationId, SystemId};
+use uvrr::lifecycle::{CopyState, Marker, RestartClass, SuperblockCopies};
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -53,42 +53,42 @@ fn bootstrap(h: &mut Harness) {
     h.assert_safety();
 }
 
-fn snap(h: &Harness, id: NodeId) -> vrr::progress::ProgressSnapshot {
+fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-fn status_of(h: &Harness, id: NodeId) -> vrr::progress::Status {
-    vrr::progress::Status::from_word(snap(h, id).status).expect("the word is a status")
+fn status_of(h: &Harness, id: NodeId) -> uvrr::progress::Status {
+    uvrr::progress::Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-fn current_view(h: &Harness, id: NodeId) -> vrr::ids::ViewId {
+fn current_view(h: &Harness, id: NodeId) -> uvrr::ids::ViewId {
     let snapshot = snap(h, id);
-    vrr::ids::ViewId {
-        era: vrr::ids::Era(snapshot.era),
-        view: vrr::ids::View(snapshot.view),
+    uvrr::ids::ViewId {
+        era: uvrr::ids::Era(snapshot.era),
+        view: uvrr::ids::View(snapshot.view),
     }
 }
 
-fn current_era(h: &Harness, id: NodeId) -> vrr::ids::Era {
+fn current_era(h: &Harness, id: NodeId) -> uvrr::ids::Era {
     h.era_table(id).expect("the node is live").current().era
 }
 
-fn fence_target(h: &Harness, node: NodeId) -> vrr::ids::ViewId {
+fn fence_target(h: &Harness, node: NodeId) -> uvrr::ids::ViewId {
     let current = current_view(h, node);
-    vrr::ids::ViewId {
+    uvrr::ids::ViewId {
         era: current_era(h, node),
-        view: vrr::ids::View(current.view.0 + 1),
+        view: uvrr::ids::View(current.view.0 + 1),
     }
 }
 
 /// Drives the view change the fence machinery targets, asserting every
 /// node in `live` installs it.
-fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> vrr::ids::ViewId {
+fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> uvrr::ids::ViewId {
     let target = fence_target(h, live[0]);
     let driver = live
         .iter()
         .copied()
-        .find(|&id| status_of(h, id) == vrr::progress::Status::Normal)
+        .find(|&id| status_of(h, id) == uvrr::progress::Status::Normal)
         .expect("a live Normal member drives the fence");
     for _ in 0..=TIMEOUT {
         h.tick(driver);
@@ -97,7 +97,7 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> vrr::ids::ViewId {
     for &id in live {
         assert_eq!(
             status_of(h, id),
-            vrr::progress::Status::Normal,
+            uvrr::progress::Status::Normal,
             "{id:?} installs"
         );
         assert_eq!(current_view(h, id), target, "{id:?} is in the target");
@@ -224,7 +224,7 @@ fn a_the_identity_marker_cohort_matrix_is_exhaustive() {
 fn cluster() -> Harness {
     Harness::with_knobs(
         3,
-        vrr::replica::ViewChangeKnobs {
+        uvrr::replica::ViewChangeKnobs {
             primary_timeout: TIMEOUT,
             view_change_budget: usize::MAX,
         },
@@ -292,7 +292,7 @@ fn c_the_reincarnations_latch_defers_to_the_seated_witness() {
     let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
-    assert_eq!(current_era(&h, n(0)), vrr::ids::Era(2));
+    assert_eq!(current_era(&h, n(0)), uvrr::ids::Era(2));
     // Mid-catch-up: the gate has read the crash's markers and written
     // nothing, the flush is not paid at the boundary of an
     // uninitialised start, and the node is a weight-0 learner.
@@ -314,7 +314,7 @@ fn c_the_reincarnations_latch_defers_to_the_seated_witness() {
     let outcome = h.reincarnate(bumped, n(2));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_all();
-    assert_eq!(current_era(&h, n(0)), vrr::ids::Era(3));
+    assert_eq!(current_era(&h, n(0)), uvrr::ids::Era(3));
     // Seated: the harness's settle fired the deferred latch, one
     // `Joining` round at the bumped identity (the crashed anchor was the
     // first life's packed identity, the latch its next crash counter),

@@ -6,7 +6,7 @@
 //! the packing is injective inside the u16 halves, the print form names the
 //! host identity left-padded to full width, and the types cost nothing.
 
-use vrr::ids::{CrashCounter, NodeId, SystemId};
+use uvrr::ids::{CrashCounter, NodeId, SystemId};
 
 fn sys(v: u16) -> SystemId {
     SystemId::new(v).expect("a non-zero system identifier is lawful")

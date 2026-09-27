@@ -15,15 +15,15 @@
 mod harness;
 
 use harness::{Harness, StepOutcome, mint_pair};
-use vrr::configuration::{INIT_SLOT, SystemOperation};
-use vrr::effects::Effect;
-use vrr::ids::{CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::journal::{LogEntry, Payload};
-use vrr::message::{Body, EraProof, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::Status;
-use vrr::replica::{PublishRefusal, ViewChangeKnobs};
-use vrr::wire::{Header, Tag};
+use uvrr::configuration::{INIT_SLOT, SystemOperation};
+use uvrr::effects::Effect;
+use uvrr::ids::{CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::journal::{LogEntry, Payload};
+use uvrr::message::{Body, EraProof, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::Status;
+use uvrr::replica::{PublishRefusal, ViewChangeKnobs};
+use uvrr::wire::{Header, Tag};
 
 const TIMEOUT: u64 = 3;
 const PAYLOAD: &[u8] = b"selected";

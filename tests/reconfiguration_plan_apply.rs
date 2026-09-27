@@ -6,12 +6,12 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::configuration::{Member, SystemOperation, Weight};
-use vrr::effects::{Effect, PlanVerdict};
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::journal::Payload;
-use vrr::observe::Diagnostic;
-use vrr::plan::{Plan, PlanRejection};
+use uvrr::configuration::{Member, SystemOperation, Weight};
+use uvrr::effects::{Effect, PlanVerdict};
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::journal::Payload;
+use uvrr::observe::Diagnostic;
+use uvrr::plan::{Plan, PlanRejection};
 
 fn n(id: u32) -> NodeId {
     NodeId::new(

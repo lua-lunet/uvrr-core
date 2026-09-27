@@ -10,14 +10,14 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use vrr::configuration::{INIT_SLOT, SystemOperation};
-use vrr::ids::{CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::journal::{LogEntry, Payload};
-use vrr::message::{Body, EraProof, EvidenceKind, Message};
-use vrr::observe::Diagnostic;
-use vrr::progress::{ProgressSnapshot, Status};
-use vrr::replica::{PlanRefusal, ViewChangeKnobs};
-use vrr::wire::{Header, Pack, Tag};
+use uvrr::configuration::{INIT_SLOT, SystemOperation};
+use uvrr::ids::{CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::journal::{LogEntry, Payload};
+use uvrr::message::{Body, EraProof, EvidenceKind, Message};
+use uvrr::observe::Diagnostic;
+use uvrr::progress::{ProgressSnapshot, Status};
+use uvrr::replica::{PlanRefusal, ViewChangeKnobs};
+use uvrr::wire::{Header, Pack, Tag};
 
 /// Node id shorthand (the harness's own pattern).
 fn n(id: u32) -> NodeId {
@@ -425,7 +425,7 @@ fn start_view_change_stale_ignored_and_ahead_joined() {
     assert!(
         effects.iter().any(|effect| matches!(
             effect,
-            vrr::effects::Effect::Send { message, .. }
+            uvrr::effects::Effect::Send { message, .. }
                 if message.header.tag == Tag::StartViewChange && message.header.view == view(2)
         )),
         "joining the higher view re-broadcasts StartViewChange"
@@ -737,7 +737,7 @@ fn two_view_changes_for_one_view_cannot_both_complete() {
     assert!(
         !effects.iter().any(|effect| matches!(
             effect,
-            vrr::effects::Effect::Send { message, .. } if message.header.tag == Tag::StartView
+            uvrr::effects::Effect::Send { message, .. } if message.header.tag == Tag::StartView
         )),
         "the competing change produces no second StartView"
     );

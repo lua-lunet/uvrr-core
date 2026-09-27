@@ -1,5 +1,5 @@
 #!/bin/bash
-# Docker entrypoint for vrr-core Maelstrom tests
+# Docker entrypoint for uvrr-core Maelstrom tests
 # Supports: test-all, test-clean, test-partition, test-kill, serve, build, check
 
 set -euo pipefail
@@ -17,17 +17,17 @@ INTERVAL=${INTERVAL:-10}
 build_binary() {
     if [ ! -f "$BIN" ]; then
         echo "Building maelstrom-lin-kv..."
-        cd /usr/src/vrr-core
+        cd /usr/src/uvrr-core
         cargo build --release --bin maelstrom-lin-kv
     fi
 }
 
 # Run maelstrom test. The node runs its volatile default: no state dir,
-# no file I/O. Persistence is opt-in (MAELSTROM_VRR_STATE_DIR, set per
+# no file I/O. Persistence is opt-in (MAELSTROM_UVRR_STATE_DIR, set per
 # invocation).
 run_maelstrom() {
     local nemesis_args="$1"
-    cd /usr/src/vrr-core/maelstrom
+    cd /usr/src/uvrr-core/maelstrom
     lein run test \
         -w "$WORKLOAD" --bin "$BIN" \
         --node-count "$NODES" --time-limit "$TIME_LIMIT" \
@@ -53,20 +53,20 @@ case "$1" in
         run_maelstrom "--nemesis partition,kill,pause --nemesis-interval $INTERVAL"
         ;;
     serve)
-        cd /usr/src/vrr-core/maelstrom
+        cd /usr/src/uvrr-core/maelstrom
         lein run serve
         ;;
     build)
         build_binary
         ;;
     check)
-        cd /usr/src/vrr-core
+        cd /usr/src/uvrr-core
         cargo fmt -- --check
         cargo clippy --all-targets -- -D warnings
         cargo test
         ;;
     test)
-        cd /usr/src/vrr-core
+        cd /usr/src/uvrr-core
         cargo test
         ;;
     help|--help|-h)

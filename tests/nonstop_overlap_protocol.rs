@@ -9,13 +9,13 @@
 mod harness;
 
 use harness::{DeliveryOutcome, Harness, StepOutcome};
-use vrr::configuration::SystemOperation;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::configuration::SystemOperation;
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
 
-use vrr::message::{Body, Message};
-use vrr::progress::Status;
-use vrr::replica::{Pivot, PlanRefusal, ViewChangeKnobs};
-use vrr::wire::Tag;
+use uvrr::message::{Body, Message};
+use uvrr::progress::Status;
+use uvrr::replica::{Pivot, PlanRefusal, ViewChangeKnobs};
+use uvrr::wire::Tag;
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -89,7 +89,7 @@ fn bootstrap(h: &mut Harness) {
 }
 
 /// The snapshot of a live node (tests never snapshot a crashed one).
-fn snap(h: &Harness, id: NodeId) -> vrr::progress::ProgressSnapshot {
+fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
@@ -121,7 +121,7 @@ fn sends(outcome: &StepOutcome) -> Vec<(NodeId, Era, Message)> {
     effects
         .iter()
         .filter_map(|effect| match effect {
-            vrr::effects::Effect::Send { to, era, message } => Some((*to, *era, message.clone())),
+            uvrr::effects::Effect::Send { to, era, message } => Some((*to, *era, message.clone())),
             _ => None,
         })
         .collect()
@@ -244,7 +244,7 @@ fn overlap_transition_runs_the_seven_steps_without_stopping_the_stream() {
     let Body::DoViewChange { evidence: kind, .. } = &evidence.2.body else {
         panic!("the answer is a DoViewChange");
     };
-    assert_eq!(*kind, vrr::message::EvidenceKind::Planned);
+    assert_eq!(*kind, uvrr::message::EvidenceKind::Planned);
     let fetch = sent
         .iter()
         .find(|(_, _, message)| message.header.tag == Tag::GetState)
@@ -413,7 +413,7 @@ fn solicitation_duplicate_and_evidence_duplicate_are_idempotent() {
     // its view.
     deliver(&mut h, n(2), Tag::PlannedViewChange);
     let solicitation = Message {
-        header: vrr::wire::Header {
+        header: uvrr::wire::Header {
             tag: Tag::PlannedViewChange,
             view: transition_view(),
             slot: Slot::NONE,

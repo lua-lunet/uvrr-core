@@ -10,10 +10,10 @@
 
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
-use vrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use vrr::ids::{CrashCounter, Era, NodeId, SystemId};
-use vrr::plan::{Plan, PlanRejection};
-use vrr::solver::solve_replacement;
+use uvrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
+use uvrr::ids::{CrashCounter, Era, NodeId, SystemId};
+use uvrr::plan::{Plan, PlanRejection};
+use uvrr::solver::solve_replacement;
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -194,7 +194,7 @@ fn a_step_that_no_longer_folds_is_refused_at_the_step() {
         illegal.validate_against(&start),
         Err(PlanRejection::Step {
             index: 1,
-            refusal: vrr::configuration::ConfigError::WeightUnderflow(n(2)),
+            refusal: uvrr::configuration::ConfigError::WeightUnderflow(n(2)),
         }),
         "the fold refuses the drifted step at its index"
     );
@@ -253,7 +253,7 @@ proptest! {
             current = current
                 .apply(
                     &SystemOperation::Batch(ops.clone()),
-                    vrr::ids::Slot(0),
+                    uvrr::ids::Slot(0),
                 )
                 .map_err(|error| TestCaseError::fail(format!("a step refuses: {error:?}")))?;
         }
@@ -272,7 +272,7 @@ proptest! {
 #[cfg(feature = "serde")]
 mod jsonl {
     use super::*;
-    use vrr::plan::{Plan, PlanCodecError};
+    use uvrr::plan::{Plan, PlanCodecError};
 
     /// The three-node plan's JSONL is exactly the schema's two-era form, and
     /// the codec round-trips it to the same plan.

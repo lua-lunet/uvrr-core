@@ -11,7 +11,7 @@
 //! thread. The host owns time, transport, storage, packetization, threading and naming.
 //! `docs/architecture.md` records what is closed for modification, what is open for
 //! extension, and the rulings each module below is judged against. The normative
-//! specification is `docs/vrr-durability-model.md`, and every
+//! specification is `docs/uvrr-durability-model.md`, and every
 //! section reference in this crate is to that document.
 //!
 //! # The modules

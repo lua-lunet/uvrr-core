@@ -18,10 +18,10 @@
 mod harness;
 
 use harness::Harness;
-use vrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
-use vrr::message::{Body, Message};
-use vrr::progress::Status;
-use vrr::wire::{Header, Tag};
+use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::message::{Body, Message};
+use uvrr::progress::Status;
+use uvrr::wire::{Header, Tag};
 
 const ALL: [NodeId; 3] = [n(0), n(1), n(2)];
 
@@ -40,8 +40,8 @@ fn op_id(lsb: u64) -> OperationId {
 /// primary after more than three ticks of silence (S4).
 const TIMEOUT: u64 = 3;
 
-fn knobs() -> vrr::replica::ViewChangeKnobs {
-    vrr::replica::ViewChangeKnobs {
+fn knobs() -> uvrr::replica::ViewChangeKnobs {
+    uvrr::replica::ViewChangeKnobs {
         primary_timeout: TIMEOUT,
         view_change_budget: usize::MAX,
     }
@@ -63,7 +63,7 @@ fn bootstrap(h: &mut Harness) {
     h.assert_safety();
 }
 
-fn snap(h: &Harness, id: NodeId) -> vrr::progress::ProgressSnapshot {
+fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
