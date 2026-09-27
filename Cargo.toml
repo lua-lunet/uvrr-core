@@ -2,8 +2,15 @@
 name = "uvrr-core"
 version = "0.10.2"
 edition = "2024"
-# Edition 2024 requires 1.85, which sets this floor. Enforced by clippy's msrv
-# lints, so a newer API cannot creep in unnoticed.
+# One toolchain rule, recorded beside the fields it governs: CI builds with
+# exactly the toolchain the crate is built and released with locally,
+# `rustc 1.96.0` (this `rust-version` field and the toolchain pinned in
+# .github/workflows/ci.yml). There is no separate MSRV lane and no deliberate
+# older pin: a toolchain exists to build this code, and any version CI does
+# not share with the developers hides lint drift until it blocks a release.
+# Raising the toolchain is a deliberate act that moves the three places at
+# once. Edition 2024 requires 1.85, which sets this floor; clippy's msrv
+# lints enforce it, so a newer API cannot creep in unnoticed.
 rust-version = "1.96"
 description = "Sans-io Viewstamped Replication Revisited core (normal operation, view change, recovery, state transfer) with a C ABI for LuaJIT FFI."
 repository = "https://github.com/lua-lunet/uvrr-core"
