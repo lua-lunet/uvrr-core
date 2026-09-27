@@ -11,7 +11,7 @@
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use uvrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use uvrr::ids::{CrashCounter, Era, NodeId, SystemId};
+use uvrr::ids::{CrashCounter, Era, NodeId, SystemId, View};
 use uvrr::plan::{Plan, PlanRejection};
 use uvrr::solver::solve_replacement;
 
@@ -36,7 +36,7 @@ fn config(order: Vec<Member>) -> Configuration {
 }
 
 fn plan_replacement(start: &Configuration, old: NodeId, new: NodeId, live: &[NodeId]) -> Plan {
-    let steps = solve_replacement(start, old, new, live).expect("the schedule solves");
+    let steps = solve_replacement(start, old, new, live, View(0)).expect("the schedule solves");
     Plan {
         initial: start.order().to_vec(),
         steps: steps.into_iter().map(|step| step.ops).collect(),
@@ -53,9 +53,9 @@ const THREE_NODE_PLAN: &str = concat!(
     "{\"id\":131073,\"weight\":1},{\"id\":196609,\"weight\":1}],",
     "\"target\":[{\"id\":65537,\"weight\":1},{\"id\":131073,\"weight\":1},{\"id\":262145,\"weight\":1}]}\n",
     "{\"kind\":\"step\",\"ops\":[{\"op\":\"decrement\",\"node\":196609},",
-    "{\"op\":\"join\",\"node\":262145,\"position\":2}]}\n",
+    "{\"op\":\"join\",\"node\":262145,\"position\":2},{\"op\":\"nominate\",\"from\":0,\"offset\":2}]}\n",
     "{\"kind\":\"step\",\"ops\":[{\"op\":\"increment\",\"node\":262145},",
-    "{\"op\":\"leave\",\"node\":196609}]}\n",
+    "{\"op\":\"leave\",\"node\":196609},{\"op\":\"nominate\",\"from\":2,\"offset\":1}]}\n",
 );
 
 /// The three-node unit cluster's replacement is exactly the paper's two-era
@@ -74,13 +74,21 @@ fn three_node_replacement_is_the_two_era_schedule() {
                     node: n(3),
                     position: 2,
                 },
+                SystemOperation::Nominate {
+                    from: View(0),
+                    offset: 2,
+                },
             ],
             vec![
                 SystemOperation::Increment(n(3)),
                 SystemOperation::Leave(n(2)),
+                SystemOperation::Nominate {
+                    from: View(2),
+                    offset: 1,
+                },
             ],
         ],
-        "the paper's two-era replacement schedule"
+        "the paper's two-era replacement schedule, every step carrying its rider: the drain's wrap keeps the leader at view 0 (the count-preserving offset), the promotion's wrap moves it (the re-electing offset)"
     );
 }
 
@@ -101,16 +109,36 @@ fn five_node_replacement_is_the_six_batch_schedule() {
                     position: 4,
                 },
                 SystemOperation::Increment(n(5)),
+                SystemOperation::Nominate {
+                    from: View(5),
+                    offset: 1,
+                },
             ],
-            vec![SystemOperation::Decrement(n(4))],
+            vec![
+                SystemOperation::Decrement(n(4)),
+                SystemOperation::Nominate {
+                    from: View(6),
+                    offset: 6,
+                },
+            ],
             vec![
                 SystemOperation::Decrement(n(4)),
                 SystemOperation::Leave(n(4)),
+                SystemOperation::Nominate {
+                    from: View(12),
+                    offset: 3,
+                },
             ],
-            vec![SystemOperation::Increment(n(5))],
+            vec![
+                SystemOperation::Increment(n(5)),
+                SystemOperation::Nominate {
+                    from: View(15),
+                    offset: 5,
+                },
+            ],
             vec![SystemOperation::Halve],
         ],
-        "the paper's six-batch weighted replacement"
+        "the paper's six-batch weighted replacement, every unit step carrying its rider, the scaling steps staying solitary (R13)"
     );
 }
 
@@ -449,6 +477,8 @@ mod sysadmin_tool_lane {
                 "196609:262145",
                 "--available",
                 "65537,131073,262145",
+                "--view",
+                "0",
             ])
             .output()
             .expect("the CLI runs");
@@ -487,7 +517,7 @@ mod sysadmin_tool_lane {
             .arg(&members)
             .args(["--target"])
             .arg(&doubled)
-            .args(["--available", "0,1,2"])
+            .args(["--available", "0,1,2", "--view", "0"])
             .output()
             .expect("the CLI runs");
         assert!(

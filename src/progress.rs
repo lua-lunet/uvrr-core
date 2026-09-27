@@ -371,12 +371,21 @@ impl Progress {
         }
     }
 
-    /// §1.3: `Normal` requires `current == retained`; `ViewChange` requires
+    /// §1.3: `Normal` requires `current >= retained`; `ViewChange` requires
     /// `current >= retained`. The fenced entry states carry no relation.
+    ///
+    /// A `Normal` node serves at or past the view its retained history was
+    /// selected at: equal after an install, and past it after a
+    /// nomination's commit-time bump
+    /// (`docs/nominate-leader-assignment.md`), which advances the serving
+    /// view by a committed command without re-selecting the history, so the
+    /// retained view, the history's provenance, stays what it was and the
+    /// serving view moves on. Serving BELOW the retained view is
+    /// unrepresentable: no transition lowers `current`, and an install sets
+    /// the pair equal.
     pub(crate) fn check_status_relation(&self) -> Result<(), ProgressError> {
         let holds = match self.status {
-            Status::Normal => self.current == self.retained,
-            Status::ViewChange => self.current >= self.retained,
+            Status::Normal | Status::ViewChange => self.current >= self.retained,
             Status::Restarting | Status::Joining | Status::Replaying => true,
         };
         if holds {

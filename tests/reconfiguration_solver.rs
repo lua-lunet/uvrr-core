@@ -1,6 +1,6 @@
 use proptest::prelude::*;
 use uvrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use uvrr::ids::{Era, NodeId, Slot};
+use uvrr::ids::{Era, NodeId, Slot, View};
 use uvrr::quorum::{WeightedMajority, validate_transition};
 use uvrr::solver::{solve, solve_replacement};
 
@@ -20,7 +20,7 @@ fn config(weights: &[u32]) -> Configuration {
     .unwrap()
 }
 fn check(start: &Configuration, target: &Configuration, live: &[NodeId]) {
-    let steps = solve(start, target, live).unwrap();
+    let steps = solve(start, target, live, View(0)).unwrap();
     let mut c = start.clone();
     for step in steps {
         let next = c
@@ -45,7 +45,7 @@ fn constant_mass_swap_needs_intermediate_eras() {
     let t = config(&[2, 1, 2, 1]);
     assert!(validate_transition(&WeightedMajority, &s, &t).is_err());
     let live = [NodeId(0), NodeId(1), NodeId(2), NodeId(3)];
-    assert_eq!(solve(&s, &t, &live).unwrap().len(), 4);
+    assert_eq!(solve(&s, &t, &live, View(0)).unwrap().len(), 4);
     check(&s, &t, &live);
 }
 #[test]
@@ -66,7 +66,7 @@ fn six_nodes_three_datacentres_every_leader_and_reincarnation() {
             let target = target.inflate().unwrap();
             check(&start, &target, &live);
             assert!(
-                !solve_replacement(&start, NodeId(killed), NodeId(6), &live)
+                !solve_replacement(&start, NodeId(killed), NodeId(6), &live, View(0))
                     .unwrap()
                     .is_empty()
             );
@@ -94,11 +94,31 @@ fn replacement_preserves_full_standard_schedules() {
     for (n, expected) in [(3, 2), (5, 6)] {
         let start = config(&vec![1; n]);
         let live: Vec<_> = (1..=n as u32).map(NodeId).collect();
-        let steps = solve_replacement(&start, NodeId(0), NodeId(n as u32), &live).unwrap();
+        let steps = solve_replacement(&start, NodeId(0), NodeId(n as u32), &live, View(0)).unwrap();
         assert_eq!(steps.len(), expected);
         if n == 5 {
+            // The forced six-era schedule at serving view 0: the scaling
+            // steps carry no rider (R13 keeps them solitary, and the
+            // scaling preserves the positive-weight sequence, so the leader
+            // never moves at one), and the moving wrap, the new identity's
+            // promotion, carries the re-electing rider
+            // (`docs/nominate-leader-assignment.md`).
             assert_eq!(steps.first().unwrap().ops, vec![SystemOperation::Double]);
             assert_eq!(steps.last().unwrap().ops, vec![SystemOperation::Halve]);
+            assert_eq!(
+                steps[1].ops,
+                vec![
+                    SystemOperation::Join {
+                        node: NodeId(5),
+                        position: 0
+                    },
+                    SystemOperation::Increment(NodeId(5)),
+                    SystemOperation::Nominate {
+                        from: View(5),
+                        offset: 2
+                    }
+                ]
+            );
         }
     }
 }
@@ -134,7 +154,7 @@ proptest! {
 fn endpoint_availability_and_scaling_are_explicit() {
     let c = config(&[1, 1, 2, 2]);
     assert!(matches!(
-        solve(&c, &c, &[NodeId(0), NodeId(1)]),
+        solve(&c, &c, &[NodeId(0), NodeId(1)], View(0)),
         Err(uvrr::solver::SolveError::NoAvailableMajority {
             target: false,
             available: 2,
@@ -144,12 +164,16 @@ fn endpoint_availability_and_scaling_are_explicit() {
     let s = config(&[1, 1, 1]);
     let t = config(&[2, 2, 2]);
     let live = [NodeId(0), NodeId(1), NodeId(2)];
+    // The scaling step carries no rider: R13 keeps the scaling op
+    // solitary, and the scaling preserves the positive-weight sequence
+    // elementwise, so the leader never moves at one
+    // (`docs/nominate-leader-assignment.md`).
     assert_eq!(
-        solve(&s, &t, &live).unwrap()[0].ops,
+        solve(&s, &t, &live, View(0)).unwrap()[0].ops,
         vec![SystemOperation::Double]
     );
     assert_eq!(
-        solve(&t, &s, &live).unwrap()[0].ops,
+        solve(&t, &s, &live, View(0)).unwrap()[0].ops,
         vec![SystemOperation::Halve]
     );
     let mut reversed = s.to_snapshot();
@@ -167,7 +191,8 @@ proptest! {
         prop_assume!(2 * (total - weights[killed]) > total);
         let s = config(&weights);
         let live: Vec<_> = (0..7).filter(|&id| id != killed as u32).map(NodeId).collect();
-        let steps = solve_replacement(&s, NodeId(killed as u32), NodeId(6), &live).unwrap();
+        let steps =
+            solve_replacement(&s, NodeId(killed as u32), NodeId(6), &live, View(0)).unwrap();
         let mut c = s.clone();
         for step in steps {
             validate_transition(&WeightedMajority, &c, &step.config).unwrap();
