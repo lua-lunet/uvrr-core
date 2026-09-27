@@ -107,6 +107,10 @@ every assertion through the public interface, which is where the contract actual
 
 ## Commit and push and tag and release discipline
 
+- Agents are FORBIDDEN from bypassing the pre-push hook (`git push --no-verify`)
+  unless the user has explicitly said so in the current instruction. The slow
+  lane is the price of the push, and a local skip is exactly the failure the
+  hook exists to prevent.
 - Commit when the full suite is green. Do not accumulate a large uncommitted tree: a long-lived staged diff is unreviewable and destroys the bisect point that made it safe.
 - A commit message describes the change as delivered. It does not enumerate pending
   chores, releases, or review steps, and it carries no internal tracking identifiers.
