@@ -1,3 +1,64 @@
+# Rung 31: the telescoped-promise equivalence of the witness stream
+
+Evidence recorded 27 September 2026 against the source based on `c2120c8`.
+
+The target is `Witness.telescoped_promise_equivalence` in
+`UVRR/Witness.lean`. The witness ladder's safety paragraph argues that a
+leader streaming phase-2 at view `v` to a witness telescopes a promise: per
+Lamport, a promise at ballot `b` covers every lower ballot, so an
+acceptance at `v` raises the witness's promise floor to `v` exactly as if a
+prepare at `v` had arrived first. This rung mechanises the equivalence over
+the witness's accept history — the `(view, accepted-prefix)` pairs the
+stream delivered, oldest first.
+
+## Claim
+
+The model is three definitions. `AcceptHistory` is the delivered stream.
+`Monotone` is its well-formedness: views strictly increase along the
+history — the witness never accepts below the highest view it has accepted.
+`floor` is the induced promise floor: the highest accepted view (0 for an
+empty history), covering every ballot at or below it — the telescoping
+itself. The named theorem carries the obligation's three conjuncts:
+
+1. **Fence.** `P23W` states the P23 discipline over the witness's
+   accept/promise relations (`InducedPromise`, `StreamAccepted`): with the
+   induced promise at ballot `b` in force at the end of a delivered prefix,
+   no later delivery accepts strictly below `b`. `fence_of_monotone`
+   discharges it for every split of a monotone history; the proof induces
+   on the delivered prefix and never iterates the history's slots.
+2. **Equivalence.** The induced promise state `inducedPromiseState` — the
+   fence and the greatest acceptance reported with it — equals the promise
+   state of a member that processed phase-1 at the floor view: the same
+   fence, and the history's last entry is the greatest acceptance
+   (`floor_eq_getLast`: under `Monotone` the floor is the last entry's
+   view).
+3. **Promotion consistency.** Under H5, kept a named hypothesis as
+   `LeaderEarned` (the leader sends phase-2 only for views whose phase-1
+   completed on a quorum of members — a construction rule, not an
+   assumption about timing), at promotion the witness's floor equals the
+   leader's view and its committed prefix equals the leader's, composed
+   with the existing `promotion_committed_prefix`; quorum certificates that
+   count it rest on the same evidence as for any member.
+
+## Negative controls
+
+- **Backslide refused.** A witness accepting below its highest accepted
+  view violates the equivalence: on the concrete two-entry history
+  `[(5, 2), (3, 2)]` the well-formedness predicate and the P23-shaped fence
+  both fail (`backslide_breaks_equivalence`).
+- **Short promotion refused.** A promotion below the leader's prefix
+  violates it: the promoted state taken at a frontier short of the stream's
+  delivered frontier is not the leader's prefix
+  (`short_promotion_breaks_equivalence`, the `gapped_replay_fails` idiom of
+  a concrete prefix/take mismatch).
+
+## Source
+
+```bash
+cat UVRR/Witness.lean
+```
+
+```output
 /-! Witness acquisition: a non-member learns the committed era and the
 committed log prefix before it participates. The find-the-cluster guard
 adopts the maximum reported (committed) era; the leader replays the
@@ -358,3 +419,45 @@ theorem short_promotion_breaks_equivalence :
       ≠ ([1, 2, 3, 4]).take 4 := by decide
 
 end Witness
+```
+
+## Kernel-checked results
+
+Replay from `formal/uvrr-lean/`:
+
+```bash
+lake build
+python3 check_axioms.py
+```
+
+```output
+✔ [28/30] Built UVRR.Witness (519ms)
+✔ [29/30] Built UVRR (332ms)
+Build completed successfully (30 jobs).
+PASS 518 declarations: only standard Lean axioms
+```
+
+Direct axiom query:
+
+```bash
+printf '%s\n' 'import UVRR' \
+  '#print axioms Witness.telescoped_promise_equivalence' \
+  '#print axioms Witness.fence_of_monotone' \
+  '#print axioms Witness.floor_eq_getLast' \
+  '#print axioms Witness.getLast_eq_of_monotone' \
+  '#print axioms Witness.backslide_breaks_equivalence' \
+  '#print axioms Witness.short_promotion_breaks_equivalence' | lake env lean --stdin
+```
+
+```output
+'Witness.telescoped_promise_equivalence' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Witness.fence_of_monotone' depends on axioms: [propext, Quot.sound]
+'Witness.floor_eq_getLast' depends on axioms: [propext]
+'Witness.getLast_eq_of_monotone' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Witness.backslide_breaks_equivalence' depends on axioms: [propext, Quot.sound]
+'Witness.short_promotion_breaks_equivalence' does not depend on any axioms
+```
+
+The statements and proof bodies are hand-landed and kernel-checked; no
+Leanstral loop was needed to discharge a body. Only the permitted standard
+Lean axioms appear.

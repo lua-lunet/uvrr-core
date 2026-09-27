@@ -401,9 +401,13 @@ earned from members by the ordinary phase one. The addendum states this
 as five construction rules, H1--H5, and proves the consequence in Lean:
 the adopted era never exceeds the committed era; once the leader answers,
 it equals it; a journal extended by the in-order contiguous suffix
-reconstructs the leader's prefix; and the promoted witness's committed
+reconstructs the leader's prefix; the promoted witness's committed
 prefix is indistinguishable from a member that caught up by ordinary state
-transfer. A node that rejoins through this path arrives at its first fence
+transfer; and the telescoped promise is itself an equivalence over the
+witness's accept history --- promised at the induced floor, the witness
+forbids every later acceptance below it, carries the promise state of a
+member that processed the phase-1 at that view, and promotes with its
+floor equal to the leader's view. A node that rejoins through this path arrives at its first fence
 at the cluster's current era, having seen a commit, which makes the
 one-era window gate unreachable by construction rather than widened.
 

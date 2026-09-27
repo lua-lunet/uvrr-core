@@ -119,9 +119,21 @@ promise: per Lamport, a promise at ballot $b$ covers all lower ballots, so
 accepting at $v$ raises the witness's promise floor to $v$ exactly as if a
 \textsc{Prepare}(v) had been received first. The witness forfeits nothing
 by raising the floor: its prior promises were counted in no quorum (H4),
-and the leader's right to send at $v$ was earned from members (H5). This
-paragraph is argued, not mechanised; it stands at the same layer of
-obligation as the accept-path era guard of \S\ref{sec:fuse-refinement},
-and we say so rather than imply otherwise. Authentication, the network and
-the witness's timeout are environment; the durable adoption record is an
+and the leader's right to send at $v$ was earned from members (H5). The
+equivalence is mechanised as \code{telescoped\_promise\_equivalence} in
+\code{UVRR/Witness.lean}: over the witness's accept history --- the
+(view, accepted-prefix) pairs the stream delivered, views strictly
+increasing --- the induced promise floor is the highest accepted view, and
+with the induced promise in force no later acceptance lands below it (the
+P23 fence over the stream); the induced promise state is the promise state
+of a member that processed phase-1 at the floor view, the history's last
+entry being the greatest acceptance reported with it; and at promotion the
+witness's floor equals the leader's view and its committed prefix equals
+the leader's, so quorum certificates that count it rest on the same
+evidence as for any member. H5 stays a construction rule, carried as the
+named hypothesis \code{LeaderEarned} at the same layer of obligation as
+the accept-path era guard of \S\ref{sec:fuse-refinement}; the two negative
+controls refuse a witness that accepts below its highest accepted view and
+a promotion below the leader's prefix. Authentication, the network and the
+witness's timeout are environment; the durable adoption record is an
 instance of the termination obligations' marker storage.
