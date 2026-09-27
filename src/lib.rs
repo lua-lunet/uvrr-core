@@ -66,6 +66,7 @@ pub mod quorum;
 pub mod reconfiguration;
 pub mod replica;
 pub mod solver;
+pub mod timeout;
 pub mod wire;
 
 /// Compile-time trace logging of the protocol's internal state at the top and
