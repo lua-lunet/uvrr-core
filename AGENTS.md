@@ -203,10 +203,9 @@ The deliverable crate is sans-I/O with zero runtime dependencies; that
 property belongs to the library, not to the proof or build tooling. The Lean
 formalization (`formal/uvrr-lean/`) pins Mathlib `v4.33.1` (matching the
 toolchain) as build-time proof tooling. Per-file imports stay targeted
-(`Mathlib.Tactic.*` modules only, never a full `Mathlib` import): measured on
-macOS, elaboration is 0.78 s per file bare, 1.47 s with targeted tactic
-imports, and ~4.3 s warm / 24 s cold with a full import; the package cache is
-7.5 GB. The paper's build (tectonic) is unchanged.
+(`Mathlib.Tactic.*` modules only, never a full `Mathlib` import); the
+elaboration timing measurements behind that ruling are recorded in the
+proof auditors' doc comments. The paper's build (tectonic) is unchanged.
 
 ### Submodules
 

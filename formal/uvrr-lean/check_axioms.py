@@ -5,6 +5,12 @@ The declarations here deliberately use simple namespace blocks; fail closed if
 a declaration cannot be queried through import UVRR. This checks dependencies,
 not whether a theorem statement is the desired protocol specification.
 """
+
+# Elaboration timing measurements behind the targeted-imports ruling, recorded
+# here because AGENTS.md carries rulings, not measurements (measured on macOS,
+# Mathlib v4.33.1, the pinned toolchain): elaboration is 0.78 s per file bare,
+# 1.47 s with targeted tactic imports, and ~4.3 s warm / 24 s cold with a full
+# Mathlib import; the package cache is 7.5 GB.
 from pathlib import Path
 import re
 import subprocess
