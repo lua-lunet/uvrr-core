@@ -58,7 +58,7 @@ check:
 	# The Maelstrom adapter binary is feature-gated; the lane must build it.
 	cargo test --features maelstrom
 	# The uvrr-reconfig operator binary is feature-gated; the lane must build it.
-	cargo test --features "maelstrom cli"
+	cargo test --features "maelstrom sysadmin_tool"
 
 # The lanes run the node's volatile default: no state dir, no file I/O.
 # Persistence is opt-in — `MAELSTROM_UVRR_STATE_DIR`, set per invocation.

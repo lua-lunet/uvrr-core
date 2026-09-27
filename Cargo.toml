@@ -46,12 +46,12 @@ required-features = ["maelstrom"]
 
 # The reconfiguration operator CLI. A binary, not a second crate: it needs the
 # library and the JSONL plan codec, and nothing needs it. Its dependencies
-# (clap, serde, serde_json) are the optional `cli` feature's, so a
+# (clap, serde, serde_json) are the optional `sysadmin_tool` feature's, so a
 # default-features consumer never builds it.
 [[bin]]
 name = "uvrr-reconfig"
 path = "src/bin/uvrr-reconfig/main.rs"
-required-features = ["cli"]
+required-features = ["sysadmin_tool"]
 
 # The TigerBeetle-superblock durability demo (examples/uvrr-reincarnation/).
 # It links the static library extracted from TigerBeetle's own superblock
@@ -66,8 +66,8 @@ required-features = ["uvrr"]
 # Every entry is optional, so a consumer's non-optional dependency set is empty
 # and `default-features = false` pulls in zero transitive crates. Enforced by
 # tests/manifest_contract.rs, which is a gate rather than a smoke test.
-# `cli` additionally adds the operator CLI (`uvrr-reconfig`, clap) and its
-# JSONL plan codec (serde_json) — both optional, never in a consumer's graph.
+# `sysadmin_tool` additionally adds the operator CLI (`uvrr-reconfig`, clap)
+# and its JSONL plan codec (serde_json): both optional, never in a consumer's graph.
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
@@ -89,7 +89,7 @@ trace = []
 default = []
 serde = ["dep:serde", "dep:serde_json"]
 maelstrom = ["serde", "dep:serde_json"]
-cli = ["serde", "dep:serde_json", "dep:clap"]
+sysadmin_tool = ["serde", "dep:serde_json", "dep:clap"]
 
 # Build-time tooling for `cargo test`, not a consumer's supply chain: nothing here
 # reaches a crate that depends on `uvrr-core`, and the [dependencies] gate above is

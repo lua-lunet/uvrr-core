@@ -1,6 +1,6 @@
 # Weighted reconfiguration solver
 
-`vrr::solver::solve(current, target, available)` returns committed-era batches
+`uvrr::solver::solve(current, target, available)` returns committed-era batches
 and their resulting configurations. It preserves a strict available majority
 at every boundary and intersects consecutive strict-majority quorum families.
 It uses only the existing operation alphabet and adds no dependencies.
@@ -24,8 +24,8 @@ with `solve` from the current configuration to the original target.
 Run the operator tool from the repository:
 
 ```sh
-cargo run --features cli --bin uvrr-reconfig -- plan --current members.jsonl --replace 2:3 --available 0,1,3
-cargo run --features cli --bin uvrr-reconfig -- apply --plan plan.jsonl --leader 10.0.0.1:9000
+cargo run --features sysadmin_tool --bin uvrr-reconfig -- plan --current members.jsonl --replace 2:3 --available 0,1,3
+cargo run --features sysadmin_tool --bin uvrr-reconfig -- apply --plan plan.jsonl --leader 10.0.0.1:9000
 ```
 
 Acquire state before promoting a learner.
@@ -38,7 +38,7 @@ snapshot supplied by the operator: re-evaluate it when failures change.
 ## Reconfiguration plans
 
 A plan is the dumb-operator artefact: compute it once, submit it, and the leader
-steps through it while the cluster keeps running normally. `vrr::plan::Plan`
+steps through it while the cluster keeps running normally. `uvrr::plan::Plan`
 is the core's serde-free form, the initial membership (order is succession)
 and one batch of operations per era, in commit order.
 
@@ -62,7 +62,7 @@ refuses, and a declared `target` that is not the configuration the steps reach.
 The leader acceptance rule: the leader rejects any plan whose `initial`
 configuration is not its current committed configuration, membership,
 succession order and weights are all compared, and rejects any step the
-configuration fold refuses (`vrr::plan::Plan::validate_against`). A plan that
+configuration fold refuses (`uvrr::plan::Plan::validate_against`). A plan that
 was legal when computed but has drifted is rejected, not committed; replan
 from the current configuration to the original target.
 
