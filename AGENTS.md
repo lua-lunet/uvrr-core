@@ -91,7 +91,7 @@ No instruction conflicts with Andon; if one appears to, Andon wins.
 
 ## PRs And Push
 
-You MUST use the skill gh-actions-poll if it is installed. You are FOBRIDDEN from using a `gh pr view` loop to attempt to poll.  
+You MUST use the skill gh-actions-poll if it is installed. You are FOBRIDDEN from using a `gh pr view` loop to attempt to poll. You are FORBIDDEN form using `gh pr checks 000 --watch` like commands. 
 
 ## Inner loop and observability
 

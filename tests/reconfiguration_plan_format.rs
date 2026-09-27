@@ -408,13 +408,9 @@ mod jsonl {
 }
 
 /// The CLI surface: the real binary, driven exactly as an operator drives it.
-/// The `uvrr-reconfig` binary exists only under `--features sysadmin_tool`
-/// (the bin target's `required-features`), and this module is compile-gated
-/// on that same feature: with the feature off it compiles to nothing — no
-/// spawn paths, no environment lookups, no guards. The module's compilation,
-/// the binary's build and the binary-path environment variable are all keyed
-/// off the one flag, so they cannot disagree; the verification gate's
-/// full-feature lane is where the tests are real.
+/// Without the `sysadmin_tool` feature the module compiles to nothing: the
+/// test compilation, the binary's build and the binary-path environment
+/// variable are all keyed off the one flag and cannot disagree.
 #[cfg(feature = "sysadmin_tool")]
 mod sysadmin_tool_lane {
     use super::*;
