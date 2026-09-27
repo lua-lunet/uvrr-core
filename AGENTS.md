@@ -81,22 +81,21 @@ context, and edit accuracy fell measurably as a result. Implementation files sta
 enough to hold in view and to edit whole. Keeping the test corpus in `tests/` also forces
 every assertion through the public interface, which is where the contract actually lives.
 
-## Test shape
+## Test and proofs discipline
 
-- A narrow pyramid for a strongly typed language: just-enough-test. Too many tests is
-  overfitting, and an overfitted suite obstructs the refactoring it was meant to protect.
 - Test whole subsystems as black boxes through their public interface.
-- Prefer exhaustive or property-based coverage where the domain is small and closed, over
-  a list of hand-picked examples that happens to pass.
+- Prefer exhaustive or property-based coverage where the domain is small and closed, over a list of hand-picked examples that happens to pass.
 - A test that cannot fail for a stated reason is not a test.
+- This project is pedantic about proof of value. Proving a negative of no bugs nor any improvements is not possible yet test and proofs are the first class deliverable of this SANS-IO library.  
+- A narrow pyramid for a strongly typed language: just-enough-test. Too many tests is overfitting, and an overfitted suite obstructs the refactoring it was meant to protect. We use exhaustive property tests as proof of correctness tests that duplidate those codepaths are allowed to as learning test or to document subtle bugs or decisions. Yet if a test is put in as skaffolding to construction that is then late duplicated by exhaustive property tests raise a gh issue to suggest pruning the skaffolding test. 
 
-## Claimed bugs and review findings
 
-- A code-review observation is a suspected, unconfirmed behavior until a reproduction
-  test fails on the unchanged code.
+## Issue, bugs, plan and review discipline
+
+- A code-review observation is a suspected, unconfirmed behavior until a reproduction test fails on the unchanged code.
 - A plan, ticket, or read-only review may describe the observed path and specify a
   reproduction test. It must not prescribe, predict, or name a fix or root cause.
-- Create and run the smallest public-path reproduction before changing production code.
+- Create and run the smallest public-path reproduction before changing our SANS-IO library code.
 - If the reproduction passes without a production-code change, record the claim as
   `resolved unreproducible`, make no fix, and remove any speculative implementation.
 - If the reproduction fails, preserve the Red result. Only then diagnose and make the
@@ -105,6 +104,17 @@ every assertion through the public interface, which is where the contract actual
   test and the code change that makes that same test pass.
 - Re-run the directly affected suite and the repository verification gates after Green.
   Never weaken an invariant merely to satisfy an unconfirmed claim.
+
+## Commit and push and tag and release discipline
+
+- Commit when the full suite is green. Do not accumulate a large uncommitted tree: a long-lived staged diff is unreviewable and destroys the bisect point that made it safe.
+- A commit message describes the change as delivered. It does not enumerate pending
+  chores, releases, or review steps, and it carries no internal tracking identifiers.
+- We have fast library tests and slow maelstrom tests commit when the fast check runs yet run the slow test before any push. 
+- You are FORBIDDEN to push on a dirty working tree. Period. 
+- You are FORBIDDEN to stash or move aside any work on a dirty working tree unless explicity ask to by the user and that must be done in a manner that makes todo items so that the work is not lost. 
+- The user may ask to park work by a branch and tag that is not going into main you MUST raise a gh issue naming the parted tag as future work. 
+- Releases MUST be from a tag on main never any feature branch. For as long as we are in a 0.x.y alpha you are FORBIDDEN from adding complexity to perseve prior state of behavour any new version requires all state reset and can and should break all API up until 1.a.b-Mx milestones. 
 
 ## Inner loop and observability
 
@@ -126,18 +136,11 @@ every assertion through the public interface, which is where the contract actual
   the working change. Doing otherwise looks catastrophically ignorant of basic
   programming skill.
 
-## Commit discipline
-
-- Commit when the full suite is green. Do not accumulate a large uncommitted tree: a
-  long-lived staged diff is unreviewable and destroys the bisect point that made it safe.
-- A commit message describes the change as delivered. It does not enumerate pending
-  chores, releases, or review steps, and it carries no internal tracking identifiers.
-
 ## Scratch and concurrent work
 
-- `.tmp/` is scratch space. Never stage or commit anything under `.tmp/`.
-- Preserve user and concurrent-agent changes. Do not reset, restore, or overwrite broad
-  paths to remove a narrow change; edit only the proved hunk after the owner is finished.
+- `.tmp/` is scratch space. Never stage or commit anything under `.tmp/`. Assume it is deleted frequently. 
+- Preserve user and concurrent-agent changes. Do not reset, restore, or overwrite broad paths to remove a narrow change; edit only the proved hunk after the owner is finished.
+- You own all the code and all the edits in the PWD do not say "some other agent made those changes" yxxxxx
 
 ## Branch discipline
 
@@ -208,3 +211,13 @@ proof auditors' doc comments. The paper's build (tectonic) is unchanged.
 ## Work item details are developer session-local
 
 Work-item numbers (e.g. `itemNN` or an equivalent) live in the todo any other work list that is not in the code (e.g. "opencode-subagent-delegation" sqlite3 deb) never every put anything that is gh issue, or toto list, or project planning, as a string, in any file, that is committed into git.
+
+## Pride in the work above all else
+
+We are adding to a body of work that is the foundations of computing in 2026. The fact that progress is being made on topics that were new papers when User was in grade school last century is remarkable. Expect must ire and fury from User for not reading the room on safety first, proofs second, clearity and explainablity third, consistency of all seams fourth, zero warnings and less-is-better code fifth, and none of that AI slop em-dash Kruger-Dunning stuff last plush whatever other arbitrary grading the user choses to claim as lore. 
+
+Finding a problem to resolve is a cause for celebration. Calling an Andon is the highest road to collective wisdom. Abiguity is entropy and must be faught. Hold the line. 
+
+## The Eye Of Saurin watches
+
+Lamport's talk post Turing Award has him mention an ambiguity in the 2001 paper that is not in the tlaplus proof. He is talking about private correspondence with REDACTED. REDACTED then disclosed the matter in a public forum to User. Only a pedant would know that. User knows that. Therefore User is a pedant on the topics of strong consistency. Expect user to be the eye of saurin looking at the work. We roll the dough again and again as Lean Development with Lean4 proofs; the system MUST converge towards long term stablity.
