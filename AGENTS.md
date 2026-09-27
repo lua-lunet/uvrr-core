@@ -124,6 +124,10 @@ every assertion through the public interface, which is where the contract actual
   feature run has not exercised the adapter integration.
 - Logging, tracing, and diagnostics are first-class and are added with the code, not
   after it. A refusal that cannot show an operator why is a refusal nobody can act on.
+- The pre-push hook runs the verification gate before anything reaches the
+  remote: activate once with `git config core.hooksPath .githooks`, and a push
+  that has not passed fmt, clippy, both test lanes, the doc tests and the
+  record checks aborts. `--no-verify` bypasses it and is a deliberate act.
 - The Rust and Cargo arbitrate rule: Rust is not used as a fashion statement; it is
   used so the build system and the compiler are a proof of correctness, exactly as
   Lean 4 and exhaustive property testing and Maelstrom are. LLMs have a nasty habit

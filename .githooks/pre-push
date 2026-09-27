@@ -1,0 +1,29 @@
+#!/bin/sh
+# The pre-push verification gate. The push is the unit of publication, so the
+# gate the CI lanes run runs here first: a push that has not passed it is not
+# a push, and the hook aborts it. Activate once with
+# `git config core.hooksPath .githooks`. Bypassing with --no-verify is a
+# deliberate act reserved for the user's hand.
+set -eu
+
+echo "pre-push: the verification gate runs before anything reaches the remote"
+
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+
+# The fast lane: the default-feature run never boots the maelstrom harness,
+# because the library, not the harness, is the deliverable.
+cargo test --lib --bins --tests
+
+# The maelstrom lane: the real binary end to end, the gate a push must have
+# passed locally.
+cargo test --features maelstrom --lib --bins --tests
+
+cargo test --doc
+
+# The record checks, exactly as the CI lanes run them.
+! rg -n '#\[cfg\(test\)\]|mod tests' src
+! rg -in 'paxos' src/ tests/
+! (git ls-files | rg -v '^maelstrom|^research/|^formal/|\.github/' | xargs rg -n 'item[0-9]') < /dev/null
+
+echo "pre-push: the gate is green, the push proceeds"
