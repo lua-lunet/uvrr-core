@@ -12,10 +12,14 @@
 //! not this suite's.
 //!
 //! These tests need the `maelstrom-lin-kv` binary, which exists only under
-//! `--features maelstrom` (the bin target's `required-features`). Without
-//! the feature there is nothing to drive, and each test says so and passes
-//! vacuously; the verification gate runs `--all-features`, where they are
-//! real.
+//! `--features maelstrom` (the bin target's `required-features`). The whole
+//! file is compile-gated on that same feature, so with the feature off it
+//! compiles to nothing: no spawn paths, no environment lookups, no guards.
+//! The test file's compilation, the binary's build and the binary-path
+//! environment variable are all keyed off the one flag, so they cannot
+//! disagree; the verification gate runs `--features maelstrom`, where the
+//! tests are real.
+#![cfg(feature = "maelstrom")]
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -26,10 +30,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-/// The binary under test, or `None` when the `maelstrom` feature is off.
-fn binary() -> Option<&'static str> {
-    option_env!("CARGO_BIN_EXE_maelstrom-lin-kv")
-}
+/// The binary under test, guaranteed present and built by cargo when this
+/// file compiles: the feature that gates the file gates the bin target.
+const BINARY: &str = env!("CARGO_BIN_EXE_maelstrom-lin-kv");
 
 /// How long a node may take to answer before the transport is declared
 /// broken. The bootstrap fires on the first tick (100 ms), so this is
@@ -64,7 +67,7 @@ impl Node {
     // `Drop` kills and waits the child; see `spawn`.
     #[allow(clippy::zombie_processes)]
     fn spawn_with(state_dir: Option<&str>) -> Node {
-        let mut command = Command::new(binary().expect("spawn called with the binary present"));
+        let mut command = Command::new(BINARY);
         command.stdin(Stdio::piped()).stdout(Stdio::piped());
         match state_dir {
             Some(dir) => {
@@ -81,7 +84,7 @@ impl Node {
     // `Drop` kills and waits the child; see `spawn`.
     #[allow(clippy::zombie_processes)]
     fn spawn_volatile(tmp: &Path) -> Node {
-        let mut command = Command::new(binary().expect("spawn called with the binary present"));
+        let mut command = Command::new(BINARY);
         command.stdin(Stdio::piped()).stdout(Stdio::piped());
         // The volatile default, made observable: no state dir reaches the
         // child (an inherited one is removed), and the system temp root the
@@ -387,10 +390,6 @@ impl RelayedCluster {
 
 #[test]
 fn init_handshake_answers_init_ok() {
-    if binary().is_none() {
-        eprintln!("maelstrom feature off; no adapter binary to drive");
-        return;
-    }
     let node = Node::spawn();
     node.init("n0", &["n0"]);
     assert_reply(&node.recv(), 1, "init_ok");
@@ -403,10 +402,6 @@ fn init_handshake_answers_init_ok() {
 /// a `PrepareOk` lands, and a backup-less cluster never receives one.)
 #[test]
 fn cluster_serves_kv_operations() {
-    if binary().is_none() {
-        eprintln!("maelstrom feature off; no adapter binary to drive");
-        return;
-    }
     let mut n0 = Node::spawn();
     let mut n1 = Node::spawn();
     n0.init("n0", &["n0", "n1"]);
@@ -451,10 +446,6 @@ fn cluster_serves_kv_operations() {
 /// client.
 #[test]
 fn two_node_cluster_replicates_a_forwarded_write() {
-    if binary().is_none() {
-        eprintln!("maelstrom feature off; no adapter binary to drive");
-        return;
-    }
     let mut n0 = Node::spawn();
     let mut n1 = Node::spawn();
     n0.init("n0", &["n0", "n1"]);
@@ -486,10 +477,6 @@ fn two_node_cluster_replicates_a_forwarded_write() {
 /// `malformed-request` code, the core is never touched.
 #[test]
 fn join_refuses_an_id_outside_the_bench_roster() {
-    if binary().is_none() {
-        eprintln!("maelstrom feature off; no adapter binary to drive");
-        return;
-    }
     let node = Node::spawn();
     node.init("n0", &["n0"]);
     assert_reply(&node.recv(), 1, "init_ok");
@@ -588,10 +575,6 @@ fn membership_ok(
 /// rules on.
 #[test]
 fn membership_verbs_make_and_unmake_a_member() {
-    if binary().is_none() {
-        eprintln!("maelstrom feature off; no adapter binary to drive");
-        return;
-    }
     let mut n0 = Node::spawn();
     let mut n1 = Node::spawn();
     let mut n2 = Node::spawn();
@@ -740,10 +723,6 @@ fn client_ok(
 /// must serve through the reopener.
 #[test]
 fn committed_state_survives_a_kill_restart_with_the_same_state_dir() {
-    if binary().is_none() {
-        eprintln!("maelstrom feature off; no adapter binary to drive");
-        return;
-    }
     let dir = state_dir("kill-restart");
     let mut n0 = Node::spawn_with(Some(dir.to_str().expect("a utf-8 path")));
     let mut n1 = Node::spawn_with(Some(&dir.to_string_lossy()));
@@ -837,10 +816,6 @@ fn committed_state_survives_a_kill_restart_with_the_same_state_dir() {
 /// and the lifecycle diagnostic names it.
 #[test]
 fn a_fresh_state_dir_provisions_as_today() {
-    if binary().is_none() {
-        eprintln!("maelstrom feature off; no adapter binary to drive");
-        return;
-    }
     let dir = state_dir("fresh");
     let mut n0 = Node::spawn_with(Some(&dir.to_string_lossy()));
     let mut n1 = Node::spawn_with(Some(&dir.to_string_lossy()));
@@ -873,10 +848,6 @@ fn a_fresh_state_dir_provisions_as_today() {
 /// the reopener rejoins the live cluster's serving.
 #[test]
 fn a_clean_shutoff_reopens_under_the_same_identity() {
-    if binary().is_none() {
-        eprintln!("maelstrom feature off; no adapter binary to drive");
-        return;
-    }
     let dir = state_dir("clean-restart");
     let mut n0 = Node::spawn_with(Some(&dir.to_string_lossy()));
     let mut n1 = Node::spawn_with(Some(&dir.to_string_lossy()));
@@ -926,10 +897,6 @@ fn a_clean_shutoff_reopens_under_the_same_identity() {
 /// restarts the node, never a panic.
 #[test]
 fn a_corrupt_state_file_refuses_to_start() {
-    if binary().is_none() {
-        eprintln!("maelstrom feature off; no adapter binary to drive");
-        return;
-    }
     let dir = state_dir("corrupt");
     let n0 = Node::spawn_with(Some(&dir.to_string_lossy()));
     n0.init("n0", &["n0"]);
@@ -969,10 +936,6 @@ fn a_corrupt_state_file_refuses_to_start() {
 /// opened, written or fsynced anywhere.
 #[test]
 fn the_volatile_default_serves_with_no_file_io() {
-    if binary().is_none() {
-        eprintln!("maelstrom feature off; no adapter binary to drive");
-        return;
-    }
     let tmp = std::env::temp_dir().join(format!("uvrr-maelstrom-volatile-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).expect("the private temp root creates");
