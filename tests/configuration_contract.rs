@@ -911,7 +911,10 @@ fn join_inserts_at_exactly_the_named_position() {
 
 /// The alphabet the length-4 walk draws from. Deliberately small and deliberately
 /// including operations that will be refused in some states, because "a refused
-/// operation leaves the table unchanged" is half the property under test.
+/// operation leaves the table unchanged" is half the property under test. The
+/// nomination is the seventh symbol: a rider, refused solitary
+/// (`ConfigError::SolitaryNomination`), so every walk that draws it asserts the
+/// refusal is a no-op on the table (`docs/nominate-leader-assignment.md`).
 fn alphabet() -> Vec<SystemOperation> {
     vec![
         SystemOperation::Increment(N0),
@@ -923,11 +926,15 @@ fn alphabet() -> Vec<SystemOperation> {
             position: 1,
         },
         SystemOperation::Leave(N3),
+        SystemOperation::Nominate {
+            from: View(3),
+            offset: 2,
+        },
     ]
 }
 
-/// Exhaustive, not sampled: every sequence of length 0..=4 over a 6-symbol alphabet,
-/// which is `1 + 6 + 36 + 216 + 1296 = 1555` walks. The property is the era state
+/// Exhaustive, not sampled: every sequence of length 0..=4 over a 7-symbol alphabet,
+/// which is `1 + 7 + 49 + 343 + 2401 = 2801` walks. The property is the era state
 /// machine itself, era increases by exactly 1 per *accepted* operation, a refused
 /// operation is a no-op on the table, and `established_by` is the slot the caller
 /// supplied. That triple is what makes §8.7.8's "a replica may propose era `e` only if
@@ -955,7 +962,7 @@ fn era_advances_by_exactly_one_per_accepted_operation() {
         sequences.extend(next.iter().cloned());
         frontier = next;
     }
-    assert_eq!(sequences.len(), 1 + 6 + 36 + 216 + 1296);
+    assert_eq!(sequences.len(), 1 + 7 + 49 + 343 + 2401);
 
     for seq in &sequences {
         let mut table = base.clone();
@@ -991,6 +998,68 @@ fn era_advances_by_exactly_one_per_accepted_operation() {
             slot = slot.next().expect("slot space");
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// 8b. The nomination's seats: a rider, never a solitary era
+// ---------------------------------------------------------------------------
+
+/// The nomination's three seats (`docs/nominate-leader-assignment.md`): a
+/// solitary entry is refused by name, a zero offset is refused by name, and a
+/// rider folds to the identical configuration inside the establishing batch
+/// of the era its bump enters, so the batch's fold is the fold of its
+/// mass-moving ops alone.
+#[test]
+fn nominate_is_a_rider_that_never_establishes_an_era_of_its_own() {
+    let config = initialised(&[N0, N1, N2]);
+
+    // A solitary nomination never establishes an era: refused by name, the
+    // fold's answer to an entry whose bump names an era nothing enters.
+    assert_eq!(
+        config.apply(
+            &SystemOperation::Nominate {
+                from: View(3),
+                offset: 2,
+            },
+            Slot(3)
+        ),
+        Err(ConfigError::SolitaryNomination)
+    );
+
+    // A zero offset names no increment: the jump strictly increases, so the
+    // rider is refused inside the batch, at its point in the sequence.
+    assert_eq!(
+        config.apply(
+            &SystemOperation::Batch(vec![
+                SystemOperation::Increment(N1),
+                SystemOperation::Nominate {
+                    from: View(3),
+                    offset: 0,
+                },
+            ]),
+            Slot(3)
+        ),
+        Err(ConfigError::ZeroNominationOffset)
+    );
+
+    // The rider folds to the identical configuration: the batch's era is the
+    // era its mass-moving ops establish, the nomination moves neither.
+    let rider = config
+        .apply(
+            &SystemOperation::Batch(vec![
+                SystemOperation::Increment(N1),
+                SystemOperation::Nominate {
+                    from: View(3),
+                    offset: 2,
+                },
+            ]),
+            Slot(3),
+        )
+        .expect("the rider rides the unit batch legally");
+    let plain = config
+        .apply(&SystemOperation::Increment(N1), Slot(3))
+        .expect("the increment alone is legal");
+    assert_eq!(rider, plain);
 }
 
 /// An era table advanced through `Void` and `Init` onto a three-member unit cluster.
@@ -1315,6 +1384,10 @@ fn all_variants() -> Vec<SystemOperation> {
             position: 2,
         },
         SystemOperation::Leave(N2),
+        SystemOperation::Nominate {
+            from: View(3),
+            offset: 2,
+        },
         SystemOperation::Batch(vec![
             SystemOperation::Increment(N0),
             SystemOperation::Join {
@@ -1361,7 +1434,7 @@ fn system_operation_round_trips_with_exact_length() {
 /// message is a message cannot report a framing bug.
 #[test]
 fn system_operation_rejects_reserved_and_unknown_discriminants() {
-    for raw in [0u8, 10, 11, 127, 128, 255] {
+    for raw in [0u8, 11, 12, 127, 128, 255] {
         let bytes = [raw];
         assert_eq!(
             SystemOperation::unpack_from(&bytes),

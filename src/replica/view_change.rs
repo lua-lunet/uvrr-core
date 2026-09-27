@@ -596,10 +596,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // with the install, exactly as if the commit had arrived in
         // order. A fold refusal in the installed COMMITTED history is
         // the same breach as a committed-slot conflict (§9.1): declare
-        // it, never guess a repair.
+        // it, never guess a repair. The install supersedes any
+        // nomination the installed suffix carries
+        // (`docs/nominate-leader-assignment.md`): the view this
+        // transition publishes is the electing message's own.
         let config =
             match self.fold_committed(journal, suffix, self.progress.committed(), committed) {
-                Ok(config) => config,
+                Ok((config, _bump)) => config,
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
@@ -712,7 +715,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             self.progress.committed(),
             committed,
         ) {
-            Ok(config) => config,
+            Ok((config, _bump)) => config,
             Err(CommitFold::Unavailable(slot)) => {
                 return Err(PlanRefusal::JournalEntryUnavailable { slot });
             }

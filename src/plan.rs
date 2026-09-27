@@ -207,7 +207,7 @@ impl std::error::Error for PlanCodecError {}
 #[cfg(feature = "serde")]
 mod jsonl {
     use crate::configuration::{Member, SystemOperation, Weight};
-    use crate::ids::NodeId;
+    use crate::ids::{NodeId, View};
     use serde::{Deserialize, Serialize};
 
     /// One member as the schema names it: `{"id":N,"weight":W}`.
@@ -220,11 +220,12 @@ mod jsonl {
     }
 
     /// One operation as the schema names it: `{"op":...}` with `node` and
-    /// `position` present exactly where the operation carries them.
+    /// `position` present exactly where the operation carries them, and
+    /// `from` and `offset` for `nominate` alone.
     #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct JsonOp {
         /// The operation name: `increment`, `decrement`, `double`, `halve`,
-        /// `join`, or `leave`.
+        /// `join`, `leave`, or `nominate`.
         pub op: String,
         /// The node the operation names, when it names one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -232,6 +233,12 @@ mod jsonl {
         /// The succession position, for `join` only.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub position: Option<u32>,
+        /// The view number the nomination names, for `nominate` only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub from: Option<u32>,
+        /// The nomination's increment, for `nominate` only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub offset: Option<u32>,
     }
 
     /// The header line: what the plan starts from and what it reaches.
@@ -281,31 +288,50 @@ mod jsonl {
                 op: "increment".to_string(),
                 node: Some(node.0),
                 position: None,
+                from: None,
+                offset: None,
             },
             SystemOperation::Decrement(node) => JsonOp {
                 op: "decrement".to_string(),
                 node: Some(node.0),
                 position: None,
+                from: None,
+                offset: None,
             },
             SystemOperation::Double => JsonOp {
                 op: "double".to_string(),
                 node: None,
                 position: None,
+                from: None,
+                offset: None,
             },
             SystemOperation::Halve => JsonOp {
                 op: "halve".to_string(),
                 node: None,
                 position: None,
+                from: None,
+                offset: None,
             },
             SystemOperation::Join { node, position } => JsonOp {
                 op: "join".to_string(),
                 node: Some(node.0),
                 position: Some(*position),
+                from: None,
+                offset: None,
             },
             SystemOperation::Leave(node) => JsonOp {
                 op: "leave".to_string(),
                 node: Some(node.0),
                 position: None,
+                from: None,
+                offset: None,
+            },
+            SystemOperation::Nominate { from, offset } => JsonOp {
+                op: "nominate".to_string(),
+                node: None,
+                position: None,
+                from: Some(from.0),
+                offset: Some(*offset),
             },
             SystemOperation::Void | SystemOperation::Init { .. } | SystemOperation::Batch(_) => {
                 return None;
@@ -335,6 +361,13 @@ mod jsonl {
             "leave" => match (node, json.position) {
                 (Some(node), None) => Ok(SystemOperation::Leave(node)),
                 _ => Err("leave names exactly one node and no position"),
+            },
+            "nominate" => match (json.from, json.offset) {
+                (Some(from), Some(offset)) => Ok(SystemOperation::Nominate {
+                    from: View(from),
+                    offset,
+                }),
+                _ => Err("nominate names exactly one view and one offset"),
             },
             _ => Err("unknown operation name"),
         }

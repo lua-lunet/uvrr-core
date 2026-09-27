@@ -481,12 +481,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 new_committed,
                 current.era.next(),
             )
-            .map(|(table, covered, stopped)| (table, Some((covered, stopped))))
+            .map(|(table, covered, stopped, _bump)| (table, None, Some((covered, stopped))))
         } else {
             self.fold_committed(journal, entries, self.progress.committed(), new_committed)
-                .map(|table| (table, None))
+                .map(|(table, bump)| (table, bump, None))
         };
-        let (config, folded_state) = match fold {
+        let (config, bump, folded_state) = match fold {
             Ok(pair) => {
                 trace!(
                     "NEW_STATE fold ok: table_current_era={:?} folded_state={:?}",
@@ -636,6 +636,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 new_committed,
                 self.applied_walk(journal, overlay, self.progress.applied(), new_committed)?,
                 Arc::clone(&config),
+                bump,
             )?
         };
         // The cursor: a partial answer resumes with a fresh `GetState`

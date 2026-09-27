@@ -65,6 +65,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             self.progress.committed(),
             self.progress.applied(),
             Arc::clone(self.progress.config()),
+            None,
         )?;
         let prepare = Message {
             header: Header {
@@ -270,9 +271,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // advance newly covers. Every entry in the range is journaled
             // here, so a fold refusal is committed history the
             // configuration cannot hold, the breach faults.
-            let config =
+            let (config, bump) =
                 match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
-                    Ok(config) => config,
+                    Ok((config, bump)) => (config, bump),
                     Err(CommitFold::Unavailable(slot)) => {
                         return Err(PlanRefusal::JournalEntryUnavailable { slot });
                     }
@@ -290,6 +291,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 new_committed,
                 self.applied_walk(journal, &[], self.progress.applied(), new_committed)?,
                 config,
+                bump,
             )?;
             let mut effects = vec![prepare_ok(current, from, entry.slot)];
             effects.extend(self.apply_effects(
@@ -327,13 +329,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // refusal names committed history the configuration cannot hold,
         // the breach faults.
         let overlay = [entry.clone()];
-        let config = match self.fold_committed(
+        let (config, bump) = match self.fold_committed(
             journal,
             &overlay,
             self.progress.committed(),
             new_committed,
         ) {
-            Ok(config) => config,
+            Ok((config, bump)) => (config, bump),
             Err(CommitFold::Unavailable(slot)) => {
                 return Err(PlanRefusal::JournalEntryUnavailable { slot });
             }
@@ -390,6 +392,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             new_committed,
             self.applied_walk(journal, &overlay, self.progress.applied(), new_committed)?,
             config,
+            bump,
         )?;
         let mut effects = vec![prepare_ok(current, from, entry.slot)];
         effects.extend(self.apply_effects(journal, self.progress.committed(), new_committed)?);
@@ -538,18 +541,19 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // journaled (the cascade walks the accepted tail), so a fold
         // refusal is committed history the configuration cannot hold,
         // the breach faults.
-        let config = match self.fold_committed(journal, &[], self.progress.committed(), committed) {
-            Ok(config) => config,
-            Err(CommitFold::Unavailable(slot)) => {
-                return Err(PlanRefusal::JournalEntryUnavailable { slot });
-            }
-            // The cascade is segment-atomic, so this is unreachable;
-            // stated so the match stays total (`docs/uvrr-fuse.md`).
-            Err(CommitFold::SplitBatch) => {
-                return self.drop_plan(Diagnostic::FuseRefusal, kind);
-            }
-            Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
-        };
+        let (config, bump) =
+            match self.fold_committed(journal, &[], self.progress.committed(), committed) {
+                Ok((config, bump)) => (config, bump),
+                Err(CommitFold::Unavailable(slot)) => {
+                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
+                }
+                // The cascade is segment-atomic, so this is unreachable;
+                // stated so the match stays total (`docs/uvrr-fuse.md`).
+                Err(CommitFold::SplitBatch) => {
+                    return self.drop_plan(Diagnostic::FuseRefusal, kind);
+                }
+                Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+            };
         // §8.7.7 steps 1 and 4: an armed non-stop machine whose
         // establishing operation this advance committed records its pivot
         // on the new era's record and solicits the planned evidence of
@@ -568,6 +572,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             committed,
             self.applied_walk(journal, &[], self.progress.applied(), committed)?,
             config,
+            bump,
         )?;
         let mut effects = self.apply_effects(journal, self.progress.committed(), committed)?;
         effects.extend(self.broadcast_commit(committed));
@@ -691,9 +696,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // journaled (the frontier never claims what the journal does not
         // record), so a fold refusal is committed history the
         // configuration cannot hold, the breach faults.
-        let config =
+        let (config, bump) =
             match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
-                Ok(config) => config,
+                Ok((config, bump)) => (config, bump),
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
@@ -711,6 +716,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             new_committed,
             self.applied_walk(journal, &[], self.progress.applied(), new_committed)?,
             config,
+            bump,
         )?;
         let effects = self.apply_effects(journal, self.progress.committed(), new_committed)?;
         Ok(self.candidate_plan(candidate, JournalMutation::None, effects, kind, false))
@@ -929,16 +935,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // the advance newly covers. The packed schedule folds as the ONE
         // establishing batch it is; a fold refusal is committed history
         // the configuration cannot hold, the breach faults.
-        let config = match self.fold_committed(journal, &[], self.progress.committed(), committed) {
-            Ok(config) => config,
-            Err(CommitFold::Unavailable(slot)) => {
-                return Err(PlanRefusal::JournalEntryUnavailable { slot });
-            }
-            Err(CommitFold::SplitBatch) => {
-                return self.drop_plan(Diagnostic::FuseRefusal, kind);
-            }
-            Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
-        };
+        let (config, bump) =
+            match self.fold_committed(journal, &[], self.progress.committed(), committed) {
+                Ok((config, bump)) => (config, bump),
+                Err(CommitFold::Unavailable(slot)) => {
+                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
+                }
+                Err(CommitFold::SplitBatch) => {
+                    return self.drop_plan(Diagnostic::FuseRefusal, kind);
+                }
+                Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+            };
         // §8.7.7 steps 1 and 4, as `plan_prepare_ok` runs them: an armed
         // non-stop machine whose establishing operation this advance
         // committed records its pivot and solicits the planned evidence.
@@ -955,6 +962,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             committed,
             self.applied_walk(journal, &[], self.progress.applied(), committed)?,
             config,
+            bump,
         )?;
         let mut effects = self.apply_effects(journal, self.progress.committed(), committed)?;
         effects.extend(self.broadcast_commit(committed));

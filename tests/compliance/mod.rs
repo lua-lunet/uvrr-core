@@ -51,6 +51,7 @@ pub enum SystemOp {
     Halve,
     Join { node: String, position: u32 },
     Leave { node: String },
+    Nominate { from: u32, offset: u32 },
     Batch { ops: Vec<SystemOp> },
 }
 
@@ -285,6 +286,9 @@ fn system_op_name(op: &SystemOperation) -> String {
             format!("join {} at {position}", pair_of(*node))
         }
         SystemOperation::Leave(node) => format!("leave {}", pair_of(*node)),
+        SystemOperation::Nominate { from, offset } => {
+            format!("nominate from={} offset={offset}", from.0)
+        }
         SystemOperation::Batch(ops) => format!(
             "batch [{}]",
             ops.iter()
@@ -308,6 +312,10 @@ fn system_op_of(op: &SystemOp) -> Result<SystemOperation, String> {
             position: *position,
         },
         SystemOp::Leave { node } => SystemOperation::Leave(identity(node)?),
+        SystemOp::Nominate { from, offset } => SystemOperation::Nominate {
+            from: View(*from),
+            offset: *offset,
+        },
         SystemOp::Batch { ops } => {
             SystemOperation::Batch(ops.iter().map(system_op_of).collect::<Result<_, _>>()?)
         }

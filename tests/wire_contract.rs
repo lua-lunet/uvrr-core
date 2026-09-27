@@ -895,10 +895,11 @@ fn fuse_count_mismatch_is_refused() {
 
 /// A `SystemOperation` discriminant outside the alphabet is `Malformed`
 /// (`OutOfDomain`), so a fuse envelope cannot smuggle an unnamed command past
-/// the codec.
+/// the codec. The nomination is inside the alphabet (discriminant 10), so the
+/// refused set begins at 11.
 #[test]
 fn fuse_unknown_op_discriminant_is_malformed() {
-    for op_byte in [0u8, 10, 255] {
+    for op_byte in [0u8, 11, 255] {
         let mut bytes = encode(&Message {
             header: fuse_header(Slot(7)),
             body: Body::Fuse {
