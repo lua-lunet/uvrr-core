@@ -1,0 +1,146 @@
+[
+  {
+    "id": "agreement-a-proposal-commits-identically-everywhere",
+    "family": "agreement",
+    "theorem": "Synod.theorem8",
+    "clause": "A proposal from the primary MUST commit through the quorum: every node journals the identical entry at the identical slot and advances the same committed frontier",
+    "keywords": [
+      "MUST"
+    ],
+    "setup": [
+      {
+        "op": "provision",
+        "nodes": 3,
+        "timeout": 3
+      },
+      {
+        "op": "settle"
+      }
+    ],
+    "input": {
+      "op": "propose",
+      "node": "1:1",
+      "payload": "agreed"
+    },
+    "expect": {
+      "deliveries": [
+        {
+          "from": "1:1",
+          "to": "2:1",
+          "wire": "0000000200000001000000000000000000000003020000000000000003000000010100000000766563740000000000000001000000066167726565640000000000000002"
+        },
+        {
+          "from": "1:1",
+          "to": "3:1",
+          "wire": "0000000200000001000000000000000000000003020000000000000003000000010100000000766563740000000000000001000000066167726565640000000000000002"
+        },
+        {
+          "from": "2:1",
+          "to": "1:1",
+          "wire": "000000030000000100000000000000000000000303"
+        },
+        {
+          "from": "3:1",
+          "to": "1:1",
+          "wire": "000000030000000100000000000000000000000303"
+        },
+        {
+          "from": "1:1",
+          "to": "2:1",
+          "wire": "0000000400000001000000000000000000000003040000000000000003"
+        },
+        {
+          "from": "1:1",
+          "to": "3:1",
+          "wire": "0000000400000001000000000000000000000003040000000000000003"
+        }
+      ],
+      "post": [
+        {
+          "node": "1:1",
+          "status": "Normal",
+          "era": 1,
+          "view": 0,
+          "accepted": 3,
+          "committed": 3,
+          "applied": 2,
+          "journal": [
+            "void",
+            "init order=1:1,2:1,3:1",
+            "agreed"
+          ],
+          "members": [
+            "1:1",
+            "2:1",
+            "3:1"
+          ],
+          "weights": [
+            1,
+            1,
+            1
+          ],
+          "markers": [
+            "Joining@1:1"
+          ],
+          "witnesses": []
+        },
+        {
+          "node": "2:1",
+          "status": "Normal",
+          "era": 1,
+          "view": 0,
+          "accepted": 3,
+          "committed": 3,
+          "applied": 2,
+          "journal": [
+            "void",
+            "init order=1:1,2:1,3:1",
+            "agreed"
+          ],
+          "members": [
+            "1:1",
+            "2:1",
+            "3:1"
+          ],
+          "weights": [
+            1,
+            1,
+            1
+          ],
+          "markers": [
+            "Joining@2:1"
+          ],
+          "witnesses": []
+        },
+        {
+          "node": "3:1",
+          "status": "Normal",
+          "era": 1,
+          "view": 0,
+          "accepted": 3,
+          "committed": 3,
+          "applied": 2,
+          "journal": [
+            "void",
+            "init order=1:1,2:1,3:1",
+            "agreed"
+          ],
+          "members": [
+            "1:1",
+            "2:1",
+            "3:1"
+          ],
+          "weights": [
+            1,
+            1,
+            1
+          ],
+          "markers": [
+            "Joining@3:1"
+          ],
+          "witnesses": []
+        }
+      ]
+    }
+  }
+]
