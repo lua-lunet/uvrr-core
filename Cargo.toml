@@ -1,6 +1,6 @@
 [package]
 name = "uvrr-core"
-version = "0.10.2"
+version = "0.10.4"
 edition = "2024"
 # One toolchain rule, recorded beside the fields it governs: CI builds with
 # exactly the toolchain the crate is built and released with locally,
