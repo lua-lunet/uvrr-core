@@ -73,7 +73,7 @@ use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use uvrr::ids::NodeId;
-use uvrr::ids::{Era, Fault, Slot, View, ViewId};
+use uvrr::ids::{Ballot, Era, Fault, Slot, View};
 use uvrr::journal::{JournalView, LogEntry};
 use uvrr::lifecycle::{Marker, SuperblockCopies};
 use uvrr::progress::Status;
@@ -684,11 +684,11 @@ impl SlotBytes {
             },
             roster,
             progress: PersistedProgress {
-                current: ViewId {
+                current: Ballot {
                     era: Era(get_u32(buf, AT_CURRENT)),
                     view: View(get_u32(buf, AT_CURRENT + 4)),
                 },
-                retained: ViewId {
+                retained: Ballot {
                     era: Era(get_u32(buf, AT_RETAINED)),
                     view: View(get_u32(buf, AT_RETAINED + 4)),
                 },

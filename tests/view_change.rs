@@ -11,7 +11,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use uvrr::configuration::{INIT_SLOT, SystemOperation};
-use uvrr::ids::{CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, Fault, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, EraProof, EvidenceKind, Message};
 use uvrr::observe::Diagnostic;
@@ -28,8 +28,8 @@ fn n(id: u32) -> NodeId {
 }
 
 /// A view in era 1, every scenario here is same-era (W1).
-fn view(number: u32) -> ViewId {
-    ViewId {
+fn view(number: u32) -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(number),
     }
@@ -40,10 +40,10 @@ fn snap(h: &Harness, id: NodeId) -> ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-/// The node's current view as a `ViewId`.
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+/// The node's current view as a `Ballot`.
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }
@@ -55,7 +55,7 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
 }
 
 /// The primary of a view in era 1 under the genesis order (§1.2).
-fn primary_of(view: ViewId) -> NodeId {
+fn primary_of(view: Ballot) -> NodeId {
     n(view.view.0 % 3)
 }
 
@@ -107,7 +107,7 @@ fn bootstrap(h: &mut Harness) {
 
 /// Ticks a node until its timeout fires (one tick past the knob), asserting
 /// it fenced into exactly `target`.
-fn tick_into_view_change(h: &mut Harness, id: NodeId, target: ViewId) {
+fn tick_into_view_change(h: &mut Harness, id: NodeId, target: Ballot) {
     for _ in 0..=TIMEOUT {
         h.tick(id);
     }
@@ -128,7 +128,7 @@ fn era_proof() -> EraProof {
 
 /// A fabricated `StartViewChange` envelope (the header slot is the Absent
 /// sentinel; the body is empty).
-fn svc(view: ViewId) -> Message {
+fn svc(view: Ballot) -> Message {
     Message {
         header: Header {
             tag: Tag::StartViewChange,
@@ -143,7 +143,7 @@ fn svc(view: ViewId) -> Message {
 /// `prime` (which must be `primary_of(target)` and times out first) and
 /// `voter`, leaving messages for the partitioned third node behind. Ends
 /// with both nodes Normal in `target`.
-fn drive_view_change(h: &mut Harness, prime: NodeId, voter: NodeId, target: ViewId) {
+fn drive_view_change(h: &mut Harness, prime: NodeId, voter: NodeId, target: Ballot) {
     assert_eq!(primary_of(target), prime, "the prime must own the target");
     tick_into_view_change(h, prime, target);
     assert!(h.peek_queued(voter, Tag::StartViewChange).is_some());

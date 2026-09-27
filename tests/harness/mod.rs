@@ -75,7 +75,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use uvrr::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
 use uvrr::effects::{Effect, PlanVerdict, Stability, StabilityResult};
 use uvrr::ids::{
-    CrashCounter, Era, Fault, NodeId, Operation, OperationId, Slot, SystemId, Tick, View, ViewId,
+    Ballot, CrashCounter, Era, Fault, NodeId, Operation, OperationId, Slot, SystemId, Tick, View,
 };
 use uvrr::journal::{Journal, JournalView, LogEntry, Payload, RangeOutcome, SegmentedLog};
 use uvrr::lifecycle::{
@@ -489,7 +489,7 @@ pub enum SafetyViolation {
     /// `(era, view)`.
     DualPrimary {
         /// The contested view.
-        view: ViewId,
+        view: Ballot,
         /// The first claimant.
         a: NodeId,
         /// The second claimant.
@@ -561,12 +561,12 @@ pub fn check_cluster_safety(nodes: &[NodeEvidence]) -> Result<(), SafetyViolatio
     // it is Normal and its own configuration history says `primary(view) ==
     // self`; two divergent memberships can then name two primaries for one
     // view, which is exactly the violation.
-    let mut claims: Vec<(ViewId, NodeId)> = Vec::new();
+    let mut claims: Vec<(Ballot, NodeId)> = Vec::new();
     for node in nodes {
         if Status::from_word(node.snapshot.status) != Some(Status::Normal) {
             continue;
         }
-        let view = ViewId {
+        let view = Ballot {
             era: Era(node.snapshot.era),
             view: View(node.snapshot.view),
         };
@@ -952,7 +952,7 @@ impl Harness {
     /// The host-forced view change (§14.2): drives
     /// `Input::AdminForceView { target }` through the ordinary step
     /// machinery, the refusal or the fence is the script's to assert.
-    pub fn force_view(&mut self, id: NodeId, target: ViewId) -> StepOutcome {
+    pub fn force_view(&mut self, id: NodeId, target: Ballot) -> StepOutcome {
         self.drive(
             id,
             format!(
@@ -1806,7 +1806,7 @@ impl Harness {
         journal
             .install_suffix(VOID_SLOT, &genesis)
             .map_err(LifecycleRefusal::Journal)?;
-        let view = ViewId {
+        let view = Ballot {
             era,
             view: View::INITIAL,
         };

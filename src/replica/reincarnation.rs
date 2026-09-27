@@ -52,7 +52,7 @@
 
 use crate::configuration::SystemOperation;
 use crate::effects::Effect;
-use crate::ids::{NodeId, Slot, ViewId};
+use crate::ids::{Ballot, NodeId, Slot};
 use crate::journal::{JournalView, LogEntry, Payload};
 use crate::message::{Body, Message};
 use crate::observe::Diagnostic;
@@ -215,7 +215,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     fn missed_range_push(
         &self,
         journal: &J::View,
-        view: ViewId,
+        view: Ballot,
         to: NodeId,
         prepared: Slot,
     ) -> Option<Effect> {

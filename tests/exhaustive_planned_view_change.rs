@@ -19,7 +19,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome, mint_id};
 use uvrr::effects::Effect;
-use uvrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, Slot, SystemId, View};
 use uvrr::message::{Body, EvidenceKind, Message};
 use uvrr::observe::Diagnostic;
 use uvrr::progress::Status;
@@ -108,7 +108,7 @@ fn run_case(sender: Sender, era: EraRel, boot: Boot) {
     let mut h = assembled(boot);
     let receiver = n(2);
     let before = h.snapshot(receiver).expect("the receiver is live");
-    let header_view = ViewId {
+    let header_view = Ballot {
         era: match era {
             EraRel::Less => Era(before.era),
             EraRel::Equal => Era(before.era + 1),

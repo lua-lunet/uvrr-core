@@ -16,7 +16,7 @@
 //!
 //! # The modules
 //!
-//! `ids` (identity newtypes, the durable pair, `ViewId`, the `Fault`
+//! `ids` (identity newtypes, the durable pair, `Ballot`, the `Fault`
 //! taxonomy), `wire` (the normative binary codec), `configuration` (era, membership,
 //! weights, the reconfiguration fold), `journal` (the four logical journal
 //! capabilities), `progress` (the `Progress` record), `observe` (seqlock observation),

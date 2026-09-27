@@ -20,7 +20,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome, mint_pair};
 use uvrr::effects::Effect;
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
 use uvrr::replica::ViewChangeKnobs;
@@ -132,7 +132,7 @@ fn run_case(role: Role, sender: Sender, pair: Pair, r: Rel) {
     let mut h = assembled();
     let receiver = match role { Role::Leader => n(1), Role::Backup => n(2) };
     let before = h.snapshot(receiver).expect("the receiver is live");
-    let header_view = ViewId { era: Era(before.era), view: View(before.view) };
+    let header_view = Ballot { era: Era(before.era), view: View(before.view) };
     let announced = match sender { Sender::Matches => new, Sender::Mismatch => { let (a, b) = mint_pair(); NodeId::new(a, b) } };
     let prepared = Slot(rel(r, before.committed));
     let header = Header { tag: Tag::Reincarnation, view: header_view, slot: Slot::NONE };

@@ -26,7 +26,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use uvrr::configuration::{Member, SystemOperation, Weight};
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
@@ -41,8 +41,8 @@ fn n(id: u32) -> NodeId {
 }
 
 /// A view in era 1: every scenario here is same-era (W1).
-fn view(number: u32) -> ViewId {
-    ViewId {
+fn view(number: u32) -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(number),
     }

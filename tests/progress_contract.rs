@@ -3,7 +3,7 @@
 //! Spec §1.3 (current vs retained view, frontier chain), §5 (the progress record and
 //! its sticky fault), §6 (the delta transition), §8.7.3 (era/slot discipline), §12
 //! (the serialized transition interval), and decisions B1 (seqlock), S3 (only
-//! `Indeterminate` persistence faults), W1 (`ViewId`).
+//! `Indeterminate` persistence faults), W1 (`Ballot`).
 //!
 //! The properties pinned here, each of which the rest of the crate is entitled to
 //! assume without re-checking:
@@ -20,14 +20,14 @@
 //! 6. era/slot discipline: `era(accepted)` is `era(current)` or `era(current) + 1`,
 //!    the `+1` boundary (overlap mode) passes, `+2` is refused at construction;
 //! 7. the seqlock never returns a torn read, under a writer/reader race;
-//! 8. `ViewId::INITIAL` is the genesis view: `Progress::genesis` advertises it,
+//! 8. `Ballot::INITIAL` is the genesis view: `Progress::genesis` advertises it,
 //!    fenced and restarting, per §5.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use uvrr::configuration::{EraTable, SystemOperation};
-use uvrr::ids::{Era, NodeId, Slot, View, ViewId};
+use uvrr::ids::{Ballot, Era, NodeId, Slot, View};
 use uvrr::invariant::{Fault, HeaderSlotRole, InputKind, header_slot_role, legal};
 use uvrr::observe::Observation;
 use uvrr::progress::{Progress, ProgressError, Status};
@@ -83,8 +83,8 @@ fn genesis_table() -> Arc<EraTable> {
     Arc::new(EraTable::genesis())
 }
 
-fn view(era: u32, view: u32) -> ViewId {
-    ViewId {
+fn view(era: u32, view: u32) -> Ballot {
+    Ballot {
         era: Era(era),
         view: View(view),
     }
@@ -94,7 +94,7 @@ fn view(era: u32, view: u32) -> ViewId {
 /// the domains these tests use.
 #[allow(clippy::too_many_arguments)]
 fn normal(
-    at: ViewId,
+    at: Ballot,
     accepted: u64,
     committed: u64,
     applied: u64,
@@ -134,8 +134,8 @@ fn frontier_chain_is_exhaustively_enforced() {
             for committed in 0u64..=3 {
                 for accepted in 0u64..=3 {
                     let result = Progress::reconstitute(
-                        ViewId::INITIAL,
-                        ViewId::INITIAL,
+                        Ballot::INITIAL,
+                        Ballot::INITIAL,
                         Status::Normal,
                         Slot(accepted),
                         Slot(committed),
@@ -180,7 +180,7 @@ fn frontier_chain_is_exhaustively_enforced() {
 #[test]
 fn status_view_relation_is_enforced() {
     let table = genesis_table();
-    let build = |current: ViewId, retained: ViewId, status: Status| {
+    let build = |current: Ballot, retained: Ballot, status: Status| {
         Progress::reconstitute(
             current,
             retained,
@@ -224,8 +224,8 @@ fn status_view_relation_is_enforced() {
 fn fault_is_sticky_across_every_transition() {
     let table = genesis_table();
     let faulted = Progress::reconstitute(
-        ViewId::INITIAL,
-        ViewId::INITIAL,
+        Ballot::INITIAL,
+        Ballot::INITIAL,
         Status::Normal,
         Slot(2),
         Slot(1),
@@ -263,7 +263,7 @@ fn fault_is_sticky_across_every_transition() {
 
     // `legal` reports the existing fault, not `IllegalTransition`: the old value
     // admits no candidate at all, whatever the candidate looks like.
-    let candidate = normal(ViewId::INITIAL, 3, 1, 1, 1, 4, &table);
+    let candidate = normal(Ballot::INITIAL, 3, 1, 1, 1, 4, &table);
     assert_eq!(
         legal(&faulted, &candidate, &InputKind::ClientRequest),
         Some(Fault::IndeterminatePersistence)
@@ -289,21 +289,21 @@ fn revision_advances_by_exactly_one() {
     assert_eq!(two.revision(), 2);
 
     // legal() rule 4: 0, +2, and regression are each `IllegalTransition`.
-    let old = normal(ViewId::INITIAL, 4, 2, 1, 1, 7, &table);
+    let old = normal(Ballot::INITIAL, 4, 2, 1, 1, 7, &table);
     for revision in [7u64, 9, 6, u64::MAX] {
-        let candidate = normal(ViewId::INITIAL, 5, 2, 1, 1, revision, &table);
+        let candidate = normal(Ballot::INITIAL, 5, 2, 1, 1, revision, &table);
         assert_eq!(
             legal(&old, &candidate, &InputKind::ClientRequest),
             Some(Fault::IllegalTransition),
             "revision {revision} from 7"
         );
     }
-    let borderline = normal(ViewId::INITIAL, 5, 2, 1, 1, 8, &table);
+    let borderline = normal(Ballot::INITIAL, 5, 2, 1, 1, 8, &table);
     assert_eq!(legal(&old, &borderline, &InputKind::ClientRequest), None);
 
     // The revision space does not wrap: a progress at `u64::MAX` refuses to
     // transition rather than publish revision 0 again.
-    let exhausted = normal(ViewId::INITIAL, 0, 0, 0, 0, u64::MAX, &table);
+    let exhausted = normal(Ballot::INITIAL, 0, 0, 0, 0, u64::MAX, &table);
     assert_eq!(
         exhausted.with_accepted(Slot(1)).unwrap_err(),
         ProgressError::RevisionExhausted
@@ -321,16 +321,16 @@ fn revision_advances_by_exactly_one() {
 #[test]
 fn rule1_frontiers_never_regress() {
     let table = genesis_table();
-    let old = normal(ViewId::INITIAL, 5, 2, 1, 1, 0, &table);
+    let old = normal(Ballot::INITIAL, 5, 2, 1, 1, 0, &table);
 
     // Committed regression.
-    let candidate = normal(ViewId::INITIAL, 5, 1, 1, 1, 1, &table);
+    let candidate = normal(Ballot::INITIAL, 5, 1, 1, 1, 1, &table);
     assert_eq!(
         legal(&old, &candidate, &InputKind::ClientRequest),
         Some(Fault::IllegalTransition)
     );
     // Applied regression.
-    let candidate = normal(ViewId::INITIAL, 5, 2, 0, 0, 1, &table);
+    let candidate = normal(Ballot::INITIAL, 5, 2, 0, 0, 1, &table);
     assert_eq!(
         legal(&old, &candidate, &InputKind::ClientRequest),
         Some(Fault::IllegalTransition)
@@ -338,7 +338,7 @@ fn rule1_frontiers_never_regress() {
     // `accepted` regression with `retained` unchanged: not a re-selection.
     let candidate = Progress::reconstitute(
         view(0, 1),
-        ViewId::INITIAL,
+        Ballot::INITIAL,
         Status::ViewChange,
         Slot(3),
         Slot(2),
@@ -362,7 +362,7 @@ fn rule1_frontiers_never_regress() {
     );
 
     // Borderline pass: equal frontiers are not a regression.
-    let candidate = normal(ViewId::INITIAL, 5, 2, 1, 1, 1, &table);
+    let candidate = normal(Ballot::INITIAL, 5, 2, 1, 1, 1, &table);
     assert_eq!(legal(&old, &candidate, &InputKind::Tick), None);
 }
 
@@ -389,7 +389,7 @@ fn rule1_accepted_may_shorten_only_on_reselection() {
 }
 
 /// Rule 2, `current` never regresses, and a view change is a legal successor:
-/// view strictly up, era equal or +1 (delegated to `ViewId::is_legal_successor`).
+/// view strictly up, era equal or +1 (delegated to `Ballot::is_legal_successor`).
 #[test]
 fn rule2_view_succession() {
     let table = genesis_table();
@@ -521,8 +521,8 @@ fn rule7_header_slot_table_is_the_documented_one() {
 #[test]
 fn rule7_operation_tags_must_name_a_slot() {
     let table = genesis_table();
-    let old = normal(ViewId::INITIAL, 4, 2, 1, 1, 0, &table);
-    let candidate = normal(ViewId::INITIAL, 5, 2, 1, 1, 1, &table);
+    let old = normal(Ballot::INITIAL, 4, 2, 1, 1, 0, &table);
+    let candidate = normal(Ballot::INITIAL, 5, 2, 1, 1, 1, &table);
 
     for tag in [Tag::Prepare, Tag::PrepareOk] {
         let violating = InputKind::PeerMessage { tag, slot: Slot(0) };
@@ -541,8 +541,8 @@ fn rule7_operation_tags_must_name_a_slot() {
 #[test]
 fn rule7_absent_tags_must_send_the_sentinel() {
     let table = genesis_table();
-    let old = normal(ViewId::INITIAL, 4, 2, 1, 1, 0, &table);
-    let candidate = normal(ViewId::INITIAL, 5, 2, 1, 1, 1, &table);
+    let old = normal(Ballot::INITIAL, 4, 2, 1, 1, 0, &table);
+    let candidate = normal(Ballot::INITIAL, 5, 2, 1, 1, 1, &table);
 
     for tag in [Tag::StartViewChange, Tag::PlannedViewChange] {
         let violating = InputKind::PeerMessage { tag, slot: Slot(1) };
@@ -564,8 +564,8 @@ fn rule7_absent_tags_must_send_the_sentinel() {
 #[test]
 fn rule7_frontier_tags_admit_any_slot() {
     let table = genesis_table();
-    let old = normal(ViewId::INITIAL, 4, 2, 1, 1, 0, &table);
-    let candidate = normal(ViewId::INITIAL, 5, 2, 1, 1, 1, &table);
+    let old = normal(Ballot::INITIAL, 4, 2, 1, 1, 0, &table);
+    let candidate = normal(Ballot::INITIAL, 5, 2, 1, 1, 1, &table);
 
     for tag in [
         Tag::Commit,
@@ -731,23 +731,23 @@ fn observation_never_returns_a_torn_read() {
 }
 
 // ---------------------------------------------------------------------------
-// 8. Genesis and the `ViewId::INITIAL` ruling
+// 8. Genesis and the `Ballot::INITIAL` ruling
 // ---------------------------------------------------------------------------
 
-/// The ruling (resolved here): `ViewId::INITIAL` is pinned as
+/// The ruling (resolved here): `Ballot::INITIAL` is pinned as
 /// the **genesis view**, the `(era 0, view 0)` pair a freshly provisioned node
 /// advertises. Era 0 is the void configuration, quorum-impossible by arithmetic
 /// (see `Configuration::void`), and view 0 is the first primary term once `Init`
 /// commits. It is not "no view": a freshly provisioned node has a real genesis
-/// view, so no `Option<ViewId>` appears anywhere. Per §5 the genesis node is
+/// view, so no `Option<Ballot>` appears anywhere. Per §5 the genesis node is
 /// fenced and restarting until it proves its state current.
 #[test]
-fn genesis_advertises_view_id_initial_fenced() {
+fn genesis_advertises_ballot_initial_fenced() {
     let table = genesis_table();
     let genesis = Progress::genesis(Arc::clone(&table)).expect("genesis");
 
-    assert_eq!(genesis.current(), ViewId::INITIAL);
-    assert_eq!(genesis.retained(), ViewId::INITIAL);
+    assert_eq!(genesis.current(), Ballot::INITIAL);
+    assert_eq!(genesis.retained(), Ballot::INITIAL);
     assert_eq!(genesis.status(), Status::Joining);
     assert_eq!(genesis.accepted(), Slot::NONE);
     assert_eq!(genesis.committed(), Slot::NONE);

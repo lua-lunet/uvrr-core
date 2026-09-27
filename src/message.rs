@@ -24,7 +24,7 @@
 //! [`wire::Tag`]: crate::wire::Tag
 
 use crate::configuration::SystemOperation;
-use crate::ids::{NodeId, Slot, ViewId};
+use crate::ids::{Ballot, NodeId, Slot};
 use crate::journal::LogEntry;
 use crate::wire::{Header, Malformed, Pack, PackWriter, Tag, Unpack, UnpackCursor, UnpackError};
 
@@ -82,7 +82,7 @@ pub enum Body {
     DoViewChange {
         /// The view at which the reported history was selected (§1.3, §9.1's
         /// ranking rule).
-        retained: ViewId,
+        retained: Ballot,
         /// The reported history's accepted frontier; also the header slot.
         accepted: Slot,
         /// The reported history's committed frontier.
@@ -544,7 +544,7 @@ impl Unpack for Body {
             },
             Tag::StartViewChange => Body::StartViewChange {},
             Tag::DoViewChange => Body::DoViewChange {
-                retained: ViewId::unpack(c)?,
+                retained: Ballot::unpack(c)?,
                 accepted: Slot::unpack(c)?,
                 committed: Slot::unpack(c)?,
                 suffix: unpack_entries(c)?,

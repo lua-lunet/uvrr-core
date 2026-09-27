@@ -13,7 +13,7 @@
 
 use uvrr::configuration::INIT_SLOT;
 use uvrr::effects::Effect;
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
@@ -41,8 +41,8 @@ fn op_id(lsb: u64) -> OperationId {
 
 /// The view every node in these tests provisions and bootstraps into: era 1
 /// (genesis reconfiguration), view 0.
-fn genesis_view() -> ViewId {
-    ViewId {
+fn genesis_view() -> Ballot {
+    Ballot {
         era: Era(1),
         view: View::INITIAL,
     }
@@ -498,7 +498,7 @@ fn a_prepare_from_the_non_primary_of_its_named_view_is_a_named_drop() {
     let forged = Message {
         header: Header {
             tag: Tag::Prepare,
-            view: ViewId {
+            view: Ballot {
                 era: Era(1),
                 view: View(1),
             },
@@ -522,7 +522,7 @@ fn a_prepare_from_the_non_primary_of_its_named_view_is_a_named_drop() {
         h.diagnostic(n(1)),
         Some(Diagnostic::SenderNotPrimary {
             sender: n(2),
-            view: ViewId {
+            view: Ballot {
                 era: Era(1),
                 view: View(1),
             },

@@ -26,7 +26,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use uvrr::configuration::SystemOperation;
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, SystemId, View};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
 use uvrr::progress::Status;
@@ -67,9 +67,9 @@ fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }
@@ -107,7 +107,7 @@ fn current_order(h: &Harness, id: NodeId) -> Vec<NodeId> {
         .collect()
 }
 
-fn primary_of(h: &Harness, observer: NodeId, view: ViewId) -> Option<NodeId> {
+fn primary_of(h: &Harness, observer: NodeId, view: Ballot) -> Option<NodeId> {
     h.era_table(observer)?
         .record(view.era)
         .and_then(|record| record.config.primary(view.view))
@@ -116,9 +116,9 @@ fn primary_of(h: &Harness, observer: NodeId, view: ViewId) -> Option<NodeId> {
 /// The view-change target the fence machinery itself chooses for `node`:
 /// the next view in the era the committed history has established
 /// (§8.7.8). The primary of that view is whoever the position names.
-fn fence_target(h: &Harness, node: NodeId) -> ViewId {
+fn fence_target(h: &Harness, node: NodeId) -> Ballot {
     let current = current_view(h, node);
-    ViewId {
+    Ballot {
         era: current_era(h, node),
         view: View(current.view.0 + 1),
     }
@@ -126,7 +126,7 @@ fn fence_target(h: &Harness, node: NodeId) -> ViewId {
 
 /// Drives the view change the fence machinery targets, asserting every
 /// node in `live` installs it.
-fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> (ViewId, NodeId) {
+fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> (Ballot, NodeId) {
     let target = fence_target(h, live[0]);
     let driver = live
         .iter()
@@ -152,7 +152,7 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> (ViewId, NodeId) {
 /// The shape [`drive_view_change`] uses for a cluster whose live set is
 /// the fence's whole quorum; here the learners under test stay fenced
 /// while the incumbents establish each era.
-fn fence_among(h: &mut Harness, live: &[NodeId]) -> ViewId {
+fn fence_among(h: &mut Harness, live: &[NodeId]) -> Ballot {
     let target = fence_target(h, live[0]);
     let driver = live
         .iter()
@@ -193,7 +193,7 @@ fn fence_among(h: &mut Harness, live: &[NodeId]) -> ViewId {
 /// boot-fenced acquisition folds the admitting era, and the retained
 /// offer installs on the next ordinary tick. Returns the harness with
 /// the learner a caught-up, still vote-less member in the new era.
-fn joined_and_caught_up(h: &mut Harness) -> ViewId {
+fn joined_and_caught_up(h: &mut Harness) -> Ballot {
     bootstrap(h);
     // The joining member boots over the deployment's genesis knowledge:
     // transport-addressable, fenced, holding the shared genesis and
@@ -259,7 +259,7 @@ fn joined_and_caught_up(h: &mut Harness) -> ViewId {
 /// does for the first joiner, and runs the joiner's §10 catch-up: the
 /// offer installs on the ordinary tick, not on delivery alone. Returns
 /// the fence target; the caller asserts the era.
-fn admit_joiner(h: &mut Harness, joiner: NodeId, position: u32) -> ViewId {
+fn admit_joiner(h: &mut Harness, joiner: NodeId, position: u32) -> Ballot {
     let proposer =
         primary_of(h, n(0), current_view(h, n(0))).expect("a live view names its primary");
     h.boot_as(joiner)
@@ -359,7 +359,7 @@ fn a_joiner_admitted_several_eras_past_its_boot_table_when_promoted_keeps_the_cl
         let (target, _) = drive_view_change(&mut h, &[n(0), n(1), n(2), n(3)]);
         assert_eq!(target.view, expected, "the succession advances");
     }
-    let last = ViewId {
+    let last = Ballot {
         era: Era(5),
         view: View(7),
     };
@@ -675,7 +675,7 @@ fn the_serving_gate_answers_a_fetch_from_a_past_window_era() {
     let request = Message {
         header: Header {
             tag: Tag::GetState,
-            view: ViewId {
+            view: Ballot {
                 era: Era(1),
                 view: View(0),
             },
@@ -837,7 +837,7 @@ fn a_far_future_offer_naming_the_boot_fenced_member_through_its_increment_is_ret
     let target = fence_among(&mut h, &[n(0), n(1), n(2)]);
     assert_eq!(
         target,
-        ViewId {
+        Ballot {
             era: Era(3),
             view: View(2)
         }
@@ -922,7 +922,7 @@ fn a_far_future_offer_naming_the_boot_fenced_member_through_a_batch_is_retained(
     let target = fence_among(&mut h, &[n(0), n(1), n(2)]);
     assert_eq!(
         target,
-        ViewId {
+        Ballot {
             era: Era(3),
             view: View(2)
         }
@@ -1006,7 +1006,7 @@ fn the_walked_fetch_rides_the_walked_view_across_two_era_windows() {
     let target = fence_among(&mut h, &[n(0), n(1), n(2)]);
     assert_eq!(
         target,
-        ViewId {
+        Ballot {
             era: Era(4),
             view: View(3)
         }

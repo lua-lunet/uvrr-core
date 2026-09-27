@@ -44,7 +44,7 @@
 mod harness;
 
 use harness::{Harness, StepOutcome};
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
@@ -63,8 +63,8 @@ fn n(id: u32) -> NodeId {
     )
 }
 
-fn view(number: u32) -> ViewId {
-    ViewId {
+fn view(number: u32) -> Ballot {
+    Ballot {
         era: Era(1),
         view: View(number),
     }
@@ -79,10 +79,10 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
     Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-/// The node's current view as a `ViewId`.
-fn current_view(h: &Harness, id: NodeId) -> ViewId {
+/// The node's current view as a `Ballot`.
+fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
-    ViewId {
+    Ballot {
         era: Era(snapshot.era),
         view: View(snapshot.view),
     }
@@ -120,7 +120,7 @@ fn operation_entry(slot: u64, lsb: u64, payload: &[u8]) -> LogEntry {
 /// A `NewState` chunk, shaped for injection: the header slot names the
 /// covered range's end, matching the per-tag slot table.
 fn new_state(
-    view: ViewId,
+    view: Ballot,
     entries: Vec<LogEntry>,
     through: Slot,
     committed: Slot,
@@ -167,7 +167,7 @@ fn commit_one(h: &mut Harness, primary: NodeId, lsb: u64, payload: &[u8]) {
 /// Drives `suspect` past the primary timeout so it enters view change
 /// for `target`, and lets the fence quorum form among the reachable
 /// nodes.
-fn tick_into_view_change(h: &mut Harness, suspect: NodeId, target: ViewId) {
+fn tick_into_view_change(h: &mut Harness, suspect: NodeId, target: Ballot) {
     for _ in 0..=TIMEOUT {
         h.tick(suspect);
     }

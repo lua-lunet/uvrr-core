@@ -7,7 +7,7 @@
 //! boundaries, R1–R15), §9 (the snapshot and the operation WAL).
 //!
 //! A configuration is an era, an ordered member list, and a non-negative integer weight
-//! per member. Primary selection is `config(era).order[index mod len(order)]`. Weight
+//! per member. Primary selection is `config(era).order[view mod len(order)]`. Weight
 //! zero grants no voting authority, so a newly joined member is a learner until a later
 //! committed `Increment` promotes it, which is what makes state transfer a precondition
 //! of authority rather than a courtesy.

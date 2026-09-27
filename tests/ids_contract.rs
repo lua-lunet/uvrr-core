@@ -1,7 +1,7 @@
 //! Contract for `vrr_core::ids` and the `Fault` enum of `vrr_core::invariant`.
 //!
-//! Spec §1.2 (primary succession), §1.3 (slots and frontiers), §8.7.3 with Amendment
-//! A1, and decisions W1, W2, S3, S4.
+//! Spec §1.2 (primary succession), §1.3 (slots and frontiers), §8.7.3, and
+//! decisions W1, W2, S3, S4.
 //!
 //! This file is a gate on identity and arithmetic, not on protocol behaviour. Four
 //! properties are asserted, and each of them is a property the rest of the crate is
@@ -11,13 +11,13 @@
 //!    pass them by value without a conversion layer that could disagree with itself;
 //! 2. no successor wraps, every arithmetic edge is `None`, never a silently reused
 //!    view or slot, because a reused view number is unrecoverable divergence;
-//! 3. `ViewId::is_legal_successor` is the single point of truth for §8.7.3's surviving
+//! 3. `Ballot::is_legal_successor` is the single point of truth for §8.7.3's surviving
 //!    era/view relation, and its truth table is pinned exhaustively so a later change
 //!    cannot loosen it by accident;
 //! 4. the W1 ordering claim, that `(era, view)` and `(view, era)` lexicographic
 //!    orders coincide on legal histories, is discharged by proptest here rather than
 //!    asserted in a comment, because it is the whole justification for the derived
-//!    `Ord` on `ViewId` being safe to use in the §10 higher-view rule.
+//!    `Ord` on `Ballot` being safe to use in the §10 higher-view rule.
 //!
 //! Groups 3 and 5 are exhaustive loops rather than samplers: the domains are tiny and
 //! total coverage is strictly stronger than any number of random draws.
@@ -26,7 +26,7 @@ use std::cmp::Ordering;
 use std::mem::{align_of, size_of};
 
 use proptest::prelude::*;
-use uvrr::ids::{Era, NodeId, OperationId, Slot, Tick, View, ViewId, next_view_selecting};
+use uvrr::ids::{Ballot, Era, NodeId, OperationId, Slot, Tick, View, next_view_selecting};
 use uvrr::invariant::Fault;
 
 // ---------------------------------------------------------------------------
@@ -58,10 +58,10 @@ fn layout_matches_primitive() {
     assert_eq!(size_of::<OperationId>(), 2 * size_of::<u64>());
     assert_eq!(align_of::<OperationId>(), align_of::<u64>());
 
-    // `ViewId` is two `u32` fields and nothing else. The 20-byte big-endian header of
-    // W1 is `(tag, era, view, slot)`; the eight bytes contributed by `ViewId` must not
+    // `Ballot` is two `u32` fields and nothing else. The 20-byte big-endian header of
+    // W1 is `(tag, era, view, slot)`; the eight bytes contributed by `Ballot` must not
     // acquire padding.
-    assert_eq!(size_of::<ViewId>(), 8);
+    assert_eq!(size_of::<Ballot>(), 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -89,45 +89,45 @@ fn successors_do_not_wrap() {
     assert_eq!(Slot::NONE, Slot(0));
 }
 
-/// `ViewId` succession is checked in both components independently: W1's whole point is
+/// `Ballot` succession is checked in both components independently: W1's whole point is
 /// that the two fields cannot alias, so an overflow in one must not be observable as a
 /// change in the other.
 #[test]
-fn view_id_successors_do_not_wrap() {
-    let at_view_max = ViewId {
+fn ballot_successors_do_not_wrap() {
+    let at_view_max = Ballot {
         era: Era(3),
         view: View(u32::MAX),
     };
     assert_eq!(at_view_max.next_in_era(), None);
     assert_eq!(at_view_max.next_in_next_era(), None);
 
-    let at_era_max = ViewId {
+    let at_era_max = Ballot {
         era: Era(u32::MAX),
         view: View(9),
     };
     assert_eq!(
         at_era_max.next_in_era(),
-        Some(ViewId {
+        Some(Ballot {
             era: Era(u32::MAX),
             view: View(10)
         })
     );
     assert_eq!(at_era_max.next_in_next_era(), None);
 
-    let ordinary = ViewId {
+    let ordinary = Ballot {
         era: Era(4),
         view: View(11),
     };
     assert_eq!(
         ordinary.next_in_era(),
-        Some(ViewId {
+        Some(Ballot {
             era: Era(4),
             view: View(12)
         })
     );
     assert_eq!(
         ordinary.next_in_next_era(),
-        Some(ViewId {
+        Some(Ballot {
             era: Era(5),
             view: View(12)
         })
@@ -146,14 +146,14 @@ fn view_id_successors_do_not_wrap() {
 fn legal_successor_truth_table() {
     const DELTAS: [i64; 4] = [-1, 0, 1, 2];
     // Base chosen so every delta stays in range and neither field is zero.
-    let base = ViewId {
+    let base = Ballot {
         era: Era(10),
         view: View(20),
     };
 
     for era_delta in DELTAS {
         for view_delta in DELTAS {
-            let next = ViewId {
+            let next = Ballot {
                 era: Era(apply(10, era_delta)),
                 view: View(apply(20, view_delta)),
             };
@@ -178,24 +178,24 @@ fn apply(base: u32, delta: i64) -> u32 {
 /// independent and this is the diagonal that matters most in review.
 #[test]
 fn legal_successor_rejects_identity_and_regression() {
-    let v = ViewId {
+    let v = Ballot {
         era: Era(2),
         view: View(2),
     };
     assert!(!v.is_legal_successor(v));
-    assert!(v.is_legal_successor(ViewId {
+    assert!(v.is_legal_successor(Ballot {
         era: Era(2),
         view: View(3)
     }));
-    assert!(v.is_legal_successor(ViewId {
+    assert!(v.is_legal_successor(Ballot {
         era: Era(3),
         view: View(3)
     }));
-    assert!(!v.is_legal_successor(ViewId {
+    assert!(!v.is_legal_successor(Ballot {
         era: Era(1),
         view: View(3)
     }));
-    assert!(!v.is_legal_successor(ViewId {
+    assert!(!v.is_legal_successor(Ballot {
         era: Era(4),
         view: View(3)
     }));
@@ -207,7 +207,7 @@ fn legal_successor_rejects_identity_and_regression() {
 fn constructors_agree_with_legality() {
     for era in 0u32..8 {
         for view in 0u32..8 {
-            let v = ViewId {
+            let v = Ballot {
                 era: Era(era),
                 view: View(view),
             };
@@ -225,22 +225,22 @@ fn constructors_agree_with_legality() {
 /// era would make `config(e)` ambiguous, and it had no direct test.
 #[test]
 fn legal_successor_at_era_exhaustion() {
-    let base = ViewId {
+    let base = Ballot {
         era: Era(u32::MAX),
         view: View(7),
     };
     // The one remaining legal successor: same era, higher view.
-    assert!(base.is_legal_successor(ViewId {
+    assert!(base.is_legal_successor(Ballot {
         era: Era(u32::MAX),
         view: View(8)
     }));
     // Identity, regression, and era regression are still refused.
     assert!(!base.is_legal_successor(base));
-    assert!(!base.is_legal_successor(ViewId {
+    assert!(!base.is_legal_successor(Ballot {
         era: Era(u32::MAX),
         view: View(6)
     }));
-    assert!(!base.is_legal_successor(ViewId {
+    assert!(!base.is_legal_successor(Ballot {
         era: Era(u32::MAX - 1),
         view: View(8)
     }));
@@ -248,7 +248,7 @@ fn legal_successor_at_era_exhaustion() {
     assert_eq!(base.next_in_next_era(), None);
     assert_eq!(
         base.next_in_era(),
-        Some(ViewId {
+        Some(Ballot {
             era: Era(u32::MAX),
             view: View(8)
         })
@@ -261,20 +261,20 @@ fn legal_successor_at_era_exhaustion() {
 
 /// Generates a legal history: a strictly increasing view sequence with a non-decreasing
 /// era, which is exactly the set of pairs `is_legal_successor` admits transitively.
-fn legal_history() -> impl Strategy<Value = Vec<ViewId>> {
+fn legal_history() -> impl Strategy<Value = Vec<Ballot>> {
     // Each step advances the view by 1..=3 (gaps are legal, §8.7.3) and the era by
     // 0 or 1, matching the successor relation.
     prop::collection::vec((1u32..=3, 0u32..=1), 1..24).prop_map(|steps| {
         let mut era = 0u32;
         let mut view = 0u32;
-        let mut out = vec![ViewId {
+        let mut out = vec![Ballot {
             era: Era(era),
             view: View(view),
         }];
         for (view_step, era_step) in steps {
             view += view_step;
             era += era_step;
-            out.push(ViewId {
+            out.push(Ballot {
                 era: Era(era),
                 view: View(view),
             });
@@ -286,7 +286,7 @@ fn legal_history() -> impl Strategy<Value = Vec<ViewId>> {
 proptest! {
     /// The load-bearing subtlety of W1: on any legal pair the orderings `(era, view)`
     /// and `(view, era)` coincide, because era advances only as views advance. The
-    /// derived `Ord` on `ViewId { era, view }` is therefore usable for the §10
+    /// derived `Ord` on `Ballot { era, view }` is therefore usable for the §10
     /// higher-view rule without consulting configuration state. Pairs on which the two
     /// disagree are illegal and are rejected upstream, not silently ordered, which is
     /// why this is a test over legal histories and not over arbitrary pairs.

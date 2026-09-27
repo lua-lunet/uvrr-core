@@ -24,7 +24,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use uvrr::effects::Effect;
-use uvrr::ids::{CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View, ViewId};
+use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
 use uvrr::progress::{ProgressSnapshot, Status};
@@ -352,7 +352,7 @@ fn get_state_below_retained_base_is_refused() {
     // A lagging peer asks for the range from slot 1, below the retained
     // base. The header slot is the requester's accepted frontier (the
     // per-tag table's Frontier role).
-    let view = ViewId {
+    let view = Ballot {
         era: Era(1),
         view: View(0),
     };
@@ -409,7 +409,7 @@ fn view_change_after_reclaiming_the_era_establishing_slab() {
         );
     }
 
-    let target = ViewId {
+    let target = Ballot {
         era: Era(1),
         view: View(1),
     };

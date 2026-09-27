@@ -19,7 +19,7 @@ mod harness;
 
 use harness::{Harness, StepOutcome};
 use uvrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use uvrr::ids::{Era, NodeId, Slot, View, ViewId, next_view_selecting};
+use uvrr::ids::{Ballot, Era, NodeId, Slot, View, next_view_selecting};
 use uvrr::reconfiguration::EraStep;
 use uvrr::solver::{solve, solve_replacement};
 
@@ -61,7 +61,7 @@ fn quiesce(h: &mut Harness) {
 fn serve_at(h: &mut Harness, view: u32) {
     h.force_view(
         n(0),
-        ViewId {
+        Ballot {
             era: Era(1),
             view: View(view),
         },
@@ -159,7 +159,7 @@ fn cross_boundary(h: &mut Harness, roster: &[NodeId], leader: NodeId, scenario: 
     .expect("a view selecting the leader always exists past any view");
     h.force_view(
         leader,
-        ViewId {
+        Ballot {
             era: established,
             view: target,
         },
@@ -334,7 +334,7 @@ fn crash_reincarnation_replace_keeps_the_leader_constant() {
     bootstrap(&mut h);
     h.force_view(
         n(0),
-        ViewId {
+        Ballot {
             era: Era(1),
             view: View(5),
         },

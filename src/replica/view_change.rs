@@ -30,7 +30,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     pub(in crate::replica) fn enter_view_change(
         &self,
         journal: &J::View,
-        target: ViewId,
+        target: Ballot,
         heard: BTreeSet<NodeId>,
         at: Tick,
         kind: InputKind,
@@ -82,7 +82,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     pub(in crate::replica) fn plan_admin_force_view(
         &self,
         journal: &J::View,
-        target: ViewId,
+        target: Ballot,
         at: Tick,
     ) -> Result<PlannedTransition, PlanRefusal> {
         let current = self.progress.current();
@@ -235,7 +235,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         &self,
         journal: &J::View,
         view_change: &ViewChangeVolatile,
-        target: ViewId,
+        target: Ballot,
     ) -> Result<Effect, PlanRefusal> {
         let own = view_change
             .evidence
@@ -339,7 +339,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         journal: &J::View,
         from: NodeId,
         message: &Message,
-        retained: ViewId,
+        retained: Ballot,
         accepted: Slot,
         committed: Slot,
         suffix: &[LogEntry],
@@ -649,7 +649,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     fn plan_win_view(
         &self,
         journal: &J::View,
-        target: ViewId,
+        target: Ballot,
         selected: &Evidence,
         evidence: &BTreeMap<NodeId, Evidence>,
         mut effects: Vec<Effect>,

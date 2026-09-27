@@ -61,9 +61,9 @@ fn status_of(h: &Harness, id: NodeId) -> uvrr::progress::Status {
     uvrr::progress::Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-fn current_view(h: &Harness, id: NodeId) -> uvrr::ids::ViewId {
+fn current_view(h: &Harness, id: NodeId) -> uvrr::ids::Ballot {
     let snapshot = snap(h, id);
-    uvrr::ids::ViewId {
+    uvrr::ids::Ballot {
         era: uvrr::ids::Era(snapshot.era),
         view: uvrr::ids::View(snapshot.view),
     }
@@ -73,9 +73,9 @@ fn current_era(h: &Harness, id: NodeId) -> uvrr::ids::Era {
     h.era_table(id).expect("the node is live").current().era
 }
 
-fn fence_target(h: &Harness, node: NodeId) -> uvrr::ids::ViewId {
+fn fence_target(h: &Harness, node: NodeId) -> uvrr::ids::Ballot {
     let current = current_view(h, node);
-    uvrr::ids::ViewId {
+    uvrr::ids::Ballot {
         era: current_era(h, node),
         view: uvrr::ids::View(current.view.0 + 1),
     }
@@ -83,7 +83,7 @@ fn fence_target(h: &Harness, node: NodeId) -> uvrr::ids::ViewId {
 
 /// Drives the view change the fence machinery targets, asserting every
 /// node in `live` installs it.
-fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> uvrr::ids::ViewId {
+fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> uvrr::ids::Ballot {
     let target = fence_target(h, live[0]);
     let driver = live
         .iter()

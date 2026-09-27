@@ -30,7 +30,7 @@ applies the same command at the same slot.
 
 The CAS pair is the serving state and the view number. A node applying a
 nomination at commit publishes the bumped view
-`ViewId { era: the era the covering fold established, view: from + offset }`
+`Ballot { era: the era the covering fold established, view: from + offset }`
 as its current view, on the same published transition that carries the
 folded table, if and only if it is `Normal`
 and its published view number equals `from`. The bump advances the serving

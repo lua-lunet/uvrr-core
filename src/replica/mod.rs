@@ -105,7 +105,7 @@ use crate::configuration::{
 use crate::effects::{
     Effect, JournalIntent, PersistenceIntent, ProgressIntent, Stability, StabilityResult,
 };
-use crate::ids::{Era, Fault, NodeId, Operation, Slot, Tick, View, ViewId};
+use crate::ids::{Ballot, Era, Fault, NodeId, Operation, Slot, Tick, View};
 use crate::invariant::{InputKind, legal};
 use crate::journal::{Journal, JournalError, JournalView, LogEntry, Payload, SegmentedLog};
 use crate::lifecycle::{Bumped, Rejoined, Vouched};
@@ -219,7 +219,7 @@ pub enum Input {
     AdminForceView {
         /// The view to enter: `target.view` past the current view number,
         /// `target.era` the current era.
-        target: ViewId,
+        target: Ballot,
     },
     /// The host reports that this node bumped its identity (the dirty
     /// path of `docs/uvrr-reincarnation.md` §2): the node was running as
@@ -329,7 +329,7 @@ pub enum PlanRefusal {
     /// the proposal path).
     NotPrimary {
         /// The node's current view.
-        view: ViewId,
+        view: Ballot,
         /// The primary of `view` under its era's configuration.
         primary: Option<NodeId>,
     },
@@ -404,9 +404,9 @@ pub enum PlanRefusal {
     /// input, not a fence.
     AdminTargetNotAhead {
         /// The node's current view.
-        current: ViewId,
+        current: Ballot,
         /// The refused target.
-        target: ViewId,
+        target: Ballot,
     },
     /// An [`Input::AdminForceView`] naming an era other than the node's
     /// current era (§14.2): either an era whose establishing operation the
@@ -424,7 +424,7 @@ pub enum PlanRefusal {
     /// wraparound), so the target is refused outright.
     AdminViewExhausted {
         /// The refused target.
-        target: ViewId,
+        target: Ballot,
     },
     /// An [`Input::Reconfigure`] with a pivot whose transition view `v'`
     /// is not representable (§8.7.7 step 5 names `v'` as the least view
@@ -435,7 +435,7 @@ pub enum PlanRefusal {
     /// stop-the-world path names no `v'`.
     ReconfigureViewExhausted {
         /// The current view, at the exhausted end of the view space.
-        current: ViewId,
+        current: Ballot,
     },
 }
 
@@ -575,9 +575,9 @@ pub enum LifecycleRefusal {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PersistedProgress {
     /// Greatest view entered (§1.3).
-    pub current: ViewId,
+    pub current: Ballot,
     /// The view at which the current logical history was selected (§1.3).
-    pub retained: ViewId,
+    pub retained: Ballot,
     /// The last observed status. Evidence only: every constructor fences to
     /// [`Status::Restarting`] regardless (§5's boot rule).
     pub status: Status,
@@ -726,7 +726,7 @@ struct Proposal {
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct Evidence {
     /// The view at which the reported history was selected (§1.3).
-    retained: ViewId,
+    retained: Ballot,
     /// The reported history's accepted frontier.
     accepted: Slot,
     /// The reported history's committed frontier.
@@ -748,7 +748,7 @@ struct Evidence {
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct ViewChangeVolatile {
     /// The view being fenced into.
-    target: ViewId,
+    target: Ballot,
     /// Distinct `StartViewChange` senders for `target`, own vote included.
     fences: BTreeSet<NodeId>,
     /// Collected evidence by sender; own entry appears when the fence
@@ -788,7 +788,7 @@ struct TransferVolatile {
     /// The view the fetch rides: the current view for a normal-operation
     /// gap, the fence target for a higher-view pull, the latest fenced
     /// view for a re-entry gap.
-    view: ViewId,
+    view: Ballot,
     /// The responder the fetch asked.
     to: NodeId,
     /// The first slot the node still needs: the cursor a partial answer
@@ -863,7 +863,7 @@ struct PlannedOverlap {
     /// current one selecting this node under the NEW order, named when the
     /// operation was proposed, an unrepresentable `v'` refused the
     /// proposal, so the machine always holds a legal target.
-    target: ViewId,
+    target: Ballot,
     /// Whether the `PlannedViewChange` solicitation went out: it rides the
     /// commit transition that folds the establishing operation (§8.7.7
     /// step 1's evidence round runs while the era-(e+1) stream continues).
@@ -1314,7 +1314,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .install_suffix(VOID_SLOT, &genesis)
             .map_err(LifecycleRefusal::Journal)?;
 
-        let view = ViewId {
+        let view = Ballot {
             era,
             view: View::INITIAL,
         };
@@ -2183,7 +2183,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         committed: Slot,
         applied: Slot,
         config: Arc<EraTable>,
-        view: Option<ViewId>,
+        view: Option<Ballot>,
     ) -> Result<Progress, PlanRefusal> {
         let revision = self
             .progress
@@ -2219,7 +2219,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// before this candidate is ever built.
     fn install_candidate(
         &self,
-        view: ViewId,
+        view: Ballot,
         accepted: Slot,
         committed: Slot,
         applied: Slot,
@@ -2309,7 +2309,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// accepted history holds, so the condition is dischargeable by
     /// construction. Fencing a new view in a superseded era would strand
     /// the cluster one era behind its committed configuration history.
-    fn view_change_target(&self) -> Option<ViewId> {
+    fn view_change_target(&self) -> Option<Ballot> {
         let current = self.progress.current();
         let established = self.progress.config().current().era;
         if Some(established) == current.era.next() {
@@ -2633,7 +2633,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The primary of `view` under its era's configuration, or `None` when
     /// the era is outside the retention window (the message is then
     /// unevaluable).
-    fn primary_of(&self, view: ViewId) -> Option<NodeId> {
+    fn primary_of(&self, view: Ballot) -> Option<NodeId> {
         self.progress
             .config()
             .record(view.era)?
