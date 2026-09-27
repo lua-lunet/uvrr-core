@@ -161,7 +161,8 @@ clean, the classic VRR-2012 notion of recovery, but only over a clean shutdown a
 full reload of all durable state. A start that cannot prove those is not a recovery
 at all: there is no crash-recovery protocol, because there is no crash to recover
 from. A node that lost volatile state is by construction a different node
-(`docs/uvrr-reincarnation.md` §1) and re-enters through reincarnation, not
+(`docs/uvrr-protocols.md`, the reincarnation chapter §1) and re-enters
+through reincarnation, not
 recovery. Nothing in the clean stop/start/sync path or the reincarnation path may
 deviate from that: clean stop/start/sync runs the ordinary restart (all four
 superblocks read `flushed`), reincarnation runs the crash-stop-self-evict sequence.
@@ -200,7 +201,7 @@ A leader exposes its reconfiguration plan ingress on a dedicated admin
 endpoint, separate from regular client traffic. On every message selection
 the host polls the admin ingress BEFORE the regular queue, so a plan never
 waits behind client traffic; the leader-side acceptance and execution rule
-the obligation serves is pinned in `docs/weighted-reconfiguration-solver.md`.
+the obligation serves is pinned in `docs/uvrr-protocols.md` (the solver chapter).
 
 ### Liveness: the resend, the heartbeat, and the retransmit
 
@@ -564,7 +565,7 @@ zero-net, mass-2 identity swap is refused, and a leader crash cannot compress it
 The leader evaluates any batch as a what-if on an immutable clone before proposing it,
 and the reducer partitions an operation stream into maximal legal era batches
 (`src/reconfiguration.rs`). The itemized rules are
-`docs/uvrr-reconfiguration-rules.md`.
+`docs/uvrr-protocols.md` (the reconfiguration-rules chapter).
 
 **Rationale.**
 
@@ -583,7 +584,7 @@ and the reducer partitions an operation stream into maximal legal era batches
 unit of per-node mass. Cluster state is an immutable snapshot plus a WAL of legal
 operations; there is no Crash-Recover by design, a dirty node reincarnates under a new
 identity and the leader drives the forced sequence
-(`docs/uvrr-reincarnation.md` §6).
+(`docs/uvrr-protocols.md`, the reincarnation chapter §6).
 
 ### Application boundary
 
@@ -690,7 +691,8 @@ current one, the amnesiac voter of §14.2 by another name.
 
 **Decision.** Identity monotonicity is asserted at the bump: the pair identity
 the bump returns is strictly beyond the one it supersedes in the lawful
-ordering of `docs/uvrr-boot-gate.md` §5, so a superseded pair never re-enters
+ordering of `docs/uvrr-io-obligations.md`, the boot-gate chapter §5, so a
+superseded pair never re-enters
 circulation. The surrounding bounded arithmetic establishes the impossibility;
 the `assert!` at the bump site is the tripwire, release included. The
 exhaustion refusal (the bump at the counter bound returning `None`) is the
