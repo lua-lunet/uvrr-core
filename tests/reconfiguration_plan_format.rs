@@ -407,16 +407,22 @@ mod jsonl {
 }
 
 /// The CLI surface: the real binary, driven exactly as an operator drives it.
-/// Without the `cli` feature there is no binary, and each test says so and
-/// passes vacuously.
+/// The `uvrr-reconfig` binary exists only under `--features sysadmin_tool`
+/// (the bin target's `required-features`), and this module is compile-gated
+/// on that same feature: with the feature off it compiles to nothing — no
+/// spawn paths, no environment lookups, no guards. The module's compilation,
+/// the binary's build and the binary-path environment variable are all keyed
+/// off the one flag, so they cannot disagree; the verification gate runs the
+/// combined lane, where the tests are real.
+#[cfg(feature = "sysadmin_tool")]
 mod cli {
     use super::*;
     use std::net::UdpSocket;
     use std::process::{Command, Stdio};
 
-    fn binary() -> Option<&'static str> {
-        option_env!("CARGO_BIN_EXE_uvrr-reconfig")
-    }
+    /// The binary under test, guaranteed present and built by cargo when this
+    /// module compiles: the feature that gates the module gates the bin target.
+    const BINARY: &str = env!("CARGO_BIN_EXE_uvrr-reconfig");
 
     /// A scratch directory for the script's files, unique to the test process.
     fn scratch(name: &str) -> std::path::PathBuf {
@@ -431,7 +437,6 @@ mod cli {
     /// `plan --current --replace` prints the paper's two-era plan exactly.
     #[test]
     fn cli_plan_replace_prints_the_two_era_plan() {
-        let Some(binary) = binary() else { return };
         let dir = scratch("plan");
         let members = dir.join("members.jsonl");
         std::fs::write(
@@ -439,7 +444,7 @@ mod cli {
             "{\"id\":65537,\"weight\":1}\n{\"id\":131073,\"weight\":1}\n{\"id\":196609,\"weight\":1}\n",
         )
         .expect("the member file is written");
-        let output = Command::new(binary)
+        let output = Command::new(BINARY)
             .args(["plan", "--current"])
             .arg(&members)
             .args([
@@ -465,10 +470,8 @@ mod cli {
 
     /// `plan --current --target` computes the general schedule, and its output
     /// is a plan the codec accepts.
-    #[cfg(feature = "serde")]
     #[test]
     fn cli_plan_target_prints_a_valid_plan() {
-        let Some(binary) = binary() else { return };
         let dir = scratch("target");
         let members = dir.join("members.jsonl");
         std::fs::write(
@@ -482,7 +485,7 @@ mod cli {
             "{\"id\":0,\"weight\":2}\n{\"id\":1,\"weight\":2}\n{\"id\":2,\"weight\":2}\n",
         )
         .expect("the target file is written");
-        let output = Command::new(binary)
+        let output = Command::new(BINARY)
             .args(["plan", "--current"])
             .arg(&members)
             .args(["--target"])
@@ -509,7 +512,6 @@ mod cli {
     /// verdict, and exits 0 on `accepted`, 1 on `rejected`.
     #[test]
     fn cli_apply_prints_the_verdict_and_sets_the_exit_code() {
-        let Some(binary) = binary() else { return };
         let dir = scratch("apply");
         let plan_path = dir.join("plan.jsonl");
         std::fs::write(&plan_path, THREE_NODE_PLAN).expect("the plan file is written");
@@ -529,7 +531,7 @@ mod cli {
                 "rejected: drifted",
             ),
         ] {
-            let child = Command::new(binary)
+            let child = Command::new(BINARY)
                 .args(["apply", "--plan"])
                 .arg(&plan_path)
                 .args(["--leader", &leader])

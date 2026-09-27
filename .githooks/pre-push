@@ -15,9 +15,11 @@ cargo clippy --all-targets --all-features -- -D warnings
 # because the library, not the harness, is the deliverable.
 cargo test --lib --bins --tests
 
-# The maelstrom lane: the real binary end to end, the gate a push must have
-# passed locally.
-cargo test --features maelstrom --lib --bins --tests
+# The slow lane: the full harness and operator set, the gate a push must
+# have passed locally. `maelstrom` drives the real maelstrom-lin-kv binary
+# end to end; `sysadmin_tool` builds and drives the `uvrr-reconfig` operator
+# binary through its CLI tests.
+cargo test --features "maelstrom sysadmin_tool" --lib --bins --tests
 
 cargo test --doc
 
