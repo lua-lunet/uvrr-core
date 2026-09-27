@@ -139,13 +139,6 @@ every assertion through the public interface, which is where the contract actual
 - Preserve user and concurrent-agent changes. Do not reset, restore, or overwrite broad
   paths to remove a narrow change; edit only the proved hunk after the owner is finished.
 
-## Subagent delegation
-
-- Agents SHOULD delegate major todo items to subagents per the
-  opencode-subagent-delegation skill, wherever doing so does not overwrite any
-  other instruction in this AGENTS.md or the user's prior statements of
-  preference.
-
 ## Branch discipline
 
 Agents are FORBIDDEN from creating branches or working on any branch other
@@ -186,6 +179,15 @@ applies to it with double force, the branch rule AND a cleanup rule.
 - Read-only subagents (investigation, audit, survey) MUST NOT be given a
   worktree unless the User said so; they read the existing checkout and the
   git history.
+
+## Subagent delegation
+
+- Agents SHOULD delegate major todo items to subagents per the
+  opencode-subagent-delegation skill, wherever doing so does not overwrite any
+  other instruction in this AGENTS.md or the user's prior statements of
+  preference.
+- The skill has you make a task doc in a sidecar sqlite3 db that can be appended to as the user steers the work. The tool issues an auto-increment ID the created record must name the branch to create if the not forbidden by branch discipline, and the gh issue number if any. The the todo tool should name the allocated id and any branch and a todo must be added to the end to confirm the branch has not been lost. 
+- The completed items MUST bit soft deleted in the sidecar db and you MUST from time to time look for items not soft deleted if there are many add to the todo list at the bottom to check each one in git history and or in code to mark as soft deleted else escallate to User to check if was either lost or deliberately abandoned. 
 
 ## Tool inventory and submodule policy
 

@@ -121,12 +121,12 @@ def build_deck(output_pptx_path):
     tb1_meta = s1.shapes.add_textbox(Inches(1.5), Inches(5.6), Inches(10.5), Inches(0.8))
     tf1_meta = tb1_meta.text_frame
     p1_m = tf1_meta.paragraphs[0]
-    p1_m.text = "Formal Target State  •  British English  •  Lean 4.33.1 & TigerBeetle Superblock Foundation\nReferences: docs/uvrr-boot-gate.md  |  research/trex-vrr-gossip-equivalence.md  |  paper.tex"
+    p1_m.text = "Formal Target State  •  British English  •  Lean 4.33.1 & TigerBeetle Superblock Foundation\nReferences: docs/uvrr-boot-gate.md  |  research/trex-uvrr-gossip-equivalence.md  |  paper.tex"
     p1_m.font.size = Pt(11)
     p1_m.font.color.rgb = RGBColor(148, 163, 184)
 
     s1.notes_slide.notes_text_frame.text = (
-        "SOURCE: docs/uvrr-boot-gate.md, research/trex-vrr-gossip-equivalence.md, formal/uvrr-lean/paper/paper.tex.\n"
+        "SOURCE: docs/uvrr-boot-gate.md, research/trex-uvrr-gossip-equivalence.md, formal/uvrr-lean/paper/paper.tex.\n"
         "REPORTING BASIS: Formal protocol specification and kernel-checked invariants.\n"
         "PRIMARY MESSAGE: Clean stops and crashes are fundamentally distinct lifecycle transitions. "
         "Resume names nothing in uVRR. This slide deck establishes the exact state transitions, "
@@ -624,7 +624,7 @@ def build_deck(output_pptx_path):
     # =========================================================================
     s7 = prs.slides.add_slide(blank_layout)
     add_header(s7, "Consensus Equivalence", "Reconciling the Split Mind: VRR-2012 Recovery vs uVRR Gossip")
-    add_footer(s7, 7, 9, "research/trex-vrr-gossip-equivalence.md §1-§3")
+    add_footer(s7, 7, 9, "research/trex-uvrr-gossip-equivalence.md §1-§3")
 
     # Banner callout with the formal theorem
     b7 = create_card(s7, Inches(0.8), Inches(1.45), Inches(11.733), Inches(0.85), bg_color=C_BLUE_LIGHT, border_color=C_BLUE)
@@ -675,7 +675,7 @@ def build_deck(output_pptx_path):
                 p.font.bold = True
 
     s7.notes_slide.notes_text_frame.text = (
-        "SOURCE: research/trex-vrr-gossip-equivalence.md §1-§3, formal/uvrr-lean/UVRR/Witness.lean.\n"
+        "SOURCE: research/trex-uvrr-gossip-equivalence.md §1-§3, formal/uvrr-lean/UVRR/Witness.lean.\n"
         "EQUIVALENCE PROOF: Theorems H1-H5 in UVRR/Witness.lean establish that the adopted era never exceeds committed era, "
         "and that the streamed prefix reconstructs the leader's committed history.\n"
         "PRIMARY MESSAGE: The perceived confusion between VRR-2012 recovery and Trex gossip is fully resolved. "
@@ -688,7 +688,7 @@ def build_deck(output_pptx_path):
     # =========================================================================
     s8 = prs.slides.add_slide(blank_layout)
     add_header(s8, "Safety Divergence", "Where Equivalence Parts: VRR-2012 Requires Memory; uVRR is Invariant")
-    add_footer(s8, 8, 9, "research/trex-vrr-gossip-equivalence.md §3-§4")
+    add_footer(s8, 8, 9, "research/trex-uvrr-gossip-equivalence.md §3-§4")
 
     # Left: Classic VRR-2012 Vulnerability
     create_card(s8, Inches(0.8), Inches(1.45), Inches(5.7), Inches(5.3), bg_color=C_CARD_BG, border_color=C_CARD_BORDER)
@@ -761,7 +761,7 @@ def build_deck(output_pptx_path):
     p.font.color.rgb = C_TEXT_DARK
 
     s8.notes_slide.notes_text_frame.text = (
-        "SOURCE: research/trex-vrr-gossip-equivalence.md §3-§4, Michael et al. UW-CSE-16-08-02.\n"
+        "SOURCE: research/trex-uvrr-gossip-equivalence.md §3-§4, Michael et al. UW-CSE-16-08-02.\n"
         "PRIMARY MESSAGE: The split mind resolved: it was never two competing algorithms, but one catch-up mechanism with two safety postures. "
         "VRR-2012 recovery requires memory; uVRR gossip requires none. The boot gate is the durable classifier that selects between them at runtime."
     )
