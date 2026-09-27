@@ -21,6 +21,10 @@ cargo test --features maelstrom --lib --bins --tests
 
 cargo test --doc
 
+# The Lean formalisation: the proofs are first-class deliverables and the
+# build is their gate. Warm runs are seconds on the developer's machine.
+(cd formal/uvrr-lean && lake build)
+
 # The record checks, exactly as the CI lanes run them: each must find nothing.
 if rg -n '#\[cfg\(test\)\]|mod tests' src; then
 	echo "pre-push: inline test modules found under src" >&2
