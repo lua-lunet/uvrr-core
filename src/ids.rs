@@ -1,13 +1,9 @@
 //! Identity: node identifiers, view identifiers, slots, operation identities.
 //!
 //! Spec §1.2 (view and configuration generation), §1.3 (slots and frontiers), and
-//! Amendment A1 / decision W1, which supersede the packed `view = (era << k) | index`
-//! encoding of §8.7.3.
+//! decision W1.
 //!
-//! A view is an explicit `ViewId { era: u32, view: u32 }`. Two independent fields
-//! cannot alias, so §8.7.3's checked-encoding requirement and its prohibition on
-//! wraparound are discharged by construction rather than by validation, and a host can
-//! route on era without decoding a protocol number.
+//! A view is an explicit `ViewId { era: u32, view: u32 }`.
 //!
 //! Identifiers are supplied by the host (decision W2): `OperationId` is 128
 //! host-chosen bits the core carries opaque. The core never mints one, so it needs
@@ -209,8 +205,8 @@ impl core::fmt::Display for NodeId {
 ///
 /// Spec §8.7.1: era `e` indexes the configuration sequence, and `config(e)` is the fold
 /// of committed reconfiguration operations through the operation establishing `e`. It is
-/// a separate field from [`View`] and is never packed into one (W1), so a host can
-/// dispatch overlap-mode traffic on era without decoding a protocol number.
+/// a separate field from [`View`], so a host can
+/// dispatch overlap-mode traffic on era.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -384,10 +380,7 @@ impl Slot {
 
 /// A view together with the configuration generation that authorises it.
 ///
-/// Spec §1.2, §8.7.3, Amendment A1, decision W1. Two independent `u32` fields replace
-/// the packed `view = (era << k) | index` encoding, so no genesis-time choice of `k`
-/// can bound era and index simultaneously, and no host has to decode a protocol number
-/// to make a transport decision.
+/// Spec §1.2, §8.7.3, decision W1.
 ///
 /// # Field order, and the ordering claim it rests on
 ///

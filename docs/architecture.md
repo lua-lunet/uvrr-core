@@ -277,29 +277,24 @@ Section references are to `docs/uvrr-durability-model.md`.
 
 #### W1, Explicit `ViewId { era: u32, view: u32 }`, 20-byte big-endian header
 
-**Context.** §8.7.3 packs the view number as `view = (era << k) | index`, with `k` low
-bits for the primary-selection index. It requires checked encoding and forbids
-wraparound.
+**Context.** Overlap mode (§8.7.7) has the primary address era `e` and era `e+1` in the
+same instant, so the era authorising a message is a transport-visible routing fact about
+that message, not an attribute of the sender's state.
 
-**Decision.** Superseded. A view is `ViewId { era: u32, view: u32 }`. The wire header is
-20 bytes big-endian: `(tag: u32, era: u32, view: u32, slot: u64)`. No bit packing appears
-anywhere in the wire format. Recorded as Amendment A1 at the end of
-`docs/uvrr-durability-model.md`; §8.7.3 is left unedited so its reasoning survives.
+**Decision.** A view is `ViewId { era: u32, view: u32 }`. The wire header is 20 bytes
+big-endian: `(tag: u32, era: u32, view: u32, slot: u64)`. No bit packing appears anywhere
+in the wire format.
 
 **Rationale.**
 
-1. Packing fixes `k` at genesis and bounds era and index *simultaneously*. A cluster that
-   outlives its `k` has no migration path that is not itself a reconfiguration protocol.
-2. Overlap-mode routing must be explicit. §8.7.3's own relation
-   `era(view) + 1 >= era(slot) >= era(view)` means a host dispatching by era would have to
-   decode a protocol number to make a transport decision. Era becomes a first-class header
-   field instead.
-3. Two independent `u32` fields cannot alias, so checked encoding and the wraparound
-   prohibition are discharged by construction rather than by validation.
+1. Overlap-mode routing must be explicit: era is a first-class header field, and a host
+   dispatches on it without inspecting protocol state.
+2. Two independent `u32` fields cannot alias, so each counter's exhaustion is detected
+   independently.
 
-**Consequence.** Four extra bytes per datagram versus a packed `u64`. Primary selection,
-legal view-number gaps, and the rule that a replica may propose a view only if its
-accepted history contains that era's establishing reconfiguration are all unchanged.
+**Consequence.** Primary selection is `config(era).order[view mod len(order)]`,
+view-number gaps are legal, and a replica may propose a view only if its accepted
+history contains that era's establishing reconfiguration.
 
 #### W2, No `uuid`; identifiers are host-supplied
 

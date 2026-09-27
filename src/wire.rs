@@ -895,8 +895,7 @@ impl Unpack for Tag {
 
 /// The 20-byte prefix of every protocol datagram.
 ///
-/// Encoded big-endian as `(tag: u32, era: u32, view: u32, slot: u64)`, decision W1 and
-/// Amendment A1, superseding §8.7.3's packed `view = (era << k) | index`.
+/// Encoded big-endian as `(tag: u32, era: u32, view: u32, slot: u64)`, decision W1.
 ///
 /// # Why era is a header field rather than derived
 ///
@@ -904,15 +903,7 @@ impl Unpack for Tag {
 /// instant**: step 2 keeps streaming client operations to `qII` under view `v` while
 /// step 4 solicits planned evidence from `qI - {L}` for a view `v'` whose era is `e+1`.
 /// The era authorizing a message is therefore a transport-visible routing fact about
-/// that message, not an attribute of the sender's current state, and it is not
-/// reconstructible from a view number without the configuration history that the packed
-/// encoding presumed. §8.7.3's own relation `era(view) <= era(slot) <= era(view) + 1`
-/// makes the point: under the packed scheme a host wanting to route or shed by era would
-/// have to decode a protocol number to make a transport decision.
-///
-/// Making era its own field also discharges §8.7.3's checked-encoding requirement and
-/// its prohibition on wraparound by construction: two independent `u32` fields cannot
-/// alias, so there is no packing to validate and no `k` fixed at genesis to outlive.
+/// that message, not an attribute of the sender's current state.
 ///
 /// # Why `slot` is in the header
 ///

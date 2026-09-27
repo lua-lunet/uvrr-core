@@ -1,7 +1,7 @@
 //! Contract for `vrr_core::ids` and the `Fault` enum of `vrr_core::invariant`.
 //!
-//! Spec §1.2 (primary succession), §1.3 (slots and frontiers), §8.7.3 with Amendment
-//! A1, and decisions W1, W2, S3, S4.
+//! Spec §1.2 (primary succession), §1.3 (slots and frontiers), §8.7.3, and
+//! decisions W1, W2, S3, S4.
 //!
 //! This file is a gate on identity and arithmetic, not on protocol behaviour. Four
 //! properties are asserted, and each of them is a property the rest of the crate is

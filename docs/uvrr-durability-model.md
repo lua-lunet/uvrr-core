@@ -458,21 +458,15 @@ The preconditions are:
 
 #### 8.7.3 View-number construction
 
-The view number encodes both configuration era and the primary-selection index:
+A view is an explicit pair of the configuration era and the primary-succession number: `ViewId { era: u32, view: u32 }`. The primary is:
 
 ```text
-view = (era << k) | index
-```
-
-The low `k` bits contain `index`; the remaining bits contain `era`. The primary is:
-
-```text
-primary(view) = config(era(view)).order[
-    index(view) mod length(config(era(view)).order)
+primary(view) = config(era).order[
+    view mod length(config(era).order)
 ]
 ```
 
-A replica may propose a view only if its accepted history contains the committed reconfiguration operation establishing that view's era. View-number gaps are legal. The implementation must use checked encoding and must reject an era or index which cannot be represented; wraparound is forbidden.
+A replica may propose a view only if its accepted history contains the committed reconfiguration operation establishing that view's era. View-number gaps are legal. Era and view are fixed-width counters: exhaustion stops the protocol, and wraparound is forbidden.
 
 Turner's relation between ballot era and slot era becomes the following VSR relation between the current view and the configuration authorizing an operation slot:
 
@@ -899,40 +893,3 @@ The pre-rewrite `Replica::new` created an empty normal replica in view zero; use
 9. Simon Birch, “One more frown please! (quorum overlaps)”, 2020.
 10. Allen Ling and Simon Birch, [unbounded-reconfiguration progress discussion](https://gist.github.com/allenling/99bf0e965fa7e0b208f461446fcc97e1), GitHub Gist, 2020.
 
-## Amendment A1, §8.7.3 view-number construction is superseded
-
-See `docs/architecture.md` decision **W1**.
-
-The packed encoding of §8.7.3:
-
-```text
-view = (era << k) | index
-```
-
-is **superseded**. The normative representation is an explicit pair:
-
-```rust
-struct ViewId { era: u32, view: u32 }
-```
-
-carried in a 20-byte big-endian header `(tag: u32, era: u32, view: u32, slot: u64)`.
-There is no bit packing anywhere in the wire format.
-
-Reasons, in order of weight:
-
-1. `k` is fixed at genesis. A packed field bounds era and primary-selection index
-   simultaneously and irrevocably; a cluster that outlives its `k` has no migration path
-   that is not itself a reconfiguration protocol.
-2. Routing by era must be explicit. Overlap mode (§8.7.3, `era(view) + 1 >= era(slot) >=
-   era(view)`) requires a host to dispatch on era. A packed view forces the host to decode
-   a protocol number to make a transport decision. Era becomes a first-class header field
-   instead.
-3. Checked encoding and the wraparound prohibition of §8.7.3 are discharged by
-   construction rather than by validation: two independent `u32` fields cannot alias.
-
-Everything else in §8.7.3 stands unchanged: primary selection remains
-`config(era).order[index mod len(order)]`, view-number gaps remain legal, and a replica
-may still propose a view only if its accepted history contains the committed
-reconfiguration operation establishing that view's era. The original reasoning in §8.7.3
-is retained above, unedited, because the packing analysis is the reason this amendment
-knows what it is giving up.
