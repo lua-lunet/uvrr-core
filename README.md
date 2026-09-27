@@ -91,7 +91,13 @@ uses classic Docker commands and requires neither BuildKit nor a volume mount.
 `cargo test` runs the protocol-path tests, targeted
 regressions, and a deterministic seeded multi-replica cluster harness (K=3..7,
 loss / reorder / duplication / partition / crash-restart, safety asserted
-after *every* single step), plus proptest companions.
+after *every* single step), plus proptest companions. The default feature set
+never boots the Maelstrom harness: the library, not the harness, is the
+deliverable. Run the full lane with the harness before any push:
+
+```shell
+cargo test --features maelstrom
+```
 
 In order to run the maelstrom targets you need to fetch maelstrom as a submodule with 
 

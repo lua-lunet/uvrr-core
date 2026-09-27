@@ -109,7 +109,9 @@ every assertion through the public interface, which is where the contract actual
 ## Inner loop and observability
 
 - Lint, typecheck, and test locally. CI is the slowest feedback available; it is a gate,
-  not a loop.
+  not a loop. Run `cargo test --features maelstrom` locally before any push: the
+  default-feature run never boots the Maelstrom harness, so a push without the
+  feature run has not exercised the adapter integration.
 - Logging, tracing, and diagnostics are first-class and are added with the code, not
   after it. A refusal that cannot show an operator why is a refusal nobody can act on.
 
