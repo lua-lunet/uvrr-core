@@ -160,7 +160,7 @@ You are FORBIDDEN from making a branch without adding a todo list item
 to the end of the todo to check branch ${name} has been merged. This is
 not negotiable. It is forbidden to do a branch then a todo, you must
 do a todo and then the branch. Laptops crash, plans pivot, and far too
-much work has been misplaced to the fury of the user.
+much work has been misplaced to the ire of the user. 
 
 ## Worktree discipline
 

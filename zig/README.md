@@ -19,7 +19,7 @@ through a C-ABI static library; `examples/uvrr-reincarnation/` is the consumer.
   grid, no client replies)
 - `vsr/superblock.zig` — slimmed VSRState, `uvrr_incarnation` +
   `uvrr_marker` fields (the four-state reincarnation marker of
-  `docs/vrr-durability-model.md` §5.1), checksum masked over the marker
+  `docs/uvrr-durability-model.md` §5.1), checksum masked over the marker
   byte, no async SuperBlockType (sync driver in `uvrr/store.zig`)
 - `trace/event.zig`, `trace.zig`, `queue.zig`, `time.zig` — dropped imports
   of the state machine / replica / fuzz closure that this tree doesn't vendor
@@ -33,7 +33,7 @@ through a C-ABI static library; `examples/uvrr-reincarnation/` is the consumer.
 - `uvrr/membership.zig` — ops WAL (add_one/remove_one/double/halve), one
   4 KiB checkpoint block, replay; modeled on TB's `src/aof.zig`
 - `uvrr/store.zig` — synchronous driver over the vendored IO + quorums; the
-  marker transition machine (§5.1 of `docs/vrr-durability-model.md`, the
+  marker transition machine (§5.1 of `docs/uvrr-durability-model.md`, the
   twin of `src/replica/reincarnation.rs`): `format` (pristine `stopped`
   copyset), `open` (the boot: 2-of-4 open quorum, higher-identity-wins
   inside the working quorum, the T2/T3 decision and its uniform 4x write,

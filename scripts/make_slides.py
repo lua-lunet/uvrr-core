@@ -608,7 +608,7 @@ def build_deck(output_pptx_path):
     p.space_after = Pt(8)
 
     p = tf6_r.add_paragraph()
-    p.text = "• Typestate Separation: Crate owns the state transition algebra (vrr::lifecycle); the host owns the physical I/O writes."
+    p.text = "• Typestate Separation: Crate owns the state transition algebra (uvrr::lifecycle); the host owns the physical I/O writes."
     p.font.size = Pt(12)
     p.font.color.rgb = C_TEXT_DARK
 
@@ -799,7 +799,7 @@ def build_deck(output_pptx_path):
     tf9_2 = tb9_2.text_frame
     tf9_2.word_wrap = True
     p = tf9_2.paragraphs[0]
-    p.text = "2. Boot Gate Driver (vrr::lifecycle)"
+    p.text = "2. Boot Gate Driver (uvrr::lifecycle)"
     p.font.size = Pt(14)
     p.font.bold = True
     p.font.color.rgb = C_BLUE
@@ -815,7 +815,7 @@ def build_deck(output_pptx_path):
     tf9_3 = tb9_3.text_frame
     tf9_3.word_wrap = True
     p = tf9_3.paragraphs[0]
-    p.text = "3. Sans-I/O Consensus Core (vrr::replica)"
+    p.text = "3. Sans-I/O Consensus Core (uvrr::replica)"
     p.font.size = Pt(14)
     p.font.bold = True
     p.font.color.rgb = C_GREEN

@@ -12,7 +12,7 @@ quoted number without a completed row is a fabrication.
 |---|---|
 | rig | loopback / local VM / cloud (region, zone, instance class) |
 | kernel + runtime versions | `XXX` |
-| build | commit SHA of vrr-core, lunet-locks, harness; feature flags |
+| build | commit SHA of uvrr-core, lunet-locks, harness; feature flags |
 | clock discipline | monotonic tick source; wall-clock regression clamp on/off |
 | disk class | device, mount options, `fsync` behaviour as measured |
 

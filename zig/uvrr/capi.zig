@@ -48,7 +48,7 @@ pub export fn uvrr_format(
 }
 
 /// Open an existing data file: THE BOOT (§5.1 of
-/// `docs/vrr-durability-model.md`). The working quorum at the open
+/// `docs/uvrr-durability-model.md`). The working quorum at the open
 /// threshold (2-of-4) resolves the identity; 2-of-4 `stopped` is the
 /// clean stop and continues under the same identity, writing `restarting`
 /// 4x; anything else bumps the identity and writes `joining` 4x. Returns
