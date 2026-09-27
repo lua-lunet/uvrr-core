@@ -114,6 +114,17 @@ every assertion through the public interface, which is where the contract actual
   feature run has not exercised the adapter integration.
 - Logging, tracing, and diagnostics are first-class and are added with the code, not
   after it. A refusal that cannot show an operator why is a refusal nobody can act on.
+- The Rust and Cargo arbitrate rule: Rust is not used as a fashion statement; it is
+  used so the build system and the compiler are a proof of correctness, exactly as
+  Lean 4 and exhaustive property testing and Maelstrom are. LLMs have a nasty habit
+  of trying to think like the compiler and working out the consequences of a
+  restructure in order to one-shot the full set of edits; that is a fool's errand.
+  Humans make the breaking change, run the tooling, and fix in a loop, squeezing
+  the toothpaste tube at the end and pushing out bug-free code. As long as code is
+  committed or added to the index, a shoot-first-question-later stance is safe:
+  cut deep and hard, run the tooling, chase the fixes until it is good, then add
+  the working change. Doing otherwise looks catastrophically ignorant of basic
+  programming skill.
 
 ## Commit discipline
 
