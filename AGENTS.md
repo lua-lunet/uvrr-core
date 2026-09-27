@@ -208,51 +208,12 @@ macOS, elaboration is 0.78 s per file bare, 1.47 s with targeted tactic
 imports, and ~4.3 s warm / 24 s cold with a full import; the package cache is
 7.5 GB. The paper's build (tectonic) is unchanged.
 
-### Tools that contributed to the paper
-
-- **Lean 4.33.1**, kernel-checked proofs. The formalization's sole
-  verification tool; Mathlib supplies tactic modules as build-time tooling,
-  imported targeted per file.
-- **TLC 2.19**, model-checked the era model and its mutations. Ran from a
-  standalone jar, not a submodule. Evidence in `formal/uvrr-lean/evidence/tlc/`;
-  the delayed-fence counterexample evidence was removed with the classic
-  crash-recover attempt it witnessed (historical copies remain under
-  `research/uvrr-audit/`).
-- **Leanstral** (Mistral), LLM Lean proof generator. Rung 26 records an accepted
-  composition proof supplied with library signatures and checked by Lean.
-  Failed attempts and externally reported repair trials remain distinguished
-  from kernel-checked results.
-- **Showboat**, executable evidence packaging. Cited in the paper bibliography.
-- **Tectonic**, LaTeX build tool for `paper.tex` (via `paper/build.sh`).
-
-### Tools surveyed and abandoned (not submodules)
-
-The following were cloned during the research tool survey (items 12, 14a, 14b)
-but did not contribute to the paper or formalization. Their experiment records
-are committed under `research/`. Do not re-add them as submodules.
-
-- **Veil**, never tire-kicked. Pins v4.32.0 + pulls Mathlib. The formalization
-  uses plain Lean by design. Record: `research/tool-kick-tires.md`,
-  `research/outcomes-paper.md`.
-- **LeanLTL**, never exercised beyond checkout. Past-time operators remain
-  future work. Record: `research/outcomes-paper.md`.
-- **lean-auto / Duper**, exercised (2/3 theorems solved, T2 commutativity
-  timed out at 500s). Not a dependency of the formalization. Record:
-  `research/lean-solvers-cli-lean-auto.md`.
-- **Aesop**, exercised (4/4 propositional theorems solved). Not a dependency.
-  Record: `research/lean-solvers-cli-omega-aesop.md`.
-- **omega**, built into Lean, zero install. Not a dependency. Record: same as
-  Aesop.
-
 ### Submodules
 
-- `maelstrom/`, Rust Maelstrom test harness. Retained. Unrelated to the paper.
+- `maelstrom/`, Rust Maelstrom test harness. Retained. Unrelated to the paper. To be run on push as it is with IO and we are SANS-IO so its a feature that does as nemesis test so a search for bugs in both the core lib and its own example host app `maelstrom-lin-kv`
 - No `tools/` submodules. The four exploratory tool submodules (tla2tools, veil,
   LeanLTL, lean-auto) were removed after the survey concluded.
 
-## Item numbers are session-local
+## Work item details are developer session-local
 
-Work-item numbers (`itemNN`) live in the todo and the gitignored
-`.tmp/` spec filename only. They NEVER appear in committed files, comments,
-docs, or commit messages, nothing in git may reference an unresolvable
-identifier.
+Work-item numbers (e.g. `itemNN` or an equivalent) live in the todo any other work list that is not in the code (e.g. "opencode-subagent-delegation" sqlite3 deb) never every put anything that is gh issue, or toto list, or project planning, as a string, in any file, that is committed into git.
