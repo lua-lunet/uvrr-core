@@ -832,6 +832,10 @@ impl Harness {
             })
             .collect();
         let mut nodes = Vec::with_capacity(n);
+        // FIXME(#115): the root name is unique only within a process, yet
+        // finished processes leave their roots behind in the shared temp
+        // directory, so a later process reusing the id boots over markers
+        // it never wrote and the first `boot` misclassifies.
         let gate_root = std::env::temp_dir().join(format!(
             "uvrr-harness-{}-{}",
             std::process::id(),

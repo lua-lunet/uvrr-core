@@ -47,6 +47,7 @@ fn plan_replacement(start: &Configuration, old: NodeId, new: NodeId, live: &[Nod
 /// JSONL schema of `docs/weighted-reconfiguration-solver.md`. The ids are the
 /// lawful packed pairs: systems 1, 2, 3 at crash counter 1, and the
 /// reincarnated identity is system 4's first life.
+#[cfg(any(feature = "serde", feature = "sysadmin_tool"))]
 const THREE_NODE_PLAN: &str = concat!(
     "{\"kind\":\"plan\",\"version\":1,\"initial\":[{\"id\":65537,\"weight\":1},",
     "{\"id\":131073,\"weight\":1},{\"id\":196609,\"weight\":1}],",
@@ -433,7 +434,6 @@ mod sysadmin_tool_lane {
     /// `plan --current --replace` prints the paper's two-era plan exactly.
     #[test]
     fn cli_plan_replace_prints_the_two_era_plan() {
-        let binary = BINARY;
         let dir = scratch("plan");
         let members = dir.join("members.jsonl");
         std::fs::write(
@@ -441,7 +441,7 @@ mod sysadmin_tool_lane {
             "{\"id\":65537,\"weight\":1}\n{\"id\":131073,\"weight\":1}\n{\"id\":196609,\"weight\":1}\n",
         )
         .expect("the member file is written");
-        let output = Command::new(binary)
+        let output = Command::new(BINARY)
             .args(["plan", "--current"])
             .arg(&members)
             .args([
@@ -467,10 +467,8 @@ mod sysadmin_tool_lane {
 
     /// `plan --current --target` computes the general schedule, and its output
     /// is a plan the codec accepts.
-    #[cfg(feature = "serde")]
     #[test]
     fn cli_plan_target_prints_a_valid_plan() {
-        let binary = BINARY;
         let dir = scratch("target");
         let members = dir.join("members.jsonl");
         std::fs::write(
@@ -484,7 +482,7 @@ mod sysadmin_tool_lane {
             "{\"id\":0,\"weight\":2}\n{\"id\":1,\"weight\":2}\n{\"id\":2,\"weight\":2}\n",
         )
         .expect("the target file is written");
-        let output = Command::new(binary)
+        let output = Command::new(BINARY)
             .args(["plan", "--current"])
             .arg(&members)
             .args(["--target"])
@@ -511,7 +509,6 @@ mod sysadmin_tool_lane {
     /// verdict, and exits 0 on `accepted`, 1 on `rejected`.
     #[test]
     fn cli_apply_prints_the_verdict_and_sets_the_exit_code() {
-        let binary = BINARY;
         let dir = scratch("apply");
         let plan_path = dir.join("plan.jsonl");
         std::fs::write(&plan_path, THREE_NODE_PLAN).expect("the plan file is written");
@@ -531,7 +528,7 @@ mod sysadmin_tool_lane {
                 "rejected: drifted",
             ),
         ] {
-            let child = Command::new(binary)
+            let child = Command::new(BINARY)
                 .args(["apply", "--plan"])
                 .arg(&plan_path)
                 .args(["--leader", &leader])
