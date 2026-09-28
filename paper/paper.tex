@@ -20,14 +20,6 @@
 \newcommand{\QI}{\mathcal{Q}^{\mathrm I}}
 \newcommand{\QII}{\mathcal{Q}^{\mathrm {II}}}
 \newcommand{\code}[1]{\texttt{#1}}
-% Double-blind experiment warning: repeated verbatim at the top and bottom of
-% the experiments section.
-% Reincarnation weight-transition table. Rows are data: \uwrweightrow{era
-% label}{wA}{wB}{wC}{wD} emits one configuration row inside \uwrweightstable,
-% so further eras or scales are added as rows, not as hand-layout. A weight
-% cell '-' typesets as an en dash --- the identity is not a member of the
-% configuration --- while a numeric cell is a weight, '0' being a standby
-% member; the two stay visually distinct by construction of \uwrweightcell.
 \newcommand{\uwrweightcell}[1]{\ifx-#1\textendash\else#1\fi}
 \newcommand{\uwrweightrow}[5]{#1 & \uwrweightcell{#2} & \uwrweightcell{#3} & \uwrweightcell{#4} & \uwrweightcell{#5} \\}
 \newcommand{\uwrweightstable}[1]{%
@@ -38,10 +30,6 @@
   #1
   \bottomrule
   \end{tabular}}
-\newcommand{\expwarning}{%
-\noindent\fcolorbox{black}{yellow!14}{\parbox{\dimexpr\columnwidth-2\fboxsep-2\fboxrule\relax}{\small
-\textbf{WARNING: THIS WORK HAS NOT BEEN DONE.} The experiments below are
-designs; all numbers and charts are placeholders (marked ``dummy'').}}\par}
 \title{Diskless Viewstamped Replication\\with Unbounded Crash-Stop Reincarnation}
 \author{Simon Massey\thanks{Author draft. Correspondence: simon.massey@stenographer.cloud.}}
 \begin{document}
@@ -558,7 +546,6 @@ It is a working implementation under active hardening and testing, not a
 finished demonstration of the reincarnation protocol.
 
 \section{Experimental results: designs, not measurements}\label{sec:experiments}
-\expwarning
 
 The claim under test is diskless low latency: rejoin through reincarnation
 is faster than paying a forced disk flush at the reincarnation boundary. The

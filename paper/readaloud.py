@@ -415,15 +415,6 @@ class Conv:
         self.buf.append("§")
         return k
 
-    def cmd_expwarning(self, s, k, i):
-        self._need_block("expwarning", s, i)
-        self._flush()
-        self.blocks.append(
-            "> **WARNING: THIS WORK HAS NOT BEEN DONE.** The experiments "
-            "below are designs; all numbers and charts are placeholders "
-            "(marked “dummy”).")
-        return k
-
     # --- no-op commands ---------------------------------------------------
     def _noop(self, s, k, i):
         return k
