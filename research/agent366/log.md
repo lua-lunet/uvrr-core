@@ -264,3 +264,23 @@ files, incl. newly-fetched nopaxos + RFC 9000/9114); scripts/check-citations.py
 SOURCES updated; fresh live run over all 41 uses (wifi dropped mid-run;
 resumed with --skip_cached); full diagnosis in
 research/literature/citation-check/REPORT.md.
+
+## 2026-09-28 — entry 11: Chimera harvested, graph extended
+
+User spotted Chimera (arXiv 2606.09101, Liu et al., 2026) — protocol-aware
+recovery for confidential BFT consensus. Harvested:
+papers/chimera-2026-liu.pdf + md/chimera-2026-liu.md.
+
+Relevance to uVRR: Chimera's first systematic taxonomy of rollback-resilient
+recovery for confidential BFT names Diskless Crash Recovery as one of its
+four categories — the crash-recovery territory uVRR repairs. It model-checks
+with Maude/LTL. It cites the diskless TR [44] and VRR [45] directly, Raft
+[11], ZooKeeper [21]; it does NOT cite PAR (notable).
+
+Graph updated: +1 category (TEE confidential consensus), +12 nodes (Chimera
+with verbatim abstract; Paxos Made Live; LSKV, SecureKeeper, CCF, Engraft,
+ROTE, Nimble, Achilles, DAMYSUS, Narrator, JPaxos with one-line
+characterisations sourced from Chimera's own related-work text where no
+verbatim abstract was fetched), +15 edges ([n] = Chimera's reference
+numbers). Now 46 nodes / 60 edges, verified no dangling links; Chimera
+panel checked in Chrome.
