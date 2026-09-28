@@ -13,7 +13,7 @@ renumbered, so a citation once written stays true.
 ## [VR-2012]
 
 B. Liskov, J. Cowling. *Viewstamped Replication Revisited*. 2012.
-<https://pmg.csail.mit.edu/papers/vr-revisited.pdf>
+<https://hdl.handle.net/1721.1/71763>
 
 ## [PMS-2001]
 

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>agent366 — citation graph: strong consistency &amp; Homa</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  html, body { margin: 0; height: 100%; font-family: -apple-system, Helvetica, serif; background: #fff; }
+  #chart { position: absolute; inset: 0; }
+  #panel {
+    position: absolute; top: 12px; right: 12px; width: 380px; max-height: 80%;
+    overflow-y: auto; background: #fff; border: 1px solid #999; padding: 12px 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.2); display: none; font-size: 13px; line-height: 1.45;
+  }
+  #panel h2 { font-size: 15px; margin: 0 0 4px; }
+  #panel .meta { color: #555; margin: 0 0 8px; }
+  #panel .abs { color: #222; margin: 0 0 8px; }
+  #panel a { word-break: break-all; }
+  #panel .close { float: right; cursor: pointer; font-weight: bold; }
+  #legend-note { position: absolute; bottom: 8px; left: 12px; color: #666; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="chart"></div>
+<div id="panel"><span class="close" onclick="panel.style.display='none'">✕</span>
+  <h2 id="p-title"></h2>
+  <p class="meta" id="p-meta"></p>
+  <p class="abs" id="p-abs"></p>
+  <p><a id="p-url" target="_blank" rel="noopener"></a></p>
+  <p id="p-tags"></p>
+  <p id="p-also"></p>
+</div>
+<div id="legend-note">Click a node for title, authors, venue, abstract and link. Drag nodes to rearrange. Grey nodes: self-published blog — the citation-alignment question.</div>
+<script src="data.js"></script>
+<script>
+const chart = echarts.init(document.getElementById("chart"));
+const nodes = NODES.map(n => ({
+  id: n.id,
+  name: n.name,
+  category: Object.keys(CATEGORIES).indexOf(n.cat),
+  symbolSize: n.cat === "uvrr" || n.cat === "raftLine" || n.cat === "homa" ? 34 : 24,
+  label: { show: true, fontSize: 10, position: "right" },
+  value: n.id
+}));
+const links = EDGES.map(([s, t, note]) => ({
+  source: s, target: t, tooltip: { formatter: note }, lineStyle: { curveness: 0.15 }
+}));
+chart.setOption({
+  tooltip: { show: true, confine: true },
+  legend: [{ data: Object.values(CATEGORIES).map(c => c.name),
+             textStyle: { fontSize: 11 } }],
+  series: [{
+    type: "graph", layout: "force", roam: true, draggable: true,
+    force: { repulsion: 260, edgeLength: 90, gravity: 0.08 },
+    label: { show: true, formatter: p => NODES.find(n => n.id === p.value).name },
+    categories: Object.values(CATEGORIES).map(c => ({ name: c.name, itemStyle: { color: c.color } })),
+    data: nodes, links
+  }]
+});
+const panel = document.getElementById("panel");
+chart.on("click", p => {
+  const n = NODES.find(x => x.id === p.value);
+  if (!n) return;
+  document.getElementById("p-title").textContent = n.name;
+  document.getElementById("p-meta").textContent = n.authors + " — " + n.venue;
+  document.getElementById("p-abs").textContent = n.abstract;
+  const a = document.getElementById("p-url");
+  a.href = n.url; a.textContent = n.url;
+  const tags = document.getElementById("p-tags");
+  tags.innerHTML = n.tags ? n.tags.map(t =>
+    `<span style="display:inline-block;background:#eee;border-radius:3px;padding:1px 6px;margin:1px;font-size:11px">${t}</span>`).join("") : "";
+  const also = document.getElementById("p-also");
+  also.innerHTML = n.seeAlso && n.seeAlso.length
+    ? "<b>See also:</b> " + n.seeAlso.map(id => {
+        const o = NODES.find(x => x.id === id);
+        return o ? `<a href="javascript:void 0" onclick="focusNode('${id}')">${o.name}</a>` : id;
+      }).join(", ") : "";
+  panel.style.display = "block";
+});
+function focusNode(id) {
+  const n = NODES.find(x => x.id === id);
+  if (!n) return;
+  document.getElementById("p-title").textContent = n.name;
+  document.getElementById("p-meta").textContent = n.authors + " — " + n.venue;
+  document.getElementById("p-abs").textContent = n.abstract;
+  const a = document.getElementById("p-url");
+  a.href = n.url; a.textContent = n.url;
+  const tags = document.getElementById("p-tags");
+  tags.innerHTML = n.tags ? n.tags.map(t =>
+    `<span style="display:inline-block;background:#eee;border-radius:3px;padding:1px 6px;margin:1px;font-size:11px">${t}</span>`).join("") : "";
+  const also = document.getElementById("p-also");
+  also.innerHTML = n.seeAlso && n.seeAlso.length
+    ? "<b>See also:</b> " + n.seeAlso.map(i => {
+        const o = NODES.find(x => x.id === i);
+        return o ? `<a href="javascript:void 0" onclick="focusNode('${i}')">${o.name}</a>` : i;
+      }).join(", ") : "";
+  panel.style.display = "block";
+  chart.dispatchAction({ type: "highlight", seriesIndex: 0, name: n.name });
+}
+window.addEventListener("resize", () => chart.resize());
+</script>
+</body>
+</html>

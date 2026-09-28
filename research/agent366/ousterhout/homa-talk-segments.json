@@ -1,0 +1,2422 @@
+[
+ {
+  "start": 0.0,
+  "end": 12.48,
+  "text": " ."
+ },
+ {
+  "start": 12.48,
+  "end": 14.36,
+  "text": " Please welcome to the stage,"
+ },
+ {
+  "start": 14.36,
+  "end": 19.76,
+  "text": " the Professor Emeritus at Stanford University, John Oosterhout."
+ },
+ {
+  "start": 30.0,
+  "end": 38.44,
+  "text": " Good morning."
+ },
+ {
+  "start": 38.44,
+  "end": 42.84,
+  "text": " It's really great to be here to talk about the network side of AI applications,"
+ },
+ {
+  "start": 42.84,
+  "end": 46.42,
+  "text": " and in particular, to make the case that latency matters,"
+ },
+ {
+  "start": 46.42,
+  "end": 48.56,
+  "text": " and it's probably going to be mattering more in the future."
+ },
+ {
+  "start": 48.56,
+  "end": 51.32,
+  "text": " But I just want to say, this talk is unusual for me."
+ },
+ {
+  "start": 51.32,
+  "end": 55.44,
+  "text": " I've never before given a talk where there are fog generators in the auditorium."
+ },
+ {
+  "start": 55.44,
+  "end": 59.32,
+  "text": " Just a really San Francisco experience, I guess."
+ },
+ {
+  "start": 60.0,
+  "end": 64.44,
+  "text": " So it's well known that AI workloads depend on"
+ },
+ {
+  "start": 64.44,
+  "end": 67.68,
+  "text": " really great networking performance in order to achieve their own performance."
+ },
+ {
+  "start": 67.68,
+  "end": 70.88,
+  "text": " And of course, that's because the workloads are so large that they have to be"
+ },
+ {
+  "start": 70.88,
+  "end": 74.22,
+  "text": " distributed across machines and then you have to communicate between the machines."
+ },
+ {
+  "start": 75.28,
+  "end": 79.78,
+  "text": " But what I want to talk about today is that it seems that those workloads are changing."
+ },
+ {
+  "start": 79.78,
+  "end": 82.82,
+  "text": " And so I hope to do three things over the next 15 or 20 minutes."
+ },
+ {
+  "start": 82.82,
+  "end": 86.5,
+  "text": " First, to convince you that in fact the workloads are changing."
+ },
+ {
+  "start": 86.5,
+  "end": 89.9,
+  "text": " And that whereas the workloads used to be completely dominated by"
+ },
+ {
+  "start": 89.9,
+  "end": 94.28,
+  "text": " large transfers where throughput is the key metric that matters,"
+ },
+ {
+  "start": 94.28,
+  "end": 99.38,
+  "text": " that we're seeing more and more smaller transfers where the latency is crucial."
+ },
+ {
+  "start": 100.68,
+  "end": 105.06,
+  "text": " The second thing I hope to do is to convince you that legacy protocols like TCP and"
+ },
+ {
+  "start": 105.06,
+  "end": 107.84,
+  "text": " RDMA are poorly suited to this environment."
+ },
+ {
+  "start": 107.84,
+  "end": 110.04,
+  "text": " They weren't designed for this environment."
+ },
+ {
+  "start": 110.04,
+  "end": 113.54,
+  "text": " And unfortunately, they suffer from very high tail latency"
+ },
+ {
+  "start": 113.54,
+  "end": 116.04,
+  "text": " when you mix small messages with large ones."
+ },
+ {
+  "start": 116.04,
+  "end": 117.88,
+  "text": " I'll talk a little bit about why that's the case."
+ },
+ {
+  "start": 119.9,
+  "end": 123.38,
+  "text": " I'd like to introduce HOMA, which is a new protocol we've developed at Stanford"
+ },
+ {
+  "start": 123.38,
+  "end": 129.08,
+  "text": " that actually was designed in a clean slate redesign to handle data center workloads like these."
+ },
+ {
+  "start": 129.08,
+  "end": 131.7,
+  "text": " And in fact, it does quite well on those workloads and"
+ },
+ {
+  "start": 131.7,
+  "end": 134.42,
+  "text": " can reduce tail latency by an order of magnitude or more."
+ },
+ {
+  "start": 134.42,
+  "end": 137.02,
+  "text": " So I'll tell you a little bit about HOMA."
+ },
+ {
+  "start": 137.02,
+  "end": 137.68,
+  "text": " So let's dive in."
+ },
+ {
+  "start": 138.78,
+  "end": 140.46,
+  "text": " First, workloads."
+ },
+ {
+  "start": 140.46,
+  "end": 146.06,
+  "text": " Historically, AI workloads have consisted of enormous transfers between machines."
+ },
+ {
+  "start": 146.06,
+  "end": 147.6,
+  "text": " And that's all that really mattered."
+ },
+ {
+  "start": 147.6,
+  "end": 150.62,
+  "text": " Gigabytes of data for things like weight gradients and so on."
+ },
+ {
+  "start": 152.56,
+  "end": 155.78,
+  "text": " In these workloads, what you really care about is throughput."
+ },
+ {
+  "start": 155.78,
+  "end": 159.58,
+  "text": " How many gigabits per second you can pump through the pipes."
+ },
+ {
+  "start": 159.58,
+  "end": 164.14,
+  "text": " And these are relatively easy workloads for networks,"
+ },
+ {
+  "start": 164.14,
+  "end": 167.78,
+  "text": " because if it takes a while to set up the connection and start the transfer,"
+ },
+ {
+  "start": 167.78,
+  "end": 168.92,
+  "text": " it doesn't matter."
+ },
+ {
+  "start": 168.92,
+  "end": 172.7,
+  "text": " The transfers go on for so long that all that really matters is the throughput."
+ },
+ {
+  "start": 173.88,
+  "end": 177.28,
+  "text": " And so in these environments, TCP and RDMA perform pretty well."
+ },
+ {
+  "start": 177.28,
+  "end": 175.78,
+  "text": " By the way,"
+ },
+ {
+  "start": 175.78,
+  "end": 176.28,
+  "text": " I'm going to show you a little bit of a picture of the network."
+ },
+ {
+  "start": 176.28,
+  "end": 177.32,
+  "text": " And you can see that the network is working pretty well."
+ },
+ {
+  "start": 177.32,
+  "end": 181.04,
+  "text": " By the way, when I say RDMA, what I really mean is rocky,"
+ },
+ {
+  "start": 181.04,
+  "end": 185.66,
+  "text": " RDMA over converged Ethernet, which is the underlying transport that's used by"
+ },
+ {
+  "start": 185.66,
+  "end": 187.16,
+  "text": " RDMA for most purposes today."
+ },
+ {
+  "start": 188.24,
+  "end": 192.9,
+  "text": " So anyhow, the old workloads, big transfers, throughput matters."
+ },
+ {
+  "start": 192.9,
+  "end": 194.46,
+  "text": " The legacy protocols work pretty well."
+ },
+ {
+  "start": 196.52,
+  "end": 199.32,
+  "text": " However, it appears that the workloads are changing."
+ },
+ {
+  "start": 199.32,
+  "end": 202.64,
+  "text": " They're becoming more granular with smaller chunks of computation and"
+ },
+ {
+  "start": 202.64,
+  "end": 181.24,
+  "text": " smaller exchanges of data, and this seems to be particularly"
+ },
+ {
+  "start": 181.24,
+  "end": 201.16,
+  "text": " important for the"
+ },
+ {
+  "start": 201.16,
+  "end": 202.2,
+  "text": "!"
+ },
+ {
+  "start": 176.28,
+  "end": 202.7,
+  "text": "!"
+ },
+ {
+  "start": 202.7,
+  "end": 203.3,
+  "text": " !"
+ },
+ {
+  "start": 203.3,
+  "end": 203.8,
+  "text": " !"
+ },
+ {
+  "start": 203.8,
+  "end": 204.3,
+  "text": " !"
+ },
+ {
+  "start": 204.3,
+  "end": 204.8,
+  "text": " !"
+ },
+ {
+  "start": 204.8,
+  "end": 205.3,
+  "text": " !"
+ },
+ {
+  "start": 205.3,
+  "end": 205.8,
+  "text": " !"
+ },
+ {
+  "start": 205.8,
+  "end": 206.42,
+  "text": " !"
+ },
+ {
+  "start": 206.42,
+  "end": 206.88,
+  "text": " !"
+ },
+ {
+  "start": 206.88,
+  "end": 207.38,
+  "text": " !"
+ },
+ {
+  "start": 207.38,
+  "end": 207.88,
+  "text": " !"
+ },
+ {
+  "start": 207.88,
+  "end": 208.38,
+  "text": " !"
+ },
+ {
+  "start": 208.38,
+  "end": 208.88,
+  "text": " !"
+ },
+ {
+  "start": 208.88,
+  "end": 209.38,
+  "text": " !"
+ },
+ {
+  "start": 209.38,
+  "end": 209.88,
+  "text": " !"
+ },
+ {
+  "start": 209.88,
+  "end": 210.38,
+  "text": " !"
+ },
+ {
+  "start": 210.38,
+  "end": 210.82,
+  "text": " !"
+ },
+ {
+  "start": 210.82,
+  "end": 211.32,
+  "text": " !"
+ },
+ {
+  "start": 211.32,
+  "end": 211.82,
+  "text": " !"
+ },
+ {
+  "start": 211.82,
+  "end": 212.32,
+  "text": " !"
+ },
+ {
+  "start": 212.32,
+  "end": 212.82,
+  "text": " !"
+ },
+ {
+  "start": 212.82,
+  "end": 213.28,
+  "text": " !"
+ },
+ {
+  "start": 213.28,
+  "end": 213.78,
+  "text": " !"
+ },
+ {
+  "start": 213.78,
+  "end": 214.28,
+  "text": " !"
+ },
+ {
+  "start": 214.28,
+  "end": 214.76,
+  "text": " !"
+ },
+ {
+  "start": 214.76,
+  "end": 215.26,
+  "text": " !"
+ },
+ {
+  "start": 215.26,
+  "end": 215.76,
+  "text": " !"
+ },
+ {
+  "start": 215.76,
+  "end": 216.26,
+  "text": " !"
+ },
+ {
+  "start": 216.26,
+  "end": 216.76,
+  "text": " !"
+ },
+ {
+  "start": 216.76,
+  "end": 217.26,
+  "text": " !"
+ },
+ {
+  "start": 217.26,
+  "end": 217.76,
+  "text": " !"
+ },
+ {
+  "start": 217.76,
+  "end": 218.26,
+  "text": " !"
+ },
+ {
+  "start": 218.26,
+  "end": 218.68,
+  "text": " !"
+ },
+ {
+  "start": 218.68,
+  "end": 219.18,
+  "text": " !"
+ },
+ {
+  "start": 219.18,
+  "end": 219.68,
+  "text": " !"
+ },
+ {
+  "start": 219.68,
+  "end": 220.18,
+  "text": " !"
+ },
+ {
+  "start": 220.18,
+  "end": 220.56,
+  "text": " !"
+ },
+ {
+  "start": 220.56,
+  "end": 220.9,
+  "text": " !"
+ },
+ {
+  "start": 220.9,
+  "end": 221.34,
+  "text": " !"
+ },
+ {
+  "start": 221.34,
+  "end": 221.6,
+  "text": " !"
+ },
+ {
+  "start": 221.6,
+  "end": 221.9,
+  "text": " !"
+ },
+ {
+  "start": 221.9,
+  "end": 222.26,
+  "text": " !"
+ },
+ {
+  "start": 222.26,
+  "end": 222.44,
+  "text": " !"
+ },
+ {
+  "start": 222.44,
+  "end": 222.74,
+  "text": " !"
+ },
+ {
+  "start": 222.74,
+  "end": 222.94,
+  "text": " !"
+ },
+ {
+  "start": 222.94,
+  "end": 223.24,
+  "text": " !"
+ },
+ {
+  "start": 223.24,
+  "end": 223.44,
+  "text": " !"
+ },
+ {
+  "start": 223.44,
+  "end": 223.62,
+  "text": " !"
+ },
+ {
+  "start": 223.62,
+  "end": 223.72,
+  "text": " !"
+ },
+ {
+  "start": 223.72,
+  "end": 224.02,
+  "text": " !"
+ },
+ {
+  "start": 224.02,
+  "end": 224.18,
+  "text": " !"
+ },
+ {
+  "start": 224.18,
+  "end": 224.4,
+  "text": " !"
+ },
+ {
+  "start": 224.4,
+  "end": 224.52,
+  "text": " !"
+ },
+ {
+  "start": 224.52,
+  "end": 224.64,
+  "text": " !"
+ },
+ {
+  "start": 224.64,
+  "end": 224.78,
+  "text": " !"
+ },
+ {
+  "start": 224.78,
+  "end": 224.94,
+  "text": " !"
+ },
+ {
+  "start": 224.94,
+  "end": 225.02,
+  "text": " !"
+ },
+ {
+  "start": 225.02,
+  "end": 225.2,
+  "text": " !"
+ },
+ {
+  "start": 225.2,
+  "end": 225.34,
+  "text": " !"
+ },
+ {
+  "start": 225.34,
+  "end": 225.46,
+  "text": " !"
+ },
+ {
+  "start": 225.46,
+  "end": 225.56,
+  "text": " !"
+ },
+ {
+  "start": 225.56,
+  "end": 225.6,
+  "text": " !"
+ },
+ {
+  "start": 225.6,
+  "end": 225.68,
+  "text": " !"
+ },
+ {
+  "start": 225.68,
+  "end": 225.8,
+  "text": " !"
+ },
+ {
+  "start": 225.8,
+  "end": 225.96,
+  "text": " !"
+ },
+ {
+  "start": 225.96,
+  "end": 226.04,
+  "text": " !"
+ },
+ {
+  "start": 226.04,
+  "end": 226.14,
+  "text": " !"
+ },
+ {
+  "start": 226.14,
+  "end": 226.26,
+  "text": " !"
+ },
+ {
+  "start": 226.26,
+  "end": 226.36,
+  "text": " !"
+ },
+ {
+  "start": 226.36,
+  "end": 226.46,
+  "text": " !"
+ },
+ {
+  "start": 226.46,
+  "end": 226.52,
+  "text": " !"
+ },
+ {
+  "start": 226.52,
+  "end": 226.56,
+  "text": " !"
+ },
+ {
+  "start": 226.56,
+  "end": 226.58,
+  "text": " !"
+ },
+ {
+  "start": 226.58,
+  "end": 226.62,
+  "text": " !"
+ },
+ {
+  "start": 226.62,
+  "end": 226.66,
+  "text": " !"
+ },
+ {
+  "start": 226.66,
+  "end": 226.76,
+  "text": " !"
+ },
+ {
+  "start": 226.76,
+  "end": 226.88,
+  "text": " !"
+ },
+ {
+  "start": 226.88,
+  "end": 227.06,
+  "text": " !"
+ },
+ {
+  "start": 227.06,
+  "end": 227.2,
+  "text": " !"
+ },
+ {
+  "start": 227.2,
+  "end": 227.44,
+  "text": " !"
+ },
+ {
+  "start": 227.44,
+  "end": 227.64,
+  "text": " !"
+ },
+ {
+  "start": 235.8,
+  "end": 240.04,
+  "text": " time to send some small piece of data across the network, do a little bit of"
+ },
+ {
+  "start": 240.04,
+  "end": 242.16,
+  "text": " computation and get a small result back again."
+ },
+ {
+  "start": 243.28,
+  "end": 247.46,
+  "text": " And in fact, it isn't just, just latency or average latency that matters."
+ },
+ {
+  "start": 247.46,
+  "end": 249.84,
+  "text": " What really matters is tail latency."
+ },
+ {
+  "start": 249.84,
+  "end": 253.44,
+  "text": " That is, you'd like to know that if we send a whole lot of small messages,"
+ },
+ {
+  "start": 253.44,
+  "end": 255.98,
+  "text": " all of them will complete quickly."
+ },
+ {
+  "start": 255.98,
+  "end": 260.44,
+  "text": " So for example, we typically measure things like 99th percentile latency."
+ },
+ {
+  "start": 260.44,
+  "end": 262.18,
+  "text": " And if we have high tail latency,"
+ },
+ {
+  "start": 262.18,
+  "end": 264.68,
+  "text": " that can limit the overall throughput of the system."
+ },
+ {
+  "start": 264.68,
+  "end": 265.52,
+  "text": " So here's an example."
+ },
+ {
+  "start": 266.62,
+  "end": 269.96,
+  "text": " Suppose a common thing is to take a workload and split it up across several"
+ },
+ {
+  "start": 269.96,
+  "end": 274.8,
+  "text": " nodes, which do intensive computation using their GPUs for some period of time."
+ },
+ {
+  "start": 274.8,
+  "end": 277.44,
+  "text": " And then once they've all finished their computation,"
+ },
+ {
+  "start": 277.44,
+  "end": 282.14,
+  "text": " you do some small exchange between the nodes, exchange data, metadata, and"
+ },
+ {
+  "start": 282.14,
+  "end": 283.8,
+  "text": " then it'll go on to the next round of computation."
+ },
+ {
+  "start": 285.3,
+  "end": 288.72,
+  "text": " And while that exchange is happening, that synchronization is happening,"
+ },
+ {
+  "start": 288.72,
+  "end": 290.44,
+  "text": " the GPUs are sitting idle."
+ },
+ {
+  "start": 291.96,
+  "end": 294.68,
+  "text": " So if even one of those,"
+ },
+ {
+  "start": 294.68,
+  "end": 298.88,
+  "text": " one of those exchanges takes a long time, it turns out the whole process stalls."
+ },
+ {
+  "start": 298.88,
+  "end": 302.7,
+  "text": " You need all of those exchanges to complete before you can go on to the next"
+ },
+ {
+  "start": 302.7,
+  "end": 303.68,
+  "text": " phase of computation."
+ },
+ {
+  "start": 304.7,
+  "end": 307.52,
+  "text": " Now, if the computation phase is, say, five seconds, and"
+ },
+ {
+  "start": 307.52,
+  "end": 311.34,
+  "text": " it takes a few milliseconds for the exchange, you know, not a, not a problem."
+ },
+ {
+  "start": 311.34,
+  "end": 313.52,
+  "text": " And that's historically what it's been."
+ },
+ {
+  "start": 313.52,
+  "end": 315.48,
+  "text": " But now, with the agentic workloads,"
+ },
+ {
+  "start": 315.48,
+  "end": 319.26,
+  "text": " we are trying to pump out tokens relatively rapidly at a regular rate."
+ },
+ {
+  "start": 320.24,
+  "end": 323.62,
+  "text": " The periods of computation are getting down into the, sort of, the millisecond time scale."
+ },
+ {
+  "start": 323.62,
+  "end": 334.62,
+  "text": " And if it also takes milliseconds to do that synchronization, then you're wasting a significant fraction of your GPU's resources waiting for the synchronization to occur."
+ },
+ {
+  "start": 334.62,
+  "end": 338.62,
+  "text": " So I'm curious, I'd like to just do a quick audience poll here."
+ },
+ {
+  "start": 338.62,
+  "end": 346.62,
+  "text": " Is there anybody here where you have reason to believe that the latency of small messages is impacting the overall throughput of your applications?"
+ },
+ {
+  "start": 346.62,
+  "end": 348.62,
+  "text": " If so, can you just raise your hand?"
+ },
+ {
+  "start": 348.62,
+  "end": 350.62,
+  "text": " Is there anybody out there today?"
+ },
+ {
+  "start": 350.62,
+  "end": 355.62,
+  "text": " Actually, more hands than I expected, so quite a few people out there are raising their hands."
+ },
+ {
+  "start": 355.62,
+  "end": 359.62,
+  "text": " I think this problem is likely to get worse as the trends continue."
+ },
+ {
+  "start": 359.62,
+  "end": 364.62,
+  "text": " So what's going on? Why is tail latency bad?"
+ },
+ {
+  "start": 364.62,
+  "end": 369.62,
+  "text": " Well, typically the cause is congestion resulting from incast."
+ },
+ {
+  "start": 369.62,
+  "end": 377.62,
+  "text": " So incast is when several nodes all decide simultaneously to transfer data to some destination node."
+ },
+ {
+  "start": 377.62,
+  "end": 380.62,
+  "text": " And if they all send large messages,"
+ },
+ {
+  "start": 380.62,
+  "end": 383.62,
+  "text": " well, the links are the same everywhere in the network."
+ },
+ {
+  "start": 383.62,
+  "end": 388.62,
+  "text": " So three nodes can transfer three times as fast as one node can possibly receive."
+ },
+ {
+  "start": 388.62,
+  "end": 394.62,
+  "text": " And so what happens is that packets accumulate at the last hop going to that destination,"
+ },
+ {
+  "start": 394.62,
+  "end": 399.62,
+  "text": " in the top of RackSwitch, at its egress port for the destination node."
+ },
+ {
+  "start": 399.62,
+  "end": 404.62,
+  "text": " Then, if some other node decides it wants to send a short message to that same destination,"
+ },
+ {
+  "start": 404.62,
+  "end": 409.62,
+  "text": " the short message gets stuck behind the long ones in the queue there."
+ },
+ {
+  "start": 409.62,
+  "end": 410.62,
+  "text": " And actually, that's not the case."
+ },
+ {
+  "start": 410.62,
+  "end": 411.62,
+  "text": " That causes delay."
+ },
+ {
+  "start": 411.62,
+  "end": 416.62,
+  "text": " In the worst case, so many packets arrive that the switch runs out of buffer space"
+ },
+ {
+  "start": 416.62,
+  "end": 423.62,
+  "text": " and it has to drop packets, and then there are timeouts and retransmissions that make everything even worse."
+ },
+ {
+  "start": 423.62,
+  "end": 429.62,
+  "text": " So somehow, we need some way to reduce the congestion in those queues."
+ },
+ {
+  "start": 429.62,
+  "end": 433.62,
+  "text": " Somehow, we have to get the sending nodes to stop sending so fast,"
+ },
+ {
+  "start": 433.62,
+  "end": 437.62,
+  "text": " so the queues don't just build up without limit."
+ },
+ {
+  "start": 437.62,
+  "end": 439.62,
+  "text": " So the way this is done historically,"
+ },
+ {
+  "start": 439.62,
+  "end": 443.62,
+  "text": " is that we have to do this with virtually all network protocols before HOMA,"
+ },
+ {
+  "start": 443.62,
+  "end": 446.62,
+  "text": " including TCP and RDMA."
+ },
+ {
+  "start": 446.62,
+  "end": 449.62,
+  "text": " Congestion control is the responsibility of the sender."
+ },
+ {
+  "start": 449.62,
+  "end": 452.62,
+  "text": " So senders somehow have to figure out that congestion is happening,"
+ },
+ {
+  "start": 452.62,
+  "end": 455.62,
+  "text": " and they have to slow down their rate of transmission."
+ },
+ {
+  "start": 455.62,
+  "end": 457.62,
+  "text": " Now, you might wonder, why are senders doing it?"
+ },
+ {
+  "start": 457.62,
+  "end": 460.62,
+  "text": " Because the congestion is way over at the other end of the data center network."
+ },
+ {
+  "start": 460.62,
+  "end": 463.62,
+  "text": " How does the sender find out?"
+ },
+ {
+  "start": 463.62,
+  "end": 465.62,
+  "text": " Well, in the old, really old days,"
+ },
+ {
+  "start": 465.62,
+  "end": 468.62,
+  "text": " the way they would find out is the queues would overflow and packets would get dropped."
+ },
+ {
+  "start": 468.62,
+  "end": 470.62,
+  "text": " The sender would detect the packets got lost,"
+ },
+ {
+  "start": 470.62,
+  "end": 472.62,
+  "text": " because it wouldn't get acknowledgements back,"
+ },
+ {
+  "start": 472.62,
+  "end": 474.62,
+  "text": " and it would assume that means there's congestion,"
+ },
+ {
+  "start": 474.62,
+  "end": 476.62,
+  "text": " and then slow down its rate of transfer."
+ },
+ {
+  "start": 476.62,
+  "end": 478.62,
+  "text": " That's really expensive."
+ },
+ {
+  "start": 478.62,
+  "end": 483.62,
+  "text": " So today, there are better techniques that mostly involve the switches providing information."
+ },
+ {
+  "start": 483.62,
+  "end": 488.62,
+  "text": " So a top-of-rack switch, when it sees that the queue length for an egress port"
+ },
+ {
+  "start": 488.62,
+  "end": 491.62,
+  "text": " has reached some threshold, starting to fill,"
+ },
+ {
+  "start": 491.62,
+  "end": 493.62,
+  "text": " long before the queue overflows,"
+ },
+ {
+  "start": 493.62,
+  "end": 496.62,
+  "text": " it starts marking all of the packets that pass through,"
+ },
+ {
+  "start": 496.62,
+  "end": 498.62,
+  "text": " with what's called early congestion notification."
+ },
+ {
+  "start": 498.62,
+  "end": 500.62,
+  "text": " ECN marking."
+ },
+ {
+  "start": 500.62,
+  "end": 503.62,
+  "text": " And so when those packets pass through to the receiver,"
+ },
+ {
+  "start": 503.62,
+  "end": 505.62,
+  "text": " the receiver sees the marking in the packets,"
+ },
+ {
+  "start": 505.62,
+  "end": 508.62,
+  "text": " and then when it communicates back to the sender next,"
+ },
+ {
+  "start": 508.62,
+  "end": 511.62,
+  "text": " for example, to send an acknowledgement,"
+ },
+ {
+  "start": 511.62,
+  "end": 514.62,
+  "text": " then it includes that marking that goes back to the sender,"
+ },
+ {
+  "start": 514.62,
+  "end": 516.62,
+  "text": " and now the sender sees, the sender realizes,"
+ },
+ {
+  "start": 516.62,
+  "end": 518.62,
+  "text": " oh, there's congestion someplace,"
+ },
+ {
+  "start": 518.62,
+  "end": 521.62,
+  "text": " I've got to slow down my rate of transmission."
+ },
+ {
+  "start": 521.62,
+  "end": 522.62,
+  "text": " So that's the basic idea."
+ },
+ {
+  "start": 522.62,
+  "end": 525.62,
+  "text": " Unfortunately, getting this right is really hard."
+ },
+ {
+  "start": 525.62,
+  "end": 528.62,
+  "text": " It's very hard for the congestion to figure out exactly"
+ },
+ {
+  "start": 528.62,
+  "end": 529.62,
+  "text": " how to set its rates,"
+ },
+ {
+  "start": 529.62,
+  "end": 531.62,
+  "text": " because it gets one bit of information."
+ },
+ {
+  "start": 531.62,
+  "end": 533.62,
+  "text": " There's congestion someplace."
+ },
+ {
+  "start": 533.62,
+  "end": 535.62,
+  "text": " And there are multiple senders,"
+ },
+ {
+  "start": 535.62,
+  "end": 536.62,
+  "text": " all sending to the same destination,"
+ },
+ {
+  "start": 536.62,
+  "end": 539.62,
+  "text": " they're all trying to make adjustments simultaneously."
+ },
+ {
+  "start": 539.62,
+  "end": 541.62,
+  "text": " How much do you cut back?"
+ },
+ {
+  "start": 541.62,
+  "end": 543.62,
+  "text": " And how do I know when I can ramp up again?"
+ },
+ {
+  "start": 543.62,
+  "end": 547.62,
+  "text": " And even worse, it's really hard to do this in a way that's stable,"
+ },
+ {
+  "start": 547.62,
+  "end": 548.62,
+  "text": " because there's control lag."
+ },
+ {
+  "start": 548.62,
+  "end": 553.62,
+  "text": " That is, it takes time before the sender finds out that there's congestion."
+ },
+ {
+  "start": 553.62,
+  "end": 555.62,
+  "text": " And in fact, using this process,"
+ },
+ {
+  "start": 555.62,
+  "end": 558.62,
+  "text": " it typically takes several round trips for the sender to do that."
+ },
+ {
+  "start": 558.62,
+  "end": 561.62,
+  "text": " It takes several rounds of the sender to gradually adjust its rate"
+ },
+ {
+  "start": 561.62,
+  "end": 565.62,
+  "text": " to get just the right rate to match the available bandwidth."
+ },
+ {
+  "start": 565.62,
+  "end": 567.62,
+  "text": " But by the time you do that,"
+ },
+ {
+  "start": 567.62,
+  "end": 569.62,
+  "text": " in a network, things have changed."
+ },
+ {
+  "start": 569.62,
+  "end": 572.62,
+  "text": " New transmissions have started, old ones have finished."
+ },
+ {
+  "start": 572.62,
+  "end": 574.62,
+  "text": " And so these systems tend to never stabilize."
+ },
+ {
+  "start": 574.62,
+  "end": 576.62,
+  "text": " They're constantly oscillating between sending too much"
+ },
+ {
+  "start": 576.62,
+  "end": 578.62,
+  "text": " and sending too little."
+ },
+ {
+  "start": 578.62,
+  "end": 580.62,
+  "text": " Now, this problem's been around for a long time."
+ },
+ {
+  "start": 580.62,
+  "end": 583.62,
+  "text": " It's been known in the research community for more than 20 years now."
+ },
+ {
+  "start": 583.62,
+  "end": 586.62,
+  "text": " There have been tons of papers published on it."
+ },
+ {
+  "start": 586.62,
+  "end": 587.62,
+  "text": " There have been some improvements made."
+ },
+ {
+  "start": 587.62,
+  "end": 589.62,
+  "text": " There's been some improvements made."
+ },
+ {
+  "start": 589.62,
+  "end": 591.62,
+  "text": " There's been some improvements made."
+ },
+ {
+  "start": 591.62,
+  "end": 593.62,
+  "text": " But we're still a long ways from anything that works well."
+ },
+ {
+  "start": 593.62,
+  "end": 595.62,
+  "text": " And the problem is with the fundamental nature of it,"
+ },
+ {
+  "start": 595.62,
+  "end": 597.62,
+  "text": " doing the congestion control on the sender side."
+ },
+ {
+  "start": 597.62,
+  "end": 599.62,
+  "text": " It just doesn't work very well."
+ },
+ {
+  "start": 599.62,
+  "end": 601.62,
+  "text": " So you end up with a lot of queue buildup."
+ },
+ {
+  "start": 601.62,
+  "end": 604.62,
+  "text": " And in fact, you can see the only way to find out that there's congestion"
+ },
+ {
+  "start": 604.62,
+  "end": 606.62,
+  "text": " is if there's queues."
+ },
+ {
+  "start": 606.62,
+  "end": 609.62,
+  "text": " And so by that point, we're already experiencing delays."
+ },
+ {
+  "start": 609.62,
+  "end": 611.62,
+  "text": " So that's a problem."
+ },
+ {
+  "start": 611.62,
+  "end": 614.62,
+  "text": " One other problem with TCP and RDMA also"
+ },
+ {
+  "start": 614.62,
+  "end": 616.62,
+  "text": " is that their basic data model is a byte stream,"
+ },
+ {
+  "start": 616.62,
+  "end": 618.62,
+  "text": " with no differentiation in it."
+ },
+ {
+  "start": 618.62,
+  "end": 622.62,
+  "text": " So if you send a series of messages, say, through a TCP socket,"
+ },
+ {
+  "start": 622.62,
+  "end": 625.62,
+  "text": " they get serialized into that stream."
+ },
+ {
+  "start": 625.62,
+  "end": 628.62,
+  "text": " And on this slide, I've shown the messages appear"
+ },
+ {
+  "start": 628.62,
+  "end": 630.62,
+  "text": " like they have different colors in the stream."
+ },
+ {
+  "start": 630.62,
+  "end": 632.62,
+  "text": " Well, there are no colors in real life."
+ },
+ {
+  "start": 632.62,
+  "end": 635.62,
+  "text": " TCP has no idea where the message boundaries are."
+ },
+ {
+  "start": 635.62,
+  "end": 637.62,
+  "text": " And that also makes life hard."
+ },
+ {
+  "start": 637.62,
+  "end": 639.62,
+  "text": " For example, you don't know how much more data is coming."
+ },
+ {
+  "start": 639.62,
+  "end": 641.62,
+  "text": " If you knew how big the message was,"
+ },
+ {
+  "start": 641.62,
+  "end": 643.62,
+  "text": " you'd know how much more is coming."
+ },
+ {
+  "start": 643.62,
+  "end": 645.62,
+  "text": " And you can't prioritize short messages,"
+ },
+ {
+  "start": 645.62,
+  "end": 647.62,
+  "text": " which we'd really like to do,"
+ },
+ {
+  "start": 647.62,
+  "end": 649.62,
+  "text": " get the short messages through faster."
+ },
+ {
+  "start": 649.62,
+  "end": 651.62,
+  "text": " And you can end up with what's called head of line blocking,"
+ },
+ {
+  "start": 651.62,
+  "end": 655.62,
+  "text": " where somebody sends a series of messages to the same destination,"
+ },
+ {
+  "start": 655.62,
+  "end": 657.62,
+  "text": " and they send two really large ones,"
+ },
+ {
+  "start": 657.62,
+  "end": 659.62,
+  "text": " and then a small one after that,"
+ },
+ {
+  "start": 659.62,
+  "end": 661.62,
+  "text": " that gets stuck behind them in that stream."
+ },
+ {
+  "start": 661.62,
+  "end": 663.62,
+  "text": " And so it gets delayed, and again,"
+ },
+ {
+  "start": 663.62,
+  "end": 665.62,
+  "text": " you have tail latency issues."
+ },
+ {
+  "start": 665.62,
+  "end": 667.62,
+  "text": " So all in all, TCP and RDMA"
+ },
+ {
+  "start": 667.62,
+  "end": 670.62,
+  "text": " are just not well suited to this environment."
+ },
+ {
+  "start": 670.62,
+  "end": 672.62,
+  "text": " So what do we do?"
+ },
+ {
+  "start": 672.62,
+  "end": 674.62,
+  "text": " Well, what I'd like to do next is tell you"
+ },
+ {
+  "start": 674.62,
+  "end": 676.62,
+  "text": " about a new protocol called HOMA"
+ },
+ {
+  "start": 676.62,
+  "end": 678.62,
+  "text": " that we've developed at Stanford,"
+ },
+ {
+  "start": 678.62,
+  "end": 680.62,
+  "text": " which was based on a completely clean slate"
+ },
+ {
+  "start": 680.62,
+  "end": 682.62,
+  "text": " redesign for network transport."
+ },
+ {
+  "start": 682.62,
+  "end": 684.62,
+  "text": " If you could start from scratch and rethink"
+ },
+ {
+  "start": 684.62,
+  "end": 686.62,
+  "text": " how you do transport for data centers,"
+ },
+ {
+  "start": 686.62,
+  "end": 688.62,
+  "text": " how would you do it?"
+ },
+ {
+  "start": 688.62,
+  "end": 690.62,
+  "text": " And it turns out, in HOMA, virtually every major"
+ },
+ {
+  "start": 690.62,
+  "end": 693.62,
+  "text": " design decision is different from TCP and RDMA."
+ },
+ {
+  "start": 693.62,
+  "end": 696.62,
+  "text": " TCP, for all the amazing things it's done,"
+ },
+ {
+  "start": 696.62,
+  "end": 699.62,
+  "text": " is just not a good match to today's data centers,"
+ },
+ {
+  "start": 699.62,
+  "end": 701.62,
+  "text": " nor RDMA."
+ },
+ {
+  "start": 701.62,
+  "end": 703.62,
+  "text": " So what HOMA does particularly well"
+ },
+ {
+  "start": 703.62,
+  "end": 706.62,
+  "text": " is to manage a combination of large and small messages"
+ },
+ {
+  "start": 706.62,
+  "end": 708.62,
+  "text": " and to make sure that the messages,"
+ },
+ {
+  "start": 708.62,
+  "end": 710.62,
+  "text": " short messages, have really low latency."
+ },
+ {
+  "start": 710.62,
+  "end": 712.62,
+  "text": " So this started off as a PhD dissertation"
+ },
+ {
+  "start": 712.62,
+  "end": 715.62,
+  "text": " for one of my students, Benham Montessori,"
+ },
+ {
+  "start": 715.62,
+  "end": 717.62,
+  "text": " and then the results were so great"
+ },
+ {
+  "start": 717.62,
+  "end": 719.62,
+  "text": " that I decided to make it my personal project"
+ },
+ {
+  "start": 719.62,
+  "end": 721.62,
+  "text": " to see if we could get it out of the lab"
+ },
+ {
+  "start": 721.62,
+  "end": 723.62,
+  "text": " and into production."
+ },
+ {
+  "start": 723.62,
+  "end": 725.62,
+  "text": " As you may know, I'm not like most professors"
+ },
+ {
+  "start": 725.62,
+  "end": 727.62,
+  "text": " in that I love to code, and so I turned this"
+ },
+ {
+  "start": 727.62,
+  "end": 729.62,
+  "text": " into my own programming project."
+ },
+ {
+  "start": 729.62,
+  "end": 731.62,
+  "text": " I created a kernel module for Linux."
+ },
+ {
+  "start": 731.62,
+  "end": 733.62,
+  "text": " I'm currently working through the process"
+ },
+ {
+  "start": 733.62,
+  "end": 735.62,
+  "text": " of getting that upstreamed into the kernel."
+ },
+ {
+  "start": 735.62,
+  "end": 737.62,
+  "text": " It's available on GitHub for download."
+ },
+ {
+  "start": 737.62,
+  "end": 739.62,
+  "text": " So let me tell you just a little bit"
+ },
+ {
+  "start": 739.62,
+  "end": 741.62,
+  "text": " about how HOMA works."
+ },
+ {
+  "start": 741.62,
+  "end": 743.62,
+  "text": " I want to mention three things."
+ },
+ {
+  "start": 743.62,
+  "end": 746.62,
+  "text": " First, it's message-based, not stream-based."
+ },
+ {
+  "start": 746.62,
+  "end": 749.62,
+  "text": " In fact, the fundamental unit at HOMA"
+ },
+ {
+  "start": 749.62,
+  "end": 751.62,
+  "text": " is a remote procedure call,"
+ },
+ {
+  "start": 751.62,
+  "end": 753.62,
+  "text": " which consists of two things."
+ },
+ {
+  "start": 753.62,
+  "end": 756.62,
+  "text": " A request message sent from a client to a server,"
+ },
+ {
+  "start": 756.62,
+  "end": 759.62,
+  "text": " and then a response message returned back"
+ },
+ {
+  "start": 759.62,
+  "end": 761.62,
+  "text": " from the server to the client."
+ },
+ {
+  "start": 761.62,
+  "end": 763.62,
+  "text": " So the key thing here is"
+ },
+ {
+  "start": 763.62,
+  "end": 765.62,
+  "text": " that HOMA knows about message lengths."
+ },
+ {
+  "start": 765.62,
+  "end": 767.62,
+  "text": " They're buried in the transport"
+ },
+ {
+  "start": 767.62,
+  "end": 769.62,
+  "text": " all the way down to the bottom,"
+ },
+ {
+  "start": 769.62,
+  "end": 771.62,
+  "text": " and this has a bunch of advantages."
+ },
+ {
+  "start": 771.62,
+  "end": 773.62,
+  "text": " First, it allows us to predict the future."
+ },
+ {
+  "start": 773.62,
+  "end": 776.62,
+  "text": " As soon as a receiver gets the first packet of a message,"
+ },
+ {
+  "start": 776.62,
+  "end": 778.62,
+  "text": " it knows exactly how much more data"
+ },
+ {
+  "start": 778.62,
+  "end": 780.62,
+  "text": " the sender wants to send,"
+ },
+ {
+  "start": 780.62,
+  "end": 782.62,
+  "text": " and that's so much more information"
+ },
+ {
+  "start": 782.62,
+  "end": 784.62,
+  "text": " for doing congestion control."
+ },
+ {
+  "start": 784.62,
+  "end": 787.62,
+  "text": " Second, HOMA prioritizes shorter messages."
+ },
+ {
+  "start": 787.62,
+  "end": 790.62,
+  "text": " It uses SRPT, shortest remaining processing time,"
+ },
+ {
+  "start": 790.62,
+  "end": 792.62,
+  "text": " first to try and prioritize"
+ },
+ {
+  "start": 792.62,
+  "end": 794.62,
+  "text": " shorter messages."
+ },
+ {
+  "start": 794.62,
+  "end": 798.62,
+  "text": " And third, because messages are all independent,"
+ },
+ {
+  "start": 798.62,
+  "end": 801.62,
+  "text": " they're not serialized into a stream,"
+ },
+ {
+  "start": 801.62,
+  "end": 803.62,
+  "text": " every message is independent,"
+ },
+ {
+  "start": 803.62,
+  "end": 805.62,
+  "text": " shorter messages can bypass long ones,"
+ },
+ {
+  "start": 805.62,
+  "end": 808.62,
+  "text": " so they don't get queued behind long messages."
+ },
+ {
+  "start": 808.62,
+  "end": 811.62,
+  "text": " The second thing about HOMA that's different"
+ },
+ {
+  "start": 811.62,
+  "end": 814.62,
+  "text": " is that it controls congestion from the receiver."
+ },
+ {
+  "start": 814.62,
+  "end": 816.62,
+  "text": " Now, when you think about it, this makes sense,"
+ },
+ {
+  "start": 816.62,
+  "end": 818.62,
+  "text": " because the congestion happens primarily"
+ },
+ {
+  "start": 818.62,
+  "end": 821.62,
+  "text": " at that last downlink to the receiver."
+ },
+ {
+  "start": 821.62,
+  "end": 824.62,
+  "text": " And so the receiver has way more information."
+ },
+ {
+  "start": 824.62,
+  "end": 826.62,
+  "text": " In fact, with HOMA, as soon as it gets"
+ },
+ {
+  "start": 826.62,
+  "end": 827.62,
+  "text": " the first packet of a message,"
+ },
+ {
+  "start": 827.62,
+  "end": 829.62,
+  "text": " it knows exactly how much more is coming."
+ },
+ {
+  "start": 829.62,
+  "end": 832.62,
+  "text": " So it has essentially complete information"
+ },
+ {
+  "start": 832.62,
+  "end": 835.62,
+  "text": " about congestion, and it can therefore respond"
+ },
+ {
+  "start": 835.62,
+  "end": 839.62,
+  "text": " to congestion much more quickly and much more precisely."
+ },
+ {
+  "start": 839.62,
+  "end": 841.62,
+  "text": " The way things work with HOMA"
+ },
+ {
+  "start": 841.62,
+  "end": 844.62,
+  "text": " is that when a sender has a message to send,"
+ },
+ {
+  "start": 844.62,
+  "end": 846.62,
+  "text": " it breaks it up into packets,"
+ },
+ {
+  "start": 846.62,
+  "end": 849.62,
+  "text": " but it only transmits the first few packets,"
+ },
+ {
+  "start": 849.62,
+  "end": 851.62,
+  "text": " those are called unscheduled packets,"
+ },
+ {
+  "start": 851.62,
+  "end": 853.62,
+  "text": " to the receiver."
+ },
+ {
+  "start": 853.62,
+  "end": 855.62,
+  "text": " Packets after that are called scheduled packets,"
+ },
+ {
+  "start": 855.62,
+  "end": 857.62,
+  "text": " and they only get transmitted"
+ },
+ {
+  "start": 857.62,
+  "end": 859.62,
+  "text": " when the receiver asks for them."
+ },
+ {
+  "start": 859.62,
+  "end": 862.62,
+  "text": " So the receiver will send grant packets back,"
+ },
+ {
+  "start": 862.62,
+  "end": 864.62,
+  "text": " it'll paste them out and send those back"
+ },
+ {
+  "start": 864.62,
+  "end": 866.62,
+  "text": " to the sender over time, telling the sender,"
+ },
+ {
+  "start": 866.62,
+  "end": 869.62,
+  "text": " it's now time for you to send me the next chunk of data."
+ },
+ {
+  "start": 869.62,
+  "end": 872.62,
+  "text": " And the receiver can delay those grants."
+ },
+ {
+  "start": 872.62,
+  "end": 874.62,
+  "text": " So for example, if the receiver has"
+ },
+ {
+  "start": 874.62,
+  "end": 876.62,
+  "text": " 10 messages that are incoming,"
+ },
+ {
+  "start": 876.62,
+  "end": 878.62,
+  "text": " there's no point in sending grants to all 10 of them,"
+ },
+ {
+  "start": 878.62,
+  "end": 880.62,
+  "text": " because then you'll just get congestion"
+ },
+ {
+  "start": 880.62,
+  "end": 882.62,
+  "text": " in the top of rack queues."
+ },
+ {
+  "start": 882.62,
+  "end": 885.62,
+  "text": " So it can use the grants to reduce congestion,"
+ },
+ {
+  "start": 885.62,
+  "end": 887.62,
+  "text": " and then it can also use the grants"
+ },
+ {
+  "start": 887.62,
+  "end": 889.62,
+  "text": " to give preference to its most favorite messages,"
+ },
+ {
+  "start": 889.62,
+  "end": 891.62,
+  "text": " which would be the shorter ones."
+ },
+ {
+  "start": 891.62,
+  "end": 893.62,
+  "text": " So it's a way of implementing SRPT"
+ },
+ {
+  "start": 893.62,
+  "end": 896.62,
+  "text": " by favoring short messages."
+ },
+ {
+  "start": 896.62,
+  "end": 898.62,
+  "text": " The third aspect of HOMA"
+ },
+ {
+  "start": 898.62,
+  "end": 901.62,
+  "text": " is that it takes advantage of the priority queues"
+ },
+ {
+  "start": 901.62,
+  "end": 902.62,
+  "text": " in modern switches."
+ },
+ {
+  "start": 902.62,
+  "end": 905.62,
+  "text": " So modern data center switches have more than one queue"
+ },
+ {
+  "start": 905.62,
+  "end": 908.62,
+  "text": " at each egress port, typically eight,"
+ },
+ {
+  "start": 908.62,
+  "end": 910.62,
+  "text": " and they can be used in a priority mechanism,"
+ },
+ {
+  "start": 910.62,
+  "end": 913.62,
+  "text": " where packets get transmitted preferentially"
+ },
+ {
+  "start": 913.62,
+  "end": 915.62,
+  "text": " from the highest priority queue."
+ },
+ {
+  "start": 915.62,
+  "end": 917.62,
+  "text": " So I've shown only two queues on the slide here,"
+ },
+ {
+  "start": 917.62,
+  "end": 919.62,
+  "text": " but typically there's more than that."
+ },
+ {
+  "start": 919.62,
+  "end": 921.62,
+  "text": " You can specify in packets,"
+ },
+ {
+  "start": 921.62,
+  "end": 923.62,
+  "text": " using the various fields of the packet,"
+ },
+ {
+  "start": 923.62,
+  "end": 925.62,
+  "text": " you can specify which queue it should go into."
+ },
+ {
+  "start": 925.62,
+  "end": 928.62,
+  "text": " And so HOMA dynamically makes those choices"
+ },
+ {
+  "start": 928.62,
+  "end": 931.62,
+  "text": " in a way to give priority to shorter messages."
+ },
+ {
+  "start": 931.62,
+  "end": 933.62,
+  "text": " So if we go back to the NCAST example"
+ },
+ {
+  "start": 933.62,
+  "end": 934.62,
+  "text": " from a few slides ago,"
+ },
+ {
+  "start": 934.62,
+  "end": 936.62,
+  "text": " all of those long messages will pile up"
+ },
+ {
+  "start": 936.62,
+  "end": 938.62,
+  "text": " in the lowest priority queue."
+ },
+ {
+  "start": 938.62,
+  "end": 939.62,
+  "text": " But if there's a short message coming,"
+ },
+ {
+  "start": 939.62,
+  "end": 941.62,
+  "text": " it will use a higher priority queue."
+ },
+ {
+  "start": 941.62,
+  "end": 944.62,
+  "text": " And so it will immediately bypass"
+ },
+ {
+  "start": 944.62,
+  "end": 948.62,
+  "text": " all of the queued packets from the longer messages"
+ },
+ {
+  "start": 948.62,
+  "end": 952.62,
+  "text": " and get through to the destination more quickly."
+ },
+ {
+  "start": 952.62,
+  "end": 954.62,
+  "text": " So how much of a difference does this make?"
+ },
+ {
+  "start": 954.62,
+  "end": 958.62,
+  "text": " Here's a, on this slide I've got one sample benchmark"
+ },
+ {
+  "start": 958.62,
+  "end": 961.62,
+  "text": " that I use as part of my tuning and evaluation of HOMA."
+ },
+ {
+  "start": 961.62,
+  "end": 963.62,
+  "text": " It consists of a workload of a bunch of machines"
+ },
+ {
+  "start": 963.62,
+  "end": 966.62,
+  "text": " on a network that are exchanging messages back and forth"
+ },
+ {
+  "start": 966.62,
+  "end": 968.62,
+  "text": " of different sizes, ranging from very small"
+ },
+ {
+  "start": 968.62,
+  "end": 969.62,
+  "text": " to very large."
+ },
+ {
+  "start": 969.62,
+  "end": 971.62,
+  "text": " And on this graph you can see on the x-axis"
+ },
+ {
+  "start": 971.62,
+  "end": 973.62,
+  "text": " is the message length,"
+ },
+ {
+  "start": 973.62,
+  "end": 975.62,
+  "text": " from about 50 bytes up to a megabyte."
+ },
+ {
+  "start": 975.62,
+  "end": 978.62,
+  "text": " The y-axis shows you the round trip time"
+ },
+ {
+  "start": 978.62,
+  "end": 980.62,
+  "text": " for messages of that length."
+ },
+ {
+  "start": 980.62,
+  "end": 982.62,
+  "text": " So this uses request and response messages"
+ },
+ {
+  "start": 982.62,
+  "end": 983.62,
+  "text": " that are the same length."
+ },
+ {
+  "start": 983.62,
+  "end": 986.62,
+  "text": " You can see TCP in green, HOMA in blue."
+ },
+ {
+  "start": 986.62,
+  "end": 989.62,
+  "text": " And the y-axis is round trip time,"
+ },
+ {
+  "start": 989.62,
+  "end": 991.62,
+  "text": " so lower is better."
+ },
+ {
+  "start": 991.62,
+  "end": 993.62,
+  "text": " And for each protocol I've got two curves."
+ },
+ {
+  "start": 993.62,
+  "end": 995.62,
+  "text": " One curve is the P50 curve."
+ },
+ {
+  "start": 995.62,
+  "end": 998.62,
+  "text": " That's the median latency for each protocol."
+ },
+ {
+  "start": 998.62,
+  "end": 1001.62,
+  "text": " So this is the P90 curve for messages of this length."
+ },
+ {
+  "start": 1001.62,
+  "end": 1004.62,
+  "text": " And then P99 is the 99th percentile,"
+ },
+ {
+  "start": 1004.62,
+  "end": 1007.62,
+  "text": " i.e. tail latency for messages of this length."
+ },
+ {
+  "start": 1007.62,
+  "end": 1009.62,
+  "text": " So I want to point out two things."
+ },
+ {
+  "start": 1009.62,
+  "end": 1011.62,
+  "text": " First, the P99 for short messages"
+ },
+ {
+  "start": 1011.62,
+  "end": 1013.62,
+  "text": " is dramatically better for HOMA."
+ },
+ {
+  "start": 1013.62,
+  "end": 1015.62,
+  "text": " So with TCP it's more than a millisecond,"
+ },
+ {
+  "start": 1015.62,
+  "end": 1016.62,
+  "text": " tail latency."
+ },
+ {
+  "start": 1016.62,
+  "end": 1018.62,
+  "text": " HOMA is less than 100 microseconds,"
+ },
+ {
+  "start": 1018.62,
+  "end": 1020.62,
+  "text": " about 13 times faster."
+ },
+ {
+  "start": 1020.62,
+  "end": 1023.62,
+  "text": " Second, interestingly, you might think that"
+ },
+ {
+  "start": 1023.62,
+  "end": 1026.62,
+  "text": " because HOMA favors shorter messages,"
+ },
+ {
+  "start": 1026.62,
+  "end": 1028.62,
+  "text": " that long messages suffer"
+ },
+ {
+  "start": 1028.62,
+  "end": 1030.62,
+  "text": " more than TCP does."
+ },
+ {
+  "start": 1030.62,
+  "end": 1032.62,
+  "text": " It turns out that's actually not the case."
+ },
+ {
+  "start": 1032.62,
+  "end": 1034.62,
+  "text": " Even on the longest messages,"
+ },
+ {
+  "start": 1034.62,
+  "end": 1037.62,
+  "text": " HOMA is almost a factor of two better than TCP."
+ },
+ {
+  "start": 1037.62,
+  "end": 1039.62,
+  "text": " I don't have time to explain that today,"
+ },
+ {
+  "start": 1039.62,
+  "end": 1041.62,
+  "text": " but it has to do with the fact that HOMA uses"
+ },
+ {
+  "start": 1041.62,
+  "end": 1042.62,
+  "text": " run-to-completion approaches,"
+ },
+ {
+  "start": 1042.62,
+  "end": 1044.62,
+  "text": " which are much more effective than"
+ },
+ {
+  "start": 1044.62,
+  "end": 1047.62,
+  "text": " the fair scheduling used by TCP."
+ },
+ {
+  "start": 1047.62,
+  "end": 1050.62,
+  "text": " So just to wrap up,"
+ },
+ {
+  "start": 1050.62,
+  "end": 1052.62,
+  "text": " the role of short messages in AI"
+ },
+ {
+  "start": 1052.62,
+  "end": 1054.62,
+  "text": " appears to be increasing."
+ },
+ {
+  "start": 1054.62,
+  "end": 1057.62,
+  "text": " I think it's likely that it's going to continue to increase."
+ },
+ {
+  "start": 1057.62,
+  "end": 1059.62,
+  "text": " We'll see over the next year or two if that happens."
+ },
+ {
+  "start": 1059.62,
+  "end": 1061.62,
+  "text": " And I just want to pose a question to you."
+ },
+ {
+  "start": 1061.62,
+  "end": 1063.62,
+  "text": " As you're running your applications"
+ },
+ {
+  "start": 1063.62,
+  "end": 1064.62,
+  "text": " and measuring performance"
+ },
+ {
+  "start": 1064.62,
+  "end": 1066.62,
+  "text": " and seeing what the bottlenecks are,"
+ },
+ {
+  "start": 1066.62,
+  "end": 1067.62,
+  "text": " ask yourself,"
+ },
+ {
+  "start": 1067.62,
+  "end": 1069.62,
+  "text": " is high latency for short messages"
+ },
+ {
+  "start": 1069.62,
+  "end": 1071.62,
+  "text": " affecting your throughput?"
+ },
+ {
+  "start": 1071.62,
+  "end": 1073.62,
+  "text": " If the answer is yes,"
+ },
+ {
+  "start": 1073.62,
+  "end": 1075.62,
+  "text": " then just know there is a solution available."
+ },
+ {
+  "start": 1075.62,
+  "end": 1077.62,
+  "text": " If you give HOMA a try,"
+ },
+ {
+  "start": 1077.62,
+  "end": 1079.62,
+  "text": " you can probably reduce your tail latency"
+ },
+ {
+  "start": 1079.62,
+  "end": 1080.62,
+  "text": " by an order of magnitude or more."
+ },
+ {
+  "start": 1080.62,
+  "end": 1081.62,
+  "text": " And by the way, this is,"
+ },
+ {
+  "start": 1081.62,
+  "end": 1084.62,
+  "text": " HOMA is basically my life mission right now."
+ },
+ {
+  "start": 1084.62,
+  "end": 1086.62,
+  "text": " I'm sort of semi-retired from Stanford,"
+ },
+ {
+  "start": 1086.62,
+  "end": 1088.62,
+  "text": " but I've been doing this for a long time."
+ },
+ {
+  "start": 1088.62,
+  "end": 1090.62,
+  "text": " And the reason I did that is so I can spend 100% of my time"
+ },
+ {
+  "start": 1090.62,
+  "end": 1091.62,
+  "text": " hacking on HOMA."
+ },
+ {
+  "start": 1091.62,
+  "end": 1093.62,
+  "text": " So I'd be delighted to work with you"
+ },
+ {
+  "start": 1093.62,
+  "end": 1095.62,
+  "text": " and help you if you decide you want to experiment with HOMA."
+ },
+ {
+  "start": 1095.62,
+  "end": 1096.62,
+  "text": " If you need help getting started,"
+ },
+ {
+  "start": 1096.62,
+  "end": 1098.62,
+  "text": " answer questions, bug fixes, whatever,"
+ },
+ {
+  "start": 1098.62,
+  "end": 1100.62,
+  "text": " I'd be happy to work with you"
+ },
+ {
+  "start": 1100.62,
+  "end": 1102.62,
+  "text": " to try and make you successful with it."
+ },
+ {
+  "start": 1102.62,
+  "end": 1104.62,
+  "text": " So if that is interesting, feel free to contact me."
+ },
+ {
+  "start": 1104.62,
+  "end": 1106.62,
+  "text": " My email is on the slide."
+ },
+ {
+  "start": 1106.62,
+  "end": 1108.62,
+  "text": " Or you can Google me, too, and find me over the Internet."
+ },
+ {
+  "start": 1108.62,
+  "end": 1110.62,
+  "text": " So thanks very much for listening,"
+ },
+ {
+  "start": 1110.62,
+  "end": 1112.62,
+  "text": " and I hope to hear from some of you."
+ },
+ {
+  "start": 1116.62,
+  "end": 1117.62,
+  "text": " I'll see you next time."
+ },
+ {
+  "start": 1117.62,
+  "end": 1118.62,
+  "text": " Bye-bye."
+ },
+ {
+  "start": 1118.62,
+  "end": 1119.62,
+  "text": " ."
+ }
+]

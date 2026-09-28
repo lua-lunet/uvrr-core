@@ -5,7 +5,7 @@
 \usepackage{fancyhdr,tikz,graphicx}
 \usetikzlibrary{arrows.meta}
 \hypersetup{pdftitle={Diskless Viewstamped Replication with Unbounded Crash-Stop Reincarnation},pdfauthor={Simon Massey}}
-\newcommand{\paperrevision}{RESEARCH CHECKPOINT --- 11 SEPTEMBER 2026}
+\newcommand{\paperrevision}{RESEARCH CHECKPOINT --- 28 SEPTEMBER 2026}
 \newcommand{\paperversion}{DRAFT}
 \IfFileExists{version.tex}{\input{version.tex}}{}
 \pagestyle{fancy}
@@ -30,7 +30,7 @@
   #1
   \bottomrule
   \end{tabular}}
-\title{Diskless Viewstamped Replication\\with Unbounded Crash-Stop Reincarnation}
+\title{DRAFT --- Diskless Viewstamped Replication\\with Unbounded Crash-Stop Reincarnation}
 \author{Simon Massey\thanks{Author draft. Correspondence: simon.massey@stenographer.cloud.}}
 \begin{document}
 \maketitle
@@ -159,6 +159,9 @@ Such a service can coordinate membership or advisory-lock metadata without
 putting synchronous persistence on every update's critical path.
 Its normal replication need not wait for a disk flush or batch updates to
 amortise one.
+The design objective is strong consistency deployable on commodity cloud
+infrastructure: stock virtual machines, stock load balancing, and no custom
+networking hardware.
 
 Section~\ref{sec:method} develops the lifecycle and leader-overlap construction.
 Section~\ref{sec:results} starts with three-voter Crash-Stop-Reincarnation
@@ -403,6 +406,50 @@ one-era window gate unreachable by construction rather than widened.
 The addendum~\cite{artifact} maps these arguments to Lean~4~\cite{lean4}, bounded exhaustive enumeration, Rust property tests and protocol tests. It includes the existing specialised machine theorem's precise scope, the general lemmas used above, and the reproduction commands. Configuration reachability, abstract casting witnesses and the operational history contract are stated separately so each result can be checked at its own layer.
 
 \section{Discussion}\label{sec:discussion}
+\subsection{Deployment without custom ordering hardware}
+The latency literature contains two shorter client paths than the one taken
+here, and both buy their round trips with infrastructure this design
+deliberately does not require.
+NOPaxos orders requests in the network itself: a sequencer stamps a global
+sequence onto packets in flight, so replicas process a common order and
+ordinary operations complete in about one client round trip~\cite{nopaxos}.
+The evaluated fast path uses programmable switching hardware or an SDN
+control plane; the ordering point is distinguished infrastructure.
+CURP lets a client complete in one round trip by writing concurrently to the
+master, which orders and executes, and to witnesses, which retain the request
+unordered~\cite{curp}. The fast path is sound only while every outstanding
+operation whose order might be lost is mutually commutative; on a conflict
+the protocol returns to an ordered replication sync, and the client must
+reach the master and the witnesses directly rather than any member of the
+cluster.
+CORFU shows that a global sequencer need not be custom hardware: its token
+sequencer is user-space software, with sequencer identity carried in the
+replicated projection and replaced through reconfiguration~\cite{corfu}.
+Its clients still obtain a log position and then write to it, two causally
+dependent stages.
+
+This design takes a different trade. A client reaches the service through an
+ordinary load balancer at \emph{any} member. At the leader the exchange is
+one round trip; at a follower the contacted node forwards the operation to
+the leader and answers the commit itself, so the client observes one round
+trip plus a one-way forwarding leg. No leader-aware routing is required for
+correctness; a load balancer that learns the leader's identity trades a
+fraction of a round trip for the availability of random assignment.
+\{TODO: measure the follower path's forwarding leg against leader-aware
+routing in the cloud campaign.\}
+
+\{TODO: situate against the transport direction of the industry. QUIC and
+HTTP/3~\cite{rfc9000,rfc9114} move applications away from in-order,
+in-path queuing toward connectionless datagrams; fragmentation and
+reassembly are handled below the application. The replicated state here is
+small metadata, so messages stay small and contention-driven drops and
+resends are the cost to avoid, not head-of-line blocking.\}
+
+\{TODO: large-payload pattern. Where an application's values are large ---
+agent logs, whose user inputs are small and tool responses large --- the
+client writes the bulk value to object storage and consensus runs over the
+returned locator. State the pattern and its durability hand-off.\}
+
 \subsection{Applications}
 An application of strong consistency is the replication of small state by
 consensus: the configuration authority Lamport, Malkhi and Zhou
@@ -475,7 +522,13 @@ messages --- against the lock service before the entry reaches the core. The
 Teal/Lunet wrapper owns sockets, TCP framing, peer source validation, and
 forwarding; a UDP peer envelope carrying a membership fingerprint guards the
 fixed membership at the transport boundary, so differently configured
-clusters cannot merge. An append-only lock-event journal, a REST/WebSocket
+clusters cannot merge.
+\{TODO: upcall-at-any-node latency check. The wrapper forwards a client
+operation to the leader when the contacted node is a follower, and the
+contacted node answers the commit; measure the leader path against the
+follower path, and record the availability--latency trade of leader-aware
+load-balancer routing. The demonstration's connectionless datagram
+transport makes the forwarding leg a single hop with no connection state.\} An append-only lock-event journal, a REST/WebSocket
 feed, and a console are observability only: the journal never participates in
 replication or recovery, and a journal error disables journaling without
 affecting the service path.
@@ -866,6 +919,10 @@ Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters
 \bibitem{allfs} T. S. Pillai, V. Chidambaram, R. Alagappan, A. C. Arpaci-Dusseau, and R. H. Arpaci-Dusseau, ``All file systems are not created equal: On the complexity of crafting crash consistent applications,'' in \emph{USENIX OSDI}, 2014. [Online]. Available: \url{https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-pillai.pdf}
 \bibitem{optimistic-crash} V. Chidambaram, T. S. Pillai, A. C. Arpaci-Dusseau, and R. H. Arpaci-Dusseau, ``Optimistic crash consistency: Application-aware fully-extensible crash consistency,'' in \emph{ACM SOSP}, 2013, doi: \href{https://doi.org/10.1145/2517349.2522726}{10.1145/2517349.2522726}.
 \bibitem{turner} D. Turner, ``Unbounded pipelining in dynamically reconfigurable Paxos clusters,'' revision 1A9DBA37, Aug. 14, 2017. [Online]. Available: \url{https://github.com/DaveCTurner/paxos-membership}. The proof artifact includes the consulted PDF and its digest.
+\bibitem{nopaxos} J. Li, E. Michael, N. K. Sharma, A. Szekeres, and D. R. K. Ports, ``Just say NO to Paxos overhead: Replacing consensus with network ordering,'' in \emph{USENIX OSDI}, 2016, pp. 467--483. [Online]. Available: \url{https://www.usenix.org/system/files/conference/osdi16/osdi16-li.pdf}
+\bibitem{curp} S. J. Park and J. Ousterhout, ``Exploiting commutativity for practical fast replication,'' in \emph{USENIX NSDI}, 2019, pp. 47--64. [Online]. Available: \url{https://www.usenix.org/system/files/nsdi19-park.pdf}
+\bibitem{rfc9000} J. Iyengar and M. Thomson, ``QUIC: A UDP-based multiplexed and secure transport,'' RFC 9000, May 2021, doi: \href{https://doi.org/10.17487/RFC9000}{10.17487/RFC9000}.
+\bibitem{rfc9114} M. Bishop, ``HTTP/3,'' RFC 9114, June 2022, doi: \href{https://doi.org/10.17487/RFC9114}{10.17487/RFC9114}.
 \bibitem{motivation} S. Massey, ``Viewstamped replication revisited,'' Aug. 12, 2026. [Online]. Available: \url{https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/}
 \bibitem{corfu} M. Balakrishnan, D. Malkhi, J. D. Davis, V. Prabhakaran, M. Wei, and T. Wobber, ``CORFU: A Distributed Shared Log,'' \emph{ACM Trans. Comput. Syst.}, vol. 31, no. 4, Art. 10, Dec. 2013, doi: \href{https://doi.org/10.1145/2535930}{10.1145/2535930}.
 \bibitem{zookeeper} P. Hunt, M. Konar, F. P. Junqueira, and B. Reed, ``ZooKeeper: Wait-free coordination for Internet-scale systems,'' in \emph{USENIX ATC}, 2010. [Online]. Available: \url{https://www.usenix.org/events/usenix10/tech/full_papers/Hunt.pdf}

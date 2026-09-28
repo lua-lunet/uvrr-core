@@ -1,0 +1,1719 @@
+
+%% bare_jrnl.tex
+%% V1.4b
+%% 2015/08/26
+%% by Michael Shell
+%% see http://www.michaelshell.org/
+%% for current contact information.
+%%
+%% This is a skeleton file demonstrating the use of IEEEtran.cls
+%% (requires IEEEtran.cls version 1.8b or later) with an IEEE
+%% journal paper.
+%%
+%% Support sites:
+%% http://www.michaelshell.org/tex/ieeetran/
+%% http://www.ctan.org/pkg/ieeetran
+%% and
+%% http://www.ieee.org/
+
+%%*************************************************************************
+%% Legal Notice:
+%% This code is offered as-is without any warranty either expressed or
+%% implied; without even the implied warranty of MERCHANTABILITY or
+%% FITNESS FOR A PARTICULAR PURPOSE! 
+%% User assumes all risk.
+%% In no event shall the IEEE or any contributor to this code be liable for
+%% any damages or losses, including, but not limited to, incidental,
+%% consequential, or any other damages, resulting from the use or misuse
+%% of any information contained here.
+%%
+%% All comments are the opinions of their respective authors and are not
+%% necessarily endorsed by the IEEE.
+%%
+%% This work is distributed under the LaTeX Project Public License (LPPL)
+%% ( http://www.latex-project.org/ ) version 1.3, and may be freely used,
+%% distributed and modified. A copy of the LPPL, version 1.3, is included
+%% in the base LaTeX documentation of all distributions of LaTeX released
+%% 2003/12/01 or later.
+%% Retain all contribution notices and credits.
+%% ** Modified files should be clearly indicated as such, including  **
+%% ** renaming them and changing author support contact information. **
+%%*************************************************************************
+
+
+% *** Authors should verify (and, if needed, correct) their LaTeX system  ***
+% *** with the testflow diagnostic prior to trusting their LaTeX platform ***
+% *** with production work. The IEEE's font choices and paper sizes can   ***
+% *** trigger bugs that do not appear when using other class files.       ***                          ***
+% The testflow support page is at:
+% http://www.michaelshell.org/tex/testflow/
+
+
+
+\documentclass[journal]{IEEEtran}
+%
+% If IEEEtran.cls has not been installed into the LaTeX system files,
+% manually specify the path to it like:
+% \documentclass[journal]{../sty/IEEEtran}
+
+
+
+
+
+% Some very useful LaTeX packages include:
+% (uncomment the ones you want to load)
+
+
+% *** MISC UTILITY PACKAGES ***
+%
+%\usepackage{ifpdf}
+% Heiko Oberdiek's ifpdf.sty is very useful if you need conditional
+% compilation based on whether the output is pdf or dvi.
+% usage:
+% \ifpdf
+%   % pdf code
+% \else
+%   % dvi code
+% \fi
+% The latest version of ifpdf.sty can be obtained from:
+% http://www.ctan.org/pkg/ifpdf
+% Also, note that IEEEtran.cls V1.7 and later provides a builtin
+% \ifCLASSINFOpdf conditional that works the same way.
+% When switching from latex to pdflatex and vice-versa, the compiler may
+% have to be run twice to clear warning/error messages.
+
+
+
+
+
+% *** CITATION PACKAGES ***
+%
+\usepackage{cite}
+% cite.sty was written by Donald Arseneau
+% V1.6 and later of IEEEtran pre-defines the format of the cite.sty package
+% \cite{} output to follow that of the IEEE. Loading the cite package will
+% result in citation numbers being automatically sorted and properly
+% "compressed/ranged". e.g., [1], [9], [2], [7], [5], [6] without using
+% cite.sty will become [1], [2], [5]--[7], [9] using cite.sty. cite.sty's
+% \cite will automatically add leading space, if needed. Use cite.sty's
+% noadjust option (cite.sty V3.8 and later) if you want to turn this off
+% such as if a citation ever needs to be enclosed in parenthesis.
+% cite.sty is already installed on most LaTeX systems. Be sure and use
+% version 5.0 (2009-03-20) and later if using hyperref.sty.
+% The latest version can be obtained at:
+% http://www.ctan.org/pkg/cite
+% The documentation is contained in the cite.sty file itself.
+
+
+
+
+
+
+% *** GRAPHICS RELATED PACKAGES ***
+%
+\ifCLASSINFOpdf
+  \usepackage[pdftex]{graphicx}
+  % declare the path(s) where your graphic files are
+  \graphicspath{{genfigs/}}
+  % and their extensions so you won't have to specify these with
+  % every instance of \includegraphics
+  \DeclareGraphicsExtensions{.pdf}
+\else
+  % or other class option (dvipsone, dvipdf, if not using dvips). graphicx
+  % will default to the driver specified in the system graphics.cfg if no
+  % driver is specified.
+  \usepackage[dvips]{graphicx}
+  % declare the path(s) where your graphic files are
+  \graphicspath{{genfigs/}}
+  % and their extensions so you won't have to specify these with
+  % every instance of \includegraphics
+  \DeclareGraphicsExtensions{.eps}
+\fi
+% graphicx was written by David Carlisle and Sebastian Rahtz. It is
+% required if you want graphics, photos, etc. graphicx.sty is already
+% installed on most LaTeX systems. The latest version and documentation
+% can be obtained at: 
+% http://www.ctan.org/pkg/graphicx
+% Another good source of documentation is "Using Imported Graphics in
+% LaTeX2e" by Keith Reckdahl which can be found at:
+% http://www.ctan.org/pkg/epslatex
+%
+% latex, and pdflatex in dvi mode, support graphics in encapsulated
+% postscript (.eps) format. pdflatex in pdf mode supports graphics
+% in .pdf, .jpeg, .png and .mps (metapost) formats. Users should ensure
+% that all non-photo figures use a vector format (.eps, .pdf, .mps) and
+% not a bitmapped formats (.jpeg, .png). The IEEE frowns on bitmapped formats
+% which can result in "jaggedy"/blurry rendering of lines and letters as
+% well as large increases in file sizes.
+%
+% You can find documentation about the pdfTeX application at:
+% http://www.tug.org/applications/pdftex
+
+
+
+
+
+% *** MATH PACKAGES ***
+%
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\usepackage{amsthm}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+% A popular package from the American Mathematical Society that provides
+% many useful and powerful commands for dealing with mathematics.
+%
+% Note that the amsmath package sets \interdisplaylinepenalty to 10000
+% thus preventing page breaks from occurring within multiline equations. Use:
+%\interdisplaylinepenalty=2500
+% after loading amsmath to restore such page breaks as IEEEtran.cls normally
+% does. amsmath.sty is already installed on most LaTeX systems. The latest
+% version and documentation can be obtained at:
+% http://www.ctan.org/pkg/amsmath
+
+
+
+
+
+% *** SPECIALIZED LIST PACKAGES ***
+%
+%\usepackage{algorithmic}
+% algorithmic.sty was written by Peter Williams and Rogerio Brito.
+% This package provides an algorithmic environment fo describing algorithms.
+% You can use the algorithmic environment in-text or within a figure
+% environment to provide for a floating algorithm. Do NOT use the algorithm
+% floating environment provided by algorithm.sty (by the same authors) or
+% algorithm2e.sty (by Christophe Fiorio) as the IEEE does not use dedicated
+% algorithm float types and packages that provide these will not provide
+% correct IEEE style captions. The latest version and documentation of
+% algorithmic.sty can be obtained at:
+% http://www.ctan.org/pkg/algorithms
+% Also of interest may be the (relatively newer and more customizable)
+% algorithmicx.sty package by Szasz Janos:
+% http://www.ctan.org/pkg/algorithmicx
+
+
+
+
+% *** ALIGNMENT PACKAGES ***
+%
+%\usepackage{array}
+% Frank Mittelbach's and David Carlisle's array.sty patches and improves
+% the standard LaTeX2e array and tabular environments to provide better
+% appearance and additional user controls. As the default LaTeX2e table
+% generation code is lacking to the point of almost being broken with
+% respect to the quality of the end results, all users are strongly
+% advised to use an enhanced (at the very least that provided by array.sty)
+% set of table tools. array.sty is already installed on most systems. The
+% latest version and documentation can be obtained at:
+% http://www.ctan.org/pkg/array
+
+
+% IEEEtran contains the IEEEeqnarray family of commands that can be used to
+% generate multiline equations as well as matrices, tables, etc., of high
+% quality.
+
+
+
+
+% *** SUBFIGURE PACKAGES ***
+%\ifCLASSOPTIONcompsoc
+%  \usepackage[caption=false,font=normalsize,labelfont=sf,textfont=sf]{subfig}
+%\else
+%  \usepackage[caption=false,font=footnotesize]{subfig}
+%\fi
+% subfig.sty, written by Steven Douglas Cochran, is the modern replacement
+% for subfigure.sty, the latter of which is no longer maintained and is
+% incompatible with some LaTeX packages including fixltx2e. However,
+% subfig.sty requires and automatically loads Axel Sommerfeldt's caption.sty
+% which will override IEEEtran.cls' handling of captions and this will result
+% in non-IEEE style figure/table captions. To prevent this problem, be sure
+% and invoke subfig.sty's "caption=false" package option (available since
+% subfig.sty version 1.3, 2005/06/28) as this is will preserve IEEEtran.cls
+% handling of captions.
+% Note that the Computer Society format requires a larger sans serif font
+% than the serif footnote size font used in traditional IEEE formatting
+% and thus the need to invoke different subfig.sty package options depending
+% on whether compsoc mode has been enabled.
+%
+% The latest version and documentation of subfig.sty can be obtained at:
+% http://www.ctan.org/pkg/subfig
+
+
+
+
+% *** FLOAT PACKAGES ***
+%
+%\usepackage{fixltx2e}
+% fixltx2e, the successor to the earlier fix2col.sty, was written by
+% Frank Mittelbach and David Carlisle. This package corrects a few problems
+% in the LaTeX2e kernel, the most notable of which is that in current
+% LaTeX2e releases, the ordering of single and double column floats is not
+% guaranteed to be preserved. Thus, an unpatched LaTeX2e can allow a
+% single column figure to be placed prior to an earlier double column
+% figure.
+% Be aware that LaTeX2e kernels dated 2015 and later have fixltx2e.sty's
+% corrections already built into the system in which case a warning will
+% be issued if an attempt is made to load fixltx2e.sty as it is no longer
+% needed.
+% The latest version and documentation can be found at:
+% http://www.ctan.org/pkg/fixltx2e
+
+
+%\usepackage{stfloats}
+% stfloats.sty was written by Sigitas Tolusis. This package gives LaTeX2e
+% the ability to do double column floats at the bottom of the page as well
+% as the top. (e.g., "\begin{figure*}[!b]" is not normally possible in
+% LaTeX2e). It also provides a command:
+%\fnbelowfloat
+% to enable the placement of footnotes below bottom floats (the standard
+% LaTeX2e kernel puts them above bottom floats). This is an invasive package
+% which rewrites many portions of the LaTeX2e float routines. It may not work
+% with other packages that modify the LaTeX2e float routines. The latest
+% version and documentation can be obtained at:
+% http://www.ctan.org/pkg/stfloats
+% Do not use the stfloats baselinefloat ability as the IEEE does not allow
+% \baselineskip to stretch. Authors submitting work to the IEEE should note
+% that the IEEE rarely uses double column equations and that authors should try
+% to avoid such use. Do not be tempted to use the cuted.sty or midfloat.sty
+% packages (also by Sigitas Tolusis) as the IEEE does not format its papers in
+% such ways.
+% Do not attempt to use stfloats with fixltx2e as they are incompatible.
+% Instead, use Morten Hogholm'a dblfloatfix which combines the features
+% of both fixltx2e and stfloats:
+%
+\usepackage{dblfloatfix}
+% The latest version can be found at:
+% http://www.ctan.org/pkg/dblfloatfix
+
+
+
+
+%\ifCLASSOPTIONcaptionsoff
+%  \usepackage[nomarkers]{endfloat}
+% \let\MYoriglatexcaption\caption
+% \renewcommand{\caption}[2][\relax]{\MYoriglatexcaption[#2]{#2}}
+%\fi
+% endfloat.sty was written by James Darrell McCauley, Jeff Goldberg and 
+% Axel Sommerfeldt. This package may be useful when used in conjunction with 
+% IEEEtran.cls'  captionsoff option. Some IEEE journals/societies require that
+% submissions have lists of figures/tables at the end of the paper and that
+% figures/tables without any captions are placed on a page by themselves at
+% the end of the document. If needed, the draftcls IEEEtran class option or
+% \CLASSINPUTbaselinestretch interface can be used to increase the line
+% spacing as well. Be sure and use the nomarkers option of endfloat to
+% prevent endfloat from "marking" where the figures would have been placed
+% in the text. The two hack lines of code above are a slight modification of
+% that suggested by in the endfloat docs (section 8.4.1) to ensure that
+% the full captions always appear in the list of figures/tables - even if
+% the user used the short optional argument of \caption[]{}.
+% IEEE papers do not typically make use of \caption[]'s optional argument,
+% so this should not be an issue. A similar trick can be used to disable
+% captions of packages such as subfig.sty that lack options to turn off
+% the subcaptions:
+% For subfig.sty:
+% \let\MYorigsubfloat\subfloat
+% \renewcommand{\subfloat}[2][\relax]{\MYorigsubfloat[]{#2}}
+% However, the above trick will not work if both optional arguments of
+% the \subfloat command are used. Furthermore, there needs to be a
+% description of each subfigure *somewhere* and endfloat does not add
+% subfigure captions to its list of figures. Thus, the best approach is to
+% avoid the use of subfigure captions (many IEEE journals avoid them anyway)
+% and instead reference/explain all the subfigures within the main caption.
+% The latest version of endfloat.sty and its documentation can obtained at:
+% http://www.ctan.org/pkg/endfloat
+%
+% The IEEEtran \ifCLASSOPTIONcaptionsoff conditional can also be used
+% later in the document, say, to conditionally put the References on a 
+% page by themselves.
+
+%\usepackage{float}
+%\floatstyle{boxed}
+%\restylefloat{figure}
+
+
+
+
+% *** PDF, URL AND HYPERLINK PACKAGES ***
+%
+%\usepackage{url}
+% url.sty was written by Donald Arseneau. It provides better support for
+% handling and breaking URLs. url.sty is already installed on most LaTeX
+% systems. The latest version and documentation can be obtained at:
+% http://www.ctan.org/pkg/url
+% Basically, \url{my_url_here}.
+
+
+
+
+% *** Do not adjust lengths that control margins, column widths, etc. ***
+% *** Do not use packages that alter fonts (such as pslatex).         ***
+% There should be no need to do such things with IEEEtran.cls V1.6 and later.
+% (Unless specifically asked to do so by the journal or conference you plan
+% to submit to, of course. )
+
+
+% correct bad hyphenation here
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+\def\mytitle{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters}
+\include{inc}
+
+\begin{document}
+%
+% paper title
+% Titles are generally capitalized except for words such as a, an, and, as,
+% at, but, by, for, in, nor, of, on, or, the, to and up, which are usually
+% not capitalized unless they are the first or last word of the title.
+% Linebreaks \\ can be used within to get better formatting as desired.
+% Do not put math or special symbols in the title.
+\title{\mytitle}
+%
+%
+% author names and IEEE memberships
+% note positions of commas and nonbreaking spaces ( ~ ) LaTeX will not break
+% a structure at a ~ so this keeps an author's name from being broken across
+% two lines.
+% use \thanks{} to gain access to the first footnote area
+% a separate \thanks must be used for each paragraph as LaTeX2e's \thanks
+% was not built to handle multiple paragraphs
+%
+
+\author{David C. Turner% <-this % stops a space
+\thanks{Manuscript received \pubdate.}%
+\thanks{The author is with the Operations and Planning Systems division of
+Tracsis plc, Leeds LS2 9DF, United Kingdom (email:
+dct25-a1vwi@mythic-beasts.com)}% <-this % stops a space
+\thanks{\copyright~2016-7 Tracsis plc. This work is licensed under the
+Creative Commons Attribution-ShareAlike 4.0 International License. To view a
+copy of this license, visit http://creativecommons.org/licenses/by-sa/4.0/
+or send a letter to Creative Commons, PO Box 1866, Mountain View, CA 94042,
+USA.}%
+%\thanks{Digital Object Identifier 99.9999/ZZZ.9999.999999}
+%\thanks{Manuscript received April 19, 2005; revised August 26, 2015.}} TODO
+}
+
+% note the % following the last \IEEEmembership and also \thanks - 
+% these prevent an unwanted space from occurring between the last author name
+% and the end of the author line. i.e., if you had this:
+% 
+% \author{....lastname \thanks{...} \thanks{...} }
+%                     ^------------^------------^----Do not want these spaces!
+%
+% a space would be appended to the last name and could cause every name on that
+% line to be shifted left slightly. This is one of those "LaTeX things". For
+% instance, "\textbf{A} \textbf{B}" will typeset as "A B" not "AB". To get
+% "AB" then you have to do: "\textbf{A}\textbf{B}"
+% \thanks is no different in this regard, so shield the last } of each \thanks
+% that ends a line with a % and do not let a space in before the next \thanks.
+% Spaces after \IEEEmembership other than the last one are OK (and needed) as
+% you are supposed to have spaces between the names. For what it is worth,
+% this is a minor point as most people would not even notice if the said evil
+% space somehow managed to creep in.
+
+
+
+% The paper headers
+%\markboth{IEEE Transactions on Parallel and Distributed Systems,~Vol.~?, No.~?, %?~? Draft \gitid}{Turner: \mytitle}%
+\markboth{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters --- \gitid}%TODO Journal of \LaTeX\ Class Files,~Vol.~14, No.~8, August~2015}%
+{Turner: \mytitle}
+% The only time the second header will appear is for the odd numbered pages
+% after the title page when using the twoside option.
+% 
+% *** Note that you probably will NOT want to include the author's ***
+% *** name in the headers of peer review papers.                   ***
+% You can use \ifCLASSOPTIONpeerreview for conditional compilation here if
+% you desire.
+
+
+
+
+% If you want to put a publisher's ID mark on the page you can do it like
+% this:
+%\IEEEpubid{1045--9219~\copyright~2016 IEEE.  Personal use is permitted, but republication/redistribution requires IEEE permission.}
+% Remember, if you use this you must call \IEEEpubidadjcol in the second
+% column for its text to clear the IEEEpubid mark.
+
+
+
+% use for special paper notices
+%\IEEEspecialpapernotice{(Invited Paper)}
+
+
+
+
+% make the title area
+\maketitle
+
+% As a general rule, do not put math, special symbols or citations in the
+% abstract or keywords.
+
+\begin{abstract}Consensus is an essential ingredient of a fault-tolerant
+  distributed system systems. When equipped with a consensus algorithm a
+  distributed system can act as a replicated state machine (RSM), duplicating
+  its state across a cluster of redundant components to avoid the failure of
+  any single component leading to a system-wide failure. Paxos and Raft are
+  examples of algorithms for achieving distributed consensus. Practical
+  implementations of this kind of system must support dynamic reconfiguration
+  in order to be able to replace failed components and perform other
+  administrative tasks without downtime. Paxos can achieve high performance by
+  pipelining (starting work on new requests before existing requests have
+  completed) but typically bounds the length of the pipeline to ensure
+  consistency during reconfiguration. Raft also supports pipelining and imposes
+  no such bound on concurrent requests, preserving consistency instead by
+  restricting which reconfigurations may be performed. This article shows how
+  to extend Paxos to support a more general form of reconfiguration which
+  subsumes the original bounded-pipeline approach as well as Raft-like
+  fully-concurrent reconfigurations and more besides.
+
+\end{abstract}
+
+% Note that keywords are not normally used for peerreview papers.
+\begin{IEEEkeywords}
+Distributed algorithms, fault tolerance.
+\end{IEEEkeywords}
+
+
+
+
+
+
+% For peer review papers, you can put extra information on the cover
+% page as needed:
+% \ifCLASSOPTIONpeerreview
+% \begin{center} \bfseries EDICS Category: 3-BBND \end{center}
+% \fi
+%
+% For peerreview papers, this IEEEtran command inserts a page break and
+% creates the second title. It will be ignored for other modes.
+\IEEEpeerreviewmaketitle
+
+\section{Introduction}
+
+\IEEEPARstart{R}{eliable} distributed systems must be able to tolerate a fault
+in any individual component without suffering a system-wide failure, and
+typically achieve this by ensuring that there is redundancy between the
+components.  A replicated state machine (RSM) is a style of fault-tolerant
+distributed system in which a deterministic state machine is replicated across
+a set of distinct nodes \cite{lampson}. Being deterministic, the nodes' states
+remain synchronised if they all start in the same state and perform the same
+sequence of transitions.
+
+In order to arrange for each node to perform the same transitions the system
+may achieve consensus on (or \textit{choose}) a sequence of values which
+describe the transitions. The sequence must be consistent across the whole
+system even in the presence of failures, and as long as there are not too many
+failures it must remain possible to continue to make progress.  This is known
+as the distributed consensus problem, for which a number of solutions are known
+to exist, including Paxos \cite{part-time-parliament} and Raft\cite{raft}. They
+typically run on a cluster of $2f+1$ nodes, where $f$ is the number of faulty
+nodes that should be tolerated, and consensus is achieved when a nonempty
+\textit{quorum} of nodes (e.g. at least $f+1$ of them) agree.  The collection
+of quorums in use is known as the \textit{configuration} of the cluster.
+
+It is normally necessary to be able to dynamically reconfigure a cluster by
+adding or removing nodes while it is running, in order that parts of the system
+can be repaired or replaced without needing to take the whole system offline.
+It is crucial that all participating nodes agree on the cluster configuration,
+and this can be achieved by holding the configuration within the RSM itself and
+using the consensus algorithm to choose special reconfiguration commands when a
+configuration change is desired.
+
+In Paxos, each value is chosen using a conceptually-separate instance of a
+two-phase consensus protocol known as \textit{Synod}. The full Paxos algorithm
+essentially runs an infinite sequence of Synod instances in parallel, using
+uniformity of the instances to do so without requiring infinite time or
+resources.  It starts by running phase I of all instances at once and then runs
+phase II of each instance in turn to yield the desired sequence of chosen
+values. It normally continues to run phase II for extended periods of time, but
+will return to phase I if certain nodes become faulty, or if messages between
+certain pairs of nodes cease to be delivered reliably for a period, or if the
+configuration changes.  Raft's pattern of execution is similar.
+
+Both algorithms can achieve high throughput by allowing for \textit{pipelining}
+\cite{smart} whereby work may begin on an instance even before all previous
+instances have fully completed. It is a little tricky to ensure that this
+preserves consistency when the configuration is held in the RSM itself because
+a value may only be proposed once a quorum of nodes are ready for it, but there
+may be a configuration change in the pipeline which would change the quorums so
+as to make a proposal invalid. If this case is not handled carefully then it
+may lead to inconsistency. Paxos implementations typically solve this problem
+by limiting the length of the pipeline to some $\alpha > 0$ and requiring that
+a configuration change chosen at instance $i$ does not take effect until at
+least instance $i + \alpha$, which means that when a proposal is made there can
+be no as-yet-undecided configuration change in the pipeline that could affect
+it. In contrast, Raft imposes no limit on the number of concurrently-running
+instances and instead restricts the reconfigurations that may occur to only
+allow ones that cannot result in inconsistency. An operator may then perform a
+sequence of these restricted reconfigurations in order to achieve an arbitrary
+reconfiguration.
+
+In Paxos, the choice of the pipeline length parameter $\alpha$ must be made
+carefully. If it is too small then the system may suffer from poor performance
+due to lack of parallelism, but if it is too large then configuration changes
+can be unreasonably expensive to complete. It is more
+elegant\cite{reconfiguring-a-state-machine} to limit the pipeline length only
+during reconfiguration and to allow the limit to vary while the system is
+running, but it would be better still if there were no need for a limit at all,
+even during reconfiguration.
+
+Here it is shown that the pipeline may indeed safely remain unbounded even
+during a configuration change as long as the reconfiguration satisfies certain
+conditions described in section \ref{configuration-changes} below. It is also
+shown that if these conditions are not satisfied then a reconfiguration can
+still take place as long as the pipeline length is temporarily limited.
+
+The algorithm is presented here in its entirety for the sake of consistency of
+notation and because it modifies the original algorithm in ways that invalidate
+its consistency and liveness proofs.  We begin with a recap of the Synod
+algorithm in section \ref{synod-text} and follow this by covering the full
+Paxos algorithm in section \ref{paxos-text}, then in section
+\ref{examples} it is shown how this work generalises and
+unifies the previously-known reconfiguration processes supported in Paxos and
+Raft. Reworked proofs of liveness and consistency are included in section
+\ref{liveness} and appendices \ref{synod-safety} and \ref{paxos-invariants} and
+differences from the original are highlighted throughout. The appendices are
+informal versions of formal proofs performed using the Isabelle/HOL proof
+assistant \cite{isabelle-hol}.
+
+%\IEEEpubidadjcol %must be in 2nd col of 1st page
+
+\section{Related Work}
+
+Lamport's original presentation of Paxos \cite{part-time-parliament} introduced
+the bounded-pipeline technique for supporting reconfiguration in which the
+pipeline length was defined to be 3. He later clarified that the value `3' was
+intended to stand for an arbitrary $\alpha > 0$ in \cite{paxos-made-simple}.
+Later still Lamport and Massa \cite{cheap-paxos} drew a distinction between
+Static Paxos in which the configuration may not change and Dynamic Paxos which
+supports reconfiguration but requires a bounded pipeline.  Dynamic Paxos was
+used as a basis for Cheap Paxos in which the system automatically reconfigures
+itself to achieve higher resilience to failures that do not occur
+simultaneously, and which uses a heterogeneous set of nodes to reduce the costs
+of operating a cluster.
+
+Malkhi, Lamport and Zhou \cite{stoppable-paxos} proposed Stoppable Paxos, an
+alternative method for reconfiguring clusters in which an RSM may be stopped,
+reconfigured, and then restarted with the new configuration. Stoppable Paxos
+improves on Dynamic Paxos by removing the need for a pipeline limit when the
+configuration is static and by allowing a different limit to be selected for
+different reconfigurations.
+
+Malkhi, Lamport and Zhou \cite{vertical-paxos} then proposed Vertical Paxos
+which keeps the RSM running throughout a reconfiguration, but requires a
+separate oracle to manage the configuration. The Egalitarian Paxos of Moraru,
+Andersen and Kaminsky \cite{egalitarian-paxos} uses a similar reconfiguration
+scheme.  The problem with needing an external oracle is that for full
+resilience it must be possible to reconfigure the oracle itself, which requires
+another oracle and so on \textit{ad infinitum}.
+
+Chandra, Griesemer and Redstone \cite{paxos-made-live} noted that the details
+of reconfiguration are ``relatively minor'' but ``subtle'' and do not give any
+details on the reconfiguration scheme used in their Chubby system. It seems
+likely that they also used the bounded-pipeline approach. In contrast, Birman,
+Malkhi and van Renesse \cite{virt-synch} noted that allowing for $\alpha > 1$
+may require an unacceptably complex implementation, leading many real-world
+systems to disable pipelining by setting $\alpha = 1$, or even to disable
+reconfiguration entirely.
+
+Bortnikov et al. \cite{bortnikov} implemented a reconfigurable RSM using static
+RSMs which may pass responsibility to each other in a manner that is similar to
+that of Stoppable Paxos. They improve the performance of their system compared
+with Stoppable Paxos by allowing each RSM to speculatively start executing
+commands before the transfer of responsibility has been fully agreed.
+
+Ongaro and Ousterhout \cite{raft} developed the Raft protocol which supports an
+unbounded pipeline throughout the reconfiguration process without inconsistency
+by instead limiting the reconfigurations that can be performed. They performed
+a formal proof of the correctness of Raft without reconfiguration, and an
+informal argument that consistency is preserved when a single node is added or
+removed from the cluster. Raft uses simple majorities of the set of nodes as
+its quorums.
+
+Viewstamped Replication and Zab are two other well-known consensus protocols.
+Viewstamped Replication supports reconfiguration as described by Liskov and
+Cowling \cite{viewstamped-replication} in a similar fashion to Vertical Paxos.
+Reed and Junqueira \cite{zab} initially presented Zab without reconfiguration
+and this feature was subsequently added by Shraer, Reed, Malkhi and Junqueira
+\cite{zab-reconf}, using a limited-pipeline approach much as in Dynamic Paxos.
+
+An interesting alternative approach to reconfiguration was proposed by Jahl and
+Meling \cite{async-reconfig} which uses eventual consistency rather than
+consensus to determine the configuration of the system, and therefore supports
+reconfiguration as long as it is still possible to communicate with a quorum of
+nodes even if consensus cannot be achieved due to an inability to elect a
+distinguished leader. In such a situation consensus-based approaches such as
+the one presented here would fail to make any further progress, whereas one
+based on eventual consistency could be reconfigured into one in which a leader
+may be elected and thus in which further progress can be made.
+
+\def\prep#1{\mathbf{prepare}(#1)}
+\def\mprom#1#2#3{\mathbf{promised}_{\ge #1}(#2,#3)}
+\def\fprom#1#2#3{\mathbf{promised}_{#1}(#2,#3)}
+\def\bprom#1#2#3#4{\mathbf{promised}_{#1}(#2,#3;#4)}
+\def\prop#1#2{\mathbf{proposed}_{#1}(#2)}
+\def\acc#1#2#3{\mathbf{accepted}_{#1}(#2,#3)}
+\def\chosen#1#2{\mathbf{chosen}_{#1}(#2)}
+\def\owner#1{\mathrm{owner}(#1)}
+
+\begin{figure*}[t!]
+\caption{Invariants preserved by the Synod algorithm\label{synod-invariants-figure}}
+
+\vspace{3mm}
+
+\renewcommand{\theenumi}{S\arabic{enumi}}
+
+\begin{enumerate}
+
+\item \label{synod-quorums} For all $b_1 \succ b_2 \in \mathbb B$ there are
+  sets of quorums $Q^\textrm{I}(b_1)$ and $Q^\textrm{II}(b_2) \subseteq
+  \mathcal P \mathbb A$ such that if $\prop{}{b_1}$ and $\chosen{}{b_2}$ then
+  ${Q^\textrm{I}(b_1) \frown Q^\textrm{II}(b_2)}$.
+
+\item \label{synod-fprom} If $\fprom{}{a}{b}$ then $\neg\acc{}{a}{b'}$ for all
+  ${b' \prec b}$.
+
+\item \label{synod-bprom} If $\bprom{}{a}{b}{b'}$ then $b' \prec b$,
+  $\acc{}{a}{b'}$, and $b'$ is the greatest such ballot in the sense that
+  $\neg\acc{}{a}{b''}$ for all $b''$ having $b' \prec b'' \prec b$.
+
+\item \label{synod-prop} If $\prop{}{b}$ then there is a quorum $q^\textrm{I}
+  \in Q^\textrm{I}(b)$ such that for every node $a \in q^\textrm{I}$ either
+  $\fprom{}{a}{b}$ or else there exists a $b'$ such that $\bprom{}{a}{b}{b'}$;
+  if also ${P \triangleq \{ b' \mid \exists a \in q^\textrm{I}.
+  \bprom{}{a}{b}{b'} \} \ne \varnothing}$ then $v(b) =
+  v\bigl(\mathrm{max}(P)\bigr)$.
+
+\item \label{synod-acc} If $\acc{}{a}{b}$ then $\prop{}{b}$.
+
+\item \label{synod-chosen} If $\chosen{}{b}$ then there is a quorum
+  $q^\textrm{II} \in Q^\textrm{II}(b)$ such that $\acc{}{a}{b}$ for every $a
+  \in q^\textrm{II}$.
+
+\end{enumerate}
+\end{figure*}
+
+\section{The Synod Algorithm}\label{synod-text}
+
+Synod\cite{part-time-parliament} is an algorithm for achieving consensus on a
+single value in a distributed system comprising a set of nodes which can
+communicate by sending messages to each other. The system is asynchronous but
+not Byzantine, in the sense that messages may be delayed, reordered, duplicated
+and dropped but not corrupted, and processes may run arbitrarily slowly or even
+stop but may not deviate from their specifications.
+
+Let $\mathbb B$ be a set of \textit{ballot identifiers} with a wellfounded
+total order $\prec$. Let $\mathbb A$ be a set of \textit{node identifiers} and
+let $\mathbb V$ be the set of values that may be chosen.
+
+The Synod algorithm involves five kinds of message, in two phases, as described
+below.  Throughout, $a \in \mathbb A$ and $b, b' \in \mathbb B$.  Phase I
+starts with the broadcast of a \textit{prepare} message $\prep{b}$ to which
+each node may respond with a \textit{promise}, either a \textit{free promise},
+written $\fprom{}{a}{b}$, or a \textit{forced promise}, written
+$\bprom{}{a}{b}{b'}$, where $a$ identifies the responding node.  Phase II
+starts with the broadcast of a \textit{proposal}, written $\prop{}{b}$, to
+which each node $a$ may respond with an \textit{acceptance}, written
+$\acc{}{a}{b}$. Once phase II is complete a \textit{success} message, written
+$\chosen{}{b}$, is broadcast.  It is convenient also to use these symbols as
+predicates indicating whether the corresponding messages have been sent.
+
+There is a function $v : \mathbb B \to \mathbb V$ assigning a value to each
+ballot, discussed in more detail in section \ref{value-function} below.
+
+The system satisfies a set of invariants listed in fig.
+\ref{synod-invariants-figure}, from which it follows that consistency is
+guaranteed in the sense that if $\chosen{}{b}$ and $\chosen{}{b'}$ then $v(b) =
+v(b')$ as shown by theorem \ref{synod-safety-theorem} in appendix
+\ref{synod-safety}.
+
+Each node operates as a state machine whose transitions are caused by the
+receipts of messages. Each phase is considered to be complete for a particular
+ballot when appropriate messages have been received from sufficiently many
+nodes, where ``sufficiently many'' is defined in terms of sets of quorums of
+nodes in the system's configuration.
+
+In more detail, a node may emit $\prop{}{b}$ when it considers phase I to be
+complete at ballot $b$, which is when promises for $b$ have been received from
+a quorum of nodes, and similarly may emit $\chosen{}{b}$ when it considers
+phase II to be complete at $b$, which is when acceptances of $b$ have
+been received from a quorum of nodes.
+
+The phase-I and phase-II quorums are defined so as to always contain at least
+one node in common, but may vary depending on the ballot $b$ and the phase as
+discussed in section \ref{per-phase-quorums} below. In particular, the quorums
+need not all mutually intersect, as discovered independently by Howard, Malkhi
+and Spiegelman \cite{flexible-paxos}.
+
+\subsection{Implementing the value function}\label{value-function}
+
+In an implementation of a RSM, the values chosen represent the transitions that
+the state machines must perform. It is possible that these values may be
+expensive to transfer between nodes because they could carry a large quantity
+of data.
+
+In the original presentation of the Synod algorithm, the values of ballots are
+carried along with their identifiers in the messages $\bprom{}{a}{b}{ b',v(b')
+}$, $\prop{}{ b,v(b)}$ and $\chosen{}{ b,v(b) }$. This means that, in a unicast
+network of $2f + 1$ nodes, each value is included in $2f$ messages (at least
+$f$ proposals and at least $f$ success messages) even in the absence of faults,
+which is twice as many as necessary. Furthermore, a simple method for detecting
+faults is to insist that each node sends at least one complete message within a
+certain period of time, but this method is unsatisfactory if messages can be
+unboundedly large.
+
+Observation O4 in \cite{cheap-paxos} notes that these values can be replaced in
+some cases by hashes, but this idea can be taken a step further and the values
+can be completely elided from the messages that take part in the Synod
+protocol, allowing considerably more freedom in the implementation of the
+function $v$ without sacrificing consistency.
+
+By allowing the values to be communicated using a separate mechanism from the
+consensus messages themselves it is possible to seek optimisations that rely on
+the fact that the values may be large but need not move quickly whereas the
+consensus messages are small but must be transported with low latency to ensure
+the system has good performance.
+
+Although it appears that the function $v$ is fixed, in practice it is allowed
+to change as the system runs. Treating it as fixed simplifies the consistency
+proof and highlights that its values need not be included in all messages, but
+means that the system cannot be shown to satisfy any useful liveness
+properties.  To recover liveness, note that if the invariants of fig.
+\ref{synod-invariants-figure} are satisfied with a value function $v$ then they
+continue to be satisfied if $v$ is replaced by another value function $v'$ that
+agrees with $v$ on proposed ballots, i.e. where $v(b) = v'(b)$ if $\prop{}{b}$
+but not necessarily otherwise. Since only $\owner{b}$ may propose $b$, if it
+has not yet itself proposed a value for $b$ it can deduce that $\neg\prop{}{b}$
+and therefore freely modify $v(b)$.
+
+It is also important for liveness that the implementation of $v$ is resilient
+to the same failure modes as the rest of the system. Since $\owner{b}$ is, in a
+sense, responsible for the value of the ballot $b$, it is possible to think of
+$v$ as an insert-only set of pairs ${\{ \langle b, v(b) \rangle \mid \prop{}{b}
+\}}$ which is an example of a convergent replicated data type\cite{crdts} and
+can therefore be implemented simply and robustly in a distributed system
+without needing to rely on a consensus algorithm.  Indeed the original
+presentation can be seen as containing such an implementation, where the
+inclusion of values in all messages ensures convergence occurs as quickly as
+possible, and replicating this set across all ${2f+1}$ nodes ensures $v$ itself
+may be resilient to as many as $2f$ failures.  Cheap Paxos\cite{cheap-paxos} is
+cheaper partly because it replicates $v$ across just the ${f+1}$ primary
+processors, with the $f$ auxiliary processors storing just the hashes of values
+to ensure integrity.
+
+It is also worth comparing this approach to that of Vertical
+Paxos\cite{vertical-paxos} which takes great care to ensure that the system
+state is completely transferred between nodes before they start to participate
+fully in the cluster, with certain optimisations in recognition of the fact
+that this state transfer could be an expensive and time-consuming operation
+involving a very large quantity of data. However if the implementation of $v$
+is separated out then the quantity of data that must be transferred as part of
+the consensus algorithm becomes small enough that it needs no special treatment
+and a consensus-free technique may be used to implement $v$ more efficiently.
+
+\subsection{Per-phase quorums}\label{per-phase-quorums}
+
+\def\I#1#2{{#1}^\textrm{I}_{#2}}
+\def\II#1#2{{#1}^\textrm{II}_{#2}}
+\def\QI#1{\I{Q}{#1}}
+\def\QII#1{\II{Q}{#1}}
+
+The consistency property of the Synod algorithm relies on the fact that the set
+of nodes involved in completing phase I must always intersect the set of nodes
+involved in completing phase II so that there is at least one node involved in
+both phases.  Write $Q_1 \frown Q_2$ iff every $q_1 \in Q_1$ and $q_2 \in Q_2$
+have ${q_1 \cap q_2 \ne \varnothing}$, and write $\QI{}(b)$ and $\QII{}(b)$ for
+the sets of phase-I and phase-II quorums for ballot $b$ respectively.
+
+In the original presentation of the Synod algorithm any (weighted) majority of
+the nodes could be used as a quorum, so that $\QI{}(b_1) = \QII{}(b_2)$ and
+hence $\QI{}(b_1) \frown \QII{}(b_2)$ for all $b_1$ and $b_2$ since all
+majorities intersect.
+
+Theorem \ref{synod-safety-theorem} shows that consistency can still be
+guaranteed even if sometimes $\QI{}(b_1) \ne \QII{}(b_2)$, as long as
+$\QI{}(b_1) \frown \QII{}(b_2)$ when $\prop{}{b_1}$, $\chosen{}{b_2}$ and $b_1
+\succ b_2$, as described in invariant \ref{synod-quorums}.  This weaker
+invariant is the key to allowing more general reconfigurations to take place
+safely as described in section \ref{configuration-changes} below.
+
+\section{The Paxos algorithm}\label{paxos-text}
+
+\def\promiseEraOk{$e(b) \le e(\mathrm{min}(i, i_\mathrm{max}))$}
+
+\begin{figure*} \caption{Invariants preserved by the Paxos
+  algorithm\label{paxos-invariants-figure}}
+
+\vspace{3mm}
+
+\renewcommand{\theenumi}{P\arabic{enumi}}
+
+\begin{enumerate}
+
+\item\label{paxos-quorums} There are configurations $\langle \QI{0}, \QII{0}
+  \rangle, \langle \QI{1}, \QII{1} \rangle, \ldots$ where ${\QII{e} \frown
+  \QI{e} \frown \QII{e+1}}$ for each $e$.
+
+\item\label{paxos-mprom} If $\mprom{i}{a}{b}$ then \promiseEraOk\ and
+  $\neg\acc{j}{a}{b'}$ for all $j \ge i$ and all $b' \prec b$.
+
+\item\label{paxos-fprom} If $\fprom{i}{a}{b}$ then \promiseEraOk\ and
+  $\neg\acc{i}{a}{b'}$ for all $b' \prec b$.
+
+\item\label{paxos-bprom} If $\bprom{i}{a}{b}{b'}$ then \promiseEraOk, $b'
+  \prec b$, $\acc{i}{a}{b'}$, and $b'$ is the greatest such ballot in the sense
+  that $\neg \acc{i}{a}{b''}$ for all $b''$ having $b' \prec b'' \prec b$.
+
+\item\label{paxos-prop} If $\prop{i}{b}$ then there is a quorum $q \in
+  \QI{e(b)}$ such that for every $a \in q$ one of the following holds:
+%
+\begin{itemize}
+\item $\mprom{j}{a}{b}$ for some $j \le i$, or
+\item $\fprom{i}{a}{b}$, or
+\item $\bprom{i}{a}{b}{b'}$ for some $b'$.
+\end{itemize}
+%
+Furthermore if $P \triangleq \{ b' \mid \exists a \in q. \bprom{i}{a}{b}{b'} \}
+\ne \varnothing$ then $v_i(b) = v_i\bigl(\mathrm{max}(P)\bigr)$.
+
+\item \label{paxos-acc} If $\acc{i}{a}{b}$ then $\prop{i}{b}$.
+
+\item \label{paxos-chosen} If $\chosen{i}{b}$ then $i \le i_\mathrm{max}$,
+  $e(i) \le e(b) + 1$, and there is a quorum $q \in \QII{e(i)}$ with
+  $\acc{i}{a}{b}$ for every $a \in q$.
+
+\end{enumerate}
+
+\end{figure*}
+
+Conceptually, Paxos is a sequence of distinct instances of the Synod algorithm
+all running simultaneously. To achieve this, the messages of the Synod
+algorithm above are indexed with the instance number $i \in \mathbb N$:
+$\fprom{i}{a}{b}$, $\bprom{i}{a}{b}{b'}$, $\prop{i}{b}$, $\acc{i}{a}{b}$ and
+$\chosen{i}{b}$.  There is another kind of message known as a
+\textit{multi-promise}, written $\mprom{i}{a}{b}$, which can be thought of as
+standing for the infinite set of free promises ${\{ \fprom{j}{a}{b} \mid j \ge
+i \}}$. Prepare messages $\prep{b}$ apply to all instances so are not indexed.
+
+As in the Synod algorithm, phase I starts with a broadcast of $\prep{b}$ for
+some $b$ to which each node $a$ may respond with a set of promises
+$\fprom{i}{a}{b}$, $\bprom{i}{a}{b}{b'}$ and $\mprom{i}{a}{b}$ according to its
+past behaviour. Each phase II instance $i$ operates just as in the Synod
+algorithm, starting with a broadcast of $\prop{i}{b}$ to which each node $a$
+may respond with an acceptance $\acc{i}{a}{b}$ and once acceptances have been
+received from a quorum of nodes it follows that $\chosen{i}{b}$ may be
+broadcast.
+
+There is a function $v_i : \mathbb B \to \mathbb V$ for each instance $i$
+giving a value to each ballot, and theorem \ref{paxos-safety-theorem} shows
+that whenever $\chosen{i}{b}$ and $\chosen{i}{b'}$ it follows that $v_i(b) =
+v_i(b')$.
+
+The invariants listed in fig. \ref{paxos-invariants-figure} are roughly the
+same as for many other presentations of Paxos with the addition of constraints
+on the configurations associated with instances and ballots as discussed below.
+Note that invariants \ref{paxos-mprom}, \ref{paxos-fprom} and \ref{paxos-bprom}
+limit the acceptances that can be sent as well as the promises, so there is no
+need to define separate invariants concerning the sending of acceptances.
+
+\subsection{Configuration changes}\label{configuration-changes}
+
+A fixed cluster configuration is a pair $\langle \QI{}, \QII{} \rangle$ of sets
+of quorums satisfying $\QI{} \frown \QII{}$, where $\QI{}$ and $\QII{}$ are the
+sets of quorums to use in phase I and phase II respectively.
+
+Changes to the cluster configuration are modelled by a sequence of
+configurations $ \langle \QI{0}, \QII{0} \rangle, \langle \QI{1}, \QII{1}
+\rangle, \ldots$ that also satisfy $\QI{e} \frown \QII{e+1}$ for all $e$.  The
+integer subscript is called the \textit{era} of a configuration.  Intuitively
+the cluster is ``in era $e$'' while instances are being chosen using $\langle
+\QI{e}, \QII{e}\rangle$. While a change from era $e$ to $e+1$ is in progress
+some instances may use the interim configuration $\langle \QI{e}, \QII{e+1}
+\rangle$, and once the change to era $e+1$ is complete instances will use
+$\langle \QI{e+1}, \QII{e+1} \rangle$. This intuition is captured more
+precisely in section \ref{fully-concurrent} below, and since $\QII{e} \frown
+\QI{e} \frown \QII{e+1} \frown \QI{e+1}$ it follows that consistency is
+preserved throughout by the observation of \ref{per-phase-quorums} above.
+
+To achieve this there are also two nondecreasing integer-valued functions, both
+written $e(\cdot)$, which respectively assign an era $e(i)$ to each instance
+$i$, and an era $e(b)$ to each ballot $b$. Intuitively $e(b)$ records which
+quorums may be used in phase I to decide that $\prop{i}{b}$ can be sent, and
+$e(i)$ records which quorums may be used in phase II to decide that
+$\chosen{i}{b}$ can be sent. More precisely a node may emit $\prop{i}{b}$ only
+if it has received promises for ballot $b$ in instance $i$ from a quorum of
+nodes in $\QI{e(b)}$, which implies that $e(b) \le e(i)$, and similarly a node
+may emit $\chosen{i}{b}$ only if ${e(i) \le e(b)+1}$ and it has received
+$\acc{i}{a}{b}$ from a quorum of nodes in $\QII{e(i)}$. These extra conditions
+on the eras of ballots and instances in messages ensure that if $\chosen{i}{b}$
+then ${e(b) \le e(i) \le e(b)+1}$ and hence $\QI{e(b)} \frown \QII{e(i)}$ as
+required to ensure consistency, as shown in lemma
+\ref{paxos-synod-quorum-invariant}.
+
+\subsection{Dynamic configuration changes}
+
+As in Dynamic Paxos, the configurations $\langle \QI{0}, \QII{0} \rangle,
+\langle \QI{1}, \QII{1} \rangle, \ldots$ and era numbers $e(i)$ are themselves
+chosen by consensus. In contrast, era numbers $e(b)$ for ballots $b$ are fixed
+in advance and not chosen by consensus.
+
+In more detail, configurations are held within the RSM as a finite sequence
+$\langle \QI{0}, \QII{0} \rangle, \langle \QI{1}, \QII{1} \rangle, \ldots,
+\langle \QI{e_\mathrm{max}}, \QII{e_\mathrm{max}} \rangle$ and the era numbers
+of instances are held similarly as a nondecreasing sequence $e(0), e(1),
+\ldots, e(i_\mathrm{max})$.  The transitions that affect these sequences may
+append one or more elements, but may not change any existing elements.
+
+The sequences are always long enough to make progress, in the sense that
+$e_\mathrm{max} \ge e(i_\mathrm{max})$ and if $\chosen{j}{b}$ for all $j < i$
+then $i_\mathrm{max} \ge i$.
+
+Note that a node may emit a promise for $b$ at instance $i$ only if
+\promiseEraOk. This allows nodes to make promises for an instance $i$ even if
+$e(i)$ is not yet known, i.e. if $i > i_\mathrm{max}$. Invariant
+\ref{paxos-chosen} requires that $i \le i_\mathrm{max}$, and hence $e(i)$ is
+known, before $\chosen{i}{b}$.
+
+\subsection{Liveness}\label{liveness}
+
+To be useful, a consensus algorithm must not only guarantee consistency but
+also ensure that it cannot ``get stuck'', i.e. it is always possible to make
+progress by eventually choosing a value for each instance. It is known to be
+impossible to guarantee liveness in a deterministic asynchronous
+system\cite{flp-impossibility} but as with earlier presentations of
+Paxos\cite{paxos-made-simple} here liveness can be shown under the assumption
+that a distinguished node $\ell$ is eventually selected as the only one that
+may emit $\prep{b}$ messages.
+
+The original liveness proof then proceeded by having $\ell$ emit $\prep{b}$ for
+some $b$ that is chosen to be large enough that a quorum of nodes may respond
+with promises. In contrast, here there is an upper bound on suitable ballots
+since a proposed ballot must not belong to an era which is too large, because
+if ${e(b) > e(i)}$ then no promise for ballot $b$ at instance $i$ may be made.
+Therefore here $\ell$ must be able to choose a ballot that is large enough to
+be accepted but which still belongs to the correct era, or, more precisely, for
+each ballot $b$, each era $e \ge e(b)$ and each node $a$ there must be a ballot
+$b' \succ b$ having $e(b') = e$ and $\owner{b'} = a$.
+
+This means that ballot numbers cannot be simple integers because this would
+imply that there exist eras containing only finitely many ballots. Instead an
+implementation could, for example, let $\mathbb B = \mathbb N \times \mathbb N
+\times \mathbb A$ ordered lexicographically, where $e(\langle e, n, a\rangle)
+\triangleq e$ and $\owner{\langle e, n, a \rangle} \triangleq a$. This is the
+approach used in Egalitarian Paxos\cite{egalitarian-paxos} in which eras are
+known as \textit{epochs} but this terminology is avoided here to prevent
+confusion with the epochs (views, terms, \ldots) of leader-election protocols
+(e.g.  \cite{omega-meets-paxos}) which track the current leader rather than the
+current configuration.
+
+With this in mind the proof of liveness runs much as in the original
+presentation:
+
+\begin{theorem}[Liveness]\label{liveness-theorem} Given that there is
+  eventually a nonfaulty distinguished node $\ell$ which is the only node that
+  may emit prepare messages, and sufficiently many other nonfaulty nodes, and
+  given that for every instance there is eventually at least one value to
+propose, then eventually a value is chosen for every instance.  \end{theorem}
+
+\begin{proof} The proof proceeds by induction over the instances, so suppose
+that $\chosen{j}{b_j}$ for all $j < i$ and show that eventually
+$\chosen{i}{b_i}$ as follows.
+
+Firstly recall that the sequences of eras and configurations are long enough,
+in the sense that $i \le i_{\mathrm{max}}$ and $e(i_{\mathrm{max}}) \le
+e_{\mathrm{max}}$, so that the values of $e(i)$, $\QI{e(i)-1}$, $\QI{e(i)}$ and
+$\QII{e(i)}$ are known to $\ell$.
+
+The distinguished node $\ell$ first chooses a ballot $b_i$ having $e(b_i) \in
+\{ e(i) - 1, e(i) \}$ and $\owner{b_i} = \ell$ and such that enough nodes can
+emit $\acc{i}{a}{b_i}$ without breaking any of their previously-made promises.
+By invariants \ref{paxos-mprom}, \ref{paxos-fprom} and \ref{paxos-bprom}, all
+promises for such a ballot $b'$ at instance $i$ must have $e(b') \le e(i)$ so
+that such a $b_i$ does exist.
+
+If $\ell$ has not yet received enough promises for $b_i$ at instance $i$ then
+it broadcasts $\prep{b_i}$ and waits to receive promises from a quorum of nodes
+in $\QI{e(b_i)}$.
+
+Then, if $\ell$ has not yet emitted $\prop{i}{b_i}$ it selects one of the
+values for instance $i$ (which eventually exists), sets $v_i(b_i)$ as
+appropriate, broadcasts $\prop{i}{b_i}$, and waits to receive acceptances in
+response. When acceptances have been received from a quorum of nodes in
+$\QII{e(i)}$ it follows that $\chosen{i}{b_i}$ as required. \end{proof}
+
+\subsection{Fully concurrent configuration changes}\label{fully-concurrent}
+
+The discussion so far shows that, like other Paxos variants, this algorithm
+satisfies consistency and liveness properties.  The benefit of this scheme
+compared with other variants is that, under normal running conditions, it is
+possible to perform a reconfiguration without needing to impose a limit on the
+number of concurrently-running instances. This section describes the details of
+this procedure.
+
+In normal running there is an instance $i_0$ and a ballot $b$ with ${e(b) =
+e(i_0) = e(i_\mathrm{max}) = e_\mathrm{max}}$ and the distinguished node $\ell
+= \owner{b}$ has received a quorum of promises $q^\textrm{I} \in \QI{e(b)}$ for
+ballot $b$ for all instances $i \ge i_0$. In this state, $\ell$ may emit
+$\prop{i}{b}$ for any $i \ge i_0$ as long as $v_i(b)$ is set appropriately.
+The node $\ell$ is known as the \textit{leader} and its proposals are normally
+accepted without undue delay by all other nodes.
+
+\def\Qnew#1{Q^\textrm{#1}_\textrm{new}}
+
+Suppose that, in normal running, an operator wishes to change the cluster
+configuration to $\langle \Qnew{I}, \Qnew{II} \rangle$ where $\QI{e(b)} \frown
+\Qnew{II} \frown \Qnew{I}$. First she appends $\langle \Qnew{I}, \Qnew{II}
+\rangle$ to the sequence of configurations, setting $\langle \QI{e(b)+1},
+\QII{e(b)+1} \rangle = \langle \Qnew{I}, \Qnew{II} \rangle$ and $e_\mathrm{max}
+= e(b) + 1$, then she picks a future instance $i_c > i_\mathrm{max}$ at which
+the change should take effect and appends values to the sequence of eras to set
+$e(i) = e(i_0)$ for $i_0 \le i < i_c$ and $e(i_c) = e(i_0) + 1$.  Since $e(i_c)
+= e(i_0) + 1 \le e(b) + 1$, values for instance $i_c$ and any future instances
+with the same era may be proposed and chosen even though phase I has not yet
+run for a ballot in this era, so this does not prevent any further instances
+from running concurrently. There is therefore no drawback to choosing as small
+a value for $i_c$ as possible, so it makes sense to choose $i_c =
+i_\mathrm{max} + 1$.
+
+At this point, the system is no longer in normal running as defined above
+because $e(b) = e(i_\mathrm{max}) - 1$. If the operator were to increase
+$e(i_\mathrm{max})$ any further then there would be an instance $i$ with $e(i)
+> e(b) + 1$ and hence $\neg\chosen{i}{b}$. A value can still eventually be
+chosen for instance $i$ due to theorem \ref{liveness-theorem}, but not before
+the leader has selected a new ballot $b'$ in an appropriate era, completed
+phase I for $b'$, and then broadcast new proposals for $b'$. These steps may
+cause the pipeline to stall if not completed quickly enough.
+
+The system must therefore be returned to normal running before any further
+reconfiguration can occur. To do this, the leader chooses a new ballot $b'$
+having $e(b') = e(b) + 1$ and $\owner{b'} = \ell$ and runs phase I for $b'$ in
+a way that does not prevent any progress in era $e(b)$ while it has not
+completed. This is possible if $\ell$ has a \textit{casting vote} in the sense
+that there are quorums of nonfailed nodes $q \in \QII{e(b)}$ and $q' \in
+\QI{e(b)+1}$ having $q \cap q' = \{\ell\}$. With a casting vote, $\ell$ may
+broadcast $\prep{b'}$ just to the nodes in $q' \setminus \{\ell\}$ without
+preventing further progress in era $e(b)$ since the nodes in $q$ can continue
+to accept proposals in this era throughout.  When it has received promises from
+all the other nodes in $q'$ it can send itself $\mprom{i'}{\ell}{b'}$ for some
+sufficiently large $i'$, which completes phase I at $b'$ and restores the
+system to normal running in era $e(b') = e(b)+1$.  A message from a node to
+itself does not incur any network delays so the last step occurs essentially
+instantaneously.
+
+If $\ell$ does not have a casting vote, but there is some other node $\ell'$
+which does, then $\ell$ should first abdicate its leadership to $\ell'$ and
+then the new leader should perform the new phase I as described above. If there
+is no node with a casting vote at all then the broadcast of $\prep{b'}$ may
+prevent progress until phase I is complete at $b'$.
+
+If any node fails during this process then it may be necessary to retry some of
+the steps or possibly even elect a new leader. Liveness and consistency
+continue to hold if nodes fail but performance may be affected, for instance by
+meaning that $\ell$ no longer has a casting vote. In general it is not possible
+to prevent node failures from having a performance impact.
+
+\begin{figure}[!t]
+\centering
+\includegraphics{smooth}
+\caption{Message flow during a reconfiguration. \label{seq-diag-smooth}}
+\end{figure}
+
+To give a concrete example of this process, fig. \ref{seq-diag-smooth} shows
+the flow of messages during a reconfiguration involving the nodes $a_1$ and
+$a_2$ and the leader $\ell$. The system starts in era $e$ where $\{\ell, a_1\}
+\in \QI{e}$ and $\{\ell, a_2\} \in \QII{e}$, and moves to era $e+1$ where
+$\{\ell, a_1\} \in \QI{e+1}$ and $\{\ell, a_2\} \in \QII{e+1}$ too. Because of
+these quorums, the leader only needs a response from node $a_1$ to complete
+phase I, and similarly only needs a response from node $a_2$ to complete phase
+II and choose a value. Notice that this means the leader has a casting vote.
+The messages sent from $\ell$ to the other nodes are labelled on the diagram,
+but the successful responses (promises and acceptances from $a_1$ and $a_2$
+respectively) are left unlabelled for clarity. Initially, $i_\mathrm{max} =
+i+3$ and $e(i) = e(i+1) = e(i+2) = e(i+3) = e = e_\mathrm{max}$, and all
+instances before $i$ have already been chosen.
+
+The leader starts by completing phase I at a sufficiently large ballot $b$,
+where $e(b) = e$, which starts a period of normal running in era $e$ and means
+that $\ell$ may emit $\prop{j}{b}$ for any $j \ge i$. It receives three client
+requests, causing it to propose values for instances $i$, $i+1$ and $i+2$ in
+turn.  On the receipt of each proposal the node $a_2$ responds with an
+acceptance, which when ultimately received by $\ell$ allows it to decide that
+each value is chosen because $\{ \ell, a_2 \} \in \QII{e}$.
+
+A configuration change is proposed at instance $i+3$ which, when chosen,
+appends the next configuration $\langle \QI{e+1}, \QII{e+1} \rangle$ to the
+configuration sequence, sets $e(i+4) = e(i+5) = \ldots = e+1$, and increases
+$e_\mathrm{max}$ and $i_\mathrm{max}$ accordingly. This takes the system out of
+normal running because now $e(i_\mathrm{max}) = e + 1 \ne e(b)$.  In order to
+bring the system back into normal running, the leader must choose a ballot $b'$
+having $e(b') = e_\mathrm{max}$ and complete a phase I at $b'$, so it sends
+$\prep{b'}$ to $a_1$.
+
+While instance $i+3$ was being chosen, the leader continued to service client
+requests by sending out $\prop{i+4}{b}$, $\prop{i+5}{b}$ and $\prop{i+6}{b}$,
+which $a_2$ accepts in due course. Although these instances come after the
+configuration change at instance $i+3$, when the leader receives
+$\acc{i+4}{a_2}{b}$ it may still safely deduce $\chosen{i+4}{b}$ since $e(i+4)
+= e + 1 \le e(b) + 1$ and $\{ \ell, a_2 \} \in \QII{e+1}$, and similarly for
+instances $i+5$ and $i+6$. It is important to notice that the leader is now
+using $\QII{e+1}$ and not $\QII{e}$ to determine when ballots are chosen. The
+horizontal dashed line shows the point in time at which the leader moves from
+era $e$ to era $e+1$.
+
+While the leader is waiting for the response from $a_1$, client requests
+continue to arrive, yielding proposals for subsequent instances $i+7$, $i+8$,
+\ldots.  Notice that the leader is still using ballot $b$ for these requests as
+it has not yet completed phase I at $b'$, but that it is still safe to deduce
+$\chosen{i+7}{b}$, $\chosen{i+8}{b}$, $\ldots$ because $e(i+7) = e(i+8) =
+e(b)+1$.  Importantly, there is no limit to how many requests the leader can
+handle in this way, so the system will continue to be able to process client
+requests even if the phase I messages are arbitrarily delayed.
+
+At last the response from $a_1$ is received just after the sending of
+$\prop{i+11}{b}$ and before a proposal has been made for instance $i+12$. The
+leader can then send itself the message $\mprom{i+12}{\ell}{b'}$ which
+completes phase I at ballot $b'$ since $\{\ell, a_1\} \in \QI{e+1}$.  This
+restores the system to normal running, and allows $\ell$ to make proposals
+$\prop{j}{b'}$ for all $j \ge i+12$. It is imporant to notice that the leader
+did not need to predict how long it would take to complete phase I at $b'$ in
+advance, nor how many requests it might have to handle during this time, in
+order to ensure that it can continue to process these requests without delay.
+
+\begin{figure}[!t]
+\centering
+\includegraphics{dynamic}
+\caption{Message flow for Dynamic Paxos with $\alpha = 2$. \label{seq-diag-dynamic}}
+\end{figure}
+
+Fig. \ref{seq-diag-dynamic} shows an equivalent reconfiguration performed in a
+Dynamic Paxos cluster with the pipeline length $\alpha = 2$. As there are
+frequently two proposals being processed concurrently it seems likely that
+better performance could be achieved by selecting a higher value. A higher
+value still could have avoided the pause between instances $i+5$ and $i+6$
+caused by the extra delay in completing phase I at ballot $b'$. On the other
+hand if the pipeline is too long then configuration changes can be expensive to
+complete. It is, in general, difficult to select an appropriate value for
+$\alpha$ up-front as the best choice may depend on changeable system
+conditions, and no matter what value is selected it is possible that a
+configuration change may cause a pause if a phase-I message is unexpectedly
+delayed or a burst of client requests are received.
+
+\begin{figure}[!t]
+\centering
+\includegraphics{stoppable2}
+\caption{Message flow for Stoppable Paxos. \label{seq-diag-stoppable-ooo}}
+\end{figure}
+
+In contrast, fig. \ref{seq-diag-stoppable-ooo} shows an equivalent
+reconfiguration performed in Stoppable Paxos. This variant of Paxos allows for
+an unlimited number of proposals to run in parallel within each configuration,
+and permits out-of-order execution, so in this illustration the stopping
+command is proposed at instance $i+3$ before proposals are made for the two
+preceding instances.  By selecting instance $i+3$ for the reconfiguration, the
+operator is limiting the system to service at most two more client requests
+before the reconfiguration completes. As in the illustration of Dynamic Paxos
+above, the operator's choice is too conservative so the remaining two free
+instances are used up before phase I is completed at ballot $b'$, which causes
+the system to temporarily suspend its processing of client requests.
+
+\section{Examples}\label{examples}
+
+This section contains some examples of configuration changes that satisfy the
+conditions described above.  All the configurations described here have equal
+sets of quorums in phase I and phase II of each era, so for the sake of
+simplicity throughout this section define ${Q_e \triangleq Q^\textrm{I}_e =
+Q^\textrm{II}_e}$.  Implementations can ensure $Q_e \frown Q_e$ for each $e$
+by, for instance, arranging for each quorum in $Q_e$ to comprise a majority
+subset of some finite set of nodes. Slightly more generally, let a
+\textit{weight function} be a function $w : \mathbb A \to \mathbb N$ that only
+takes finitely many nonzero values. This can be used to define a configuration
+$\langle M(w), M(w) \rangle$ by \textit{weighted majority}: \[M(w) \triangleq
+  \left\{ q \;\middle|\; \sum_{a \in q} 2 w(a) > \sum_{a \in \mathbb A} w(a)
+\right\}.\] Corollary \ref{weights-equal} in appendix \ref{weights-appendix}
+demonstrates the well-known result that $M(w) \frown M(w)$ for any weight
+function $w$.  Indeed, if $w$ and $w'$ are weight functions that differ by a
+constant factor in the sense that that there are positive integers $k$ and $k'$
+with $k w(a) = k' w'(a)$ for all $a$, then clearly ${M(w) = M(w')}$ and hence
+$M(w) \frown M(w')$.
+
+\def\wl#1{w^{1 \ldots #1}}
+\def\Mwl#1{M(\wl{#1})}
+
+Raft's quorums are simple unweighted majorities of a finite set of nodes, which
+can be emulated with weight functions that only take values in $\{0, 1\}$. It
+only supports adding or removing a single node from this set which amounts to
+changing the weight of a single node by $\pm 1$. For instance, if $\mathbb A =
+\{ a_1, a_2, \ldots \}$ then define weight functions \[\wl{n}(a) \triangleq
+\begin{cases} 1 & \mathrm{if } a \in \{a_1, \ldots, a_n\} \\ 0 &
+\mathrm{otherwise}\end{cases}\] and observe that ${\Mwl{3} \frown \Mwl{4}}$ and
+${\Mwl{4} \frown \Mwl{5}}$ but ${\Mwl{3} \not\frown \Mwl{5}}$ because $\{a_1,
+a_2\} \in \Mwl{3}$ and $\{a_3, a_4, a_5\} \in \Mwl{5}$ do not intersect. This
+justifies the restriction against adding or removing more than one node at
+once.
+
+In fact there is no need to restrict attention just to weight functions taking
+values in $\{0, 1\}$ as shown by lemma \ref{weights-nearly-equal} which is
+reminiscent of the amoeba analogy in \cite{cheap-paxos}: any two integer-valued
+weight functions whose total absolute difference is at most one can be used to
+define consecutive configurations. This extra generality is important for
+deployments where nodes may share infrastructure (e.g. power distribution or
+network connectivity) because such nodes may suffer correlated failures, and
+reducing this correlation by adding more independent infrastructure may be
+costly.  In more detail, a na\"ive approach to swapping a node
+$a_{\textrm{old}}$ for a replacement $a_{\textrm{new}}$ in a three-node cluster
+using unweighted majorities would be to perform the configuration changes given
+by this sequence of weight functions starting at era $e$: \[\begin{array}{rcccc}
+%
+\textrm{node}&a_{\textrm{old}}&a_{\textrm{new}}&a_1&a_2 \\
+%
+w_e&1&0&1&1\\
+%
+w_{e+1}&1&1&1&1\\
+%
+w_{e+2}&0&1&1&1\\
+%
+\end{array}\]
+%
+However to be resilient to infrastructure failures this requires all four nodes
+and their underlying infrastructures to be completely independent since a
+correlated failure of any two nodes would prevent further progress.  It also
+has no node with a casting vote in era $e+1$. On the other hand the following
+sequence achieves the same overall change but allows $a_{\textrm{old}}$ and
+$a_{\textrm{new}}$ to share infrastructure without extra risk, and both $a_1$
+and $a_2$ have casting votes throughout: \[\begin{array}{rcccc}
+%
+\textrm{node}&a_{\textrm{old}}&a_{\textrm{new}}&a_1&a_2 \\
+%
+w_e&1&0&1&1\\
+%
+w_{e+1}&2&0&2&2\\
+%
+w_{e+2}&2&1&2&2\\
+%
+w_{e+3}&1&1&2&2\\
+%
+w_{e+4}&0&1&2&2\\
+%
+w_{e+5}&0&2&2&2\\
+%
+w_{e+6}&0&1&1&1\\
+%
+\end{array}\]
+%
+This is important as in many operating environments it may be too expensive or
+complicated to arrange for four independent infrastructures particularly if the
+fourth is only required to ensure consistency in relatively rare periods of
+maintenance. For instance at time of writing only one Amazon Web Services
+region (\texttt{us-east-1}) has four independent zones, whereas four of them
+have three: \texttt{ap-southeast-2}, \texttt{eu-west-1}, \texttt{sa-east-1} and
+\texttt{us-west-2}. Similarly, only one Google Cloud Platform region
+(\texttt{us-central1}) has four zones and all the others have three zones.
+
+Early versions of Raft supported more general reconfigurations using a
+technique known as \textit{joint configurations}. To change from configuration
+$Q_{e}$ to an unrelated configuration $Q'$ (i.e.  $Q_{e} \not\frown Q' \frown
+Q'$) it is possible to set $Q_{e+2} = Q'$ and set $Q_{e+1}$ to be the
+\textit{joint configuration} of $Q_{e}$ and $Q'$: \[Q_{e+1} = \{ q \cup q' \mid
+q \in Q_{e}, q' \in Q' \}\] as this satisfies that $Q_{e} \frown Q_{e + 1}
+\frown Q_{e+1} \frown Q'$.
+
+If $w(a) = 0$ for all $a$ then $w$ is said to be \textit{weightless} and $M(w)
+= \varnothing$. Clearly if there is an instance $i$ such that $Q_{e(i)} =
+\varnothing$ then no value can ever be chosen for $i$. On the other hand $Q
+\frown \varnothing$ for all $Q$ so changing to or from a weightless
+configuration is always permitted.
+
+There is no requirement for the eras of consecutive instances to differ by at
+most one so an era may be skipped at instance $i+1$ by setting $e(i+1) = e(i) +
+2$.  This recovers the ability to perform arbitrary configuration changes in a
+single step as in Stoppable Paxos. In more detail, if the system is currently
+using configuration $Q_{e}$ and an operator wishes to change to an unrelated
+configuration $Q'$ then she can set $Q_{e+2} = Q'$ and pick an appropriate
+$Q_{e+1}$ (such as $\varnothing$) which satisfies that $Q_{e} \frown Q_{e + 1}
+\frown Q_{e+1} \frown Q'$.  However, re-running phase I can only be delayed as
+described in section \ref{fully-concurrent} above if the era increases by $1$
+and in this situation the era increases by $2$, so a new phase I must be
+completed before phase II of any new instances can be started.  To prevent this
+causing the pipeline to stall, the operator chooses a sufficiently large
+$\alpha > 0$ and sets $e(i+\alpha) = e(i)+2$ and $e(j) = e(i)$ for $i < j \le i
++ \alpha$, effectively delaying the configuration change for $\alpha$ instances
+in the hope that this is long enough to have completed the new phase I. The
+pattern of communication in this situation is very similar to that shown in
+fig. \ref{seq-diag-stoppable-ooo} where $\alpha$ was chosen to be $3$.
+
+\section{Conclusion}
+
+The approach described here improves on Dynamic Paxos\cite{cheap-paxos} by
+supporting changing the pipeline length parameter $\alpha$ and running with an
+unlimited-length pipeline while a configuration change is not in progress.  In
+that sense, it can be compared to that of Stoppable Paxos\cite{stoppable-paxos}
+which allows for an unlimited number of proposals to run in parallel within
+each configuration, but requires a temporary arbitrary limit on concurrency
+while a reconfiguration takes place.
+
+In both Dynamic and Stoppable Paxos, if the selected limit is either too small
+or too large then it may affect the system's performance, and the best choice
+of limit depends on a prediction of the system's future performance.  The
+approach described here avoids the need to make any such prediction or select
+any such limit and responds to changing system conditions without needing
+further tuning. Once a reconfiguration is chosen, it can complete after a
+single round-trip to a quorum of nodes and the system can continue to serve all
+clients while this round-trip is in progress, no matter how long it takes.
+
+This is achieved by using Raft-style reconfigurations\cite{raft} which can be
+performed with an unlimited pipeline throughout. Unlike in Raft, here a
+configuration change only takes effect once it is chosen, which avoids the need
+to back-track to an earlier state if a leader fails during reconfiguration. It
+generalises the simple majorities used in Raft to integer-weighted majorities
+which can reduce the costs of dealing with correlated failures during
+maintenance.
+
+It achieves equivalent goals to those of Vertical Paxos\cite{vertical-paxos}
+except that here there is no requirement for a separate oracle to manage the
+configuration of the system.
+
+It is also noted that there is no need for every message to include the
+corresponding value, or even a hash of the value, which may allow for even
+cheaper implementations of Cheap Paxos\cite{cheap-paxos} and can simplify the
+transfer of state\cite{vertical-paxos} required when new nodes are
+commissioned.
+
+% An example of a floating figure using the graphicx package.
+% Note that \label must occur AFTER (or within) \caption.
+% For figures, \caption should occur after the \includegraphics.
+% Note that IEEEtran v1.7 and later has special internal code that
+% is designed to preserve the operation of \label within \caption
+% even when the captionsoff option is in effect. However, because
+% of issues like this, it may be the safest practice to put all your
+% \label just after \caption rather than within \caption{}.
+%
+% Reminder: the "draftcls" or "draftclsnofoot", not "draft", class
+% option should be used if it is desired that the figures are to be
+% displayed while in draft mode.
+%
+
+
+% Note that the IEEE typically puts floats only at the top, even when this
+% results in a large percentage of a column being occupied by floats.
+
+
+% An example of a double column floating figure using two subfigures.
+% (The subfig.sty package must be loaded for this to work.)
+% The subfigure \label commands are set within each subfloat command,
+% and the \label for the overall figure must come after \caption.
+% \hfil is used as a separator to get equal spacing.
+% Watch out that the combined width of all the subfigures on a 
+% line do not exceed the text width or a line break will occur.
+%
+%\begin{figure*}[!t]
+%\centering
+%\subfloat[Case I]{\includegraphics[width=2.5in]{box}%
+%\label{fig_first_case}}
+%\hfil
+%\subfloat[Case II]{\includegraphics[width=2.5in]{box}%
+%\label{fig_second_case}}
+%\caption{Simulation results for the network.}
+%\label{fig_sim}
+%\end{figure*}
+%
+% Note that often IEEE papers with subfigures do not employ subfigure
+% captions (using the optional argument to \subfloat[]), but instead will
+% reference/describe all of them (a), (b), etc., within the main caption.
+% Be aware that for subfig.sty to generate the (a), (b), etc., subfigure
+% labels, the optional argument to \subfloat must be present. If a
+% subcaption is not desired, just leave its contents blank,
+% e.g., \subfloat[].
+
+
+% An example of a floating table. Note that, for IEEE style tables, the
+% \caption command should come BEFORE the table and, given that table
+% captions serve much like titles, are usually capitalized except for words
+% such as a, an, and, as, at, but, by, for, in, nor, of, on, or, the, to
+% and up, which are usually not capitalized unless they are the first or
+% last word of the caption. Table text will default to \footnotesize as
+% the IEEE normally uses this smaller font for tables.
+% The \label must come after \caption as always.
+%
+%\begin{table}[!t]
+%% increase table row spacing, adjust to taste
+%\renewcommand{\arraystretch}{1.3}
+% if using array.sty, it might be a good idea to tweak the value of
+% \extrarowheight as needed to properly center the text within the cells
+%\caption{An Example of a Table}
+%\label{table_example}
+%\centering
+%% Some packages, such as MDW tools, offer better commands for making tables
+%% than the plain LaTeX2e tabular which is used here.
+%\begin{tabular}{|c||c|}
+%\hline
+%One & Two\\
+%\hline
+%Three & Four\\
+%\hline
+%\end{tabular}
+%\end{table}
+
+
+% Note that the IEEE does not put floats in the very first column
+% - or typically anywhere on the first page for that matter. Also,
+% in-text middle ("here") positioning is typically not used, but it
+% is allowed and encouraged for Computer Society conferences (but
+% not Computer Society journals). Most IEEE journals/conferences use
+% top floats exclusively. 
+% Note that, LaTeX2e, unlike IEEE journals/conferences, places
+% footnotes above bottom floats. This can be corrected via the
+% \fnbelowfloat command of the stfloats package.
+
+\appendices
+
+\section{}\label{weights-appendix}
+
+\begin{lemma} \label{weights-nearly-equal-factors} If $w, w' : \mathbb A \to
+\mathbb N$ are weight functions and $k, k'$ are positive integers such that
+$\sum_{a \in \mathbb A} |k'w'(a) - kw(a)| \le 1$ then $M(w) \frown M(w')$.
+\end{lemma}
+
+\begin{proof}Since $kw(a)$ and $k'w'(a)$ are integers for all $a$, there must
+  be a node $a_0$ such that $kw(a) = k'w'(a)$ for all $a \ne a_0$.
+%
+Let $q \in M(w)$ and $q' \in M(w')$. By the definition of $M$, and since $w$
+and $w'$ take only integer values,
+%
+$\sum_{a \in q} 2 w(a) \ge \sum_{a \in \mathbb A} w(a) + 1$
+%
+and
+%
+$\sum_{a \in q'} 2 w'(a) \ge \sum_{a \in \mathbb A} w'(a) + 1$.
+%
+Let $d_{\mathbb A} \triangleq k'w'(a_0) - kw(a_0)$ so that $\sum_{a \in \mathbb
+A} k'w'(a) = \sum_{a \in \mathbb A} kw(a) + d_{\mathbb A}$ and $|d_\mathbb A|
+\le 1$.  Also let \[ d_{q'} \triangleq \begin{cases}
+%
+d_{\mathbb A} & a_0 \in q' \\
+%
+0 & \textrm{otherwise,}
+%
+\end{cases} \] so that $\sum_{a \in q'} k'w'(a) = \sum_{a \in q'} kw(a) +
+d_{q'}$.
+%
+Then
+%
+\[\begin{split}
+%
+\sum_{a \in \mathbb A} 2kw(a) &+ d_{\mathbb A} + k + k' \\
+%
+&= k \left( \sum_{a \in \mathbb A} w(a)  + 1\right) + k' \left( \sum_{a \in
+\mathbb A} w'(a) + 1\right) \\
+%
+&\le \sum_{a \in q}  2kw(a) +    \sum_{a \in q'} 2k'w'(a) \\
+%
+&= \sum_{a \in q}  2kw(a) +  \sum_{a \in q'} 2kw(a) + 2d_{q'}\\
+%
+&= \sum_{a \in q \cup q'} 2kw(a) +  \sum_{a \in q \cap q'} 2kw(a) + 2d_{q'}\\
+%
+&\le \sum_{a \in \mathbb A} 2kw(a) +    \sum_{a \in q \cap q'} 2kw(a) +
+2d_{q'}\\
+%
+\end{split}\] so that $\sum_{a \in q \cap q'} 2kw(a) \ge d_{\mathbb A} + k + k'
+- 2d_{q'} = k + k' \pm d_\mathbb A \ge 1$ and hence $q \cap q' \ne \varnothing$
+as desired.  \end{proof}
+
+\begin{lemma} \label{weights-nearly-equal} If $w, w' : \mathbb A \to \mathbb
+N$ are weight functions such that $\sum_{a
+\in \mathbb A} |w'(a) - w(a)| \le 1$ then $M(w) \frown M(w')$.
+\end{lemma}
+
+\begin{proof}By lemma \ref{weights-nearly-equal-factors} with $k = k' = 1$.
+\end{proof}
+
+\begin{lemma} \label{weights-factors} If $w, w' : \mathbb A \to \mathbb N$ are
+weight functions and $k, k'$ are positive integers such that $k'w'(a) = kw(a)$
+for all $a$ then $M(w) \frown M(w')$.  \end{lemma}
+
+\begin{proof} By lemma \ref{weights-nearly-equal-factors}, since $\sum_{a \in
+\mathbb A} |k'w'(a) - kw(a)| = 0$.  \end{proof}
+
+\begin{corollary} \label{weights-equal} If $w : \mathbb A \to \mathbb N$ is a
+weight function then \[M(w) \frown M(w).\]  \end{corollary}
+
+\begin{proof} By lemma \ref{weights-factors} with $w' = w$ and $k' = k$.
+\end{proof}
+
+\section{Consistency of the Synod algorithm}
+\label{synod-safety}
+
+\begin{lemma}\label{synod-acc-bprom}If $\acc{}{a}{b_2}$,
+$\bprom{}{a}{b_1}{b_3}$ and $b_2 \prec b_1$ then $b_2 \preceq b_3$.\end{lemma}
+
+\begin{proof} From invariant \ref{synod-bprom} it follows that $b_3$ is the
+largest ballot such that $b_3 \prec b_1$ and $\acc{}{a}{b_3}$, but $b_2$ is
+also such a ballot and therefore $b_2 \preceq b_3$ as required.  \end{proof}
+
+\begin{lemma}\label{synod-lemma} If $\chosen{}{b_2}$, $\prop{}{b_1}$ and $b_2
+\prec b_1$ then $v(b_1) = v(b_2)$. \end{lemma}
+
+\begin{proof}Suppose for a contradiction that $v(b_1) \ne v(b_2)$ and since
+$\prec$ is wellfounded suppose without loss of generality that $b_1$ is the
+minimal such ballot.  Since $\chosen{}{b_2}$ by invariant \ref{synod-chosen}
+there is a quorum $q^\textrm{II} \in Q^\textrm{II}(b_2)$ such that
+$\acc{}{a}{b_2}$ for every $a \in q^\textrm{II}$.  By invariant
+\ref{synod-fprom} it cannot be that $\fprom{}{a}{b_1}$ for any $a \in
+q^\textrm{II}$.  Also since $\prop{}{b_1}$ by invariant \ref{synod-prop} there
+is a quorum $q^\textrm{I} \in Q^\textrm{I}(b_1)$ such that either
+$\fprom{}{a}{b_1}$ or $\exists b'.  \bprom{}{a}{b_1}{b'}$ for all $a \in
+q^\textrm{I}$.  Let $P \triangleq \{ b' \mid \exists a \in q^\textrm{I}.
+\bprom{}{a}{b_1}{b'} \}$.  By invariant \ref{synod-quorums},
+${Q^\textrm{I}(b_1) \frown Q^\textrm{II}(b_2)}$ and hence $q^\textrm{I} \cap
+q^\textrm{II} \ne \varnothing$ so it follows that $P \ne \varnothing$, which
+means that $v(b_1) = v(\mathrm{max}(P))$ by invariant \ref{synod-prop}. Let
+$a_{\mathrm{max}} \in q^\textrm{I}$ be such that
+$\bprom{}{a_{\mathrm{max}}}{b_1}{\mathrm{max}(P)}$.  By invariant
+\ref{synod-bprom} it follows that $\mathrm{max}(P) \prec b_1$ and also that
+$\acc{}{a_{\mathrm{max}}}{\mathrm{max}(P)}$ and hence
+$\prop{}{\mathrm{max}(P)}$ by invariant \ref{synod-acc}. Furthermore by lemma
+\ref{synod-acc-bprom} it follows that $b_2 \preceq \mathrm{max}(P)$ and since
+$b_1$ was assumed to be the smallest counterexample it must be that
+$v(\mathrm{max}(P)) = v(b_2)$.  Hence $v(b_1) = v(b_2)$ which is a
+contradiction as required.  \end{proof}
+
+\begin{theorem}\label{synod-safety-theorem} If $\chosen{}{b_1}$ and
+$\chosen{}{b_2}$ then $v(b_1) = v(b_2)$.  \end{theorem}
+
+\begin{proof} Without loss of generality assume that ${b_2 \prec b_1}$. By
+invariant \ref{synod-chosen} there is a quorum $q \in Q^\textrm{II}(b_1)$ such
+that $\acc{}{a}{b_1}$ for every node $a \in q$ and therefore $\prop{}{b_1}$ by
+invariant \ref{synod-acc}.  Therefore by lemma \ref{synod-lemma} it follows
+that $v(b_1) = v(b_2)$ as required.  \end{proof}
+
+\section{Consistency of the Paxos algorithm}\label{paxos-invariants}
+
+\begin{lemma}\label{paxos-synod-quorum-invariant} For $b_1 \succ b_2 \in
+\mathbb B$, if $\prop{i}{b_1}$ and $\chosen{i}{b_2}$ then
+${\QI{e(b_1)} \frown \QII{e(i)}}$.  \end{lemma}
+
+\begin{proof} $\prop{i}{b_1}$ implies that $\mprom{i'}{a}{b_1}$ or
+  $\fprom{i'}{a}{b_1}$ or $\bprom{i'}{a}{b_1}{b'}$ for some node $a$ and some
+  $i' \le i$ with $e(b_1) \le e(\mathrm{min}(i', i_\mathrm{max}))$. Therefore
+  $e(b_1) \le e(i)$ since $e$ is nondecreasing. It follows that $e(i) \le
+  e(b_2) + 1 \le e(b_1) + 1 \le e(i) + 1$ since $\chosen{i}{b_2}$ so that $e(i)
+\in \{ e(b_1), e(b_1) + 1 \}$ and hence ${\QI{e(b_1)} \frown \QII{e(i)}}$ by
+invariant \ref{paxos-quorums}.  \end{proof}
+
+\begin{theorem}\label{paxos-safety-theorem} If $\chosen{i}{b_1}$ and
+$\chosen{i}{b_2}$ then ${v_i(b_1) = v_i(b_2)}$.  \end{theorem}
+
+\begin{proof} If $\chosen{i}{b_1}$ then the Paxos invariants imply the Synod
+invariants for instance $i$.  In more detail, let
+\[\begin{array}{rl}
+Q^\textrm{I}(b) &\triangleq \QI{e(b)} \\
+Q^\textrm{II}(b) &\triangleq \QII{e(i)} \\
+\fprom{}{a}{b} &\triangleq \fprom{i}{a}{b} \\
+& \ {}\vee \exists i' \le i. \mprom{i'}{a}{b} \\
+\bprom{}{a}{b}{b'} &\triangleq \bprom{i}{a}{b}{b'} \\
+\prop{}{b} &\triangleq \prop{i}{b} \\
+\acc{}{a}{b} &\triangleq \acc{i}{a}{b} \\
+\chosen{}{b} &\triangleq \chosen{i}{b} \textrm{ and} \\
+v(b) &\triangleq v_i(b) .\\
+\end{array}
+\]
+Synod's invariant \ref{synod-quorums} follows from lemma
+\ref{paxos-synod-quorum-invariant} and the remaining invariants are simple to
+show so by theorem \ref{synod-safety-theorem} it follows that $v_i(b_1) =
+v_i(b_2)$ as required.  \end{proof}
+
+% use section* for acknowledgment
+\section*{Acknowledgment}
+
+The author would like to thank Leslie Lamport, Dahlia Malkhi and Leander
+Nikolaus Jehl for their encouragement and comments on earlier drafts of this
+paper. The author is also very grateful to Tracsis plc for supporting this
+work.
+
+
+
+% Can use something like this to put references on a page
+% by themselves when using endfloat and the captionsoff option.
+\ifCLASSOPTIONcaptionsoff
+  \newpage
+\fi
+
+
+
+% trigger a \newpage just before the given reference
+% number - used to balance the columns on the last page
+% adjust value as needed - may need to be readjusted if
+% the document is modified later
+%\IEEEtriggeratref{8}
+% The "triggered" command can be changed if desired:
+%\IEEEtriggercmd{\enlargethispage{-5in}}
+
+% references section
+
+% can use a bibliography generated by BibTeX as a .bbl file
+% BibTeX documentation can be easily obtained at:
+% http://mirror.ctan.org/biblio/bibtex/contrib/doc/
+% The IEEEtran BibTeX style support page is at:
+% http://www.michaelshell.org/tex/ieeetran/bibtex/
+\bibliographystyle{IEEEtran}
+% argument is your BibTeX string definitions and bibliography database(s)
+\bibliography{paxos}
+%
+% <OR> manually copy in the resultant .bbl file
+% set second argument of \begin to the number of references
+% (used to reserve space for the reference number labels box)
+
+% biography section
+% 
+% If you have an EPS/PDF photo (graphicx package needed) extra braces are
+% needed around the contents of the optional argument to biography to prevent
+% the LaTeX parser from getting confused when it sees the complicated
+% \includegraphics command within an optional argument. (You could create
+% your own custom macro containing the \includegraphics command to make things
+% simpler here.)
+%\begin{IEEEbiography}[{\includegraphics[width=1in,height=1.25in,clip,keepaspectratio]{mshell}}]{Michael Shell}
+% or if you just want to reserve a space for a photo:
+
+%\begin{IEEEbiography}{Michael Shell} Biography text here.  \end{IEEEbiography}
+%
+%% if you will not have a photo at all:
+\ifCLASSOPTIONpeerreview
+\else
+%\begin{IEEEbiographynophoto}{David C. Turner} received the MMath degree and the
+%Ph.D. degree from the University of Cambridge in 2011 and 2009 respectively.
+%
+%Since 2010 he has worked as a software engineer at Tracsis plc building systems
+%to support and optimise operational planning processes in the transport
+%industry.
+%
+%\end{IEEEbiographynophoto}
+\fi
+
+%
+%% insert where needed to balance the two columns on the last page with
+%% biographies
+%%\newpage
+%
+%\begin{IEEEbiographynophoto}{Jane Doe}
+%Biography text here.
+%\end{IEEEbiographynophoto}
+
+% You can push biographies down or up by placing
+% a \vfill before or after them. The appropriate
+% use of \vfill depends on what kind of text is
+% on the last page and whether or not the columns
+% are being equalized.
+
+\vfill
+
+% Can be used to pull up biographies so that the bottom of the last one
+% is flush with the other column.
+%\enlargethispage{-5in}
+
+
+
+% that's all folks
+\end{document}
+
+
