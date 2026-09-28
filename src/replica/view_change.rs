@@ -1,18 +1,18 @@
-//! The view change (§9): `StartViewChange` / `DoViewChange` / `StartView`,
+//! The view change (§9): [`crate::wire::Tag::StartViewChange`] / [`crate::wire::Tag::DoViewChange`] / [`crate::wire::Tag::StartView`],
 //! the new primary's win, and the host-forced change.
 //!
-//! VRR-2012 §5: tick-driven timeout detection (S4), the `StartViewChange`
-//! fence (`Role::Fence` through the strategy, Q1), `DoViewChange` evidence
-//! (`Role::ViewChange`), and `StartView` installation. History selection
+//! VRR-2012 §5: tick-driven timeout detection (S4), the [`crate::wire::Tag::StartViewChange`]
+//! fence ([`crate::quorum::Role::Fence`] through the strategy, Q1), [`crate::wire::Tag::DoViewChange`] evidence
+//! ([`crate::quorum::Role::ViewChange`]), and [`crate::wire::Tag::StartView`] installation. History selection
 //! ranks by `retained` view first, then `accepted` frontier (§1.3), the
 //! §9.2 counterexample is the load-bearing test of the rule. Suffixes are
-//! bounded newest-first under [`ViewChangeKnobs::view_change_budget`] and
-//! encoded ascending (§13.1; W4). A `StartView` suffix that conflicts with a
+//! bounded newest-first under [`crate::replica::ViewChangeKnobs::view_change_budget`] and
+//! encoded ascending (§13.1; W4). A [`crate::wire::Tag::StartView`] suffix that conflicts with a
 //! committed local slot is this path's one deliberate fault-on-peer-input:
 //! silent repair would hide a safety breach, so the node declares
-//! [`Fault::IllegalTransition`]. A suffix the recipient cannot construct
-//! history from is a named gap, [`Diagnostic::GapDetected`], never a fault
-//!, whose fetch half (§10, §13.1 step 5) rides the same transition.
+//! [`crate::ids::Fault::IllegalTransition`]. A suffix the recipient cannot construct
+//! history from is a named gap, [`crate::observe::Diagnostic::GapDetected`], never a fault
+//! , whose fetch half (§10, §13.1 step 5) rides the same transition.
 
 use super::reconfiguration::CommitFold;
 use super::*;
@@ -21,12 +21,12 @@ use crate::trace;
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// Enters the view change for `target` (VRR-2012 §5, spec §9.1): the
-    /// durable view advances and fences (`Progress` keeps `retained`, the
+    /// durable view advances and fences ([`crate::progress::Progress`] keeps `retained`, the
     /// history is not re-selected by entering), the fence vote set starts
-    /// at the node's own plus any already-heard `StartViewChange` senders,
-    /// and the node's own `StartViewChange` broadcasts to every other
-    /// member. The fence quorum (`Role::Fence`, Q1) may complete at entry,
-    /// the joining `StartViewChange` can be the one that closes it.
+    /// at the node's own plus any already-heard [`crate::wire::Tag::StartViewChange`] senders,
+    /// and the node's own [`crate::wire::Tag::StartViewChange`] broadcasts to every other
+    /// member. The fence quorum ([`crate::quorum::Role::Fence`], Q1) may complete at entry,
+    /// the joining [`crate::wire::Tag::StartViewChange`] can be the one that closes it.
     pub(in crate::replica) fn enter_view_change(
         &self,
         journal: &J::View,
@@ -228,7 +228,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
     }
 
-    /// The `DoViewChange` datagram carrying the node's own evidence to the
+    /// The [`crate::wire::Tag::DoViewChange`] datagram carrying the node's own evidence to the
     /// designated new primary (§9.1): the header slot is the accepted
     /// frontier of the reported history (rule 7's Frontier role).
     fn do_view_change_effect(
@@ -265,17 +265,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         })
     }
 
-    /// A `StartViewChange` (§9.1): a fence vote for the view it names.
+    /// A [`crate::wire::Tag::StartViewChange`] (§9.1): a fence vote for the view it names.
     ///
-    /// - Behind or at the fence target: [`Diagnostic::StaleViewChange`],
+    /// - Behind or at the fence target: [`crate::observe::Diagnostic::StaleViewChange`],
     ///   the change it fences is done or superseded, and a fence vote never
     ///   counts twice (V_g ⌢ V_g, §8.3).
     /// - Ahead: the node joins, the durable view advances (fencing every
     ///   earlier view), the vote set starts at `{own, sender}`, and the
-    ///   node's own `StartViewChange` re-broadcasts. An in-progress attempt
+    ///   node's own [`crate::wire::Tag::StartViewChange`] re-broadcasts. An in-progress attempt
     ///   at a lower target is superseded whole.
     /// - At the target of the in-progress attempt: a vote. When the votes
-    ///   form a `Role::Fence` quorum (Q1, the strategy answers, no count
+    ///   form a [`crate::quorum::Role::Fence`] quorum (Q1, the strategy answers, no count
     ///   is computed here), the node records its own evidence and reports
     ///   it to the designated new primary.
     pub(in crate::replica) fn plan_start_view_change(
@@ -327,10 +327,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         self.continue_view_change(journal, candidate, view_change, Vec::new(), at, kind)
     }
 
-    /// A `DoViewChange` (§9.1): state evidence for the designated new
+    /// A [`crate::wire::Tag::DoViewChange`] (§9.1): state evidence for the designated new
     /// primary. Guards are total and named; collection happens only at the
     /// primary of the in-progress attempt's target. The evidence quorum is
-    /// the strategy's `Role::ViewChange` decision (Q1); when it completes,
+    /// the strategy's [`crate::quorum::Role::ViewChange`] decision (Q1); when it completes,
     /// the ranking rule (§1.3: `retained` first, then `accepted`) selects
     /// the history and the winner installs it.
     #[allow(clippy::too_many_arguments)]
@@ -420,15 +420,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         self.continue_view_change(journal, candidate, view_change, Vec::new(), at, kind)
     }
 
-    /// A `StartView` (§9.1, §13.1): the designated new primary installing
+    /// A [`crate::wire::Tag::StartView`] (§9.1, §13.1): the designated new primary installing
     /// the selected history.
     ///
-    /// The adoption rule: any node the change passed by, `Normal` or
-    /// `Restarting` in an earlier view, or fencing into this very view,
+    /// The adoption rule: any node the change passed by, [`crate::progress::Status::Normal`] or
+    /// [`crate::progress::Status::Restarting`] in an earlier view, or fencing into this very view,
     /// installs the offered history, provided it can VERIFY it: the suffix
     /// must reach back to a slot the node can check (its frontier, or a
     /// shared slot whose entry agrees). A suffix that starts past the
-    /// node's frontier is a gap, named [`Diagnostic::GapDetected`], kept
+    /// node's frontier is a gap, named [`crate::observe::Diagnostic::GapDetected`], kept
     /// fenced, never faulted; the fetch half of the ruling (§13.1 step 5)
     /// rides the same transition and the installed chunks repair the
     /// journal for the next offer.
@@ -436,7 +436,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// path's one deliberate fault-on-peer-input: an honest evidence quorum
     /// can never
     /// produce it, and silently repairing would hide the safety breach, so
-    /// the node declares [`Fault::IllegalTransition`].
+    /// the node declares [`crate::ids::Fault::IllegalTransition`].
     #[allow(clippy::too_many_arguments)]
     pub(in crate::replica) fn plan_start_view(
         &self,
@@ -470,7 +470,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // `Increment` that promotes it, or a batch carrying either).
             // The node stays fenced, it adopts nothing here, its votes
             // are never counted, and it serves nothing, the acquisition
-            // (`docs/uvrr-reincarnation.md` §10) is the same ordinary
+            // (`docs/uvrr-protocols.md`, the reincarnation chapter §10) is the same ordinary
             // state transfer, and the offered era's fold makes the offer
             // evaluable for the ordinary install that completes the
             // catch-up. Anything else is merely unevaluable: the §8.7.3
@@ -598,7 +598,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // the same breach as a committed-slot conflict (§9.1): declare
         // it, never guess a repair. The install supersedes any
         // nomination the installed suffix carries
-        // (`docs/nominate-leader-assignment.md`): the view this
+        // (`docs/uvrr-protocols.md`, the NOMINATE chapter): the view this
         // transition publishes is the electing message's own.
         let config =
             match self.fold_committed(journal, suffix, self.progress.committed(), committed) {
@@ -640,11 +640,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// advances to the greatest frontier the quorum truthfully reported
     /// (each report is a commit quorum's product, and the selected history
     /// contains every committed entry, §9.2's argument), the newly
-    /// committed operation slots apply in slot order (§11.1), and `StartView`
+    /// committed operation slots apply in slot order (§11.1), and [`crate::wire::Tag::StartView`]
     /// broadcasts the selection with a freshly packed bounded suffix
     /// (§13.1). The uncommitted tail's proposal records are re-seeded from
     /// the entries, so an installed slot still accumulates the
-    /// `PrepareOk` votes that commit it.
+    /// [`crate::wire::Tag::PrepareOk`] votes that commit it.
     #[allow(clippy::too_many_arguments)]
     fn plan_win_view(
         &self,
@@ -778,10 +778,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 }
 
-/// Whether `op`, the establishing operation a `StartView` offer's era
-/// proof carries, names `node` as a member the era admits: the `Join`
-/// that inserts it, the `Increment` that promotes it, or a batch carrying
-/// either. A departure (`Decrement`, `Leave`) does not admit; the offer
+/// Whether `op`, the establishing operation a [`crate::wire::Tag::StartView`] offer's era
+/// proof carries, names `node` as a member the era admits: the [`crate::configuration::SystemOperation::Join`]
+/// that inserts it, the [`crate::configuration::SystemOperation::Increment`] that promotes it, or a batch carrying
+/// either. A departure ([`crate::configuration::SystemOperation::Decrement`], [`crate::configuration::SystemOperation::Leave`]) does not admit; the offer
 /// is the node's catch-up route (§10), and a departing node is not
 /// catching up.
 fn establishing_op_names(op: &SystemOperation, node: NodeId) -> bool {

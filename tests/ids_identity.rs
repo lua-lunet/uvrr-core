@@ -1,7 +1,7 @@
 //! The identity types carry the law (the boot gate's host requirements): a
 //! node identity is the durable pair of the sysadmin-assigned system
 //! identifier and the crash bump counter, one-indexed in both halves, never
-//! read as zero, packed into the u32 `NodeId` that is the wire, disk, and
+//! read as zero, packed into the u32 [`uvrr::ids::NodeId`] that is the wire, disk, and
 //! C-ABI form. These tests pin the construction: zero is unrepresentable,
 //! the packing is injective inside the u16 halves, the print form names the
 //! host identity left-padded to full width, and the types cost nothing.

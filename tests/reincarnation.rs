@@ -1,5 +1,5 @@
 //! Reincarnation: the Crash-Stop-Self-Evict corpus
-//! (`docs/uvrr-reincarnation.md`).
+//! (`docs/uvrr-protocols.md`, the reincarnation chapter).
 //!
 //! The classes:
 //!
@@ -10,11 +10,11 @@
 //! * **B**, a backup crashed dirty: restart-as-new-identity, the
 //!   `Reincarnation` announcement, the leader's forced sequence, every
 //!   intermediate era quorum-safe, final membership correct (rejoin).
-//! * **D**, the marker transition machine (§5.1): the EXHAUSTIVE closed
-//!   4-copy domain (4⁴ = 256 assignments), 2-of-4 `Stopped` ⟺ the clean
+//! * **D**, the marker transition machine (`docs/uvrr-io-obligations.md`, the boot-gate chapter §2): the EXHAUSTIVE closed
+//!   4-copy domain (4⁴ = 256 assignments), 2-of-4 [`uvrr::lifecycle::Marker::Stopped`] ⟺ the clean
 //!   stop, every other assignment bumps, the identity resolved INSIDE the
 //!   working quorum (higher-identity-wins, never across all copies),
-//!   all-`Joining` reincarnates again; plus the stop path
+//!   all-[`uvrr::progress::Status::Joining`] reincarnates again; plus the stop path
 //!   (`begin_stop`/`finish_stop`, the marker order as the drain's proof)
 //!   and continuation commitment.
 //! * **E**, membership discard: messages from an unknown or superseded
@@ -24,7 +24,8 @@
 //!   never votes, cannot influence.
 //! * **G**, mutation negative controls: mutated variants are rejected.
 //!
-//! The old amnesia-era corpus (the classic §4.3 recovery tests) was
+//! The old amnesia-era corpus (the classic [VR-2012] §4.3 recovery tests,
+//! `docs/references.md`) was
 //! deleted with the classic recovery path; this corpus is its
 //! replacement, the same restart/freshness surface, now the
 //! Crash-Stop-Self-Evict protocol, which has no recovery protocol to test.
@@ -160,7 +161,7 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> (ViewId, NodeId) {
 /// restart, announcement, the forced batches each followed by the ordinary
 /// view change into the era it established, the idempotent re-announce,
 /// is one script, and the classes observe it at different depths. Each
-/// forced step is a `Batch` and commits ONE era through the ordinary
+/// forced step is a [`uvrr::configuration::SystemOperation::Batch`] and commits ONE era through the ordinary
 /// reconfiguration pipeline (§5; rules §6).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Stop {
@@ -414,7 +415,7 @@ fn a_doubled_scale_corner_is_the_blog_table_c() {
 
 /// The blog's `{3, 4, 5, 6, 7}` observation, consecutive unit totals have
 /// overlapping majorities, skipping one violates it, through the live
-/// replica path: `Join` at weight 0 (total unchanged), then two unit
+/// replica path: [`uvrr::configuration::SystemOperation::Join`] at weight 0 (total unchanged), then two unit
 /// increments. Every intermediate era commits, and the quorum gate (Q1)
 /// is what made each proposal legal.
 #[test]
@@ -445,7 +446,7 @@ fn a_unit_ladder_commits_through_the_replica_path() {
 
 /// The subtract-one rule is safe; SKIPPING a unit is not (the blog's
 /// sharpness note): a proposal that would jump the total by more than one
-/// unit step is refused by the closed gate before the log moves.
+/// unit step is refused by the closed gate before the log moves (R14).
 #[test]
 fn a_skipped_unit_is_refused_by_the_gate() {
     let mut h = cluster();
@@ -703,7 +704,7 @@ fn copies(marks: [Marker; 4], identity: u32) -> SuperblockCopies {
 /// marker states to four copies, 4⁴ = 256, all cheap. For each
 /// assignment:
 ///
-/// * the verdict is `Stopped` ⟺ ≥2 copies hold `Stopped`, 2-of-4 of the
+/// * the verdict is [`uvrr::lifecycle::Marker::Stopped`] ⟺ ≥2 copies hold [`uvrr::lifecycle::Marker::Stopped`], 2-of-4 of the
 ///   state right of the Stopping→Stopped transition, the clean stop;
 /// * the quorum-resolved identity is the single written identity;
 /// * a stopped quorum continues: `Continue { identity }` and
@@ -713,7 +714,7 @@ fn copies(marks: [Marker; 4], identity: u32) -> SuperblockCopies {
 ///   mid-join all reincarnate.
 ///
 /// The mid-join case falls out of the table and is asserted explicitly:
-/// all-`Joining` reads no stopped quorum, bumps, writes `Joining` again,
+/// all-[`uvrr::progress::Status::Joining`] reads no stopped quorum, bumps, writes [`uvrr::progress::Status::Joining`] again,
 /// and the rewritten set reincarnates AGAIN, the commitment never wedges.
 #[test]
 fn d_marker_domain_exhaustive() {
@@ -812,12 +813,13 @@ fn d_marker_domain_exhaustive() {
     );
 }
 
-/// The stop path (§5.1): the stop command writes `Stopping` 4x; the
+/// The stop path (`docs/uvrr-io-obligations.md`, the boot-gate chapter §3):
+/// the stop command writes [`uvrr::lifecycle::Marker::Stopping`] 4x; the
 /// drain, flush WALs and grids, is the HOST's and sits strictly
 /// between the two marker writes; after it `finish_stop` writes
-/// `Stopped` 4x. The marker order is the drain's proof, so the completed
+/// [`uvrr::lifecycle::Marker::Stopped`] 4x. The marker order is the drain's proof, so the completed
 /// stop boots as a member with complete state: `Continue` and
-/// `Restarting` 4x under the same identity.
+/// [`uvrr::progress::Status::Restarting`] 4x under the same identity.
 #[test]
 fn d_stop_path_marks_the_drain() {
     let (system, crash) = mint_pair();
@@ -974,7 +976,7 @@ fn d_identity_exhaustion_refuses() {
 
 /// The leader discards messages from identities outside the current
 /// committed configuration, an unknown identity, and the superseded old
-/// identity after its eviction, by name, and the discard never disturbs
+/// identity after its eviction, by name, and the discard never disturbs (the reincarnation chapter §6)
 /// a live commit.
 #[test]
 fn e_membership_discard() {
@@ -1234,7 +1236,7 @@ fn f_boot_fetch_route_acquires_the_admitting_era() {
 /// The leader's immediate ack pushes exactly the missed range (§4, §7):
 /// the standby's past-life prepared frontier sat below the leader's
 /// committed frontier, and the FIRST transition answering the fresh
-/// announcement carries the range as one `NewState` addressed to the
+/// announcement carries the range as one [`uvrr::wire::Tag::NewState`] addressed to the
 /// standby, alongside the armed machine's first forced step.
 #[test]
 fn b_ack_pushes_missed_range_and_proposes_first_step_in_one_transition() {
@@ -1522,7 +1524,7 @@ fn encode(message: &Message) -> Vec<u8> {
 /// The generator's idempotence: at the leader-crash intermediate eras, the
 /// recomputed eras are exactly the remaining ones, never a re-run of a
 /// committed step (§8; rules §6). Every element is one era's establishing
-/// `Batch`.
+/// [`uvrr::configuration::SystemOperation::Batch`].
 #[test]
 fn forced_steps_recompute_exactly_the_remaining_suffix() {
     let void = Configuration::void()

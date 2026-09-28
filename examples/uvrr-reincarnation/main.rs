@@ -2,7 +2,7 @@
 //! TigerBeetle 0.17.9 IO + superblock stack (zig/ — see zig/PATCH_MANIFEST.md
 //! and README.md for the build).
 //!
-//! The marker transition machine (docs/uvrr-durability-model.md §5.1; the
+//! The marker transition machine (`docs/uvrr-io-obligations.md`, the boot-gate chapter §2; the
 //! Rust twin src/replica/reincarnation.rs), demonstrated over TB's actual
 //! code paths:
 //!   * the data file is opened through TB's per-OS direct block-IO layer

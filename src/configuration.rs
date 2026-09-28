@@ -3,13 +3,13 @@
 //! Spec §8.7.1 (configuration), §8.7.2 (reconfiguration operations), §8.7.5 (closure of
 //! weighted-majority configurations), §8.7.6 (pivot condition), §8.7.7 (non-stop
 //! transition), §8.7.8 (primary failure during overlap mode); and
-//! `docs/uvrr-reconfiguration-rules.md` §1–§4 (the command alphabet and its
+//! `docs/uvrr-protocols.md`, the reconfiguration-rules chapter §1–§4 (the command alphabet and its
 //! boundaries, R1–R15), §9 (the snapshot and the operation WAL).
 //!
 //! A configuration is an era, an ordered member list, and a non-negative integer weight
 //! per member. Primary selection is `config(era).order[index mod len(order)]`. Weight
 //! zero grants no voting authority, so a newly joined member is a learner until a later
-//! committed `Increment` promotes it, which is what makes state transfer a precondition
+//! committed [`SystemOperation::Increment`] promotes it, which is what makes state transfer a precondition
 //! of authority rather than a courtesy.
 //!
 //! # The weight domain {0, 1, 2} (rules §1, R1)
@@ -17,8 +17,8 @@
 //! Voting weights are common factors: any uniform scaling is a zero effect on quorums,
 //! so no node ever needs a weight above [`MAX_WEIGHT`] and no operation may produce any
 //! other value, the fold refuses. A weight-0 member is a **learner**: it never votes
-//! and is counted against no quorum (rules §2, R4), which is what makes `Join` and
-//! `Leave` at weight zero safe, neither changes any quorum family, so neither needs an
+//! and is counted against no quorum (rules §2, R4), which is what makes [`SystemOperation::Join`] and
+//! [`SystemOperation::Leave`] at weight zero safe, neither changes any quorum family, so neither needs an
 //! overlap argument.
 //!
 //! # The operation alphabet, the batch, and the era rule (rules §3–§4, R7–R15)
@@ -28,11 +28,11 @@
 //! state, so initial configuration construction is itself reconstructible from that
 //! history. One reconfiguration commits a
 //! [`SystemOperation::Batch`]: operations applied together, in order, establishing one
-//! era. A batch containing `Double` or `Halve` contains nothing else (R13); every other
+//! era. A batch containing [`SystemOperation::Double`] or [`SystemOperation::Halve`] contains nothing else (R13); every other
 //! batch is a unit batch moving at most one unit of per-node mass (R14); genesis and
 //! nested batches are refused (R15). A `NOMINATE` rides a batch as a zero-mass
 //! passenger and never occupies a slot of its own
-//! (`docs/nominate-leader-assignment.md`). The planner that partitions an operation
+//! (`docs/uvrr-protocols.md`, the NOMINATE chapter). The planner that partitions an operation
 //! stream into legal batches is [`crate::reconfiguration`].
 //!
 //! The relation `era(view) + 1 >= era(slot) >= era(view)` bounds which configuration may
@@ -46,7 +46,7 @@
 //!
 //! # Era assignment
 //!
-//! `Void` establishes era 0, `Init` establishes era 1, and every subsequent accepted
+//! [`SystemOperation::Void`] establishes era 0, [`SystemOperation::Init`] establishes era 1, and every subsequent accepted
 //! operation, single or [`SystemOperation::Batch`], establishes `era + 1`. Era `e` is
 //! therefore established by the `(e+1)`-th committed configuration operation, and
 //! §8.7.8's rule that a replica may propose era `e` only if it holds the operation
@@ -66,15 +66,15 @@ use std::sync::Arc;
 use crate::ids::{Era, NodeId, Slot, View};
 use crate::wire::{Malformed, Pack, PackWriter, Unpack, UnpackCursor, UnpackError};
 
-/// The log slot `Void` occupies: 1, the first position of a legitimate history
+/// The log slot [`SystemOperation::Void`] occupies: 1, the first position of a legitimate history
 /// (§8.7.2: "operation number 1 ... with an otherwise empty log"). The slot is the only
 /// evidence the fold has that this is genesis, so the ordinal is part of the
 /// precondition, not a convention.
 pub const VOID_SLOT: Slot = Slot(1);
 
-/// The log slot `Init` occupies: 2, immediately after [`VOID_SLOT`] (§8.7.2: "immediately
+/// The log slot [`SystemOperation::Init`] occupies: 2, immediately after [`VOID_SLOT`] (§8.7.2: "immediately
 /// preceded by `VOID`"). Fixing both ordinals is what makes a second genesis
-/// unreachable: any later `Void` or `Init` is on the wrong slot before its payload is
+/// unreachable: any later [`SystemOperation::Void`] or [`SystemOperation::Init`] is on the wrong slot before its payload is
 /// even examined.
 pub const INIT_SLOT: Slot = Slot(2);
 
@@ -108,8 +108,8 @@ const _: () = assert!(MAX_MEMBERS == 16 && MAX_MEMBERS_USIZE == 16);
 /// decides with two of three nodes, `18/27 = 2/3`, the same split as `(1, 1, 1)`, so
 /// any uniform scaling is a zero effect on quorums, and no node ever needs a weight
 /// above 2. The fold refuses every operation that would produce a weight outside
-/// {0, 1, 2}: `Increment` past 2 names the member (R7), and `Double` with any member at
-/// 2 names the first such member (R9). `Double` and `Halve` are therefore usable exactly
+/// {0, 1, 2}: [`SystemOperation::Increment`] past 2 names the member (R7), and [`SystemOperation::Double`] with any member at
+/// 2 names the first such member (R9). [`SystemOperation::Double`] and [`SystemOperation::Halve`] are therefore usable exactly
 /// once per doubling cycle (rules §3), which keeps every worked schedule inside the
 /// domain the closure arguments were checked over.
 pub const MAX_WEIGHT: u32 = 2;
@@ -118,10 +118,10 @@ pub const MAX_WEIGHT: u32 = 2;
 ///
 /// Weight `0` is a **learner** (§8.4; rules §1): it receives history and may occupy a
 /// position in `order`, but it contributes nothing to any quorum. That is the property
-/// that makes `Join` and `Leave` at weight zero safe, neither changes any quorum
+/// that makes [`SystemOperation::Join`] and [`SystemOperation::Leave`] at weight zero safe, neither changes any quorum
 /// family, so neither needs an overlap argument, and it is what makes state transfer a
 /// precondition of authority rather than a courtesy: a member votes only after a
-/// committed `Increment` promotes it. The domain is {0, 1, 2} ([`MAX_WEIGHT`], R1);
+/// committed [`SystemOperation::Increment`] promotes it. The domain is {0, 1, 2} ([`MAX_WEIGHT`], R1);
 /// every operation that would leave it is refused by the fold.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -131,7 +131,7 @@ pub struct Weight(pub u32);
 /// One member of a configuration: who it is, and what it votes with.
 ///
 /// `Copy` because it is two words and is passed by value everywhere; the identity it
-/// carries is the host-assigned [`NodeId`], which the core never interprets beyond
+/// carries is the host-assigned [`crate::ids::NodeId`], which the core never interprets beyond
 /// equality (§8.7.1).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -144,11 +144,11 @@ pub struct Member {
 
 /// An era, an ordered member list, and a weight per member (§8.7.1).
 ///
-/// The fields are private because the invariants, non-empty `order` once `Init` has
-/// committed, no duplicate `NodeId`, every weight inside {0, 1, 2} (R1) and the total
+/// The fields are private because the invariants, non-empty `order` once [`SystemOperation::Init`] has
+/// committed, no duplicate [`crate::ids::NodeId`], every weight inside {0, 1, 2} (R1) and the total
 /// at least 1, must hold for *every* value that exists, and the only way to guarantee
 /// that is to make [`Configuration::void`] and [`Configuration::apply`] the only ways
-/// in. There is no public constructor that can produce an invalid `Configuration`.
+/// in. There is no public constructor that can produce an invalid [`Configuration`].
 ///
 /// For the same reason there are no serde impls: `Deserialize` would be an unchecked
 /// constructor, and Q1's quorum families are stated over configurations *reachable by
@@ -175,7 +175,7 @@ impl Configuration {
     /// condition in §8.4 and §8.7.5 bottoms out in `sum(W(n) for n in S) >=
     /// floor(T/2) + 1`; on the void configuration `T` is 0 and the right-hand side is
     /// 1, so the empty set and every other set fail it. Nothing can commit before
-    /// `Init` commits, and that impossibility cannot be forgotten the way a guard can,
+    /// [`SystemOperation::Init`] commits, and that impossibility cannot be forgotten the way a guard can,
     /// because it is a property of the numbers rather than a check someone remembered
     /// to write.
     #[must_use]
@@ -195,8 +195,8 @@ impl Configuration {
     /// The primary-succession sequence, exactly as the host supplied it.
     ///
     /// `order` is host convention, not core policy. The core sorts nothing and resolves
-    /// nothing: it stores the sequence the host supplied in `Init` and inserts at the
-    /// position the host named in `Join`. A host that wants deterministic
+    /// nothing: it stores the sequence the host supplied in [`SystemOperation::Init`] and inserts at the
+    /// position the host named in [`SystemOperation::Join`]. A host that wants deterministic
     /// cross-datacentre failover, for example by naming nodes so that a left-padded
     /// ordinal, a datacentre code and a left-padded node id sort into the succession it
     /// wants, is free to do that, and the core neither implements nor precludes it.
@@ -209,7 +209,7 @@ impl Configuration {
 
     /// The number of members.
     ///
-    /// Total **by cap, not by hope**: the fold refuses `Init` and `Join` past
+    /// Total **by cap, not by hope**: the fold refuses [`SystemOperation::Init`] and [`SystemOperation::Join`] past
     /// [`MAX_MEMBERS`], so the count is at most 16 and the `u32` return cannot
     /// truncate. The count is computed by a `u32` fold rather than a `usize`
     /// conversion, so there is no conversion failure path to document away.
@@ -274,7 +274,7 @@ impl Configuration {
     /// The index is over the positive-weight members' sequence, in the order
     /// the host supplied, unsorted and unmodified. View 0 selects the first
     /// voter; a learner (weight 0, §8.4) keeps its succession position for
-    /// `Join`'s insertion arithmetic and is skipped by the primary selection
+    /// [`SystemOperation::Join`]'s insertion arithmetic and is skipped by the primary selection
     /// alone. A learner is never the primary: its vote counts against no
     /// quorum (R4), so it could not complete the evidence quorum of the very
     /// change that elects it, and a learner in the era that admitted it may
@@ -309,7 +309,7 @@ impl Configuration {
     /// Quorum evaluation builds on this. Duplicate rejection here is what
     /// stops a set from voting twice; a caller that deduplicated for itself would hold
     /// a second copy of the rule, and two copies of an intersection rule are two
-    /// chances to get it wrong. The sum of distinct members' weights is bounded by
+    /// chances to get it wrong (R4). The sum of distinct members' weights is bounded by
     /// [`total`], so it cannot overflow.
     ///
     /// Allocation-free and quadratic in the length of `members`: quorum sets are
@@ -331,8 +331,8 @@ impl Configuration {
 
     /// The era a post-genesis operation establishes, or the refusal.
     ///
-    /// `NotInitialised` when the receiver is the void configuration: only `Void` and
-    /// `Init` may be applied before `Init`, and reporting `NotAMember` for a cluster
+    /// `NotInitialised` when the receiver is the void configuration: only [`SystemOperation::Void`] and
+    /// [`SystemOperation::Init`] may be applied before [`SystemOperation::Init`], and reporting `NotAMember` for a cluster
     /// with no membership would suggest a member could be supplied. `EraExhausted`
     /// when the era space is spent: §8.7.3 forbids wraparound, so the fold stops rather
     /// than reuses a generation.
@@ -345,7 +345,7 @@ impl Configuration {
 
     /// Folds `op`, committed at log slot `at`, into the next configuration.
     ///
-    /// `Void` establishes era 0, `Init` establishes era 1, and every other accepted
+    /// [`SystemOperation::Void`] establishes era 0, [`SystemOperation::Init`] establishes era 1, and every other accepted
     /// operation, single or [`SystemOperation::Batch`], establishes `era + 1`, see
     /// the module docs for why that makes §8.7.8's proposing rule checkable by
     /// construction. `at` is consulted only for the two genesis ordinals; no other
@@ -357,30 +357,30 @@ impl Configuration {
     ///
     /// | Operation | Preconditions |
     /// |---|---|
-    /// | `Void` | receiver is void; `at == `[`VOID_SLOT`] |
+    /// | [`SystemOperation::Void`] | receiver is void; `at == `[`VOID_SLOT`] |
     /// | `Init { order }` | receiver is void; `at == `[`INIT_SLOT`]; `order` non-empty, duplicate-free, and at most [`MAX_MEMBERS`] long; all weights become `1` |
     /// | `Increment(n)` | `n ∈ order`; `W(n) + 1 <= `[`MAX_WEIGHT`] (R7) |
     /// | `Decrement(n)` | `n ∈ order`; `W(n) >= 1`; resulting `total() >= 1` (R8) |
-    /// | `Double` | every `W(n) <= 1`, so every doubled weight stays in the domain (R9); the first member that would pass 2 is named |
-    /// | `Halve` | every `W(n)` even (R10); no rounding |
+    /// | [`SystemOperation::Double`] | every `W(n) <= 1`, so every doubled weight stays in the domain (R9); the first member that would pass 2 is named |
+    /// | [`SystemOperation::Halve`] | every `W(n)` even (R10); no rounding |
     /// | `Join { node, position }` | `node ∉ order`; `len() < `[`MAX_MEMBERS`]; `position <= len()`; inserted at weight `0` (R11) |
     /// | `Leave(n)` | `n ∈ order`; `W(n) == 0` (R12) |
     /// | `Nominate { from, offset }` | rider only: never solitary ([`ConfigError::SolitaryNomination`]); `offset >= 1` ([`ConfigError::ZeroNominationOffset`]); folds to the identical configuration inside a batch |
-    /// | `Batch(ops)` | non-empty; no genesis op and no nested batch (R15); a batch containing `Double` or `Halve` is exactly that one op (R13); otherwise the unit rule, over the union of before/after memberships, `Σ_a |W_before(a) − W_after(a)| <= 1` (R14) |
+    /// | `Batch(ops)` | non-empty; no genesis op and no nested batch (R15); a batch containing [`SystemOperation::Double`] or [`SystemOperation::Halve`] is exactly that one op (R13); otherwise the unit rule, over the union of before/after memberships, `Σ_a |W_before(a) − W_after(a)| <= 1` (R14) |
     ///
     /// Every operation must leave `order` non-empty and `total() >= 1`, and only
-    /// `Decrement` needs a check to guarantee it: `Halve`'s all-even parity implies
-    /// some weight is at least 2 and halves to at least 1, and `Leave`'s zero-weight
+    /// [`SystemOperation::Decrement`] needs a check to guarantee it: [`SystemOperation::Halve`]'s all-even parity implies
+    /// some weight is at least 2 and halves to at least 1, and [`SystemOperation::Leave`]'s zero-weight
     /// precondition makes "leave the last member" unreachable, a sole member at
-    /// weight 0 is a zero total, which the `Decrement` that would have produced it
+    /// weight 0 is a zero total, which the [`SystemOperation::Decrement`] that would have produced it
     /// already refused. Rejection is total: nothing saturates, nothing rounds, and a
     /// refused operation produces no configuration at all.
     ///
     /// # The one departure route
     ///
-    /// `Decrement` to zero, then `Leave`, is the only way a member leaves.
-    /// `Decrement` on a weight-0 member is refused ([`ConfigError::WeightUnderflow`]),
-    /// which is distinct from `Leave`, and `Leave` on a positive-weight member is
+    /// [`SystemOperation::Decrement`] to zero, then [`SystemOperation::Leave`], is the only way a member leaves.
+    /// [`SystemOperation::Decrement`] on a weight-0 member is refused ([`ConfigError::WeightUnderflow`]),
+    /// which is distinct from [`SystemOperation::Leave`], and [`SystemOperation::Leave`] on a positive-weight member is
     /// refused ([`ConfigError::NonZeroWeight`]). Departure is therefore a sequence of
     /// individually overlap-safe steps, a unit weight change preserves the §8.7.5
     /// consecutive-era intersection, and a weight-0 removal changes no quorum family at
@@ -390,7 +390,7 @@ impl Configuration {
     ///
     /// # What this function deliberately does not check
     ///
-    /// §8.7.2 also requires that `Init` not be proposed after any view change. That is
+    /// §8.7.2 also requires that [`SystemOperation::Init`] not be proposed after any view change. That is
     /// a proposal-time condition on the proposer's state, not a property of the fold:
     /// the fold sees slots and configurations, not views. It belongs to the planned
     /// view-change proposal path, and its absence here is deliberate, not an omission.
@@ -450,7 +450,7 @@ impl Configuration {
             // in order within that one era.
             SystemOperation::Batch(ops) => self.apply_batch(ops),
             // A nomination is a rider, never an establishing operation of
-            // its own (`docs/nominate-leader-assignment.md`): its bump
+            // its own (`docs/uvrr-protocols.md`, the NOMINATE chapter): its bump
             // enters the era of the batch that carries it, so a solitary
             // entry names an era nothing enters and is refused by name.
             SystemOperation::Nominate { .. } => Err(ConfigError::SolitaryNomination),
@@ -470,7 +470,7 @@ impl Configuration {
     /// **of the same era**. Every per-op precondition of the table above is checked
     /// here, at the op's point in the sequence, which is what lets
     /// [`SystemOperation::Batch`] fold its sub-operations sequentially and still
-    /// hold each one's boundary at its point, while establishing exactly one era.
+    /// hold each one's boundary at its point, while establishing exactly one era (the reconfiguration-rules chapter §4).
     ///
     /// The returned configuration carries the receiver's era; the dispatchers
     /// ([`Configuration::apply`] for singles, [`Configuration::apply_batch`] for
@@ -632,7 +632,7 @@ impl Configuration {
             }
             // A nomination moves no mass and no membership: the rider yields
             // the identical configuration
-            // (`docs/nominate-leader-assignment.md`). The offset's strict
+            // (`docs/uvrr-protocols.md`, the NOMINATE chapter). The offset's strict
             // positivity is the jump's first discipline
             // (`formal/uvrr-lean/UVRR/ViewJump.lean`), checked at the fold so
             // no committed batch carries a seat that names no increment.
@@ -658,7 +658,7 @@ impl Configuration {
     /// * Non-empty ([`ConfigError::EmptyBatch`]).
     /// * No genesis operation and no nested batch (R15:
     ///   [`ConfigError::GenesisNotPlannable`], [`ConfigError::NestedBatch`]).
-    /// * A batch containing `Double` or `Halve` is exactly that one op (R13:
+    /// * A batch containing [`SystemOperation::Double`] or [`SystemOperation::Halve`] is exactly that one op (R13:
     ///   [`ConfigError::ScalingNotSolitary`]). A scaling op changes no quorum family
     ///   (common-factor normalization, rules §8), so it is exempt from the unit
     ///   rule and solitary by construction.
@@ -736,8 +736,8 @@ impl Configuration {
     }
 
     /// The serializable projection of this configuration (rules §9): the era and the
-    /// ordered membership, nothing else. `Configuration` itself carries no serde impls
-    ///, `Deserialize` would be an unchecked constructor, so the durable record holds
+    /// ordered membership, nothing else. [`Configuration`] itself carries no serde impls
+    /// , `Deserialize` would be an unchecked constructor, so the durable record holds
     /// a [`Snapshot`], and re-inflation goes through [`Snapshot::inflate`], which
     /// re-checks every invariant the fold guarantees.
     #[must_use]
@@ -753,34 +753,36 @@ impl Configuration {
 ///
 /// One variant per precondition of §8.7.2, deliberately no shared "invalid" variant.
 /// A host reacting to a refusal needs to know *which* precondition failed, because the
-/// responses differ: retry with a corrected id, `Decrement` first, name a position
+/// responses differ: retry with a corrected id, [`SystemOperation::Decrement`] first, name a position
 /// inside the sequence. And a test that can only observe `is_err()` passes when the
 /// fold refuses for the wrong reason, which is precisely the failure mode a
 /// precondition table exists to prevent.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ConfigError {
     /// The receiver is the void configuration and the operation requires a live one.
-    /// Only `Void` and `Init` may be applied before `Init` commits.
+    /// Only [`SystemOperation::Void`] and [`SystemOperation::Init`] may be applied
+    /// before [`SystemOperation::Init`] commits (§8.7.2).
     NotInitialised,
-    /// `Void` or `Init` was applied to a configuration that already has members.
+    /// [`SystemOperation::Void`] or [`SystemOperation::Init`] was applied to a configuration that already has members.
     /// Genesis happens once; a second genesis would replace membership wholesale with
-    /// no overlap argument, so it is refused on the receiver's state.
+    /// no overlap argument, so it is refused on the receiver's state (R15).
     AlreadyInitialised,
     /// A genesis operation occupied a slot other than its fixed ordinal. The slot is
     /// the only evidence the fold has that this is genesis, so accepting it elsewhere
     /// would let a replayed or replayed-out-of-order operation rewrite the founding
+    /// eras (§8.7.2),
     /// eras.
     WrongGenesisSlot {
-        /// The ordinal the operation must occupy: [`VOID_SLOT`] or [`INIT_SLOT`].
+        /// The ordinal the operation must occupy: [`VOID_SLOT`] or [`INIT_SLOT`] (§8.7.2).
         expected: Slot,
         /// The slot the caller supplied.
         actual: Slot,
     },
-    /// `Init` with an empty `order`. Every operation must leave `order` non-empty
+    /// [`SystemOperation::Init`] with an empty `order`. Every operation must leave `order` non-empty
     /// (§8.7.2); an empty genesis could never commit and never be repaired, because
     /// repair itself needs a quorum.
     EmptyInitOrder,
-    /// A [`NodeId`] appeared twice in an `Init` order, or `Join` named a node already
+    /// A [`crate::ids::NodeId`] appeared twice in an [`SystemOperation::Init`] order, or [`SystemOperation::Join`] named a node already
     /// present. `order` is a list of *distinct* identifiers (§8.7.1); a duplicate would
     /// make `weight_of` ambiguous and let one node's weight be counted twice by a
     /// quorum evaluator that indexed by position, the double vote the distinctness
@@ -788,11 +790,11 @@ pub enum ConfigError {
     DuplicateNode(NodeId),
     /// The operation names a node that is not in `order`.
     NotAMember(NodeId),
-    /// `Increment` would take a weight past [`MAX_WEIGHT`], or `Double` would take
+    /// [`SystemOperation::Increment`] would take a weight past [`MAX_WEIGHT`], or [`SystemOperation::Double`] would take
     /// any weight past it (R7, R9). Refused, never saturated: a clamped weight would
     /// make two distinct configurations indistinguishable and quietly break the
     /// §8.7.5 closure arguments, which are arithmetic identities over the *actual*
-    /// weights. Carries the offending member, for `Double`, the first member that
+    /// weights. Carries the offending member, for [`SystemOperation::Double`], the first member that
     /// would pass the cap, and the cap itself.
     WeightCapExceeded {
         /// The member whose weight would leave the domain {0, 1, 2}.
@@ -800,20 +802,20 @@ pub enum ConfigError {
         /// The cap that was exceeded: always [`MAX_WEIGHT`].
         cap: u32,
     },
-    /// `Decrement` on a member already at weight 0. A learner has no weight to give
-    /// up; the departure route ends here and continues with `Leave`. Distinct from
+    /// [`SystemOperation::Decrement`] on a member already at weight 0. A learner has no weight to give
+    /// up; the departure route ends here and continues with [`SystemOperation::Leave`]. Distinct from
     /// [`ConfigError::NotAMember`] because the host's next action differs.
     WeightUnderflow(NodeId),
-    /// `Halve` on a configuration holding an odd weight. Refused, never rounded down:
+    /// [`SystemOperation::Halve`] on a configuration holding an odd weight. Refused, never rounded down:
     /// a rounded halve changes the total by an amount that depends on how many odd
     /// members there were, which is not a quantity §8.7.5's `T -> floor(T/2)` argument
     /// admits. Carries the first odd member in `order`.
     OddWeight(NodeId),
-    /// `Leave` on a member whose weight is not 0. The member still votes; the host
-    /// must `Decrement` it to 0 first. Distinct from [`ConfigError::NotAMember`]
+    /// [`SystemOperation::Leave`] on a member whose weight is not 0. The member still votes; the host
+    /// must [`SystemOperation::Decrement`] it to 0 first. Distinct from [`ConfigError::NotAMember`]
     /// because the host's next action differs.
     NonZeroWeight(NodeId),
-    /// `Join` named a position beyond `len()`. Legal positions are `0..=len()`; anything
+    /// [`SystemOperation::Join`] named a position beyond `len()`. Legal positions are `0..=len()`; anything
     /// further is a gap the succession sequence cannot express.
     PositionOutOfRange {
         /// The position the caller named.
@@ -821,7 +823,7 @@ pub enum ConfigError {
         /// The membership count at the time of the refusal.
         len: u32,
     },
-    /// `Init` or `Join` would take the membership past [`MAX_MEMBERS`]. The cap is a
+    /// [`SystemOperation::Init`] or [`SystemOperation::Join`] would take the membership past [`MAX_MEMBERS`]. The cap is a
     /// validation-cost bound for the quorum gate's subset enumeration, not a protocol
     /// limit, see the constant's documentation, so this refusal names the cap rather
     /// than pretending the membership is malformed.
@@ -829,17 +831,17 @@ pub enum ConfigError {
         /// The cap that was exceeded: always [`MAX_MEMBERS`].
         cap: u32,
     },
-    /// `Decrement` would take the total weight to 0. A zero-total configuration is
-    /// quorum-impossible in exactly the way era 0 is, but unlike era 0 it would be
-    /// reachable *after* commitment, with no repair path that does not itself need a
-    /// quorum.
+    /// [`SystemOperation::Decrement`] would take the total weight to 0. A zero-total configuration is
+    /// quorum-impossible in exactly the way era 0 is (§8.7.1), but unlike era 0 it
+    /// would be reachable *after* commitment, with no repair path that does not
+    /// itself need a quorum.
     TotalWouldBeZero,
-    /// A `Nominate` occupied a slot of its own. The nomination is a rider: it rides
+    /// A [`SystemOperation::Nominate`] occupied a slot of its own. The nomination is a rider: it rides
     /// the establishing batch of the era its view bump enters
-    /// (`docs/nominate-leader-assignment.md`), so a solitary nomination entry names
+    /// (`docs/uvrr-protocols.md`, the NOMINATE chapter), so a solitary nomination entry names
     /// an era its own bump never enters and is refused rather than established.
     SolitaryNomination,
-    /// A `Nominate` named a zero offset. The jump strictly increases
+    /// A [`SystemOperation::Nominate`] named a zero offset. The jump strictly increases
     /// (`formal/uvrr-lean/UVRR/ViewJump.lean`, the rule's first discipline), and a
     /// zero-offset nomination would occupy a batch seat while naming no increment.
     ZeroNominationOffset,
@@ -853,7 +855,7 @@ pub enum ConfigError {
     /// correspondence between eras and establishing operations the §8.7.8 proposing
     /// rule is checked by.
     EmptyBatch,
-    /// A batch carried a genesis operation (R15). `Void` and `Init` never appear in a
+    /// A batch carried a genesis operation (R15). [`SystemOperation::Void`] and [`SystemOperation::Init`] never appear in a
     /// batch: a second genesis inside a batch would replace membership wholesale with
     /// no overlap argument, and genesis is not plannable.
     GenesisNotPlannable,
@@ -861,7 +863,7 @@ pub enum ConfigError {
     /// nested batch has no era semantics the fold could give it, and the planner
     /// never proposes one.
     NestedBatch,
-    /// A batch mixed a scaling operation (`Double` or `Halve`) with company (R13). A
+    /// A batch mixed a scaling operation ([`SystemOperation::Double`] or [`SystemOperation::Halve`]) with company (R13). A
     /// scaling op is solitary: it rescales every quorum threshold at once, and the
     /// intersection argument it rests on, common-factor normalization (rules §8),
     /// is stated for the rescaling alone, not for a compound batch.
@@ -882,14 +884,15 @@ pub enum ConfigError {
     SnapshotVoidWithMembers,
     /// A snapshot claimed a positive era with an empty `order`. A positive era is
     /// established by an operation that leaves `order` non-empty; an empty one is
-    /// quorum-impossible with no repair path that does not itself need a quorum.
+    /// quorum-impossible with no repair path that does not itself need a quorum
+    /// (§8.7.1).
     SnapshotEmptyOrder {
         /// The era the snapshot claimed.
         era: Era,
     },
     /// A snapshot claimed a positive era whose total weight is 0. A zero-total
     /// configuration is quorum-impossible in exactly the way era 0 is, but unlike
-    /// era 0 it could never be repaired.
+    /// era 0 it could never be repaired (§8.7.1).
     SnapshotZeroTotal {
         /// The era the snapshot claimed.
         era: Era,
@@ -906,7 +909,7 @@ pub enum ConfigError {
 /// (rules §9): the durable record is a [`Snapshot`] plus a WAL of these values, and
 /// replay is the fold.
 ///
-/// `Init` carries only node ids: every initial weight is `1`. That removes the whole
+/// [`SystemOperation::Init`] carries only node ids: every initial weight is `1`. That removes the whole
 /// class of "did the hosts agree on the genesis weights" divergence, the operation
 /// cannot carry weights, so there is nothing to disagree about, and it matches
 /// §8.7.5's closure proofs, which start from unit weights.
@@ -917,7 +920,7 @@ pub enum SystemOperation {
     /// (§8.7.2). Legal only at [`VOID_SLOT`].
     Void,
     /// Establishes era 1: the founding membership, every weight `1`. Legal only at
-    /// [`INIT_SLOT`], immediately after `Void`.
+    /// [`INIT_SLOT`], immediately after [`SystemOperation::Void`].
     Init {
         /// The primary-succession sequence; the core stores it verbatim and sorts
         /// nothing (see [`Configuration::order`]).
@@ -947,7 +950,7 @@ pub enum SystemOperation {
     /// departure route; see [`Configuration::apply`].
     Leave(NodeId),
     /// A view increment carried as a compare-and-swap at a committed slot
-    /// (`docs/nominate-leader-assignment.md`). Moves no mass and no
+    /// (`docs/uvrr-protocols.md`, the NOMINATE chapter). Moves no mass and no
     /// membership: folded in era it yields the identical configuration, so
     /// it rides the establishing batch of the era whose positive-weight
     /// sequence changes, and a node applying it at commit bumps its view
@@ -981,7 +984,7 @@ impl SystemOperation {
     /// explicit table states the numbering in one place, the compiler checks that every
     /// variant has one, and reordering this source cannot renumber the wire. `0` is
     /// reserved so that an all-zero buffer decodes as malformed rather than as a valid
-    /// `Void`.
+    /// [`SystemOperation::Void`].
     fn discriminant(&self) -> u8 {
         match self {
             SystemOperation::Void => 1,
@@ -1104,7 +1107,7 @@ impl Unpack for SystemOperation {
 /// The durable state object (rules §9): an era and an ordered membership, exactly
 /// what a checkpoint holds and nothing else.
 ///
-/// `Configuration` carries no serde impls, `Deserialize` would be an unchecked
+/// [`Configuration`] carries no serde impls, `Deserialize` would be an unchecked
 /// constructor, and Q1's quorum families are stated over configurations *reachable
 /// by the fold*, so a value that bypassed the fold would be outside every closure
 /// argument in §8.7.5. The snapshot is the serializable form instead: it round-trips
@@ -1123,7 +1126,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// Inflates the snapshot into a `Configuration`, re-checking every invariant
+    /// Inflates the snapshot into a [`Configuration`], re-checking every invariant
     /// (rules §9). This is the only way a stored state re-enters the fold's type
     /// system, and it refuses by name, one variant per precondition, anything the
     /// fold could not have produced: a weight outside {0, 1, 2}
@@ -1219,7 +1222,7 @@ pub struct EraRecord {
 /// The journal may reclaim the physical slabs that carried the establishing operations
 /// (S1); this table is what remains correct afterwards, which is its reason to exist.
 /// It is persistent: [`EraTable::extend`] returns a new table that shares the retained
-/// `Arc`s with its receiver, so a table held by a diagnostic reader or a `Progress`
+/// `Arc`s with its receiver, so a table held by a diagnostic reader or a [`crate::progress::Progress`]
 /// snapshot stays valid while the replica advances, with no copy and no lock.
 ///
 /// # Retention window: exactly three eras
@@ -1252,8 +1255,8 @@ impl EraTable {
     /// The void era 0 alone.
     ///
     /// The genesis record predates the log, so its `established_by` is
-    /// [`Slot::NONE`] as a placeholder: era 0 is established by construction, not by
-    /// an operation. The `Void` operation at [`VOID_SLOT`] records the first real
+    /// [`crate::ids::Slot::NONE`] as a placeholder: era 0 is established by construction, not by
+    /// an operation. The [`SystemOperation::Void`] operation at [`VOID_SLOT`] records the first real
     /// establishing slot on top of it.
     #[must_use]
     pub fn genesis() -> EraTable {
@@ -1286,7 +1289,7 @@ impl EraTable {
     /// caller need not distinguish: both make a message naming that era unevaluable,
     /// and an unevaluable message is dropped (see the type docs). Where two records
     /// exist for one era, possible only for era 0, established by both genesis and
-    /// `Void`, the latest is returned.
+    /// [`SystemOperation::Void`], the latest is returned.
     #[must_use]
     pub fn record(&self, era: Era) -> Option<&EraRecord> {
         self.records.iter().rev().find(|record| record.era == era)

@@ -31,7 +31,7 @@ use crate::ids::{Era, NodeId, OperationId, Slot};
 use crate::message::Message;
 
 /// The leader's verdict on an admin submission
-/// (`docs/weighted-reconfiguration-solver.md`): accepted, or rejected with
+/// (`docs/uvrr-protocols.md`, the solver chapter): accepted, or rejected with
 /// the named reason. The wire/JSON rendering is the host's perimeter; the
 /// core carries the verdict as data.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -80,7 +80,7 @@ pub enum Effect {
     /// else waits for the host's [`StabilityResult`].
     Persist(PersistenceIntent),
     /// The verdict on a plan submitted over the node's admin ingress
-    /// (`docs/weighted-reconfiguration-solver.md`): the host renders it as
+    /// (`docs/uvrr-protocols.md`, the solver chapter): the host renders it as
     /// the one JSON response line back to the operator.
     AdminResponse {
         /// The verdict.
@@ -149,7 +149,7 @@ pub struct PersistenceIntent {
 /// The level is a statement about the meaning of effect release, and the core
 /// behaves accordingly: [`Stability::Volatile`] releases at `publish`; every
 /// other level parks the transition behind [`Effect::Persist`] until the host
-/// confirms. `Deferred`, `Forced` and `ExternalTransaction` differ in what the
+/// confirms. [`Stability::Deferred`], [`Stability::Forced`] and [`Stability::ExternalTransaction`] differ in what the
 /// host's confirmation *means*, acceptance for later durability, a local
 /// crash barrier, a wider transaction, and that meaning is the host's
 /// contract with its own storage, not something the core can distinguish.
@@ -159,7 +159,7 @@ pub enum Stability {
     /// memory and restart (§7). Effects release at `publish`.
     Volatile,
     /// The host accepted a write for later durability; until a barrier
-    /// completes, safety remains the `Volatile` case (§7).
+    /// completes, safety remains the [`Stability::Volatile`] case (§7).
     Deferred,
     /// The host confirms a host-selected local crash/power-loss barrier (§7).
     Forced,
@@ -180,7 +180,7 @@ pub enum Stability {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum StabilityResult {
     /// The intent reached the declared stability level. `receipt` is the
-    /// host's opaque evidence, the core carries it, never interprets it.
+    /// host's opaque evidence, the core carries it, never interprets it (S2).
     Stable {
         /// Host-supplied evidence of durability.
         receipt: Box<[u8]>,

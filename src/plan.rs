@@ -1,13 +1,13 @@
 //! The reconfiguration plan: the artefact the operator computes once, submits,
 //! and the leader steps through while the cluster keeps running normally
-//! (`docs/weighted-reconfiguration-solver.md`).
+//! (`docs/uvrr-protocols.md`, the solver chapter).
 //!
 //! A [`Plan`] is serde-free: it is the core's type, built from the solver's
 //! schedule ([`crate::solver`]) and replayed by the leader one batch per era.
 //! The JSONL form exists only at the tool perimeter, the codec below is
 //! feature-gated, and a plan crossing that perimeter is validated once, on
 //! the way in, against the same transition gates the leader applies
-//! ([`Plan::validate_against`]). The core never sees JSON.
+//! ([`crate::plan::Plan::validate_against`]). The core never sees JSON.
 
 use crate::configuration::{ConfigError, Configuration, Member, SystemOperation};
 use crate::ids::{NodeId, Slot};
@@ -24,13 +24,13 @@ use crate::ids::Era;
 /// order included, because order is succession, and `steps[i]` is the batch
 /// that establishes the era after step `i − 1`. The plan carries nothing the
 /// ordinary protocol does not already carry: each step is committed as ONE
-/// [`SystemOperation::Batch`], exactly as any other reconfiguration.
+/// [`crate::configuration::SystemOperation::Batch`], exactly as any other reconfiguration.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Plan {
     /// The membership the plan was computed against, in succession order.
     pub initial: Vec<Member>,
     /// One batch per era, in commit order; each batch is applied as ONE
-    /// [`SystemOperation::Batch`].
+    /// [`crate::configuration::SystemOperation::Batch`].
     pub steps: Vec<Vec<SystemOperation>>,
 }
 
@@ -114,8 +114,9 @@ impl Plan {
     /// The plan's `initial` must equal the committed configuration,
     /// membership, succession order and weights all compared, and every step
     /// must fold through the ordinary transition gates
-    /// ([`Configuration::apply`]). A plan that was legal when computed but has
-    /// drifted is rejected by name, never committed.
+    /// ([`crate::configuration::Configuration::apply`]). A plan that was legal when computed but has
+    /// drifted is rejected by name, never committed
+    /// (`docs/uvrr-protocols.md`, the solver chapter).
     pub fn validate_against(&self, current: &Configuration) -> Result<(), PlanRejection> {
         let committed = current.order();
         if self.initial.len() != committed.len()
@@ -172,7 +173,8 @@ pub enum PlanCodecError {
     Target {
         /// The target the header declared.
         declared: Vec<Member>,
-        /// The configuration the steps actually reach.
+        /// The configuration the steps actually reach
+        /// (`docs/uvrr-protocols.md`, the solver chapter).
         computed: Vec<Member>,
     },
 }
@@ -202,7 +204,7 @@ impl std::fmt::Display for PlanCodecError {
 #[cfg(feature = "serde")]
 impl std::error::Error for PlanCodecError {}
 
-/// The JSONL wire shapes: the schema of `docs/weighted-reconfiguration-solver.md`,
+/// The JSONL wire shapes: the schema of `docs/uvrr-protocols.md`, the solver chapter,
 /// one JSON object per line. These types never leak past the codec.
 #[cfg(feature = "serde")]
 mod jsonl {

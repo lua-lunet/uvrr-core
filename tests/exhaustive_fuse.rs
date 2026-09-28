@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `Fuse` envelope an acceptor folds
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::Fuse`] envelope an acceptor folds
 //! (`docs/uvrr-fuse.md` §1, §3).
 //!
 //! One message over the cross product of the dimensions the handler branches
@@ -9,7 +9,7 @@
 //! unique and never recycled, so the minted identity the schedule names is
 //! outside the configuration for the life of the test, which is what makes
 //! the illegal schedule's fold refuse), the boot-gate marker states (the
-//! receiver was never halted, so it holds its assembled `Normal` life), and
+//! receiver was never halted, so it holds its assembled [`uvrr::progress::Status::Normal`] life), and
 //! the quorum gate fixed at construction (Q1). The envelope is atomic (§2):
 //! the packed schedule folds whole or the whole envelope is refused, never a
 //! partial fold and never a wire nack, so the one named outcome covers every
@@ -82,7 +82,7 @@ fn released(outcome: &StepOutcome) -> Vec<(NodeId, Message)> {
     }
 }
 
-/// A three-node cluster at view 1, the receiver a `Normal` backup.
+/// A three-node cluster at view 1, the receiver a [`uvrr::progress::Status::Normal`] backup.
 #[rustfmt::skip]
 fn assembled() -> Harness {
     let knobs = ViewChangeKnobs { primary_timeout: TIMEOUT, view_change_budget: usize::MAX };

@@ -6,9 +6,9 @@
 //! exactly when the operation COMMITS (§8.7.1: an era is established by
 //! the commit of its establishing operation, never by its acceptance).
 //! The pivot is `None` on the stop-the-world path: the establishing
-//! `Prepare` goes to every backup and the cluster enters the new era
+//! [`crate::wire::Tag::Prepare`] goes to every backup and the cluster enters the new era
 //! through the next ordinary view change. A `Some` pivot names the
-//! non-stop variant (§8.7.6–§8.7.7): the `Prepare` goes only to
+//! non-stop variant (§8.7.6–§8.7.7): the [`crate::wire::Tag::Prepare`] goes only to
 //! `qII − {L}`, and when the operation commits through `qII` the leader
 //! solicits PLANNED evidence from `qI − {L}`, never a fence, and, the
 //! planned quorum complete, publishes its casting vote and its switch to
@@ -31,20 +31,20 @@
 //! * **The commit-time fold is the only place the era advances**
 //!   (§8.7.1): every path that moves the commit frontier folds the system
 //!   operations the advance newly covers and carries the folded table in
-//!   the candidate ([`Replica::fold_committed`]). A fold refusal in
+//!   the candidate ([`crate::replica::Replica::fold_committed`]). A fold refusal in
 //!   COMMITTED history is a breach and faults; a refusal at the arriving
 //!   entry's own slot is the peer's invalid operation and is dropped by
-//!   name ([`Diagnostic::InvalidSystemOperation`]).
+//!   name ([`crate::observe::Diagnostic::InvalidSystemOperation`]).
 //! * **A primary crash mid-reconfiguration never half-installs an era**:
 //!   an accepted-but-uncommitted system operation establishes nothing; if
 //!   the view change carries it, the next commit cascade re-commits it
 //!   and the era advances exactly there; if not, the operation is absent
 //!   from history and the era never moved.
 //! * **Planned evidence is transient and never a fence** (§8.7.7):
-//!   `PlannedViewChange` recipients retain `current_view = v` and keep
-//!   accepting valid era-e `Prepare`; their `EvidenceKind::Planned`
+//!   [`crate::wire::Tag::PlannedViewChange`] recipients retain `current_view = v` and keep
+//!   accepting valid era-e [`crate::wire::Tag::Prepare`]; their [`crate::EvidenceKind::Planned`]
 //!   answers complete the planned quorum and are never counted toward a
-//!   `Role::Fence` or ordinary `Role::ViewChange` quorum, the kinds are
+//!   [`crate::quorum::Role::Fence`] or ordinary [`crate::quorum::Role::ViewChange`] quorum, the kinds are
 //!   distinguishable on the wire and routed by kind.
 
 use std::collections::BTreeMap;
@@ -78,7 +78,7 @@ pub(in crate::replica) enum CommitFold {
     /// batch: the maximal run of consecutive system entries the fold
     /// recognised extends past the advance. A batch commits whole or not
     /// at all, its era is established by the whole fold, so a split
-    /// advance is refused, never partially folded. Unreachable while every
+    /// advance is refused (the reconfiguration-rules chapter §4), never partially folded. Unreachable while every
     /// commit-frontier advance is segment-atomic; stated so the fold stays
     /// total.
     SplitBatch,
@@ -96,7 +96,7 @@ pub(in crate::replica) enum CommitFold {
 
 /// The envelope budget of the fuse builder (`docs/uvrr-fuse.md` §2, §4
 /// step 5): the packed operation count above which an armed schedule's
-/// establishing batch falls back to the ordinary per-op `Prepare` path. A
+/// establishing batch falls back to the ordinary per-op [`crate::wire::Tag::Prepare`] path. A
 /// full-cluster reconfiguration is at most seven operations, and the whole
 /// envelope travels well under the nominal 1300-byte payload checked in
 /// `tests/wire_contract.rs`; the codec carries no size constant (W5), so
@@ -105,8 +105,8 @@ pub(in crate::replica) enum CommitFold {
 pub const FUSE_MAX_OPS: usize = 7;
 
 /// The nomination riders one covered run carried, applied as the CAS bump
-/// (`docs/nominate-leader-assignment.md`): `running` is the view the node
-/// serves, `None` when it is not `Normal` and no nomination can match it.
+/// (`docs/uvrr-protocols.md`, the NOMINATE chapter): `running` is the view the node
+/// serves, `None` when it is not [`crate::progress::Status::Normal`] and no nomination can match it.
 /// Each rider CAS-predicates on the running view number, the prior bumps
 /// of the same advance included, and its bump enters the era the carrying
 /// run established, so the view lands in the new arithmetic directly. An
@@ -145,7 +145,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The era table after folding the system operations the
     /// commit-frontier advance `(from, through]` newly covers (§8.7.1).
     /// `overlay` supplies the entries an in-transition install adds to the
-    /// picture, exactly as in [`Replica::applied_walk`]. Returns the
+    /// picture, exactly as in [`crate::replica::Replica::applied_walk`]. Returns the
     /// receiver's own table when the advance covers no system operation,
     /// the fold is the identity, no allocation.
     ///
@@ -154,13 +154,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// packed schedule a fuse envelope carried, one op per consecutive
     /// slot): the run's operations fold through the batch applier at the
     /// run's first slot and establish exactly one era, the same history
-    /// the ordinary per-op `Prepare` path journals for the same batch.
-    /// The genesis pair (`Void`, `Init`) is the one run the batch applier
+    /// the ordinary per-op [`crate::wire::Tag::Prepare`] path journals for the same batch.
+    /// The genesis pair ([`crate::configuration::SystemOperation::Void`], [`crate::configuration::SystemOperation::Init`]) is the one run the batch applier
     /// refuses (R15), and it folds per entry as it always has; a batch
     /// refusal on any other run is the per-entry fallback's only other
     /// caller, and the era discipline the candidate carries names it.
     /// A run the advance would SPLIT is refused
-    /// ([`CommitFold::SplitBatch`]): a batch commits whole or not at all.
+    /// ([`crate::CommitFold::SplitBatch`]): a batch commits whole or not at all.
     pub(in crate::replica) fn fold_committed(
         &self,
         journal: &J::View,
@@ -181,7 +181,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// round, once the caller's durable view has walked into the era the
     /// folded table established. `window = None` is the unbounded fold the
     /// ordinary candidates run. The fourth element is the nomination bump
-    /// the covered runs carried (`docs/nominate-leader-assignment.md`):
+    /// the covered runs carried (`docs/uvrr-protocols.md`, the NOMINATE chapter):
     /// the view a serving node publishes after the riders its commit
     /// covered, `None` when no rider matched the node's view.
     pub(in crate::replica) fn fold_committed_windowed(
@@ -324,7 +324,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The reconfiguration gates every proposal path runs, shared by the
-    /// ordinary establishing `Prepare` and the fuse envelope: one era
+    /// ordinary establishing [`crate::wire::Tag::Prepare`] and the fuse envelope: one era
     /// transition at a time (gate 3), one establishing operation at a time
     /// (gate 4), the §8.7.2 preconditions of the fold itself (gate 5), and
     /// the closed intersection obligations (gate 6, Q1), R2 across the
@@ -385,31 +385,31 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         Ok(next_table)
     }
 
-    /// The stop-the-world reconfiguration (§8.7.4): the `Normal` primary
+    /// The stop-the-world reconfiguration (§8.7.4): the [`crate::progress::Status::Normal`] primary
     /// proposes the system operation through the ordinary pipeline. The
     /// gates, in order:
     ///
     /// 1. the pivot, when `Some`, satisfies the §8.7.6 pivot condition
-    ///    ([`PlanRefusal::ReconfigurePivot`]);
-    /// 2. the node is the `Normal` primary of its current view
-    ///    ([`PlanRefusal::NotPrimary`], as for any proposal);
+    ///    ([`crate::replica::PlanRefusal::ReconfigurePivot`]);
+    /// 2. the node is the [`crate::progress::Status::Normal`] primary of its current view
+    ///    ([`crate::replica::PlanRefusal::NotPrimary`], as for any proposal);
     /// 3. the era table has NOT advanced past the current view, the
     ///    committed operation establishing the next era awaits the
     ///    ordinary view change into it (§8.7.8), and a second advance
     ///    would put the accepted frontier outside §8.7.3's relation
-    ///    ([`PlanRefusal::EraTransitionOutstanding`]);
+    ///    ([`crate::replica::PlanRefusal::EraTransitionOutstanding`]);
     /// 4. no earlier system operation sits accepted-but-uncommitted,
     ///    the fold that runs at commit must be the fold the pre-proposal
-    ///    gate validated ([`PlanRefusal::ReconfigureOutstanding`]);
+    ///    gate validated ([`crate::replica::PlanRefusal::ReconfigureOutstanding`]);
     /// 5. the §8.7.2 preconditions of the fold itself
-    ///    ([`PlanRefusal::Reconfigure`]);
+    ///    ([`crate::replica::PlanRefusal::Reconfigure`]);
     /// 6. the closed intersection obligations (Q1): R2 across the
     ///    boundary FIRST, so a cross-era refusal names the cross-era
     ///    witness, then R1, self-intersection and fence-restart within
-    ///    the resulting era ([`PlanRefusal::ReconfigureQuorum`]).
+    ///    the resulting era ([`crate::replica::PlanRefusal::ReconfigureQuorum`]).
     ///
     /// A refusal at any gate never enters the log. The pivot never
-    /// substitutes for the family-level `validate_transition` gate: an
+    /// substitutes for the family-level [`crate::quorum::validate_transition`] gate: an
     /// operation the gate refuses is refused with or without a pivot.
     pub(in crate::replica) fn plan_reconfigure(
         &self,
@@ -460,7 +460,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // order), an unrepresentable `v'` refusing the proposal outright
         // rather than wrapping the view space.
         let mut recipients: Vec<NodeId> = self.backups();
-        // The stream targets (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+        // The stream targets (`docs/uvrr-protocols.md`, the rejoin chapter
         // §3): the establishing operation is exactly what the announced
         // standby and every gossip-witness must hold, so the copies ride
         // the forced step's proposal as well.
@@ -556,11 +556,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The proposal of an armed schedule's establishing batch
     /// (`docs/uvrr-fuse.md` §4): the fuse envelope when the batch packs at
     /// least two operations within the envelope budget
-    /// ([`FUSE_MAX_OPS`]), the ordinary establishing `Prepare` otherwise,
+    /// ([`FUSE_MAX_OPS`]), the ordinary establishing [`crate::wire::Tag::Prepare`] otherwise,
     /// the fallback IS the ordinary path, unchanged. The plan-execution
     /// machine proposes through here (§8 of the fuse doc); the
     /// forced-reincarnation machine proposes its steps through
-    /// [`Self::plan_reconfigure`], one `Batch` entry per era, the
+    /// [`crate::Self::plan_reconfigure`], one [`crate::configuration::SystemOperation::Batch`] entry per era, the
     /// ordinary pipeline.
     pub(in crate::replica) fn plan_step_proposal(
         &self,
@@ -577,7 +577,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// The fuse builder (`docs/uvrr-fuse.md` §4): the leader-side emission
     /// of an armed schedule's establishing batch of at least two
-    /// operations. One `Fuse` per recipient backup, header `first_slot` =
+    /// operations. One [`crate::wire::Tag::Fuse`] per recipient backup, header `first_slot` =
     /// the next unsent slot, body = the batch's operations in plan order,
     /// one proposal record per packed slot (the leader's own vote is
     /// implicit, as in the ordinary path), and one journaled entry per
@@ -644,7 +644,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             body: Body::Fuse { ops: ops.to_vec() },
         };
         let mut recipients = self.backups();
-        // The stream targets (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+        // The stream targets (`docs/uvrr-protocols.md`, the rejoin chapter
         // §3): the establishing batch is exactly what the announced
         // standby and every gossip-witness must hold, so the envelope
         // reaches them too.
@@ -687,11 +687,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .with_bookkeeping(bookkeeping))
     }
 
-    /// A `Fuse` envelope's acceptor transition (`docs/uvrr-fuse.md` §3).
+    /// A [`crate::wire::Tag::Fuse`] envelope's acceptor transition (`docs/uvrr-fuse.md` §3).
     /// The envelope is ATOMIC (§2): the packed schedule folds whole or the
     /// whole envelope is refused, there is no partial fold and no wire
-    /// nack. Receiving a `Fuse` is defined as receiving the equivalent
-    /// sequence of `Prepare`s at the same ballot, one per slot, in batch
+    /// nack. Receiving a [`crate::wire::Tag::Fuse`] is defined as receiving the equivalent
+    /// sequence of [`crate::wire::Tag::Prepare`]s at the same ballot, one per slot, in batch
     /// order, so the header guards are `plan_prepare`'s, run once, and the
     /// per-op perimeter is the ordinary system-op fold.
     ///
@@ -700,7 +700,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// eligibility, and the boot-adoption carve-outs. A self-addressed
     /// envelope (the recipient IS the message view's primary) is dropped:
     /// the leader's own proposals are journaled at the builder
-    /// ([`Self::plan_fuse_batch`]), never delivered back to itself.
+    /// ([`crate::Self::plan_fuse_batch`]), never delivered back to itself.
     ///
     /// The explode: `first_slot` must be the accept frontier's successor;
     /// each packed op then folds against the schedule's own fold chain,
@@ -708,10 +708,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// arriving system entry, and the frontier advances per op. The
     /// journaled entries are stamped with the ballot's era (`docs/uvrr-fuse.md`
     /// §1: the header carries the ballot shared by every packed op), which is
-    /// also what any retransmission of a packed slot's `Prepare` must carry.
+    /// also what any retransmission of a packed slot's [`crate::wire::Tag::Prepare`] must carry.
     /// Nothing commits: the era table folds at commit (§8.7.1), so the
     /// candidate carries the published configuration unchanged. All ops
-    /// accepted: one `FuseOk` to the sender, its header slot the LAST
+    /// accepted: one [`crate::wire::Tag::FuseOk`] to the sender, its header slot the LAST
     /// accepted slot, its acks one accepted slot per op in batch order,
     /// no range encodings. Any refusal drops the envelope with the one
     /// named outcome, zero effects.
@@ -856,8 +856,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
     /// §8.7.7 steps 1 and 4, at the commit of the establishing operation:
     /// the fold that just established the successor era records the pivot
-    /// that carries the transition ([`EraTable::with_transition_pivot`]),
-    /// and the `PlannedViewChange` solicitation goes to `qI − {L}`,
+    /// that carries the transition ([`crate::configuration::EraTable::with_transition_pivot`]),
+    /// and the [`crate::wire::Tag::PlannedViewChange`] solicitation goes to `qI − {L}`,
     /// NEVER to `qII − {L}`, whose ordinary prepare stream is the one the
     /// non-stop transition exists to preserve. The solicitation rides the
     /// same published transition as the fold, so the machine's `solicited`
@@ -925,17 +925,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         (config, effects, update)
     }
 
-    /// A `PlannedViewChange` solicitation (§8.7.7 step 2): the serving
+    /// A [`crate::wire::Tag::PlannedViewChange`] solicitation (§8.7.7 step 2): the serving
     /// primary of the current view is gathering planned evidence for the
     /// transition view `v'` it names in the successor era. This is NOT a
-    /// fence, the recipient retains `current_view = v`, stays `Normal`,
-    /// and keeps accepting valid era-e `Prepare`. It answers from its own
-    /// bounded suffix with `EvidenceKind::Planned` (step 3), transient
+    /// fence, the recipient retains `current_view = v`, stays [`crate::progress::Status::Normal`],
+    /// and keeps accepting valid era-e [`crate::wire::Tag::Prepare`]. It answers from its own
+    /// bounded suffix with [`crate::EvidenceKind::Planned`] (step 3), transient
     /// evidence, never counted toward a fence quorum, proved against the
     /// CURRENT era, the one the answer speaks from.
     ///
     /// The answer carries no authority, so the guards are deliberately
-    /// light: every verification that matters re-fires at the `StartView`
+    /// light: every verification that matters re-fires at the [`crate::wire::Tag::StartView`]
     /// install. A recipient whose table does not yet record the successor
     /// era opens a fetch toward the leader for the range past its
     /// frontier, the suffix fallback (§13.1 step 5 applied to the
@@ -1031,10 +1031,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         Ok(plan)
     }
 
-    /// A `DoViewChange` carrying PLANNED evidence (§8.7.7 step 4), at the
+    /// A [`crate::wire::Tag::DoViewChange`] carrying PLANNED evidence (§8.7.7 step 4), at the
     /// pivot leader: a vote in the planned quorum, and nothing else, it
     /// never enters the ordinary attempt and never counts toward a
-    /// `Role::Fence` quorum. The guards are total and named; the shape
+    /// [`crate::quorum::Role::Fence`] quorum. The guards are total and named; the shape
     /// rules are the ordinary evidence path's.
     ///
     /// When every `qI` member has answered, the leader's own membership

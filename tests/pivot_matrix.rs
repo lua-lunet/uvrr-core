@@ -12,7 +12,7 @@
 //!
 //! For unweighted threshold quorums the cardinality rule is `|qI| + |qII| =
 //! N + 1`. A leader that finds no split falls back to stop-the-world without
-//! fault. A valid pivot never weakens the closed `validate_transition` gate.
+//! fault. A valid pivot never weakens the closed [`uvrr::quorum::validate_transition`] gate.
 
 mod harness;
 
@@ -55,7 +55,7 @@ fn cluster() -> Harness {
 }
 
 /// Bootstraps the cluster: the genesis primary promotes itself and both
-/// backups adopt view (1, 0) from the promotion's `Commit` announcement.
+/// backups adopt view (1, 0) from the promotion's [`uvrr::wire::Tag::Commit`] announcement.
 fn bootstrap(h: &mut Harness) {
     h.tick_all();
     h.deliver_all();

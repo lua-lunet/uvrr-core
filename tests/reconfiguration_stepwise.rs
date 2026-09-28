@@ -57,7 +57,7 @@ fn snap(h: &Harness, id: NodeId) -> ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-/// The node's current view as a `ViewId`.
+/// The node's current view as a [`uvrr::ids::ViewId`].
 fn current_view(h: &Harness, id: NodeId) -> ViewId {
     let snapshot = snap(h, id);
     ViewId {
@@ -114,7 +114,7 @@ fn cluster() -> Harness {
 }
 
 /// Bootstraps the cluster: the genesis primary promotes itself and both
-/// backups adopt view (1, 0) from the promotion's `Commit` announcement
+/// backups adopt view (1, 0) from the promotion's [`uvrr::wire::Tag::Commit`] announcement
 /// (§13.3).
 fn bootstrap(h: &mut Harness) {
     h.tick_all();
@@ -137,7 +137,7 @@ fn tick_into_view_change(h: &mut Harness, id: NodeId, target: ViewId) {
 /// (§8.4), times out first, the exchange runs out, every live node
 /// installs the new view. The driver is a VOTING member by construction:
 /// a weight-0 member is never the primary (§8.7.8) and does not drive
-/// view change (§5.1, suspicion is a voting member's act).
+/// view change (§5, suspicion is a voting member's act).
 fn drive_view_change(h: &mut Harness, live: &[NodeId], target: ViewId) {
     let prime = h
         .era_table(live[0])
@@ -598,7 +598,7 @@ fn primary_crash_mid_reconfiguration_never_half_installs() {
 /// INCREMENT(n0) takes the weights to (2,1,1,1,1,1): the same fixed
 /// thresholds then admit a disjoint view-change quorum {n1,n2,n3,n4}
 /// (weight 4, under era e) and commit quorum {n0,n5} (weight 3, under era
-/// e+1), the Q1 violation `validate_transition` must refuse.
+/// e+1), the Q1 violation [`uvrr::quorum::validate_transition`] must refuse.
 struct Thresholds {
     fence: u64,
     view_change: u64,
@@ -921,7 +921,7 @@ fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
         h.deliver_all();
         // The host's steady state: the leader ticks every cycle. The armed
         // reincarnation machine proposes the next forced step on the tick
-        // (§5, §8 of `docs/uvrr-reincarnation.md`); the prechecks make the
+        // (§5, §8 of `docs/uvrr-protocols.md`, the reincarnation chapter); the prechecks make the
         // tick an inert transition whenever a step is still in flight.
         h.tick(leader);
         h.deliver_all();

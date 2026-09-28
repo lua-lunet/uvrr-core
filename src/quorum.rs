@@ -1,15 +1,15 @@
-//! Quorum families by semantic role, and the `QuorumStrategy` extension point.
+//! Quorum families by semantic role, and the [`QuorumStrategy`] extension point.
 //!
 //! Spec §8.1 (baseline majority), §8.2 (families, not counts), §8.3 (diskless overlap),
 //! §8.4 (weighted quorums), §8.5 (even-sized configurations), §8.6 (reconfiguration
 //! overlap), §8.7.5 (closure). Decision Q1.
 //!
 //! Quorums are named by role, not by size: `C_g` commit, `V_g` view change, `F_g`
-//! `StartViewChange` fence, `R_g` restart. Distinguishing the roles is what lets a host
+//! [`crate::wire::Tag::StartViewChange`] fence, `R_g` restart. Distinguishing the roles is what lets a host
 //! adopt the §8.5 even-node split (`V_g = k+1`, `C_g = k`) or a §8.4 weighted family
 //! without editing the protocol.
 //!
-//! `QuorumStrategy` is an extension point; the intersection obligations it must satisfy
+//! [`QuorumStrategy`] is an extension point; the intersection obligations it must satisfy
 //! are not. The obligations, `R1: QI_e ⌢ QII_e` and `R2: QI_e ⌢ QII_(e+1)` (§8.7.4),
 //! plus the diskless `F_g ⌢ R_g` and `V_g ⌢ V_g` (§8.3), are discharged by
 //! [`validate_era`] and [`validate_transition`], **free functions the core calls**, not
@@ -27,10 +27,11 @@
 //! evaluations, which is what makes the cap a validation-cost bound rather than a
 //! protocol limit.
 //!
-//! We ship `WeightedMajority` as the default because §8.7.5 proves its closure across
-//! consecutive eras, and `EvenSplit` ships as a non-default *reference*
-//! strategy to demonstrate that the extension point genuinely admits the six-node
-//! three-datacentre profile. Shipping only a default would leave the extension point
+//! We ship [`WeightedMajority`] as the default because §8.7.5 proves its closure across
+//! consecutive eras, and the extension point is exercised, not merely declared: the
+//! test suites drive their own `Thresholds` and `AnythingQuorums` implementations
+//! against the same gate, which is what keeps it more than a promise. Shipping only
+//! a default would leave the extension point
 //! unexercised and therefore unproven.
 //!
 //! We ship a default and a trait. We do not ship a choice.
@@ -54,7 +55,7 @@ pub enum Role {
     ViewChange,
     /// R_g: the restart family (§8.3).
     Restart,
-    /// F_g: the `StartViewChange` fence family (§8.3).
+    /// F_g: the [`crate::wire::Tag::StartViewChange`] fence family (§8.3).
     Fence,
 }
 
@@ -70,7 +71,7 @@ pub enum Role {
 ///   quorum of the other family, is only valid for upward-closed families, and every
 ///   quorum family in §8.2–§8.5 is upward-closed by construction.
 /// - **Strictness about membership.** Unknown or duplicated nodes in `members` are
-///   refused (`false`), which [`Configuration::weight_of_set`] already implements for
+///   refused (`false`), which [`crate::configuration::Configuration::weight_of_set`] already implements for
 ///   weight-based strategies. The gate enumerates subsets of a configuration union,
 ///   and a cross-era subset can legitimately contain nodes one of the two
 ///   configurations does not know; those subsets must simply fail the predicate.
@@ -97,9 +98,10 @@ pub enum R2Direction {
     /// change in era `e` must not select a history that omits an operation committed
     /// under era `e+1`. This is the direction Q1's six-node counterexample violates.
     Forward,
-    /// `ViewChange_next ⌢ Commit_current`, `PrepareOk` evidence gathered under era
+    /// `ViewChange_next ⌢ Commit_current`, [`crate::wire::Tag::PrepareOk`] evidence gathered under era
     /// `e+1` must intersect a commit quorum under era `e`, or a view change in the
-    /// new era can install a history the old era's committers never saw. Not a
+    /// new era can install a history the old era's committers never saw (§8.7.4).
+    /// Not a
     /// consequence of the forward direction when the two eras weight members
     /// differently; `tests/quorum_contract.rs` constructs a strategy that passes
     /// forward and is refused here.
@@ -119,9 +121,9 @@ pub enum QuorumError {
     /// `R1` (§8.7.4) failed within one era: a commit quorum and a view-change quorum
     /// of the same configuration are disjoint.
     R1Violation {
-        /// A `Role::Commit` quorum under the configuration.
+        /// A [`Role::Commit`] quorum under the configuration.
         commit: Vec<NodeId>,
-        /// A `Role::ViewChange` quorum under the same configuration, disjoint from
+        /// A [`Role::ViewChange`] quorum under the same configuration, disjoint from
         /// `commit`.
         view_change: Vec<NodeId>,
     },
@@ -130,9 +132,9 @@ pub enum QuorumError {
     R2Violation {
         /// Which direction of the boundary was violated.
         direction: R2Direction,
-        /// A `Role::ViewChange` quorum under the era `direction` names.
+        /// A [`Role::ViewChange`] quorum under the era `direction` names.
         view_change: Vec<NodeId>,
-        /// A `Role::Commit` quorum under the other era, disjoint from `view_change`.
+        /// A [`Role::Commit`] quorum under the other era, disjoint from `view_change`.
         commit: Vec<NodeId>,
     },
     /// A family does not self-intersect (§8.3's `V_g ⌢ V_g`): two quorums of the same
@@ -154,18 +156,18 @@ pub enum QuorumError {
     /// era are disjoint, so a boot-fenced replica could miss the evidence that a view
     /// was fenced.
     FenceRestartViolation {
-        /// A `Role::Fence` quorum under the configuration.
+        /// A [`Role::Fence`] quorum under the configuration.
         fence: Vec<NodeId>,
-        /// A `Role::Restart` quorum under the same configuration, disjoint from
+        /// A [`Role::Restart`] quorum under the same configuration, disjoint from
         /// `fence`.
         restart: Vec<NodeId>,
     },
-    /// A configuration presented to the gate exceeds [`MAX_MEMBERS`]. Unreachable
-    /// through the fold, `Init` and `Join` refuse past the cap first, but the gate
+    /// A configuration presented to the gate exceeds [`crate::configuration::MAX_MEMBERS`]. Unreachable
+    /// through the fold, [`crate::configuration::SystemOperation::Init`] and [`crate::configuration::SystemOperation::Join`] refuse past the cap first, but the gate
     /// does not trust its callers: its cost analysis assumes the bound, so it
     /// restates it rather than enumerating an unbounded membership.
     MembershipCapExceeded {
-        /// The cap that was exceeded: always [`MAX_MEMBERS`].
+        /// The cap that was exceeded: always [`crate::configuration::MAX_MEMBERS`].
         cap: u32,
     },
 }
@@ -181,7 +183,7 @@ fn members_of(universe: &[NodeId], mask: u32) -> Vec<NodeId> {
 }
 
 /// The number of members, as the mask width. Total: computed by a `u32` fold, and the
-/// callers cap `universe` at [`MAX_MEMBERS`], so the shifts below cannot overflow.
+/// callers cap `universe` at [`crate::configuration::MAX_MEMBERS`], so the shifts below cannot overflow.
 fn width_of(universe: &[NodeId]) -> u32 {
     universe.iter().fold(0u32, |count, _| count + 1)
 }
@@ -211,7 +213,8 @@ fn disjoint_quorums_exist(
 }
 
 /// The witness: an inclusion-minimal disjoint quorum pair, or `None` if the families
-/// intersect universally.
+/// intersect universally (the refusal-witness contract of
+/// `docs/uvrr-durability-model.md` §8.7.4).
 ///
 /// Runs the fast scan first, then, only on the refusal path, a thorough pass that
 /// enumerates subsets in increasing size and, for each `family_a` quorum, searches
@@ -267,7 +270,7 @@ fn find_disjoint_pair(
 }
 
 /// Refuses a configuration whose membership exceeds the enumeration budget. See
-/// [`QuorumError::MembershipCapExceeded`] for why the gate restates the fold's cap.
+/// [`crate::QuorumError::MembershipCapExceeded`] for why the gate restates the fold's cap.
 fn check_cap(config: &Configuration) -> Result<(), QuorumError> {
     if config.len() > MAX_MEMBERS {
         return Err(QuorumError::MembershipCapExceeded { cap: MAX_MEMBERS });
@@ -286,9 +289,10 @@ fn check_cap(config: &Configuration) -> Result<(), QuorumError> {
 /// the obligation it found, not the one that happens to share its arithmetic.
 ///
 /// Cost: three obligations, each a `2^N` subset scan with two predicate evaluations
-/// per subset on the valid path; `N <= `[`MAX_MEMBERS`], so at most 3 × 65536 × 2
-/// evaluations per call, microseconds. A refusal additionally runs the
-/// minimal-witness pass documented on [`find_disjoint_pair`].
+/// per subset on the valid path; `N <= `[`crate::configuration::MAX_MEMBERS`], so at most 3 × 65536 × 2
+/// evaluations per call, microseconds. A refusal carries the inclusion-minimal
+/// witness and pays the `3^N` enumeration bound, the refusal-witness contract of
+/// `docs/uvrr-durability-model.md` §8.7.4.
 pub fn validate_era(
     strategy: &dyn QuorumStrategy,
     config: &Configuration,
@@ -335,13 +339,13 @@ pub fn validate_era(
 /// ([`R2Direction::Forward`], Q1's counterexample direction) and `ViewChange_next ⌢
 /// Commit_current` ([`R2Direction::Reverse`]). Overlap mode sends era `e` to one set
 /// and era `e+1` to another, so both directions of the boundary must be safe, not
-/// only the forward one: `PrepareOk` evidence gathered under `e+1` must intersect a
+/// only the forward one: [`crate::wire::Tag::PrepareOk`] evidence gathered under `e+1` must intersect a
 /// commit quorum under `e` just as much as the converse.
 ///
 /// The enumeration universe is the union of the two memberships, sorted for
 /// determinism; nodes a configuration does not know simply fail its predicate. The
-/// union of two fold-consecutive configurations never exceeds [`MAX_MEMBERS`] (the
-/// one membership-changing operations, `Join` and `Leave`, move exactly one member at
+/// union of two fold-consecutive configurations never exceeds [`crate::configuration::MAX_MEMBERS`] (the
+/// one membership-changing operations, [`crate::configuration::SystemOperation::Join`] and [`crate::configuration::SystemOperation::Leave`], move exactly one member at
 /// weight 0), so the union check cannot fire on a legitimate transition, it exists
 /// because the gate does not assume its callers only present fold-consecutive pairs.
 ///
@@ -426,7 +430,7 @@ pub enum PivotError {
 /// The algorithm enumerates subsets of the union of both memberships in
 /// increasing bitmask order, returning the first `qII` that satisfies
 /// every leg. It **terminates** because the powerset of a membership
-/// capped at [`MAX_MEMBERS`] is finite (`2^16` subsets at most). It is
+/// capped at [`crate::configuration::MAX_MEMBERS`] is finite (`2^16` subsets at most). It is
 /// **deterministic** because the enumeration order is fixed and the first
 /// match is returned, same inputs, same pivot, every time.
 ///

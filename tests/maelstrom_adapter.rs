@@ -295,7 +295,7 @@ type PeerSender = (String, Sender<String>);
 
 /// The scripted transport for a small cluster: relays each node's emitted
 /// lines to the addressee, collecting client replies for assertion. A node
-/// the nemesis killed rejoins the transport through [`RelayedCluster::relay`]
+/// the nemesis killed rejoins the transport through [`uvrr::RelayedCluster::relay`]
 /// under the same label, exactly as Maelstrom re-attaches a restarted node.
 struct RelayedCluster {
     collected: Receiver<Value>,
@@ -399,7 +399,7 @@ fn init_handshake_answers_init_ok() {
 /// full propose/PrepareOk/commit/apply/answer pipeline serves write, read,
 /// compare-and-set, and the definite-failure replies. (One node is not a
 /// serving configuration of the core: the commit cascade is evaluated when
-/// a `PrepareOk` lands, and a backup-less cluster never receives one.)
+/// a [`uvrr::wire::Tag::PrepareOk`] lands, and a backup-less cluster never receives one.)
 #[test]
 fn cluster_serves_kv_operations() {
     let mut n0 = Node::spawn();
@@ -715,7 +715,7 @@ fn client_ok(
 
 /// Three nodes, a fresh state dir, a committed write, and then the nemesis:
 /// `n2` is killed mid-life and respawned against the SAME state dir. The
-/// restart must be a dirty `Node::reopen` (the stderr diagnostic names the
+/// restart must be a dirty [`uvrr::Node::reopen`] (the stderr diagnostic names the
 /// bump, reopen, not provision), the core's reincarnation machinery must
 /// walk the forced sequence until the bumped identity is a voter again
 /// (the announcement, the forced batches, the era transitions between
@@ -812,7 +812,7 @@ fn committed_state_survives_a_kill_restart_with_the_same_state_dir() {
 
 /// A state dir that holds no state file for the node: the first life. The
 /// provision path is exactly the unpersisted host's, the same fenced
-/// `Joining` start, the same bootstrap adoption, the same serving,
+/// [`uvrr::progress::Status::Joining`] start, the same bootstrap adoption, the same serving,
 /// and the lifecycle diagnostic names it.
 #[test]
 fn a_fresh_state_dir_provisions_as_today() {
@@ -841,8 +841,8 @@ fn a_fresh_state_dir_provisions_as_today() {
     );
 }
 
-/// A clean stop (stdin EOF) walks the marker machine's T1, `Stopping`,
-/// the drain, `Stopped`, so the next init under the same state dir
+/// A clean stop (stdin EOF) walks the marker machine's T1, [`uvrr::lifecycle::Marker::Stopping`],
+/// the drain, [`uvrr::lifecycle::Marker::Stopped`], so the next init under the same state dir
 /// reads the stopped quorum and reopens CLEANLY, under the same identity
 /// (T2): no bump, no announcement. The committed history survives, and
 /// the reopener rejoins the live cluster's serving.

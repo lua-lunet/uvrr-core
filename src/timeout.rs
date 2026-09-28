@@ -5,7 +5,7 @@
 //! Its duration is never prescribed, may be dynamic, and is host policy, not
 //! protocol: the core reads no clock (S4, `docs/uvrr-durability-model.md`
 //! §13.2), and a duration belongs to the host the way
-//! `ViewChangeKnobs::primary_timeout` does. What the node may DO when the
+//! [`crate::replica::ViewChangeKnobs::primary_timeout`] does. What the node may DO when the
 //! waiting time is exceeded is protocol, and this module is that answer as a
 //! total function: the state enum and the timeout enum are closed, the
 //! matcher is exhaustive over every pair with no default arm, and a new

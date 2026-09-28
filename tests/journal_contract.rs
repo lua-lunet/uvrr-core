@@ -1,5 +1,5 @@
-//! Contract for `uvrr::journal`, the §4 logical journal capabilities, `LogEntry`, and
-//! the default `SegmentedLog`.
+//! Contract for [`uvrr::journal`], the §4 logical journal capabilities, `LogEntry`, and
+//! the default [`uvrr::journal::SegmentedLog`].
 //!
 //! Spec §4 (the four capabilities, and the explicit absence of any fifth) and decisions
 //! S1 (reclamation is host policy, absent from the portable traits), W3/W4 (the binary
@@ -13,17 +13,17 @@
 //! 2. **A view is a snapshot.** Sealed slabs are shared by `Arc`, asserted by pointer
 //!    identity, not by contents, so a later append, suffix install, or reclaim cannot
 //!    reach into a view already handed to a planned transition.
-//! 3. **`install_suffix` is copy-on-write at slab granularity.** A wholly superseded
+//! 3. **[`uvrr::journal::Journal::install_suffix`] is copy-on-write at slab granularity.** A wholly superseded
 //!    slab is dropped (refcount observed); a partially superseded slab is copied up to
 //!    the boundary and re-sealed (new `Arc` identity, same retained contents), never
 //!    mutated in place, because other views may hold the `Arc`.
-//! 4. **Reclamation is inherent, gated, lazy.** `SegmentedLog::reclaim_through` drops
+//! 4. **Reclamation is inherent, gated, lazy.** [`uvrr::journal::SegmentedLog::reclaim_through`] drops
 //!    whole covered slabs only; a partially covered slab is retained whole; reclaimed
 //!    slots read as absent while the logical accepted frontier is unaffected. A run
 //!    that never reclaims is a legitimate configuration (S1).
 //! 5. **The wire form of an entry is exact.** `packed_len` is the byte count, the
 //!    payload discriminant reserves 0, and an untrusted length prefix yields
-//!    `Incomplete`, never a pre-allocation (mirroring the `Init` decode decision).
+//!    `Incomplete`, never a pre-allocation (mirroring the [`uvrr::configuration::SystemOperation::Init`] decode decision).
 //! 6. **The traits carry no reclamation vocabulary, mechanically**, see
 //!    `s1_gate_traits_carry_no_reclamation_vocabulary`.
 //!
@@ -67,7 +67,7 @@ fn run(from: u64, len: u64) -> Vec<LogEntry> {
     (0..len).map(|i| client(Slot(from + i))).collect()
 }
 
-/// A genesis `Void` at [`VOID_SLOT`], slot 1, the first entry of a legitimate
+/// A genesis [`uvrr::configuration::SystemOperation::Void`] at [`uvrr::configuration::VOID_SLOT`], slot 1, the first entry of a legitimate
 /// history (§8.7.2's fixed ordinals; slot 0 is the sentinel, never a position).
 fn genesis() -> LogEntry {
     LogEntry {
@@ -1008,7 +1008,7 @@ proptest! {
 // 11. The S1 mechanical gate
 // ---------------------------------------------------------------------------
 
-/// The compile-time contract that `Journal` and `JournalView` carry no reclamation
+/// The compile-time contract that [`uvrr::journal::Journal`] and [`uvrr::journal::JournalView`] carry no reclamation
 /// vocabulary (spec §4 names four capabilities and no fifth; decision S1 makes that
 /// a ruling).
 ///
@@ -1068,7 +1068,7 @@ fn s1_gate_traits_carry_no_reclamation_vocabulary() {
     );
 }
 
-/// The inherent escape hatch exists on `SegmentedLog` only, that placement is the
+/// The inherent escape hatch exists on [`uvrr::journal::SegmentedLog`] only, that placement is the
 /// split made physical. Asserted by calling it through the concrete type (this test
 /// fails to compile if the method moves or is renamed) and by the trait scan above
 /// (which fails if it is ever promoted into a trait).

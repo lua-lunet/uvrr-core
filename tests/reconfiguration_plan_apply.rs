@@ -1,4 +1,4 @@
-//! The leader side of plan/apply (`docs/weighted-reconfiguration-solver.md`):
+//! The leader side of plan/apply (`docs/uvrr-protocols.md`, the solver chapter):
 //! the verdict, the plan-execution machine, the drift abort, the admin-first
 //! dual-queue rule, and the leader-crash discard, over the in-memory harness
 //! (no real UDP, no PAXE packing at this layer).
@@ -41,7 +41,7 @@ fn cluster() -> Harness {
 }
 
 /// Bootstraps the cluster: the genesis primary promotes itself and both
-/// backups adopt view (1, 0) from the promotion's `Commit` announcement
+/// backups adopt view (1, 0) from the promotion's [`uvrr::wire::Tag::Commit`] announcement
 /// (§13.3).
 fn bootstrap(h: &mut Harness) {
     h.tick_all();

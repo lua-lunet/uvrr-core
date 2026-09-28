@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `Prepare` a backup receives (§4).
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::Prepare`] a backup receives (§4).
 //!
 //! One message over the cross product of the dimensions the handler branches
 //! on: the receiver's boot status, the message's view, the offered slot
@@ -85,7 +85,7 @@ fn route(boot: Boot, v: Rel, s: Rel, p: Rel) -> Route {
     }
 }
 
-/// A three-node cluster, every node `Normal` at view 1, no datagram in flight.
+/// A three-node cluster, every node [`uvrr::progress::Status::Normal`] at view 1, no datagram in flight.
 #[rustfmt::skip]
 fn cluster_at_view_one() -> Harness {
     let knobs = ViewChangeKnobs { primary_timeout: TIMEOUT, view_change_budget: usize::MAX };

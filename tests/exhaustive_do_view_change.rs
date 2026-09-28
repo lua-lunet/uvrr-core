@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `DoViewChange` evidence the
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::DoViewChange`] evidence the
 //! designated new primary collects (§9.1, §8.7.7, §13.1).
 //!
 //! One message over the cross product of the dimensions the handler branches
@@ -105,7 +105,7 @@ fn assembled() -> Harness {
     h
 }
 
-/// The era-1 proof every fabricated evidence carries: the real `Init`
+/// The era-1 proof every fabricated evidence carries: the real [`uvrr::configuration::SystemOperation::Init`]
 /// operation committed at the genesis slot (§8.7.8).
 #[rustfmt::skip]
 fn era_proof() -> EraProof {

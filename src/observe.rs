@@ -33,7 +33,7 @@ use crate::progress::Status;
 ///
 /// Normal operation made total (VRR-2012 §4): invalid peer input is dropped
 /// with a named outcome, never faults the node. Faulting is reserved for
-/// impossible LOCAL transitions via `crate::invariant::legal`. Every guard in
+/// impossible LOCAL transitions via [`crate::invariant::legal`]. Every guard in
 /// the §4 handlers names its outcome here, and the outcome is published
 /// through the same seqlock discipline as progress (B1): each published
 /// transition records its drop outcome, so a drop is observable and never a
@@ -69,8 +69,8 @@ pub enum Diagnostic {
         current: ViewId,
     },
     /// The message's view matches the node's current view but the node's
-    /// status refuses service (§9.1): only `Normal` serves the current
-    /// view, and an entry state (`Restarting`, `Joining`) only while it
+    /// status refuses service (§9.1): only [`crate::progress::Status::Normal`] serves the current
+    /// view, and an entry state ([`crate::progress::Status::Restarting`], [`crate::progress::Status::Joining`]) only while it
     /// still sits at its boot fence. A node mid view change or replaying
     /// drops even same-view traffic; the status names the refusing state.
     StatusGate {
@@ -89,15 +89,15 @@ pub enum Diagnostic {
         /// The view the entry arrived under.
         view: ViewId,
     },
-    /// A `Prepare` whose header slot disagrees with its entry's slot; the
-    /// wire cannot say which field lied, so the message is dropped whole.
+    /// A [`crate::wire::Tag::Prepare`] whose header slot disagrees with its entry's slot; the
+    /// wire cannot say which field lied, so the message is dropped whole (W3).
     PrepareSlotMismatch {
         /// The header's slot.
         header: Slot,
         /// The entry's slot.
         entry: Slot,
     },
-    /// A `Prepare` carrying a system operation the configuration fold
+    /// A [`crate::wire::Tag::Prepare`] carrying a system operation the configuration fold
     /// refuses (§8.7.2's preconditions, run at accept, the peer's entry,
     /// never the node's committed history, is what fails here, so the
     /// entry is dropped and nothing installs; a refusal in COMMITTED
@@ -108,16 +108,16 @@ pub enum Diagnostic {
         /// The fold's refusal.
         error: ConfigError,
     },
-    /// A re-`Prepare` for an accepted slot whose held entry differs; a slot
+    /// A re-[`crate::wire::Tag::Prepare`] for an accepted slot whose held entry differs; a slot
     /// is assigned once in a legitimate history (§1.3).
     ConflictingEntry {
         /// The contested slot.
         slot: Slot,
     },
-    /// A `Prepare` past the accepted frontier's successor, or a view-change
+    /// A [`crate::wire::Tag::Prepare`] past the accepted frontier's successor, or a view-change
     /// offer the node cannot verify against its own journal: a gap. Dropped.
     /// The fetch half of the ruling (§10, §13.1 step 5) rides the same
-    /// transition: a `GetState` for the missing range goes to the sender,
+    /// transition: a [`crate::wire::Tag::GetState`] for the missing range goes to the sender,
     /// and the installed chunks re-run the stalled ruling.
     GapDetected {
         /// The first slot the node could not accept or verify: the
@@ -132,7 +132,7 @@ pub enum Diagnostic {
         /// The pair is not ordered.
         got: Slot,
     },
-    /// A `NewState` that is not protocol-qualified evidence for the open
+    /// A [`crate::wire::Tag::NewState`] that is not protocol-qualified evidence for the open
     /// fetch (§10): the node asked under another view, asked another
     /// responder, opened no fetch at all, or already holds the chunk's
     /// whole range. Ignored, never faulted.
@@ -148,8 +148,8 @@ pub enum Diagnostic {
     /// exceeds the covered range, or an empty chunk claims more remains
     /// (§13.1's shape rule). Dropped whole.
     MalformedTransfer,
-    /// A `GetState` the node cannot serve (§10, §13.1 step 5): it is not
-    /// `Normal` in the requested view, the requested base is ahead of its
+    /// A [`crate::wire::Tag::GetState`] the node cannot serve (§10, §13.1 step 5): it is not
+    /// [`crate::progress::Status::Normal`] in the requested view, the requested base is ahead of its
     /// frontier, or its journal no longer holds the base (S1). The
     /// requester's fetch stays open; another answer closes the gap.
     TransferNotServed {
@@ -158,7 +158,7 @@ pub enum Diagnostic {
         /// The view the request named.
         view: ViewId,
     },
-    /// A `PrepareOk` reached a node that is not the `Normal` primary of its
+    /// A [`crate::wire::Tag::PrepareOk`] reached a node that is not the [`crate::progress::Status::Normal`] primary of its
     /// current view.
     PrepareOkNotPrimary {
         /// The transport-attributed sender.
@@ -166,7 +166,7 @@ pub enum Diagnostic {
         /// The slot the acknowledgement named.
         slot: Slot,
     },
-    /// A `PrepareOk` for a slot with no outstanding proposal: a delayed
+    /// A [`crate::wire::Tag::PrepareOk`] for a slot with no outstanding proposal: a delayed
     /// duplicate of an already-committed slot, or foreign. Harmless.
     SlotNotOutstanding {
         /// The slot the acknowledgement named.
@@ -174,39 +174,39 @@ pub enum Diagnostic {
         /// The transport-attributed sender.
         sender: NodeId,
     },
-    /// A second `PrepareOk` from the same sender for the same slot.
+    /// A second [`crate::wire::Tag::PrepareOk`] from the same sender for the same slot.
     DuplicatePrepareOk {
         /// The slot the acknowledgement named.
         slot: Slot,
         /// The transport-attributed sender.
         sender: NodeId,
     },
-    /// A `PrepareOk` from a node outside the current configuration.
+    /// A [`crate::wire::Tag::PrepareOk`] from a node outside the current configuration.
     UnknownSender {
         /// The transport-attributed sender.
         sender: NodeId,
     },
-    /// A `PrepareOk` from a member whose weight is 0, a learner (§8.4).
+    /// A [`crate::wire::Tag::PrepareOk`] from a member whose weight is 0, a learner (§8.4).
     /// The learner receives history but contributes nothing to any quorum
-    /// (`docs/uvrr-reincarnation.md` §6: its messages are discarded on
+    /// (`docs/uvrr-protocols.md`, the reincarnation chapter §6: its messages are discarded on
     /// ingress), so its acknowledgement is dropped before it is ever
     /// counted.
     LearnerSender {
         /// The transport-attributed sender.
         sender: NodeId,
     },
-    /// A `Reincarnation` announcement (§4 of the doc) that the recipient
+    /// A `Reincarnation` announcement (`docs/uvrr-protocols.md`, the reincarnation chapter §4) that the recipient
     /// cannot act on: the recipient is not the leader of its current view,
     /// or the message's sender is not the new identity it names. Dropped,
     /// never faulted, the bumped node re-sends until a stable leader
-    /// exists (§8 of the doc).
+    /// exists (`docs/uvrr-protocols.md`, the reincarnation chapter §8).
     ReincarnationRefused {
         /// The transport-attributed sender.
         sender: NodeId,
         /// The recipient's current view.
         view: ViewId,
     },
-    /// A `StartViewChange` for a view at or behind the node's fence target
+    /// A [`crate::wire::Tag::StartViewChange`] for a view at or behind the node's fence target
     /// (§9.1). The change it fences has already happened, or a later one is
     /// already under way, so the vote cannot count twice (V_g ⌢ V_g, §8.3).
     StaleViewChange {
@@ -215,9 +215,9 @@ pub enum Diagnostic {
         /// The node's current fence target or installed view.
         current: ViewId,
     },
-    /// `DoViewChange` evidence for a view the node is not fencing into, a
+    /// [`crate::wire::Tag::DoViewChange`] evidence for a view the node is not fencing into, a
     /// finished or superseded change (§9.1). Also the outcome for a
-    /// `StartView` whose committed frontier claims less than the node
+    /// [`crate::wire::Tag::StartView`] whose committed frontier claims less than the node
     /// already durably holds: an honest quorum can never produce it, and
     /// dropping keeps the claim observable without believing it.
     StaleEvidence {
@@ -226,7 +226,7 @@ pub enum Diagnostic {
         /// The node's current view.
         current: ViewId,
     },
-    /// `DoViewChange` evidence arrived at a node that is fencing into the
+    /// [`crate::wire::Tag::DoViewChange`] evidence arrived at a node that is fencing into the
     /// named view but is not its designated primary, the evidence was never
     /// solicited here (§9.1).
     EvidenceNotCollected {
@@ -235,7 +235,7 @@ pub enum Diagnostic {
         /// The view the evidence named.
         view: ViewId,
     },
-    /// A `StartView` whose sender is not the primary of the view it
+    /// A [`crate::wire::Tag::StartView`] whose sender is not the primary of the view it
     /// installs, under that view's era configuration (§1.2, §9.1). Only the
     /// designated new primary may install a selected history.
     StartViewNotFromPrimary {
@@ -244,8 +244,8 @@ pub enum Diagnostic {
         /// The view the message claimed to install.
         view: ViewId,
     },
-    /// A `StartView` for a view behind the node's current view, or for the
-    /// current view at a node already `Normal` in it (§9.1). The change it
+    /// A [`crate::wire::Tag::StartView`] for a view behind the node's current view, or for the
+    /// current view at a node already [`crate::progress::Status::Normal`] in it (§9.1). The change it
     /// installs is done; the message is a retransmission or a straggler.
     StartViewFromStaleView {
         /// The view the message named.
@@ -261,7 +261,7 @@ pub enum Diagnostic {
     /// field lied.
     MalformedViewChange,
     /// The leader's armed plan-execution machine aborted
-    /// (`docs/weighted-reconfiguration-solver.md`): a step the plan's own
+    /// (`docs/uvrr-protocols.md`, the solver chapter): a step the plan's own
     /// acceptance validation folded was refused by the reconfiguration
     /// gates, a plan computed to be legal cannot become illegal, so the
     /// refusal means the cluster changed underneath the plan. The machine

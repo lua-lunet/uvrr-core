@@ -1,10 +1,10 @@
-//! The `Progress` record and its cross-strategy invariants.
+//! The [`Progress`] record and its cross-strategy invariants.
 //!
 //! Spec §5 and §1.3, §6 for the transition, §12 for the publication interval, and
 //! decision W1 for the view identity. Decision B1 owns the observation half: see
-//! [`ProgressSnapshot`] and `crate::observe`.
+//! [`ProgressSnapshot`] and [`crate::observe`].
 //!
-//! `Progress` is the compact protocol record `(current_view, retained_view, status,
+//! [`Progress`] is the compact protocol record `(current_view, retained_view, status,
 //! accepted, committed, applied, checkpoint, fault)` plus the configuration history
 //! that authorises it and a `revision` counter. It is immutable: every transition
 //! produces a new value, and which fields survive a local crash is a property of the
@@ -14,13 +14,13 @@
 //!
 //! Constructors and transitions are the only way in, and each validates the **full**
 //! invariant set on its result, not only the field it changed. The checker is cheap;
-//! the alternative is trusting the caller, and a `Progress` that violates these must
+//! the alternative is trusting the caller, and a [`Progress`] that violates these must
 //! be unrepresentable through the public API:
 //!
 //! - the §1.3 frontier chain `checkpoint <= applied <= committed <= accepted`;
-//! - the §1.3 status/view relations: `Normal` requires `current == retained`;
-//!   `ViewChange` requires `current >= retained`; the fenced entry states
-//!   `Restarting`, `Joining`, and `Replaying`
+//! - the §1.3 status/view relations: [`Status::Normal`] requires `current == retained`;
+//!   [`Status::ViewChange`] requires `current >= retained`; the fenced entry states
+//!   [`Status::Restarting`], [`Status::Joining`], and [`Status::Replaying`]
 //!   carry no relation, because in them `current` is not an authority to
 //!   participate;
 //! - era/slot discipline (§8.7.3, W1): the era authorising `accepted` is
@@ -41,13 +41,13 @@
 //! fault and the replica refuses all further input (§5 invariant 5, §12's
 //! `Indeterminate persistence result -> Faulted`). Re-entering the protocol is a
 //! host lifecycle event, a controlled start over vouched durable state, or
-//! reincarnation after a crash (`docs/uvrr-boot-gate.md` §1: a start is not a
+//! reincarnation after a crash (`docs/uvrr-io-obligations.md`, the boot-gate chapter §1: a start is not a
 //! recovery), not a state transition the core performs on itself.
 //!
 //! `status` is process control as well as protocol state. A reopened node that has
 //! not proved its state current starts fenced and restarting, whatever status was
 //! last observed before failure, which is why [`Progress::genesis`] is
-//! [`Status::Joining`] and not `Normal`. The pre-failure status is evidence
+//! [`Status::Joining`] and not [`Status::Normal`]. The pre-failure status is evidence
 //! about the past, not authority over the present; [`Progress::reconstitute`]
 //! accepts any status because it restores *evidence*, and downgrading that evidence
 //! to a fenced start is the replica's boot rule (§5), not a property of the
@@ -178,11 +178,11 @@ pub enum ProgressError {
     /// A monotone frontier moved backwards outside a history re-selection. Within
     /// a re-selection only `accepted` may shorten; see [`Progress::with_view_installed`].
     FrontierRegress,
-    /// `Normal` with `current != retained`, or `ViewChange` with
+    /// [`Status::Normal`] with `current != retained`, or [`Status::ViewChange`] with
     /// `current < retained` (§1.3).
     StatusViewRelation,
     /// The target view is neither the view being entered nor a legal successor of
-    /// the current one (`ViewId::is_legal_successor`, §8.7.3: view strictly up,
+    /// the current one ([`crate::ids::ViewId::is_legal_successor`], §8.7.3: view strictly up,
     /// era equal or +1).
     ViewSuccessor,
     /// The receiver is faulted. Carries the fault it already holds: a fault is
@@ -262,19 +262,19 @@ fn era_of_slot(table: &EraTable, slot: Slot) -> Option<Era> {
 }
 
 impl Progress {
-    /// The genesis record: [`ViewId::INITIAL`], fenced at the boot gate, every
-    /// frontier at [`Slot::NONE`], revision 0, no fault.
+    /// The genesis record: [`crate::ids::ViewId::INITIAL`], fenced at the boot gate, every
+    /// frontier at [`crate::ids::Slot::NONE`], revision 0, no fault.
     ///
-    /// This pins the meaning of `ViewId::INITIAL` (ruled
+    /// This pins the meaning of [`crate::ids::ViewId::INITIAL`] (ruled
     /// here): it is the **genesis view**, the `(era 0, view 0)` pair a freshly
     /// provisioned node advertises. Era 0 is the void configuration,
     /// quorum-impossible by arithmetic, not by guard, and view 0 is the first
-    /// primary term once `Init` commits (§1.2: `primary(0) = order[0]`). It is not
+    /// primary term once [`crate::configuration::SystemOperation::Init`] commits (§1.2: `primary(0) = order[0]`). It is not
     /// "no view": a freshly provisioned node has a real genesis view, so no
     /// `Option<ViewId>` appears anywhere in the crate.
     ///
-    /// The status is the caller's fenced entry state (`Restarting` on reopen,
-    /// `Joining` on provision) per §5: a node that has not proved its
+    /// The status is the caller's fenced entry state ([`Status::Restarting`] on reopen,
+    /// [`Status::Joining`] on provision) per §5: a node that has not proved its
     /// state current starts fenced, and genesis is the uniform case of that rule,
     /// fresh and reopened nodes enter the protocol the same way, through the
     /// boot gate and then an installed view.
@@ -371,21 +371,20 @@ impl Progress {
         }
     }
 
-    /// §1.3: `Normal` requires `current >= retained`; `ViewChange` requires
+    /// §1.3: [`Status::Normal`] requires `current == retained`; [`Status::ViewChange`] requires
     /// `current >= retained`. The fenced entry states carry no relation.
     ///
-    /// A `Normal` node serves at or past the view its retained history was
-    /// selected at: equal after an install, and past it after a
-    /// nomination's commit-time bump
-    /// (`docs/nominate-leader-assignment.md`), which advances the serving
-    /// view by a committed command without re-selecting the history, so the
-    /// retained view, the history's provenance, stays what it was and the
-    /// serving view moves on. Serving BELOW the retained view is
-    /// unrepresentable: no transition lowers `current`, and an install sets
-    /// the pair equal.
+    /// The relation is honoured at every transition: a nomination's
+    /// commit-time bump (`docs/uvrr-protocols.md`, the NOMINATE chapter)
+    /// publishes the bumped view as current and retained on the same
+    /// published transition, so a [`Status::Normal`] node sits at equality after the
+    /// bump exactly as after an install. Serving past the retained view
+    /// under [`Status::Normal`] is unrepresentable: no transition moves `current`
+    /// without moving `retained` with it.
     pub(crate) fn check_status_relation(&self) -> Result<(), ProgressError> {
         let holds = match self.status {
-            Status::Normal | Status::ViewChange => self.current >= self.retained,
+            Status::Normal => self.current == self.retained,
+            Status::ViewChange => self.current >= self.retained,
             Status::Restarting | Status::Joining | Status::Replaying => true,
         };
         if holds {
@@ -563,7 +562,7 @@ impl Progress {
     ///
     /// [`ProgressError::AlreadyFaulted`]; [`ProgressError::FrontierRegress`];
     /// [`ProgressError::FrontierChain`] if `checkpoint` exceeds `applied`, a
-    /// checkpoint cannot claim state the application has not incorporated.
+    /// checkpoint cannot claim state the application has not incorporated (§5).
     pub fn with_checkpoint(&self, checkpoint: Slot) -> Result<Progress, ProgressError> {
         self.refuse_if_faulted()?;
         if checkpoint < self.checkpoint {
@@ -580,7 +579,7 @@ impl Progress {
     ///
     /// [`ProgressError::AlreadyFaulted`]; [`ProgressError::ViewSuccessor`] unless
     /// `target` is a legal successor of `current` (delegated to
-    /// `ViewId::is_legal_successor`, never re-derived here);
+    /// [`crate::ids::ViewId::is_legal_successor`], never re-derived here);
     /// [`ProgressError::StatusViewRelation`] if the retained history is from a
     /// later view than `target`, that state must be replayed or re-acquired by
     /// state transfer, not fenced into a view change.
@@ -610,7 +609,7 @@ impl Progress {
     ///
     /// [`ProgressError::AlreadyFaulted`]; [`ProgressError::ViewSuccessor`] unless
     /// `view` is the view being entered or a legal successor of `current` (a
-    /// `StartView` for a higher view than the local attempt);
+    /// [`crate::wire::Tag::StartView`] for a higher view than the local attempt);
     /// [`ProgressError::FrontierChain`] if the installed frontier does not cover
     /// `committed`.
     pub fn with_view_installed(
@@ -630,7 +629,7 @@ impl Progress {
         })
     }
 
-    /// Changes only the process-control status. Entering `Normal` through here
+    /// Changes only the process-control status. Entering [`Status::Normal`] through here
     /// requires `current == retained`, checked on the result like everything
     /// else.
     ///

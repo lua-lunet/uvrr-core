@@ -3,8 +3,8 @@
 //!
 //! Every test drives a three-node cluster whose `primary_timeout` is small
 //! enough for deterministic tick-driven view changes. View arithmetic is
-//! same-era (W1); the quorum decisions under test are `Role::Fence` (the
-//! `StartViewChange` quorum) and `Role::ViewChange` (the `DoViewChange`
+//! same-era (W1); the quorum decisions under test are [`uvrr::quorum::Role::Fence`] (the
+//! [`uvrr::wire::Tag::StartViewChange`] quorum) and [`uvrr::quorum::Role::ViewChange`] (the [`uvrr::wire::Tag::DoViewChange`]
 //! quorum), both reached only through the strategy (Q1).
 
 mod harness;
@@ -40,7 +40,7 @@ fn snap(h: &Harness, id: NodeId) -> ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-/// The node's current view as a `ViewId`.
+/// The node's current view as a [`uvrr::ids::ViewId`].
 fn current_view(h: &Harness, id: NodeId) -> ViewId {
     let snapshot = snap(h, id);
     ViewId {
@@ -74,7 +74,7 @@ fn op_id(lsb: u64) -> OperationId {
     OperationId { msb: 0, lsb }
 }
 
-/// Executes every pending `Apply` at the given nodes (one harness step per
+/// Executes every pending [`uvrr::effects::Effect::Apply`] at the given nodes (one harness step per
 /// effect), the way a host would.
 fn apply_all(h: &mut Harness, ids: [u32; 3]) {
     for id in ids {
@@ -116,7 +116,7 @@ fn tick_into_view_change(h: &mut Harness, id: NodeId, target: ViewId) {
 }
 
 /// The era-1 proof every fabricated message in this suite carries: the real
-/// `Init` operation committed at the genesis slot (§8.7.8, W1).
+/// [`uvrr::configuration::SystemOperation::Init`] operation committed at the genesis slot (§8.7.8, W1).
 fn era_proof() -> EraProof {
     EraProof {
         op: SystemOperation::Init {
@@ -126,7 +126,7 @@ fn era_proof() -> EraProof {
     }
 }
 
-/// A fabricated `StartViewChange` envelope (the header slot is the Absent
+/// A fabricated [`uvrr::wire::Tag::StartViewChange`] envelope (the header slot is the Absent
 /// sentinel; the body is empty).
 fn svc(view: ViewId) -> Message {
     Message {

@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `CommitBatch` a backup receives
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::CommitBatch`] a backup receives
 //! (`docs/uvrr-fuse.md` §4).
 //!
 //! One message, applied to a node in an assembled state, over the plain cross
@@ -8,7 +8,7 @@
 //! (a lawful pair is universally unique and never recycled, so the fabricated
 //! batch's frontiers name slots no lawful history could confuse); the
 //! boot-gate marker states (the receiver was never halted, so it holds its
-//! assembled `Normal` life); and the quorum gate fixed at construction (Q1).
+//! assembled [`uvrr::progress::Status::Normal`] life); and the quorum gate fixed at construction (Q1).
 //! The backups already learn commitment through the ordinary commit
 //! announcement, so the batch is the leader's per-era emission, received by
 //! name and dropped at every node, every state.
@@ -58,7 +58,7 @@ enum Role {
 
 const ROLE_ALL: [Role; 2] = [Role::Leader, Role::Backup];
 
-/// A three-node cluster at view 1, every node `Normal`.
+/// A three-node cluster at view 1, every node [`uvrr::progress::Status::Normal`].
 fn assembled() -> Harness {
     let mut h = Harness::with_knobs(
         3,

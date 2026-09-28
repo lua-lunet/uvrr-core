@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `StartViewChange` fence a node
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::StartViewChange`] fence a node
 //! votes with (§9.1).
 //!
 //! One message over the cross product of the dimensions the handler branches
@@ -8,7 +8,7 @@
 //! obligations: the identity law (universally unique and never recycled, so
 //! a minted foreign sender is outside the configuration for the life of the
 //! test), the boot-gate marker states (the receiver was never halted, so it
-//! holds its assembled `Normal` life), and the quorum gate fixed at
+//! holds its assembled [`uvrr::progress::Status::Normal`] life), and the quorum gate fixed at
 //! construction (Q1), which makes the fence and evidence quorums the
 //! strategy's own decisions. The attempt state is volatile by design (§9.3),
 //! so the assembled attempt is the whole of what a fence vote can meet.
@@ -81,7 +81,7 @@ fn route(sender: Sender, attempt: Attempt, v: Rel) -> Route {
     }
 }
 
-/// A three-node cluster at view 1, the receiver `Normal`, with an attempt at
+/// A three-node cluster at view 1, the receiver [`uvrr::progress::Status::Normal`], with an attempt at
 /// view 3 already under way when the case names one.
 #[rustfmt::skip]
 fn assembled(attempt: Attempt) -> Harness {

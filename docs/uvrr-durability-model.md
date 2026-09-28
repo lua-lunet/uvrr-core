@@ -499,6 +499,8 @@ QII_e ⌢ QI_e ⌢ QII_(e+1) ⌢ QI_(e+1)
 
 The classic diskless-VRR fence/recovery overlap in §8.3 governs classic VRR-2012 diskless recovery, which uVRR replaces with Crash-Stop-Self-Evict reincarnation; it does not bind uVRR.
 
+**The refusal witness.** When the gate refuses a configuration or a transition, the refusal is never bare: it carries a witness naming the smallest counterexample, an inclusion-minimal disjoint quorum pair. Minimal unconditionally, with no monotonicity assumption on the quorum predicate: the enumeration runs subsets in increasing size, so the first pair found has no proper subset that is itself a counterexample. The witness is protocol-visible, it is the content of the refusal the host observes, so its minimality is a protocol invariant stated here, not an implementation courtesy. Cost: the valid path is the `2^N` subset scan of the named obligations; the refusal path's witness enumeration is bounded by `3^N` predicate evaluations, at `N <= 16` well under a second, and a refusal is a terminal preflight event, not steady state.
+
 #### 8.7.5 Closure of weighted-majority configurations
 
 For `Q(W) = floor(T/2) + 1`, each permitted operation preserves the required overlap between consecutive strict weighted-majority configurations. The identity used below is:

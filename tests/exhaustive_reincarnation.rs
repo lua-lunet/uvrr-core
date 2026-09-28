@@ -1,5 +1,5 @@
 //! Exhaustive per-message properties: the `Reincarnation` announcement the
-//! leader acts on (`docs/uvrr-reincarnation.md` §4, §7).
+//! leader acts on (`docs/uvrr-protocols.md`, the reincarnation chapter §4, §7).
 //!
 //! One message over the cross product of the dimensions the handler branches
 //! on: the receiver's role (only the leader drives the forced sequence), the
@@ -11,7 +11,7 @@
 //! new identities name a pair no lawful life has held, and the mint check at
 //! the flow's end verifies the halves never moved, reverted or read as zero),
 //! the boot-gate marker states (the receiver was never halted, so it holds
-//! its assembled `Normal` life), and the quorum gate fixed at construction
+//! its assembled [`uvrr::progress::Status::Normal`] life), and the quorum gate fixed at construction
 //! (Q1). Every node that hears the announcement records the sender as a
 //! gossip witness, whatever its own transition's outcome.
 
@@ -89,7 +89,7 @@ fn route(role: Role, sender: Sender, pair: Pair, r: Rel) -> Route {
     }
 }
 
-/// A three-node cluster at view 1, every node `Normal`.
+/// A three-node cluster at view 1, every node [`uvrr::progress::Status::Normal`].
 #[rustfmt::skip]
 fn assembled() -> Harness {
     let knobs = ViewChangeKnobs { primary_timeout: TIMEOUT, view_change_budget: usize::MAX };

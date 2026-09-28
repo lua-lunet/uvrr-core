@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `FuseOk` the serving primary counts
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::FuseOk`] the serving primary counts
 //! (`docs/uvrr-fuse.md` §2, §4 step 3).
 //!
 //! One message, applied to the primary in an assembled state, over the plain
@@ -9,8 +9,8 @@
 //! pair is universally unique and never recycled, so a minted foreign sender
 //! is outside the configuration for the life of the test); the boot-gate
 //! marker states (the primary was never halted, so it holds its assembled
-//! `Normal` life); and the quorum gate fixed at construction (Q1). One
-//! `FuseOk` is ONE atomic vote vouching for the whole envelope (§2): the acks
+//! [`uvrr::progress::Status::Normal`] life); and the quorum gate fixed at construction (Q1). One
+//! [`uvrr::wire::Tag::FuseOk`] is ONE atomic vote vouching for the whole envelope (§2): the acks
 //! body is the acceptor's wire evidence and is never examined for counting,
 //! so the fabricated body carries the batch's slots and the counting runs on
 //! the header's coverage alone.
@@ -81,7 +81,7 @@ fn route(sender: Sender, v: Rel, s: Rel) -> Route {
 }
 
 /// A three-node cluster at view 1 with one outstanding proposal at slot 3,
-/// whose only `Prepare` was accepted by the acceptor that acks here.
+/// whose only [`uvrr::wire::Tag::Prepare`] was accepted by the acceptor that acks here.
 fn assembled(op: OperationId) -> Harness {
     let mut h = Harness::with_knobs(
         3,

@@ -80,7 +80,7 @@ fn cluster() -> Harness {
 }
 
 /// Bootstraps the cluster: the genesis primary promotes itself and both
-/// backups adopt view (1, 0) from the promotion's `Commit` announcement
+/// backups adopt view (1, 0) from the promotion's [`uvrr::wire::Tag::Commit`] announcement
 /// (§13.3).
 fn bootstrap(h: &mut Harness) {
     h.tick_all();
@@ -93,7 +93,7 @@ fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-/// The node's current view as a `ViewId`.
+/// The node's current view as a [`uvrr::ids::ViewId`].
 fn current_view(h: &Harness, id: NodeId) -> ViewId {
     let snapshot = snap(h, id);
     ViewId {
@@ -113,7 +113,7 @@ fn current_era(h: &Harness, id: NodeId) -> Era {
     h.era_table(id).expect("the node is live").current().era
 }
 
-/// The `Send` effects of a published step as `(to, route era, message)`.
+/// The [`uvrr::effects::Effect::Send`] effects of a published step as `(to, route era, message)`.
 fn sends(outcome: &StepOutcome) -> Vec<(NodeId, Era, Message)> {
     let StepOutcome::Published { effects, .. } = outcome else {
         panic!("the step published: {outcome:?}");

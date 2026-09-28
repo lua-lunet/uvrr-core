@@ -1,4 +1,4 @@
-//! The message vocabulary: [`Header`] plus the protocol bodies.
+//! The message vocabulary: [`crate::wire::Header`] plus the protocol bodies.
 //!
 //! Spec §4 (state transfer), §6 (normal operation), §9 (view change), §10
 //! (recovery), §11.1 (the application boundary), §13.3 (piggybacked commit
@@ -6,13 +6,13 @@
 //! lengths), W4 (fixed-width big-endian), S4 (the tick serves as the classic
 //! recovery nonce).
 //!
-//! A [`Message`] is the 20-byte [`Header`] followed by a one-byte body
+//! A [`Message`] is the 20-byte [`crate::wire::Header`] followed by a one-byte body
 //! discriminant and the body fields. The kind travels twice, once as the
-//! header's `u32` [`Tag`], once as the body's `u8` discriminant, and the two
+//! header's `u32` [`crate::wire::Tag`], once as the body's `u8` discriminant, and the two
 //! must agree: a disagreement is malformed, never guessed at, because the wire
-//! cannot say which field lied. Body discriminants mirror the [`Tag`] numbering
-//! exactly, and `0` is reserved for the same reason it is reserved in
-//! [`wire::Tag`]: an all-zero buffer is not a message.
+//! cannot say which field lied. Body discriminants mirror the [`crate::wire::Tag`] numbering
+//! exactly, and `0` is reserved for the same reason it is reserved in the
+//! wire [`crate::wire::Tag`]: an all-zero buffer is not a message.
 //!
 //! The header slot field is framed for regularity, not because every message
 //! names a position. What a tag's header slot may legally carry is
@@ -20,8 +20,7 @@
 //! agnostic about it exactly as [`crate::wire`] does: the codec encodes the
 //! fields, the legality checker rules on them.
 //!
-//! [`Header`]: crate::wire::Header
-//! [`wire::Tag`]: crate::wire::Tag
+//! [`crate::wire::Header`]: crate::wire::Header
 
 use crate::configuration::SystemOperation;
 use crate::ids::{NodeId, Slot, ViewId};
@@ -44,10 +43,10 @@ pub struct Message {
     pub body: Body,
 }
 
-/// The protocol body alphabet: VSR-2012 §4/§5 plus the era evidence this
+/// The protocol body alphabet: [VR-2012] §4/§5, `docs/references.md` plus the era evidence this
 /// design adds (§8.7.7–§8.7.8).
 ///
-/// Every variant names its [`Tag`] through [`Body::tag`], and the wire carries
+/// Every variant names its [`crate::wire::Tag`] through [`Body::tag`], and the wire carries
 /// both: a body whose discriminant disagrees with the header tag is malformed.
 /// Variants whose header slot carries no protocol meaning are encoded with the
 /// sentinel `Slot(0)` by their senders; the rule is
@@ -64,7 +63,7 @@ pub enum Body {
         /// The primary's committed frontier at send time.
         committed: Slot,
     },
-    /// A backup's acceptance of a `Prepare` (§6). The accepted slot is the
+    /// A backup's acceptance of a [`Body::Prepare`] (§6). The accepted slot is the
     /// header slot; the body is empty because acceptance claims nothing else.
     PrepareOk {},
     /// A commit-frontier advance carrying no new operation (§6, §13.3).
@@ -73,7 +72,7 @@ pub enum Body {
         committed: Slot,
     },
     /// The ordinary view-change fence (§9.1): a recipient stops accepting
-    /// `Prepare` in the old view. The target view is the header view. Distinct
+    /// [`Body::Prepare`] in the old view. The target view is the header view. Distinct
     /// from [`Body::PlannedViewChange`], which must not fence.
     StartViewChange {},
     /// A replica's state evidence for the designated new primary (§9.1): the
@@ -107,9 +106,9 @@ pub enum Body {
         era_proof: EraProof,
     },
     /// Solicitation of planned view-change evidence during overlap mode
-    /// (§8.7.7 step 4). NOT a fence: the recipient keeps accepting `Prepare`
+    /// (§8.7.7 step 4). NOT a fence: the recipient keeps accepting [`Body::Prepare`]
     /// in the current view, which is exactly why this is a distinct tag rather
-    /// than a flag on `StartViewChange`, see [`Tag::PlannedViewChange`].
+    /// than a flag on [`Body::StartViewChange`], see [`crate::wire::Tag::PlannedViewChange`].
     PlannedViewChange {},
     /// A request for the history range the requester lacks (§4, §13.1
     /// step 5). The header slot is the requester's accepted frontier,
@@ -131,10 +130,10 @@ pub enum Body {
         /// The sender's committed frontier at send time.
         committed: Slot,
         /// Whether the sender's accepted frontier sits past `through`,
-        /// the requester resumes with a fresh `GetState` from the cursor.
+        /// the requester resumes with a fresh [`Body::GetState`] from the cursor.
         more: bool,
     },
-    /// A reincarnation announcement (`docs/uvrr-reincarnation.md` §4): the
+    /// A reincarnation announcement (`docs/uvrr-protocols.md`, the reincarnation chapter §4): the
     /// pair of identities the restarted node carries and the frontiers of
     /// its past life. Sent by the bumped node to all nodes; only the leader
     /// responds. The past-life frontiers let the leader's immediate ack push
@@ -148,7 +147,7 @@ pub enum Body {
         /// The bumped identity the node now operates under.
         new: NodeId,
         /// The slot the node had committed in its past life
-        /// ([`Slot::NONE`] when it had committed nothing).
+        /// ([`crate::ids::Slot::NONE`] when it had committed nothing).
         committed: Slot,
         /// The node's past-life accepted (prepared) frontier, the slot its
         /// journal held through.
@@ -157,8 +156,8 @@ pub enum Body {
     /// The packed Phase2s of one reconfiguration schedule
     /// (`docs/uvrr-fuse.md` §1): the body carries `count`, then
     /// `count × SystemOperation` in batch order, while the header carries the
-    /// shared ballot and `first_slot`. Receiving a `Fuse` is defined as
-    /// receiving the equivalent sequence of `Prepare`s at the same ballot.
+    /// shared ballot and `first_slot`. Receiving a [`Body::Fuse`] is defined as
+    /// receiving the equivalent sequence of [`Body::Prepare`]s at the same ballot.
     /// No range encodings: count, then the things, one slot at a time.
     Fuse {
         /// The schedule's operations, in batch order; the `i`th occupies
@@ -179,7 +178,7 @@ pub enum Body {
         /// The committed frontiers, in batch order.
         committed: Vec<Slot>,
     },
-    /// The rejoin gossip's request (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+    /// The rejoin gossip's request (`docs/uvrr-protocols.md`, the rejoin chapter
     /// §2–§3): the sender's frontiers, fired at every node. A node that
     /// cannot commit in order asks for the missing range; a node outside the
     /// cluster uses it as its join. Only the node that believes itself
@@ -199,14 +198,14 @@ pub enum Body {
 ///
 /// The distinction decides which quorum the new primary is completing, but it
 /// does not fence the sender or the recipient, that is why it is a body field
-/// and not a tag, in contrast to [`Tag::PlannedViewChange`], whose entire
+/// and not a tag, in contrast to [`crate::wire::Tag::PlannedViewChange`], whose entire
 /// content is the fencing difference.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EvidenceKind {
     /// Evidence produced by an ordinary §9.1 view change.
     Ordinary,
-    /// Evidence solicited by [`Tag::PlannedViewChange`] during overlap mode
+    /// Evidence solicited by [`crate::wire::Tag::PlannedViewChange`] during overlap mode
     /// (§8.7.7): it completes the planned quorum and fences nothing.
     Planned,
 }
@@ -231,7 +230,7 @@ impl Body {
     /// The tag this body is the payload of.
     ///
     /// Total and bijective over the alphabet: every body names exactly one tag,
-    /// and the decoder refuses a body whose tag disagrees with the header's.
+    /// and the decoder refuses a body whose tag disagrees with the header's (W3).
     #[must_use]
     pub fn tag(&self) -> Tag {
         match self {
@@ -254,9 +253,9 @@ impl Body {
 
     /// The wire discriminant: the tag's numbering narrowed to one byte.
     ///
-    /// The `expect` is unreachable by construction: [`Tag::as_u32`] yields
+    /// The `expect` is unreachable by construction: [`crate::wire::Tag::as_u32`] yields
     /// 2..=17, and the conversion is a `try_from` rather than a cast because
-    /// the crate forbids `as` between integer widths, a tag added past 255
+    /// the crate forbids `as` between integer widths (W4), a tag added past 255
     /// fails loudly here instead of truncating onto the wire.
     fn discriminant(&self) -> u8 {
         u8::try_from(self.tag().as_u32()).expect("tag discriminants fit in a u8 (2..=17)")

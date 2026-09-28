@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `PrepareOk` the serving primary
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::PrepareOk`] the serving primary
 //! counts (§4).
 //!
 //! One message over the cross product of the dimensions the handler branches
@@ -8,7 +8,7 @@
 //! identity law (universally unique and never recycled, so a minted foreign
 //! sender is outside the configuration for the life of the test), the
 //! boot-gate marker states (the primary was never halted, so it holds its
-//! assembled `Normal` life), and the quorum gate fixed at construction (Q1).
+//! assembled [`uvrr::progress::Status::Normal`] life), and the quorum gate fixed at construction (Q1).
 //! The learner-discard dimension is not enumerated: the assembled
 //! configuration holds no weight-zero member, and the learner rule is the
 //! reincarnation suite's.
@@ -75,7 +75,7 @@ fn route(sender: Sender, v: Rel, s: Rel) -> Route {
 }
 
 /// A three-node cluster at view 1, whose primary is the node the change
-/// designated: one outstanding proposal at slot 3, whose only `Prepare` was
+/// designated: one outstanding proposal at slot 3, whose only [`uvrr::wire::Tag::Prepare`] was
 /// accepted by the backup that votes here.
 #[rustfmt::skip]
 fn assembled(op: OperationId) -> Harness {

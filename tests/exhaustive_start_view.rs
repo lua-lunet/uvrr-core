@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `StartView` a node adopts (§9.1,
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::StartView`] a node adopts (§9.1,
 //! §13.1).
 //!
 //! One message over the cross product of the dimensions the handler branches
@@ -76,7 +76,7 @@ fn route(v: Rel, offer: Offer) -> Route {
     }
 }
 
-/// A three-node cluster at view 1, the receiver `Normal` at the genesis
+/// A three-node cluster at view 1, the receiver [`uvrr::progress::Status::Normal`] at the genesis
 /// frontiers, the conflict case's fault declared.
 #[rustfmt::skip]
 fn assembled(offer: Offer) -> Harness {
@@ -90,7 +90,7 @@ fn assembled(offer: Offer) -> Harness {
     h
 }
 
-/// The era-1 proof: the real `Init` at the genesis slot (§8.7.8).
+/// The era-1 proof: the real [`uvrr::configuration::SystemOperation::Init`] at the genesis slot (§8.7.8).
 #[rustfmt::skip]
 fn era_proof() -> EraProof {
     EraProof { op: SystemOperation::Init { order: vec![n(0), n(1), n(2)] }, committed_at: INIT_SLOT }

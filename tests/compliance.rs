@@ -1,5 +1,5 @@
 //! The compliance suite's reference runner and exporter
-//! (`docs/uvrr-compliance.md`). The runner replays every case in the
+//! (`docs/uvrr-host-compliance.md`). The runner replays every case in the
 //! corpus through the abstract host interface and asserts the named
 //! expectations; the exporter regenerates the corpus from the same
 //! execution path, so the committed bytes and the codec cannot drift.
@@ -315,7 +315,7 @@ fn boot_word(b: Boot) -> &'static str {
     }
 }
 
-/// The setup that reaches the receiver at view 1, every node `Normal`.
+/// The setup that reaches the receiver at view 1, every node [`uvrr::progress::Status::Normal`].
 fn view_one_setup() -> Vec<Op> {
     let mut setup = vec![
         Op::Provision {
@@ -359,9 +359,9 @@ fn prepare_theorem(boot: Boot, v: Rel, s: Rel) -> &'static str {
     }
 }
 
-/// The prepare-accept family: the `Prepare` a backup receives, over the
+/// The prepare-accept family: the [`uvrr::wire::Tag::Prepare`] a backup receives, over the
 /// cross product of its dimensions, minus the unreachable input
-/// (`docs/uvrr-compliance.md` §7): the piggyback claiming the arriving
+/// (`docs/uvrr-host-compliance.md` §7): the piggyback claiming the arriving
 /// slot itself, which no conforming primary emits, whose refusal is
 /// recorded by the mint-based exhaustive suite.
 fn prepare_accept_family() -> Vec<Case> {
@@ -624,7 +624,7 @@ fn reconfiguration_family() -> Vec<Case> {
 // The reincarnation-safety family
 // ----------------------------------------------------------------------
 
-/// The forced sequence's choreography (`docs/uvrr-reincarnation.md`):
+/// The forced sequence's choreography (`docs/uvrr-protocols.md`, the reincarnation chapter):
 /// the missed proposal, the crash, the bumped reopen, the announcement,
 /// the first forced batch, the ordinary view change into the era it
 /// established, and the idempotent re-announce that carries the final

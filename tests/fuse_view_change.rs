@@ -49,7 +49,7 @@ fn view(number: u32) -> ViewId {
 }
 
 /// The bootstrap of `tests/fuse.rs`: the genesis primary promotes itself
-/// and both backups adopt view (1, 0) from the promotion's `Commit`
+/// and both backups adopt view (1, 0) from the promotion's [`uvrr::wire::Tag::Commit`]
 /// announcement (§13.3).
 fn bootstrap(h: &mut Harness) {
     h.tick_all();

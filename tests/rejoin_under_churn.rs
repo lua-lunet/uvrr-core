@@ -1,7 +1,7 @@
 //! Rejoin under churn: a behind node must converge back into a serving
 //! cluster whose view keeps advancing.
 //!
-//! The live traces named the blocked transition, a `StartView` landing
+//! The live traces named the blocked transition, a [`uvrr::wire::Tag::StartView`] landing
 //! exactly on the restarted node's current view while it fences, and
 //! `GapDetected` fetches that never complete before the next churn
 //! completion resets the attempt. This corpus strips the phi/jitter host
@@ -97,7 +97,7 @@ fn fence_target(h: &Harness, node: NodeId) -> ViewId {
 }
 
 /// Drives the view change the fence machinery targets, asserting every
-/// node in `live` installs it. The driver is any live `Normal` member,
+/// node in `live` installs it. The driver is any live [`uvrr::progress::Status::Normal`] member,
 /// two live members of a three-node unit cluster reach the fence quorum.
 fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> ViewId {
     let target = fence_target(h, live[0]);
@@ -118,7 +118,7 @@ fn drive_view_change(h: &mut Harness, live: &[NodeId]) -> ViewId {
     target
 }
 
-/// One churn round: silence long enough for every live `Normal` member to
+/// One churn round: silence long enough for every live [`uvrr::progress::Status::Normal`] member to
 /// suspect the primary, then the drain that completes the rotation. The
 /// cluster's view advances by one at a polite, regular cadence, no phi,
 /// no jitter, nothing but the S4 suspicion rule.
@@ -163,7 +163,7 @@ fn serve(h: &mut Harness, all: &[NodeId], ops: &mut u64) {
 }
 
 /// A restarted node rejoins a serving, politely churning cluster: it
-/// adopts the completions, wins its own attempt, and ends `Normal` at the
+/// adopts the completions, wins its own attempt, and ends [`uvrr::progress::Status::Normal`] at the
 /// cluster's current view with the cluster's committed frontier.
 #[test]
 fn a_restarted_node_adopts_completions_while_the_cluster_churns() {
@@ -280,7 +280,7 @@ fn a_restarted_node_converges_under_a_dense_churn_storm() {
 /// polls the §14.2 forced view upward on a timer, `current + 1`, blind to
 /// what the cluster is completing. Every forced view moves the node's
 /// current one past the in-flight attempt, and the adoption rule refuses a
-/// `StartView` one view behind (`StartViewFromStaleView`). The node must
+/// [`uvrr::wire::Tag::StartView`] one view behind (`StartViewFromStaleView`). The node must
 /// still converge: the host's poll keeps firing while the completions keep
 /// arriving, and something has to give.
 ///
@@ -343,7 +343,7 @@ fn a_forced_view_poll_on_the_restarted_node_still_converges() {
 
 /// The live storm's second dimension: the node is not merely behind in
 /// views but in slots, and the host's `view_change_budget` cuts every
-/// `StartView` suffix to a sliver, so every completion the restarted node
+/// [`uvrr::wire::Tag::StartView`] suffix to a sliver, so every completion the restarted node
 /// receives starts past its frontier (`GapDetected`) and demands a fetch
 /// that must survive the churn. The node must still converge.
 #[test]
@@ -499,7 +499,7 @@ fn a_reincarnated_identity_is_seated_by_the_forced_sequence_then_survives_churn(
     h.assert_safety();
 }
 
-/// A `StartView` for the very view a member is fencing into, the delta-0
+/// A [`uvrr::wire::Tag::StartView`] for the very view a member is fencing into, the delta-0
 /// case the live traces dropped sixty-four times, installs the offered
 /// history: the adoption rule admits "fencing into this very view"
 /// (§13.1), the offer names the view's primary, and the suffix verifies

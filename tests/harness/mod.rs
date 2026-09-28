@@ -14,7 +14,7 @@
 //! script did not declare. The replica's `invariant::legal` (and S3's
 //! indeterminate-persistence rule) does the forcing; the harness makes an
 //! unexpected forcing a loud failure carrying the full step trace. A script
-//! that intends a fault declares [`Harness::expect_fault`] beforehand; the
+//! that intends a fault declares [`uvrr::Harness::expect_fault`] beforehand; the
 //! declaration is consumed when the fault is observed. The gate trips on
 //! *transitions*: a fault restored from disk at `restart_with` is evidence
 //! about a prior life, not a new event, and is seeded as known.
@@ -30,7 +30,7 @@
 //!
 //! 1. **Frontier sanity**: `checkpoint <= applied <= committed <= accepted`
 //!    on every live node's observation.
-//! 2. **Single primary per view**: no two live nodes are `Normal` in the
+//! 2. **Single primary per view**: no two live nodes are [`uvrr::progress::Status::Normal`] in the
 //!    same `(era, view)` while each is the primary under its own
 //!    configuration history.
 //! 3. **Committed-prefix agreement**: for any two live nodes, one committed
@@ -43,10 +43,10 @@
 //! # What is not here
 //!
 //! The non-stop-the-world reconfiguration pivot (§8.7.6–§8.7.7) is still
-//! refused with the named `PlanRefusal::Unsupported`. Normal operation
+//! refused with the named [`uvrr::replica::PlanRefusal::Unsupported`]. Normal operation
 //! is live:
-//! `Prepare`/`PrepareOk`/`Commit`, the Propose/Apply/Applied boundary
-//! (§11.1), the bootstrap from the fenced `Joining` genesis state, view
+//! [`uvrr::wire::Tag::Prepare`]/[`uvrr::wire::Tag::PrepareOk`]/[`uvrr::wire::Tag::Commit`], the Propose/Apply/Applied boundary
+//! (§11.1), the bootstrap from the fenced [`uvrr::progress::Status::Joining`] genesis state, view
 //! change, recovery (§6.1), state transfer (§10, §13.1 step 5), the
 //! checkpoint frontier and the lazy reclamation it authorizes (§4, §11,
 //! S1), and the host-forced view change (§14.2).
@@ -152,7 +152,7 @@ const TRACE_CAPACITY: usize = 512;
 /// Blank marker content: the version stamp, identity 0, nothing vouched.
 /// Identity 0 is never a live identity (a lawful pair is non-zero in both
 /// halves), so a blank copy cannot win a working cohort and can never read
-/// as `Stopped`. The version stamp is the format contract: a marker file
+/// as [`uvrr::lifecycle::Marker::Stopped`]. The version stamp is the format contract: a marker file
 /// without it predates the durable identity pair and is refused as
 /// incompatible, never silently migrated.
 const GATE_BLANK: &str = "v1\n0\n-\n";
@@ -172,7 +172,7 @@ fn gate_marker_name(marker: Marker) -> &'static str {
     }
 }
 
-/// The harness's [`LifecycleStore`] (`docs/uvrr-boot-gate.md` §6): plain
+/// The harness's [`LifecycleStore`] (`docs/uvrr-io-obligations.md`, the boot-gate chapter §6): plain
 /// marker files in the harness's temporary directory, four copies, one
 /// file each, plus a WAL stub the drain forces. Every read, write, and
 /// drain is recorded on the operation log in order, so a script can assert
@@ -208,7 +208,7 @@ impl TmpGate {
     }
 
     /// The operation log, in order: `read`, `commit:<marker>@<identity>`,
-    /// `drain`. The fixed schedules of `docs/uvrr-boot-gate.md` §3 assert
+    /// `drain`. The fixed schedules of `docs/uvrr-io-obligations.md`, the boot-gate chapter §3 assert
     /// against this.
     #[must_use]
     pub fn ops(&self) -> Vec<String> {
@@ -248,7 +248,7 @@ impl TmpGate {
         };
         // A zero half under a real marker state is a corrupt marker, not
         // an identity: the pair is one-indexed in both halves
-        // (`docs/uvrr-boot-gate.md` §5), so the read refuses rather than
+        // (`docs/uvrr-io-obligations.md`, the boot-gate chapter §5), so the read refuses rather than
         // classifies over a pattern no lawful life ever wrote.
         if identity == 0 && marker_line != "-" {
             return Err(std::io::Error::new(
@@ -320,7 +320,7 @@ impl LifecycleStore for TmpGate {
 struct Node {
     replica: HarnessReplica,
     observer: Observer,
-    /// `Apply` effects released but not yet performed by the harness.
+    /// [`uvrr::effects::Effect::Apply`] effects released but not yet performed by the harness.
     pending_effects: Vec<Effect>,
     /// The base revision of the parked persistence intent, if any.
     outstanding_intent: Option<u64>,
@@ -340,7 +340,7 @@ struct Disk {
 }
 
 /// One datagram in flight. `era` is the era authorising this copy, carried
-/// separately exactly as `Effect::Send` carries it (W1), and surfaced in the
+/// separately exactly as [`uvrr::effects::Effect::Send`] carries it (W1), and surfaced in the
 /// delivery trace: the era a copy was routed under is observable, so the
 /// overlap-mode routing has something honest to decide over.
 #[derive(Clone, Debug)]
@@ -404,7 +404,7 @@ pub enum StepOutcome {
     },
     /// An external-stability mode parked the transition behind its
     /// persistence intent; the harness recorded the intent and waits for
-    /// [`Harness::confirm`].
+    /// [`uvrr::Harness::confirm`].
     Parked {
         /// The base revision the intent is named by.
         revision: u64,
@@ -428,8 +428,8 @@ pub struct DeliveryOutcome {
     pub outcome: StepOutcome,
 }
 
-/// One `Apply` effect performed by the harness: recorded into the apply
-/// log, then fed back as `Input::Applied`.
+/// One [`uvrr::effects::Effect::Apply`] effect performed by the harness: recorded into the apply
+/// log, then fed back as [`uvrr::replica::Input::Applied`].
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ApplyOutcome {
     /// The applied slot.
@@ -440,12 +440,12 @@ pub struct ApplyOutcome {
     pub outcome: StepOutcome,
 }
 
-/// One application-boundary event in harness step order: an `Apply` the
+/// One application-boundary event in harness step order: an [`uvrr::effects::Effect::Apply`] the
 /// harness executed. The record the §11.1 boundary assertions (identity
 /// carried through, slot order, no deduplication) are stated over.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum BoundaryEvent {
-    /// The harness performed an `Apply` effect and fed `Applied` back.
+    /// The harness performed an [`uvrr::effects::Effect::Apply`] effect and fed [`uvrr::replica::Input::Applied`] back.
     Applied {
         /// The node whose application ran.
         node: NodeId,
@@ -461,7 +461,7 @@ pub enum BoundaryEvent {
 /// configuration history that authorises it, the committed journal prefix,
 /// and the harness's own apply record.
 ///
-/// Constructed by [`Harness::check_safety`] from live replicas; also
+/// Constructed by [`uvrr::Harness::check_safety`] from live replicas; also
 /// constructible directly, which is how the contract test plants violations
 /// to prove the checker is not vacuous.
 #[derive(Clone, Debug)]
@@ -540,7 +540,7 @@ pub enum SafetyViolation {
 }
 
 /// The independent second pair of eyes (see the module docs for the rules
-/// and their order). Redundant with `Progress`'s internal enforcement,
+/// and their order). Redundant with [`uvrr::progress::Progress`]'s internal enforcement,
 /// deliberately.
 pub fn check_cluster_safety(nodes: &[NodeEvidence]) -> Result<(), SafetyViolation> {
     // Rule 1, frontier sanity on every observation.
@@ -676,7 +676,7 @@ pub struct Harness {
     /// index-ordered walks (the tick sweep, the safety scan, the legality
     /// gate) can name the node they visit.
     slot_ids: Vec<NodeId>,
-    /// Per-node record of the `Apply` effects the harness executed.
+    /// Per-node record of the [`uvrr::effects::Effect::Apply`] effects the harness executed.
     applied: Vec<Vec<(Slot, Box<[u8]>)>>,
     /// The ordered Apply boundary record (§11.1 assertions).
     boundary: Vec<BoundaryEvent>,
@@ -690,9 +690,9 @@ pub struct Harness {
     /// exactly like the disk.
     gates: Vec<Option<PathBuf>>,
     /// The live node's gate session: the running process's marker store,
-    /// consumed by [`Harness::halt`]. A node still awaiting its deferred
+    /// consumed by [`uvrr::Harness::halt`]. A node still awaiting its deferred
     /// latch (a reincarnation not yet seated) holds `None` here and its
-    /// session in [`Harness::pending`] instead.
+    /// session in [`uvrr::Harness::pending`] instead.
     sessions: Vec<Option<Running<TmpGate>>>,
     /// The retained operation log of each index's most recent gate,
     /// survives the session that wrote it, so a halt's schedule stays
@@ -700,7 +700,7 @@ pub struct Harness {
     gate_logs: Vec<Option<std::rc::Rc<std::cell::RefCell<Vec<String>>>>>,
     /// A reincarnation's deferred latch: the crashed session, held until
     /// the engine's seated observation mints the witness
-    /// (`docs/uvrr-boot-gate.md` §3).
+    /// (`docs/uvrr-io-obligations.md`, the boot-gate chapter §3).
     pending: Vec<Option<Crashed<TmpGate>>>,
     /// Per-node pending fault declarations (`expect_fault`).
     declared_faults: Vec<bool>,
@@ -713,19 +713,19 @@ pub struct Harness {
 }
 
 impl Harness {
-    /// `n` provisioned nodes, volatile stability, `SegmentedLog`,
-    /// `WeightedMajority`, genesis order the first lives of systems 1
+    /// `n` provisioned nodes, volatile stability, [`uvrr::journal::SegmentedLog`],
+    /// [`uvrr::quorum::WeightedMajority`], genesis order the first lives of systems 1
     /// through `n` (system `i + 1`, crash counter 1, packed).
     ///
     /// View-change knobs: suspicion disabled, unbounded suffix, the
     /// normal-operation suites never time out. View-change scripts use
-    /// [`Harness::with_knobs`].
+    /// [`uvrr::Harness::with_knobs`].
     #[must_use]
     pub fn provision(n: usize) -> Harness {
         Self::with_stability(n, Stability::Volatile)
     }
 
-    /// [`Harness::provision`] with explicit view-change knobs: the
+    /// [`uvrr::Harness::provision`] with explicit view-change knobs: the
     /// timeout and the §13.1 suffix budget are host policy (W5), and a
     /// script that tests them sets them, never inherits them.
     #[must_use]
@@ -733,16 +733,16 @@ impl Harness {
         Self::assemble(n, Stability::Volatile, knobs, None, &[])
     }
 
-    /// [`Harness::provision`] with an explicit stability level. In every
-    /// non-volatile mode the harness records each `Persist` intent and the
-    /// script must confirm it explicitly with [`Harness::confirm`], the
+    /// [`uvrr::Harness::provision`] with an explicit stability level. In every
+    /// non-volatile mode the harness records each [`uvrr::effects::Effect::Persist`] intent and the
+    /// script must confirm it explicitly with [`uvrr::Harness::confirm`], the
     /// real host contract, mirrored.
     #[must_use]
     pub fn with_stability(n: usize, stability: Stability) -> Harness {
         Self::assemble(n, stability, Harness::no_view_change_knobs(), None, &[])
     }
 
-    /// [`Harness::provision`] with an explicit journal tail capacity. Slab
+    /// [`uvrr::Harness::provision`] with an explicit journal tail capacity. Slab
     /// boundaries decide what checkpoint-authorized reclamation can drop
     /// (whole slabs only, §4), so a reclamation script pins the capacity
     /// rather than inheriting the default journal's.
@@ -757,7 +757,7 @@ impl Harness {
         )
     }
 
-    /// [`Harness::with_journal_capacity`] with explicit view-change knobs:
+    /// [`uvrr::Harness::with_journal_capacity`] with explicit view-change knobs:
     /// a reclamation script that also drives view changes needs both,
     /// slab boundaries decide what reclamation can drop, the timeout
     /// decides when suspicion fires.
@@ -770,7 +770,7 @@ impl Harness {
         Self::assemble(n, Stability::Volatile, knobs, Some(tail_capacity), &[])
     }
 
-    /// [`Harness::with_stability`] with an explicit journal tail capacity:
+    /// [`uvrr::Harness::with_stability`] with an explicit journal tail capacity:
     /// a shortfall script under an external-stability mode needs both,
     /// the stability level parks every transition behind its persistence
     /// intent (S2), and the pinned slab boundaries decide what
@@ -790,8 +790,8 @@ impl Harness {
         )
     }
 
-    /// [`Harness::with_knobs`] with a statically registered gossip-witness
-    /// list (`docs/uvrr-rejoin-gossip-and-witnesses.md` §4): every
+    /// [`uvrr::Harness::with_knobs`] with a statically registered gossip-witness
+    /// list (`docs/uvrr-protocols.md`, the rejoin chapter §4): every
     /// provisioned node loads `witnesses` at startup. The witnesses
     /// themselves are outside the roster, they are not provisioned here;
     /// a script that wants one to process the stream boots it itself.
@@ -872,7 +872,7 @@ impl Harness {
             .expect("the genesis order 0..n provisions");
             let observer = replica.observer();
             // The first life latches its anchor: `(identity, Joining)` 4x
-            // (`docs/uvrr-boot-gate.md` §3), so a later crash reads as a
+            // (`docs/uvrr-io-obligations.md`, the boot-gate chapter §3), so a later crash reads as a
             // crash, never as a clean stop.
             let dir = gate_root.join(format!("n{index}"));
             let gate = TmpGate::open(dir.clone()).expect("the gate directory opens");
@@ -934,7 +934,7 @@ impl Harness {
     // ------------------------------------------------------------------
 
     /// The harness's logical clock. Never goes backwards; every
-    /// [`TimedInput`] the harness emits carries the current value.
+    /// [`uvrr::replica::TimedInput`] the harness emits carries the current value.
     #[must_use]
     pub fn now(&self) -> Tick {
         self.tick
@@ -963,13 +963,13 @@ impl Harness {
         )
     }
 
-    /// Advances the clock and delivers `Input::Tick` to one node.
+    /// Advances the clock and delivers [`uvrr::replica::Input::Tick`] to one node.
     pub fn tick(&mut self, id: NodeId) -> StepOutcome {
         self.advance_clock();
         self.drive(id, format!("n={} tick", id.0), Input::Tick)
     }
 
-    /// Advances the clock once and delivers `Input::Tick` to every live
+    /// Advances the clock once and delivers [`uvrr::replica::Input::Tick`] to every live
     /// node, in node order. Down nodes are skipped.
     pub fn tick_all(&mut self) -> Vec<(NodeId, StepOutcome)> {
         self.advance_clock();
@@ -1348,7 +1348,7 @@ impl Harness {
         )
     }
 
-    /// A reconfiguration proposal (§8.7.2): `Input::Reconfigure` through
+    /// A reconfiguration proposal (§8.7.2): [`uvrr::replica::Input::Reconfigure`] through
     /// the ordinary step machinery, the named refusal or the proposal's
     /// publication is the script's to assert. The pivot is `None` on the
     /// stop-the-world path (§8.7.4); a `Some` pivot runs the non-stop
@@ -1366,7 +1366,7 @@ impl Harness {
         )
     }
 
-    /// Feeds an `Input::Applied` the harness's own apply execution did not
+    /// Feeds an [`uvrr::replica::Input::Applied`] the harness's own apply execution did not
     /// generate, the way a script stages a duplicate, out-of-order or
     /// not-yet-committed acknowledgement (§11.1). The refusal is the
     /// script's to assert. One step.
@@ -1378,7 +1378,7 @@ impl Harness {
         )
     }
 
-    /// The host's checkpoint report (§5, §11): `Input::Checkpointed`
+    /// The host's checkpoint report (§5, §11): [`uvrr::replica::Input::Checkpointed`]
     /// through the ordinary step machinery, the refusal or the frontier
     /// advance is the script's to assert. The published frontier is the
     /// sole reclamation authorization (§4, S1); the drop itself is lazy,
@@ -1391,7 +1391,7 @@ impl Harness {
         )
     }
 
-    /// Confirms the node's one outstanding `Persist` intent, the external-
+    /// Confirms the node's one outstanding [`uvrr::effects::Effect::Persist`] intent, the external-
     /// stability host contract (S2/S3). Panics if no intent is outstanding:
     /// a confirmation of nothing is a script bug, not an event.
     pub fn confirm(&mut self, id: NodeId, result: StabilityResult) -> StepOutcome {
@@ -1433,8 +1433,8 @@ impl Harness {
         outcome
     }
 
-    /// Executes the node's pending `Apply` effects in release order, feeding
-    /// each completion back as `Input::Applied` (§11.1). The acknowledgement
+    /// Executes the node's pending [`uvrr::effects::Effect::Apply`] effects in release order, feeding
+    /// each completion back as [`uvrr::replica::Input::Applied`] (§11.1). The acknowledgement
     /// carries no result: the boundary is one-way, propose to apply, and the
     /// core never answers a proposal (B2). The echo application records
     /// every execution in slot order, the core does not deduplicate, so
@@ -1483,7 +1483,7 @@ impl Harness {
     }
 
     /// Submits a reconfiguration plan over the node's admin ingress
-    /// (`docs/weighted-reconfiguration-solver.md`): the verdict or the
+    /// (`docs/uvrr-protocols.md`, the solver chapter): the verdict or the
     /// named refusal is the script's to assert. One step.
     pub fn submit_plan(&mut self, id: NodeId, plan: Plan) -> StepOutcome {
         self.drive(
@@ -1511,7 +1511,7 @@ impl Harness {
     /// Crashes a node: its volatile state dies with it, and the harness's
     /// "disk" records the published progress, the journal, and the
     /// configuration history. The markers are left exactly as they were,
-    /// a crash writes nothing (`docs/uvrr-boot-gate.md` §1). Deliveries to
+    /// a crash writes nothing (`docs/uvrr-io-obligations.md`, the boot-gate chapter §1). Deliveries to
     /// a down node are recorded undeliverable.
     pub fn crash(&mut self, id: NodeId) {
         let index = self.index_of(id);
@@ -1530,8 +1530,8 @@ impl Harness {
         self.record(format!("n={} crash (disk recorded)", id.0));
     }
 
-    /// A controlled halt (`docs/uvrr-boot-gate.md` §3): the two-round stop
-    /// driven through the gate, `Stopping` 4x, the drain, `Stopped` 4x,
+    /// A controlled halt (`docs/uvrr-io-obligations.md`, the boot-gate chapter §3): the two-round stop
+    /// driven through the gate, [`uvrr::lifecycle::Marker::Stopping`] 4x, the drain, [`uvrr::lifecycle::Marker::Stopped`] 4x,
     /// then the disk records the drained state. This is the only stop
     /// whose restart resumes the same identity.
     pub fn halt(&mut self, id: NodeId) {
@@ -1560,7 +1560,7 @@ impl Harness {
         self.record(format!("n={} halt (drained, markers flushed)", id.0));
     }
 
-    /// Crashes a node like [`Harness::crash`], but the recorded disk's
+    /// Crashes a node like [`uvrr::Harness::crash`], but the recorded disk's
     /// journal physically retains only slots from `base` onward: a host
     /// retention policy (S1) let the earlier prefix go while the logical
     /// frontier stands. This is how a script stages a retained-base
@@ -1608,9 +1608,9 @@ impl Harness {
     /// not trip the gate.
     ///
     /// The restart routes through the boot gate: the markers must classify
-    /// `Clean`, a stopped quorum from a [`Harness::halt`]. A crashed
+    /// `Clean`, a stopped quorum from a [`uvrr::Harness::halt`]. A crashed
     /// marker set refuses loudly (error-on-crashed is the contract,
-    /// `docs/uvrr-boot-gate.md` §7): the same identity cannot resume a
+    /// `docs/uvrr-io-obligations.md`, the boot-gate chapter §7): the same identity cannot resume a
     /// crash.
     pub fn restart_with(&mut self, id: NodeId) -> Result<(), LifecycleRefusal> {
         let index = self.index_of(id);
@@ -1671,7 +1671,7 @@ impl Harness {
         }
     }
 
-    /// The reincarnation restart (§2 of `docs/uvrr-reincarnation.md`): the
+    /// The reincarnation restart (§2 of `docs/uvrr-protocols.md`, the reincarnation chapter): the
     /// dirty path made concrete. The node that ran as `id` lost its
     /// volatile state and reopened under a NEW identity `new`, same disk,
     /// same journal, new `own`. The new identity is not a member until the
@@ -1681,7 +1681,7 @@ impl Harness {
     /// `Crashed`. The replacement pair is decided by the gate, and the
     /// durable latch DEFERS to the engine's seated observation, the
     /// harness latches automatically on the first step after which
-    /// [`Replica::rejoined`] mints its witness (`docs/uvrr-boot-gate.md`
+    /// [`uvrr::replica::Replica::rejoined`] mints its witness (`docs/uvrr-io-obligations.md`, the boot-gate chapter
     /// §3).
     ///
     /// Identity is not reused: the identity that crashed is never resumed
@@ -1762,12 +1762,12 @@ impl Harness {
 
     /// Boots a fresh later life over the deployment's genesis knowledge,
     /// the boot a joining member gets: the shared committed genesis
-    /// (slots 1–2, byte-for-byte what [`Replica::provision`] installs)
+    /// (slots 1–2, byte-for-byte what [`uvrr::replica::Replica::provision`] installs)
     /// journaled, the same genesis fold as the era table, and no progress
     /// beyond it. The node is transport-addressable and fenced
-    /// (`Status::Restarting`) until the primary's stream proves currency;
+    /// ([`uvrr::progress::Status::Restarting`]) until the primary's stream proves currency;
     /// it is not a member of any configuration it can name, so a fresh
-    /// join converges only through the §10 learner acquisition. The
+    /// join converges only through the reincarnation chapter §10 learner acquisition. The
     /// identity must not be a genesis member: a genesis member
     /// provisions instead, and booting it over genesis knowledge again
     /// would fork no history but claim a second life it never lived.
@@ -1884,7 +1884,7 @@ impl Harness {
     /// The boot gate's operation log for a node, `read`, `commit:<marker>@<identity>`,
     /// `drain`, in order, from whichever holder rides the gate (the
     /// running session, the deferred crashed session, or nothing). The
-    /// fixed write schedules of `docs/uvrr-boot-gate.md` §3 assert
+    /// fixed write schedules of `docs/uvrr-io-obligations.md`, the boot-gate chapter §3 assert
     /// against this.
     pub fn gate_ops(&self, id: NodeId) -> Vec<String> {
         let index = self.index_of(id);
@@ -1899,7 +1899,7 @@ impl Harness {
     /// `drain` the halt schedule forces strictly between its rounds. The
     /// compliance corpus asserts the protocol's marker states through
     /// this, never the store's raw operation log
-    /// (`docs/uvrr-compliance.md` §3): the reads are the host's own
+    /// (`docs/uvrr-host-compliance.md` §3): the reads are the host's own
     /// business and carry no marker state, so they are not listed.
     #[must_use]
     pub fn marker_states(&self, id: NodeId) -> Vec<String> {
@@ -1920,9 +1920,9 @@ impl Harness {
     }
 
     /// Fires every deferred latch whose seated observation has arrived: a
-    /// reincarnated node that has reached `Normal` at voting weight mints
+    /// reincarnated node that has reached [`uvrr::progress::Status::Normal`] at voting weight mints
     /// its witness, and the gate writes the deferred `(new, Joining)` 4x
-    /// (`docs/uvrr-boot-gate.md` §3). Called at the end of every step, so
+    /// (`docs/uvrr-io-obligations.md`, the boot-gate chapter §3). Called at the end of every step, so
     /// no script can forget it.
     fn settle_pending(&mut self) {
         for index in 0..self.nodes.len() {
@@ -1949,7 +1949,7 @@ impl Harness {
         }
     }
 
-    /// Feeds the node's `Input::Reincarnate { old }` (§4 of the doc): the
+    /// Feeds the node's `Input::Reincarnate { old }` (`docs/uvrr-protocols.md`, the reincarnation chapter §4): the
     /// bumped node announces its pair to the current configuration's
     /// members, the leader acts on it, the backups drop it by name.
     pub fn reincarnate(&mut self, id: NodeId, old: NodeId) -> StepOutcome {
@@ -2174,8 +2174,8 @@ impl Harness {
         outcome
     }
 
-    /// Routes one released effect to where the host would take it: `Send`
-    /// to the network, `Apply` to the node's pending list, `Persist` to the
+    /// Routes one released effect to where the host would take it: [`uvrr::effects::Effect::Send`]
+    /// to the network, [`uvrr::effects::Effect::Apply`] to the node's pending list, [`uvrr::effects::Effect::Persist`] to the
     /// node's outstanding intent.
     fn route_effect(&mut self, from: usize, effect: Effect) {
         match effect {
@@ -2274,7 +2274,7 @@ fn clone_journal(journal: &SegmentedLog, tail_capacity: Option<usize>) -> Segmen
 }
 
 /// The cluster's journal construction: the default log, or one with the
-/// script-pinned tail capacity (see [`Harness::with_journal_capacity`]).
+/// script-pinned tail capacity (see [`uvrr::Harness::with_journal_capacity`]).
 fn make_journal(tail_capacity: Option<usize>) -> SegmentedLog {
     match tail_capacity {
         Some(capacity) => SegmentedLog::with_tail_capacity(capacity),

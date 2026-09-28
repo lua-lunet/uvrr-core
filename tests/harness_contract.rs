@@ -8,20 +8,20 @@
 //!    traces;
 //! 2. force-feed, `inject` reaches a node with exactly the outcome of a
 //!    queued delivery of the same datagram, and a legitimate
-//!    `Prepare` from the view-0 primary is adopted and accepted by a
-//!    `Restarting` backup while a proposal to a non-primary is the
+//!    [`uvrr::wire::Tag::Prepare`] from the view-0 primary is adopted and accepted by a
+//!    [`uvrr::progress::Status::Restarting`] backup while a proposal to a non-primary is the
 //!    named `NotPrimary` refusal;
 //! 3. partition accounting, datagrams sent across a partition are held,
 //!    counted, and deliverable after `heal`; an explicit drop is recorded;
 //! 4. crash/restart, deliveries to a down node are recorded undeliverable;
-//!    a reopen yields the recorded `Restarting` state and
+//!    a reopen yields the recorded [`uvrr::progress::Status::Restarting`] state and
 //!    `restart_with` restores the recorded disk under the boot rule;
 //! 5. fault declaration discipline, an undeclared fault fails the step with
 //!    the full trace; the same script with `expect_fault` passes;
 //! 6. the safety checker is not vacuous, one planted violation per rule,
 //!    each flagged with its own variant;
 //! 7. tick monotonicity, the harness clock never goes backwards and every
-//!    `TimedInput` carries the current value.
+//!    [`uvrr::replica::TimedInput`] carries the current value.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -111,7 +111,7 @@ fn indeterminate() -> StabilityResult {
     }
 }
 
-/// The genesis history exactly as `provision` installs it (§8.7.2's fixed
+/// The genesis history exactly as [`uvrr::replica::Replica::provision`] installs it (§8.7.2's fixed
 /// ordinals), for planting committed-history evidence.
 fn genesis_log(order: &[u32]) -> Vec<LogEntry> {
     vec![
@@ -234,9 +234,9 @@ fn the_same_script_produces_byte_identical_traces() {
 
 /// `inject` bypasses the network queues but reaches the node through the same
 /// plan/publish path as a queued delivery: identical input, identical
-/// outcome. The normal-operation handlers are live: a legitimate `Prepare` from
-/// the view-0 primary is adopted and accepted by a `Restarting` backup
-/// (VRR-2012 §4), which answers `PrepareOk`.
+/// outcome. The normal-operation handlers are live: a legitimate [`uvrr::wire::Tag::Prepare`] from
+/// the view-0 primary is adopted and accepted by a [`uvrr::progress::Status::Restarting`] backup
+/// (VRR-2012 §4), which answers [`uvrr::wire::Tag::PrepareOk`].
 #[test]
 fn inject_reaches_the_node_exactly_as_a_queued_delivery() {
     let expected = StepOutcome::Published {
@@ -341,7 +341,7 @@ fn partition_holds_counts_and_releases_on_heal() {
 /// A crashed node's volatile state dies with it: deliveries to it are
 /// recorded undeliverable. `restart_with` reopens the recorded disk,
 /// preserving the published record under the boot rule (fenced
-/// `Restarting` regardless).
+/// [`uvrr::progress::Status::Restarting`] regardless).
 #[test]
 fn crash_makes_deliveries_undeliverable_and_restart_restores() {
     let mut h = Harness::provision(3);

@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `NewState` chunk a node installs
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::NewState`] chunk a node installs
 //! (§4, §10, §13.1 step 5).
 //!
 //! One message over the cross product of the dimensions the handler branches
@@ -83,7 +83,7 @@ fn route(sender: Sender, v: Rel, t: Rel, more: More) -> Route {
 }
 
 /// A three-node cluster at view 1 with the receiver holding an open fetch:
-/// a gap `Prepare` from the primary opened it, cursor at slot 3.
+/// a gap [`uvrr::wire::Tag::Prepare`] from the primary opened it, cursor at slot 3.
 #[rustfmt::skip]
 fn assembled() -> Harness {
     let knobs = ViewChangeKnobs { primary_timeout: TIMEOUT, view_change_budget: usize::MAX };

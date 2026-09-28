@@ -102,7 +102,7 @@ fn replacement_preserves_full_standard_schedules() {
             // scaling preserves the positive-weight sequence, so the leader
             // never moves at one), and the moving wrap, the new identity's
             // promotion, carries the re-electing rider
-            // (`docs/nominate-leader-assignment.md`).
+            // (`docs/uvrr-protocols.md`, the NOMINATE chapter).
             assert_eq!(steps.first().unwrap().ops, vec![SystemOperation::Double]);
             assert_eq!(steps.last().unwrap().ops, vec![SystemOperation::Halve]);
             assert_eq!(
@@ -167,7 +167,7 @@ fn endpoint_availability_and_scaling_are_explicit() {
     // The scaling step carries no rider: R13 keeps the scaling op
     // solitary, and the scaling preserves the positive-weight sequence
     // elementwise, so the leader never moves at one
-    // (`docs/nominate-leader-assignment.md`).
+    // (`docs/uvrr-protocols.md`, the NOMINATE chapter).
     assert_eq!(
         solve(&s, &t, &live, View(0)).unwrap()[0].ops,
         vec![SystemOperation::Double]

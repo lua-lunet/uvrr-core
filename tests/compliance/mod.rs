@@ -1,12 +1,12 @@
 //! The compliance suite's executor: the abstract host interface of
-//! `docs/uvrr-compliance.md`, as data over the reference harness. A case
+//! `docs/uvrr-host-compliance.md`, as data over the reference harness. A case
 //! is a setup script, one input, and the expected post-state; the
 //! executor replays the script, applies the input, drains the network,
 //! and captures the delivery sequence and the post records, so the
 //! exporter and the runner share one execution path.
 //!
 //! Nodes are addressed by the explicit pair `system:counter`
-//! (`docs/uvrr-boot-gate.md` §5), one-indexed in both halves: the
+//! (`docs/uvrr-io-obligations.md`, the boot-gate chapter §5), one-indexed in both halves: the
 //! roster members of a provisioned cluster are `1:1` through `nodes:1`,
 //! a bumped life is `system:2` and onward, and the gossip sender is
 //! `nodes+1:1`.
@@ -31,7 +31,7 @@ const SETTLE_BOUND: usize = 1_000;
 const DRAIN_BOUND: usize = 1_000;
 
 /// The vector operations' fixed identity half: part of the fixture
-/// (`docs/uvrr-compliance.md` §4), never zero, never privileged.
+/// (`docs/uvrr-host-compliance.md` §4), never zero, never privileged.
 const OP_MSB: u64 = 0x7665_6374;
 
 // ----------------------------------------------------------------------
@@ -39,7 +39,7 @@ const OP_MSB: u64 = 0x7665_6374;
 // ----------------------------------------------------------------------
 
 /// One typed cluster operation, the `reconfigure` operation's argument,
-/// in the corpus's abstract operation names (`docs/uvrr-compliance.md`
+/// in the corpus's abstract operation names (`docs/uvrr-host-compliance.md`
 /// §3). Genesis operations (`void`, `init`) establish eras 0 and 1 and
 /// are never reconfiguration arguments; they appear in journal content.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,7 +67,7 @@ pub enum Op {
         timeout: u64,
     },
     /// The deterministic bootstrap: tick and deliver until quiet and
-    /// every live node is `Normal`.
+    /// every live node is [`uvrr::progress::Status::Normal`].
     Settle,
     /// Submit one operation for ordering.
     Propose {
@@ -173,7 +173,7 @@ pub struct Case {
 // ----------------------------------------------------------------------
 
 /// The identity half's parse failure: the pair is one-indexed in both
-/// halves, so a zero half is no identity (`docs/uvrr-boot-gate.md` §5).
+/// halves, so a zero half is no identity (`docs/uvrr-io-obligations.md`, the boot-gate chapter §5).
 fn half(text: &str) -> Result<u16, String> {
     text.parse::<u16>()
         .map_err(|e| format!("the identity half {text:?} is not a u16: {e}"))
@@ -265,7 +265,7 @@ fn status_name(status: Status) -> &'static str {
 }
 
 /// The abstract operation name of a typed cluster operation
-/// (`docs/uvrr-compliance.md` §3): the corpus's vocabulary, never Rust
+/// (`docs/uvrr-host-compliance.md` §3): the corpus's vocabulary, never Rust
 /// debug formatting.
 fn system_op_name(op: &SystemOperation) -> String {
     match op {
@@ -348,7 +348,7 @@ pub struct Executor {
 }
 
 impl Executor {
-    /// `provision`, the setup's mandatory first operation.
+    /// [`uvrr::replica::Replica::provision`], the setup's mandatory first operation.
     pub fn provision(nodes: usize, timeout: u64) -> Executor {
         let knobs = ViewChangeKnobs {
             primary_timeout: timeout,
@@ -661,7 +661,7 @@ pub fn view(number: u32) -> ViewId {
     }
 }
 
-/// A `Prepare` message as the exporter builds it.
+/// A [`uvrr::wire::Tag::Prepare`] message as the exporter builds it.
 pub fn prepare(view: ViewId, slot: Slot, entry: LogEntry, committed: Slot) -> Message {
     Message {
         header: Header {
@@ -673,7 +673,7 @@ pub fn prepare(view: ViewId, slot: Slot, entry: LogEntry, committed: Slot) -> Me
     }
 }
 
-/// A `PrepareOk` message as the exporter builds it: a fabricated vote.
+/// A [`uvrr::wire::Tag::PrepareOk`] message as the exporter builds it: a fabricated vote.
 pub fn prepare_ok(view: ViewId, slot: Slot) -> Message {
     Message {
         header: Header {
@@ -685,7 +685,7 @@ pub fn prepare_ok(view: ViewId, slot: Slot) -> Message {
     }
 }
 
-/// A `GossipRequest` as the exporter builds it, at the view named.
+/// A [`uvrr::wire::Tag::GossipRequest`] as the exporter builds it, at the view named.
 pub fn gossip_request(view: ViewId, prepared: Slot, committed: Slot) -> Message {
     Message {
         header: Header {
@@ -700,7 +700,7 @@ pub fn gossip_request(view: ViewId, prepared: Slot, committed: Slot) -> Message 
     }
 }
 
-/// A `Fuse` message as the exporter builds it, at the ballot named.
+/// A [`uvrr::wire::Tag::Fuse`] message as the exporter builds it, at the ballot named.
 pub fn fuse(view: ViewId, first_slot: Slot, ops: Vec<SystemOperation>) -> Message {
     Message {
         header: Header {

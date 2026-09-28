@@ -57,7 +57,7 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
     Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-/// The node's current view as a `ViewId`.
+/// The node's current view as a [`uvrr::ids::ViewId`].
 fn current_view(h: &Harness, id: NodeId) -> ViewId {
     let snapshot = snap(h, id);
     ViewId {

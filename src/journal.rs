@@ -3,7 +3,7 @@
 //!
 //! Spec §4 and decision S1.
 //!
-//! `Journal` is a trait over exactly the semantics §4 enumerates: identify the accepted
+//! [`Journal`] is a trait over exactly the semantics §4 enumerates: identify the accepted
 //! frontier, read history, record acceptance, record a view selection. "Journal" names a
 //! host strategy, not a file, it implies no WAL, no table, no mutable array, and no
 //! indefinite retention.
@@ -14,7 +14,7 @@
 //! the core, provided it either satisfies a protocol read or reports the requested
 //! history unavailable, at which point state transfer must obtain an
 //! adequate state elsewhere (VRR-2012's §10 recovery; our design admits it only
-//! era-proof-guarded, `docs/uvrr-reincarnation.md`). Adding a retention knob to the trait would convert a host
+//! era-proof-guarded, `docs/uvrr-protocols.md`, the reincarnation chapter). Adding a retention knob to the trait would convert a host
 //! policy into a protocol obligation and thereby preclude a legal host, which
 //! `docs/architecture.md` classifies as a defect. The split is enforced mechanically:
 //! `tests/journal_contract.rs` scans the trait definitions and fails the build if the
@@ -28,7 +28,7 @@
 //!
 //! History begins at slot 1. Slot 0 is the crate-wide "no slot" sentinel, reserved
 //! by wire headers and empty frontiers (`invariant::header_slot_role`), and never a
-//! position. The one accept anchor is [`VOID_SLOT`], the slot `Void` occupies at
+//! position. The one accept anchor is [`crate::configuration::VOID_SLOT`], the slot [`crate::configuration::SystemOperation::Void`] occupies at
 //! genesis (§8.7.2's fixed ordinals): an empty log's first batch must begin there,
 //! and there is no construction knob that moves it. One sentinel, one anchor.
 
@@ -201,11 +201,11 @@ pub enum JournalError {
     ///
     /// §8.7.3 forbids wraparound: a wrapped slot would reassign a position that
     /// already holds an accepted operation. Refused rather than saturated, for the
-    /// same reason [`Slot::next`] returns `Option`.
+    /// same reason [`crate::ids::Slot::next`] returns `Option`.
     SlotExhausted,
     /// A view selection named no history.
     ///
-    /// `install_suffix` installs the suffix a completed view change *selected*; an
+    /// [`Journal::install_suffix`] installs the suffix a completed view change *selected*; an
     /// empty suffix is not a selection, and truncating to `from` with nothing to
     /// install would silently discard the uncommitted tail the caller claimed to be
     /// replacing.
@@ -219,7 +219,7 @@ pub enum JournalError {
 /// and nothing else. The snapshot is cheap by construction: the default implementation
 /// is an `Arc` bump per sealed slab, not a copy, so taking one never walks the
 /// history. What that costs is paid at the mutation site instead: a later
-/// `install_suffix` must copy any slab it partially supersedes, because this view may
+/// [`Journal::install_suffix`] must copy any slab it partially supersedes, because this view may
 /// still hold the original.
 pub trait JournalView {
     /// Greatest accepted slot, or `None` before genesis (§1.3: the accepted frontier).
@@ -293,7 +293,8 @@ pub trait Journal {
     fn accept(&mut self, entries: &[LogEntry]) -> Result<(), JournalError>;
 
     /// Records a view selection: logically installs the suffix chosen by a completed
-    /// view change (VRR §5.2 / spec §9), replacing any divergent uncommitted tail.
+    /// view change ([VR-2012] §5.2, `docs/references.md`; spec §9),
+    /// replacing any divergent uncommitted tail.
     ///
     /// Everything from `from` onward is replaced by `suffix`, which must begin at
     /// `from` and be contiguous. This is a change to which logical history the replica
@@ -313,7 +314,7 @@ pub trait Journal {
 
 /// What [`JournalView::copy_out`] did with the request.
 ///
-/// Exhaustive, so a caller assembling a `NewState` reply or a view-change suffix must
+/// Exhaustive, so a caller assembling a [`crate::wire::Tag::NewState`] reply or a view-change suffix must
 /// say what it does with each shape of shortfall rather than discovering one at
 /// runtime.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -385,7 +386,7 @@ impl Slab {
 ///
 /// # Genesis
 ///
-/// Every log's history begins at [`VOID_SLOT`], slot 1, where `Void` stands at
+/// Every log's history begins at [`crate::configuration::VOID_SLOT`], slot 1, where [`crate::configuration::SystemOperation::Void`] stands at
 /// the start of a legitimate history (§8.7.2). Slot 0 is the sentinel, not a
 /// position, so the first batch accepted must start at the anchor and an offer
 /// below it is refused. There is deliberately no `first_slot` construction
@@ -404,11 +405,11 @@ pub struct SegmentedLog {
     /// search over boundaries and never touches an entry to find its slab.
     boundaries: Vec<(Slot, usize)>,
     /// The mutable append buffer. May exceed `tail_capacity` transiently after a bulk
-    /// `install_suffix`; the next seal drains it whole.
+    /// [`Journal::install_suffix`]; the next seal drains it whole.
     tail: Vec<LogEntry>,
     /// Entries the tail holds before sealing.
     tail_capacity: usize,
-    /// The first slot this log's history ever held. Fixed at [`VOID_SLOT`] by
+    /// The first slot this log's history ever held. Fixed at [`crate::configuration::VOID_SLOT`] by
     /// construction; named as a field so the retained-window arithmetic reads the
     /// same before and after reclamation.
     first_slot: Slot,
@@ -425,8 +426,8 @@ impl Default for SegmentedLog {
 }
 
 impl SegmentedLog {
-    /// An empty log with the default tail capacity, ready to accept `Void` at
-    /// [`VOID_SLOT`].
+    /// An empty log with the default tail capacity, ready to accept [`crate::configuration::SystemOperation::Void`] at
+    /// [`crate::configuration::VOID_SLOT`].
     #[must_use]
     pub fn new() -> SegmentedLog {
         Self::with_tail_capacity(DEFAULT_TAIL_CAPACITY)
@@ -455,7 +456,7 @@ impl SegmentedLog {
     /// The sealed slabs, in slot order.
     ///
     /// Exposed so a host (and the contract test) can observe sharing directly: views
-    /// hold these very `Arc`s, and the copy-on-write boundary of `install_suffix` is
+    /// hold these very `Arc`s, and the copy-on-write boundary of [`Journal::install_suffix`] is
     /// observable as `Arc` identity, not merely as contents.
     #[must_use]
     pub fn slabs(&self) -> &[Arc<Slab>] {

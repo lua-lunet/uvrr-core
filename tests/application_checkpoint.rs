@@ -1,11 +1,11 @@
-//! The application boundary closed: ordered `Apply` upcalls, the
-//! result-free `Applied` acknowledgement, the checkpoint frontier, and the
+//! The application boundary closed: ordered [`uvrr::effects::Effect::Apply`] upcalls, the
+//! result-free [`uvrr::replica::Input::Applied`] acknowledgement, the checkpoint frontier, and the
 //! reclamation the checkpoint alone authorizes (§4, §11, §11.1; decisions
 //! S1, B2).
 //!
 //! The rulings under test:
 //!
-//! - `Effect::Apply` is emitted in strict slot order and never above
+//! - [`uvrr::effects::Effect::Apply`] is emitted in strict slot order and never above
 //!   `committed` (§11.1).
 //! - `Input::Applied { slot }` carries no result (B2); a duplicate or
 //!   out-of-order report, including one above `committed`, is rejected
@@ -16,8 +16,8 @@
 //!   final slot the checkpoint covers, never the tail, opportunistically
 //!   on append (§4, S1).
 //! - The system-slot ruling (§11): `applied` walks EVERY slot. The genesis
-//!   system operations (`Void`@1, `Init`@2, §8.7.2) are core-internal,
-//!   they emit no `Apply` upcall and expect no acknowledgement, but they
+//!   system operations ([`uvrr::configuration::SystemOperation::Void`]@1, [`uvrr::configuration::SystemOperation::Init`]@2, §8.7.2) are core-internal,
+//!   they emit no [`uvrr::effects::Effect::Apply`] upcall and expect no acknowledgement, but they
 //!   advance `applied` the moment the contiguous committed prefix allows.
 
 mod harness;

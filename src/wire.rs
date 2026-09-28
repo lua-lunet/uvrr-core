@@ -25,7 +25,7 @@
 //! This is the codec *substrate*: byte-level primitives, the [`Pack`] and [`Unpack`]
 //! traits, the error taxonomy, the [`Tag`] discriminant table, and [`Header`]. It
 //! defines no message body. A body defined here would have to be redefined once
-//! `Prepare` has a log entry to carry and `StartView` has configuration evidence to
+//! [`Tag::Prepare`] has a log entry to carry and [`Tag::StartView`] has configuration evidence to
 //! carry; each later message body owns its own encoding and adds its own round trip through the
 //! traits below.
 //!
@@ -104,7 +104,7 @@ pub enum Malformed {
         /// Bytes left unread after a complete decode.
         unread: usize,
     },
-    /// A field required to be zero was not. Reserved space that a decoder tolerates is
+    /// A field required to be zero was not. Reserved space that a decoder tolerates is (W4)
     /// reserved space a later revision cannot use.
     ReservedFieldNonZero,
     /// A newtype's checked domain rejected the decoded value, a `bool` byte other than
@@ -506,7 +506,8 @@ impl<'a> UnpackCursor<'a> {
     ///
     /// Provided so that reserved space stays reserved: a decoder that tolerates a
     /// non-zero reserved field has already spent the space, because a later revision
-    /// cannot then distinguish an old sender's garbage from a new sender's meaning.
+    /// cannot then distinguish an old sender's garbage from a new sender's meaning
+    /// (W4).
     ///
     /// # Errors
     ///
@@ -719,11 +720,11 @@ impl Unpack for ViewId {
 pub enum Tag {
     /// The primary's proposal of an operation at a slot (§6).
     Prepare = 2,
-    /// A replica's acceptance of a `Prepare` (§6).
+    /// A replica's acceptance of a [`Tag::Prepare`] (§6).
     PrepareOk = 3,
     /// A commit-frontier advance carrying no new operation (§6).
     Commit = 4,
-    /// The ordinary view-change fence: a recipient stops accepting `Prepare` in the old
+    /// The ordinary view-change fence: a recipient stops accepting [`Tag::Prepare`] in the old
     /// view (§9.1). Contrast [`Tag::PlannedViewChange`].
     StartViewChange = 5,
     /// A replica's state evidence for the designated new primary (§9.1).
@@ -738,11 +739,11 @@ pub enum Tag {
     StartView = 7,
     /// Solicitation of planned view-change evidence during overlap mode (§8.7.7 step 4).
     ///
-    /// # Why a distinct tag and not a flag on `StartViewChange`
+    /// # Why a distinct tag and not a flag on [`Tag::StartViewChange`]
     ///
     /// The two messages differ in whether they fence the recipient, and that difference
-    /// carries the safety argument for the non-stop transition. `StartViewChange` makes
-    /// a recipient stop accepting `Prepare` in the current view. `PlannedViewChange`
+    /// carries the safety argument for the non-stop transition. [`Tag::StartViewChange`] makes
+    /// a recipient stop accepting [`Tag::Prepare`] in the current view. [`Tag::PlannedViewChange`]
     /// must not: §8.7.7 has `L` continue committing client operations through `qII`
     /// under view `v` while it collects planned evidence from `qI - {L}`, and step 5 has
     /// each recipient record the planned target *separately* from `current_view`. A
@@ -759,9 +760,9 @@ pub enum Tag {
     PlannedViewChange = 8,
     /// A request for a history range the requester lacks (§4, §13.1).
     GetState = 9,
-    /// A history range in reply to `GetState`. Sizing is the host's (W5).
+    /// A history range in reply to [`Tag::GetState`]. Sizing is the host's (W5).
     NewState = 10,
-    /// A reincarnation announcement (`docs/uvrr-reincarnation.md` §4): the
+    /// A reincarnation announcement (`docs/uvrr-protocols.md`, the reincarnation chapter §4): the
     /// bumped identity `(old, new)` pair, sent by the restarted node to the
     /// leader, which drives the forced weight sequence in reply.
     ///
@@ -769,13 +770,13 @@ pub enum Tag {
     /// deleted classic recovery-exchange tags (the amnesia protocol this
     /// protocol exists to have eliminated) and stay retired.
     Reincarnation = 13,
-    /// One datagram packing the per-slot `Prepare` messages of one
+    /// One datagram packing the per-slot [`Tag::Prepare`] messages of one
     /// reconfiguration schedule (`docs/uvrr-fuse.md` §1): the shared ballot
     /// in the header, `first_slot` in the header slot, and `count` then
-    /// `count × SystemOperation` in the body. Receiving a `Fuse` is defined
-    /// as receiving the equivalent sequence of `Prepare`s at the same ballot.
+    /// `count × SystemOperation` in the body. Receiving a [`Tag::Fuse`] is defined
+    /// as receiving the equivalent sequence of [`Tag::Prepare`]s at the same ballot.
     Fuse = 14,
-    /// An acceptor's acknowledgement of a `Fuse` (`docs/uvrr-fuse.md` §3):
+    /// An acceptor's acknowledgement of a [`Tag::Fuse`] (`docs/uvrr-fuse.md` §3):
     /// `count`, then one accepted slot per packed op, in batch order. No
     /// range encodings.
     FuseOk = 15,
@@ -783,7 +784,7 @@ pub enum Tag {
     /// (`docs/uvrr-fuse.md` §4): `count`, then `count × Slot`. No range
     /// encodings.
     CommitBatch = 16,
-    /// The rejoin gossip's request (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+    /// The rejoin gossip's request (`docs/uvrr-protocols.md`, the rejoin chapter
     /// §2–§3): the sender's frontiers, fired at every node it knows. A node
     /// that cannot commit in order uses it to ask for the missing range; a
     /// node outside the cluster uses it as its join. Only the node that
@@ -848,6 +849,7 @@ impl Tag {
     /// `None` for `0`, which is reserved, and for everything above the table. An unknown
     /// tag from a newer peer is refused rather than guessed at: a message whose meaning
     /// is unknown cannot be safely ignored by a replica that may be the only one holding
+    /// a committed operation (W4).
     /// a committed operation, so the refusal has to be visible to the host that decides
     /// what to do about a version skew.
     #[must_use]
@@ -916,14 +918,14 @@ impl Unpack for Tag {
 ///
 /// # Why `slot` is in the header
 ///
-/// Not every message names a slot in the protocol sense, `StartViewChange` carries no
+/// Not every message names a slot in the protocol sense, [`Tag::StartViewChange`] carries no
 /// operation. It is in the header regardless, because a fixed-width header gives every
 /// body a fixed offset, which is the same argument W4 makes for fixed-width integers: a
 /// size should be a sum, not a parse. What the field *means* is fixed per tag by
 /// [`crate::invariant::header_slot_role`]: an operation position, a frontier, or,
 /// for messages that speak about no slot at all, the sentinel `Slot(0)`, the one
 /// value that can never be confused with a real position, because the first position
-/// of a legitimate history is `Void` at slot 1 (§8.7.2). The wire layer stays
+/// of a legitimate history is [`crate::configuration::SystemOperation::Void`] at slot 1 (§8.7.2). The wire layer stays
 /// agnostic: it encodes 20 bytes for every tag and asks no questions.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

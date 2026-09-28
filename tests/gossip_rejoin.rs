@@ -1,12 +1,12 @@
 //! Rejoin gossip: the anti-wedge design as explicit message-level tests.
 //!
-//! The brief this corpus pins (`docs/uvrr-rejoin-gossip-and-witnesses.md`):
+//! The brief this corpus pins (`docs/uvrr-protocols.md`, the rejoin chapter):
 //! a node outside the cluster gossips to find it, the join gossip carries
 //! its frontiers, every node that hears it lists the sender as a
 //! gossip-witness, and the leader, only the leader, streams all phase-2s
 //! and commits to that list, push-first, until the joiner promotes (and is
 //! then dropped from the list) or forever (a statically registered witness
-//! is never purged). The `GossipRequest` is the gap half of the same
+//! is never purged). The [`uvrr::wire::Tag::GossipRequest`] is the gap half of the same
 //! gossip: any node that cannot commit in order fires it at every node,
 //! and only the node that believes itself leader answers with the missing
 //! range and a fresh commit, a cluster member is pushed but never listed.
@@ -116,7 +116,7 @@ fn serve(h: &mut Harness, ops: &mut u64) {
 }
 
 /// Rotates the primary after a crash: silence long enough for the live
-/// `Normal` members to suspect, then the drain that completes the fence.
+/// [`uvrr::progress::Status::Normal`] members to suspect, then the drain that completes the fence.
 fn rotate(h: &mut Harness) {
     for _ in 0..=TIMEOUT {
         h.tick_all();
@@ -263,7 +263,7 @@ fn a_successor_leader_resumes_the_witness_stream() {
 }
 
 /// The gap half of the gossip: a member that cannot commit in order fires
-/// a `GossipRequest` at every node; the node that believes itself leader
+/// a [`uvrr::wire::Tag::GossipRequest`] at every node; the node that believes itself leader
 /// answers with the missing range, and no node lists a cluster member as
 /// a witness (the push, not the list, is the answer). The same one message
 /// from a cold node IS the join: pushed and listed everywhere.
@@ -347,7 +347,7 @@ fn a_gossip_request_pushes_the_missing_range_and_lists_no_member() {
     h.assert_safety();
 }
 
-/// The safety half of the brief, pinned: a stream message from an older
+/// The safety half, pinned (the rejoin chapter §3): a stream message from an older
 /// view than the sink holds never moves the sink backwards, the witness
 /// applies commits in order or refuses them, never rewinds.
 #[test]

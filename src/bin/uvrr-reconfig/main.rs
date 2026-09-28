@@ -1,6 +1,6 @@
 //! The reconfiguration operator CLI: compute a plan, or submit one to a
-//! leader's admin port. `docs/weighted-reconfiguration-solver.md` records the
-//! interface; the JSONL schema it speaks is defined by `uvrr::plan`.
+//! leader's admin port. `docs/uvrr-protocols.md`, the solver chapter records the
+//! interface; the JSONL schema it speaks is defined by [`uvrr::plan`].
 use std::io::Read;
 use std::net::UdpSocket;
 use std::time::Duration;
@@ -51,7 +51,7 @@ enum Command {
         #[arg(long)]
         available: String,
         /// The leader's serving view number, the view the plan's
-        /// nominations name (`docs/nominate-leader-assignment.md`): a
+        /// nominations name (`docs/uvrr-protocols.md`, the NOMINATE chapter): a
         /// snapshot supplied by the operator, like the availability.
         #[arg(long)]
         view: u32,

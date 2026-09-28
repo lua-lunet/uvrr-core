@@ -2,10 +2,10 @@
 //! `lin-kv` workload, so Knossos can check the protocol for linearizability
 //! under Maelstrom's partition / kill / pause nemeses.
 //!
-//! The core is used as a Rust library (`uvrr::replica::Replica`), planner
-//! architecture: every event becomes a [`TimedInput`], [`Replica::plan`]
+//! The core is used as a Rust library ([`uvrr::replica::Replica`]), planner
+//! architecture: every event becomes a [`uvrr::replica::TimedInput`], [`uvrr::replica::Replica::plan`]
 //! computes a transition against the published state and a journal view, and
-//! this host publishes it with [`Replica::publish`] and executes the released
+//! this host publishes it with [`uvrr::replica::Replica::publish`] and executes the released
 //! effects. The host owns time, transport, storage and the application,
 //! exactly the split the core is written against.
 //!
@@ -20,10 +20,10 @@
 //!
 //! - **Volatile, the default.** `MAELSTROM_UVRR_STATE_DIR` unset or
 //!   empty: no store at all, no file is opened, written or fsynced, and
-//!   every construction takes the [`Stability::Volatile`] provision path:
+//!   every construction takes the [`uvrr::effects::Stability::Volatile`] provision path:
 //!   first boot or kill-nemesis restart alike provisions fenced
-//!   `Joining` (the genesis ruling, §1.3), and a node becomes `Normal`
-//!   only through the bootstrap adoption (§4). A voter whose volatile
+//!   [`uvrr::lifecycle::Marker::Joining`] (the genesis ruling, §1.3), and a node becomes [`uvrr::progress::Status::Normal`]
+//!   only through the bootstrap adoption (the reincarnation chapter §4). A voter whose volatile
 //!   state vanished while retaining authority is unrepresentable in this
 //!   host: a restarted node rejoins fenced, and the next view change
 //!   deposes any stale primary. A kill loses the process's state; the
@@ -32,33 +32,33 @@
 //!   is the persistence home, and the write-through barrier and the
 //!   marker machine below govern it. The state file carries exactly
 //!   what the core considers durable: the §5 persisted progress record,
-//!   the journal's retained history, and the §2 four-superblock
+//!   the journal's retained history, and the boot-gate chapter §2 four-superblock
 //!   identity the marker machine transitions. A kill loses at most the
 //!   in-flight input; every effect the client or a peer ever observed
 //!   rests on a file the host fsynced first.
 //!
 //! # The persisted mode's write-through (§7)
 //!
-//! In both modes the node runs [`Stability::Volatile`], the core's
+//! In both modes the node runs [`uvrr::effects::Stability::Volatile`], the core's
 //! statement that effects release at `publish`. In the persisted mode the
 //! host enforces the durability ordering itself, between publish and
 //! observability: after every published transition the host rewrites the
 //! node's state file (temp file, fsync, atomic rename, fsync of the
-//! directory, the §7 `Forced` barrier shape) and only then routes any
+//! directory, the §7 [`uvrr::effects::Stability::Forced`] barrier shape) and only then routes any
 //! released effect.
 //!
-//! The stability handshake stays `Volatile` because it is the only level
+//! The stability handshake stays [`uvrr::effects::Stability::Volatile`] because it is the only level
 //! whose contract this host can discharge honestly: every other level parks
-//! each transition behind an [`Effect::Persist`] intent, and the parked
+//! each transition behind an [`uvrr::effects::Effect::Persist`] intent, and the parked
 //! transition, the would-be durable state the host would have to write,
 //! is not observable through the core's public surface (the plan's candidate
-//! and journal mutation are consumed by `publish`; `PublishOutcome::Parked`
+//! and journal mutation are consumed by `publish`; PublishOutcome::Parked
 //! releases only the intent's revision and ranges). A host outside the
 //! crate cannot build the state it would be confirming, so the core's
 //! parked protocol cannot be selected without confirming a barrier the host
 //! cannot actually build. The honest equivalent is the host-side barrier
 //! above: same ordering, enforced where the effects become observable.
-//! (Reported core limitation, not papered over; see the repository report.)
+//! (Reported core limitation, not papered over.)
 //!
 //! # The marker machine (the persisted mode's restart discipline)
 //!
@@ -68,54 +68,54 @@
 //! where the machine puts them (startup and shutdown only; the
 //! write-through below carries them untouched in between):
 //!
-//! - **T1, a clean stop (stdin EOF):** [`SuperblockCopies::begin_stop`]
-//!   writes `Stopping` 4x, durable; the host then drains, flushes the
+//! - **T1, a clean stop (stdin EOF):** [`uvrr::lifecycle::SuperblockCopies::begin_stop`]
+//!   writes [`uvrr::lifecycle::Marker::Stopping`] 4x, durable; the host then drains, flushes the
 //!   WALs and grids, this store's one state file its own WAL and grid,
 //!   so the drain is the file's fsync, strictly between the marker
-//!   writes; [`SuperblockCopies::finish_stop`] writes `Stopped` 4x. The
-//!   marker order is the drain's proof: a `Stopped` copy vouches for the
+//!   writes; [`uvrr::lifecycle::SuperblockCopies::finish_stop`] writes [`uvrr::lifecycle::Marker::Stopped`] 4x. The
+//!   marker order is the drain's proof: a [`uvrr::lifecycle::Marker::Stopped`] copy vouches for the
 //!   WAL under it.
 //! - **T2, a clean restart.** A boot whose quorum read (the lifecycle
-//!   gate's classification) sees 2-of-4 `Stopped` has the transition's
+//!   gate's classification) sees 2-of-4 [`uvrr::lifecycle::Marker::Stopped`] has the transition's
 //!   proof, the drain completed, no amnesiac risk, so the node
-//!   continues under the same identity and the gate latches `Restarting`
-//!   4x; the `Vouched` token it mints is the only same-identity resume.
+//!   continues under the same identity and the gate latches [`uvrr::lifecycle::Marker::Restarting`]
+//!   4x; the [`uvrr::lifecycle::Vouched`] token it mints is the only same-identity resume.
 //! - **T3, a resurrect.** No stopped quorum, a crash, a torn marker
 //!   set, or death mid-join, means the identity is dead: the gate's
 //!   `Bumped` pair is the commitment and the host reopens under the
-//!   bumped identity through `Replica::reincarnate`, reporting
+//!   bumped identity through [`uvrr::replica::Replica::reincarnate`], reporting
 //!   `Input::Reincarnate { old }`,
 //!   from which point the core's reincarnation machinery owns the
-//!   restart: the announcement (§4), the leader's forced weight
-//!   sequence (§5, one era per batch), and the re-announce this host
+//!   restart: the announcement (the reincarnation chapter §4), the leader's forced weight
+//!   sequence (the reincarnation chapter §5, one era per batch), and the re-announce this host
 //!   re-drives on every tick until the identity is a voting member
-//!   again (§8).
+//!   again (the reincarnation chapter §8).
 //!
-//! A first life writes its boot markers (`Joining`, the genesis
+//! A first life writes its boot markers ([`uvrr::lifecycle::Marker::Joining`], the genesis
 //! incarnation) before `init_ok` is answered, and a running node's
 //! markers hold its boot write until the next clean stop, so a kill
 //! leaves exactly the no-controlled-shutdown evidence the next boot
 //! needs.
 //!
-//! The bump's durable `Joining` write DEFERS to the engine's seated
-//! observation (`docs/uvrr-boot-gate.md` §3, the flush is never paid at
+//! The bump's durable [`uvrr::lifecycle::Marker::Joining`] write DEFERS to the engine's seated
+//! observation (`docs/uvrr-io-obligations.md`, the boot-gate chapter §3, the flush is never paid at
 //! the boundary of an uninitialised start): the announcement carries the
 //! pair while the markers still hold the state as loaded, and the latch
 //! fires, over the then-current running state, once the reincarnated
-//! identity is `Normal` at voting weight. The re-crash replay makes the
+//! identity is [`uvrr::progress::Status::Normal`] at voting weight. The re-crash replay makes the
 //! deferral safe: a crash before the latch re-reads the old markers,
 //! re-classifies crashed, and re-decides the same pair (the bump is a
 //! pure function of the quorum-resolved identity), and the announcement
-//! is idempotent at the leader (§4), so the replay is absorbed.
+//! is idempotent at the leader (the reincarnation chapter §4), so the replay is absorbed.
 //!
 //! Torn or corrupt state files are crash artifacts, not inputs: the host
-//! refuses the reopen by name (the core's [`LifecycleRefusal`] path),
+//! refuses the reopen by name (the core's [`uvrr::replica::LifecycleRefusal`] path),
 //! answers `error`, and exits nonzero so Jepsen restarts the node. Never
 //! a panic.
 //!
 //! # Identity mapping (host-side, transparent to Maelstrom)
 //!
-//! The core's `NodeId` is the durable pair (`docs/uvrr-boot-gate.md` §5):
+//! The core's [`uvrr::ids::NodeId`] is the durable pair (`docs/uvrr-io-obligations.md`, the boot-gate chapter §5):
 //! the system half names the node, the crash-counter half names the life;
 //! the Maelstrom transport names a fixed roster. The host maps between
 //! them ([`Identity`]): a genesis identity is the sorted-roster position
@@ -133,28 +133,28 @@
 //!
 //! The core reads no clock; the host owns time. This host's clock is a
 //! single `u64` counter, bumped once per driven input and carried as
-//! [`TimedInput::at`].
+//! [`uvrr::replica::TimedInput::at`].
 //!
 //! # Membership verbs (§8.7)
 //!
 //! Four Maelstrom message kinds drive cluster making through the core's
-//! public [`Input::Reconfigure`] path, the §8.7.2 pre-proposal gates are
+//! public [`uvrr::replica::Input::Reconfigure`] path, the §8.7.2 pre-proposal gates are
 //! the core's, and every core refusal becomes a named Maelstrom `error`,
 //! never a crash:
 //!
 //! - `join {node_id}`, admit an already-running bench node at weight 0
-//!   ([`SystemOperation::Join`], stop-the-world). The bench roster is fixed
+//!   ([`uvrr::configuration::SystemOperation::Join`], stop-the-world). The bench roster is fixed
 //!   by `node_ids`, so a join naming an id outside the roster is refused by
 //!   the host (`malformed-request`, code 12) before the core is touched; a
 //!   join of a member the configuration already holds is refused by the
 //!   fold itself.
 //! - `promote {node_id}`, one weight step toward voting
-//!   ([`SystemOperation::Increment`]); takes the §8.7.6 pivot when one
+//!   ([`uvrr::configuration::SystemOperation::Increment`]); takes the §8.7.6 pivot when one
 //!   exists for this leader, and falls back to stop-the-world when the
 //!   leader is non-pivotal, a latency outcome, not an error.
-//! - `demote {node_id}`, one weight step down ([`SystemOperation::Decrement`],
+//! - `demote {node_id}`, one weight step down ([`uvrr::configuration::SystemOperation::Decrement`],
 //!   stop-the-world).
-//! - `leave {node_id}`, remove a weight-0 member ([`SystemOperation::Leave`],
+//! - `leave {node_id}`, remove a weight-0 member ([`uvrr::configuration::SystemOperation::Leave`],
 //!   stop-the-world); the canonical departure is `demote` to 0 then `leave`
 //!   of the same node.
 //!
@@ -201,11 +201,11 @@ use crate::store::{NodeState, Store};
 
 /// Scheduler granularity. Everything below is expressed in ticks.
 const TICK: Duration = Duration::from_millis(100);
-/// Ticks of primary silence a `Normal` backup tolerates before fencing into
+/// Ticks of primary silence a [`uvrr::progress::Status::Normal`] backup tolerates before fencing into
 /// the next view (W5: the knob is host policy, uniform across the cluster).
-/// With client traffic flowing, the primary's `Prepare`/`Commit` stream is
+/// With client traffic flowing, the primary's [`uvrr::wire::Tag::Prepare`]/[`uvrr::wire::Tag::Commit`] stream is
 /// the activity evidence and suspicion never fires; the knob only decides
-/// how quickly a genuinely dead primary is deposed. A `Restarting` node,
+/// how quickly a genuinely dead primary is deposed. A [`uvrr::lifecycle::Marker::Restarting`] node,
 /// the marker machine's clean-reopen boot, suspects through the same
 /// knob like any backup (the core's plan-tick ruling), so the host arms
 /// no first fence of its own.
@@ -274,7 +274,7 @@ fn main() {
 }
 
 /// The host-side identity map: a core identity is the durable pair
-/// (`docs/uvrr-boot-gate.md` §5), the roster position naming the system
+/// (`docs/uvrr-io-obligations.md`, the boot-gate chapter §5), the roster position naming the system
 /// half and the life naming the crash-counter half; the Maelstrom transport
 /// names a fixed roster. Transparent to Maelstrom: a bumped identity
 /// resolves to the same Maelstrom node string it reincarnated under, and
@@ -338,7 +338,7 @@ impl Identity {
     }
 
     /// The transport remap a `Reincarnation(old, new)` announcement
-    /// carries (§6): the restarted node announced the pair from its
+    /// carries (the reincarnation chapter §6): the restarted node announced the pair from its
     /// transport id, so the transport id now names `new`. Refused when
     /// the announcement's `old` does not resolve to the sender's own
     /// transport id, the host does not move another node's traffic on
@@ -392,11 +392,11 @@ struct NodeRunner {
     kv: Kv,
     next_msg_id: u64,
     /// The host clock (S4): bumped once per driven input, carried as
-    /// `TimedInput::at`.
+    /// [`uvrr::replica::TimedInput::at`].
     tick: u64,
     /// `(client_id, request_num)` of an in-flight op -> where its answer
     /// goes. The operation identity the core carries opaque (§11.1) is
-    /// exactly this pair, so an `Effect::Apply` correlates back to the
+    /// exactly this pair, so an [`uvrr::effects::Effect::Apply`] correlates back to the
     /// Maelstrom client that is waiting.
     waiting: HashMap<(u64, u64), Waiter>,
     /// Membership verbs proposed but not yet committed: the establishing
@@ -415,11 +415,11 @@ struct NodeRunner {
     session: Option<Running<Gate>>,
     /// A reincarnation's deferred latch: the crashed session held until
     /// the engine's seated observation mints the witness, at which point
-    /// the bumped `Joining` markers become durable (`docs/uvrr-boot-gate.md`
+    /// the bumped [`uvrr::lifecycle::Marker::Joining`] markers become durable (`docs/uvrr-io-obligations.md`, the boot-gate chapter
     /// §3, the flush is never paid at the boundary of an uninitialised
     /// start; the re-crash replay re-decides the same pair).
     deferred: Option<Crashed<Gate>>,
-    /// The §2 four-superblock copies this node carries, written on every
+    /// The boot-gate chapter §2 four-superblock copies this node carries, written on every
     /// persist. `None` before the first init completes, and always in
     /// the volatile mode, which carries no restart model and writes
     /// nothing.
@@ -641,8 +641,8 @@ impl NodeRunner {
 
     /// The clean start (T2): the stopped quorum proved the drain, the
     /// same identity continues, complete state, no amnesia. The gate
-    /// latches `Restarting` 4x over the loaded state (the boot-gate
-    /// latch, before the first message), the `Vouched` token constructs
+    /// latches [`uvrr::lifecycle::Marker::Restarting`] 4x over the loaded state (the boot-gate
+    /// latch, before the first message), the [`uvrr::lifecycle::Vouched`] token constructs
     /// the resume, and no announcement runs.
     fn reopen_clean(
         &mut self,
@@ -717,9 +717,9 @@ impl NodeRunner {
 
     /// The reincarnation (T3): no stopped quorum, the identity is dead,
     /// the gate's pair is the commitment, and the announcement follows.
-    /// The bumped `Joining` markers are NOT written here: the latch
+    /// The bumped [`uvrr::lifecycle::Marker::Joining`] markers are NOT written here: the latch
     /// defers to the engine's seated observation
-    /// (`docs/uvrr-boot-gate.md` §3). A crash before the latch re-reads
+    /// (`docs/uvrr-io-obligations.md`, the boot-gate chapter §3). A crash before the latch re-reads
     /// the old markers, re-classifies crashed, and re-decides the same
     /// pair, the announcement is idempotent at the leader (§4), so the
     /// replay is absorbed.
@@ -879,7 +879,7 @@ impl NodeRunner {
 
     /// The write-through barrier: the file carries the state the core just
     /// published BEFORE any released effect is routed, the invariant that
-    /// makes a kill lose at most the in-flight input. A failure is
+    /// makes a kill lose at most the in-flight input (§7). A failure is
     /// determinate: the node stops (exit nonzero, Jepsen restarts it from
     /// the last good file) rather than serving on a store it cannot vouch
     /// for.
@@ -929,14 +929,15 @@ impl NodeRunner {
         Ok(())
     }
 
-    /// A clean stop, the marker machine's T1: [`SuperblockCopies::begin_stop`]
-    /// writes `Stopping` 4x, the drain flushes the WALs and grids
+    /// A clean stop, the marker machine's T1: [`uvrr::lifecycle::SuperblockCopies::begin_stop`]
+    /// writes [`uvrr::lifecycle::Marker::Stopping`] 4x, the drain flushes the WALs and grids
     /// strictly between the marker writes, and
-    /// [`SuperblockCopies::finish_stop`] writes `Stopped` 4x, the
-    /// drain's proof, so a `Stopped` copy vouches for the WAL under it.
+    /// [`uvrr::lifecycle::SuperblockCopies::finish_stop`] writes [`uvrr::lifecycle::Marker::Stopped`] 4x, the
+    /// drain's proof, so a [`uvrr::lifecycle::Marker::Stopped`] copy vouches for the WAL under it.
     /// Any failure is logged, not fatal: the markers keep the honest
     /// reading (the boot write, no stopped quorum) and the next init
-    /// resurrects (T3), never a `Stopped` claim the drain did not earn.
+    /// resurrects (T3), never a [`uvrr::lifecycle::Marker::Stopped`] claim the drain did not earn
+    /// (`docs/uvrr-io-obligations.md`, the boot-gate chapter §3).
     /// The volatile mode carries no markers; EOF is just exit.
     fn clean_shutdown(&mut self) {
         if self.replica.is_none() {
@@ -980,8 +981,8 @@ impl NodeRunner {
     }
 
     /// Fires the deferred latch when the engine's seated observation
-    /// arrives: the bumped `Joining` markers become durable over the
-    /// current running state (`docs/uvrr-boot-gate.md` §3).
+    /// arrives: the bumped [`uvrr::lifecycle::Marker::Joining`] markers become durable over the
+    /// current running state (`docs/uvrr-io-obligations.md`, the boot-gate chapter §3).
     fn settle_deferred(&mut self) {
         let Some(crashed) = self.deferred.take() else {
             return;
@@ -1217,8 +1218,8 @@ impl NodeRunner {
     /// pre-gates run before the core is touched: a verb without a
     /// `node_id`, or naming an id outside the bench roster (fixed by
     /// `node_ids`), is a definite malformed request. At the primary the
-    /// verb becomes `Input::Reconfigure`, `Join`/`Decrement`/`Leave` stop
-    /// the world (`pivot: None`), `Increment` takes the §8.7.6 pivot when
+    /// verb becomes [`uvrr::replica::Input::Reconfigure`], [`uvrr::configuration::SystemOperation::Join`]/[`uvrr::configuration::SystemOperation::Decrement`]/[`uvrr::configuration::SystemOperation::Leave`] stop
+    /// the world (`pivot: None`), [`uvrr::configuration::SystemOperation::Increment`] takes the §8.7.6 pivot when
     /// one exists for this leader. The reply is not the proposal's: it
     /// leaves at the era fold (§8.7.1), so a primary death or a view
     /// change that drops the uncommitted establishing operation leaves
@@ -1345,7 +1346,7 @@ impl NodeRunner {
 
     /// A membership refusal: a named Maelstrom error carrying the core's
     /// refusal diagnostic, echoing the node's current configuration view
-    ///, the same shape the KV path's definite failures answer with.
+    /// , the same shape the KV path's definite failures answer with.
     fn membership_error(&mut self, waiter: &Waiter, code: u32, text: String) {
         let body = serde_json::json!({
             "type": "error",
@@ -1470,7 +1471,7 @@ impl NodeRunner {
         }
     }
 
-    /// Whether this node is the `Normal` primary of its current view, the
+    /// Whether this node is the [`uvrr::progress::Status::Normal`] primary of its current view, the
     /// only node a client op may be proposed to (§4).
     fn leads(&self) -> bool {
         match &self.replica {
@@ -1509,8 +1510,8 @@ impl NodeRunner {
     /// write-through barrier: the published state reaches the state file
     /// (fsynced) BEFORE the released effects are returned for routing, so
     /// no effect, a peer datagram, an applied answer to a client, is
-    /// observable before what supports it is durable. `Volatile` always
-    /// publishes; the parked outcome cannot arise at `Stability::Volatile`
+    /// observable before what supports it is durable. [`uvrr::effects::Stability::Volatile`] always
+    /// publishes; the parked outcome cannot arise at [`uvrr::effects::Stability::Volatile`]
     /// and is refused loudly rather than absorbed.
     fn step(&mut self, input: Input) -> Result<Vec<Effect>, PlanRefusal> {
         let Some(replica) = &mut self.replica else {
@@ -1538,8 +1539,8 @@ impl NodeRunner {
         }
     }
 
-    /// Executes released effects, including the `Applied` feedback each
-    /// `Apply` cascades into (§11.1): the acknowledgement carries no
+    /// Executes released effects, including the [`uvrr::replica::Input::Applied`] feedback each
+    /// [`uvrr::effects::Effect::Apply`] cascades into (§11.1): the acknowledgement carries no
     /// result, the boundary is one-way, and the core never answers a
     /// proposal (B2), so the waiting client is answered here, at apply
     /// time, by the host.
@@ -1723,7 +1724,7 @@ fn lifecycle_markers(identity: NodeId, marker: Marker) -> SuperblockCopies {
     }
 }
 
-/// The bench host's [`LifecycleStore`] (`docs/uvrr-boot-gate.md` §6):
+/// The bench host's [`LifecycleStore`] (`docs/uvrr-io-obligations.md`, the boot-gate chapter §6):
 /// the state file lent to the marker machine for a life. The host plugs
 /// in the writes, the quorum read is the store's load, the 4x marker
 /// write is the store's commit, the drain is the file's fsync, and the
@@ -1873,7 +1874,7 @@ impl LifecycleStore for Gate {
 /// core folds a committed system operation exactly when the commit frontier
 /// covers it (§8.7.1), so replaying every system entry at or below the
 /// persisted committed frontier, in slot order, reproduces the table, the
-/// construction `Node::reopen`'s own documentation prescribes ("the host
+/// construction Node::reopen's own documentation prescribes ("the host
 /// reconstructs it from the journal it also persists"). A fold refusal is
 /// persisted history the core would refuse: the reopen refusal path, named.
 fn fold_table(

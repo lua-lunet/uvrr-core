@@ -1,5 +1,5 @@
 //! The bench host's state file: the durable evidence a restart reopens
-//! under (`docs/uvrr-reincarnation.md` §2), carried in the host's own
+//! under (`docs/uvrr-protocols.md`, the reincarnation chapter §2), carried in the host's own
 //! store.
 //!
 //! # Shape (format 3, bench-internal; no cross-version compatibility)
@@ -60,7 +60,7 @@
 //! The bench never reclaims (`S1` allows it), so the retained window's
 //! base is stable; a base that moves is a named refusal, never a
 //! re-basing guess. The first life builds the whole file once, temp
-//! file, fsync, atomic rename, fsync of the directory, the §7 `Forced`
+//! file, fsync, atomic rename, fsync of the directory, the §7 [`uvrr::effects::Stability::Forced`]
 //! barrier shape, and the reopen path (§2) reads the active slot and
 //! its counted prefix. A file no slot of which vouches for itself, a
 //! short journal region, or a malformed frame is a crash artifact,
@@ -90,9 +90,9 @@ const MAGIC: u32 = u32::from_be_bytes(*b"UVRS");
 const VERSION: u32 = 4;
 
 /// Marker words, stated as a table so reordering this source cannot
-/// renumber the file (the core's `Status::to_word` discipline). The
+/// renumber the file (the core's [`uvrr::progress::Status::to_word`] discipline). The
 /// four states of the core's marker transition machine, numbered in
-/// [`uvrr::replica::Marker`]'s declaration order.
+/// [`uvrr::lifecycle::Marker`]'s declaration order.
 const MARKER_STOPPING: u8 = 0;
 const MARKER_STOPPED: u8 = 1;
 const MARKER_RESTARTING: u8 = 2;
@@ -135,8 +135,8 @@ const ENTRIES_BASE: u64 = 2 * HEADER_SIZE as u64;
 /// commits walk.
 pub struct Store {
     path: PathBuf,
-    /// The armed mirror: `None` until a successful [`Store::load`] (a
-    /// reopen) or [`Store::create`] (a first life).
+    /// The armed mirror: `None` until a successful Store::load (a
+    /// reopen) or Store::create (a first life).
     log: Option<LogFile>,
 }
 
@@ -224,13 +224,13 @@ impl Store {
     /// Reads the node's state file, the valid slot with the higher
     /// sequence number, then exactly its counted entry prefix, and
     /// arms the mirror for the commits that follow. Any decode failure
-    ///, magic, version, checksum, short read, malformed field, is a
+    /// , magic, version, checksum, short read, malformed field, is a
     /// named refusal: the file is evidence the node cannot vouch for.
     ///
     /// # Errors
     ///
-    /// [`StoreError::Absent`] when there is no file (first life),
-    /// [`StoreError::Corrupt`] for every other reason.
+    /// StoreError::Absent when there is no file (first life),
+    /// StoreError::Corrupt for every other reason.
     pub fn load(&mut self) -> Result<NodeState, StoreError> {
         let bytes = match std::fs::read(&self.path) {
             Ok(bytes) => bytes,
@@ -491,16 +491,17 @@ impl Store {
     }
 
     /// The clean stop's drain (the marker machine's T1: the host flushes
-    /// WALs and grids strictly between the `Stopping` and `Stopped`
+    /// WALs and grids strictly between the [`uvrr::lifecycle::Marker::Stopping`] and [`uvrr::lifecycle::Marker::Stopped`]
     /// writes). This store's WAL is the journal region and its grid is
     /// the header slot, one file, and every commit already fsyncs both,
     /// so the drain is the file's own fsync: the flush that lets a
-    /// `Stopped` copy vouch for the state under it.
+    /// [`uvrr::lifecycle::Marker::Stopped`] copy vouch for the state under it.
     ///
     /// # Errors
     ///
     /// The file cannot be flushed, the stop cannot prove its drain, so
-    /// the caller must not write `Stopped`.
+    /// the caller must not write [`uvrr::lifecycle::Marker::Stopped`]
+    /// (`docs/uvrr-io-obligations.md`, the boot-gate chapter §3).
     pub fn drain(&mut self) -> Result<(), String> {
         let log = self.log.as_mut().ok_or("drain on an unarmed store")?;
         log.file
@@ -520,14 +521,14 @@ pub enum StoreError {
     Corrupt(String),
 }
 
-/// What a node's state file holds: everything `Node::reopen` needs, plus
-/// the §2 restart model. The first life's `create` takes it whole; the
+/// What a node's state file holds: everything Node::reopen needs, plus
+/// the boot-gate chapter §2 restart model. The first life's `create` takes it whole; the
 /// steady state commits deltas.
 pub struct NodeState {
-    /// The four-superblock copies (§2): the restart classification and
+    /// The four-superblock copies (the boot-gate chapter §2): the restart classification and
     /// the incarnation.
     pub copies: SuperblockCopies,
-    /// The sorted genesis roster the journal's `Init` folds; the file's
+    /// The sorted genesis roster the journal's [`uvrr::configuration::SystemOperation::Init`] folds; the file's
     /// roster must equal the init's, or the durable evidence names a
     /// different cluster.
     pub roster: Vec<String>,
@@ -811,7 +812,7 @@ fn fault_from_word(word: u8) -> Option<Fault> {
 }
 
 /// The fault-word table's forward direction, stated as a `match` in one
-/// place (the core's `Status::to_word` discipline).
+/// place (the core's [`uvrr::progress::Status::to_word`] discipline).
 fn fault_word(fault: Fault) -> u8 {
     match fault {
         Fault::IllegalTransition => 1,

@@ -69,7 +69,7 @@ The demo binary in this repo implements a trivial key-value store protocol so th
 
 ## Why this exists
 
-The concept of an external strong consistency service is one that has very sharp edges. It splits responsibility for quality, legitimacy, and performance across two product teams. Every client connected to the core is part of the full distributed system and must experience consistency. When there are silos of responsibility on the critical path then often no-ones hold themselves accountable the removal of every single source of outages. Crash safety is Crash-Stop-Self-Evict ("reincarnation"): see [docs/uvrr-reincarnation.md](docs/uvrr-reincarnation.md).
+The concept of an external strong consistency service is one that has very sharp edges. It splits responsibility for quality, legitimacy, and performance across two product teams. Every client connected to the core is part of the full distributed system and must experience consistency. When there are silos of responsibility on the critical path then often no-ones hold themselves accountable the removal of every single source of outages. Crash safety is Crash-Stop-Self-Evict ("reincarnation"): see [docs/uvrr-protocols.md](docs/uvrr-protocols.md) (the reincarnation chapter).
 
 If you are curious to see if embedding strong consistency directly into your application reduces the complexity, costs and latencies of your system then try this crate.
 

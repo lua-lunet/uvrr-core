@@ -7,7 +7,7 @@
 //! This preserves quorum availability but need not preserve failure tolerance.
 //! Every step carries a nomination rider that bumps the view into the era the
 //! step establishes, keeping the leader constant through the plan
-//! (`docs/nominate-leader-assignment.md`). The output is a proposal: commit
+//! (`docs/uvrr-protocols.md`, the NOMINATE chapter). The output is a proposal: commit
 //! each batch through the ordinary protocol and acquire state before
 //! promotion; the rider removes the view change the boundaries would
 //! otherwise need.
@@ -82,14 +82,14 @@ fn available(c: &Configuration, live: &[NodeId], target: bool) -> Result<(), Sol
 }
 
 /// The nomination riders the steps carry
-/// (`docs/nominate-leader-assignment.md`): every step whose batch carries
+/// (`docs/uvrr-protocols.md`, the NOMINATE chapter): every step whose batch carries
 /// no scaling operation gains a `Nominate { from: v, offset: u }` as its
 /// last sub-operation, `v` the running view and `u` the least positive
 /// offset with `primary(next, v + u) == primary(previous, v)`. The rider's
 /// bump is the era entry the §8.7.8 gate demands: the re-electing offset
 /// across a wrap that would move the leader, and the count, the least
 /// offset that preserves the index, at a step that keeps it. A scaling
-/// step carries no rider: R13 keeps `Double` and `Halve` solitary, and the
+/// step carries no rider: R13 keeps [`crate::configuration::SystemOperation::Double`] and [`crate::configuration::SystemOperation::Halve`] solitary, and the
 /// scaling preserves the positive-weight sequence elementwise, so the
 /// leader never moves at one; that step's era boundary is crossed by the
 /// leader-preserving view change the host drives (§14.2), the least view
@@ -188,11 +188,11 @@ impl Builder {
 /// tolerance must evaluate the returned configurations against their policy.
 /// Leadership and state acquisition are protocol actions, not implied by a plan,
 /// and the nomination riders carry the leadership through: every step's batch
-/// ends in a `Nominate` whose CAS names the running view and whose bump enters
-/// the era the step establishes (`docs/nominate-leader-assignment.md`), so the
+/// ends in a [`crate::configuration::SystemOperation::Nominate`] whose CAS names the running view and whose bump enters
+/// the era the step establishes (`docs/uvrr-protocols.md`, the NOMINATE chapter), so the
 /// view the parameter names is the view the leader serves throughout, no
 /// view-change message needed between eras. This guarantee applies to
-/// `WeightedMajority`, not arbitrary quorum strategies.
+/// [`crate::quorum::WeightedMajority`], not arbitrary quorum strategies.
 pub fn solve(
     current: &Configuration,
     target: &Configuration,
@@ -366,7 +366,7 @@ pub fn solve(
 /// majority and the endpoint matches. Otherwise use the general constructor.
 /// The new identity must have acquired state before its promotion is
 /// committed. The steps carry the nomination riders like `solve`'s
-/// (`docs/nominate-leader-assignment.md`): the forced-reincarnation
+/// (`docs/uvrr-protocols.md`, the NOMINATE chapter): the forced-reincarnation
 /// machine's own runtime recomputation (`replica::forced_steps`) emits
 /// none, its leadership is the fence machinery's business, the plans this
 /// function returns are the operator's.
