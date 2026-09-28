@@ -1,0 +1,824 @@
+[
+  {
+    "tex_line": 65,
+    "keys": [
+      "vr"
+    ],
+    "claim": "\\end{IEEEkeywords} \\section{Introduction}REF Oki and Liskov introduced Viewstamped Replication in 1988~[CITATION].",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 65,
+      "keys": [
+        "vr"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.37,
+        "probabilities": {
+          "supports": 0.3,
+          "contradicts": 0.12,
+          "insufficient": 0.58
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 67,
+    "keys": [
+      "vrr"
+    ],
+    "claim": "\\section{Introduction}REF Oki and Liskov introduced Viewstamped Replication in 1988~[CITATION].",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 67,
+      "keys": [
+        "vrr"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.79,
+        "probabilities": {
+          "contradicts": 0.12,
+          "supports": 0.02,
+          "insufficient": 0.86
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 73,
+    "keys": [
+      "diskless"
+    ],
+    "claim": "Michael et al. exposed a safety failure in VRR's recovery mechanism in 2016~[CITATION].",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 73,
+      "keys": [
+        "diskless"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "supports",
+        "confidence": 0.77,
+        "probabilities": {
+          "insufficient": 0.15,
+          "supports": 0.84,
+          "contradicts": 0.01
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 115,
+    "keys": [
+      "diskless"
+    ],
+    "claim": "\\node[draw,fill=white,align=center,inner sep=4pt] at (0,-6.1) {$n_1$ re-enters as $n_1$, status normal:\\\\the $v{+}1$ commitment is forgotten}; \\draw[->,very thick] (0,-6.65)--node[above,sloped]{\\textbf{bad vote}: helps f",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 115,
+      "keys": [
+        "diskless"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "supports",
+        "confidence": 0.62,
+        "probabilities": {
+          "contradicts": 0.04,
+          "supports": 0.75,
+          "insufficient": 0.21
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 141,
+    "keys": [
+      "turner"
+    ],
+    "claim": "\\end{figure*} Turner supplies the construction that connects this lifecycle to continued replication~[CITATION].",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 141,
+      "keys": [
+        "turner"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.37,
+        "probabilities": {
+          "contradicts": 0.01,
+          "supports": 0.41,
+          "insufficient": 0.58
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 149,
+    "keys": [
+      "artifact"
+    ],
+    "claim": "For five, the weighted schedule has six, including exact doubling and halving. The addendum published with the code~[CITATION] gives the proof ladder, a general configuration-path constructor and an abstract casting-vote",
+    "decision": {
+      "route": "seek_more_evidence",
+      "tex_line": 149,
+      "keys": [
+        "artifact"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.94,
+        "probabilities": {
+          "insufficient": 0.96,
+          "supports": 0,
+          "contradicts": 0.04
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 157,
+    "keys": [
+      "motivation"
+    ],
+    "claim": "Together, these ideas retain VRR's diskless normal path while giving failed members a route back through fresh identities. The intended setting is agreement over small amounts of metadata embedded in a distributed applic",
+    "decision": {
+      "route": "seek_more_evidence",
+      "tex_line": 157,
+      "keys": [
+        "motivation"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.91,
+        "probabilities": {
+          "insufficient": 0.94,
+          "contradicts": 0.03,
+          "supports": 0.03
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 179,
+    "keys": [
+      "pms"
+    ],
+    "claim": "A node identity is universally unique and never recycled, and it is durable before any startup emission. This is the obligation Paxos places on proposal numbers~[CITATION], applied to node identity: a bump assigns a valu",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 179,
+      "keys": [
+        "pms"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.74,
+        "probabilities": {
+          "contradicts": 0.1,
+          "insufficient": 0.83,
+          "supports": 0.07
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 179,
+    "keys": [
+      "diskpaxos"
+    ],
+    "claim": "A node identity is universally unique and never recycled, and it is durable before any startup emission. This is the obligation Paxos places on proposal numbers~[CITATION], applied to node identity: a bump assigns a valu",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 179,
+      "keys": [
+        "diskpaxos"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.62,
+        "probabilities": {
+          "insufficient": 0.74,
+          "contradicts": 0.23,
+          "supports": 0.03
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 195,
+    "keys": [
+      "turner"
+    ],
+    "claim": "q\\cap r&\\ne\\varnothing && (q\\in\\QI_e,\\ r\\in\\QII_{e+1}).REF \\end{align} The direction in~REF matters: the earlier phase-one quorum must meet the later decision quorum. These conditions are part of Turner's era-based agree",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 195,
+      "keys": [
+        "turner"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "supports",
+        "confidence": 0.59,
+        "probabilities": {
+          "insufficient": 0.26,
+          "supports": 0.73,
+          "contradicts": 0.01
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 211,
+    "keys": [
+      "turner"
+    ],
+    "claim": "q\\in\\QII_e,\\qquad q'\\in\\QI_{e+1},\\qquad q\\cap q'=\\{\\ell\\}. REF \\end{equation} This is Turner's casting-vote condition~[CITATION].",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 211,
+      "keys": [
+        "turner"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.59,
+        "probabilities": {
+          "insufficient": 0.72,
+          "supports": 0.15,
+          "contradicts": 0.13
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 231,
+    "keys": [
+      "turner"
+    ],
+    "claim": "Each side outside the leader is a one-node minority. Original schematic of Turner's casting-vote construction~[CITATION].",
+    "decision": {
+      "route": "seek_more_evidence",
+      "tex_line": 231,
+      "keys": [
+        "turner"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.98,
+        "probabilities": {
+          "insufficient": 0.98,
+          "supports": 0.01,
+          "contradicts": 0.01
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 240,
+    "keys": [
+      "votingweights"
+    ],
+    "claim": "Figure~REF illustrates the promotion boundary. The leader stays live for client requests and drives a forced weight sequence from the voting-weights rules [CITATION]: the exiting node's weight goes $1\\to0$ (a Decrement; ",
+    "decision": {
+      "route": "seek_more_evidence",
+      "tex_line": 240,
+      "keys": [
+        "votingweights"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.98,
+        "probabilities": {
+          "insufficient": 0.99,
+          "contradicts": 0.01,
+          "supports": 0
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 267,
+    "keys": [
+      "turner"
+    ],
+    "claim": "identity's eviction. Fig.~REF shows this forced sequence as a space-time chart drawn in the grammar of Turner's message diagrams [CITATION]: four lifelines $A$, $B$ (the leader), $C$, and $D$, time flowing down; a number",
+    "decision": {
+      "route": "seek_more_evidence",
+      "tex_line": 267,
+      "keys": [
+        "turner"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.99,
+        "probabilities": {
+          "contradicts": 0,
+          "supports": 0.01,
+          "insufficient": 0.99
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 296,
+    "keys": [
+      "artifact"
+    ],
+    "claim": "\\uwrweightrow{era 2: \\code{INCREMENT(D)}~+~\\code{LEAVE(C)}}{1}{1}{-}{1}} \\end{table} The addendum published with the code~[CITATION] provides a Lean theorem that composes an era-based agreement theorem with replacement w",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 296,
+      "keys": [
+        "artifact"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.66,
+        "probabilities": {
+          "supports": 0.04,
+          "contradicts": 0.18,
+          "insufficient": 0.78
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 296,
+    "keys": [
+      "turner"
+    ],
+    "claim": "\\uwrweightrow{era 2: \\code{INCREMENT(D)}~+~\\code{LEAVE(C)}}{1}{1}{-}{1}} \\end{table} The addendum published with the code~[CITATION] provides a Lean theorem that composes an era-based agreement theorem with replacement w",
+    "decision": {
+      "route": "seek_more_evidence",
+      "tex_line": 296,
+      "keys": [
+        "turner"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.99,
+        "probabilities": {
+          "insufficient": 1,
+          "supports": 0,
+          "contradicts": 0
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 329,
+    "keys": [
+      "artifact"
+    ],
+    "claim": "\\end{tabular} \\end{table} Both schedules are exercised by the Rust tests, and the addendum~[CITATION] gives the arithmetic for both schedules and the general construction of available paths and abstract leader overlaps.",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 329,
+      "keys": [
+        "artifact"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.87,
+        "probabilities": {
+          "contradicts": 0.03,
+          "insufficient": 0.91,
+          "supports": 0.06
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 349,
+    "keys": [
+      "artifact"
+    ],
+    "claim": "Neither can guess an era, and the one-era window drops what it cannot span. The rejoin path closes this with a gossip layer outside the voting protocol; the addendum~[CITATION] gives its full construction, its worked sce",
+    "decision": {
+      "route": "seek_more_evidence",
+      "tex_line": 349,
+      "keys": [
+        "artifact"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.9,
+        "probabilities": {
+          "supports": 0.01,
+          "insufficient": 0.93,
+          "contradicts": 0.06
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 406,
+    "keys": [
+      "artifact"
+    ],
+    "claim": "one-era window gate unreachable by construction rather than widened. \\section{Evidence}REF The addendum~[CITATION] maps these arguments to Lean~4~[CITATION], bounded exhaustive enumeration, Rust property tests and protoc",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 406,
+      "keys": [
+        "artifact"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.28,
+        "probabilities": {
+          "supports": 0.45,
+          "insufficient": 0.52,
+          "contradicts": 0.03
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 406,
+    "keys": [
+      "lean4"
+    ],
+    "claim": "one-era window gate unreachable by construction rather than widened. \\section{Evidence}REF The addendum~[CITATION] maps these arguments to Lean~4~[CITATION], bounded exhaustive enumeration, Rust property tests and protoc",
+    "decision": {
+      "route": "seek_more_evidence",
+      "tex_line": 406,
+      "keys": [
+        "lean4"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 1,
+        "probabilities": {
+          "supports": 0,
+          "insufficient": 1,
+          "contradicts": 0
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 415,
+    "keys": [
+      "nopaxos"
+    ],
+    "claim": "deliberately does not require. NOPaxos orders requests in the network itself: a sequencer stamps a global sequence onto packets in flight, so replicas process a common order and ordinary operations complete in about one ",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 415,
+      "keys": [
+        "nopaxos"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "supports",
+        "confidence": 0.34,
+        "probabilities": {
+          "insufficient": 0.08,
+          "contradicts": 0.36,
+          "supports": 0.56
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 420,
+    "keys": [
+      "curp"
+    ],
+    "claim": "control plane; the ordering point is distinguished infrastructure. CURP lets a client complete in one round trip by writing concurrently to the master, which orders and executes, and to witnesses, which retain the reques",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 420,
+      "keys": [
+        "curp"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "supports",
+        "confidence": 0.7,
+        "probabilities": {
+          "contradicts": 0.05,
+          "supports": 0.8,
+          "insufficient": 0.15
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 427,
+    "keys": [
+      "corfu"
+    ],
+    "claim": "cluster. CORFU shows that a global sequencer need not be custom hardware: its token sequencer is user-space software, with sequencer identity carried in the replicated projection and replaced through reconfiguration~[CIT",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 427,
+      "keys": [
+        "corfu"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "supports",
+        "confidence": 0.84,
+        "probabilities": {
+          "contradicts": 0.02,
+          "insufficient": 0.09,
+          "supports": 0.89
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 442,
+    "keys": [
+      "rfc9000",
+      "rfc9114"
+    ],
+    "claim": "routing in the cloud campaign.\\} \\{TODO: situate against the transport direction of the industry. QUIC and HTTP/3~[CITATION] move applications away from in-order, in-path queuing toward connectionless datagrams; fragment",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 442,
+      "keys": [
+        "rfc9000",
+        "rfc9114"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.37,
+        "probabilities": {
+          "contradicts": 0.12,
+          "supports": 0.29,
+          "insufficient": 0.59
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 456,
+    "keys": [
+      "reconfig-sm"
+    ],
+    "claim": "\\subsection{Applications} An application of strong consistency is the replication of small state by consensus: the configuration authority Lamport, Malkhi and Zhou describe~[CITATION], and Vertical Paxos's auxiliary conf",
+    "decision": {
+      "route": "review_low_confidence",
+      "tex_line": 456,
+      "keys": [
+        "reconfig-sm"
+      ]
+    },
+    "answers": {
+      "verdict": {
+        "type": "choice",
+        "choice": "insufficient",
+        "confidence": 0.57,
+        "probabilities": {
+          "supports": 0.28,
+          "insufficient": 0.71,
+          "contradicts": 0.01
+        }
+      }
+    },
+    "model": "jev-1.13"
+  },
+  {
+    "tex_line": 457,
+    "keys": [
+      "vertical-paxos"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (28) Operation timed out after 780436 milliseconds with 0 bytes received')",
+    "skipped": true
+  },
+  {
+    "tex_line": 468,
+    "keys": [
+      "reconfig-sm"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 468,
+    "keys": [
+      "vertical-paxos"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 471,
+    "keys": [
+      "corfu"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 474,
+    "keys": [
+      "zookeeper"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 474,
+    "keys": [
+      "etcd-guarantees"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 476,
+    "keys": [
+      "etcd-hardware"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 476,
+    "keys": [
+      "etcd-embed"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 487,
+    "keys": [
+      "allfs",
+      "optimistic-crash"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 492,
+    "keys": [
+      "artifact"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 667,
+    "keys": [
+      "par"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 726,
+    "keys": [
+      "diskless"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 907,
+    "keys": [
+      "vr"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 907,
+    "keys": [
+      "vrr"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 907,
+    "keys": [
+      "diskless"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  },
+  {
+    "tex_line": 909,
+    "keys": [
+      "turner"
+    ],
+    "route": "review",
+    "error": "jev_call_failed: URLError('curl failed: curl: (6) Could not resolve host: opencode.ai')",
+    "skipped": true
+  }
+]

@@ -40,30 +40,36 @@ MODEL = "jev-1.13"
 HTTP_TIMEOUT = 30
 
 # Scraped primary sources: key -> verbatim OCR or fetched text of the cited
-# work. The `artifact` key cites this repository itself; the Lean proof
-# artifact's README is the quoted source.
+# work, consolidated under research/literature/sources/ (one file per bibitem
+# key; see research/literature/citation-check/ for run reports). The
+# `artifact` key cites this repository itself; the Lean proof artifact's
+# README is the quoted source.
 SOURCES = {
-    "vr": "research/agent366/md/vr-1988-oki-liskov.md",
-    "vrr": "research/agent366/md/vr-revisited-2012.md",
-    "diskless": "research/agent366/md/diskless-tr16.md",
-    "par": "research/agent366/md/fast18-alagappan-par.md",
-    "pms": "research/agent366/md/paxos-made-simple-2001.md",
-    "diskpaxos": "research/agent366/md/disk-paxos-2003.md",
-    "allfs": "research/agent366/md/osdi14-pillai-allfs.md",
-    "optimistic-crash": "research/agent366/md/sosp13-optimistic-crash.md",
-    "turner": "research/literature/turner/text.txt",
-    "motivation": "research/agent366/md/blog-uvrr-2026.md",
-    "corfu": "research/agent366/md/corfu-tocs2013.md",
-    "zookeeper": "research/agent366/md/zookeeper-atc10-hunt.md",
-    "etcd-guarantees": "research/agent366/md/web-etcd-api-guarantees.md",
-    "etcd-hardware": "research/agent366/md/web-etcd-hardware.md",
-    "etcd-embed": "research/agent366/md/web-etcd-embed.md",
-    "netdisk": "research/agent366/md/blog-netdisk-2024.md",
-    "votingweights": "research/agent366/md/blog-vw-2017-paxos-voting-weights.md",
-    "reconfig-sm": "research/agent366/md/reconfiguring-a-state-machine-2010.md",
-    "vertical-paxos": "research/agent366/md/vertical-paxos-2009.md",
+    "vr": "research/literature/sources/vr.md",
+    "vrr": "research/literature/sources/vrr.md",
+    "diskless": "research/literature/sources/diskless.md",
+    "par": "research/literature/sources/par.md",
+    "pms": "research/literature/sources/pms.md",
+    "diskpaxos": "research/literature/sources/diskpaxos.md",
+    "allfs": "research/literature/sources/allfs.md",
+    "optimistic-crash": "research/literature/sources/optimistic-crash.md",
+    "turner": "research/literature/sources/turner.md",
+    "motivation": "research/literature/sources/motivation.md",
+    "corfu": "research/literature/sources/corfu.md",
+    "zookeeper": "research/literature/sources/zookeeper.md",
+    "etcd-guarantees": "research/literature/sources/etcd-guarantees.md",
+    "etcd-hardware": "research/literature/sources/etcd-hardware.md",
+    "etcd-embed": "research/literature/sources/etcd-embed.md",
+    "netdisk": "research/literature/sources/netdisk.md",
+    "votingweights": "research/literature/sources/votingweights.md",
+    "reconfig-sm": "research/literature/sources/reconfig-sm.md",
+    "vertical-paxos": "research/literature/sources/vertical-paxos.md",
     "artifact": "formal/uvrr-lean/README.md",
-    "lean4": "research/agent366/md/lean4-cade28.md",
+    "lean4": "research/literature/sources/lean4.md",
+    "nopaxos": "research/literature/sources/nopaxos.md",
+    "curp": "research/literature/sources/curp.md",
+    "rfc9000": "research/literature/sources/rfc9000.md",
+    "rfc9114": "research/literature/sources/rfc9114.md",
 }
 
 STOPWORDS = set("""a an and are as at be been but by can could did do does for
@@ -91,7 +97,7 @@ class Use:
         self.claim = claim
 
 
-def retrieve_passage(path, claim, top=3, budget=6000):
+def retrieve_passage(path, claim, top=4, budget=9000):
     """Deterministic keyword retrieval: rank paragraphs of the source by
     content-word overlap with the claim; return the top few joined."""
     full = os.path.join(ROOT, path)
@@ -145,6 +151,14 @@ def load_paper():
             window = re.sub(r"\\cite(?:\[[^\]]*\])?\{[^}]*\}", "[CITATION]", window)
             window = re.sub(r"\\(eqref|ref|label)\{[^}]*\}", "REF", window)
             window = re.sub(r"\s+", " ", window).strip()
+            # Focus the claim on the sentence carrying the citation (plus the
+            # sentence before it): a full +-3-line window mixes in unrelated
+            # sentences and poisons the keyword retrieval below.
+            sentences = re.split(r"(?<=[.!?])\s+", window)
+            for j, s in enumerate(sentences):
+                if "[CITATION]" in s:
+                    window = " ".join(sentences[max(0, j - 1):j + 1])
+                    break
             uses.append(Use(i + 1, keys, window[:1600]))
     return uses
 

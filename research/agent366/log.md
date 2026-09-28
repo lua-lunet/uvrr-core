@@ -234,3 +234,33 @@ aiming at commodity cloud infrastructure. Executed:
 PAXE naming: user confirmed it is real Rust in-repo (uvrr-core sans-IO core
 + C ABI); per plan the paper stays neutral ("the demonstration's
 connectionless datagram transport"), name held for later.
+
+## 2026-09-28 — entry 10: the jev citation-check "disaster" diagnosed
+
+User: the jev-1.13 citation run (1 accept / 27 review / 9 seek-more) is "a
+disaster"; get the citation data into a new location, verify the scraped
+docs, re-run the experiment, and find out "why this model says your
+citations suck ass".
+
+Answer, with the run to back it: the model says no such thing. Zero
+contradicts across all runs. The profile decomposes into:
+
+1. ONE genuine defect — paper.tex:176 cited PMS for "ballots"; PMS has zero
+   occurrences (Lamport renamed them proposal numbers). Fixed to "proposal
+   numbers"; support verified at pms.md:101-103. Paper rebuilt clean.
+2. Retrieval gaps — keyword-overlap retrieval ranks the wrong paragraphs
+   when the paper paraphrases the source; every flagged case grep-verified
+   as supported (pms, vrr, etcd×3, allfs, par, diskless, nopaxos, curp).
+   Script mitigations: claim is now the citation sentence + previous (was a
+   ±3-line window), passage budget 6000→9000, top 3→4.
+3. Unverifiable-by-design — artifact self-cites (a README can't prove the
+   addendum's theorems), background attributions, compound sentences, the
+   rfc9000/rfc9114 TODO marker, blog self-cites (already todo 366).
+4. Gate strictness — supports answers arriving at 0.3–0.9 confidence all
+   route to review by design.
+
+Actions: sources consolidated to research/literature/sources/<key>.md (24
+files, incl. newly-fetched nopaxos + RFC 9000/9114); scripts/check-citations.py
+SOURCES updated; fresh live run over all 41 uses (wifi dropped mid-run;
+resumed with --skip_cached); full diagnosis in
+research/literature/citation-check/REPORT.md.
