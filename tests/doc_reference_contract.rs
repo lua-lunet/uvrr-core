@@ -7,7 +7,7 @@
 //! decision identifier (`S2`, `W1`, `Q1`, `B1`, `G1`) must name an entry of
 //! the decision record in `docs/architecture.md`; a rule identifier (`R14`)
 //! must name a rule of the reconfiguration-rules chapter. `P`-identifiers are
-//! ambiguous with the Paxos predicates P1..P7 and are validated only when the
+//! ambiguous with the history invariants P1–P7 and are validated only when the
 //! comment also names the decision record. Code spans and fenced code inside
 //! doc comments are stripped before scanning: a reference is prose.
 //!
