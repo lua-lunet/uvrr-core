@@ -10,14 +10,14 @@
 //!
 //! The properties pinned here:
 //!
-//! 1.  a higher-view `Prepare` from the legitimate primary of the view it
+//! 1.  a higher-view [`uvrr::wire::Tag::Prepare`] from the legitimate primary of the view it
 //!     names pulls a laggard into the qualified transfer path: it ceases
 //!     lower-view participation, fetches the missing range, and installs
-//!     from the qualified `StartView`, the message itself installs
+//!     from the qualified [`uvrr::wire::Tag::StartView`], the message itself installs
 //!     nothing;
 //! 2.  a bare higher-view hint with no qualified evidence installs
 //!     nothing and faults nothing; the node awaits evidence;
-//! 3.  a forged `NewState`, wrong view, non-contiguous range, regressed
+//! 3.  a forged [`uvrr::wire::Tag::NewState`], wrong view, non-contiguous range, regressed
 //!     committed frontier, unsolicited sender, is a named drop and
 //!     never a fault;
 //! 4.  the active fetch is chunked under the host's transport budget
@@ -26,12 +26,12 @@
 //! 5.  a recovery whose evidence suffix was budget-truncated fetches the
 //!     missing range and completes on an ordinary tick, closing the
 //!     budget-truncation wait;
-//! 6.  a `StartView` whose suffix gapped at the fence re-runs its ruling
+//! 6.  a [`uvrr::wire::Tag::StartView`] whose suffix gapped at the fence re-runs its ruling
 //!     on an ordinary tick once the fetched range has arrived, no
 //!     repeated offer from the primary is required;
-//! 7.  a `NewState` chunk lost mid-stream re-issues the fetch from its
+//! 7.  a [`uvrr::wire::Tag::NewState`] chunk lost mid-stream re-issues the fetch from its
 //!     cursor on an ordinary tick, the fetch never stalls silently;
-//! 8.  a chunk answering a fetch whose range a `StartView` has since
+//! 8.  a chunk answering a fetch whose range a [`uvrr::wire::Tag::StartView`] has since
 //!     installed is a named drop or a harmless close, never a
 //!     mis-install;
 //! 9.  the new primary that cannot construct the selected history from
@@ -79,7 +79,7 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
     Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-/// The node's current view as a `Ballot`.
+/// The node's current view as a [`uvrr::ids::Ballot`].
 fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
     Ballot {
@@ -117,7 +117,7 @@ fn operation_entry(slot: u64, lsb: u64, payload: &[u8]) -> LogEntry {
     }
 }
 
-/// A `NewState` chunk, shaped for injection: the header slot names the
+/// A [`uvrr::wire::Tag::NewState`] chunk, shaped for injection: the header slot names the
 /// covered range's end, matching the per-tag slot table.
 fn new_state(
     view: Ballot,

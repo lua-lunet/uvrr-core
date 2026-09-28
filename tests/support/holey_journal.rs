@@ -20,7 +20,7 @@ impl DropControl {
 
 /// A host journal that can let one accepted slot go immediately while keeping
 /// its logical accepted frontier. It exists only to exercise retention paths
-/// through the public `Journal` contract.
+/// through the public [`uvrr::journal::Journal`] contract.
 #[derive(Clone, Debug)]
 pub struct HoleyLog {
     accepted: Option<Slot>,

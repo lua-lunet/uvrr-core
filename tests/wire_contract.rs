@@ -1,20 +1,20 @@
-//! Contract for `uvrr::wire`, the normative binary codec substrate.
+//! Contract for [`uvrr::wire`], the normative binary codec substrate.
 //!
 //! Spec §11 (opaque client payloads), §13.1 (bounded view-change suffix), and decisions
-//! W1 (explicit `Ballot`, 20-byte big-endian header), W3 (own binary codec, serde
+//! W1 (explicit [`uvrr::ids::Ballot`], 20-byte big-endian header), W3 (own binary codec, serde
 //! optional), W5 (no datagram sizing in the core), W4 (fixed-width big-endian, no
 //! varints).
 //!
 //! This file gates the codec substrate only. It knows about no message body, because
-//! `Prepare` carries a log entry and `StartView` carries configuration evidence, and
+//! [`uvrr::wire::Tag::Prepare`] carries a log entry and [`uvrr::wire::Tag::StartView`] carries configuration evidence, and
 //! neither exists yet. Later message bodies add their own round-trip tests through the traits
 //! pinned here.
 //!
 //! Five properties, each of which the rest of the crate is entitled to assume without
 //! re-deriving it:
 //!
-//! 1. **The wire is pinned by golden vectors.** `Header` is exactly 20 bytes in a
-//!    stated order, and `OperationId` is big-endian. A golden vector is the only test that
+//! 1. **The wire is pinned by golden vectors.** [`uvrr::wire::Header`] is exactly 20 bytes in a
+//!    stated order, and [`uvrr::ids::OperationId`] is big-endian. A golden vector is the only test that
 //!    catches a symmetric mistake, an encoder and decoder that agree with each other
 //!    and disagree with the specification round-trip perfectly.
 //! 2. **`packed_len()` is normative, not advisory (W3).** It equals the byte count
@@ -40,9 +40,9 @@ use uvrr::ids::{Ballot, Era, NodeId, OperationId, Slot, Tick, View};
 use uvrr::message::{Body, Message};
 use uvrr::wire::{Header, Malformed, Pack, PackError, Tag, Unpack, UnpackCursor, UnpackError};
 
-/// Every `Tag`, in discriminant order. Used by the round-trip and exhaustiveness
-/// groups. Kept as an explicit list rather than derived from a `Tag::ALL` constant so
-/// that the test agrees with the brief's table independently of the implementation.
+/// Every [`uvrr::wire::Tag`], in discriminant order. Used by the round-trip and exhaustiveness
+/// groups. Kept as an explicit list rather than derived from a [`uvrr::wire::Tag::ALL`] constant so
+/// that the test agrees with the `Tag` table independently of the implementation.
 const ALL_TAGS: [Tag; 14] = [
     Tag::Prepare,
     Tag::PrepareOk,
@@ -123,7 +123,7 @@ fn header_golden_vector() {
 // 2. `OperationId` golden vector
 // ---------------------------------------------------------------------------
 
-/// An `OperationId` is 16 bytes, most-significant word first, each word
+/// An [`uvrr::ids::OperationId`] is 16 bytes, most-significant word first, each word
 /// big-endian, like every other integer on this wire (W4). The identity is
 /// opaque to the core (§11.1, B2), but its wire shape is pinned by a vector
 /// so two hosts cannot disagree about the byte order.
@@ -160,7 +160,7 @@ fn operation_id_golden_vector_is_big_endian() {
 // 3. `packed_len` is exact
 // ---------------------------------------------------------------------------
 
-/// A generator for arbitrary `Header` values, reused by groups 3 and 4.
+/// A generator for arbitrary [`uvrr::wire::Header`] values, reused by groups 3 and 4.
 fn any_header() -> impl Strategy<Value = Header> {
     (
         0usize..ALL_TAGS.len(),
@@ -214,8 +214,8 @@ proptest! {
 // 4. Round trip
 // ---------------------------------------------------------------------------
 
-/// `unpack_from(encode(x)) == x`, for every primitive, every `ids` newtype, `Ballot`,
-/// `Tag`, and `Header`. `unpack_from` rejects trailing bytes, so this simultaneously
+/// `unpack_from(encode(x)) == x`, for every primitive, every `ids` newtype, [`uvrr::ids::Ballot`],
+/// [`uvrr::wire::Tag`], and [`uvrr::wire::Header`]. `unpack_from` rejects trailing bytes, so this simultaneously
 /// asserts that each encoding consumes exactly its own bytes.
 fn round_trip<T>(value: T)
 where
@@ -270,7 +270,7 @@ proptest! {
     }
 }
 
-/// Every `Tag` round-trips through its `u32` discriminant.
+/// Every [`uvrr::wire::Tag`] round-trips through its `u32` discriminant.
 #[test]
 fn round_trip_every_tag() {
     for tag in ALL_TAGS {
@@ -521,7 +521,7 @@ fn trailing_bytes_are_rejected() {
 // 8. No partial write
 // ---------------------------------------------------------------------------
 
-/// `PackWriter::new` performs the single bounds check, so a short buffer is refused
+/// [`uvrr::wire::PackWriter::new`] performs the single bounds check, so a short buffer is refused
 /// before any byte is written. A host reusing a scratch buffer across a
 /// budget-exceeded retry relies on this: if a failed attempt could scribble a prefix,
 /// the host would have to zero the buffer between attempts, which is exactly the cost
@@ -695,7 +695,7 @@ fn tag_match_is_exhaustive_and_discriminants_are_pinned() {
 // 11. Fuse bodies (`docs/uvrr-fuse.md`, decision W6)
 // ---------------------------------------------------------------------------
 
-/// The header of a `Fuse` whose batch begins at `first_slot`.
+/// The header of a [`uvrr::wire::Tag::Fuse`] whose batch begins at `first_slot`.
 fn fuse_header(first_slot: Slot) -> Header {
     Header {
         tag: Tag::Fuse,
@@ -723,7 +723,7 @@ fn representative_ops() -> Vec<SystemOperation> {
     ]
 }
 
-/// Byte-for-byte golden vector of a two-op `Fuse` at `first_slot = 42`.
+/// Byte-for-byte golden vector of a two-op [`uvrr::wire::Tag::Fuse`] at `first_slot = 42`.
 ///
 /// The header is the unchanged 20-byte W1 header with `Fuse = 14`; the body is
 /// the discriminant byte, a `u32` count, then the packed operations in batch
@@ -763,7 +763,7 @@ fn fuse_golden_vector() {
     assert_eq!(Message::unpack_from(&bytes), Ok(message));
 }
 
-/// The representative op set round-trips through the whole `Message`, header
+/// The representative op set round-trips through the whole [`uvrr::message::Message`], header
 /// included: decoding is the identity, and the header slot carries
 /// `first_slot` unchanged.
 #[test]
@@ -788,7 +788,7 @@ fn fuse_round_trip_representative_ops() {
     }
 }
 
-/// `FuseOk` and `CommitBatch` round-trip their per-slot lists in batch order.
+/// [`uvrr::wire::Tag::FuseOk`] and [`uvrr::wire::Tag::CommitBatch`] round-trip their per-slot lists in batch order.
 #[test]
 fn fuseok_and_commitbatch_round_trip() {
     let fuseok = Message {

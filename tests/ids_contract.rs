@@ -1,4 +1,4 @@
-//! Contract for `vrr_core::ids` and the `Fault` enum of `vrr_core::invariant`.
+//! Contract for [`uvrr::ids`] and the [`uvrr::ids::Fault`] enum of [`uvrr::invariant`].
 //!
 //! Spec §1.2 (primary succession), §1.3 (slots and frontiers), §8.7.3, and
 //! decisions W1, W2, S3, S4.
@@ -11,13 +11,13 @@
 //!    pass them by value without a conversion layer that could disagree with itself;
 //! 2. no successor wraps, every arithmetic edge is `None`, never a silently reused
 //!    view or slot, because a reused view number is unrecoverable divergence;
-//! 3. `Ballot::is_legal_successor` is the single point of truth for §8.7.3's surviving
+//! 3. [`uvrr::ids::Ballot::is_legal_successor`] is the single point of truth for §8.7.3's surviving
 //!    era/view relation, and its truth table is pinned exhaustively so a later change
 //!    cannot loosen it by accident;
 //! 4. the W1 ordering claim, that `(era, view)` and `(view, era)` lexicographic
 //!    orders coincide on legal histories, is discharged by proptest here rather than
 //!    asserted in a comment, because it is the whole justification for the derived
-//!    `Ord` on `Ballot` being safe to use in the §10 higher-view rule.
+//!    `Ord` on [`uvrr::ids::Ballot`] being safe to use in the §10 higher-view rule.
 //!
 //! Groups 3 and 5 are exhaustive loops rather than samplers: the domains are tiny and
 //! total coverage is strictly stronger than any number of random draws.
@@ -89,7 +89,7 @@ fn successors_do_not_wrap() {
     assert_eq!(Slot::NONE, Slot(0));
 }
 
-/// `Ballot` succession is checked in both components independently: W1's whole point is
+/// [`uvrr::ids::Ballot`] succession is checked in both components independently: W1's whole point is
 /// that the two fields cannot alias, so an overflow in one must not be observable as a
 /// change in the other.
 #[test]
@@ -219,7 +219,7 @@ fn constructors_agree_with_legality() {
     }
 }
 
-/// The era-exhaustion branch of `is_legal_successor`: at `Era::MAX` the
+/// The era-exhaustion branch of `is_legal_successor`: at [`uvrr::ids::Era::MAX`] the
 /// era-`+1` successor is unrepresentable, so "era unchanged" is the only legal
 /// successor left. The branch exists because §8.7.3 forbids wraparound, a reused
 /// era would make `config(e)` ambiguous, and it had no direct test.
@@ -447,7 +447,7 @@ fn slot_distance_is_exact_or_absent() {
 // 7. `Fault` exhaustiveness
 // ---------------------------------------------------------------------------
 
-/// A wildcard-free `match` over every `Fault` variant. Adding a variant later is a
+/// A wildcard-free `match` over every [`uvrr::ids::Fault`] variant. Adding a variant later is a
 /// compile error here, which is the point: a new fault source must be classified
 /// deliberately, and the sticky property must be restated for it rather than inherited
 /// by default. Spec §5 invariant 5, §12, §15, decisions Q1 and S3.

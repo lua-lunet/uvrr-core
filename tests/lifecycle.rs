@@ -1,5 +1,5 @@
 //! The boot gate: the lifecycle trait and the typestate driver
-//! (`docs/uvrr-boot-gate.md`).
+//! (`docs/uvrr-io-obligations.md`, the boot-gate chapter).
 //!
 //! The classes:
 //!
@@ -7,8 +7,8 @@
 //!   with mixed identities, exhaustively enumerated over three
 //!   identities and four markers (12⁴ = 20 736 assignments), every
 //!   verdict checked against an independently recomputed oracle, the
-//!   working cohort, higher-identity-wins inside it, `Stopped` ⟺ the
-//!   winner cohort holds ≥2 `Stopped`, and `QuorumLost` ⟺ no cohort
+//!   working cohort, higher-identity-wins inside it, [`uvrr::lifecycle::Marker::Stopped`] ⟺ the
+//!   winner cohort holds ≥2 [`uvrr::lifecycle::Marker::Stopped`], and `QuorumLost` ⟺ no cohort
 //!   reaches the open threshold.
 //! * **B**, the fixed write schedules, asserted against the harness
 //!   gate's operation log: the first life's anchor, the controlled
@@ -122,7 +122,7 @@ fn copies_of(states: [(u32, Marker); 4]) -> SuperblockCopies {
 /// The oracle, recomputed by a different route than the machine: group
 /// the copies by identity, keep the cohorts of ≥2 (the open threshold),
 /// the winner is the highest identity among them, and the class reads
-/// the winner cohort's `Stopped` count.
+/// the winner cohort's [`uvrr::lifecycle::Marker::Stopped`] count.
 fn oracle(states: [(u32, Marker); 4]) -> Option<(bool, u32)> {
     // The zero pattern is no identity and forms no cohort, exactly as the
     // machine rules it.
@@ -231,7 +231,7 @@ fn cluster() -> Harness {
     )
 }
 
-/// The first life's anchor: one read, one `Joining` round, durable
+/// The first life's anchor: one read, one [`uvrr::progress::Status::Joining`] round, durable
 /// before the node answers anything, so a later crash reads as a crash.
 #[test]
 fn b_the_first_life_latches_its_anchor_once() {
@@ -244,8 +244,8 @@ fn b_the_first_life_latches_its_anchor_once() {
     );
 }
 
-/// The controlled halt: `Stopping` 4x, the drain, `Stopped` 4x, the
-/// drain strictly between the rounds, because the `Stopped` marker
+/// The controlled halt: [`uvrr::lifecycle::Marker::Stopping`] 4x, the drain, [`uvrr::lifecycle::Marker::Stopped`] 4x, the
+/// drain strictly between the rounds, because the [`uvrr::lifecycle::Marker::Stopped`] marker
 /// vouches for exactly it.
 #[test]
 fn b_the_controlled_halt_is_two_rounds_with_the_drain_between() {
@@ -278,7 +278,7 @@ fn b_the_controlled_halt_is_two_rounds_with_the_drain_between() {
 
 /// The reincarnation's latch defers to the seated observation: through
 /// the whole catch-up the markers hold the crash's evidence and no
-/// `Joining` round fires; the latch lands only once the engine has
+/// [`uvrr::progress::Status::Joining`] round fires; the latch lands only once the engine has
 /// seated the new identity.
 #[test]
 fn c_the_reincarnations_latch_defers_to_the_seated_witness() {

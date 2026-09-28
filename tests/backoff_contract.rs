@@ -1,10 +1,10 @@
-//! Contract for `uvrr::backoff`, the recommended randomized-timeout schedule,
+//! Contract for [`uvrr::backoff`], the recommended randomized-timeout schedule,
 //! as pure arithmetic.
 //!
 //! Decision S4 externalises the clock: the host owns the timers and the
 //! randomness, and the schedule is published so every host computes the same
 //! windows from the same inputs. What is pinned here, so the recommendation
-//! (stated on `ViewChangeKnobs`) and the code cannot drift:
+//! (stated on [`uvrr::replica::ViewChangeKnobs`]) and the code cannot drift:
 //!
 //! 1. **Unit sizing is 2×rtt**, exhaustively over a closed rtt domain and at
 //!    the `u64` edge, where doubling saturates instead of wrapping.

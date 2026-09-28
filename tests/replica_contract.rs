@@ -1,4 +1,4 @@
-//! Contract for `uvrr::replica`, `uvrr::effects` and `uvrr::message`: the transition
+//! Contract for [`uvrr::replica`], [`uvrr::effects`] and [`uvrr::message`]: the transition
 //! pipeline, the stability handshake, the lifecycle, and the wire vocabulary.
 //!
 //! Spec §5 (progress record), §6 (delta transition), §7 (serialized transition
@@ -10,33 +10,33 @@
 //!
 //! The load-bearing property of the whole design: **nothing externally observable
 //! is released before publication**. Observation changes on `publish`, never on
-//! `plan`; in an external-stability mode, publication happens at the `Stable`
+//! `plan`; in an external-stability mode, publication happens at the [`uvrr::effects::StabilityResult::Stable`]
 //! confirmation, not when the persistence intent is emitted.
 //!
 //! The properties pinned here, each of which the protocol suites are entitled
 //! to assume:
 //!
 //! 1.  provision constructs exactly the genesis state (era 1, view 0, slots 1–2
-//!     committed, fenced `Restarting`) and refuses a non-member, a duplicate or
+//!     committed, fenced [`uvrr::progress::Status::Restarting`]) and refuses a non-member, a duplicate or
 //!     over-cap order, and a genesis configuration the quorum gate rejects;
 //! 2.  resume validates the persisted progress against the journal, forces the
-//!     fenced `Restarting` boot rule, and preserves a persisted fault across
+//!     fenced [`uvrr::progress::Status::Restarting`] boot rule, and preserves a persisted fault across
 //!     restart;
 //! 3.  volatile publication releases effects at `publish`, exactly once, and the
 //!     observation changes on publish only;
-//! 4.  external-stability publication emits `Persist` and nothing else, parks,
-//!     and the three-way `StabilityResult` completes, discards, or faults;
+//! 4.  external-stability publication emits [`uvrr::effects::Effect::Persist`] and nothing else, parks,
+//!     and the three-way [`uvrr::effects::StabilityResult`] completes, discards, or faults;
 //! 5.  exactly one transition is ever outstanding (§12);
 //! 6.  revision discipline: a stale plan and a double publish are both rejected;
-//! 7.  a faulted replica refuses EVERY `Input` variant, this test is an
-//!     exhaustive match over `Input`, so a new variant fails to compile here
+//! 7.  a faulted replica refuses EVERY [`uvrr::replica::Input`] variant, this test is an
+//!     exhaustive match over [`uvrr::replica::Input`], so a new variant fails to compile here
 //!     until it is handled;
 //! 8.  `invariant::legal` is genuinely on the publish path: a candidate that
 //!     violates a frontier rule is discarded and the node faults, never repair;
 //! 9.  SANS-I/O is mechanical: the three modules contain no clock, no network,
 //!     no filesystem, no thread spawn;
 //! 10. every `Body` variant round-trips the normative codec with an exact
-//!     `packed_len`, and every body's header slot satisfies `header_slot_role`.
+//!     `packed_len`, and every body's header slot satisfies [`uvrr::invariant::header_slot_role`].
 
 use std::sync::Arc;
 
@@ -87,8 +87,8 @@ fn genesis_view() -> Ballot {
     }
 }
 
-/// The genesis history exactly as `provision` installs it: `Void` at slot 1,
-/// `Init` at slot 2 (§8.7.2's fixed ordinals).
+/// The genesis history exactly as [`uvrr::replica::Replica::provision`] installs it: [`uvrr::configuration::SystemOperation::Void`] at slot 1,
+/// [`uvrr::configuration::SystemOperation::Init`] at slot 2 (§8.7.2's fixed ordinals).
 fn genesis_entries(order: Vec<NodeId>) -> [LogEntry; 2] {
     [
         LogEntry {
@@ -160,7 +160,7 @@ fn stable() -> StabilityResult {
 }
 
 /// A strategy whose every set is a quorum: the Q1 gate must refuse it, because
-/// disjoint "quorums" then exist and R1 fails. Used to prove `validate_era`
+/// disjoint "quorums" then exist and R1 fails. Used to prove [`uvrr::quorum::validate_era`]
 /// runs at construction, not at the first view change.
 struct AnythingQuorums;
 
@@ -221,13 +221,13 @@ fn clean_vouched() -> Vouched {
 // ---------------------------------------------------------------------------
 
 /// Provision constructs exactly the genesis state of §5 and §8.7.2: era 1,
-/// view 0, `Void` at slot 1 and `Init` at slot 2 both committed, `accepted ==
+/// view 0, [`uvrr::configuration::SystemOperation::Void`] at slot 1 and [`uvrr::configuration::SystemOperation::Init`] at slot 2 both committed, `accepted ==
 /// committed == Slot(2)`, `applied == Slot(2)` (the §11 system-slot ruling:
 /// both genesis slots are core-internal and walk `applied` by themselves)
 /// and `checkpoint == Slot(0)`, fenced in
-/// `Restarting` (the genesis ruling: a fresh node and a reopened node are
+/// [`uvrr::progress::Status::Restarting`] (the genesis ruling: a fresh node and a reopened node are
 /// uniform, fenced until they prove their state current). Nothing about a
-/// fresh cluster is special-cased into `Normal`.
+/// fresh cluster is special-cased into [`uvrr::progress::Status::Normal`].
 #[test]
 fn provision_constructs_exactly_the_genesis_state() {
     let replica = provision_volatile();
@@ -364,7 +364,7 @@ fn provision_refuses_a_non_member() {
 }
 
 /// A duplicate or over-cap genesis order is refused by the configuration fold,
-/// surfacing through `LifecycleRefusal`, genesis legality is decided at
+/// surfacing through [`uvrr::replica::LifecycleRefusal`], genesis legality is decided at
 /// construction, not discovered at the first view change.
 #[test]
 fn provision_surfaces_configuration_refusals() {
@@ -396,7 +396,7 @@ fn provision_surfaces_configuration_refusals() {
     );
 }
 
-/// Q1 at construction: `validate_era` runs on the genesis configuration, so a
+/// Q1 at construction: [`uvrr::quorum::validate_era`] runs on the genesis configuration, so a
 /// strategy that admits disjoint quorums is refused before the replica exists.
 #[test]
 fn provision_runs_the_quorum_gate_on_genesis() {
@@ -415,7 +415,7 @@ fn provision_runs_the_quorum_gate_on_genesis() {
 }
 
 /// Provisioning over a journal that already holds history is refused: a
-/// non-empty journal is evidence of a prior life, and `provision` must not
+/// non-empty journal is evidence of a prior life, and [`uvrr::replica::Replica::provision`] must not
 /// silently overwrite it, that overwrite is the amnesiac voter of §14.2.
 #[test]
 fn provision_refuses_a_non_empty_journal() {
@@ -434,7 +434,7 @@ fn provision_refuses_a_non_empty_journal() {
 // 2. Resume (the vouched later life)
 // ---------------------------------------------------------------------------
 
-/// A consistent persisted progress and journal reopens, fenced `Restarting`
+/// A consistent persisted progress and journal reopens, fenced [`uvrr::progress::Status::Restarting`]
 /// whatever status was persisted, per §5's boot rule: the pre-failure status
 /// is evidence about the past, not authority over the present.
 #[test]
@@ -611,10 +611,10 @@ fn volatile_publish_releases_exactly_once_and_observes_on_publish_only() {
 // 4. External stability (S2/S3)
 // ---------------------------------------------------------------------------
 
-/// The full handshake: publish emits `Persist` and parks; `Stable` completes
+/// The full handshake: publish emits [`uvrr::effects::Effect::Persist`] and parks; [`uvrr::effects::StabilityResult::Stable`] completes
 /// and releases the parked effects; a duplicate confirmation and a confirmation
-/// with nothing outstanding are both rejected; `Failed` leaves the previously
-/// published state visible (S3); `Indeterminate` sticky-faults (§5 invariant 5).
+/// with nothing outstanding are both rejected; [`uvrr::effects::StabilityResult::Failed`] leaves the previously
+/// published state visible (S3); [`uvrr::effects::StabilityResult::Indeterminate`] sticky-faults (§5 invariant 5).
 #[test]
 fn external_stability_parks_confirms_and_faults_three_ways() {
     let mut replica = provision_forced();
@@ -856,7 +856,7 @@ fn stale_and_double_publishes_are_revision_mismatches() {
 
 /// A faulted node refuses EVERY input, ticks and confirmations included (§5
 /// invariant 5). The match below is deliberately exhaustive with no wildcard:
-/// a future `Input` variant fails to compile this test until a human decides
+/// a future [`uvrr::replica::Input`] variant fails to compile this test until a human decides
 /// what faulted refusal means for it.
 #[test]
 fn a_faulted_replica_refuses_every_input_variant() {
@@ -977,9 +977,9 @@ fn a_faulted_replica_refuses_every_input_variant() {
 /// The closed checker runs before every publish and is not bypassed: a
 /// candidate that violates a frontier rule (here: `committed` regresses below
 /// the published frontier) is DISCARDED and the node faults with
-/// `Fault::IllegalTransition`, never repaired, never installed.
+/// [`uvrr::ids::Fault::IllegalTransition`], never repaired, never installed.
 ///
-/// No honest planner output can violate the chain, `Progress` transitions
+/// No honest planner output can violate the chain, [`uvrr::progress::Progress`] transitions
 /// validate their results, so the candidate is injected through the
 /// documented test hook [`uvrr::replica::PlannedTransition::substitute_candidate_for_gate_testing`].
 /// That is the point of the test: the hook can only smuggle a bad candidate
@@ -1108,9 +1108,9 @@ fn message(tag: Tag, slot: Slot, body: Body) -> Message {
     }
 }
 
-/// Every `Body` variant through `Pack`/`Unpack` with an exact `packed_len`
+/// Every `Body` variant through [`uvrr::wire::Pack`]/[`uvrr::wire::Unpack`] with an exact `packed_len`
 /// (W3: the §13.1 suffix budget sums these), and every body's header slot
-/// satisfying its `header_slot_role`, Operation tags name a real slot,
+/// satisfying its [`uvrr::invariant::header_slot_role`], Operation tags name a real slot,
 /// Absent tags carry the sentinel, Frontier tags admit every value.
 #[test]
 fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
@@ -1188,7 +1188,7 @@ fn every_body_round_trips_with_exact_length_and_a_legal_header_slot() {
 
 /// A body whose discriminant disagrees with the header tag is not a message:
 /// the wire carries the kind twice and the decode refuses a disagreement
-/// rather than guessing which field lied.
+/// rather than guessing which field lied (W3).
 #[test]
 fn a_body_header_tag_mismatch_is_malformed() {
     let mismatched = Message {

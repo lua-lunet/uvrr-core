@@ -1,4 +1,4 @@
-//! Contract for `uvrr::configuration`, era, membership, voting weights, and the
+//! Contract for [`uvrr::configuration`], era, membership, voting weights, and the
 //! reconfiguration operation alphabet.
 //!
 //! Spec §8.7.1 (configuration and era), §8.7.2 (the operation alphabet and its
@@ -8,32 +8,32 @@
 //! binary codec is normative and fixed-width).
 //!
 //! This file gates the *fold*, not quorum policy. Nothing here evaluates a quorum: that
-//! is the `QuorumStrategy` and its closed gate in `uvrr::quorum`. What is gated here
+//! is the [`uvrr::quorum::QuorumStrategy`] and its closed gate in [`uvrr::quorum`]. What is gated here
 //! is the set of configurations that can exist at all, because every later intersection
 //! argument (§8.7.4 `R1`/`R2`) is stated over configurations reachable by this fold and
 //! is meaningless over configurations that are not.
 //!
 //! Six properties, each of which the rest of the crate is entitled to assume:
 //!
-//! 1. **A `Configuration` cannot be constructed invalid.** The only ways in are
-//!    `Configuration::void()` and `apply`, so "non-empty `order` after `Init`, no
-//!    duplicate `NodeId`, representable total" holds for every value that exists rather
+//! 1. **A [`uvrr::configuration::Configuration`] cannot be constructed invalid.** The only ways in are
+//!    [`uvrr::configuration::Configuration::void()`] and `apply`, so "non-empty `order` after [`uvrr::configuration::SystemOperation::Init`], no
+//!    duplicate [`uvrr::ids::NodeId`], representable total" holds for every value that exists rather
 //!    than for every value someone remembered to validate.
-//! 2. **Era is established, not assigned.** `Void` establishes era 0, `Init` era 1, and
+//! 2. **Era is established, not assigned.** [`uvrr::configuration::SystemOperation::Void`] establishes era 0, [`uvrr::configuration::SystemOperation::Init`] era 1, and
 //!    every subsequent accepted operation `era + 1`. §8.7.8's rule that a replica may
 //!    propose era `e` only if it holds the operation establishing `e` is then checkable
 //!    by construction.
 //! 3. **Refusal is specific.** Every precondition of §8.7.2's table has its own
-//!    `ConfigError` variant and every test below asserts *that* variant. A test that
+//!    [`uvrr::configuration::ConfigError`] variant and every test below asserts *that* variant. A test that
 //!    accepts `is_err()` passes when the implementation refuses for the wrong reason,
 //!    which is precisely the failure mode a precondition table exists to prevent.
-//! 4. **Nothing saturates and nothing rounds.** `Halve` on an odd weight is refused,
-//!    not floored; `Increment` and `Double` past [`uvrr::configuration::MAX_WEIGHT`]
-//!    are refused, not clamped; `Decrement` at weight 0 is refused, not a no-op.
+//! 4. **Nothing saturates and nothing rounds.** [`uvrr::configuration::SystemOperation::Halve`] on an odd weight is refused,
+//!    not floored; [`uvrr::configuration::SystemOperation::Increment`] and [`uvrr::configuration::SystemOperation::Double`] past [`uvrr::configuration::MAX_WEIGHT`]
+//!    are refused, not clamped; [`uvrr::configuration::SystemOperation::Decrement`] at weight 0 is refused, not a no-op.
 //!    §8.7.5's closure proofs are arithmetic identities over exact weights and a
 //!    rounded weight makes them vacuous. The domain is {0, 1, 2} (rules §1, R1), and
 //!    every weight below asserts the boundary at both ends.
-//! 5. **The fold is persistent.** `apply` and `EraTable::extend` return new values and
+//! 5. **The fold is persistent.** `apply` and [`uvrr::configuration::EraTable::extend`] return new values and
 //!    share retained `Arc`s. `Arc` identity is asserted by pointer comparison, because
 //!    a table that deep-copied its history would still pass every behavioural test
 //!    while making configuration history a per-message allocation.
@@ -64,16 +64,16 @@ const N1: NodeId = NodeId(11);
 const N2: NodeId = NodeId(12);
 const N3: NodeId = NodeId(13);
 
-/// The genesis slot of `Void`, per the brief's precondition table.
+/// The genesis slot of [`uvrr::configuration::SystemOperation::Void`], per §8.7.2's precondition table.
 const VOID_SLOT: Slot = Slot(1);
-/// The genesis slot of `Init`, per the brief's precondition table.
+/// The genesis slot of [`uvrr::configuration::SystemOperation::Init`], per §8.7.2's precondition table.
 const INIT_SLOT: Slot = Slot(2);
 
-/// A void configuration followed by `Init` over `order`, at the two genesis slots.
+/// A void configuration followed by [`uvrr::configuration::SystemOperation::Init`] over `order`, at the two genesis slots.
 ///
 /// Every test that needs a live cluster goes through here rather than through a
 /// constructor, because there is no constructor: the invariants hold for every
-/// `Configuration` that exists precisely because `apply` is the only way to make one.
+/// [`uvrr::configuration::Configuration`] that exists precisely because `apply` is the only way to make one.
 fn initialised(order: &[NodeId]) -> Configuration {
     let void = Configuration::void();
     let void = void
@@ -93,16 +93,16 @@ fn three() -> Configuration {
     initialised(&[N0, N1, N2])
 }
 
-/// Raises every member of `nodes` to the same weight `target`, using only `Init`,
-/// `Double` and `Increment`, so every state this file asserts about is reachable by the
+/// Raises every member of `nodes` to the same weight `target`, using only [`uvrr::configuration::SystemOperation::Init`],
+/// [`uvrr::configuration::SystemOperation::Double`] and [`uvrr::configuration::SystemOperation::Increment`], so every state this file asserts about is reachable by the
 /// fold rather than fabricated through an escape hatch. That matters: "there is no public
-/// constructor that can produce an invalid `Configuration`" is itself a property under
+/// constructor that can produce an invalid [`uvrr::configuration::Configuration`]" is itself a property under
 /// test, so a test-only constructor would weaken the thing it was helping to check.
 ///
-/// The domain is {0, 1, 2} (rules §1, R1), so `target` is 1 (what `Init` supplies) or 2
-/// (`Init` then `Double`), `Double` and `Increment` are the only weight-raising
-/// operations in the alphabet, `Double` is global, and the cap refuses anything higher.
-/// Per-member asymmetry is built afterwards with `Join` (weight 0) and `Increment`.
+/// The domain is {0, 1, 2} (rules §1, R1), so `target` is 1 (what [`uvrr::configuration::SystemOperation::Init`] supplies) or 2
+/// ([`uvrr::configuration::SystemOperation::Init`] then [`uvrr::configuration::SystemOperation::Double`]), [`uvrr::configuration::SystemOperation::Double`] and [`uvrr::configuration::SystemOperation::Increment`] are the only weight-raising
+/// operations in the alphabet, [`uvrr::configuration::SystemOperation::Double`] is global, and the cap refuses anything higher.
+/// Per-member asymmetry is built afterwards with [`uvrr::configuration::SystemOperation::Join`] (weight 0) and [`uvrr::configuration::SystemOperation::Increment`].
 fn raise_all(nodes: &[NodeId], target: u32) -> Configuration {
     assert!(
         (1..=MAX_WEIGHT).contains(&target),
@@ -172,7 +172,7 @@ fn void_has_no_primary() {
     }
 }
 
-/// Only `Void` may be applied to the void configuration. Every other operation names a
+/// Only [`uvrr::configuration::SystemOperation::Void`] may be applied to the void configuration. Every other operation names a
 /// member, a weight or a position that does not exist yet, and the refusal is
 /// `NotInitialised` rather than `NotAMember`, the cluster has no membership at all, and
 /// reporting a missing member would suggest one could be supplied.
@@ -205,9 +205,9 @@ fn void_refuses_every_operation_but_void_and_init() {
 // 2. Genesis ordinals
 // ---------------------------------------------------------------------------
 
-/// `Void` occupies log slot 1 and no other (§8.7.2: "operation number 1 ... with an
+/// [`uvrr::configuration::SystemOperation::Void`] occupies log slot 1 and no other (§8.7.2: "operation number 1 ... with an
 /// otherwise empty log"). The slot is the only evidence the fold has that this is
-/// genesis, so accepting it elsewhere would let a second `Void` erase a live cluster.
+/// genesis, so accepting it elsewhere would let a second [`uvrr::configuration::SystemOperation::Void`] erase a live cluster.
 #[test]
 fn void_accepted_only_at_slot_one() {
     let void = Configuration::void();
@@ -231,7 +231,7 @@ fn void_accepted_only_at_slot_one() {
     }
 }
 
-/// `Init` occupies log slot 2 and no other, and establishes era 1 with every weight `1`.
+/// [`uvrr::configuration::SystemOperation::Init`] occupies log slot 2 and no other, and establishes era 1 with every weight `1`.
 /// Unit initial weights are §8.7.2's rule and they remove a class of divergence: two
 /// hosts cannot disagree about the genesis weights when the operation cannot carry them.
 #[test]
@@ -261,8 +261,8 @@ fn init_accepted_only_at_slot_two_and_sets_unit_weights() {
     }
 }
 
-/// `Init` is legal only *immediately* on the void configuration (§8.7.2: "immediately
-/// preceded by `VOID`"). A second `Init` on a live cluster would replace its membership
+/// [`uvrr::configuration::SystemOperation::Init`] is legal only *immediately* on the void configuration (§8.7.2: "immediately
+/// preceded by `VOID`"). A second [`uvrr::configuration::SystemOperation::Init`] on a live cluster would replace its membership
 /// wholesale without an overlap argument, so it is refused on the receiver's state, not
 /// on the slot.
 #[test]
@@ -279,7 +279,7 @@ fn init_refused_on_an_initialised_configuration() {
     );
 }
 
-/// `Init` with an empty order is refused: every operation must leave `order` non-empty
+/// [`uvrr::configuration::SystemOperation::Init`] with an empty order is refused: every operation must leave `order` non-empty
 /// (§8.7.2, "every operation"), and an empty genesis would produce a cluster that can
 /// never commit and can never be repaired, because repair itself needs a quorum.
 #[test]
@@ -336,7 +336,7 @@ fn init_refuses_duplicate_node_ids() {
 // 2a. The membership cap: a validation-cost bound, not a protocol limit
 // ---------------------------------------------------------------------------
 
-/// `Init` with 17 members is refused, and the refusal names the cap. The cap exists so
+/// [`uvrr::configuration::SystemOperation::Init`] with 17 members is refused, and the refusal names the cap. The cap exists so
 /// the quorum gate's `2^N` subset enumeration stays trivially cheap
 /// (`configuration::MAX_MEMBERS`); a cluster that genuinely wants 17 members is asking
 /// for a different validation-cost budget, which is a one-constant amendment, not a
@@ -366,7 +366,7 @@ fn init_refuses_membership_above_the_cap() {
     assert_eq!(config.len(), MAX_MEMBERS);
 }
 
-/// `Join` to a 16-member cluster is refused with the same named cap. The check fires
+/// [`uvrr::configuration::SystemOperation::Join`] to a 16-member cluster is refused with the same named cap. The check fires
 /// before the position check: no insertion position can make a seventeenth member
 /// legal.
 #[test]
@@ -424,12 +424,12 @@ fn increment_requires_membership() {
     assert_eq!(up.era(), Era(2));
 }
 
-/// `Increment` at the weight cap is refused, not saturated (rules §3, R7). A
+/// [`uvrr::configuration::SystemOperation::Increment`] at the weight cap is refused, not saturated (rules §3, R7). A
 /// saturating increment would make two distinct configurations indistinguishable and
 /// quietly break the §8.7.5 `T -> T+1` closure argument, which is stated over the
 /// *actual* new total.
 ///
-/// The cap is a *reachable* protocol state, `Init` at 1, `Double` to 2, which is why
+/// The cap is a *reachable* protocol state, [`uvrr::configuration::SystemOperation::Init`] at 1, [`uvrr::configuration::SystemOperation::Double`] to 2, which is why
 /// this test needs no escape hatch to reach the boundary.
 #[test]
 fn increment_refuses_at_the_weight_cap() {
@@ -506,7 +506,7 @@ fn decrement_requires_membership_and_positive_weight() {
     );
 }
 
-/// `Double` requires every `W(n) * 2` inside the domain {0, 1, 2} (rules §3, R9).
+/// [`uvrr::configuration::SystemOperation::Double`] requires every `W(n) * 2` inside the domain {0, 1, 2} (rules §3, R9).
 /// Refusal is per configuration, not per member: the operation is atomic, so one
 /// member at the cap refuses the whole fold rather than doubling the others.
 #[test]
@@ -520,7 +520,7 @@ fn double_requires_every_weight_inside_the_domain() {
     assert_eq!(doubled.era(), Era(2));
 }
 
-/// `Halve` requires **every** `W(n)` even (rules §3, R10). This is the row most likely to be
+/// [`uvrr::configuration::SystemOperation::Halve`] requires **every** `W(n)` even (rules §3, R10). This is the row most likely to be
 /// implemented as a rounding division, and rounding is not refusal: it changes the total
 /// by an amount that depends on how many odd members there were, which is not a quantity
 /// §8.7.5's `T -> floor(T/2)` argument admits.
@@ -581,7 +581,7 @@ fn join_requires_absence_and_a_valid_position() {
 
 /// `Leave(n)` requires `n ∈ order` and `W(n) == 0` (§8.7.2; rules §2, R12). A positive
 /// weight refuses with `NonZeroWeight`, distinct from `NotAMember`: the host's next
-/// step differs, one calls for `Decrement`, the other for a corrected node id.
+/// step differs, one calls for [`uvrr::configuration::SystemOperation::Decrement`], the other for a corrected node id.
 #[test]
 fn leave_requires_membership_and_zero_weight() {
     let config = three();
@@ -596,7 +596,7 @@ fn leave_requires_membership_and_zero_weight() {
     );
 }
 
-/// `Decrement` that would take `T(W)` to 0 is refused: "every operation ... the result
+/// [`uvrr::configuration::SystemOperation::Decrement`] that would take `T(W)` to 0 is refused: "every operation ... the result
 /// has non-empty `order` and `T(W) >= 1`" (§8.7.2). A zero-total configuration is
 /// quorum-impossible in exactly the way era 0 is, but unlike era 0 it would be reachable
 /// *after* commitment, with no repair path that does not need a quorum.
@@ -610,10 +610,10 @@ fn decrement_refuses_a_zero_total() {
     );
 }
 
-/// `Halve` cannot produce a zero total, and the parity precondition is why.
+/// [`uvrr::configuration::SystemOperation::Halve`] cannot produce a zero total, and the parity precondition is why (R10).
 ///
 /// Every legal state has `T(W) >= 1`, so some member is at weight `>= 1`; if every weight
-/// is even then some member is at `>= 2` and halves to `>= 1`. `Halve`'s total floor is
+/// is even then some member is at `>= 2` and halves to `>= 1`. [`uvrr::configuration::SystemOperation::Halve`]'s total floor is
 /// therefore unreachable, and the refusal a host sees on a low-weight cluster is
 /// `OddWeight`. Asserted so the two guards are not confused: `OddWeight` names a member,
 /// `TotalWouldBeZero` does not, and a host reading a refused reconfiguration proposal
@@ -653,11 +653,11 @@ fn halve_never_reaches_a_zero_total() {
 /// The last member cannot be removed, and it is the *weight* precondition that stops it,
 /// not a separate emptiness check.
 ///
-/// This is worth pinning because it explains an absent `ConfigError` variant. `Leave(n)`
+/// This is worth pinning because it explains an absent [`uvrr::configuration::ConfigError`] variant. `Leave(n)`
 /// requires `W(n) == 0` (§8.7.2; rules §2, R12), and a sole member at weight 0 has
-/// `T(W) == 0`, which the total floor already forbade at the `Decrement` that would have
+/// `T(W) == 0`, which the total floor already forbade at the [`uvrr::configuration::SystemOperation::Decrement`] that would have
 /// produced it. So the state "one member, weight 0" is unreachable, and there is
-/// therefore no reachable `Leave` whose result is an empty `order`: the "non-empty
+/// therefore no reachable [`uvrr::configuration::SystemOperation::Leave`] whose result is an empty `order`: the "non-empty
 /// `order`" clause of §8.7.2 is discharged by the total floor rather than by an
 /// independent guard. The refusal a host actually sees is `NonZeroWeight`, and both
 /// halves of that route are asserted here so a later change cannot add a redundant
@@ -700,7 +700,7 @@ fn leave_cannot_empty_the_order() {
 // 4. `Halve` is exact over every all-even shape
 // ---------------------------------------------------------------------------
 
-/// Exhaustive over the in-domain even shapes: `Halve` divides every weight exactly, and
+/// Exhaustive over the in-domain even shapes: [`uvrr::configuration::SystemOperation::Halve`] divides every weight exactly, and
 /// a single odd member anywhere in `order` refuses. No rounding occurs at any position,
 /// which is the failure mode a spot check at index 0 would miss. The domain {0, 1, 2}
 /// makes the all-even positive shapes exactly `(2, 2, 2)` and its weight-0 variants, so
@@ -729,8 +729,8 @@ fn halve_is_exact_and_all_even_is_positional() {
     }
 }
 
-/// Builds a configuration with the exact weights given, using only `Init` and
-/// `Increment`, so the result is reachable by the fold rather than fabricated. Every
+/// Builds a configuration with the exact weights given, using only [`uvrr::configuration::SystemOperation::Init`] and
+/// [`uvrr::configuration::SystemOperation::Increment`], so the result is reachable by the fold rather than fabricated. Every
 /// weight must be inside the domain (R1), which is asserted here so a typo cannot
 /// fabricate a state the protocol cannot reach.
 fn with_weights(nodes: &[NodeId], weights: &[u32]) -> Configuration {
@@ -756,7 +756,7 @@ fn with_weights(nodes: &[NodeId], weights: &[u32]) -> Configuration {
 /// A member at weight 2 cannot be doubled and the whole operation is refused (R9),
 /// naming the FIRST member in `order` that would pass the cap.
 ///
-/// Refusal is per configuration, not per member: a `Double` that raised the members
+/// Refusal is per configuration, not per member: a [`uvrr::configuration::SystemOperation::Double`] that raised the members
 /// under the cap and clamped the rest would change the weight *ratios*, and §8.7.5's
 /// `DOUBLE` closure argument (`2w(S) >= T+1`) depends on every weight scaling by the
 /// same factor.
@@ -807,7 +807,7 @@ fn double_refuses_a_member_at_the_cap() {
 // 6. The departure sequence
 // ---------------------------------------------------------------------------
 
-/// `Decrement`-to-zero then `Leave` is the only route out of a configuration, and every
+/// [`uvrr::configuration::SystemOperation::Decrement`]-to-zero then [`uvrr::configuration::SystemOperation::Leave`] is the only route out of a configuration, and every
 /// step of it is individually overlap-safe: a weight change of one preserves the §8.7.5
 /// consecutive-era intersection, and a weight-0 removal changes no quorum family at all.
 /// A single "remove a voting member" operation would not have either property.
@@ -913,8 +913,8 @@ fn join_inserts_at_exactly_the_named_position() {
 /// including operations that will be refused in some states, because "a refused
 /// operation leaves the table unchanged" is half the property under test. The
 /// nomination is the seventh symbol: a rider, refused solitary
-/// (`ConfigError::SolitaryNomination`), so every walk that draws it asserts the
-/// refusal is a no-op on the table (`docs/nominate-leader-assignment.md`).
+/// ([`uvrr::configuration::ConfigError::SolitaryNomination`]), so every walk that draws it asserts the
+/// refusal is a no-op on the table (`docs/uvrr-protocols.md`, the NOMINATE chapter).
 fn alphabet() -> Vec<SystemOperation> {
     vec![
         SystemOperation::Increment(N0),
@@ -1004,7 +1004,7 @@ fn era_advances_by_exactly_one_per_accepted_operation() {
 // 8b. The nomination's seats: a rider, never a solitary era
 // ---------------------------------------------------------------------------
 
-/// The nomination's three seats (`docs/nominate-leader-assignment.md`): a
+/// The nomination's three seats (`docs/uvrr-protocols.md`, the NOMINATE chapter): a
 /// solitary entry is refused by name, a zero offset is refused by name, and a
 /// rider folds to the identical configuration inside the establishing batch
 /// of the era its bump enters, so the batch's fold is the fold of its
@@ -1062,7 +1062,7 @@ fn nominate_is_a_rider_that_never_establishes_an_era_of_its_own() {
     assert_eq!(rider, plain);
 }
 
-/// An era table advanced through `Void` and `Init` onto a three-member unit cluster.
+/// An era table advanced through [`uvrr::configuration::SystemOperation::Void`] and [`uvrr::configuration::SystemOperation::Init`] onto a three-member unit cluster.
 fn era_table_three() -> EraTable {
     let table = EraTable::genesis();
     let table = table
@@ -1178,7 +1178,7 @@ fn weight_of_set_rejects_unknown_and_duplicate_members() {
 
 /// `primary(v) = voters[v mod voters]` (§1.2, §8.4), exhaustively over
 /// `len ∈ 1..=8` and `view ∈ 0..64`. The core sorts nothing: the sequence is
-/// the one the host supplied in `Init`, so the index is into *that* sequence
+/// the one the host supplied in [`uvrr::configuration::SystemOperation::Init`], so the index is into *that* sequence
 /// and this test compares against it directly rather than against a sorted
 /// copy. With no learner present the voters are the whole order.
 #[test]
@@ -1209,7 +1209,7 @@ fn primary_is_modular_over_the_host_supplied_order() {
 /// name the era, the view change then waits forever on evidence the
 /// designated primary cannot evaluate. The index is over the positive-weight
 /// members' sequence, in host order; the learner keeps its succession
-/// position for `Join`'s insertion arithmetic and is skipped by the primary
+/// position for [`uvrr::configuration::SystemOperation::Join`]'s insertion arithmetic and is skipped by the primary
 /// selection alone.
 #[test]
 fn primary_succession_excludes_learners() {
@@ -1254,8 +1254,9 @@ fn primary_succession_excludes_learners() {
 // 12. The `EraTable` retention window
 // ---------------------------------------------------------------------------
 
-/// Exactly three eras resident. After more than three advances, `record()` answers for
-/// `{current - 1, current}` and answers `None` for anything older. `None` is the whole
+/// The window spans exactly three eras; at most two are resident. After more
+/// than three advances, `record()` answers for `{current - 1, current}` and
+/// answers `None` for anything older. `None` is the whole
 /// mechanism: an out-of-window era is *undecidable*, so a message naming it is dropped
 /// rather than faulting the node (§10, §14.2), and the crash matrix owns that
 /// claim end to end.
@@ -1307,8 +1308,8 @@ fn era_table_retains_a_three_era_window() {
 
 /// The retained records are shared, not copied: the `Arc` in the surviving previous-era
 /// record after an `extend` is pointer-identical to the one in the receiver. Without
-/// this, configuration history would be a per-advance deep copy, and `Progress`
-/// snapshots (`uvrr::progress::Progress`) would allocate a configuration per publication.
+/// this, configuration history would be a per-advance deep copy, and [`uvrr::progress::Progress`]
+/// snapshots ([`uvrr::progress::Progress`]) would allocate a configuration per publication.
 #[test]
 fn era_table_shares_retained_arcs() {
     let table = era_table_three();
@@ -1331,7 +1332,7 @@ fn era_table_shares_retained_arcs() {
 
 /// `extend` never mutates its receiver. A clone of the old table held across an `extend`
 /// is unchanged in era, in shape, and in `Arc` identity. This is what lets a
-/// diagnostic reader hold an `EraTable` by value while the replica advances,
+/// diagnostic reader hold an [`uvrr::configuration::EraTable`] by value while the replica advances,
 /// with no lock and no copy.
 #[test]
 fn extend_does_not_mutate_the_receiver() {
@@ -1399,9 +1400,9 @@ fn all_variants() -> Vec<SystemOperation> {
 }
 
 /// Round trip through the normative binary codec with `packed_len()` exact (W3, W4).
-/// `LogEntry` (`uvrr::journal`) carries a typed `SystemOperation`, so this is the
+/// `LogEntry` ([`uvrr::journal`]) carries a typed `SystemOperation`, so this is the
 /// encoding a
-/// `Prepare` for a reconfiguration operation actually uses.
+/// [`uvrr::wire::Tag::Prepare`] for a reconfiguration operation actually uses.
 #[test]
 fn system_operation_round_trips_with_exact_length() {
     for op in all_variants() {
@@ -1445,7 +1446,7 @@ fn system_operation_rejects_reserved_and_unknown_discriminants() {
 }
 
 proptest! {
-    /// The `Init` order is a length-prefixed sequence, so its encoded size is a function
+    /// The [`uvrr::configuration::SystemOperation::Init`] order is a length-prefixed sequence, so its encoded size is a function
     /// of the count and nothing else (W4). Proptest over the count, because this is the
     /// one variant whose `packed_len()` is not a constant and therefore the one that can
     /// disagree with `pack`.

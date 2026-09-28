@@ -1,14 +1,14 @@
-//! Normal operation (§4): `Prepare` / `PrepareOk` / `Commit` and proposal
+//! Normal operation (§4): [`crate::wire::Tag::Prepare`] / [`crate::wire::Tag::PrepareOk`] / [`crate::wire::Tag::Commit`] and proposal
 //! admission.
 //!
 //! VRR-2012 §4 with commit-frontier piggybacking (§13.3) and the
 //! Propose/Apply/Applied boundary (§11.1). Every handler is total: invalid
 //! peer input is dropped with a named [`Diagnostic`] on the observation and
 //! never faults the node; faulting stays reserved for impossible LOCAL
-//! transitions via [`legal`]. Quorum decisions go through the
-//! [`QuorumStrategy`] (`Role::Commit`) and nowhere else (Q1).
+//! transitions via [`crate::invariant::legal`]. Quorum decisions go through the
+//! [`crate::quorum::QuorumStrategy`] ([`crate::quorum::Role::Commit`]) and nowhere else (Q1).
 //!
-//! [`legal`]: crate::invariant::legal
+//! [`crate::invariant::legal`]: crate::invariant::legal
 
 use super::reconfiguration::CommitFold;
 use super::*;
@@ -19,8 +19,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// B2): the core never inspects the operation's identity, so the same
     /// identity proposed twice is two operations at two slots.
     ///
-    /// Only a `Normal` node with `config.primary(current_view) == own`
-    /// accepts; every other node answers [`PlanRefusal::NotPrimary`].
+    /// Only a [`crate::progress::Status::Normal`] node with `config.primary(current_view) == own`
+    /// accepts; every other node answers [`crate::replica::PlanRefusal::NotPrimary`].
     pub(in crate::replica) fn plan_propose(
         &self,
         _journal: &J::View,
@@ -79,7 +79,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             },
         };
         let mut recipients = self.backups();
-        // The stream targets (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+        // The stream targets (`docs/uvrr-protocols.md`, the rejoin chapter
         // §3): the leader's own proposals stream to the announced standby
         // and to every gossip-witness too, unless ordinary addressing
         // already covers them.
@@ -111,23 +111,23 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .with_bookkeeping(bookkeeping))
     }
 
-    /// The backup's `Prepare` handler (§4). Guards first, each with a named
+    /// The backup's [`crate::wire::Tag::Prepare`] handler (§4). Guards first, each with a named
     /// outcome; then the slot relation decides: accept, idempotent
     /// re-acknowledgement, or gap.
     ///
-    /// The bootstrap rule: a fenced entry (`Restarting` or `Joining`) backup
+    /// The bootstrap rule: a fenced entry ([`crate::progress::Status::Restarting`] or [`crate::progress::Status::Joining`]) backup
     /// receiving a legitimate
-    /// `Prepare` for its current view, with `current == retained`, so
-    /// entering `Normal` re-selects nothing and rule 3 of the legality gate
-    /// is untouched, adopts the view and enters `Normal` (§4's own
+    /// [`crate::wire::Tag::Prepare`] for its current view, with `current == retained`, so
+    /// entering [`crate::progress::Status::Normal`] re-selects nothing and rule 3 of the legality gate
+    /// is untouched, adopts the view and enters [`crate::progress::Status::Normal`] (§4's own
     /// mechanism; the fresh cluster has nothing to recover). The
     /// piggybacked committed frontier is taken on every accepted or
-    /// re-acknowledged `Prepare` (§13.3).
+    /// re-acknowledged [`crate::wire::Tag::Prepare`] (§13.3).
     ///
-    /// The gap rule (§13.1 step 5): a `Prepare` past the accepted
+    /// The gap rule (§13.1 step 5): a [`crate::wire::Tag::Prepare`] past the accepted
     /// frontier's successor is dropped and reported as
-    /// [`Diagnostic::GapDetected`], and the fetch half of the ruling rides
-    /// the same transition, a `GetState` for the missing range goes to
+    /// [`crate::observe::Diagnostic::GapDetected`], and the fetch half of the ruling rides
+    /// the same transition, a [`crate::wire::Tag::GetState`] for the missing range goes to
     /// the primary. The host obligation rides with it (`docs/architecture.md`,
     /// the contiguity gap rule): a host detects `slot > local frontier` at its
     /// boundary and treats the epoch as stalled until state transfer repairs
@@ -170,7 +170,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // fence into the advertised view and fetch, install only from the
         // qualified evidence. The one §10 exception: a node still at its
         // boot fence that is OUTSIDE every configuration it can name,
-        // the reincarnated standby (`docs/uvrr-reincarnation.md` §10),
+        // the reincarnated standby (`docs/uvrr-protocols.md`, the reincarnation chapter §10),
         // takes the committed operations the leader-originated stream
         // carries at its boot fence instead: adopting the advertised
         // view here would leave the boot fence behind, and the standby's
@@ -219,7 +219,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // configuration counts as a member: the fresh cluster has nothing
         // to recover (§4's own mechanism). A boot-fenced node OUTSIDE
         // every configuration it can name, the reincarnated standby
-        // (§10 of `docs/uvrr-reincarnation.md`), takes the committed
+        // (§10 of `docs/uvrr-protocols.md`, the reincarnation chapter), takes the committed
         // operations the stream carries but adopts no view and stays
         // fenced: it never votes, and the promotion era's committed
         // reconfiguration is what admits it.
@@ -405,13 +405,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         ))
     }
 
-    /// The primary's `PrepareOk` handler (§4). Guards: `Normal`, own is the
+    /// The primary's [`crate::wire::Tag::PrepareOk`] handler (§4). Guards: [`crate::progress::Status::Normal`], own is the
     /// primary of the current view, the view matches, the sender is a
     /// member of the current configuration, the slot is outstanding, the
     /// sender is not already counted. Then the vote is recorded and the
     /// STRATEGY, the only quorum authority (Q1), is asked; on a quorum
     /// the committed frontier advances over the contiguous accepted tail,
-    /// the newly committed operation slots emit `Apply` in slot order
+    /// the newly committed operation slots emit [`crate::effects::Effect::Apply`] in slot order
     /// (§11.1), and the new frontier is announced to every backup (§13.3).
     pub(in crate::replica) fn plan_prepare_ok(
         &self,
@@ -444,7 +444,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // proposed (§8.7.4), is what makes the pair safe. Membership and
         // the strategy's decision both come from that record (Q1).
         let record = self.progress.config().current();
-        // The §6 membership-discard rule (`docs/uvrr-reincarnation.md`):
+        // The §6 membership-discard rule (`docs/uvrr-protocols.md`, the reincarnation chapter):
         // a sender outside the configuration is unknown; a sender whose
         // weight is 0 is a learner, it receives history but contributes
         // nothing to any quorum, so its vote is dropped before it is ever
@@ -560,7 +560,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         self.commit_cascade_frontier(journal, None)
     }
 
-    /// The commit tail the `PrepareOk` and `FuseOk` quorums and the
+    /// The commit tail the [`crate::wire::Tag::PrepareOk`] and [`crate::wire::Tag::FuseOk`] quorums and the
     /// standing question share: publish the bookkeeping quietly when the
     /// cascade committed nothing, else fold the advance (§8.7.1, the
     /// nomination's bump riding the same transition), run the overlap
@@ -638,12 +638,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }))
     }
 
-    /// Any node's `Commit` handler (§4, §13.3): advance
+    /// Any node's [`crate::wire::Tag::Commit`] handler (§4, §13.3): advance
     /// `committed = min(header.committed, accepted)`, the frontier never
     /// claims what the journal does not record (§5 invariant 2), and emit
-    /// `Apply` for the newly committed operation slots in slot order (§11.1).
+    /// [`crate::effects::Effect::Apply`] for the newly committed operation slots in slot order (§11.1).
     /// A fenced entry backup adopts the view under the same rule as
-    /// `Prepare`.
+    /// [`crate::wire::Tag::Prepare`].
     pub(in crate::replica) fn plan_commit(
         &self,
         journal: &J::View,
@@ -678,7 +678,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // §10 exception, as in `plan_prepare`: a boot-fenced standby
         // outside every configuration it can name takes the commit
         // frontier the leader-originated stream carries at its boot fence
-        // (`docs/uvrr-reincarnation.md` §10), staying fenced, the
+        // (`docs/uvrr-protocols.md`, the reincarnation chapter §10), staying fenced, the
         // frontier is clamped by the journal as ever (§5 invariant 2).
         if header.view > current {
             let boot_fence = matches!(self.progress.status(), Status::Restarting | Status::Joining)
@@ -711,7 +711,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The same member-gated bootstrap adoption as `plan_prepare`:
         // a boot-fenced standby outside every configuration it can name
         // takes the commit frontier the stream carries and stays fenced
-        // (§10 of `docs/uvrr-reincarnation.md`), never adopting a view.
+        // (§10 of `docs/uvrr-protocols.md`, the reincarnation chapter), never adopting a view.
         let member_of_view = self
             .progress
             .config()
@@ -793,13 +793,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The per-era commit emission (`docs/uvrr-fuse.md` §4 step 4): ONE
-    /// `CommitBatch` per establishing batch the advance `(from, through]`
+    /// [`crate::wire::Tag::CommitBatch`] per establishing batch the advance `(from, through]`
     /// committed, a maximal run of two or more consecutive system
     /// entries, the packed schedule a fuse envelope carried. Each batch's
     /// message lists the committed frontier after each of its slots, in
     /// batch order, no ranges, and travels to every backup (and the memo
     /// standby) as a broadcast, the commit is not a round trip. The
-    /// ordinary singleton establishing batch keeps the plain `Commit`
+    /// ordinary singleton establishing batch keeps the plain [`crate::wire::Tag::Commit`]
     /// announcement it has always had.
     fn commit_batch_effects(&self, journal: &J::View, from: Slot, through: Slot) -> Vec<Effect> {
         let mut effects = Vec::new();
@@ -851,17 +851,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         effects
     }
 
-    /// The primary's `FuseOk` handler (`docs/uvrr-fuse.md` §4 step 3,
-    /// §2): one `FuseOk` is ONE atomic vote vouching for the whole
+    /// The primary's [`crate::wire::Tag::FuseOk`] handler (`docs/uvrr-fuse.md` §4 step 3,
+    /// §2): one [`crate::wire::Tag::FuseOk`] is ONE atomic vote vouching for the whole
     /// envelope, a node processes the full datagram before reading any
     /// other message, so the leader counts a majority response on the
     /// FIRST message in batch and telescopes the remaining slots. The
-    /// guards mirror `plan_prepare_ok`, `Normal`, own is the primary of
+    /// guards mirror `plan_prepare_ok`, [`crate::progress::Status::Normal`], own is the primary of
     /// the current view, the view matches, the sender is a member voting
     /// with weight ≥ 1, the HEADER slot an outstanding proposal slot (a
     /// delayed duplicate of a committed slot is harmless but named), the
     /// sender not already counted on that record, with the fuse
-    /// vocabulary's one named outcome (`Diagnostic::FuseRefusal`). The
+    /// vocabulary's one named outcome ([`crate::observe::Diagnostic::FuseRefusal`]). The
     /// `acks` body is the acceptor's wire evidence and is never examined
     /// for counting: the sender is vouched cumulatively onto every
     /// outstanding slot the header slot covers, the same bookkeeping
@@ -871,7 +871,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// packed schedule's slots share their ackers (§2), so the batch's
     /// quorum lands whole, the establishing batch commits as the ONE era
     /// it is, the commit cascade runs in slot order, and the per-era
-    /// `CommitBatch` joins the ordinary commit announcement. The
+    /// [`crate::wire::Tag::CommitBatch`] joins the ordinary commit announcement. The
     /// leader's own ack is implicit, as today.
     pub(in crate::replica) fn plan_fuse_ok(
         &self,
@@ -890,7 +890,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if header.view != current {
             return self.drop_plan(Diagnostic::FuseRefusal, kind);
         }
-        // The §6 membership-discard rule (`docs/uvrr-reincarnation.md`),
+        // The §6 membership-discard rule (`docs/uvrr-protocols.md`, the reincarnation chapter),
         // as `plan_prepare_ok` runs it: a sender outside the configuration
         // is unknown; a weight-0 sender is a learner contributing nothing,
         // its acknowledgement not a vote. The arrival still asks the
@@ -945,7 +945,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 }
 
-/// The `PrepareOk` a backup answers a `Prepare` with (§4): the view is the
+/// The [`crate::wire::Tag::PrepareOk`] a backup answers a [`crate::wire::Tag::Prepare`] with (§4): the view is the
 /// view it accepted under, the slot the slot it accepted (W1: the header
 /// slot names what the message speaks about).
 fn prepare_ok(view: Ballot, to: NodeId, slot: Slot) -> Effect {

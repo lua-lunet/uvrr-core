@@ -1,14 +1,14 @@
 //! Plan execution: the leader side of the operator's reconfiguration plan
-//! (`docs/weighted-reconfiguration-solver.md`).
+//! (`docs/uvrr-protocols.md`, the solver chapter).
 //!
 //! The operator computes a plan once and submits it over the node's admin
 //! ingress. The leader validates it against its current committed
-//! configuration ([`Plan::validate_against`]) and answers with one verdict;
+//! configuration ([`crate::plan::Plan::validate_against`]) and answers with one verdict;
 //! on acceptance the [`PlannedSequence`] machine is armed and steps through
 //! the plan's batches while the cluster keeps running normally: one step per
 //! era, each proposed through [`plan_step_proposal`], the fuse envelope
 //! when the step packs at least two operations within the envelope budget,
-//! the ordinary establishing `Prepare` otherwise
+//! the ordinary establishing [`crate::wire::Tag::Prepare`] otherwise
 //! (`docs/uvrr-fuse.md` §4). The forced-reincarnation machine steps its own
 //! sequence the same way, one step per era on a tick, through
 //! [`plan_reconfigure`] (§8 of the fuse doc).
@@ -19,7 +19,7 @@
 //! the configuration that committed. A step the gates refuse is drift: a plan
 //! computed to be legal cannot become illegal, so the refusal means the
 //! cluster changed underneath the plan, and aborting is the correct behaviour
-//!, the machine clears and [`Diagnostic::PlanAborted`] names it.
+//! , the machine clears and [`crate::observe::Diagnostic::PlanAborted`] names it.
 //!
 //! [`plan_reconfigure`]: super::Replica::plan_reconfigure
 //! [`plan_step_proposal`]: super::Replica::plan_step_proposal
@@ -42,7 +42,7 @@ use super::{
 const NOT_LEADER: &str = "the replica is not the leader of its current view";
 
 /// The leader's armed plan-execution machine
-/// (`docs/weighted-reconfiguration-solver.md`): the accepted plan's batches
+/// (`docs/uvrr-protocols.md`, the solver chapter): the accepted plan's batches
 /// and the index of the next step to propose.
 ///
 /// Volatile by design: a leader crash discards it, and the operator re-plans
@@ -57,17 +57,17 @@ pub(in crate::replica) struct PlannedSequence {
 }
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
-    /// A plan submission at the admin ingress (`docs/weighted-
-    /// reconfiguration-solver.md`): validate against the current committed
+    /// A plan submission at the admin ingress (`docs/uvrr-protocols.md`,
+    /// the solver chapter): validate against the current committed
     /// configuration, answer the verdict, and on acceptance arm the machine.
     ///
     /// Only the leader of its current view executes plans; any other node
     /// answers `Rejected` with the named precondition. The acceptance rule is
-    /// [`Plan::validate_against`] verbatim; a plan whose FIRST step is
+    /// [`crate::plan::Plan::validate_against`] verbatim; a plan whose FIRST step is
     /// immediately plannable proposes it in the same transition (mirroring
     /// `plan_reincarnation`'s arm-and-propose). A gate refusal there, the
     /// closed intersection gate is the one gate the fold-based validation
-    /// does not run, propagates as the named [`PlanRefusal`] and arms
+    /// does not run, propagates as the named [`crate::replica::PlanRefusal`] and arms
     /// nothing: the plan never started, so there is no verdict to answer.
     pub(in crate::replica) fn plan_submit_plan(
         &self,
@@ -126,7 +126,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The tick-driven continuation: the armed leader proposes the next
     /// accepted step. The drift gate runs first, a step the current
     /// committed configuration refuses is dead whatever the pipeline's
-    /// readiness, so the machine clears and [`Diagnostic::PlanAborted`]
+    /// readiness, so the machine clears and [`crate::observe::Diagnostic::PlanAborted`]
     /// names the step. `None` leaves the tick to the ordinary machinery,
     /// the machine sits armed and inert until the conditions return.
     pub(in crate::replica) fn plan_execution_continuation(
@@ -176,12 +176,12 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// configuration that changed underneath it.
     ///
     /// The journal shape of one establishing batch is either a single
-    /// `Batch` entry (the ordinary `Prepare` path) or a maximal run of
+    /// [`crate::configuration::SystemOperation::Batch`] entry (the ordinary [`crate::wire::Tag::Prepare`] path) or a maximal run of
     /// consecutive system entries, the packed schedule a fuse envelope
     /// carried, one op per consecutive slot (`docs/uvrr-fuse.md` §1). Both
     /// fold as the one batch they are, so the hook matches both: a run of
     /// two or more system entries compares as `Batch(ops)`; a singleton
-    /// compares only when its payload is itself a `Batch`, exactly as
+    /// compares only when its payload is itself a [`crate::configuration::SystemOperation::Batch`], exactly as
     /// before.
     pub(in crate::replica) fn plan_execution_commit(
         &self,

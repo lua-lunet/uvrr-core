@@ -1,14 +1,14 @@
-//! Exhaustive per-message properties: the `GetState` a node serves (§4, §10,
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::GetState`] a node serves (§4, §10,
 //! §13.1 step 5).
 //!
 //! One message over the cross product of the dimensions the handler branches
 //! on: the requester's membership against the responder's committed
 //! configuration, the responder's boot status (the serving gate: fenced entry
-//! states and `Replaying` serve nothing), and the requested base against the
+//! states and [`uvrr::progress::Status::Replaying`] serve nothing), and the requested base against the
 //! responder's accept frontier. Exhaustive by construction under the host
 //! obligations: the identity law (never recycled, so a minted foreign
 //! requester is foreign for the life of the test), the boot-gate marker
-//! states (a halt classifies `Clean` and reopens fenced `Restarting`), and
+//! states (a halt classifies `Clean` and reopens fenced [`uvrr::progress::Status::Restarting`]), and
 //! the quorum gate fixed at construction (Q1). Serving is read-only
 //! retransmission of durable journal content: the request's view is a
 //! correlation token, echoed, never a serving condition, and the responder
@@ -91,7 +91,7 @@ fn released(outcome: &StepOutcome) -> Vec<(NodeId, Message)> {
     }
 }
 
-/// A three-node cluster with the responder assembled `Normal` at the genesis
+/// A three-node cluster with the responder assembled [`uvrr::progress::Status::Normal`] at the genesis
 /// view or reopened fenced from a halt, frontiers at the genesis pair.
 #[rustfmt::skip]
 fn assembled(boot: Boot) -> Harness {

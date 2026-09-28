@@ -1,15 +1,15 @@
 //! The era planner and the batch era rule
-//! (`docs/uvrr-reconfiguration-rules.md`).
+//! (`docs/uvrr-protocols.md`, the reconfiguration-rules chapter).
 //!
 //! The corpus covers the §11 test matrix row by row: the batch fold's refusals
 //! (R13–R15, the weight domain R1, the per-op boundaries R7–R12), the reduce-left
 //! partitioner of §5 (the canonical splits: the reincarnation four, the reordered
-//! stream, the blog grids), the checked `Snapshot` constructor (§9), and the
+//! stream, the blog grids), the checked [`uvrr::configuration::Snapshot`] constructor (§9), and the
 //! equivalence "snapshot + WAL fold ≡ flat planned stream" (§9).
 //!
 //! Every batch folded here is committed as ONE era by the fold, and every
 //! consecutive pair of committed configurations is checked against the closed
-//! gate `uvrr::quorum::validate_transition`, the exhaustive disjoint-pair search
+//! gate [`uvrr::quorum::validate_transition`], the exhaustive disjoint-pair search
 //! the rules doc §8 names as the mechanical form of the intersection argument.
 
 use proptest::prelude::*;
@@ -138,7 +138,7 @@ fn assert_weight_domain(steps: &[Configuration]) {
 // R2, R4, R14: many zero-weight joins commit one era
 // ---------------------------------------------------------------------------
 
-/// Any number of learners may join in one era: each `Join` moves no mass
+/// Any number of learners may join in one era: each [`uvrr::configuration::SystemOperation::Join`] moves no mass
 /// (`|0 − 0| = 0`), so R14 admits them without bound, and the quorum families
 /// are unchanged (R4), the exhaustive gate agrees. The planner keeps the whole
 /// stream in ONE era for the same reason.
@@ -190,7 +190,7 @@ fn join_inside_a_batch_still_refuses_a_duplicate() {
 
 /// A learner may leave and learners may join in the same era: every op moves no
 /// mass, so R14 admits the mixed batch, and R3 is satisfied because every
-/// `Leave` names a weight-0 member.
+/// [`uvrr::configuration::SystemOperation::Leave`] names a weight-0 member.
 #[test]
 fn learners_come_and_go_in_one_era() {
     let genesis = fold_genesis();
@@ -387,7 +387,7 @@ fn a_refused_plan_does_not_mutate_the_receiver() {
 // R13: DOUBLE/HALVE are solitary
 // ---------------------------------------------------------------------------
 
-/// A batch containing `Double` or `Halve` contains nothing else. Refused with
+/// A batch containing [`uvrr::configuration::SystemOperation::Double`] or [`uvrr::configuration::SystemOperation::Halve`] contains nothing else. Refused with
 /// company on either side.
 #[test]
 fn scaling_ops_are_solitary_in_a_batch() {
@@ -451,8 +451,8 @@ fn scaling_ops_split_off_alone_in_a_stream() {
 // R7–R12: the per-op boundaries, one refusal per precondition
 // ---------------------------------------------------------------------------
 
-/// `Increment` at weight 2 refuses (R7): the member would leave the domain, and
-/// the refusal names it and the cap. `Double` with any member at 2 refuses the
+/// [`uvrr::configuration::SystemOperation::Increment`] at weight 2 refuses (R7): the member would leave the domain, and
+/// the refusal names it and the cap. [`uvrr::configuration::SystemOperation::Double`] with any member at 2 refuses the
 /// same way (R9), naming the first member that would pass 2.
 #[test]
 fn increment_and_double_refuse_at_the_weight_cap() {
@@ -490,7 +490,7 @@ fn increment_and_double_refuse_at_the_weight_cap() {
     );
 }
 
-/// `Halve` with an odd weight present refuses (R10), naming the first odd
+/// [`uvrr::configuration::SystemOperation::Halve`] with an odd weight present refuses (R10), naming the first odd
 /// member; nothing rounds.
 #[test]
 fn halve_refuses_an_odd_weight() {
@@ -506,7 +506,7 @@ fn halve_refuses_an_odd_weight() {
     );
 }
 
-/// `Decrement` at weight 0 refuses (R8): a learner has no weight to give.
+/// [`uvrr::configuration::SystemOperation::Decrement`] at weight 0 refuses (R8): a learner has no weight to give.
 #[test]
 fn decrement_refuses_at_zero() {
     let genesis = fold_genesis();
@@ -520,7 +520,7 @@ fn decrement_refuses_at_zero() {
     );
 }
 
-/// `Leave` at any positive weight refuses (R12): the member still votes.
+/// [`uvrr::configuration::SystemOperation::Leave`] at any positive weight refuses (R12): the member still votes.
 #[test]
 fn leave_refuses_at_positive_weight() {
     let genesis = fold_genesis();
@@ -548,7 +548,7 @@ fn weights_never_leave_the_domain() {
 // R15: genesis is not plannable
 // ---------------------------------------------------------------------------
 
-/// `Void` and `Init` never appear in a batch, a batch never nests a batch, and
+/// [`uvrr::configuration::SystemOperation::Void`] and [`uvrr::configuration::SystemOperation::Init`] never appear in a batch, a batch never nests a batch, and
 /// an empty batch is not an era. The planner refuses genesis in the stream.
 #[test]
 fn genesis_and_nested_batches_are_refused() {

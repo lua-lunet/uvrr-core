@@ -1,6 +1,6 @@
-//! The marker carries the durable identity pair (`docs/uvrr-boot-gate.md`
+//! The marker carries the durable identity pair (`docs/uvrr-io-obligations.md`, the boot-gate chapter
 //! §5): the sysadmin-assigned system identifier as the high half, the crash
-//! counter as the low half, packed into the boundary `NodeId` the wire, the
+//! counter as the low half, packed into the boundary [`uvrr::ids::NodeId`] the wire, the
 //! disk, and the C ABI all see. These tests pin the format contract of the
 //! reference marker files: the lawful pair survives write and read, a zero
 //! half is a corrupt marker and refuses, an old-format marker refuses with

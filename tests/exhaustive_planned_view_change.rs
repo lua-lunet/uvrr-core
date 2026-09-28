@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `PlannedViewChange` solicitation a
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::PlannedViewChange`] solicitation a
 //! member answers (§8.7.7 step 2, step 3).
 //!
 //! One message over the cross product of the dimensions the handler branches
@@ -8,9 +8,9 @@
 //! by construction under the host obligations: the identity law (universally
 //! unique and never recycled, so a minted foreign sender is outside the
 //! configuration for the life of the test), the boot-gate marker states (a
-//! halt classifies `Clean` and reopens fenced `Restarting` at its retained
+//! halt classifies `Clean` and reopens fenced [`uvrr::progress::Status::Restarting`] at its retained
 //! view), and the quorum gate fixed at construction (Q1). The solicitation
-//! is not a fence: a `Normal` recipient retains its view, stays `Normal`,
+//! is not a fence: a [`uvrr::progress::Status::Normal`] recipient retains its view, stays [`uvrr::progress::Status::Normal`],
 //! and answers from its own bounded suffix with planned evidence, which
 //! fences nothing and counts toward no ordinary quorum.
 
@@ -75,7 +75,7 @@ fn route(sender: Sender, era: EraRel, boot: Boot) -> Route {
     }
 }
 
-/// A three-node cluster at view 1, the receiver assembled `Normal` or
+/// A three-node cluster at view 1, the receiver assembled [`uvrr::progress::Status::Normal`] or
 /// reopened fenced from a halt.
 #[rustfmt::skip]
 fn assembled(boot: Boot) -> Harness {

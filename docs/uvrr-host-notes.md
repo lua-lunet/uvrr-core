@@ -8,10 +8,10 @@
 > worked example helps, consult the latest official demos; nothing here is
 > kept current, and nothing here is authoritative.
 
-The normative host obligations live elsewhere and they rule: the boot gate
-(`uvrr-boot-gate.md`), the termination obligations
-(`uvrr-termination-obligations.md`), and the identity law
-(`uvrr-boot-gate.md` §5). This document holds the practices a deployment
+The normative host obligations live elsewhere and they rule:
+`uvrr-io-obligations.md`, the boot-gate chapter, the termination chapter,
+and the identity law (the boot-gate chapter §5). This document holds the
+practices a deployment
 has found useful and nothing more.
 
 ## The system-identifier practice

@@ -5,7 +5,7 @@ reconfiguration schedule into a single datagram. It is not a new protocol semant
 receiving one `Fuse` is *defined* as receiving the equivalent sequence of `Prepare`
 messages at the same ballot, one per slot, in batch order. Per-op safety is the
 ordinary accept path; only the wire shape changes. This document states what Fuse
-IS; the command alphabet and its boundaries are `docs/uvrr-reconfiguration-rules.md`,
+IS; the command alphabet and its boundaries are `docs/uvrr-protocols.md` (the reconfiguration-rules chapter),
 and the durability framing is `docs/uvrr-durability-model.md` §13.8.
 
 ## 1. The envelope

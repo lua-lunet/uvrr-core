@@ -1,18 +1,18 @@
-//! Contract for `uvrr::progress`, `uvrr::invariant::legal`, and `uvrr::observe`.
+//! Contract for [`uvrr::progress`], [`uvrr::invariant::legal`], and [`uvrr::observe`].
 //!
 //! Spec §1.3 (current vs retained view, frontier chain), §5 (the progress record and
 //! its sticky fault), §6 (the delta transition), §8.7.3 (era/slot discipline), §12
 //! (the serialized transition interval), and decisions B1 (seqlock), S3 (only
-//! `Indeterminate` persistence faults), W1 (`Ballot`).
+//! [`uvrr::effects::StabilityResult::Indeterminate`] persistence faults), W1 ([`uvrr::ids::Ballot`]).
 //!
 //! The properties pinned here, each of which the rest of the crate is entitled to
 //! assume without re-checking:
 //!
-//! 1. a `Progress` violating the frontier chain `checkpoint <= applied <= committed
+//! 1. a [`uvrr::progress::Progress`] violating the frontier chain `checkpoint <= applied <= committed
 //!    <= accepted` is unrepresentable, exhaustively over a small frontier space;
 //! 2. the §1.3 status/view relations hold on every representable value;
-//! 3. a fault is sticky: a faulted `Progress` admits no transition at all, and
-//!    `legal` reports the existing fault rather than a fresh one;
+//! 3. a fault is sticky: a faulted [`uvrr::progress::Progress`] admits no transition at all, and
+//!    [`uvrr::invariant::legal`] reports the existing fault rather than a fresh one;
 //! 4. `revision` advances by exactly one per published transition, so a stale plan
 //!    (§12) is rejected by comparison;
 //! 5. `invariant::legal` enforces each numbered rule of the transition contract,
@@ -20,7 +20,7 @@
 //! 6. era/slot discipline: `era(accepted)` is `era(current)` or `era(current) + 1`,
 //!    the `+1` boundary (overlap mode) passes, `+2` is refused at construction;
 //! 7. the seqlock never returns a torn read, under a writer/reader race;
-//! 8. `Ballot::INITIAL` is the genesis view: `Progress::genesis` advertises it,
+//! 8. [`uvrr::ids::Ballot::INITIAL`] is the genesis view: [`uvrr::progress::Progress::genesis`] advertises it,
 //!    fenced and restarting, per §5.
 
 use std::sync::Arc;
@@ -37,9 +37,10 @@ use uvrr::wire::Tag;
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/// A table with every era through `era` established: `Void` at slot 1, `Init` at
+/// A table with every era through `era` established: [`uvrr::configuration::SystemOperation::Void`] at slot 1, [`uvrr::configuration::SystemOperation::Init`] at
 /// slot 2, and one establishing operation per further era, so era `k >= 1` is
-/// established at slot `k + 1`. The retention window keeps only the last two eras.
+/// established at slot `k + 1`. The retention window spans three eras; at
+/// most two are resident, `{current - 1, current}`.
 ///
 /// The per-era operations obey the weight domain {0, 1, 2} (rules §1, R1): era 2
 /// promotes the sole member to weight 2, and every later era joins a fresh
@@ -90,7 +91,7 @@ fn view(era: u32, view: u32) -> Ballot {
     }
 }
 
-/// A `Normal`-status progress with `current == retained`, valid by construction in
+/// A [`uvrr::progress::Status::Normal`]-status progress with `current == retained`, valid by construction in
 /// the domains these tests use.
 #[allow(clippy::too_many_arguments)]
 fn normal(
@@ -169,14 +170,14 @@ fn frontier_chain_is_exhaustively_enforced() {
 // 2. Status/view relations (§1.3)
 // ---------------------------------------------------------------------------
 
-/// `Normal` requires `current >= retained`; `ViewChange` requires `current >=
-/// retained`. `Normal` sits equal after an install and past it after a
-/// nomination's commit-time bump, which advances the serving view by a
-/// committed command without re-selecting the retained history; serving BELOW
-/// the retained view is unrepresentable. `Restarting` and `Replaying` carry no
-/// relation, §1.3 states that in those statuses `current` is not an authority
-/// to participate, so constraining it would forbid states a restarting node
-/// legitimately holds.
+/// [`uvrr::progress::Status::Normal`] requires `current == retained`; [`uvrr::progress::Status::ViewChange`] requires `current >=
+/// retained`. `Normal` sits at equality after an install and after a
+/// nomination's commit-time bump alike, which publishes the bumped view as
+/// current and retained on the same transition; serving past the retained
+/// view under [`uvrr::progress::Status::Normal`] is unrepresentable. [`uvrr::progress::Status::Restarting`] and [`uvrr::progress::Status::Replaying`] carry
+/// no relation, §1.3 states that in those statuses `current` is not an
+/// authority to participate, so constraining it would forbid states a
+/// restarting node legitimately holds.
 #[test]
 fn status_view_relation_is_enforced() {
     let table = genesis_table();
@@ -200,7 +201,10 @@ fn status_view_relation_is_enforced() {
         ProgressError::StatusViewRelation
     );
     assert!(build(view(0, 0), view(0, 0), Status::Normal).is_ok());
-    assert!(build(view(0, 1), view(0, 0), Status::Normal).is_ok());
+    assert_eq!(
+        build(view(0, 1), view(0, 0), Status::Normal).unwrap_err(),
+        ProgressError::StatusViewRelation
+    );
 
     assert_eq!(
         build(view(0, 0), view(0, 1), Status::ViewChange).unwrap_err(),
@@ -389,7 +393,7 @@ fn rule1_accepted_may_shorten_only_on_reselection() {
 }
 
 /// Rule 2, `current` never regresses, and a view change is a legal successor:
-/// view strictly up, era equal or +1 (delegated to `Ballot::is_legal_successor`).
+/// view strictly up, era equal or +1 (delegated to [`uvrr::ids::Ballot::is_legal_successor`]).
 #[test]
 fn rule2_view_succession() {
     let table = genesis_table();
@@ -433,25 +437,23 @@ fn rule2_view_succession() {
 }
 
 /// Rule 3, `retained` identifies the provenance of the retained history (§1.3);
-/// it changes only when that history was re-selected by a peer message
-/// that installs one (`DoViewChange` completing the new primary's quorum,
-/// `StartView`, `NewState`).
+/// it changes when that history was re-selected by a peer message
+/// that installs one ([`uvrr::wire::Tag::DoViewChange`] completing the new primary's quorum,
+/// [`uvrr::wire::Tag::StartView`], [`uvrr::wire::Tag::NewState`]), or when a committed
+/// nomination's commit-time bump advances the serving view and §1.3's equality
+/// under `Normal` joins `retained` and `current` on the same transition
+/// (`docs/uvrr-protocols.md`, the NOMINATE chapter). The bump re-selects no
+/// history, so no input kind can carry a provenance lie through it.
 #[test]
-fn rule3_retained_changes_only_on_reselection() {
+fn rule3_retained_changes_on_reselection_or_the_nomination_bump() {
     let table = genesis_table();
     let old = normal(view(0, 3), 5, 2, 1, 1, 0, &table);
     let installed = normal(view(0, 4), 5, 2, 1, 1, 1, &table);
 
-    // Retained changed during normal operation.
-    assert_eq!(
-        legal(&old, &installed, &InputKind::ClientRequest),
-        Some(Fault::IllegalTransition)
-    );
-    assert_eq!(
-        legal(&old, &installed, &InputKind::Tick),
-        Some(Fault::IllegalTransition)
-    );
-    // A peer message that does not install history.
+    // The joint advance under Normal is the nomination bump's shape:
+    // `retained` joins `current`, and the bump re-selects no history.
+    assert_eq!(legal(&old, &installed, &InputKind::ClientRequest), None);
+    assert_eq!(legal(&old, &installed, &InputKind::Tick), None);
     assert_eq!(
         legal(
             &old,
@@ -461,6 +463,27 @@ fn rule3_retained_changes_only_on_reselection() {
                 slot: Slot(5),
             },
         ),
+        None
+    );
+
+    // A retained move under ViewChange gets no such clause: the bump's
+    // equality is a Normal-status relation, so a non-install input moving
+    // retained there stays refused.
+    let view_change_joined = Progress::reconstitute(
+        view(0, 4),
+        view(0, 4),
+        Status::ViewChange,
+        Slot(5),
+        Slot(2),
+        Slot(1),
+        Slot(1),
+        1,
+        Arc::clone(&table),
+        None,
+    )
+    .expect("the candidate is internally valid");
+    assert_eq!(
+        legal(&old, &view_change_joined, &InputKind::Tick),
         Some(Fault::IllegalTransition)
     );
 
@@ -515,9 +538,9 @@ fn rule7_header_slot_table_is_the_documented_one() {
     }
 }
 
-/// Rule 7, `Operation` class: `Prepare`/`PrepareOk` name a log position, and
+/// Rule 7, `Operation` class: [`uvrr::wire::Tag::Prepare`]/[`uvrr::wire::Tag::PrepareOk`] name a log position, and
 /// position 0 holds nothing, the first operation of a legitimate history is
-/// `Void` at slot 1 (§8.7.2).
+/// [`uvrr::configuration::SystemOperation::Void`] at slot 1 (§8.7.2).
 #[test]
 fn rule7_operation_tags_must_name_a_slot() {
     let table = genesis_table();
@@ -588,7 +611,7 @@ fn rule7_frontier_tags_admit_any_slot() {
 /// The boundary case: `era(accepted) == era(current) + 1` is overlap mode and is
 /// legal; `+2` skips a configuration whose intersection obligations were never
 /// checked (Q1) and is refused. Enforcement is at construction, an undisciplined
-/// value is unrepresentable, with `legal` rule 6 as the belt-and-braces check on
+/// value is unrepresentable, with [`uvrr::invariant::legal`] rule 6 as the belt-and-braces check on
 /// every candidate.
 #[test]
 fn era_slot_discipline_boundary() {
@@ -734,10 +757,10 @@ fn observation_never_returns_a_torn_read() {
 // 8. Genesis and the `Ballot::INITIAL` ruling
 // ---------------------------------------------------------------------------
 
-/// The ruling (resolved here): `Ballot::INITIAL` is pinned as
+/// The ruling (resolved here): [`uvrr::ids::Ballot::INITIAL`] is pinned as
 /// the **genesis view**, the `(era 0, view 0)` pair a freshly provisioned node
 /// advertises. Era 0 is the void configuration, quorum-impossible by arithmetic
-/// (see `Configuration::void`), and view 0 is the first primary term once `Init`
+/// (see [`uvrr::configuration::Configuration::void`]), and view 0 is the first primary term once [`uvrr::configuration::SystemOperation::Init`]
 /// commits. It is not "no view": a freshly provisioned node has a real genesis
 /// view, so no `Option<Ballot>` appears anywhere. Per §5 the genesis node is
 /// fenced and restarting until it proves its state current.

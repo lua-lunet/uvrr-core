@@ -1,14 +1,14 @@
 //! Normal operation: VRR-2012 §4 (Prepare/PrepareOk/Commit), the
 //! Propose/Apply/Applied application boundary (§11.1), commit-frontier
-//! piggybacking (§13.3), and the bootstrap from the fenced `Restarting`
+//! piggybacking (§13.3), and the bootstrap from the fenced [`uvrr::progress::Status::Restarting`]
 //! genesis state.
 //!
-//! The bootstrap (the genesis ruling, §1.3): a `Restarting` node whose journal holds
+//! The bootstrap (the genesis ruling, §1.3): a [`uvrr::progress::Status::Restarting`] node whose journal holds
 //! the complete committed genesis (slots 1–2, nothing missing) and which IS
-//! `config.primary(View(0))` enters `Normal` on a tick, at initial
+//! `config.primary(View(0))` enters [`uvrr::progress::Status::Normal`] on a tick, at initial
 //! provisioning there is no prior state to be amnesiac about, so the §14.2
 //! objection does not apply; the tick keeps construction uniform. Backups
-//! adopt the view from a legitimate primary `Prepare`/`Commit` (§4's own
+//! adopt the view from a legitimate primary [`uvrr::wire::Tag::Prepare`]/[`uvrr::wire::Tag::Commit`] (§4's own
 //! mechanism), never from ticks.
 
 use uvrr::configuration::INIT_SLOT;
@@ -49,7 +49,7 @@ fn genesis_view() -> Ballot {
 }
 
 /// A three-node cluster past the bootstrap: the genesis primary promoted on
-/// the first tick, every backup adopted view 0 from the promotion's `Commit`
+/// the first tick, every backup adopted view 0 from the promotion's [`uvrr::wire::Tag::Commit`]
 /// announcement (§13.3).
 fn bootstrapped() -> Harness {
     let mut h = Harness::provision(3);
@@ -58,8 +58,8 @@ fn bootstrapped() -> Harness {
     h
 }
 
-/// The `Prepare` a view-0 primary would send for an operation at `slot`.
-/// Scripts use it to re-offer a dropped `Prepare` (the harness's documented
+/// The [`uvrr::wire::Tag::Prepare`] a view-0 primary would send for an operation at `slot`.
+/// Scripts use it to re-offer a dropped [`uvrr::wire::Tag::Prepare`] (the harness's documented
 /// fabrication path), standing in for the primary's retransmit, which
 /// belongs to state transfer (§10). The entry carries its operation
 /// identity (§11.1), so the fabrication must name it.
@@ -84,7 +84,7 @@ fn prepare(slot: u64, committed: u64, operation_id: OperationId, payload: &[u8])
     }
 }
 
-/// The `Apply` slots one step released, in release order, the
+/// The [`uvrr::effects::Effect::Apply`] slots one step released, in release order, the
 /// duplicate-delivery assertions are stated over these.
 fn apply_slots(effects: &[Effect]) -> Vec<Slot> {
     effects
@@ -97,9 +97,9 @@ fn apply_slots(effects: &[Effect]) -> Vec<Slot> {
 }
 
 /// Bootstrap plus one operation end to end (§4): the tick promotes the
-/// genesis primary; the `Prepare` adopts+accepts at the backup; the
-/// `PrepareOk` completes the Commit quorum; the `Apply` carries the
-/// operation's identity to the host, whose `Applied` acknowledgement
+/// genesis primary; the [`uvrr::wire::Tag::Prepare`] adopts+accepts at the backup; the
+/// [`uvrr::wire::Tag::PrepareOk`] completes the Commit quorum; the [`uvrr::effects::Effect::Apply`] carries the
+/// operation's identity to the host, whose [`uvrr::replica::Input::Applied`] acknowledgement
 /// advances the applied frontier (§11.1).
 #[test]
 fn bootstrap_and_one_request_end_to_end() {
@@ -210,8 +210,8 @@ fn bootstrap_and_one_request_end_to_end() {
     h.assert_safety();
 }
 
-/// The committed frontier travels both §13.3 ways: the explicit `Commit`,
-/// and the piggyback on the next `Prepare`. A backup applies only what it
+/// The committed frontier travels both §13.3 ways: the explicit [`uvrr::wire::Tag::Commit`],
+/// and the piggyback on the next [`uvrr::wire::Tag::Prepare`]. A backup applies only what it
 /// has accepted, in order, and all three applied records agree.
 #[test]
 fn commit_propagates_by_commit_message_and_by_piggyback() {
@@ -277,8 +277,8 @@ fn commit_propagates_by_commit_message_and_by_piggyback() {
 }
 
 /// A Commit quorum is the strategy's weighted majority, not unanimity (Q1):
-/// with three unit-weight members, ONE backup's `PrepareOk` plus the
-/// primary's own vote commits. The delayed second `PrepareOk` is a named,
+/// with three unit-weight members, ONE backup's [`uvrr::wire::Tag::PrepareOk`] plus the
+/// primary's own vote commits. The delayed second [`uvrr::wire::Tag::PrepareOk`] is a named,
 /// harmless drop.
 #[test]
 fn commit_lands_on_a_weighted_majority_not_unanimity() {
@@ -316,9 +316,9 @@ fn commit_lands_on_a_weighted_majority_not_unanimity() {
     h.assert_safety();
 }
 
-/// No deduplication at the boundary (§11.1, B2): the same [`OperationId`]
+/// No deduplication at the boundary (§11.1, B2): the same [`uvrr::ids::OperationId`]
 /// proposed twice is TWO operations to the core, two slots, two commits,
-/// two `Apply` effects, each carrying the identity the host assigned.
+/// two [`uvrr::effects::Effect::Apply`] effects, each carrying the identity the host assigned.
 /// Exactly-once is the host's deduplication policy above the boundary,
 /// never the core's.
 #[test]
@@ -369,8 +369,8 @@ fn duplicate_proposal_is_a_distinct_operation() {
     h.assert_safety();
 }
 
-/// A duplicate `Prepare` never re-appends: one journal entry, two
-/// `PrepareOk`s (idempotent retransmission, §4).
+/// A duplicate [`uvrr::wire::Tag::Prepare`] never re-appends: one journal entry, two
+/// [`uvrr::wire::Tag::PrepareOk`]s (idempotent retransmission, §4).
 #[test]
 fn duplicate_prepare_is_idempotent() {
     let mut h = bootstrapped();
@@ -421,9 +421,9 @@ fn duplicate_prepare_is_idempotent() {
     h.assert_safety();
 }
 
-/// The frontier clause: a slot is assigned once in a legitimate history,
-/// so a re-offered `Prepare` for an accepted slot whose payload differs
-/// from the held entry is the named [`Diagnostic::ConflictingEntry`]
+/// The frontier clause: a slot is assigned once in a legitimate history (§1.3),
+/// so a re-offered [`uvrr::wire::Tag::Prepare`] for an accepted slot whose payload differs
+/// from the held entry is the named [`uvrr::observe::Diagnostic::ConflictingEntry`]
 /// drop. The held entry stands: nothing is journaled, no
 /// acknowledgement is emitted, and the state never changes. Without the
 /// guard the re-offer would re-append a contradicting entry or, worse,
@@ -482,9 +482,9 @@ fn conflicting_reoffer_for_an_accepted_slot_is_a_named_drop() {
     h.assert_safety();
 }
 
-/// The view clause: a `Prepare` whose header names a view of the current
+/// The view clause: a [`uvrr::wire::Tag::Prepare`] whose header names a view of the current
 /// era whose primary the transport-attributed sender is not is the named
-/// [`Diagnostic::SenderNotPrimary`] drop, and the primary-attribution
+/// [`uvrr::observe::Diagnostic::SenderNotPrimary`] drop, and the primary-attribution
 /// guard outranks both the §10 higher-view staleness signal and the
 /// exact-view mismatch, a forged attribution is never fenced on. The
 /// header names view 1, the primary the arithmetic names is n1, and the
@@ -552,10 +552,10 @@ fn a_prepare_from_the_non_primary_of_its_named_view_is_a_named_drop() {
     h.assert_safety();
 }
 
-/// An out-of-order `Prepare` is a gap: dropped, reported as `GapDetected`,
+/// An out-of-order [`uvrr::wire::Tag::Prepare`] is a gap: dropped, reported as `GapDetected`,
 /// never faulted, and the fetch half of the ruling (§13.1 step 5) rides
 /// the same transition, asking the primary for the missing range. The
-/// missing `Prepare` closes the gap; the re-offered slot then completes
+/// missing [`uvrr::wire::Tag::Prepare`] closes the gap; the re-offered slot then completes
 /// the chain. The re-offer stands in for the primary's retransmit.
 #[test]
 fn out_of_order_prepare_gap_is_dropped_and_recovered() {
@@ -674,7 +674,7 @@ fn proposals_to_non_primaries_are_not_primary_refusals() {
     h.assert_safety();
 }
 
-/// Three pipelined proposals, one quorum: `PrepareOk`s delivered in slot
+/// Three pipelined proposals, one quorum: [`uvrr::wire::Tag::PrepareOk`]s delivered in slot
 /// order commit the slots one after another, and Apply effects release
 /// strictly in slot order (§11.1).
 #[test]
@@ -772,8 +772,8 @@ fn the_legality_gate_stands_under_load() {
 }
 
 /// The boundary carries identity end to end, at every node (§11.1): every
-/// `Apply` names the slot and the proposing host's [`OperationId`], in slot
-/// order, and the host's `Applied` acknowledgement is a bare slot, no
+/// [`uvrr::effects::Effect::Apply`] names the slot and the proposing host's [`uvrr::ids::OperationId`], in slot
+/// order, and the host's [`uvrr::replica::Input::Applied`] acknowledgement is a bare slot, no
 /// result travels back, and no node ever emits a reply (B2).
 #[test]
 fn apply_carries_the_proposals_identity() {
@@ -812,9 +812,9 @@ fn apply_carries_the_proposals_identity() {
     h.assert_safety();
 }
 
-/// A duplicate `Commit` to a backup, same view, same committed frontier,
+/// A duplicate [`uvrr::wire::Tag::Commit`] to a backup, same view, same committed frontier,
 /// redelivered by a lossy transport, is a silent no-effect transition: no
-/// diagnostic, no second `Apply`, and the frontier does not move. The
+/// diagnostic, no second [`uvrr::effects::Effect::Apply`], and the frontier does not move. The
 /// redelivery is the very datagram the primary emitted, captured from the
 /// queue and re-enqueued.
 #[test]
@@ -869,11 +869,11 @@ fn duplicate_commit_to_a_backup_is_a_silent_no_effect() {
     h.assert_safety();
 }
 
-/// A duplicate `Prepare` to a backup, same slot, same entry, delivered
+/// A duplicate [`uvrr::wire::Tag::Prepare`] to a backup, same slot, same entry, delivered
 /// after the backup accepted the original: the primary's retransmit now
 /// piggybacks the committed frontier (§13.3), so the first copy commits
 /// and applies the slot; the second is a bare re-acknowledgement, a
-/// fresh `PrepareOk`, no re-append, and no second `Apply`. The re-offer
+/// fresh [`uvrr::wire::Tag::PrepareOk`], no re-append, and no second [`uvrr::effects::Effect::Apply`]. The re-offer
 /// stands in for the primary's retransmit, the harness's documented
 /// fabrication path.
 #[test]
@@ -944,9 +944,9 @@ fn duplicate_prepare_reacknowledges_without_reapplying() {
     h.assert_safety();
 }
 
-/// A duplicate `PrepareOk` at the primary, the same backup's
+/// A duplicate [`uvrr::wire::Tag::PrepareOk`] at the primary, the same backup's
 /// acknowledgement delivered twice for one proposal, is the named
-/// [`Diagnostic::DuplicatePrepareOk`] drop while the slot is still
+/// [`uvrr::observe::Diagnostic::DuplicatePrepareOk`] drop while the slot is still
 /// outstanding: no vote is double-counted, the commit fires exactly once
 /// when the quorum later lands, and the slot applies exactly once. Five
 /// unit-weight members make the Commit quorum 3 (Q1), so the first
@@ -1028,10 +1028,10 @@ fn duplicate_prepare_ok_at_the_primary_commits_once() {
     h.assert_safety();
 }
 
-/// A reordered duplicate `Commit` carrying a stale frontier, delivered
+/// A reordered duplicate [`uvrr::wire::Tag::Commit`] carrying a stale frontier, delivered
 /// after the frontier already advanced past it: nothing is re-emitted and
 /// the frontier never moves backward. Both commits land at the backup in
-/// order first; then the FIRST commit's `Commit` datagram is redelivered.
+/// order first; then the FIRST commit's [`uvrr::wire::Tag::Commit`] datagram is redelivered.
 #[test]
 fn stale_commit_after_frontier_advanced_is_a_no_op() {
     let mut h = bootstrapped();
@@ -1102,8 +1102,8 @@ fn stale_commit_after_frontier_advanced_is_a_no_op() {
     h.assert_safety();
 }
 
-/// A duplicate `Commit` arriving at the applied boundary, after the host
-/// performed the slot's `Apply` and acknowledged it with `Input::Applied`
+/// A duplicate [`uvrr::wire::Tag::Commit`] arriving at the applied boundary, after the host
+/// performed the slot's [`uvrr::effects::Effect::Apply`] and acknowledged it with [`uvrr::replica::Input::Applied`]
 /// (§11.1), re-emits nothing: the applied frontier stands and the slot's
 /// upcall fired exactly once within the life.
 #[test]

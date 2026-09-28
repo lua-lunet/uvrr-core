@@ -57,7 +57,7 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
     Status::from_word(snap(h, id).status).expect("the word is a status")
 }
 
-/// The node's current view as a `Ballot`.
+/// The node's current view as a [`uvrr::ids::Ballot`].
 fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
     Ballot {
