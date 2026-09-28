@@ -9,7 +9,9 @@
 # stays fixed unless the caller overrides it, so the layout is stable for a
 # given Tectonic release and package bundle (2026-09-06T00:00:00Z).
 set -eu
-cd "$(CDPATH="" cd -- "$(dirname -- "$0")" && pwd)"
+INVOCATION_DIR="$PWD"
+SCRIPT_DIR="$(CDPATH="" cd -- "$(dirname -- "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 
 if ! command -v tectonic >/dev/null 2>&1; then
     printf '%s\n' 'Tectonic is required. On macOS: brew install tectonic' >&2
@@ -24,11 +26,13 @@ fi
 
 DRAFT=0
 OCR=0
+DO_OPEN=0
 TECTONIC_ARGS=''
 for arg in "$@"; do
     case "$arg" in
         --draft) DRAFT=1 ;;
         --ocr) OCR=1 ;;
+        --open) DO_OPEN=1 ;;
         --only-cached) TECTONIC_ARGS="$TECTONIC_ARGS --only-cached" ;;
         *) printf 'unknown flag: %s\n' "$arg" >&2; exit 2 ;;
     esac
@@ -69,7 +73,26 @@ if ! pdftotext "$OUT" - | grep -qF "$ID"; then
     rm -f "$OUT" .published-id
     exit 1
 fi
-printf 'published %s (footer id asserted, %s pages)\n' "$OUT" "$(pdfinfo "$OUT" | awk '/^Pages:/{print $2}')"
+
+ABS_OUT="$SCRIPT_DIR/$OUT"
+case "$ABS_OUT" in
+    "$INVOCATION_DIR"/*)
+        DISPLAY_OUT="${ABS_OUT#"$INVOCATION_DIR"/}"
+        ;;
+    *)
+        DISPLAY_OUT="$ABS_OUT"
+        ;;
+esac
+
+printf 'published %s (footer id asserted, %s pages)\n' "$DISPLAY_OUT" "$(pdfinfo "$OUT" | awk '/^Pages:/{print $2}')"
+
+if [ "$DO_OPEN" -eq 1 ]; then
+    if [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then
+        open "$ABS_OUT"
+    elif command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$ABS_OUT" >/dev/null 2>&1 || true
+    fi
+fi
 
 if [ "$OCR" -eq 1 ]; then
     if [ ! -f "$ROOT/.env" ]; then

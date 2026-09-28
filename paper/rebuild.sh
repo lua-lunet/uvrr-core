@@ -13,6 +13,7 @@ done
 export PATH
 
 # Resolve script directory portably
+INVOCATION_DIR="$PWD"
 SCRIPT_DIR="$(CDPATH="" cd -- "$(dirname -- "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -89,7 +90,17 @@ if [ ! -f "$PDF_OUT" ]; then
     exit 1
 fi
 
-printf 'Built: %s/%s\n' "$SCRIPT_DIR" "$PDF_OUT"
+ABS_OUT="$SCRIPT_DIR/$PDF_OUT"
+case "$ABS_OUT" in
+    "$INVOCATION_DIR"/*)
+        DISPLAY_OUT="${ABS_OUT#"$INVOCATION_DIR"/}"
+        ;;
+    *)
+        DISPLAY_OUT="$ABS_OUT"
+        ;;
+esac
+
+printf 'Built: %s\n' "$DISPLAY_OUT"
 
 # 5. Open output if requested and a desktop viewer is available
 if [ "$DO_OPEN" -eq 1 ]; then
