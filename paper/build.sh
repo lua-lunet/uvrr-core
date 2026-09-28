@@ -9,7 +9,7 @@
 # stays fixed unless the caller overrides it, so the layout is stable for a
 # given Tectonic release and package bundle (2026-09-06T00:00:00Z).
 set -eu
-cd "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+cd "$(CDPATH="" cd -- "$(dirname -- "$0")" && pwd)"
 
 if ! command -v tectonic >/dev/null 2>&1; then
     printf '%s\n' 'Tectonic is required. On macOS: brew install tectonic' >&2
@@ -22,10 +22,12 @@ fi
 
 ./spellcheck.sh
 
+DRAFT=0
 OCR=0
 TECTONIC_ARGS=''
 for arg in "$@"; do
     case "$arg" in
+        --draft) DRAFT=1 ;;
         --ocr) OCR=1 ;;
         --only-cached) TECTONIC_ARGS="$TECTONIC_ARGS --only-cached" ;;
         *) printf 'unknown flag: %s\n' "$arg" >&2; exit 2 ;;
@@ -34,17 +36,20 @@ done
 
 ROOT=$(git rev-parse --show-toplevel)
 ID="$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
+if [ "$DRAFT" -eq 1 ]; then
+    ID="${ID}-draft"
+fi
 OUT="papers/$ID.pdf"
 
-if ! git diff --quiet HEAD -- .; then
+if [ "$DRAFT" -eq 0 ] && ! git diff --quiet HEAD -- .; then
     printf 'REFUSED: tracked sources under paper/ differ from HEAD:\n' >&2
     git diff --name-only HEAD -- . >&2
     printf 'The paper publishes only from committed sources, and the id %s names HEAD.\n' "$ID" >&2
-    printf 'Commit the sources first, then build, then commit the published PDF.\n' >&2
+    printf 'Commit the sources first, then build, then commit the published PDF (or pass --draft).\n' >&2
     exit 1
 fi
 
-if [ -e "$OUT" ]; then
+if [ "$DRAFT" -eq 0 ] && [ -e "$OUT" ]; then
     printf 'REFUSED: %s already exists. A published paper is an immutable version of record.\n' "$OUT" >&2
     printf 'To reattempt deliberately: rm "%s/%s"\n' "$(pwd)" "$OUT" >&2
     exit 1
