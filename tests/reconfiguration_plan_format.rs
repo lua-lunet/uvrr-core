@@ -1,6 +1,6 @@
 //! The plan format and the CLI surface: the plan type, its JSONL codec, and
 //! the schedules `uvrr-reconfig plan` emits
-//! (`docs/weighted-reconfiguration-solver.md`).
+//! (`docs/uvrr-protocols.md`, the solver chapter).
 //!
 //! The lib-level solver schedules are pinned in `tests/reconfiguration_solver.rs`
 //! and `tests/reconfiguration_plan.rs`; what is pinned here is the plan artefact
@@ -44,7 +44,7 @@ fn plan_replacement(start: &Configuration, old: NodeId, new: NodeId, live: &[Nod
 }
 
 /// The header and step lines of the three-node two-era replacement plan, in the
-/// JSONL schema of `docs/weighted-reconfiguration-solver.md`. The ids are the
+/// JSONL schema of `docs/uvrr-protocols.md`, the solver chapter. The ids are the
 /// lawful packed pairs: systems 1, 2, 3 at crash counter 1, and the
 /// reincarnated identity is system 4's first life.
 #[cfg(any(feature = "serde", feature = "sysadmin_tool"))]

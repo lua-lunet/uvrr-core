@@ -1,10 +1,10 @@
-//! The Leave-pivot `qI` finding: a `Leave` whose pivot places
+//! The Leave-pivot `qI` finding: a [`uvrr::configuration::SystemOperation::Leave`] whose pivot places
 //! the departing member inside `qI`, the standby rides into `qI` on the
 //! §8.7.6 cardinality rule (`|qI| + |qII| = N + 1`), must still complete
 //! its planned quorum. The construction explicitly solicits the departed
-//! identity's vote (`src/replica/reconfiguration.rs`: "`qI − {L}` ... a
+//! identity's vote (§8.7.7: "`qI − {L}` ... a
 //! member the reconfiguration removes must still get its vote in"), so the
-//! §6 membership-discard at ingress must not swallow that one answer: the
+//! the reincarnation chapter §6 membership-discard at ingress must not swallow that one answer: the
 //! planned quorum completes with it, the transition publishes as one step,
 //! and the era never needs the ordinary fence.
 
@@ -34,7 +34,7 @@ fn era2_view(number: u32) -> Ballot {
     }
 }
 
-/// A view in era 3, the era the planned `Leave` establishes.
+/// A view in era 3, the era the planned [`uvrr::configuration::SystemOperation::Leave`] establishes.
 fn era3_view(number: u32) -> Ballot {
     Ballot {
         era: Era(3),
@@ -58,7 +58,7 @@ fn cluster() -> Harness {
 }
 
 /// Bootstraps the cluster: the genesis primary promotes itself and every
-/// backup adopts view (1, 0) from the promotion's `Commit` announcement
+/// backup adopts view (1, 0) from the promotion's [`uvrr::wire::Tag::Commit`] announcement
 /// (§13.3).
 fn bootstrap(h: &mut Harness) {
     h.tick_all();
@@ -71,7 +71,7 @@ fn snap(h: &Harness, id: NodeId) -> uvrr::progress::ProgressSnapshot {
     h.snapshot(id).expect("the node is live")
 }
 
-/// The node's current view as a `Ballot`.
+/// The node's current view as a [`uvrr::ids::Ballot`].
 fn current_view(h: &Harness, id: NodeId) -> Ballot {
     let snapshot = snap(h, id);
     Ballot {

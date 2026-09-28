@@ -1,14 +1,14 @@
 //! Exhaustive per-message properties: the client request the host proposes
 //! (§6, §11.1, B2).
 //!
-//! One input (`Input::Propose`) over the cross product of the dimensions the
+//! One input ([`uvrr::replica::Input::Propose`]) over the cross product of the dimensions the
 //! handler branches on: the node's role against the current view's primary,
 //! the node's boot status, and whether the same identity is proposed twice.
 //! Exhaustive by construction under the host obligations: the identity law
 //! (universally unique and never recycled, so the proposed identity belongs
 //! to exactly one operation and the refusal to deduplicate can never alias
 //! two proposals onto one identity), the boot-gate marker states (a halt
-//! classifies `Clean` and reopens fenced `Restarting`), and the quorum gate
+//! classifies `Clean` and reopens fenced [`uvrr::progress::Status::Restarting`]), and the quorum gate
 //! fixed at construction (Q1). The core never inspects the identity and never
 //! deduplicates on it (B2), so the twice-proposed identity orders twice, at
 //! two slots.

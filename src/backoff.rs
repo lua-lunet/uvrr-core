@@ -36,7 +36,7 @@
 //!   unit, `2·unit`, `4·unit`, …, because a duel that repeats under a flat window
 //!   repeats forever.
 //! - **The fixed half grows** so a duel survivor gets real work done inside its
-//!   window: a node that has just won an election must fit a `Prepare`/`Commit`
+//!   window: a node that has just won an election must fit a [`crate::wire::Tag::Prepare`]/[`crate::wire::Tag::Commit`]
 //!   round before its own next suspicion fires.
 //! - **The random half widens** so dueling hosts' timers spread: the next pair of
 //!   deadlines decorrelate, and one node completes its election while the other

@@ -48,7 +48,7 @@ pub mod error {
 /// The lin-kv operation, as replicated. `client_id` and `request_num` are
 /// carried inside the payload as well as in the operation identity, so the
 /// application can cross-check the replication envelope it is handed at
-/// `Effect::Apply` against the payload it is asked to execute.
+/// [`uvrr::effects::Effect::Apply`] against the payload it is asked to execute.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum KvRequest {
@@ -135,7 +135,7 @@ impl KvResponse {
 }
 
 /// Hex, so a VRR datagram survives Maelstrom's JSON transport while still
-/// going through the real `Pack`/`Unpack` codec, including the 20-byte
+/// going through the real [`uvrr::wire::Pack`]/[`uvrr::wire::Unpack`] codec, including the 20-byte
 /// binary header. Avoids adding a base64 dependency to the harness.
 pub fn to_hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";

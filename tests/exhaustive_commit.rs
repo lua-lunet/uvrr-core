@@ -1,4 +1,4 @@
-//! Exhaustive per-message properties: the `Commit` any node receives (§4, §13.3).
+//! Exhaustive per-message properties: the [`uvrr::wire::Tag::Commit`] any node receives (§4, §13.3).
 //!
 //! One message over the cross product of the dimensions the handler branches
 //! on: the receiver's boot status, the message's view against its current
@@ -6,7 +6,7 @@
 //! Exhaustive by construction under the host obligations: the identity law
 //! (never recycled, so the receiver's durable frontiers are exactly what the
 //! assembled state publishes), the boot-gate marker states (a halt
-//! classifies `Clean` and reopens fenced `Restarting`, where the boot fence
+//! classifies `Clean` and reopens fenced [`uvrr::progress::Status::Restarting`], where the boot fence
 //! holds the §10 carve-out), and the quorum gate fixed at construction (Q1).
 //! The frontier never claims what the journal does not record (§5 invariant
 //! 2), which the assembled accepted frontier makes exact here.
@@ -78,7 +78,7 @@ fn route(boot: Boot, v: Rel, f: Rel) -> Route {
 }
 
 /// A three-node cluster at view 1, the receiver holding slot 3 accepted but
-/// uncommitted, assembled `Normal` or reopened fenced from a halt.
+/// uncommitted, assembled [`uvrr::progress::Status::Normal`] or reopened fenced from a halt.
 #[rustfmt::skip]
 fn assembled(boot: Boot, op: OperationId) -> Harness {
     let knobs = ViewChangeKnobs { primary_timeout: TIMEOUT, view_change_budget: usize::MAX };

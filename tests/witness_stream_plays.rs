@@ -1,5 +1,5 @@
 //! Witness stream plays: the two exact walk-throughs of
-//! `docs/uvrr-reincarnation.md` §7–§8 as message choreography.
+//! `docs/uvrr-protocols.md`, the reincarnation chapter §7–§8 as message choreography.
 //!
 //! * **Play A (three nodes)**, n1 isolated, n3 crashes and reincarnates
 //!   as a witness; the leader streams phase-2 but cannot commit; the

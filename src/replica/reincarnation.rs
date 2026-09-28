@@ -1,16 +1,16 @@
 //! Reincarnation: the Crash-Stop-Self-Evict production logic
-//! (`docs/uvrr-reincarnation.md`).
+//! (`docs/uvrr-protocols.md`, the reincarnation chapter).
 //!
 //! Three pieces live here, each the code of one section of that document:
 //!
 //! * **The forced weight sequence** (§5; rules §6): given a committed
 //!   configuration and the announced `(old, new)` pair, the remaining
 //!   eras the leader must commit, the §6 table computed for the old
-//!   identity's observed state, each era ONE `Batch` establishing
+//!   identity's observed state, each era ONE [`crate::configuration::SystemOperation::Batch`] establishing
 //!   operation: the old identity's weight driven to 0 by unit decrements
 //!   (the subtract-one rule, always era-safe), the crossing batch
 //!   `[Decrement(old), Join(new)]`, the promotion batch
-//!   `[Increment(new), Leave(old)]` (a zero-weight `Leave` changes no
+//!   `[Increment(new), Leave(old)]` (a zero-weight [`crate::configuration::SystemOperation::Leave`] changes no
 //!   quorum family), and for an old identity already at 0 or already
 //!   evicted the join/promotion form the table names. Steps the observed
 //!   eras already committed are not re-run: the announcement is idempotent
@@ -23,29 +23,28 @@
 //!   ordinary reconfiguration pipeline, one establishing operation at a
 //!   time, each commit a distinct era (§5), every step gated by the same
 //!   closed gates any host-proposed operation passes.
-//! * **The marker transition machine** (§5.1 of `docs/uvrr-durability-model.md`,
-//!   the boot decision of `docs/uvrr-reincarnation.md` §1): the pure Rust twin
+//! * **The marker transition machine** (`docs/uvrr-io-obligations.md`, the boot-gate chapter §2, the boot decision of `docs/uvrr-protocols.md`, the reincarnation chapter §1): the pure Rust twin
 //!   of the vendored TigerBeetle store (`zig/uvrr/store.zig`). The four
 //!   superblock markers are an ordered transition system,
 //!   `Running ──stop──> Stopping ──drain──> Stopped ──boot, 2-of-4──>
 //!   Restarting`, and `Running ──crash──> (markers unchanged) ──boot, no
 //!   2-of-4 Stopped──> Joining`, each state naming the transition that must
 //!   have completed for it to exist. uVRR performs **no disk flushes on the
-//!   normal path**: the stop command writes `Stopping` 4x
+//!   normal path**: the stop command writes [`crate::lifecycle::Marker::Stopping`] 4x
 //!   ([`crate::lifecycle::SuperblockCopies::begin_stop`]), the HOST drains, flushes WALs and
 //!   grids, strictly between the two marker writes, and
-//!   [`crate::lifecycle::SuperblockCopies::finish_stop`] writes `Stopped` 4x; the marker order
-//!   is the drain's proof, so a `Stopped` copy vouches for the WAL under it.
+//!   [`crate::lifecycle::SuperblockCopies::finish_stop`] writes [`crate::lifecycle::Marker::Stopped`] 4x; the marker order
+//!   is the drain's proof, so a [`crate::lifecycle::Marker::Stopped`] copy vouches for the WAL under it.
 //!   At boot the quorum read answers one question, *did the transition
-//!   complete?*, with 2-of-4 copies holding `Stopped` (the twin's open
+//!   complete?*, with 2-of-4 copies holding [`crate::lifecycle::Marker::Stopped`] (the twin's open
 //!   threshold), the working quorum resolving the identity
 //!   higher-identity-wins INSIDE the quorum: a stopped quorum continues under
-//!   the same identity and writes `Restarting` 4x, a member with complete
+//!   the same identity and writes [`crate::lifecycle::Marker::Restarting`] 4x, a member with complete
 //!   state, no amnesia, ticking the full protocol; no stopped quorum, a
 //!   crash, a torn marker set, or death mid-join, means the identity is
-//!   dead: the node bumps it and reincarnates, writing `Joining` 4x, not a
+//!   dead: the node bumps it and reincarnates, writing [`crate::lifecycle::Marker::Joining`] 4x, not a
 //!   member, no vote, no view change. No `Started` state is written: no
-//!   safety logic looks for `Started`, it looks for `Stopped`, the extra
+//!   safety logic looks for `Started`, it looks for [`crate::lifecycle::Marker::Stopped`], the extra
 //!   superblock write buys no safety and is elided. The marker writes are
 //!   durable-on-write (flushed), the only disk traffic outside the stop
 //!   path.
@@ -96,7 +95,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// The immediate ack (§4, §7) rides the SAME transition, ahead of the
     /// proposal: the missed range, from the announcement's past-life
     /// prepared frontier up to the leader's committed frontier, as an
-    /// ordinary [`Body::NewState`] chunk addressed to the standby. Messages
+    /// ordinary [`crate::message::Body::NewState`] chunk addressed to the standby. Messages
     /// TO a non-member are legal (§6). The chunk's header view is the
     /// ANNOUNCEMENT's view: the standby evaluates the chunk against the
     /// view it already holds, exactly as the §10 acquisition route's echoed
@@ -202,7 +201,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
     }
 
-    /// The missed-range push (§7 step 1): one ordinary [`Body::NewState`]
+    /// The missed-range push (§7 step 1): one ordinary [`crate::message::Body::NewState`]
     /// chunk covering the slots the announced node's past-life journal
     /// lacks, from its prepared frontier's successor through the leader's
     /// committed frontier, addressed to the standby under `view`, the
@@ -286,7 +285,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if voting { None } else { Some(machine.new) }
     }
 
-    /// The stream targets (`docs/uvrr-rejoin-gossip-and-witnesses.md` §3):
+    /// The stream targets (`docs/uvrr-protocols.md`, the rejoin chapter §3):
     /// the memo target (§7) plus the gossip-witness list, the leader
     /// pushes all phase-2s and commits to every node the join gossip has
     /// named, as if those nodes were part of the cluster. A witness the
@@ -316,10 +315,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         targets
     }
 
-    /// The rejoin gossip's request (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+    /// The rejoin gossip's request (`docs/uvrr-protocols.md`, the rejoin chapter
     /// §2–§3): the sender's frontiers, fired at every node. Every node that
     /// hears it records the sender, that half rides the dispatch's
-    /// [`Self::with_join_gossip_witness`] wrap, whatever this planner
+    /// [`crate::Self::with_join_gossip_witness`] wrap, whatever this planner
     /// rules. Only the node that believes itself leader answers: the push
     /// of everything above the sender's prepared frontier (§7 step 1's
     /// own machinery, evaluated under the view the request carried, the
@@ -456,7 +455,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         self.progress.config().extend(op, slot).is_ok()
     }
 
-    /// The bumped node's announcement (§4): `Input::Reincarnate` reports
+    /// The bumped node's announcement (§4): [`crate::replica::Input::Reincarnate`] reports
     /// the pair and the node sends `Reincarnation(old, own)` to every
     /// member of the configuration it can still name, the one message a
     /// non-member is entitled to send (§6's ingress rule exempts it; it is
@@ -553,11 +552,11 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 
 /// The forced weight sequence the leader must still commit (§5; rules §6), read
 /// from the CURRENT committed configuration: each element is ONE era's
-/// establishing operation, a [`SystemOperation::Batch`], and the sequence is
+/// establishing operation, a [`crate::configuration::SystemOperation::Batch`], and the sequence is
 /// the §6 schedule computed for the observed configuration.
 ///
-/// A five-node unit cluster uses six eras: `Double`, `Join + Increment(new)`,
-/// `Decrement(old)`, `Decrement(old) + Leave(old)`, `Increment(new)`, `Halve`.
+/// A five-node unit cluster uses six eras: [`crate::configuration::SystemOperation::Double`], `Join + Increment(new)`,
+/// `Decrement(old)`, `Decrement(old) + Leave(old)`, `Increment(new)`, [`crate::configuration::SystemOperation::Halve`].
 /// Four unchanged weight-2 survivors identify its intermediate rows, so a
 /// recomputation also includes the final promotion and halving after departure.
 /// The three-node unit cluster retains the two-era schedule below; other
@@ -565,7 +564,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
 ///
 /// | Old identity's state | Remaining eras |
 /// |---|---|
-/// | weight `w >= 2` | `w−1` solitary `Decrement` eras, then `Batch([Decrement(old), Join(new)])`, then `Batch([Increment(new), Leave(old)])` |
+/// | weight `w >= 2` | `w−1` solitary [`crate::configuration::SystemOperation::Decrement`] eras, then `Batch([Decrement(old), Join(new)])`, then `Batch([Increment(new), Leave(old)])` |
 /// | weight `1` | `Batch([Decrement(old), Join(new)])`, then `Batch([Increment(new), Leave(old)])` |
 /// | weight `0` | `Batch([Join(new), Leave(old)])`, then `Batch([Increment(new)])` |
 /// | already evicted | `Batch([Join(new)])`, then `Batch([Increment(new)])` |

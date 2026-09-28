@@ -1,6 +1,6 @@
-//! The NOMINATE force-feed ladder (`docs/nominate-leader-assignment.md`):
+//! The NOMINATE force-feed ladder (`docs/uvrr-protocols.md`, the NOMINATE chapter):
 //! the solver's plans driven through the ordinary pipeline, one establishing
-//! `Batch` entry at one slot, never a `Fuse` envelope, with the script
+//! [`uvrr::configuration::SystemOperation::Batch`] entry at one slot, never a [`uvrr::wire::Tag::Fuse`] envelope, with the script
 //! feeding every released message to its addressee, and the leader asserted
 //! at every committed slot of every scenario.
 //!
@@ -38,7 +38,7 @@ fn member(id: u32, weight: u32) -> Member {
 }
 
 /// Bootstraps the cluster: the genesis primary promotes itself and the
-/// backups adopt view (1, 0) from the promotion's `Commit` announcement
+/// backups adopt view (1, 0) from the promotion's [`uvrr::wire::Tag::Commit`] announcement
 /// (§13.3).
 fn bootstrap(h: &mut Harness) {
     h.tick_all();
@@ -194,8 +194,8 @@ fn cross_boundary(h: &mut Harness, roster: &[NodeId], leader: NodeId, scenario: 
 }
 
 /// Drives the solver's steps through the ordinary pipeline: the constant
-/// leader proposes each step as ONE establishing `Batch` entry at one
-/// slot (§8.7.4, never a `Fuse` envelope), the script feeds every released
+/// leader proposes each step as ONE establishing [`uvrr::configuration::SystemOperation::Batch`] entry at one
+/// slot (§8.7.4, never a [`uvrr::wire::Tag::Fuse`] envelope), the script feeds every released
 /// message to its addressee, the leader is asserted at each committed
 /// slot, and the era boundary where no rider landed is crossed by the
 /// leader-preserving forced change.
@@ -258,7 +258,7 @@ fn expansion_keeps_the_leader_constant() {
     .expect("the target is a legal configuration");
     let live: Vec<NodeId> = (0..5).map(n).collect();
     let steps = solve(&start, &target, &live, View(3)).expect("the expansion solves");
-    // The user's route (`docs/nominate-leader-assignment.md`): the current
+    // The user's route (`docs/uvrr-protocols.md`, the NOMINATE chapter): the current
     // membership stays as the target's prefix, each appended member joins
     // at weight zero and is promoted at its join, the joiner's promotion
     // the wrap that carries the re-electing rider.

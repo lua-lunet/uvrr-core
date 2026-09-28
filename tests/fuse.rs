@@ -1,15 +1,15 @@
-//! The `Fuse` acceptor (`docs/uvrr-fuse.md` §3): one envelope, one ballot,
-//! one atomic batch. Receiving a `Fuse` is *defined* as receiving the
-//! equivalent sequence of `Prepare` messages at the same ballot, one per
+//! The [`uvrr::wire::Tag::Fuse`] acceptor (`docs/uvrr-fuse.md` §3): one envelope, one ballot,
+//! one atomic batch. Receiving a [`uvrr::wire::Tag::Fuse`] is *defined* as receiving the
+//! equivalent sequence of [`uvrr::wire::Tag::Prepare`] messages at the same ballot, one per
 //! slot, in batch order; only the wire shape changes, so every assertion
 //! here runs through the ordinary accept perimeter's observables: the
 //! journal (the durable configuration record, §8.7.1), the queued replies,
 //! and the harness's independent safety checker.
 //!
 //! The leader side (§4) is exercised through the public plan path: the
-//! armed schedule's establishing batch travels as one `Fuse` per backup,
-//! the `FuseOk` votes complete the quorum, and the commit emission is one
-//! `CommitBatch` per era.
+//! armed schedule's establishing batch travels as one [`uvrr::wire::Tag::Fuse`] per backup,
+//! the [`uvrr::wire::Tag::FuseOk`] votes complete the quorum, and the commit emission is one
+//! [`uvrr::wire::Tag::CommitBatch`] per era.
 
 mod harness;
 
@@ -34,7 +34,7 @@ fn n(id: u32) -> NodeId {
 
 /// The bootstrap of `tests/reconfiguration_stepwise.rs`: the genesis
 /// primary promotes itself and both backups adopt view (1, 0) from the
-/// promotion's `Commit` announcement (§13.3).
+/// promotion's [`uvrr::wire::Tag::Commit`] announcement (§13.3).
 fn bootstrap(h: &mut Harness) {
     h.tick_all();
     h.deliver_all();
@@ -50,7 +50,7 @@ fn current_view() -> Ballot {
     }
 }
 
-/// A `Fuse` envelope from the primary carrying `ops`, whose batch begins at
+/// A [`uvrr::wire::Tag::Fuse`] envelope from the primary carrying `ops`, whose batch begins at
 /// `first_slot` (`docs/uvrr-fuse.md` §1).
 fn fuse_envelope(first_slot: Slot, ops: Vec<SystemOperation>) -> Message {
     Message {
@@ -63,7 +63,7 @@ fn fuse_envelope(first_slot: Slot, ops: Vec<SystemOperation>) -> Message {
     }
 }
 
-/// The genesis journal: `Void` at slot 1, `Init` at slot 2, nothing beyond.
+/// The genesis journal: [`uvrr::configuration::SystemOperation::Void`] at slot 1, [`uvrr::configuration::SystemOperation::Init`] at slot 2, nothing beyond.
 fn assert_journal_is_genesis(h: &Harness, id: NodeId) {
     let entries = h.journal_entries(id);
     assert_eq!(entries.len(), 2, "only the genesis entries are held");
@@ -91,7 +91,7 @@ fn valid_fuse_is_accepted_as_a_whole() {
     bootstrap(&mut h);
 
     // The schedule: `[Join(new), Increment(new)]`, the shape of the
-    // five-node replacement's second batch (`docs/uvrr-reincarnation.md`
+    // five-node replacement's second batch (`docs/uvrr-protocols.md`, the reincarnation chapter
     // §5), legal under R1–R15 for the fresh three-node cluster: `n(3)` is
     // absent, so the join inserts a learner at the succession end and the
     // increment promotes it inside the next era. Two ops, two era
@@ -406,7 +406,7 @@ fn member(id: u32, weight: u32) -> Member {
 }
 
 /// The 3-node two-era reincarnation shape
-/// (`docs/uvrr-reincarnation.md` §5, the weight-1 row) submitted as an
+/// (`docs/uvrr-protocols.md`, the reincarnation chapter §5, the weight-1 row) submitted as an
 /// operator plan: the crossing batch `[Decrement(old), Join(new)]` and the
 /// promotion batch `[Increment(new), Leave(old)]`, one era each.
 fn reincarnation_shape_plan() -> Plan {
@@ -616,7 +616,7 @@ fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
 // ---------------------------------------------------------------------------
 
 /// THE PIN (`docs/uvrr-fuse.md` §2): majority is computed on the first
-/// message in batch. A `FuseOk` is one atomic vote vouching for the whole
+/// message in batch. A [`uvrr::wire::Tag::FuseOk`] is one atomic vote vouching for the whole
 /// envelope, a node processes the full datagram before reading any other
 /// message, so a partial or staggered acks body is wire evidence the
 /// leader never examines for counting. The backup `n(1)` HAS accepted the
@@ -624,7 +624,7 @@ fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
 /// body names a proper SUBSET of the batch's slots, with the header slot
 /// the last slot of the batch as the acceptor stamps. The leader must
 /// count `n(1)` once, cumulatively onto every outstanding slot the header
-/// covers: when the next backup's genuine `FuseOk` lands, both packed
+/// covers: when the next backup's genuine [`uvrr::wire::Tag::FuseOk`] lands, both packed
 /// slots hold quorum and the commit fires. The elementwise counter would
 /// mark "just those slots", slot 4 never holds `n(1)`'s vote, and the
 /// batch never commits, the Red result this test is named after.
@@ -1110,7 +1110,7 @@ fn fuse_round(h: &mut Harness, leader: NodeId, backups: &[NodeId], committed_thr
     h.assert_safety();
 }
 
-/// The wire half of one ordinary era: exactly ONE `Prepare` per named
+/// The wire half of one ordinary era: exactly ONE [`uvrr::wire::Tag::Prepare`] per named
 /// backup, a single-op batch needs no envelope (§4 step 1), and no Fuse
 /// anywhere. The commit completes on the ordinary PrepareOk cascade.
 fn prepare_round(h: &mut Harness, leader: NodeId, backups: &[NodeId], committed_through: u64) {
@@ -1171,7 +1171,7 @@ fn view_change_between_eras(h: &mut Harness, leader: NodeId, target: Ballot, liv
     h.assert_safety();
 }
 
-/// The two-era 3-node canonical split (`docs/uvrr-reincarnation.md` §5)
+/// The two-era 3-node canonical split (`docs/uvrr-protocols.md`, the reincarnation chapter §5)
 /// driven end to end through the fuse path: one Fuse per backup per era,
 /// the acks telescoping, the commits firing per era, and the final
 /// configuration the plan's steps reach. Two round trips for the whole
@@ -1283,9 +1283,9 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
 }
 
 /// The six-era 5-node weighted sequence
-/// (`docs/uvrr-reincarnation.md` §5, rules §6) driven end to end through
+/// (`docs/uvrr-protocols.md`, the reincarnation chapter §5, rules §6) driven end to end through
 /// the fuse path: the solitary scaling batches travel as ordinary
-/// establishing `Prepare`s, the two-op batches travel as one Fuse per
+/// establishing [`uvrr::wire::Tag::Prepare`]s, the two-op batches travel as one Fuse per
 /// backup, every era commits through one round trip, six round trips for
 /// the whole sequence, and the era table advances through all seven
 /// configurations the schedule names.
@@ -1562,7 +1562,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
 /// per backup; the named number of acks leaves the round in flight and
 /// the NEXT ack commits the batch whole in one transition; a further ack
 /// arrives to a committed header slot and drops by name; the
-/// `CommitBatch` names one committed frontier per packed slot, no
+/// [`uvrr::wire::Tag::CommitBatch`] names one committed frontier per packed slot, no
 /// ranges, and the ordinary commit announcement advances the backups.
 
 #[test]

@@ -23,10 +23,10 @@
 //! fenced (§8.3).
 //!
 //! This module holds the transition-legality checker [`legal`]. The family-intersection
-//! gate is `crate::quorum`'s `validate_era`/`validate_transition` (Q1), free
+//! gate is [`crate::quorum`]'s [`crate::quorum::validate_era`]/[`crate::quorum::validate_transition`] (Q1), free
 //! functions there rather than trait methods so that no quorum strategy can override
-//! them. The fault taxonomy itself lives in `crate::ids` (`Fault` is
-//! identity-level state carried inside `Progress`, and placing it here would close a
+//! them. The fault taxonomy itself lives in [`crate::ids`] ([`crate::ids::Fault`] is
+//! identity-level state carried inside [`crate::progress::Progress`], and placing it here would close a
 //! `progress` ↔ `invariant` module cycle); it is re-exported below so existing
 //! citations of `invariant::Fault` keep compiling.
 
@@ -84,7 +84,7 @@ pub enum InputKind {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HeaderSlotRole {
     /// The header slot names a log position holding an operation. `Slot(0)` is
-    /// illegal: the first position of a legitimate history is `Void` at slot 1
+    /// illegal: the first position of a legitimate history is [`crate::configuration::SystemOperation::Void`] at slot 1
     /// (§8.7.2), so position 0 holds nothing and a message claiming it is
     /// malformed at the protocol level.
     Operation,
@@ -118,20 +118,20 @@ impl HeaderSlotRole {
 ///
 /// | Tag | Role | Why |
 /// |---|---|---|
-/// | `Prepare` | `Operation` | names the slot it proposes (§6) |
-/// | `PrepareOk` | `Operation` | names the slot accepted (§6) |
-/// | `Commit` | `Frontier` | the commit frontier; no new operation (§6, §13.3) |
-/// | `StartViewChange` | `Absent` | fences a view, claims no history (§9.1) |
-/// | `DoViewChange` | `Frontier` | the accepted frontier of the reported history (§9.1) |
-/// | `StartView` | `Frontier` | the accepted frontier of the installed history (§9.1) |
-/// | `PlannedViewChange` | `Absent` | like `StartViewChange`, and must not fence (§8.7.7) |
-/// | `GetState` | `Frontier` | the requester's accepted frontier; the fetch resumes one past it (§4, §13.1 step 5) |
-/// | `NewState` | `Frontier` | the last slot the chunk covers; `more` on a partial answer resumes from the requester's cursor (§4, §13.1 step 5) |
-/// | `Reincarnation` | `Absent` | names two identities, no history claim (`docs/uvrr-reincarnation.md` §4) |
-/// | `Fuse` | `Operation` | `first_slot`, the slot of the first packed op; each subsequent op occupies `first_slot + i` (`docs/uvrr-fuse.md` §1) |
-/// | `FuseOk` | `Operation` | the last accepted slot of the batch (`docs/uvrr-fuse.md` §3) |
-/// | `CommitBatch` | `Frontier` | the last committed frontier of the batch, mirroring `Commit` (`docs/uvrr-fuse.md` §4) |
-/// | `GossipRequest` | `Absent` | the frontiers ride the body (`docs/uvrr-rejoin-gossip-and-witnesses.md` §2–§3) |
+/// | [`crate::wire::Tag::Prepare`] | `Operation` | names the slot it proposes (§6) |
+/// | [`crate::wire::Tag::PrepareOk`] | `Operation` | names the slot accepted (§6) |
+/// | [`crate::wire::Tag::Commit`] | `Frontier` | the commit frontier; no new operation (§6, §13.3) |
+/// | [`crate::wire::Tag::StartViewChange`] | `Absent` | fences a view, claims no history (§9.1) |
+/// | [`crate::wire::Tag::DoViewChange`] | `Frontier` | the accepted frontier of the reported history (§9.1) |
+/// | [`crate::wire::Tag::StartView`] | `Frontier` | the accepted frontier of the installed history (§9.1) |
+/// | [`crate::wire::Tag::PlannedViewChange`] | `Absent` | like [`crate::wire::Tag::StartViewChange`], and must not fence (§8.7.7) |
+/// | [`crate::wire::Tag::GetState`] | `Frontier` | the requester's accepted frontier; the fetch resumes one past it (§4, §13.1 step 5) |
+/// | [`crate::wire::Tag::NewState`] | `Frontier` | the last slot the chunk covers; `more` on a partial answer resumes from the requester's cursor (§4, §13.1 step 5) |
+/// | `Reincarnation` | `Absent` | names two identities, no history claim (`docs/uvrr-protocols.md`, the reincarnation chapter §4) |
+/// | [`crate::wire::Tag::Fuse`] | `Operation` | `first_slot`, the slot of the first packed op; each subsequent op occupies `first_slot + i` (`docs/uvrr-fuse.md` §1) |
+/// | [`crate::wire::Tag::FuseOk`] | `Operation` | the last accepted slot of the batch (`docs/uvrr-fuse.md` §3) |
+/// | [`crate::wire::Tag::CommitBatch`] | `Frontier` | the last committed frontier of the batch, mirroring [`crate::wire::Tag::Commit`] (`docs/uvrr-fuse.md` §4) |
+/// | [`crate::wire::Tag::GossipRequest`] | `Absent` | the frontiers ride the body (`docs/uvrr-protocols.md`, the rejoin chapter §2–§3) |
 ///
 /// A `match` rather than a lookup table, on the codebase's standing reasoning: the
 /// compiler checks that every tag has a rule, and a tag added to `wire` without a
@@ -176,10 +176,10 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
 ///    monotone frontiers never regress. `accepted` may shorten only across a
 ///    history re-selection, signalled by `retained` changing.
 /// 2. **View succession** (§8.7.3, W1): `current` never regresses; a change is a
-///    legal successor, delegated to `Ballot::is_legal_successor`, never
+///    legal successor, delegated to [`crate::ids::Ballot::is_legal_successor`], never
 ///    re-derived.
 /// 3. **Retained provenance** (§1.3): `retained` changes only on re-selection,
-///    restart, or a `DoViewChange`/`StartView`/`NewState` peer message.
+///    restart, or a [`crate::wire::Tag::DoViewChange`]/[`crate::wire::Tag::StartView`]/[`crate::wire::Tag::NewState`] peer message.
 /// 4. **Revision**: exactly +1, so a stale plan is rejected by comparison (§12).
 /// 5. **Sticky fault** (§5 invariant 5, S3): a faulted `old` admits no `new` at
 ///    all, and the reported fault is the existing one.
@@ -188,7 +188,7 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
 /// 7. **Header-slot table**: a peer message's header slot satisfies
 ///    [`header_slot_role`].
 ///
-/// Rules 1, 2 and 6 are also enforced at construction (a violating `Progress` is
+/// Rules 1, 2 and 6 are also enforced at construction (a violating [`crate::progress::Progress`] is
 /// unrepresentable through the public API); they are restated here because the
 /// gate must not rely on how the candidate was built. Rule 5 is checked first
 /// because it reports the *existing* fault rather than `IllegalTransition`.
@@ -236,7 +236,7 @@ fn rule1_frontiers_violated(old: &Progress, new: &Progress) -> bool {
 }
 
 /// Rule 2, `current` never regresses, and a change strictly increases the view
-/// with era equal or +1. The rule is `Ballot::is_legal_successor`'s; this
+/// with era equal or +1 (§8.7.3, W1). The rule is [`Ballot::is_legal_successor`]'s; this
 /// function only applies it, because two copies of an inequality are two chances
 /// to get it wrong.
 fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {
@@ -245,8 +245,8 @@ fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {
 
 /// Rule 3, `retained` identifies the provenance of the retained history (§1.3),
 /// so it changes only when that history was re-selected. The re-selection inputs
-/// are the peer messages that install a history, `DoViewChange`, the one that
-/// completes the new primary's quorum (§9.1), `StartView`, and `NewState`
+/// are the peer messages that install a history, [`crate::wire::Tag::DoViewChange`], the one that
+/// completes the new primary's quorum (§9.1), [`crate::wire::Tag::StartView`], and [`crate::wire::Tag::NewState`]
 /// (state transfer, §4). The match is exhaustive so a new tag forces a
 /// ruling here rather than inheriting one.
 fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) -> bool {
@@ -264,7 +264,7 @@ fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) ->
             | Tag::GetState
             | Tag::Reincarnation
             // The rejoin gossip's request carries frontiers only, it makes
-            // no history claim (`docs/uvrr-rejoin-gossip-and-witnesses.md`
+            // no history claim (`docs/uvrr-protocols.md`, the rejoin chapter
             // §2–§3), so it can never reselect a retained history.
             | Tag::GossipRequest => false,
             // The fuse envelopes are ordinary accept-path packing

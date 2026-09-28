@@ -25,9 +25,9 @@ use super::*;
 use crate::trace;
 
 impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
-    /// The fetch half of a gap ruling (§10, §13.1 step 5): a `GetState`
+    /// The fetch half of a gap ruling (§10, §13.1 step 5): a [`crate::wire::Tag::GetState`]
     /// for `from` onward under `view`, addressed to `to`, and the volatile
-    /// cursor the answering `NewState` chunks install against. The header
+    /// cursor the answering [`crate::wire::Tag::NewState`] chunks install against. The header
     /// slot is the requester's accepted frontier, the slot the fetch
     /// resumes after (the per-tag table's Frontier role).
     pub(in crate::replica) fn fetch(
@@ -64,7 +64,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// rule), so the node ceases lower-view participation by fencing into
     /// the message's view through the ordinary change pipeline, fetches
     /// the history it lacks from the sender, and installs only when the
-    /// qualified evidence, the `StartView`, arrives.
+    /// qualified evidence, the [`crate::wire::Tag::StartView`], arrives.
     pub(in crate::replica) fn plan_higher_view_signal(
         &self,
         journal: &J::View,
@@ -86,20 +86,20 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         }
     }
 
-    /// A `GetState` (§10, §13.1 step 5): stream the requested range back
+    /// A [`crate::wire::Tag::GetState`] (§10, §13.1 step 5): stream the requested range back
     /// in budget-bounded chunks (W5). Serving is read-only retransmission
     /// of durable journal content: it never mutates the responder and
     /// cannot alter committed state, so a node is never fenced with
     /// respect to SERVING, fencing governs participation, not serving.
     /// The serving gate is therefore the cluster-legality gate alone (the
     /// sender is a member of the requested era's configuration or, the
-    /// learner acquisition rule (`docs/uvrr-reincarnation.md` §10), of
+    /// learner acquisition rule (`docs/uvrr-protocols.md`, the reincarnation chapter §10), of
     /// the responder's current committed configuration, a weight-0
     /// learner included) plus the statuses whose journal is not servable:
-    /// `Restarting` or `Joining` (the node's history is not yet proved
-    /// current) and `Replaying` (the journal is
-    /// mid-install, structurally inconsistent). A fenced `ViewChange`
-    /// node serves exactly like a `Normal` one, and the request's view is
+    /// [`crate::progress::Status::Restarting`] or [`crate::progress::Status::Joining`] (the node's history is not yet proved
+    /// current) and [`crate::progress::Status::Replaying`] (the journal is
+    /// mid-install, structurally inconsistent). A fenced [`crate::progress::Status::ViewChange`]
+    /// node serves exactly like a [`crate::progress::Status::Normal`] one, and the request's view is
     /// a correlation token (VRR-2012's §10 recovery nonce), not a serving
     /// condition: the response header echoes it so the recipient's
     /// open-fetch qualification, the real gate, can match the answer to
@@ -124,7 +124,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     ) -> Result<PlannedTransition, PlanRefusal> {
         let header = message.header;
         // The cluster-legality gate, with the learner acquisition rule
-        // (`docs/uvrr-reincarnation.md` §10): a sender that is not a member
+        // (`docs/uvrr-protocols.md`, the reincarnation chapter §10): a sender that is not a member
         // of the REQUESTED era's configuration may still be served when it
         // is a member of the responder's current committed configuration,
         // any weight, a weight-0 learner included. A learner behind the
@@ -227,7 +227,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         Ok(self.candidate_plan(candidate, JournalMutation::None, effects, kind, false))
     }
 
-    /// A `NewState` chunk (§10, §13.1 step 5): history the node actively
+    /// A [`crate::wire::Tag::NewState`] chunk (§10, §13.1 step 5): history the node actively
     /// fetched, installed through the same suffix ruling as the
     /// view-change and state-transfer paths, contiguity against the local
     /// journal, no committed-slot conflict (the one deliberate fault),
@@ -236,10 +236,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// view, another sender, no open fetch, a range the node already
     /// holds, is a named drop, never a fault. The chunk is HISTORY, not
     /// the completing ruling: a fenced node's committed frontier waits
-    /// for its own path's qualified evidence (the `StartView`), with
+    /// for its own path's qualified evidence (the [`crate::wire::Tag::StartView`]), with
     /// the §10 learner acquisition exception: the boot-fenced node's own
     /// open fetch is its qualified evidence, so a fenced entry node
-    /// (`Restarting` or `Joining`) at its boot fence takes the chunk's committed frontier and folds
+    /// ([`crate::progress::Status::Restarting`] or [`crate::progress::Status::Joining`]) at its boot fence takes the chunk's committed frontier and folds
     /// what it covers (the ruling below).
     #[allow(clippy::too_many_arguments)]
     pub(in crate::replica) fn plan_new_state(
@@ -305,7 +305,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // routes, both fenced (§10): the node's own open fetch, the view
         // and the responder must be the ones the node asked, or, for a
         // node still at its boot fence that opened NO fetch, the leader's
-        // missed-range push (`docs/uvrr-reincarnation.md` §7): the
+        // missed-range push (`docs/uvrr-protocols.md`, the reincarnation chapter §7): the
         // announcement named the node's past-life frontiers and the
         // leader's ack pushed what it missed, under the view the
         // ANNOUNCEMENT carried, the one the node already holds. The
@@ -397,7 +397,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // `current == retained`, it has adopted nothing) that opened this
         // fetch itself may take the chunk's committed frontier and fold
         // the system operations it covers. That is the speculative
-        // learner acquisition `docs/uvrr-reincarnation.md` §10 states: the
+        // learner acquisition `docs/uvrr-protocols.md`, the reincarnation chapter §10 states: the
         // learner acquires state by streaming while never voting, the
         // chunk is history it actively fetched, every entry verified
         // against its local journal by the suffix ruling above, and the

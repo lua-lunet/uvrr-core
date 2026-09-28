@@ -6,9 +6,9 @@
 //! Unlike `reconfiguration_plan.rs`'s corpus (hand-picked streams from the
 //! genesis shape), this file generates both the starting configuration,
 //! every node independently 0, 1 or 2, inflated through the checked
-//! `Snapshot` constructor, and the operation stream, including streams
-//! that are illegal (a `Leave` at a positive weight, a `Decrement` at 0, an
-//! `Increment` at the cap, a `Double` with a 2 present, a `Halve` with an
+//! [`uvrr::configuration::Snapshot`] constructor, and the operation stream, including streams
+//! that are illegal (a [`uvrr::configuration::SystemOperation::Leave`] at a positive weight, a [`uvrr::configuration::SystemOperation::Decrement`] at 0, an
+//! [`uvrr::configuration::SystemOperation::Increment`] at the cap, a [`uvrr::configuration::SystemOperation::Double`] with a 2 present, a [`uvrr::configuration::SystemOperation::Halve`] with an
 //! odd weight, a batch moving more than mass 1, a nested batch). The
 //! property must hold for refused AND accepted streams:
 //!
@@ -18,7 +18,7 @@
 //!    touched nodes is ≤ 1, OR the era is a solitary scaling op, exactly
 //!    the R13/R14 rule, recomputed here from the era's own weight tables;
 //! 3. every admitted transition passes the exhaustive closed gate
-//!    `uvrr::quorum::validate_transition` (the mechanical intersection
+//!    [`uvrr::quorum::validate_transition`] (the mechanical intersection
 //!    argument, an independent component);
 //! 4. a refused stream leaves the configuration unchanged;
 //! 5. for accepted streams, folding the planned era sequence and folding
@@ -37,7 +37,7 @@ use uvrr::reconfiguration::EraStep;
 
 /// The three-node identity set every stream speaks about, plus the small
 /// join pool that lets membership grow. The union stays far below
-/// `MAX_MEMBERS`, so the exhaustive gate's subset scan is microseconds.
+/// [`uvrr::configuration::MAX_MEMBERS`], so the exhaustive gate's subset scan is microseconds.
 fn n(id: u32) -> NodeId {
     NodeId::new(
         SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
@@ -139,7 +139,7 @@ fn assert_domain(config: &Configuration) {
 /// The nodes an op touches: the op's own member, or every member for the
 /// whole-configuration scaling ops. The nomination touches nothing: it
 /// moves no mass and no membership
-/// (`docs/nominate-leader-assignment.md`).
+/// (`docs/uvrr-protocols.md`, the NOMINATE chapter).
 fn touched(op: &SystemOperation, config: &Configuration) -> Vec<NodeId> {
     match op {
         SystemOperation::Increment(node)
@@ -159,7 +159,7 @@ fn touched(op: &SystemOperation, config: &Configuration) -> Vec<NodeId> {
 /// Property 2, recomputed from first principles: the per-node mass moved
 /// across the era boundary, Σ|Δw| over the union of touched nodes, is ≤ 1,
 /// OR the era is a solitary scaling op (exactly the R13/R14 rule). Absent
-/// members count as weight 0: a `Join` adds a 0-weight node, a `Leave`
+/// members count as weight 0: a [`uvrr::configuration::SystemOperation::Join`] adds a 0-weight node, a [`uvrr::configuration::SystemOperation::Leave`]
 /// removes one, both move no mass.
 fn assert_mass_rule(prev: &Configuration, next: &Configuration, ops: &[SystemOperation]) {
     let before = weight_table(prev);

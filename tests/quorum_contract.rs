@@ -1,19 +1,19 @@
-//! Contract for `uvrr::quorum`, the `QuorumStrategy` extension point and the closed
+//! Contract for [`uvrr::quorum`], the [`uvrr::quorum::QuorumStrategy`] extension point and the closed
 //! gate that no strategy can override.
 //!
 //! Spec §8.3 (the diskless obligations `F_g ⌢ R_g` and `V_g ⌢ V_g`), §8.4 (weighted
-//! quorums and the strict-majority family), §8.7.4 (`R1`/`R2`), §8.7.5 (closure of
+//! quorums and the strict-majority family), §8.7.4 (R1/`R2`), §8.7.5 (closure of
 //! weighted-majority configurations), and decision Q1 (families are open, intersection
 //! is closed).
 //!
 //! What is gated here:
 //!
 //! 1. **The extension point is real but the gate is closed.** A host-supplied strategy
-//!    decides only `is_quorum`; `validate_era`/`validate_transition` are free functions
+//!    decides only `is_quorum`; [`uvrr::quorum::validate_era`]/[`uvrr::quorum::validate_transition`] are free functions
 //!    that mechanically discharge the intersection obligations, and a refusal is final.
 //!    Test 1 is Q1's six-node counterexample, detected before the unsafe `INCREMENT`
 //!    can be proposed, the whole reason the gate exists.
-//! 2. **`WeightedMajority` re-proves §8.7.5 computationally.** Every configuration
+//! 2. **[`uvrr::quorum::WeightedMajority`] re-proves §8.7.5 computationally.** Every configuration
 //!    reachable from genesis by at most four operations on 3–6 initial members, and
 //!    every single-step transition between them, validates. A proof we can re-run is
 //!    worth more than a proof we cite.
@@ -50,8 +50,8 @@ const N5: NodeId = NodeId(5);
 /// The six unit-weight members of Q1's counterexample profile.
 const SIX: [NodeId; 6] = [N0, N1, N2, N3, N4, N5];
 
-/// A void configuration followed by `Init` over `order`, at the two genesis slots,
-/// the only way a `Configuration` can come to exist, which is the property under test
+/// A void configuration followed by [`uvrr::configuration::SystemOperation::Init`] over `order`, at the two genesis slots,
+/// the only way a [`uvrr::configuration::Configuration`] can come to exist, which is the property under test
 /// in `configuration_contract.rs` and the precondition for every argument here.
 fn initialised(order: &[NodeId]) -> Configuration {
     let void = Configuration::void()
@@ -71,13 +71,13 @@ fn initialised(order: &[NodeId]) -> Configuration {
 /// the gate must catch unsafe *policies*, and a threshold table is how an operator
 /// would actually write one.
 struct Thresholds {
-    /// Weight threshold for `Role::Commit` (QII).
+    /// Weight threshold for [`uvrr::quorum::Role::Commit`] (QII).
     commit: u64,
-    /// Weight threshold for `Role::ViewChange` (QI).
+    /// Weight threshold for [`uvrr::quorum::Role::ViewChange`] (QI).
     view_change: u64,
-    /// Weight threshold for `Role::Restart` (R_g).
+    /// Weight threshold for [`uvrr::quorum::Role::Restart`] (R_g).
     restart: u64,
-    /// Weight threshold for `Role::Fence` (F_g).
+    /// Weight threshold for [`uvrr::quorum::Role::Fence`] (F_g).
     fence: u64,
 }
 
@@ -159,7 +159,7 @@ fn assert_genuine_witness(
 
 /// The six-node profile of Q1: commit threshold 3, view-change threshold 4, unit
 /// weights, `T = 6`. Within era `e` the families intersect (`3 + 4 > 6`), so
-/// `validate_era` accepts the strategy, the danger is exclusively cross-era, which is
+/// [`uvrr::quorum::validate_era`] accepts the strategy, the danger is exclusively cross-era, which is
 /// why a per-era check cannot substitute for the transition gate.
 fn q1_scenario() -> (Thresholds, Configuration, Configuration) {
     let strategy = Thresholds {
@@ -210,7 +210,7 @@ fn q1_counterexample_is_refused_with_its_witness() {
 /// configuration and its successor. This is the domain over which §8.7.5's closure
 /// lemmas are re-verified computationally.
 ///
-/// `Join` inserts at position 0 only, and always the same fresh id per depth: the
+/// [`uvrr::configuration::SystemOperation::Join`] inserts at position 0 only, and always the same fresh id per depth: the
 /// succession position and the identity of a zero-weight learner change no quorum
 /// family (§8.4: weight 0 grants no voting authority), so enumerating positions and
 /// fresh ids would multiply the work without enlarging the set of *families* under
@@ -273,9 +273,9 @@ fn reachable() -> (Vec<Configuration>, Vec<(Configuration, Configuration)>) {
     (configurations, edges)
 }
 
-/// The computational re-verification of §8.7.5: `validate_era` passes on every
-/// reachable configuration and `validate_transition` passes on every single-step edge
-///, both directions of the boundary, since the gate checks both.
+/// The computational re-verification of §8.7.5: [`uvrr::quorum::validate_era`] passes on every
+/// reachable configuration and [`uvrr::quorum::validate_transition`] passes on every single-step edge
+/// , both directions of the boundary, since the gate checks both.
 #[test]
 fn weighted_majority_validates_every_reachable_era_and_transition() {
     let strategy = WeightedMajority;
@@ -301,9 +301,9 @@ fn weighted_majority_validates_every_reachable_era_and_transition() {
 // 3. Obligation isolation, one violated obligation, one specific variant
 // ---------------------------------------------------------------------------
 
-/// A commit family that admits singletons violates `R1` even when every other family
+/// A commit family that admits singletons violates R1 even when every other family
 /// is a strict majority: `{n0}` commits while `{n1,n2}` changes the view. The refusal
-/// must be `R1Violation`, and `validate_era` must reach it, the self-intersection and
+/// must be `R1Violation`, and [`uvrr::quorum::validate_era`] must reach it, the self-intersection and
 /// fence/restart checks hold for this strategy, so the variant cannot be arriving
 /// from a different obligation.
 #[test]
@@ -330,7 +330,7 @@ fn undersized_commit_family_is_an_r1_violation() {
     }
 }
 
-/// Over four unit members a view threshold of 2 satisfies `R1` against a commit
+/// Over four unit members a view threshold of 2 satisfies R1 against a commit
 /// threshold of 3 (`2 + 3 > 4`) but does not self-intersect: `{n0,n1}` and `{n2,n3}`
 /// are disjoint view-change quorums. This is the §8.3 diskless obligation a
 /// flexible-quorum reading of `QI ⌢ QII` would miss, and it must surface as
@@ -361,7 +361,7 @@ fn non_self_intersecting_view_family_is_named() {
     }
 }
 
-/// Fence and restart families of threshold 1 over three members leave `R1` and the
+/// Fence and restart families of threshold 1 over three members leave R1 and the
 /// view self-intersection intact (both majorities) but admit a disjoint fence/restart
 /// pair, a recovering replica could miss the volatile evidence that a view was fenced
 /// (§8.3). The refusal must be `FenceRestartViolation`.
@@ -403,7 +403,7 @@ fn disjoint_fence_and_restart_families_are_named() {
 ///
 /// Reverse (`ViewChange_{e+1} ⌢ Commit_e`) fails: `{n0,n1,n2}` has weight `2+1+1 = 4`
 /// under `e+1` and is disjoint from `{n3,n4,n5}`, weight 3 under `e`. The spec-level
-/// argument for gating this direction: `PrepareOk` evidence gathered under era `e+1`
+/// argument for gating this direction: [`uvrr::wire::Tag::PrepareOk`] evidence gathered under era `e+1`
 /// must intersect a commit quorum under era `e`, or a view change in the new era can
 /// select a history that omits an operation the old era committed.
 struct ParityCommit;
@@ -441,7 +441,7 @@ impl QuorumStrategy for ParityCommit {
     }
 }
 
-/// Both eras are individually legal under `ParityCommit`, `R1`, self-intersection and
+/// Both eras are individually legal under `ParityCommit`, R1, self-intersection and
 /// fence/restart all hold in each, and the forward transition check passes. The
 /// refusal must come from the reverse direction alone, witnessed by `{n0,n1,n2}`
 /// against `{n3,n4,n5}`.
@@ -476,7 +476,7 @@ fn forward_safe_reverse_unsafe_transition_is_refused() {
 // 5. Threshold agreement
 // ---------------------------------------------------------------------------
 
-/// For `WeightedMajority`, `threshold()` must agree with the quorum family found by
+/// For [`uvrr::quorum::WeightedMajority`], `threshold()` must agree with the quorum family found by
 /// brute-force enumeration, the declared threshold and the actual family may not
 /// drift apart, because diagnostics and minimal-quorum construction trust the
 /// declared value while safety rests on the actual one.
@@ -538,8 +538,8 @@ fn weighted_majority_threshold_matches_enumerated_minimum() {
 // ---------------------------------------------------------------------------
 
 /// The membership cap is a validation-cost bound, not a protocol limit: 17-member
-/// `Init` and `Join` past 16 are refused by the fold with a named cap, so no
-/// over-cap `Configuration` can ever reach the gate. At the cap itself, the gate's
+/// [`uvrr::configuration::SystemOperation::Init`] and [`uvrr::configuration::SystemOperation::Join`] past 16 are refused by the fold with a named cap, so no
+/// over-cap [`uvrr::configuration::Configuration`] can ever reach the gate. At the cap itself, the gate's
 /// `2^16` enumeration is expected to be routine, validated here, once, on the
 /// boundary.
 #[test]

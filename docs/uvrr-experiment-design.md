@@ -104,7 +104,7 @@ node take to rejoin serving after reincarnation?
 `normal`, leader serving); kill the selected node's process
 (Crash-Stop: volatile state lost, the node is by construction a different node
 on reopen); the cluster continues serving at quorum; the killed node bumps its
-crash counter under the identity law (`docs/uvrr-boot-gate.md` §5), rejoins as
+crash counter under the identity law (`docs/uvrr-io-obligations.md`, the boot-gate chapter §5), rejoins as
 a weight-0 member, and is walked back to voting
 weight by the leader's forced reconfiguration sequence; the iteration ends when
 the reincarnated node is again a voting, serving replica.

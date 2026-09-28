@@ -5,7 +5,7 @@
 //!
 //! A view is an explicit `Ballot { era: u32, view: u32 }`.
 //!
-//! Identifiers are supplied by the host (decision W2): `OperationId` is 128
+//! Identifiers are supplied by the host (decision W2): [`OperationId`] is 128
 //! host-chosen bits the core carries opaque. The core never mints one, so it needs
 //! no randomness source and no `uuid` dependency; correlation is whatever the
 //! host's naming discipline says it is.
@@ -34,12 +34,12 @@
 //!
 //! # Why no `Default`
 //!
-//! `Era`, `View`, `Slot`, `NodeId` and `Tick` deliberately do not implement `Default`.
+//! [`Era`], [`View`], [`Slot`], [`NodeId`] and [`Tick`] deliberately do not implement `Default`.
 //! A defaulted identifier is a value nobody chose, and any of these can reach a journal
-//! record or a published `Progress` (§5), where "zero because nobody set it" and "zero
+//! record or a published [`crate::progress::Progress`] (§5), where "zero because nobody set it" and "zero
 //! because that is the genesis value" are indistinguishable after the fact. Where a base
 //! value is genuinely meaningful it is a named constant with documented meaning:
-//! [`Era::INITIAL`], [`View::INITIAL`], [`Slot::NONE`]. `NodeId` and `Tick` get none,
+//! [`Era::INITIAL`], [`View::INITIAL`], [`Slot::NONE`]. [`NodeId`] and [`Tick`] get none,
 //! because no node identifier is privileged (§8.7.1: `order` is host-assigned) and no
 //! tick is (S4: every tick comes from the host).
 //!
@@ -67,7 +67,7 @@ use core::num::NonZeroU16;
 /// durable before emission, one-indexed, never read as zero). The system identifier
 /// is the high half and is durable in the boot fence; the crash counter is the low
 /// half and is incremented and durable before the first emission of every new life.
-/// The halves are never exported to the C ABI individually: only the packed `NodeId`
+/// The halves are never exported to the C ABI individually: only the packed [`NodeId`]
 /// crosses the boundary.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -79,7 +79,8 @@ const _: () = assert!(align_of::<NodeId>() == align_of::<u32>());
 
 /// The sysadmin-assigned system identifier: the durable high half of a lawful node
 /// identity. Zero is unrepresentable, so an uninitialised or corrupt marker cannot be
-/// read as an identity; the never-read-as-zero assert is a type, not a runtime check.
+/// read as an identity; the never-read-as-zero assert is a type
+/// (`docs/uvrr-io-obligations.md`, the boot-gate chapter §5), not a runtime check.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -153,7 +154,8 @@ impl NodeId {
     }
 
     /// The next life of the same system: the counter incremented, which the host must
-    /// flush before the first emission. A bit pattern that is no identity has no next
+    /// flush before the first emission
+    /// (`docs/uvrr-io-obligations.md`, the boot-gate chapter §5). A bit pattern that is no identity has no next
     /// life, and the sixteenth bit of lives is the last the packing holds.
     pub const fn next_life(self) -> Option<NodeId> {
         match self.system_id() {
@@ -262,7 +264,7 @@ const _: () = assert!(align_of::<Tick>() == align_of::<u64>());
 /// An operation's identity at the application boundary (§11.1, B2): 128
 /// bits the proposing host assigns, and the core carries opaque, proposed
 /// with the operation, replicated inside its log entry, and handed back on
-/// `Effect::Apply`. The core never generates one, never inspects one, and
+/// [`crate::effects::Effect::Apply`]. The core never generates one, never inspects one, and
 /// never deduplicates on one: the same identity proposed twice is two
 /// operations. Deduplication is the host's policy above the boundary.
 ///
@@ -291,8 +293,8 @@ const _: () = assert!(align_of::<OperationId>() == align_of::<u64>());
 
 /// One host operation at the application boundary (§11.1, B2): the identity
 /// the proposing host assigned and the opaque bytes to be ordered. This is
-/// the unit `Input::Propose` carries; commitment hands its parts back on
-/// `Effect::Apply`, same identity, same bytes, at every replica.
+/// the unit [`crate::replica::Input::Propose`] carries; commitment hands its parts back on
+/// [`crate::effects::Effect::Apply`], same identity, same bytes, at every replica.
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Operation {
@@ -339,7 +341,7 @@ impl View {
 
 impl Slot {
     /// The crate-wide no-slot sentinel: strictly below the first history position
-    /// (`crate::configuration::VOID_SLOT`, slot 1), at a position that can never hold
+    /// ([`crate::configuration::VOID_SLOT`], slot 1), at a position that can never hold
     /// an entry. Named rather than defaulted, and named `NONE` rather than `ZERO`
     /// because §1.3's frontiers are positions in a history, so the absence of a
     /// position is a protocol fact while the integer that represents it is not.
@@ -406,13 +408,13 @@ pub struct Ballot {
 
 impl Ballot {
     /// The **genesis view**: [`Era::INITIAL`] and [`View::INITIAL`], the view a
-    /// freshly provisioned node advertises, pinned by `Progress::genesis` (the
+    /// freshly provisioned node advertises, pinned by [`crate::progress::Progress::genesis`] (the
     /// genesis ruling, §1.3). Era 0 is the void configuration, quorum-impossible by arithmetic,
-    /// and view 0 is the first primary term once `Init` commits (§1.2:
+    /// and view 0 is the first primary term once [`crate::configuration::SystemOperation::Init`] commits (§1.2:
     /// `primary(0) = order[0]`). It is not "no view": a freshly provisioned node
     /// has a real genesis view, so no `Option<Ballot>` appears anywhere. Named
-    /// rather than a `Default` impl, because a `Ballot` that nobody chose can
-    /// reach a journal record and a `StartView` message, where it is
+    /// rather than a `Default` impl, because a [`Ballot`] that nobody chose can
+    /// reach a journal record and a [`crate::wire::Tag::StartView`] message, where it is
     /// indistinguishable from the genesis view.
     pub const INITIAL: Ballot = Ballot {
         era: Era::INITIAL,
@@ -529,10 +531,10 @@ pub fn next_view_selecting(current: View, index: u32, members: u32) -> Option<Vi
 /// outcome the host could not determine is, because that is the only case in which the
 /// node cannot say what its own durable state is.
 ///
-/// This enum lives in `ids`, not in `invariant`, by architectural ruling: `Fault` names
-/// fault *kinds* and is identity-level state carried inside `Progress`. Placing it in
-/// `invariant` would close a module cycle, `invariant::legal` consumes `Progress`
-/// while `progress` would have to import `Fault` back from `invariant`, and the
+/// This enum lives in `ids`, not in `invariant`, by architectural ruling: [`Fault`] names
+/// fault *kinds* and is identity-level state carried inside [`crate::progress::Progress`]. Placing it in
+/// `invariant` would close a module cycle, `invariant::legal` consumes [`crate::progress::Progress`]
+/// while `progress` would have to import [`Fault`] back from `invariant`, and the
 /// architecture prohibits cycles. `invariant` re-exports it so existing citations keep
 /// compiling.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -556,7 +558,7 @@ impl Fault {
     /// Always `true`.
     ///
     /// This exists so that stickiness is a stated property of the type rather than a
-    /// convention observed by whichever code happens to hold a `Fault`. There is
+    /// convention observed by whichever code happens to hold a [`Fault`]. There is
     /// deliberately no clear, reset, or `try_recover` path anywhere in the crate; a
     /// reviewer encountering that absence should read this method and conclude it is the
     /// design, not an oversight. Restart from a fault is a host lifecycle event, the

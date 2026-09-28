@@ -14,7 +14,7 @@
 //! provision-later entry point, so a node whose process starts later is
 //! expressed as: crash it at epoch 0, before it ever ran, and `reopen`
 //! it over the recorded disk when it starts. The disk of a node crashed at
-//! epoch 0 is exactly `provision`'s state (the pristine genesis), so the
+//! epoch 0 is exactly [`uvrr::replica::Replica::provision`]'s state (the pristine genesis), so the
 //! reopened node and a freshly provisioned one are state-identical, and
 //! the bootstrap rules treat them alike. Datagrams sent while the node is
 //! down sit in the harness's queue and are delivered once it is back: the
@@ -22,24 +22,24 @@
 //!
 //! # The shapes
 //!
-//! 1. **Staggered genesis start**: two weight-1 nodes, `WeightedMajority`.
+//! 1. **Staggered genesis start**: two weight-1 nodes, [`uvrr::quorum::WeightedMajority`].
 //!    n(0) alone through several `primary_timeout` windows, the machinery
 //!    fires exactly one fence (a solo node's first firing moves it to
-//!    `ViewChange`, and a `ViewChange` node has nothing to suspect), the
+//!    [`uvrr::progress::Status::ViewChange`], and a [`uvrr::progress::Status::ViewChange`] node has nothing to suspect), the
 //!    fence into the succession view whose primary is the absent n(1),
 //!    then n(1) starts; both tick in lockstep rounds. The pin: a leader is
 //!    elected, a first value commits, both apply.
 //! 2. **Post-genesis cold restart through the marker machine**
-//!    (§5.1 of `docs/uvrr-durability-model.md`): committed normal
+//!    (`docs/uvrr-io-obligations.md`, the boot-gate chapter §2): committed normal
 //!    operations past the genesis plus one committed reconfiguration era,
 //!    then the HOST performs the controlled stop of each node,
 //!    `begin_stop`, the drain, `finish_stop`, and the boot's quorum read
-//!    (`SuperblockCopies::restart`) answers the one question it asks: the
-//!    2-of-4 `Stopped` verdict is the clean stop, the identity continues,
-//!    and the node boots as `Restarting`, a member with complete state
+//!    ([`uvrr::lifecycle::SuperblockCopies::restart`]) answers the one question it asks: the
+//!    2-of-4 [`uvrr::lifecycle::Marker::Stopped`] verdict is the clean stop, the identity continues,
+//!    and the node boots as [`uvrr::progress::Status::Restarting`], a member with complete state
 //!    and no amnesia. Staggered: n(0) restarts and ticks ALONE through
 //!    several timeout windows, it ticks the FULL protocol, so it now
-//!    suspects the silent primary and issues `StartViewChange`; no quorum
+//!    suspects the silent primary and issues [`uvrr::wire::Tag::StartViewChange`]; no quorum
 //!    evidence can arrive until n(1) restarts, then n(1) restarts, the
 //!    mutually-heard fence completes, and the ordinary
 //!    fence/evidence/install pipeline finishes the restart: a leader is
@@ -49,7 +49,7 @@
 //!    under the marker machine it does not exist.
 //! 3. **The crash-shape Joining pin**: a node restarted through the
 //!    machine with a NON-stopped marker set, the markers its boot wrote,
-//!    the crash shape, bumps and enters `Joining`. It is not a member: it
+//!    the crash shape, bumps and enters [`uvrr::progress::Status::Joining`]. It is not a member: it
 //!    neither votes nor view-changes (its tick drives only its own
 //!    re-drive, and its solo windows emit not one datagram), and anything
 //!    it emits is dropped by the §6 membership checks, a fabricated
@@ -67,8 +67,8 @@ use uvrr::observe::Diagnostic;
 use uvrr::progress::Status;
 use uvrr::wire::{Header, Tag};
 
-/// The timeout knob: a suspecting node, `Normal` backup or `Restarting`
-/// member (§5.1), fires after more than three ticks of silence (S4).
+/// The timeout knob: a suspecting node, [`uvrr::progress::Status::Normal`] backup or [`uvrr::progress::Status::Restarting`]
+/// member (§5), fires after more than three ticks of silence (S4).
 const TIMEOUT: u64 = 3;
 
 /// The staggered-start window multiplier: several `primary_timeout`
@@ -100,7 +100,7 @@ fn cluster() -> Harness {
 
 /// Bootstraps a live cluster: the genesis primary self-promotes on the
 /// first tick and every backup adopts view (1, 0) from the promotion's
-/// `Commit` announcement (§13.3).
+/// [`uvrr::wire::Tag::Commit`] announcement (§13.3).
 fn bootstrap(h: &mut Harness) {
     h.tick_all();
     h.deliver_all();
@@ -186,7 +186,7 @@ fn commit_one(h: &mut Harness, primary: NodeId, lsb: u64, payload: &[u8]) {
 
 /// Commits one client value at `primary` without exercising the §11.1
 /// boundary: the cold-restart scripts assert frontiers, and the pending
-/// `Apply` effects are volatile host state that dies at the crash anyway.
+/// [`uvrr::effects::Effect::Apply`] effects are volatile host state that dies at the crash anyway.
 fn commit_quiet(h: &mut Harness, primary: NodeId, lsb: u64, payload: &[u8]) {
     let outcome = h.propose(primary, op_id(lsb), payload);
     assert!(
@@ -208,12 +208,13 @@ fn copies(marker: Marker, identity: u32) -> SuperblockCopies {
     }
 }
 
-/// The HOST's controlled stop of one node (§5.1): `begin_stop` (the node
+/// The HOST's controlled stop of one node (`docs/uvrr-io-obligations.md`,
+/// the boot-gate chapter §3): `begin_stop` (the node
 /// has stopped sending, no disk flush sits on the protocol's hot path),
 /// the drain (the host flushes WALs and grids, strictly between the two
 /// marker writes, here it is work the host does outside the core, and it
 /// is protocol-invisible), `finish_stop` (the drain's proof), then the
-/// boot's quorum read: 2-of-4 `Stopped` is the clean stop, the identity
+/// boot's quorum read: 2-of-4 [`uvrr::lifecycle::Marker::Stopped`] is the clean stop, the identity
 /// continues.
 fn host_stop(identity: u32) -> (RestartDecision, SuperblockCopies) {
     let stopping = copies(Marker::Restarting, identity).begin_stop();
@@ -230,9 +231,9 @@ fn host_stop(identity: u32) -> (RestartDecision, SuperblockCopies) {
 
 /// Builds the post-genesis history the cold restart reopens over: two
 /// committed normal operations (slots 3–4), one committed reconfiguration
-/// era, the stop-the-world `Double` at slot 5, establishing era 2 with
+/// era, the stop-the-world [`uvrr::configuration::SystemOperation::Double`] at slot 5, establishing era 2 with
 /// weights (2, 2), the ordinary view change into that era, and one more
-/// committed operation inside it (slot 6). Every node ends `Normal` at
+/// committed operation inside it (slot 6). Every node ends [`uvrr::progress::Status::Normal`] at
 /// era-2 view 1 with `accepted == committed == 6`.
 fn post_genesis_history(h: &mut Harness) -> Ballot {
     bootstrap(h);
@@ -269,8 +270,8 @@ fn post_genesis_history(h: &mut Harness) -> Ballot {
 /// several `primary_timeout` windows, then n(1); both tick. The solo
 /// phase's one fence firing targets the succession view whose primary is
 /// the absent n(1), so the completion is n(1)'s to carry once it starts:
-/// it adopts the queued promotion `Commit` (§4's bootstrap rule), joins
-/// n(0)'s fence from the queued `StartViewChange`, wins the evidence
+/// it adopts the queued promotion [`uvrr::wire::Tag::Commit`] (§4's bootstrap rule), joins
+/// n(0)'s fence from the queued [`uvrr::wire::Tag::StartViewChange`], wins the evidence
 /// quorum as the target view's primary, and installs, the leader is
 /// elected, a first value commits, both apply. The election completes in
 /// the first lockstep round after n(1) starts; the serving round is
@@ -357,20 +358,20 @@ fn staggered_genesis_start_completes() {
 }
 
 /// The post-genesis cold restart through the marker machine, the pin the
-/// old corpus got wrong: there is no wedge, because a `Restarting` node
+/// old corpus got wrong: there is no wedge, because a [`uvrr::progress::Status::Restarting`] node
 /// ticks the full protocol.
 ///
-/// §5.1: the HOST performs the stop, `begin_stop`, the drain,
-/// `finish_stop`, and the boot's quorum read (`SuperblockCopies::restart`)
-/// proves the clean stop: 2-of-4 `Stopped` means the transition completed,
+/// The boot-gate chapter §3: the HOST performs the stop, `begin_stop`, the drain,
+/// `finish_stop`, and the boot's quorum read ([`uvrr::lifecycle::SuperblockCopies::restart`])
+/// proves the clean stop: 2-of-4 [`uvrr::lifecycle::Marker::Stopped`] means the transition completed,
 /// the drain completed, there is no amnesiac risk, and the identity
-/// continues as `Restarting`, a member with complete state ticking the
+/// continues as [`uvrr::progress::Status::Restarting`], a member with complete state ticking the
 /// full protocol. Staggered: n(0) restarts first and ticks ALONE through
 /// several timeout windows; its first timeout fires the fence into the
 /// succession view, the folded era's order names n(0) that view's
 /// primary, and no quorum evidence can arrive while n(1) is down. n(1)
 /// then restarts through the same machine; the queued and fresh
-/// `StartViewChange` votes mutually complete the fence, the target
+/// [`uvrr::wire::Tag::StartViewChange`] votes mutually complete the fence, the target
 /// primary's evidence quorum wins, and the ordinary install seats the
 /// leader. The pin: a leader is elected at/beyond the folded era, the
 /// restarted application walks the §11.1 catch-up, a NEW value commits at
@@ -556,16 +557,17 @@ fn post_genesis_cold_restart_completes_through_the_machine() {
     }
 }
 
-/// The crash-shape Joining pin (§5.1's `Anything-else→Joining`).
+/// The crash-shape Joining pin (the boot-gate chapter §2's anything-else
+/// classification).
 ///
-/// A running node's markers hold the `Restarting` 4x its boot wrote, so a
+/// A running node's markers hold the [`uvrr::progress::Status::Restarting`] 4x its boot wrote, so a
 /// crash leaves exactly the no-controlled-shutdown evidence: no 2-of-4
-/// `Stopped`. The boot's quorum read (`SuperblockCopies::restart`) bumps
-/// the identity and writes `Joining` 4x. The bumped node is NOT a member:
+/// [`uvrr::lifecycle::Marker::Stopped`]. The boot's quorum read ([`uvrr::lifecycle::SuperblockCopies::restart`]) bumps
+/// the identity and writes [`uvrr::progress::Status::Joining`] 4x. The bumped node is NOT a member:
 /// it neither votes nor view-changes, its tick drives only its own
 /// re-drive, so its solo windows emit not one datagram, and anything it
 /// emits is dropped by the §6 membership checks: a fabricated
-/// `StartViewChange` from the bumped identity is discarded by name
+/// [`uvrr::wire::Tag::StartViewChange`] from the bumped identity is discarded by name
 /// (`UnknownSender`) and disturbs the live member not at all.
 #[test]
 fn crash_shape_bumps_and_joins_without_membership() {

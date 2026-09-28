@@ -1,5 +1,5 @@
 //! The era planner: reduce-left batch evaluation
-//! (`docs/uvrr-reconfiguration-rules.md` §5).
+//! (`docs/uvrr-protocols.md`, the reconfiguration-rules chapter §5).
 //!
 //! The leader never proposes an unsafe batch. Given a stream of operations it runs the
 //! **reduce-left partitioner**: a fold carrying the tuple
@@ -13,7 +13,7 @@
 //!    the taken ops become one era's establishing operation, and retry the
 //!    operation as the first op of the next batch.
 //!
-//! The legality oracle for every what-if is [`Configuration::apply`] itself, on a
+//! The legality oracle for every what-if is [`crate::configuration::Configuration::apply`] itself, on a
 //! clone: everything is an immutable value and every operation is a pure function
 //! `Configuration → Result<Configuration>`, so the planner and the fold cannot
 //! disagree about what is legal, and the evaluation is thread-safe by construction,
@@ -31,10 +31,10 @@ use crate::ids::Slot;
 
 /// One committed era of a planned reconfiguration (rules §4, §5).
 ///
-/// `ops` become ONE [`SystemOperation::Batch`] establishing operation, one era, one
+/// `ops` become ONE [`crate::configuration::SystemOperation::Batch`] establishing operation, one era, one
 /// WAL entry (§9), and `config` is the configuration that era establishes: the fold
 /// of the batch onto the previous era's configuration. The planner never stores
-/// steps; a [`Configuration::plan`] result is a proposal the leader still evaluates
+/// steps; a [`crate::configuration::Configuration::plan`] result is a proposal the leader still evaluates
 /// against the current committed configuration.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct EraStep {
@@ -46,13 +46,13 @@ pub struct EraStep {
 
 impl Configuration {
     /// Partitions an operation stream into legal eras (§5, the reduce-left
-    /// partitioner): each returned [`EraStep`] folds as one [`SystemOperation::Batch`]
+    /// partitioner): each returned [`EraStep`] folds as one [`crate::configuration::SystemOperation::Batch`]
     /// establishing operation, and the steps' configurations are the era sequence the
     /// WAL would replay.
     ///
     /// # Preconditions
     ///
-    /// * No genesis operation in the stream (R15: [`ConfigError::GenesisNotPlannable`]).
+    /// * No genesis operation in the stream (R15: [`crate::configuration::ConfigError::GenesisNotPlannable`]).
     /// * Every taken batch obeys the batch rules R13–R15 and every sub-operation's
     ///   own boundary at its point in the sequence, the same refusals the fold
     ///   produces, surfaced from the what-if (`EmptyBatch` cannot occur here: a

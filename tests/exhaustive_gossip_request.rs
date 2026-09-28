@@ -1,5 +1,5 @@
 //! Exhaustive per-message properties: the rejoin gossip request a node hears
-//! (`docs/uvrr-rejoin-gossip-and-witnesses.md` §2 to §3).
+//! (`docs/uvrr-protocols.md`, the rejoin chapter §2 to §3).
 //!
 //! One message over the cross product of the dimensions the handler branches
 //! on: the receiver's role (the leader answers, every other node only
@@ -10,7 +10,7 @@
 //! the identity law (universally unique and never recycled, so the minted
 //! foreign sender is outside the configuration for the life of the test and
 //! the witness list names it exactly once), the boot-gate marker states (the
-//! receiver was never halted, so it holds its assembled `Normal` life), and
+//! receiver was never halted, so it holds its assembled [`uvrr::progress::Status::Normal`] life), and
 //! the quorum gate fixed at construction (Q1). Every node that hears the
 //! request records the sender, whatever its own transition's outcome, and
 //! the list never names a voter. The request's frontiers ride the body; the
@@ -77,7 +77,7 @@ fn route(role: Role, r: Rel) -> Route {
     }
 }
 
-/// A three-node cluster at view 1, every node `Normal`.
+/// A three-node cluster at view 1, every node [`uvrr::progress::Status::Normal`].
 #[rustfmt::skip]
 fn assembled() -> Harness {
     let knobs = ViewChangeKnobs { primary_timeout: TIMEOUT, view_change_budget: usize::MAX };
