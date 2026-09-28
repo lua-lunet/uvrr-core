@@ -1,20 +1,12 @@
-usenix
-y THE ADVANCED
-COMPUTING SYSTEMS
-
-ASSOCIATION
-
 Exploiting Commutativity For
 Practical Fast Replication
 Seo Jin Park and John Ousterhout, Stanford University
-
 https://www.usenix.org/conference/nsdi19/presentation/park
 
 This paper is included in the Proceedings of the
 16th USENIX Symposium on Networked Systems
-
-Design and Implementation (NSDI '19).
-February 26-28, 2019 - Boston, MA, USA
+Design and Implementation (NSDI ’19).
+February 26–28, 2019 • Boston, MA, USA
 ISBN 978-1-931971-49-2
 
 Open access to the Proceedings of the
@@ -22,39 +14,32 @@ Open access to the Proceedings of the
 Design and Implementation (NSDI ’19)
 is sponsored by
 
-ri NetApp’ -
-
-
----
-Exploiting Commutativity For Practical Fast Replication
-
+Exploiting Commutativity For Practical Fast Replication
 Seo Jin Park
 Stanford University
 
 Abstract
-
 Traditional approaches to replication require client requests
 to be ordered before making them durable by copying them to
 replicas. As a result, clients must wait for two round-trip times
 (RTTs) before updates complete. In this paper, we show that
 this entanglement of ordering and durability is unnecessary
-for strong consistency. The Consistent Unordered Replica-
-tion Protocol (CURP) allows clients to replicate requests that
+for strong consistency. The Consistent Unordered Replication Protocol (CURP) allows clients to replicate requests that
 have not yet been ordered, as long as they are commutative.
 This strategy allows most operations to complete in 1 RTT
 (the same as an unreplicated system). We implemented
 CURP in the Redis and RAMCloud storage systems. In
-RAMCloud, CURP improved write latency by ~2x (14 us
-— 7.1 ps) and write throughput by 4x. Compared to un-
-replicated RAMCloud, CURP’s latency overhead for 3-way
-replication is just 1 1s (6.1 pts vs 7.1 ps). CURP transformed
+RAMCloud, CURP improved write latency by ∼2x (14 µs
+→ 7.1 µs) and write throughput by 4x. Compared to unreplicated RAMCloud, CURP’s latency overhead for 3-way
+replication is just 1 µs (6.1 µs vs 7.1 µs). CURP transformed
 a non-durable Redis cache into a consistent and durable
 storage system with only a small performance overhead.
 
-1 Introduction
+1
 
-Fault-tolerant systems rely on replication to mask individ-
-ual failures. To ensure that an operation is durable, it cannot
+Introduction
+
+Fault-tolerant systems rely on replication to mask individual failures. To ensure that an operation is durable, it cannot
 be considered complete until it has been properly replicated.
 Replication introduces a significant overhead because it
 requires round-trip communication to one or more additional
@@ -62,10 +47,8 @@ servers. Within a datacenter, replication can easily double
 the latency for operations in comparison to an unreplicated
 system; in geo-replicated environments the cost of replication
 can be even greater.
-
 In principle, the cost of replication could be reduced or
-eliminated if replication could be overlapped with the execu-
-tion of the operation. In practice, however, this is difficult to
+eliminated if replication could be overlapped with the execution of the operation. In practice, however, this is difficult to
 do. Executing an operation typically establishes an ordering
 between that operation and other concurrent operations, and
 the order must survive crashes if the system is to provide
@@ -82,25 +65,17 @@ times (RTTs). This problem affects all systems that provide
 consistency and replication, including both primary-backup
 approaches and consensus approaches.
 
+USENIX Association
+
 John Ousterhout
 Stanford University
 
-Consistent Unordered Replication Protocol (CURP) re-
-duces the overhead for replication by taking advantage of the
-fact that most operations are commutative, so their order of ex-
-ecution doesn’t matter. CURP supplements a system’s exist-
-ing replication mechanism with a lightweight form of replica-
-tion without ordering based on witnesses. A client replicates
-each operation to one or more witnesses in parallel with send-
-ing the request to the primary server; the primary can then ex-
-ecute the operation and return to the client without waiting for
-normal replication, which happens asynchronously. This al-
-lows operations to complete in | RTT, as long as all witnessed-
-but-not-yet-replicated operations are commutative. Non-
-commutative operations still require 2 RTTs. If the primary
+Consistent Unordered Replication Protocol (CURP) reduces the overhead for replication by taking advantage of the
+fact that most operations are commutative, so their order of execution doesn’t matter. CURP supplements a system’s existing replication mechanism with a lightweight form of replication without ordering based on witnesses. A client replicates
+each operation to one or more witnesses in parallel with sending the request to the primary server; the primary can then execute the operation and return to the client without waiting for
+normal replication, which happens asynchronously. This allows operations to complete in 1 RTT, as long as all witnessedbut-not-yet-replicated operations are commutative. Noncommutative operations still require 2 RTTs. If the primary
 crashes, information from witnesses is combined with that
 from the normal replicas to re-create a consistent server state.
-
 CURP can be easily applied to most existing systems
 using primary-backup replication. Changes required by
 CURP are not intrusive, and it works with any kind of backup
@@ -110,60 +85,47 @@ This is important since most high-performance systems
 optimize their backup mechanisms, and we don’t want to lose
 those optimizations (e.g. CURP can be used with RAMCloud
 without sacrificing its fast crash recovery [26]).
-
 To show its performance benefits and applicability, we
-implemented CURP in two NoSQL storage systems: Re-
-dis [30] and RAMCloud [27]. Redis is generally used as
+implemented CURP in two NoSQL storage systems: Redis [30] and RAMCloud [27]. Redis is generally used as
 a non-durable cache due to its very expensive durability
 mechanism. By applying CURP to Redis, we were able to
 provide durability and consistency with similar performance
 to the non-durable Redis. For RAMCloud, CURP reduced
-write latency by half (only a 1 us penalty relative to RAM-
-Cloud without replication) and increased throughput by 3.8x
+write latency by half (only a 1 µs penalty relative to RAMCloud without replication) and increased throughput by 3.8x
 without compromising consistency.
-
-Overall, CURP is the first replication protocol that com-
-pletes linearizable deterministic update operations within
+Overall, CURP is the first replication protocol that completes linearizable deterministic update operations within
 1 RTT without special networking. Instead of relying
-on special network devices or properties for fast replica-
-tion [21, 28, 22, 12, 3], CURP exploits commutativity, and it
-can be used for any system where commutativity of client re-
-quests can be checked just from operation parameters (CURP
+on special network devices or properties for fast replication [21, 28, 22, 12, 3], CURP exploits commutativity, and it
+can be used for any system where commutativity of client requests can be checked just from operation parameters (CURP
 cannot use state-dependent commutativity). Even when
 compared to Speculative Paxos or NOPaxos (which require
 a special network topology and special network switches),
-CURP is faster since client request packets do not need to de-
-tour to get ordered by a networking device (NOPaxos has an
-overhead of 16 ps, but CURP only increased latency by 1 us).
+CURP is faster since client request packets do not need to detour to get ordered by a networking device (NOPaxos has an
+overhead of 16 µs, but CURP only increased latency by 1 µs).
 
-USENIX Association
+16th USENIX Symposium on Networked Systems Design and Implementation
 
-16th USENIX Symposium on Networked Systems Design and Implementation 47
+47
 
----
-2 Separating Durability from Ordering
+2
+
+Separating Durability from Ordering
 
 Replication protocols supporting concurrent clients have
 combined the job of ordering client requests consistently
 among replicas and the job of ensuring the durability of
 operations. This entanglement causes update operations to
 take 2 RTTs.
-
 Replication protocols must typically guarantee the
 following two properties:
-
-e Consistent Ordering: if a replica completes operation a
-
+• Consistent Ordering: if a replica completes operation a
 before b, no client in the system should see the effects of
 b without the effects of a.
-
-e Durability: once its completion has been externalized
+• Durability: once its completion has been externalized
 to an application, an executed operation must survive
 crashes.
-
 To achieve both consistent ordering and durability, current
-replication protocols need 2 RTTs. For example, in master-
-backup (a.k.a. primary-backup) replication, client requests
+replication protocols need 2 RTTs. For example, in masterbackup (a.k.a. primary-backup) replication, client requests
 are always routed to a master replica, which serializes
 requests from different clients. As part of executing an
 operation, the master replicates either the client request itself
@@ -171,9 +133,7 @@ or the result of the execution to backup replicas; then the
 master responds back to clients. This entire process takes 2
 RTTs total: 1 from clients to masters and another RTT for
 masters to replicate data to backups in parallel.
-
-Consensus protocols with strong leaders (e.g. Multi-
-Paxos [17] or Raft [25]) also require 2 RTTs for update
+Consensus protocols with strong leaders (e.g. MultiPaxos [17] or Raft [25]) also require 2 RTTs for update
 operations. Clients route their requests to the current leader
 replica, which serializes the requests into its operation log.
 To ensure durability and consistent ordering of the client
@@ -183,7 +143,6 @@ back to clients with the results. In consequence, consensus
 protocols with strong leaders also require 2 RTTs for updates:
 1 RTT from clients to leaders and another RTT for leaders to
 replicate the operation log to other replicas.
-
 Fast Paxos [19] and Generalized Paxos [18] reduced the
 latency of replicated updates from 2 RTTs to 1.5 RTT by
 allowing clients to optimistically replicate requests with
@@ -192,48 +151,29 @@ client requests by themselves, leaders must still wait for a
 majority of replicas to durably agree on the ordering of the
 requests before executing them. This extra waiting adds 0.5
 RTT overhead. (See §B.3 for a detailed explanation on why
-they cannot achieve | RTT.)
-
+they cannot achieve 1 RTT.)
 Network-Ordered Paxos [21] and Speculative Paxos [28]
-achieve near | RTT latency for updates by using special net-
-working to ensure that all replicas receive requests in the same
-order. However, since they require special networking hard-
-ware, it is difficult to deploy them in practice. Also, they can’t
+achieve near 1 RTT latency for updates by using special networking to ensure that all replicas receive requests in the same
+order. However, since they require special networking hardware, it is difficult to deploy them in practice. Also, they can’t
 achieve the minimum possible latency since client requests
 detour to a common root-layer switch (or a middlebox).
-
 The key idea of CURP is to separate durability and
 consistent ordering, so update operations can be done in 1
 RTT in the normal case. Instead of replicating totally ordered
 
-Master
-x2
-y:5
-z7
-State Machine
-
-durable speculative
-
-Operation sequence
-
-Ce
-
-Witness
-
-«+ [X—3 |X 1 [XZ
+48
 
 Figure 1: CURP clients directly replicate to witnesses. Witnesses
 only guarantee durability without ordering. Backups hold data that
 includes ordering information. Witnesses are temporary storage to ensure
 durability until operations are replicated to backups.
+
 operations in 2 RTTs, CURP achieves durability without
 ordering and uses the commutativity of operations to defer
 agreement on operation order.
-
 To achieve durability in 1 RTT, CURP clients directly
 record their requests in temporary storage, called a witness,
-without serializing them through masters. As shown in Fig-
-ure 1, witnesses do not carry ordering information, so clients
+without serializing them through masters. As shown in Figure 1, witnesses do not carry ordering information, so clients
 can directly record operations into witnesses in parallel with
 sending operations to masters so that all requests will finish in
 1 RTT. In addition to the unordered replication to witnesses,
@@ -249,15 +189,13 @@ complete an update operation and reveal the result returned
 from the master if it successfully recorded the request in
 witnesses (optimistic fast path: 1 RTT), or after waiting for
 the master to replicate to backups (slow path: 2 RTT).
-
 CURP’s approach introduces two threats to consistency:
 ordering and duplication. The first problem is that the order
 in which requests are replayed after a server crash may not
 match the order in which the master processed those requests.
 CURP uses commutativity to solve this problem: all of the
 unsynced requests (those that a client considers complete,
-but which have not been replicated to backups) must be com-
-mutative. Given this restriction, the order of replay will have
+but which have not been replicated to backups) must be commutative. Given this restriction, the order of replay will have
 no visible impact on system behavior. Specifically, a witness
 only accepts and saves an operation if it is commutative with
 every other operation currently stored by that witness (e.g.,
@@ -266,17 +204,15 @@ execute client operations speculatively (by responding before
 replication is complete), if that operation is commutative with
 every other unsynced operation. If either a witness or master
 finds that a new operation is not commutative, the client must
-ask the master to syne with backups. This adds an extra RTT
+ask the master to sync with backups. This adds an extra RTT
 of latency, but it flushes all of the speculative operations.
-
 The second problem introduced by CURP is duplication.
 
-48 16th USENIX Symposium on Networked Systems Design and Implementation
+16th USENIX Symposium on Networked Systems Design and Implementation
 
 USENIX Association
 
----
-When a master crashes, it may have completed the replication
+When a master crashes, it may have completed the replication
 of one or more operations that are recorded by witnesses. Any
 completed operations will be re-executed during replay from
 witnesses. Thus there must be a mechanism to detect and
@@ -285,12 +221,10 @@ not unique to CURP, and it can happen in distributed systems
 for a variety of other reasons. There exist mechanisms to
 filter out duplicate executions, such as RIFL [20], and they
 can be applied to CURP as well.
-
 We can apply the idea of separating ordering and durability
 to both consensus-based replicated state machines (RSM) and
 primary-backup, but this paper focuses on primary-backup
-since it is more critical for application performance. Fault-
-tolerant large-scale high-performance systems are mostly
+since it is more critical for application performance. Faulttolerant large-scale high-performance systems are mostly
 configured with a single cluster coordinator replicated by
 consensus and many data servers using primary-backup (e.g.
 Chubby [6], ZooKeeper [15], Raft [25] are used for cluster
@@ -305,7 +239,9 @@ protocol for primary-backup, which is the main replication
 technique for data servers. In §B.2, we sketch how the same
 technique can be applied for consensus.
 
-3 CURP Protocol
+3
+
+CURP Protocol
 
 CURP is a new replication protocol that allows clients
 to complete linearizable updates within 1 RTT. Masters in
@@ -315,11 +251,8 @@ durability of the speculatively completed updates, clients
 multicast update operations to witnesses. To preserve
 linearizability, witnesses and masters enforce commutativity
 among operations that are not fully replicated to backups.
-
 3.1 Architecture and Model
-
-CURP provides the same guarantee as current primary-
-backup protocols: it provides linearizability to client requests
+CURP provides the same guarantee as current primarybackup protocols: it provides linearizability to client requests
 in spite of failures. CURP assumes a fail-stop model and does
 not handle byzantine faults. As in typical primary-backup
 replications, it uses a total of f + 1 replicas composed of 1
@@ -331,12 +264,13 @@ witnesses may fail independently and may be co-hosted
 with backups. CURP remains available (i.e. immediately
 recoverable) despite up to f failures, but will still be strongly
 consistent even if all replicas fail.
-
 Throughout the paper, we assume that witnesses are
 separate from backups. This allows CURP to be applied to
 a wide range of existing replicated systems without modi-
 
-Figure 2: CURP architecture for f =3 fault tolerance.
+USENIX Association
+
+Figure 2: CURP architecture for f = 3 fault tolerance.
 
 fying their specialized backup mechanisms. For example,
 CURP can be applied to a system which uses file writes to
@@ -345,60 +279,49 @@ the use of witnesses will improve latency while retaining its
 special backup mechanism. However, when designing new
 systems, witnesses may be combined with backups for extra
 performance benefits. (See §B.1 for details.)
-
 CURP makes no assumptions about the network. It
 operates correctly even with networks that are asynchronous
 (no bound on message delay) and unreliable (messages
 can be dropped). Thus, it can achieve 1 RTT updates on
-replicated systems in any environment, unlike other alter-
-native solutions. (For example, Speculative Paxos [28] and
+replicated systems in any environment, unlike other alternative solutions. (For example, Speculative Paxos [28] and
 Network-Ordered Paxos [21] require special networking
 hardware and cannot be used for geo-replication.)
-
-3.2. Normal Operation
+3.2 Normal Operation
 3.2.1 Client
-
 Client interaction with masters is generally the same as it
 would be without CURP. Clients send update RPC requests
 to masters. If a client cannot receive a response, it retries the
 update RPC. If the master crashes, the client may retry the
 RPC with a different server.
-
-For | RTT updates, masters return to clients before replica-
-tion to backups. To ensure durability, clients directly record
+For 1 RTT updates, masters return to clients before replication to backups. To ensure durability, clients directly record
 their requests to witnesses concurrently while waiting for
 responses from masters. Once all f witnesses have accepted
 the requests, clients are assured that the requests will survive
 master crashes, so clients complete the operations with the
 results returned from masters.
-
-Ifaclient cannot record in all f witnesses (due to failures or
+If a client cannot record in all f witnesses (due to failures or
 rejections by witnesses), the client cannot complete an update
-operation in | RTT. To ensure the durability of the operation,
+operation in 1 RTT. To ensure the durability of the operation,
 the client must wait for replication to backups by sending
-a syne RPC to the master. Upon receiving syne RPCs, the
+a sync RPC to the master. Upon receiving sync RPCs, the
 master ensures the operation is replicated to backups before
 returning to the client. This waiting for sync increases the
 operation latency to 2 RTTs in most cases and up to 3 RTT in
 the worst case where the master hasn’t started syncing until it
 receives a sync RPC from a client. If there is no response to
-the syne RPC (indicating the master might have crashed), the
+the sync RPC (indicating the master might have crashed), the
 client restarts the entire process; it resends the update RPC to
 a new master and tries to record the RPC request in witnesses
 of the new master.
 
-USENIX Association
+16th USENIX Symposium on Networked Systems Design and Implementation
 
-16th USENIX Symposium on Networked Systems Design and Implementation 49
+49
 
----
-3.2.2 Witness
-
-Witnesses support 3 basic operations: they record opera-
-tions in response to client requests, hold the operations until
+3.2.2 Witness
+Witnesses support 3 basic operations: they record operations in response to client requests, hold the operations until
 explicitly told to drop by masters, and provide the saved
 operations during recovery.
-
 Once a witness accepts a record RPC for an operation, it
 guarantees the durability of the operation until told that the
 operation is safe to drop. To be safe from power failures,
@@ -407,7 +330,6 @@ flash-backed DRAM). This is feasible since a witness needs
 only a small amount of space to temporarily hold recent client
 requests. Similar techniques are used in strongly-consistent
 low-latency storage systems, such as RAMCloud [27].
-
 A witness accepts a new record RPC from a client only
 if the new operation is commutative with all operations that
 are currently saved in the witness. If the new request doesn’t
@@ -415,24 +337,19 @@ commute with one of the existing requests, the witness must
 reject the record RPC since the witness has no way to order
 the two noncommutative operations consistent with the
 execution order in masters. For example, if a witness already
-accepted “x < 1”, it cannot accept “x <5”.
-
+accepted “x ← 1”, it cannot accept “x ← 5”.
 Witnesses must be able to determine whether operations are
 commutative or not just from the operation parameters. For
 example, in key-value stores, witnesses can exploit the fact
 that operations on different keys are commutative. In some
-cases, it is difficult to determine whether two operations com-
-mute each other. SQL UPDATE is an example; it is impos-
-sible to determine the commutativity of “UPDATE T SET
-rate = 40 WHERE level = 3” and“UPDATE T SET
+cases, it is difficult to determine whether two operations commute each other. SQL UPDATE is an example; it is impossible to determine the commutativity of “UPDATE T SET
+rate = 40 WHERE level = 3” and “UPDATE T SET
 rate = rate + 10 WHERE dept = SDE” just from
 the requests themselves. To determine the commutativity of
-the two updates, we must run them with real data. Thus, wit-
-nesses cannot be used for operations whose commutativity
+the two updates, we must run them with real data. Thus, witnesses cannot be used for operations whose commutativity
 depends on the system state. In addition to the case explained,
 determining commutativity can be more subtle for complex
 systems, such as DBMS with triggers and views.
-
 Each of f witnesses operates independently; witnesses
 need not agree on either ordering or durability of operations.
 In an asynchronous network, record RPCs may arrive at
@@ -444,9 +361,7 @@ only if all f witnesses accepted its record RPCs. Second,
 requests in each witness are required to be commutative
 independently, and only one witness is selected and used
 during recovery (described in §3.3).
-
-3.2.3. Master
-
+3.2.3 Master
 The role of masters in CURP is similar to their role in
 traditional primary-backup replications. Masters in CURP
 receive, serialize, and execute all update RPC requests from
@@ -454,11 +369,7 @@ clients. If an executed operation updates the system state, the
 master synchronizes (syncs) its current state with backups by
 replicating the updated value or the log of ordered operations.
 
-synced to backups unsynced |
-
-t t
-
-Last backup syne Master crashes
+50
 
 Figure 3: Sequence of executed operations in the crashed master.
 
@@ -471,35 +382,30 @@ the operations that were speculatively executed but not yet
 replicated to backups unsynced operations. As shown in
 Figure 3, all unsynced operations are contiguous at the tail of
 the masters’ execution history.
-
 To prevent inconsistency, a master must sync before
 responding if the operation is not commutative with any
-existing unsynced operations. If a master responds for a non-
-commutative operation before syncing, the result returned to
+existing unsynced operations. If a master responds for a noncommutative operation before syncing, the result returned to
 the client may become inconsistent if the master crashes. This
 is because the later operation might complete and its result
 could be externalized (because it was recorded to witnesses)
 while the earlier operation might not survive the crash
 (because, for example, its client crashed before recording it
 to witnesses). For example, if a master speculatively executes
-“x < 2” and “read x”, the returned read value, 2, will not be
-valid if the master crashes and loses “‘x + 2”. To prevent such
+“x ← 2” and “read x”, the returned read value, 2, will not be
+valid if the master crashes and loses “x ← 2”. To prevent such
 unsafe dependencies, masters enforce commutativity among
 unsynced operations; this ensures that all results returned to
 clients will be valid as long as they are recorded in witnesses.
-
 If an operation is synced because of a conflict, the master
 tags its result as “synced” in the response; so, even if the
 witnesses rejected the operation, the client doesn’t need to
-send a syne RPC and can complete the operation in 2 RTTs.
-3.3, Recovery
-
+send a sync RPC and can complete the operation in 2 RTTs.
+3.3 Recovery
 CURP recovers from a master’s crash in two phases: (1)
 restoration from backups and (2) replay from witnesses.
 First, the new master restores data from one of the backups,
 using the same mechanism it would have used in the absence
 of CURP.
-
 Once all data from backups have been restored, the new
 master replays the requests recorded in witnesses. The new
 master picks any available witness. If none of the f witnesses
@@ -517,25 +423,21 @@ the new master finalizes the recovery by syncing to backups
 and resetting witnesses for the new master (or assigning a new
 set of witnesses). Then the new master can start accepting
 
-50 16th USENIX Symposium on Networked Systems Design and Implementation
+16th USENIX Symposium on Networked Systems Design and Implementation
 
 USENIX Association
 
----
-client requests again.
-
+client requests again.
 Some of the requests in the selected witness may have been
 executed and replicated to backups before the master crashed,
 so the replay of such requests will result in re-execution of
 already executed operations. Duplicate executions of the
 requests can violate linearizability [20].
-
 To avoid duplicate executions of the requests that are
 already replicated to backups, CURP relies on exactly-once
 semantics provided by RIFL [20], which detects already
 executed client requests and avoids their re-execution. Such
-mechanisms for exactly-once semantics are already neces-
-sary to achieve linearizability for distributed systems [20],
+mechanisms for exactly-once semantics are already necessary to achieve linearizability for distributed systems [20],
 so CURP does not introduce a new requirement. In RIFL,
 clients assign a unique ID to each RPC; servers save the IDs
 and results of completed requests and use them to detect and
@@ -545,38 +447,31 @@ system replicates client requests to backups instead of just
 updated values, providing atomic durability becomes trivial
 since each request already contains its ID and its result can be
 obtained from its replay during recovery.)
-
 This recovery protocol together with the normal operation
 protocol described in §3.2 guarantee linearizability of client
 operations even with server failures. An informal proof of
-correctness can be found in appendix $A.
-
+correctness can be found in appendix §A.
 3.4 Garbage Collection
-
 To limit memory usage in witnesses and reduce possible
 rejections due to commutativity violations, witnesses must
 discard requests as soon as possible. Witnesses can drop the
 recorded client requests after masters make their outcomes
-durable in backups. In CURP, masters send garbage collec-
-tion RPCs for the synced updates to their witnesses. The
+durable in backups. In CURP, masters send garbage collection RPCs for the synced updates to their witnesses. The
 garbage collection RPCs are batched: each RPC lists several
 operations that are now durable (using RPC IDs provided by
 RIFL [20]).
-
 3.5 Reconfigurations
-
 This section discusses three cases of reconfiguration:
 recovery of a crashed backup, recovery of a crashed witness,
 and data migration for load balancing. First, CURP doesn’t
 change the way to handle backup failures, so a system can
-Just recover a failed backup as it would without CURP.
-
+just recover a failed backup as it would without CURP.
 Second, if a witness crashes or becomes non-responsive,
 the system configuration manager (the owner of all cluster
 configurations) decommissions the crashed witness and
 assigns a new witness for the master; then it notifies the
 master of the new witness list. When the master receives the
-notification, it syncs to backups to ensure f-fault tolerance
+notification, it syncs to backups to ensure f -fault tolerance
 and responds back to the configuration manager that it is now
 safe to recover from the new witness. After this point, clients
 can use f witnesses again to record operations. However,
@@ -585,11 +480,11 @@ clients cache the list of witnesses, clients may still use the
 decommissioned witness (if it was temporarily disconnected,
 the witness will continue to accept record RPCs from clients).
 
+USENIX Association
+
 This endangers consistency since requests recorded in the old
 witnesses will not be replayed during recovery.
-
-To prevent clients from completing an unsynced update op-
-eration with just recording to old witnesses, CURP maintains
+To prevent clients from completing an unsynced update operation with just recording to old witnesses, CURP maintains
 a monotonically increasing integer, WitnessListVersion, for
 each master. A master’s WitnessListVersion is incremented
 every time the witness configuration for the master is updated,
@@ -602,7 +497,6 @@ wrong witnesses; if they receive errors, the clients fetch new
 witness lists and retry the updates. This ensures that clients’
 update operations can never complete without syncing to
 backups or recording to current witnesses.
-
 Third, for load balancing, a master can split its data into
 two partitions and migrate a partition to a different master.
 Migrations usually happen in two steps: a prepare step
@@ -624,98 +518,29 @@ issues; masters will ignore such requests during the replay
 phase of recovery by the filtering mechanism used to reject
 requests on not owned partitions during normal operations.
 3.6 Read Operations
-
 CURP handles read operations in a fashion similar to that
 of primary-backup replication. Since such operations don’t
 modify system state, clients can directly read from masters,
 and neither clients nor masters replicate read-only operations
 to witnesses or backups.
-
 However, even for read operations, a master must check
 whether a read operation commutes with all currently
 unsynced operations as discussed in §3.2.3. If the read
 operation conflicts with some unsynced update operations,
 the master must sync the unsynced updates to backups before
 responding for the read.
-
 3.7 Consistent Reads from Backups
-
 In primary-backup replication, clients normally issue
 all read operations to the master. However, some systems
 allow reading from backups because it reduces the load on
 masters and can provide better latency in a geo-replicated
 environment (clients can read from a backup in the same
 
-USENIX Association
+16th USENIX Symposium on Networked Systems Design and Implementation
 
-16th USENIX Symposium on Networked Systems Design and Implementation 51
+51
 
----
-xel Time
-
-Master ! 0 [| 1cunsynced) | 1 (synced)
-- syne 4’ Rack of syne
-' 0 [i ST 1 (synced)
-
-‘so
-Poo AM mee f\
-| Witness ‘Nothing for x | “xe” [Nothing for x
-;
-| NV N\A
-'  ChentR! | ] \ ] |
-1 | cgyread x! Vreadx | read x!
-eet a) oe c)
-x=0 x=l1 x=1
-
-Figure 4: Three cases of reading the value of x from a backup replica
-while another client is changing the value of x from 0 to 1: (a) client R first
-confirms that a nearby witness has no request that is not commutative with
-“read x,” so the client directly reads the value of x from a nearby backup.
-(b) Just after client W completes “x + 1”, client R starts another read.
-Client R finds that there is a non-commutative request saved in a nearby
-witness, so it must read from a remote master to guarantee consistency.
-(c) After syncing “x < 1” to the backup, the master garbage collected
-the update request from witnesses and acknowledged the full syne to
-backups. Now, client R sees no non-commutative requests in the witness
-and can complete read operation by reading from the nearby backup.
-region to avoid wide-area RTTs). However, naively reading
-from backups can violate linearizability since updates in
-CURP can complete before syncing to backups.
-
-To avoid reading stale values, clients in CURP use a nearby
-witness (possibly colocated with a backup) to check whether
-the value read from a nearby backup is up to date. To perform
-a consistent read, a client must first ask a witness whether the
-read operation commutes with the operations currently saved
-in the witness (as shown in Figure 4). If it commutes, the client
-is assured that the value read from a backup will be up to date.
-If it doesn’t commute (i.e. the witness retains a write request
-on the key being read), the value read from a backup might be
-stale. In this case, the client must read from the master.
-
-In addition, we assume that the underlying primary-backup
-replication mechanism prevents backups from returning new
-values that are not yet fully synced to all backups. Such mech-
-anism is neccessary even before applying CURP since return-
-ing a new value prematurely can cause inconsistency; even if
-a value is replicated to some of backups, the value may get lost
-if the master crashes and a new master recovers from a backup
-that didn’t receive the new value. A simple solution for this
-problem is that backups don’t allow reading values that are not
-yet fully replicated to all backups. For backups to track which
-values are fully replicated and ok to be read, a master can pig-
-gyback the acknowlegements for successful previous syncs
-when it sends sync requests to backups. When a client tries
-to read a value that is not known to be yet fully replicated, the
-backup can wait for full replication or ask the client to retry.
-
-Thanks to the safety mechanisms discussed above, CURP
-still guarantees linearizability. With a concurrent update,
-reading from backups could violate linearizability in two
-ways: (1) a read sees the old value after the completion
-of the update operation and (2) a read sees the old value
-
-after another read returned the new value. The first issue
+after another read returned the new value. The first issue
 is prevented by checking a witness before reading from a
 backup. Since clients can complete an update operation only
 if it is synced to all backups or recorded in all witnesses, a
@@ -726,19 +551,61 @@ old value. For the second issue, since both a master and
 backups delay reads of a new value until it is fully replicated
 to all backups, it is impossible to read an older value after
 another client reads the new value.
+Figure 4: Three cases of reading the value of x from a backup replica
+while another client is changing the value of x from 0 to 1: (a) client R first
+confirms that a nearby witness has no request that is not commutative with
+“read x,” so the client directly reads the value of x from a nearby backup.
+(b) Just after client W completes “x ← 1”, client R starts another read.
+Client R finds that there is a non-commutative request saved in a nearby
+witness, so it must read from a remote master to guarantee consistency.
+(c) After syncing “x ← 1” to the backup, the master garbage collected
+the update request from witnesses and acknowledged the full sync to
+backups. Now, client R sees no non-commutative requests in the witness
+and can complete read operation by reading from the nearby backup.
 
-4 Implementation on NoSQL Storage
+region to avoid wide-area RTTs). However, naively reading
+from backups can violate linearizability since updates in
+CURP can complete before syncing to backups.
+To avoid reading stale values, clients in CURP use a nearby
+witness (possibly colocated with a backup) to check whether
+the value read from a nearby backup is up to date. To perform
+a consistent read, a client must first ask a witness whether the
+read operation commutes with the operations currently saved
+in the witness (as shown in Figure 4). If it commutes, the client
+is assured that the value read from a backup will be up to date.
+If it doesn’t commute (i.e. the witness retains a write request
+on the key being read), the value read from a backup might be
+stale. In this case, the client must read from the master.
+In addition, we assume that the underlying primary-backup
+replication mechanism prevents backups from returning new
+values that are not yet fully synced to all backups. Such mechanism is neccessary even before applying CURP since returning a new value prematurely can cause inconsistency; even if
+a value is replicated to some of backups, the value may get lost
+if the master crashes and a new master recovers from a backup
+that didn’t receive the new value. A simple solution for this
+problem is that backups don’t allow reading values that are not
+yet fully replicated to all backups. For backups to track which
+values are fully replicated and ok to be read, a master can piggyback the acknowlegements for successful previous syncs
+when it sends sync requests to backups. When a client tries
+to read a value that is not known to be yet fully replicated, the
+backup can wait for full replication or ask the client to retry.
+Thanks to the safety mechanisms discussed above, CURP
+still guarantees linearizability. With a concurrent update,
+reading from backups could violate linearizability in two
+ways: (1) a read sees the old value after the completion
+of the update operation and (2) a read sees the old value
 
-This section describes how to implement CURP on low-
-latency NoSQL storage systems that use primary-backup
-replications. With the emergence of large-scale Web ser-
-vices, NoSQL storage systems became very popular (e.g.
-Redis [30], RAMCloud [27], DynamoDB [33] and Mon-
-goDB [7]), and they range from simple key-value stores to
+52
+
+4
+
+Implementation on NoSQL Storage
+
+This section describes how to implement CURP on lowlatency NoSQL storage systems that use primary-backup
+replications. With the emergence of large-scale Web services, NoSQL storage systems became very popular (e.g.
+Redis [30], RAMCloud [27], DynamoDB [33] and MongoDB [7]), and they range from simple key-value stores to
 more fully featured stores supporting secondary indexing and
 multi-object transactions; so, improving their performance
 using CURP is an important problem with a broad impact.
-
 The most important piece missing from §3 to implement
 CURP is how to efficiently detect commutativity violations.
 Fortunately for NoSQL systems, CURP can use primary
@@ -750,9 +617,7 @@ list of primary keys), and update operations are commutative
 if they modify disjoint sets of objects. The rest of this section
 describes an implementation of CURP that exploits this
 efficient commutativity check.
-
 4.1 Life of A Witness
-
 Witnesses have two modes of operation: normal and
 recovery. In each mode, witnesses service a subset of
 operations listed in Figure 5. When it receives a start RPC,
@@ -764,42 +629,39 @@ was configured by start; by accepting only requests for the
 correct master, CURP prevents clients from recording to
 incorrect witnesses. Also, witnesses drop their saved client
 requests as they receive gc RPCs from masters.
-
 A witness irreversibly switches to a recovery mode once
 it receives a getRecoveryData RPC. In recovery mode,
 mutations on the saved requests are prohibited; witnesses
 reject all record RPCs and only service getRecoveryData
-orend. As a recovery is completed and the witness becomes
+or end. As a recovery is completed and the witness becomes
 useless, the cluster coordinator may send end to free up the
 resources, so that the witness server can start another life for
 a different master.
 
-52 16th USENIX Symposium on Networked Systems Design and Implementation
+16th USENIX Symposium on Networked Systems Design and Implementation
 
 USENIX Association
 
----
-CLIENT TO WITNESS:
-record(masterID, list of keyHash, rpcld, request) > {ACCEPTED or
+C LIENT TO W ITNESS:
+record(masterID, list of keyHash, rpcId, request) → {ACCEPTED or
 REJECTED}
-Saves the client request (with rpcld) of an update on keyHashes.
+Saves the client request (with rpcId) of an update on keyHashes.
 Returns whether the witness could accomodate and save the request.
-MASTER TO WITNESS:
-ge(list of {keyHash, rpcld}) — list of request
-Drops the saved requests with the given keyHashes and rpclds. Returns
+M ASTER TO W ITNESS:
+gc(list of {keyHash, rpcId}) → list of request
+Drops the saved requests with the given keyHashes and rpcIds. Returns
 stale requests that haven’t been garbage collected for a long time.
-getRecoveryData() — list of request
+getRecoveryData() → list of request
 Returns all requests saved for a particular crashed master.
-CLUSTER COORDINATOR TO WITNESS:
-start(masterld) +> {SUCCESS or FAIL}
+C LUSTER C OORDINATOR TO W ITNESS:
+start(masterId) → {SUCCESS or FAIL}
 Start a witness instance for the given master, and return SUCCESS. If
 the server fails to create the instance, FAIL is returned.
-end() + NULL
+end() → NULL
 This witness is decommissioned. Destruct itself.
-
 Figure 5: The APIs of Witnesses.
-4.2 Data Structure of Witnesses
 
+4.2 Data Structure of Witnesses
 Witnesses are designed to minimize the CPU cycles spent
 for handling record RPCs. For client requests mutating a
 single object, recording to a witness is similar to inserting
@@ -811,7 +673,6 @@ the set and rejects if there is another request with the same
 primary key (for performance, we compare 64-bit hashes of
 primary keys instead of full keys). If there is no slot available
 in the set for the key, the record operation is rejected as well.
-
 For client requests mutating multiple objects, witnesses
 perform the commutativity and space check for every affected
 object; to accept an update affecting n objects, a witness must
@@ -820,9 +681,7 @@ n objects and (2) there is an available slot in each set for all n
 objects. If the update is commutative and space is available,
 the witness writes the update request n times as if recording
 n different requests on each object.
-
 4.3 Commutativity Checks in Masters
-
 Every NoSQL update operation changes the values of one
 or more objects. To enforce commutativity, a master can
 check if the objects touched (either updated or just read) by
@@ -830,11 +689,9 @@ an operation are unsynced at the time of its execution. If an
 operation touches any unsynced value, it is not commutative
 and the master must sync all unsynced operations to backups
 before responding back to the client.
-
 If the object values are stored in a log, masters can
 determine if an object value is synced or not by comparing its
 position in the log against the last synced position.
-
 If the object values are not stored in a log, masters can use
 monotonically increasing timestamps. Whenever a master
 updates the value of an object, it tags the new value with a
@@ -844,15 +701,14 @@ of an object against the timestamp of the last backup sync,
 a master can tell whether the value of the object has been
 synced to backups.
 
-4.4 Improving Throughput of Masters
+USENIX Association
 
-Masters in primary-backup replication are usually the bot-
-tlenecks of systems since they drive replication to backups.
+4.4 Improving Throughput of Masters
+Masters in primary-backup replication are usually the bottlenecks of systems since they drive replication to backups.
 Since masters in CURP can respond to clients before syncing
 to backups, they can delay syncs until the next batch without
 impacting latency. This batching of syncs improves masters’
 throughput in two ways.
-
 First, by batching replication RPCs, CURP reduces the
 number of RPCs a master must handle per client request.
 With 3-way primary-backup replication, a master must
@@ -862,56 +718,45 @@ every 10 client requests, it handles 1.3 RPCs on average. On
 NoSQL storage systems, sending and receiving RPCs takes a
 significant portion of the total processing time since NoSQL
 operations are not compute-heavy.
-
-Second, CURP eliminates wasted resources and other inef-
-ficiencies that arise when masters wait for syncs. For example,
+Second, CURP eliminates wasted resources and other inefficiencies that arise when masters wait for syncs. For example,
 in the RAMCloud [27] storage system, request handlers use
 a polling loop to wait for completion of backup syncs. The
 syncs complete too quickly to context-switch to a different
 activity, but the polling still wastes more than half of the CPU
-cycles of the polling thread. With CURP, a master can com-
-plete a request without waiting for syncing and move on to the
+cycles of the polling thread. With CURP, a master can complete a request without waiting for syncing and move on to the
 next request immediately, which results in higher throughput.
-
 The batch size of syncs is limited in CURP to reduce
 witness rejections. Delaying syncs increases the chance of
-finding non-commutative operations in witnesses and mas-
-ters, causing extra rejections in witnesses and more blocking
+finding non-commutative operations in witnesses and masters, causing extra rejections in witnesses and more blocking
 syncs in masters. A simple way to limit the batching would be
 for masters to issue a sync immediately after responding to a
-client if there is no outstanding sync; this strategy gives a rea-
-sonable throughput improvement since at most one CPU core
+client if there is no outstanding sync; this strategy gives a reasonable throughput improvement since at most one CPU core
 will be used for syncing, and it also reduces witness rejections
 by syncing aggresively. However, to find the optimal batch
-size, an experiment with a system and real workload is neces-
-sary since each workload has a different sensitivity to larger
+size, an experiment with a system and real workload is necessary since each workload has a different sensitivity to larger
 batch sizes. For example, workloads which randomly access
 large numbers of keys uniformly can use a very large batch
 size without increasing the chance of commutativity conflicts.
 4.5 Garbage Collection
-
 As discussed in §3.4, masters send garbage collection RPCs
 for synced updates to their witnesses. Right after syncing to
-backups, masters send ge RPCs (in Figure 5), so the witnesses
+backups, masters send gc RPCs (in Figure 5), so the witnesses
 can discard data for the operations that were just synced.
-
 To identify client requests for removal, CURP uses 64-bit
 key hashes and RPC IDs assigned by RIFL [20]. Upon
 receiving a gc RPC, a witness locates the sets of slots using
 the keyHashes and resets the slots whose occupying requests
 have the matching RPC IDs. Witnesses ignore keyHashes
-and rpclds that are not found since the record RPCs might
+and rpcIds that are not found since the record RPCs might
 have been rejected. For client requests that mutate multiple
-objects, ge RPCs include multiple (keyHash, rpclds) pairs
+objects, gc RPCs include multiple hkeyHash, rpcIdsi pairs
 for all affected objects, so that witnesses can clear all slots
 
-USENIX Association
+16th USENIX Symposium on Networked Systems Design and Implementation
 
-16th USENIX Symposium on Networked Systems Design and Implementation 53
+53
 
----
-occupied by the request.
-
+occupied by the request.
 Although the described garbage collection can clean up
 most records, some slots may be left uncollected: if a client
 crashes before sending the update request to the master,
@@ -919,20 +764,17 @@ or if the record RPC is delayed significantly and arrives
 after the master finished garbage collection for the update.
 Uncollected garbage will cause witnesses to indefinitely
 reject requests with the same keys.
-
 Witnesses detect such uncollected records and ask masters
 to retry garbage collection for them. When it rejects a record,
 a witness recognizes the existing record as uncollected
 garbage if there have been many garbage collections since
 the record was written (three is a good number if a master
-performs only one ge RPC at a time). Witnesses notify
+performs only one gc RPC at a time). Witnesses notify
 masters of the requests that are suspected as uncollected
-garbage through the response messages of ge RPCs; then the
-masters retry the requests (most likely filtered by RIFL), syne
-to backups, and thus include them in the next ge requests.
-
+garbage through the response messages of gc RPCs; then the
+masters retry the requests (most likely filtered by RIFL), sync
+to backups, and thus include them in the next gc requests.
 4.6 Recovery Steps
-
 To recover a crashed master, CURP first restores data
 from backups and then replays requests from a witness.
 To fetch the requests to replay, the new master sends a
@@ -940,24 +782,18 @@ getRecoveryData RPC (in Figure 5), which has two effects:
 (1) it irreversibly sets the witness into recovery mode, so that
 the data in the witness will never change, (2) it provides the
 entire list of client requests saved in the witness.
-
 With the provided requests, the new master replays all of
 them. Since operations already recovered from backups will
 be filtered out by RIFL [20], the replay step finishes very
-quickly. In total, CURP increases recovery time by the exe-
-cution time for a few requests plus 2 RTT (1 RTT for getRe-
-coveryData and another RTT for backup sync after replay).
+quickly. In total, CURP increases recovery time by the execution time for a few requests plus 2 RTT (1 RTT for getRecoveryData and another RTT for backup sync after replay).
 4.7 Zombies
-
-For a fault-tolerant system to be consistent, it must neutral-
-ize zombies. A zombie is a server that has been determined
+For a fault-tolerant system to be consistent, it must neutralize zombies. A zombie is a server that has been determined
 to have crashed, so some other server has taken over its
 functions, but the server has not actually crashed (e.g., it may
 have suffered temporary network connectivity problems).
 Clients may continue to communicate with zombies; reads or
 updates accepted by a zombie may be inconsistent with the
 state of the replacement server.
-
 CURP assumes that the underlying system already has
 mechanisms to neutralize zombies (e.g., by asking backups
 to reject replication requests from a crashed master [27]).
@@ -972,26 +808,41 @@ will reject the request; the client will then discover that the
 old master has crashed and reissue its request to the new
 master. Thus, the witness mechanism does not create new
 
-RAMCloud cluster Redis cluster
+54
 
-CPU Xeon X3470 (4x2.93 GHz)| Xeon D-1548 (8x2.0 GHz)
-RAM 24 GB DDR3 at 800 MHz 64 GB DDR4
+CPU
+RAM
+Flash
+NIC
+Switch
+OS
 
-Flash 2x Samsung 850 PRO SSDs Toshiba NVMe flash
-NIC Mellanox ConnectX-2 Mellanox ConnectX-3
-InfiniBand HCA (PCIe 2.0)|__ 10 Gbps NIC (PCIe 3.0)
-Switch | Mellanox SX6036 (2 level) HPE 45XGe
-
-OS Linux 3.16.0-4-amd64 Linux 3.13.0-100-generic
+RAMCloud cluster
+Redis cluster
+Xeon X3470 (4x2.93 GHz) Xeon D-1548 (8x2.0 GHz)
+24 GB DDR3 at 800 MHz
+64 GB DDR4
+2x Samsung 850 PRO SSDs
+Toshiba NVMe flash
+Mellanox ConnectX-2
+Mellanox ConnectX-3
+InfiniBand HCA (PCIe 2.0) 10 Gbps NIC (PCIe 3.0)
+Mellanox SX6036 (2 level)
+HPE 45XGc
+Linux 3.16.0-4-amd64
+Linux 3.13.0-100-generic
 
 Table 1: The server hardware configuration for benchmarks.
+
 safety issues with respect to zombies.
 4.8 Modifications to RIFL
 In order to work with CURP, the garbage collection
 mechanism of RIFL described in [20] must be modified. See
 §C.1 for details.
 
-5 Evaluation
+5
+
+Evaluation
 
 We evaluated CURP by implementing it in the RAMCloud
 and Redis storage systems, which have very different backup
@@ -1001,125 +852,130 @@ replicated systems. Second, with the Redis implementation,
 we demonstrate that CURP can make strong consistency
 affordable in a system where it had previously been too
 expensive for practical use.
-
 5.1 RAMCloud Performance Improvements
-
 RAMCloud [27] is a large-scale low latency distributed
 key-value store, which primarily focuses on reducing latency.
-Small read operations take 5 1s, and small writes take
-14 us. By default, RAMCloud replicates each new write to 3
+Small read operations take 5 µs, and small writes take
+14 µs. By default, RAMCloud replicates each new write to 3
 backups, which asynchronously flush data into local drives.
-Although replicated data are stored in slow disk (for cost sav-
-ing), RAMCloud features a technique to allow fast recovery
+Although replicated data are stored in slow disk (for cost saving), RAMCloud features a technique to allow fast recovery
 from a master crash (it recovers within a few seconds) [26].
-
 With the RAMCloud implementation of CURP, we
 answered the following questions:
-
-e How does CURP improve RAMCloud’s latency and
-
+• How does CURP improve RAMCloud’s latency and
 throughput?
-
-e How many resources do witness servers consume?
-
-e Will CURP be performant under highly-skewed work-
-
-loads with hot keys?
-
+• How many resources do witness servers consume?
+• Will CURP be performant under highly-skewed workloads with hot keys?
 Our evaluations using the RAMCloud implementation
-were conducted on a cluster of machines with the specifica-
-tions shown in Table 1. All measurements used InfiniBand
-networking and RAMCloud’s fastest transport, which by-
-passes the kernel and communicates directly with InfiniBand
+were conducted on a cluster of machines with the specifications shown in Table 1. All measurements used InfiniBand
+networking and RAMCloud’s fastest transport, which bypasses the kernel and communicates directly with InfiniBand
 NICs. Our CURP implementation kept RAMCloud’s fast
 crash recovery [26], which recovers from master crashes
 within a few seconds using data stored on backup disks.
-Servers were configured to replicate data to 1-3 different
-backups (and 1-3 witnesses for CURP results), indicated as
-a replication factor f. The log cleaner of RAMCloud did not
+Servers were configured to replicate data to 1–3 different
+backups (and 1–3 witnesses for CURP results), indicated as
+a replication factor f . The log cleaner of RAMCloud did not
 run in any measurements; in a production system, the log
 cleaner can reduce the throughput.
-
 For RAMCloud, CURP moved backup syncs out of
 the critical path of write operations. This decoupling not
 only improved latency but also improved the throughput of
 
-54 16th USENIX Symposium on Networked Systems Design and Implementation
+16th USENIX Symposium on Networked Systems Design and Implementation
 
 USENIX Association
 
----
-1x10° : 1
-\ Original (f = 3) —-—
-abo : . : CURP (f=3) —— ]
+0
 
-1x10 ; \ CURP (f = 2) ——
-2 \. CURP (f = 1) ——
-= 1xt0? : .
-=
-S 1x10°
-2
-& 1x10% F
-w
+YCSB-A (50% read, 50% write)
 
-1x10° F-
+1x10-2
+1x10-3
 
-1x10° jo i i i i
+Write Throughput (k write per second)
 
-567 10 20 30 100 200
+400
+200
 
-Latency (1s)
+CURP (f=3)
+Original
+
+Unreplicated
+CURP (f=1)
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+Zipfian Skew Parameter (θ)
+
+5 6 7
+
+10
+
+20
+
+30
+Latency (µs)
+
+100
+
+200
 
 Figure 6: Complementary cumulative distribution of latency for 100B
 random RAMCloud writes with CURP. Writes were issued sequentially
 by a single client to a single server, which batches 50 writes between
 syncs. A point (x,y) indicates that y of the 1M measured writes took at
-least x ts to complete. f refers to fault tolerance level (i.e. number of
+least x µs to complete. f refers to fault tolerance level (i.e. number of
 backups and witnesses). “Original” refers to the base RAMCloud system
 before adopting CURP. “Unreplicated” refers to RAMCloud without any
-replication. The median latency for synchronous, CURP (f = 3), and
-unreplicated writes were 14 1s, 7.1 1s, and 6.1 1s respectively.
-
-900 F { re ree Se
-800 +
-700 +
-
+replication. The median latency for synchronous, CURP ( f = 3), and
+unreplicated writes were 14 µs, 7.1 µs, and 6.1 µs respectively.
+900
+800
+700
 Unreplicated
+CURP (f = 1)
+Async (f = 3)
+CURP (f = 2)
+CURP (f = 3)
+Original (f = 3)
 
-s
+600
+500
+400
+300
+200
+100
+0
+0
 
-2
+600
 
-8
+0.5
 
-8
+1x10-5
+1x10-6
 
-3
+800
 
-fy
+0
 
-a
+1x10-4
 
-@
+5
 
-= 600 CURP (f = 1)
-
-x= 500 Asyne ( |
-= —x*— CURP
-
-B 400 —s— CURP |
-B 300 —+— Original ( |
-g
-
-2 200 A ay 4
-=
-
-, 100 += 4
-E 9 i i i i i
-
-ce 0 5 10 15 20 25 30
-
+10
+15
+20
 Client Count (number of clients)
+
+25
+
+30
 
 Figure 7: The aggregate throughput for one server serving 100B
 RAMCloud writes with CURP, as a function of the number of clients.
@@ -1132,69 +988,91 @@ return to clients before backup syncs, and clients complete writes without
 replication to witnesses or backups.
 
 RAMCloud writes.
-
 Figure 6 shows the latency of RAMCloud write operations
 before and after applying CURP. CURP cuts the median write
 latencies in half. Even the tail latencies are improved overall.
 When compared to unreplicated RAMCloud, each additional
-replica with CURP adds 0.3 ps to median latency.
-
+replica with CURP adds 0.3 µs to median latency.
 Figure 7 shows the single server throughput of write
 operations with and without CURP by varying the number
 of clients. The server batches 50 writes before starting a
 sync. By batching backup syncs, CURP improves throughput
 by about 4x. When compared to unreplicated RAMCloud,
-adding an additional CURP replica drops throughput by ~6%.
-
+adding an additional CURP replica drops throughput by ∼6%.
 To illustrate the overhead of CURP on throughput (e.g.
 sending gc RPCs to witnesses), we measured RAMCloud
 with asynchronous replication to 3 backups, which is identical
-to CURP (f=3) except that it does not record information on
+to CURP ( f =3) except that it does not record information on
 witnesses. Achieving strong consistency with CURP reduces
 
-YCSB-A (50% read, 50% write)
-1000 T T 7
-1000
+USENIX Association
+
+Throughput (k ops/s)
+
+Fraction of Writes
+
+1x10-1
 
 YCSB-B (95% read, 5% write)
 
-go ‘Wineseseec-:|
-& 2 800+ “orden
-= 600 = 600
-2 2
+1000
+
+Original (f = 3)
+CURP (f = 3)
+CURP (f = 2)
+CURP (f = 1)
+Unreplicated
+
+Throughput (k ops/s)
+
+1x10
+
+1000
+800
+600
 400
 
-o| 400 Fe Unreplicated 1
-3 000 3 135 CURP (f=1)
-= [e+ Unreplicated c+ CURP (f=3)] £ 200 Fs CURP (f=3) |
-F te CURP (f=1) +4 Original F ++ Original (f=3)
+Unreplicated
+CURP (f=1)
+CURP (f=3)
+Original (f=3)
 
-0 h fi 1 d 0 f i 1 1
+200
+0
 
-05 0.6 07 08 0.9 1 05 0.6 0.7 08 0.9 1
+1
 
-Zipfian Skew Parameter (8) Zipfian Skew Parameter (8)
+0.5
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+Zipfian Skew Parameter (θ)
+
 Figure 8: Throughput of a single RAMCloud server for YCSB-A and
 YCSB-B workloads with CURP at different Zipfian skewness levels.
 Each experiment was run 5 times, and median values are displayed with
 errorlines for min and max.
+
 throughput by 10%. In all configurations except the original
 RAMCloud, masters are bottlenecked by a dispatch thread
 which handles network communications for both incoming
 and outgoing RPCs. Sending witness gc RPCs burdens the
 already bottlenecked dispatch thread and reduces throughput.
-
-We also measured the latency and throughput of RAM-
-Cloud read operations before and after applying CURP, and
+We also measured the latency and throughput of RAMCloud read operations before and after applying CURP, and
 there were no differences.
-
 5.2 Resource Consumption by Witness Servers
-
 Each witness server implemented in RAMCloud can
 handle 1270k record requests per second with occasional
 garbage collection requests (1 every 50 writes) from master
-servers. A witness server runs on a single thread and con-
-sumes | hyper-thread core at max throughput. Considering
+servers. A witness server runs on a single thread and consumes 1 hyper-thread core at max throughput. Considering
 that each RAMCloud master server uses 8 hyper-thread
 cores to achieve 728k writes per second, adding 1 witness
 increases the total CPU resources consumed by RAMCloud
@@ -1204,22 +1082,17 @@ batching; this offsets most of the cost of the witness requests
 (both backup and witness operations are so simple that most
 of their cost is the fixed cost of handling an RPC; a batched
 replication request costs about the same as a simple one).
-
 The second resource overhead is memory usage. Each
-witness server allocates 4096 request storage slots for each as-
-sociated master, and each storage slot is 2KB. With additional
+witness server allocates 4096 request storage slots for each associated master, and each storage slot is 2KB. With additional
 metadata, the total memory overhead per master-witness pair
 is around 9MB.
-
 The third issue is network traffic amplification. In CURP,
 each update request is replicated both to witnesses and
 backups. With 3-way replication, CURP increases network
 bandwidth use for update operations by 75% (in the original
 RAMCloud, a client request is transferred over the network
 to a master and 3 backups).
-
 5.3 Impact of Highly-Skewed Workloads
-
 CURP may lose its performance benefits when used
 with highly-skewed workloads with hot keys; in CURP, an
 unsynced update on a key causes conflicts on all following
@@ -1229,28 +1102,71 @@ performance with CURP using a highly-skewed Zipfian
 distribution [14] with 1M objects. Specifically, we used two
 different workloads similar to YCSB-A and YCSB-B [9];
 
-USENIX Association
+16th USENIX Symposium on Networked Systems Design and Implementation
 
-16th USENIX Symposium on Networked Systems Design and Implementation 55
+55
 
----
-YCSB-A (50% read, 50% write) @ 250 kops —_ YCSB-B (95% read, 5% write) @ 700 kops
+YCSB-A (50% read, 50% write) @ 250 kops
+
+YCSB-B (95% read, 5% write) @ 700 kops
+12
+
+Average Latency (µs)
+
+Average Latency (µs)
 
 25
+20
+Original (f=3)
+CURP (f=3)
+CURP (f=1)
+Unreplicated
 
-B
+15
+10
+5
+0
 
-229 t= et! B10 : i =
-s 1-44 Original (f=3) Be oa
-21575 CURP (23) J: te
-Sig |. Om CURP (fe1) a4
-g e+ Unreplicated es & 4 +4 Original (f=3) 4
-§ ." =| +644 CURP (f=3)
-2 & 24-94 CURP (i=1) 4
-=) , , , , < Lee Unveplcated j
-05 0.6 0.7 08 0.9 1 05 0.6 0.7 08 0.9 1
+10
+8
+6
+Original (f=3)
+CURP (f=3)
+CURP (f=1)
+Unreplicated
 
-Zipfian Skew Parameter (0)
+4
+2
+0
+
+0.5
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+Zipfian Skew Parameter (θ)
+
+1
+
+0.5
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+Zipfian Skew Parameter (θ)
+
 Figure 9: Average RAMCloud client request latency for YCSB-A and
 YCSB-B workloads with CURP at different Zipfian skewness levels. 10
 clients issued requests to maintain a certain throughput level (250 kops
@@ -1258,12 +1174,9 @@ for YCSB-A and 700 kops for YCSB-B). Each experiment was run 5
 times, and median values are displayed with errorlines for min and max.
 Latency values are averaged over both read and write operations.
 
-Ziptian Skew Parameter (8)
-
 since RAMCloud is a key-value store and doesn’t support
 100B field writes in 1k objects, we modified the YCSB
 benchmark to read and write 100B objects with 30B keys.
-
 Figure 8 shows the impact of workload skew (defined
 in [14]) on the throughput of a single server. For YCSB-A
 (write-heavy workload), the server throughput with CURP
@@ -1271,33 +1184,27 @@ is similar to an unreplicated server when skew is low, but
 it drops as the workload gets more heavily skewed. For
 YCSB-B, since most operations are reads, the throughput is
 less affected by skew. CURP’s throughput benefit degrades
-starting at a Zipfian parameter 6 = 0.8 (about 3% of accesses
-are on hot keys) and almost disappears at @ = 0.99.
-
+starting at a Zipfian parameter θ = 0.8 (about 3% of accesses
+are on hot keys) and almost disappears at θ = 0.99.
 Figure 9 shows the impact of skew on CURP’s latency;
 unlike the throughput benefits, CURP retains its latency
-benefits even with extremely skewed workloads. We mea-
-sured latencies under load since an unloaded system will not
+benefits even with extremely skewed workloads. We measured latencies under load since an unloaded system will not
 experience conflicts even with extremely skewed workloads.
 For YCSB-A, the latency of CURP increases starting at
-6 = 0.85, but CURP still reduces latency by 42% even at
-6 =0.99. For YCSB-B, only 5% of operations are writes, so
+θ = 0.85, but CURP still reduces latency by 42% even at
+θ = 0.99. For YCSB-B, only 5% of operations are writes, so
 the latency improvements are not as dramatic as YCSB-A.
-
 Figure 10 shows the latency distributions of reads and
-writes separately at @ = 0.95 under the same loaded con-
-ditions as Figure 9. For YCSB-A, CURP increases the tail
+writes separately at θ = 0.95 under the same loaded conditions as Figure 9. For YCSB-A, CURP increases the tail
 latency for read operations slightly since reads occasionally
 conflict with unsynced writes on the same keys. CURP
-reduces write latency by 24x: write latency with CURP
+reduces write latency by 2–4x: write latency with CURP
 is almost as low as for unreplicated writes until the 50th
 percentile, where conflicts begins to cause blocking on syncs.
 Overall, the improvement of write latency by CURP more
 than compensates for the degradation of read latency.
-
 For YCSB-B, operation conflicts are more rare since
-all reads (which compose 95% of all operations) are com-
-mutative with each other. In this workload, CURP actually
+all reads (which compose 95% of all operations) are commutative with each other. In this workload, CURP actually
 improved the overall read latency; this is because, by batching
 replication, CURP makes CPU cores more readily available
 for incoming read requests (which is also why unreplicated
@@ -1306,21 +1213,20 @@ improve read latency much since frequent conflicts limit
 batching replication. In general, read-heavy workloads
 experience fewer conflicts and are less affected by hot keys.
 
-5.4 Making Redis Consistent and Durable
+56
 
+5.4 Making Redis Consistent and Durable
 Redis [30] is another low-latency in-memory key-value
 store, where values are data structures, such as lists, sets, etc.
 For Redis, the only way to achieve durability and consistency
 after crashes is to log client requests to an append-only file
 and invoke fsync before responding to clients. However,
-fsyncs can take several milliseconds, which is a 10—-100x
+fsyncs can take several milliseconds, which is a 10–100x
 performance penalty. As a result, most Redis applications do
 not use synchronous mode; they use Redis as a cache with no
-durability guarantees. Redis also offers replication to multi-
-ple servers, but the replication mechanism is asynchronous,
+durability guarantees. Redis also offers replication to multiple servers, but the replication mechanism is asynchronous,
 so updates can be lost after crashes; as a result, this feature is
 not widely used either.
-
 For this experiment, we used CURP to hide the cost of
 Redis’ logging mechanism: we modified Redis to record
 operations on witnesses, so that operations can return
@@ -1330,37 +1236,28 @@ with durability and consistency, but with performance
 equivalent to a system lacking both of these properties. In
 this experiment the log data is not replicated, but the same
 mechanism could be used to replicate the log data as well.
-
 With the Redis implementation of CURP, we answered the
 following questions:
-
-e Can CURP transform a fast in-memory cache into a
+• Can CURP transform a fast in-memory cache into a
 strongly-consistent durable storage system without
 degrading performance?
-
-e How wide a range of operations can CURP support?
-
-Measurements of the Redis implementation were con-
-ducted on a cluster of machines in CloudLab [29], whose
-specifications are in Table 1. All measurements were col-
-lected using 10 Gbps networking and NVMe SSDs for Redis
+• How wide a range of operations can CURP support?
+Measurements of the Redis implementation were conducted on a cluster of machines in CloudLab [29], whose
+specifications are in Table 1. All measurements were collected using 10 Gbps networking and NVMe SSDs for Redis
 backup files. Linux fsync on the NVMe SSDs takes around
-50-100 js; systems with SATA3 SSDs will perform worse
+50–100 µs; systems with SATA3 SSDs will perform worse
 with the fsync-always option.
-
 For the Redis implementation, we used Redis 3.2.8 for
 servers and “C++ Client” [34] for clients. We modified “C++
 Client” to construct Redis requests more quickly.
-
 Figure 11 shows the performance of Redis before and after
 adding CURP to its local logging mechanism; it graphs the
 cumulative distribution of latencies for Redis SET operations.
-After applying CURP (using | witness server), the median
-latency increased by 3 us (12%). The additional cost is
+After applying CURP (using 1 witness server), the median
+latency increased by 3 µs (12%). The additional cost is
 caused primarily by the extra syscalls for send and recv on
 the TCP socket used to communicate with the witness; each
-syscall took around 2.5 Ls.
-
+syscall took around 2.5 µs.
 When a second witness server is added in Figure 11,
 latency increases significantly. This occurs because the
 Redis RPC system has relatively high tail latency. Even for
@@ -1370,55 +1267,163 @@ above the 80th percentile. With two witnesses, CURP must
 wait for three RPCs to finish (the original to the server,
 plus two witness RPCs). At least one of these is likely
 
-56 16th USENIX Symposium on Networked Systems Design and Implementation
+16th USENIX Symposium on Networked Systems Design and Implementation
 
 USENIX Association
 
----
-YCSB-A @ 250 kops, Zipfian param (0): 0.95 ————-|
+1
 
-YCSB-B @ 700 kops, Zipfian param (0): 0.95 —————_-
+Unreplicated
+Original (f=3)
+CURP (f=3)
 
-' READ (50%) WRITE (50%) READ (95%) WRITE (5%)
-=] te I =] 1 1
-Unreplicated - - EA ~" Unreplicated - = - 4 _Unveplcated \_ Unreplicated
-g \ Original (f=3) —-— 2 Ea ~-SCURP (f=3) ——_ jg YY res Ps \ ‘. pas
-S \ CURP (f=3) z Fs Otiginal (f=3) —-—-- J S \\\y Original (¢ 2 : Serna (t=3)
-é y {= Ff: ‘ { @ \ s . |
-5 o4 ‘ © o1 b4 ; 4 © o4 ON 3 o4 “
-PS at PS EY x | PS ri 5
-3 : 2 Ey \ 4 3 \ 3 \ »
-g VA qe o£) J 8 \ & \ 4
-wo 1 \, Ju L' “,. 4 wo AY uw ‘ \ 4
-tN : \ van ‘ N
-0.01 0.01 b— 0.01 0.01
-o 5 10 15 20 25 30 0 20 40 60 80 100 120 0 5 1 15 20 25 30 0 10 20 30 40 50 60 70
-Latency (tis) Latency (11s) Latency (ys) Latency (tis)
+Fraction of Writes
+
+Fraction of Reads
+
+1
+
+0.1
+
+0.01
+
+|———— YCSB-B @ 700 kops, Zipfian param (θ ): 0.95 ————-|
+
+WRITE (50%)
+
+0.1
+
+0.01
+0
+
+5
+
+10
+
+15
+
+20
+
+25
+
+30
+
+READ (95%)
+
+1
+
+Unreplicated
+CURP (f=3)
+Original (f=3)
+
+Fraction of Reads
+
+READ (50%)
+
+0.1
+
+0.01
+0
+
+20
+
+Latency (µs)
+
+40
+
+60
+
+80
+
+100
+
+120
+
+WRITE (5%)
+
+1
+
+Unreplicated
+CURP (f=3)
+Original (f=3)
+
+Fraction of Writes
+
+|———— YCSB-A @ 250 kops, Zipfian param (θ ): 0.95 ————-|
+
+Unreplicated
+CURP (f=3)
+Original (f=3)
+
+0.1
+
+0.01
+0
+
+5
+
+Latency (µs)
+
+10
+
+15
+
+20
+
+25
+
+30
+
+0
+
+Latency (µs)
+
+10
+
+20
+
+30
+
+40
+
+50
+
+60
+
+70
+
+Latency (µs)
 
 Figure 10: Complementary cumulative distribution of read and write latencies with CURP on a loaded server (250 kops for YCSB-A and 700 kops for
+YCSB-B). 10 clients issued read and write operations (using the read / write mix ratio of YCSB) for 1 min to a single server. The workloads used a Zipfian
+distribution with θ = 0.95, which means 16% of operations are on keys that were accessed within the last 100 executed operations.
+0.8
+0.6
+0.4
 
-YCSB-B). 10 clients
-distribution with 6 =
+Original Redis (non-durable)
+CURP (1 Witness)
+CURP (2 Witnesses)
+Original Redis (durable)
 
-1 T T T
-eo) gs
-Le 3
-208 F 48
-2 21
-506 - 4 5
-s &
-2 =
-5 3 100 |
-S04} 4 2
-g i 3
-E Original Redis (non-durable) 8
-02h URP (1 Witness) + £ 50}
-CURP (2 Witnesses) °
-: Original Redis (durable) —-— 3
-oli 1
-20 40 60 80 100 720 140 0 . 4
+0.2
+0
+20
 
-Latency (us)
+40
+
+60
+
+80
+
+100
+
+120
+
+140
+
+Latency (µs)
+
 Figure 11: Cumulative distribution of latency for
 100B random Redis SET requests with CURP.
 Writes were issued sequentially by a single client
@@ -1426,21 +1431,43 @@ to a single Redis server. CURP used one or two
 additional Redis servers as witnesses. “Original
 Redis (durable)” refers to the base Redis without
 CURP, configured to invoke fsync on a backup file
+before replying to clients.
 
-200 T T T T r
+200
 
-50 }- 4
+100
 
-Original Reais (non durable
-SUAS er Witaess) —-—
-CURP (2 Witnesses) —x—
-Original Redis (durable), ——
+40
+30
+20
+10
 
-0 10 20 30 40
+Original Redis (non-durable)
+CURP (1 Witness)
+CURP (2 Witnesses)
+Original Redis (durable)
+
+50
+
+0
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+0
+SET
+
+60
 
 Client Count (number of clients)
-
-50 60
 
 Figure 12: The aggregate throughput for one
 server serving 100B Redis SET operations with
@@ -1450,37 +1477,11 @@ to a single server. “Original Redis (durable)” refers
 to the base Redis without CURP, but configured to
 invoke fsync before replying to clients.
 
-issued read and write operations (using the read / write mix ratio of YCSB) for 1 min to a single server. The workloads used a Zipfian
-.95, which means 16% of operations are on keys that were accessed within the last 100 executed operations.
-
-Original Reals (non-durabiey —=—= |
-URP (1 Witness) ===
-SURP (2 Winess)
-
-Latency (is)
-
-0
-
-SET
-Figure 13: Median latencies before and after
-applying CURP on various Redis commands.
-All experiments select a random 30B key over
-2M unique keys. SET used 100B random val-
-ues, and each HMSET operation sets 1 member
-with a 100B value. The member key was 1B.
-Commands were issued sequentially by a sin-
-gle client to a single Redis server, with one or
-two additional Redis witness servers in CURP.
-
-HMSET INCR
-
-before replying to clients.
 to experience high tail latency and slow down the overall
 completion. We didn’t see a similar effect in RAMCloud
 because its latency is consistent out to the 99th percentile:
 when issuing three concurrent RPCs, it is unlikely that any of
 them will experience high latency.
-
 Figure 12 shows the throughput of Redis SET operations
 for a single Redis server with varying numbers of clients.
 Applying CURP reduced the throughput of Redis about 18%.
@@ -1492,9 +1493,7 @@ processes all of the requests waiting on its incoming sockets,
 issues a single fsync, then responds to all of those requests.
 The disadvantage of this approach is that it results in very
 high latency for clients.
-
 5.5 Applicability of CURP
-
 CURP can be applied to a variety of operations, not just
 write operations in key-value stores. Redis supports many
 data structures, such as strings, hashmaps, lists, counters, and
@@ -1503,32 +1502,60 @@ are non-idempotent or return read values) can benefit from
 CURP. Since each data structure is assigned to a specific key,
 CURP can execute many update operations on different keys
 without blocking on syncs.
-
 Figure 13 shows the median latency with and without
 CURP on three different Redis commands: SET, which
 writes ASCII data to a string data structure; HMSET, which
 
+USENIX Association
+
+Original Redis (non-durable)
+CURP (1 Witness)
+CURP (2 Witness)
+
+50
+
+150
+
+Latency (µs)
+
+Write Throughput (k write / sec)
+
+Fraction of Writes
+
+1
+
+HMSET
+
+INCR
+
+Figure 13: Median latencies before and after
+applying CURP on various Redis commands.
+All experiments select a random 30B key over
+2M unique keys. SET used 100B random values, and each HMSET operation sets 1 member
+with a 100B value. The member key was 1B.
+Commands were issued sequentially by a single client to a single Redis server, with one or
+two additional Redis witness servers in CURP.
+
 writes data to a member of a hashmap; and INCR, which
 increments an integer counter and returns its current value.
 For all three operations, latency overheads were small for
-CURP with | witness. CURP with 2 witnesses increased
-latency about 10 ts because of tail latency issues. We believe
+CURP with 1 witness. CURP with 2 witnesses increased
+latency about 10 µs because of tail latency issues. We believe
 that the TCP transport library used by the C++ client is
 inefficient for waiting for multiple responses concurrently,
 and we will continue to investigate this.
 
-6 Related work
+6
+
+Related work
 
 Table 2 summarizes the performance of CURP and other
 fast replication protocols. The paragraphs below explain
 these numbers in detail. We present analytical performance
-instead of emprical results since empirical performance de-
-pends too much on implementation and underlying systems
+instead of emprical results since empirical performance depends too much on implementation and underlying systems
 (e.g. CURP on RAMCloud and CURP on Redis have very
 different absolute performance).
-
-Generalized Paxos [18] allows clients to complete op-
-erations (i.e. receive execution results) in 1.5 RTTs and
+Generalized Paxos [18] allows clients to complete operations (i.e. receive execution results) in 1.5 RTTs and
 supersedes Fast Paxos [19]. Both protocols allow clients to
 send requests directly to replicas and reduce latency from 2
 RTTs to 1.5 RTT. Fast Paxos has a contention problem and
@@ -1536,22 +1563,58 @@ performs well only at low throughput. Generalized Paxos
 resolves the contention problem by using commutativity; it
 groups commutative requests from concurrent clients into
 an unordered set, and it only orders between sets. Although
-Generalized Paxos allows a leader replica to learn that oper-
-ations are committed in 1 RTT, clients need to wait another
+Generalized Paxos allows a leader replica to learn that operations are committed in 1 RTT, clients need to wait another
 half RTT to receive the execution results from the leader; so
 
-USENIX Association
+16th USENIX Symposium on Networked Systems Design and Implementation
 
-16th USENIX Symposium on Networked Systems Design and Implementation 57
+57
 
----
-CURP Gen.Paxos EPaxos NOPaxos
->| 2 read 1 RIT 1.5RTTs 2RTTs | 1RIT+a@
-2 A | write 1RTT 1.5 RTTs 2RTTs | 1RTT+a@
-| Z | read ~ORTT 1.5 RTTs ~IRIT | Not Avail.
-2 = write 1RTT 1.5RTTs ~IRTT | Not Avail.
-loadon | read <1 RPC ~nRPCs | ~2RPCs 1 RPC
-leader | write 1 RPC ~nRPCs | ~2RPCs 1 RPC
+Latency
+
+WAN LAN
+
+load on
+leader
+
+read
+write
+read
+write
+read
+write
+
+CURP
+1 RTT
+1 RTT
+∼0 RTT
+1 RTT
+<1 RPC
+1 RPC
+
+Gen.Paxos
+1.5 RTTs
+1.5 RTTs
+1.5 RTTs
+1.5 RTTs
+∼ n RPCs
+∼ n RPCs
+
+EPaxos
+2 RTTs
+2 RTTs
+∼1 RTT
+∼1 RTT
+∼2 RPCs
+∼2 RPCs
+
+NOPaxos
+1 RTT + α
+1 RTT + α
+Not Avail.
+Not Avail.
+1 RPC
+1 RPC
 
 Table 2: Performance comparisons of replication protocols. “LAN”
 means intra-datacenter replications. “WAN” means geo-replication and
@@ -1562,21 +1625,16 @@ network packets must detour through a sequencer. All latency numbers
 omitted the time to make data persistent, which is same for all protocols
 (1 persistence time per request) and insignificant with the use of modern
 fast storage technologies. “Load on leader” shows how many RPCs a
-leader (or master) processes per client request. “n’’ denotes the number of
+leader (or master) processes per client request. “n” denotes the number of
 replicas.
 
 its end-to-end latency becomes 1.5 RTTs, as opposed to 1
-
-RTT for CURP. (See 8B.3 for a detailed explanation why they
-
-cannot achieve | RTT.)
-
+RTT for CURP. (See §B.3 for a detailed explanation why they
+cannot achieve 1 RTT.)
 Egalitarian Paxos (EPaxos) [22] relies on commutativity
 to allow multiple leaders to propose and execute operations
-concurrently. This approach improves throughput. In geo-
-replicated environments, EPaxos allows clients to choose a
-nearby replica as leader, so operations can complete in 1 wide-
-area RTT. However, in LAN environments, EPaxos clients
+concurrently. This approach improves throughput. In georeplicated environments, EPaxos allows clients to choose a
+nearby replica as leader, so operations can complete in 1 widearea RTT. However, in LAN environments, EPaxos clients
 cannot hide the message delay to a leader, so operations take
 2 RTT. Also, since EPaxos does not have a strong leader, read
 operations must run through full consensus and be written to
@@ -1587,29 +1645,25 @@ directly execute read operations in masters or even in backups
 with the help of witnesses. Another limitation of EPaxos is
 that clients in a datacenter that doesn’t host a replica must use
 a remote leader, increasing its latency to 2 wide-area RTTs.
-
 Speculative Paxos [28] and Network-Ordered Paxos
-(NOPaxos) [21] reduce latency almost to 1 RTT by seri-
-alizing client requests within network. Both protocols use
+(NOPaxos) [21] reduce latency almost to 1 RTT by serializing client requests within network. Both protocols use
 SDNs to detour requests from all clients through a single
 network device (a root layer switch or middlebox); so, they
 can be deployed only in specialized environments (e.g. a
 privately-owned datacenter). Also, due to detouring of
 packets, they actually add latency overhead over unreplicated
-systems; Speculative Paxos (~25 1s) or NOPaxos(~16 us)
-have higher latency overhead compared to CURP (~1 1s).
-
+systems; Speculative Paxos (∼25 µs) or NOPaxos(∼16 µs)
+have higher latency overhead compared to CURP (∼1 µs).
 TAPIR [37] and Janus [23] commit distributed transactions
 in 1 wide-area RTT; before them, transaction commits took
-2 RTTs: | for transaction prepares and | for geo-replicating
+2 RTTs: 1 for transaction prepares and 1 for geo-replicating
 the data of prepare. They flattened out these serial steps by
-replicating data before the prepare is executed. They mod-
-ified concurrency control protocols to fix inconsistencies in
+replicating data before the prepare is executed. They modified concurrency control protocols to fix inconsistencies in
 replications. They also require commutativity of workloads
 for 1 RTT commits.
+To avoid the performance penalty of consistent replications, eventual consistency [36] has been widely adopted in
 
-To avoid the performance penalty of consistent replica-
-tions, eventual consistency [36] has been widely adopted in
+58
 
 industry [10, 8, 5]. Systems using eventual consistency return
 from updates before replication is complete, and replications
@@ -1618,11 +1672,9 @@ clients must read from far-away masters for consistency.
 Pileus [35] and Tuba [2] allowed applications to declare
 their consistency and latency priorities, and they dynamically
 select replicas to read from.
-
 Broadcast-broadcast (BB) protocols [4, 3, 12, 16] for total
 order broadcasts [11] have similarities to CURP. Senders in
-BB protocols broadcast a message to all destinations (repli-
-cated processes) plus a sequencer before ordering, followed
+BB protocols broadcast a message to all destinations (replicated processes) plus a sequencer before ordering, followed
 by a second broadcast from the sequencer about the ordering
 information. Some variants of BB protocols [3, 12] exploit
 the fact that broadcasts are mostly delivered in-order in small
@@ -1633,21 +1685,17 @@ from the order determined by the sequencer, the process must
 rollback to correct the inconsistency. On the other hand, in
 CURP, replicas wait for the ordered replication from a master
 instead of executing operations with a presumed ordering, so
-CURP doesn’t require rollbacks, which is expensive and diffi-
-cult to implement. Furthermore, even if client requests arrive
+CURP doesn’t require rollbacks, which is expensive and difficult to implement. Furthermore, even if client requests arrive
 in a master and witnesses out of order, CURP still achieves 1
 RTT as long as the reordered requests are commutative.
 
-7 Conclusion
+7
 
-In this paper we have uncovered an opportunity for intro-
-ducing concurrency into mechanisms for consistent replica-
-tion. By exploiting the commutativity of operations, replica-
-tion without ordering can be performed in parallel with send-
-ing requests to an execution server. This general approach can
+Conclusion
+
+In this paper we have uncovered an opportunity for introducing concurrency into mechanisms for consistent replication. By exploiting the commutativity of operations, replication without ordering can be performed in parallel with sending requests to an execution server. This general approach can
 be applied to improve a variety of replication mechanisms,
-including primary-backup approaches and consensus proto-
-cols with strong leaders. We presented Consistent Unordered
+including primary-backup approaches and consensus protocols with strong leaders. We presented Consistent Unordered
 Replication Protocol (CURP), which supplements standard
 primary-backup replication mechanisms. CURP reduces the
 latency to complete operations from 2 RTTs to 1 RTT while
@@ -1655,9 +1703,7 @@ retaining strong consistency. We implemented CURP in
 RAMCloud and Redis to demonstrate its benefits.
 
 Acknowledgements
-
-We thank our shepherd, Manos Kapritsos, and our anony-
-mous NSDI and OSDI reviewers for their feedback. Thanks
+We thank our shepherd, Manos Kapritsos, and our anonymous NSDI and OSDI reviewers for their feedback. Thanks
 to Stephen Yang and Collin Lee for helping on improving
 the clarity of this paper. This work was supported by the
 industrial affiliates of the Stanford Platform Lab and by the
@@ -1666,298 +1712,151 @@ Samsung Scholarship.
 References
 [1] GlusterFS. https://www.gluster.org, 2017.
 Accessed: 2017-09-22.
-
-[2] ARDEKANI, M. S., AND TERRY, D. B. A self-
-configurable geo-replicated cloud storage system. In
+[2] A RDEKANI , M. S., AND T ERRY, D. B. A selfconfigurable geo-replicated cloud storage system. In
 11th USENIX Symposium on Operating Systems Design
 
-58 16th USENIX Symposium on Networked Systems Design and Implementation
+16th USENIX Symposium on Networked Systems Design and Implementation
 
 USENIX Association
 
----
-[3]
+and Implementation (OSDI 14) (Broomfield, CO, 2014),
+USENIX Association, pp. 367–381.
 
-[4
+(Phoenix, AZ, USA, 2001), ICDCS ’01, IEEE Computer Society, pp. 333–341.
 
-[5]
-
-[6]
-
-[7]
-
-[8
-
-[9
-
-[10]
-
-(11)
-
-[12]
-
-and Implementation (OSDI 14) (Broomfield, CO, 2014),
-USENIX Association, pp. 367-381.
-
-BALAKRISHNAN, M., BIRMAN, K., AND PHAN-
-ISHAYEE, A. PLATO: Predictive latency-aware total or-
-dering. In Proceedings of the 25th IEEE Symposium on
+[3] BALAKRISHNAN , M., B IRMAN , K., AND P HAN ISHAYEE , A. PLATO: Predictive latency-aware total ordering. In Proceedings of the 25th IEEE Symposium on
 Reliable Distributed Systems (Leeds, UK, 2006), SRDS
-°06, IEEE Computer Society, pp. 175-188.
+’06, IEEE Computer Society, pp. 175–188.
 
-BIRMAN, K., SCHIPER, A., AND STEPHENSON, P.
+[13] G HEMAWAT, S., G OBIOFF , H., AND L EUNG , S.-T.
+The Google file system. SIGOPS Oper. Syst. Rev. 37,
+5 (Oct. 2003), 29–43.
+
+[4] B IRMAN , K., S CHIPER , A., AND S TEPHENSON , P.
 Lightweight causal and atomic group multicast. ACM
-Trans. Comput. Syst. 9, 3 (Aug. 1991), 272-314.
-
-BRONSON, N., AMSDEN, Z., CABRERA, G.,
-CHAKKA, P., DIMOV, P., DING, H., FERRIS, J., GI-
-ARDULLO, A., KULKARNI, S., LI, H., MARCHUKOV,
-M., PETROV, D., PUZAR, L., SONG, Y. J., AND
-VENKATARAMANI, V. TAO: Facebook’s distributed
+Trans. Comput. Syst. 9, 3 (Aug. 1991), 272–314.
+[5] B RONSON , N., A MSDEN , Z., C ABRERA , G.,
+C HAKKA , P., D IMOV, P., D ING , H., F ERRIS , J., G I ARDULLO , A., K ULKARNI , S., L I , H., M ARCHUKOV,
+M., P ETROV, D., P UZAR , L., S ONG , Y. J., AND
+V ENKATARAMANI , V. TAO: Facebook’s distributed
 data store for the social graph. In Presented as part of the
 2013 USENIX Annual Technical Conference (USENIX
-ATC 13) (San Jose, CA, 2013), USENIX, pp. 49-60.
-
-BuRROWS, M. The Chubby lock service for loosely-
-coupled distributed systems. In Proceedings of the 7th
-Symposium on Operating Systems Design and Imple-
-mentation (Seattle, WA, 2006), OSDI 06, USENIX As-
-sociation, pp. 335-350.
-
-CHoDoROW, K., AND DIROLF, M. MongoDB: The
-Definitive Guide, 1st ed. O’ Reilly Media, Inc., 2010.
-
-COoPER, B. F., RAMAKRISHNAN, R., SRIVASTAVA,
-U., SILBERSTEIN, A., BOHANNON, P., JACOBSEN,
-H.-A., Puz, N., WEAVER, D., AND YERNENI, R.
+ATC 13) (San Jose, CA, 2013), USENIX, pp. 49–60.
+[6] B URROWS , M. The Chubby lock service for looselycoupled distributed systems. In Proceedings of the 7th
+Symposium on Operating Systems Design and Implementation (Seattle, WA, 2006), OSDI ’06, USENIX Association, pp. 335–350.
+[7] C HODOROW, K., AND D IROLF, M. MongoDB: The
+Definitive Guide, 1st ed. O’Reilly Media, Inc., 2010.
+[8] C OOPER , B. F., R AMAKRISHNAN , R., S RIVASTAVA ,
+U., S ILBERSTEIN , A., B OHANNON , P., JACOBSEN ,
+H.-A., P UZ , N., W EAVER , D., AND Y ERNENI , R.
 PNUTS: Yahoo!’s hosted data serving platform. Proc.
-VLDB Endow. 1,2 (Aug. 2008), 1277-1288.
-
-COOPER, B. F., SILBERSTEIN, A., TAM, E., RA-
-MAKRISHNAN, R., AND SEARS, R. Benchmarking
+VLDB Endow. 1, 2 (Aug. 2008), 1277–1288.
+[9] C OOPER , B. F., S ILBERSTEIN , A., TAM , E., R A MAKRISHNAN , R., AND S EARS , R. Benchmarking
 cloud serving systems with YCSB. In Proceedings of the
-1st ACM Symposium on Cloud Computing (Indianapo-
-lis, IN, 2010), SoCC ’10, ACM, pp. 143-154.
-
-DECANDIA, G., HASTORUN, D., JAMPANI, M.,
-KAKULAPATI, G., LAKSHMAN, A., PILCHIN, A.,
-SIVASUBRAMANIAN, S., VOSSHALL, P., AND VO-
-GELS, W. Dynamo: Amazon’s highly available key-
-value store. In Proceedings of Twenty-first ACM
+1st ACM Symposium on Cloud Computing (Indianapolis, IN, 2010), SoCC ’10, ACM, pp. 143–154.
+[10] D E C ANDIA , G., H ASTORUN , D., JAMPANI , M.,
+K AKULAPATI , G., L AKSHMAN , A., P ILCHIN , A.,
+S IVASUBRAMANIAN , S., VOSSHALL , P., AND VO GELS , W. Dynamo: Amazon’s highly available keyvalue store. In Proceedings of Twenty-first ACM
 SIGOPS Symposium on Operating Systems Principles
-(Stevenson, WA, 2007), SOSP ’07, ACM, pp. 205-220.
+(Stevenson, WA, 2007), SOSP ’07, ACM, pp. 205–220.
 
-DEFAGO, X., SCHIPER, A., AND URBAN, P. Total or-
-der broadcast and multicast algorithms: Taxonomy and
-survey. ACM Comput. Surv. 36, 4 (Dec. 2004), 372-421.
-
-FELBER, P., AND SCHIPER, A. Optimistic active
-replication. In Proceedings of the The 21st Interna-
-tional Conference on Distributed Computing Systems
-
-[13]
-
-[14]
-
-[15]
-
-[16]
-
-[17]
-
-[18]
-
-[19]
-
-[20]
-
-[21]
-
-[22]
-
-[23]
-
-(Phoenix, AZ, USA, 2001), ICDCS ’01, IEEE Com-
-puter Society, pp. 333-341.
-
-GHEMAWAT, S., GOBIOFF, H., AND LEUNG, S.-T.
-The Google file system. SIGOPS Oper. Syst. Rev. 37,
-5 (Oct. 2003), 29-43.
-
-GRAY, J., SUNDARESAN, P., ENGLERT, S., BA-
-CLAWSKI, K., AND WEINBERGER, P. J. Quickly gen-
-erating billion-record synthetic databases. SIGMOD
-Rec. 23,2 (May 1994), 243-252.
-
-Hunt, P., KONAR, M., JUNQUEIRA, F. P., AND REED,
-B. ZooKeeper: Wait-free coordination for internet-
-scale systems. In Proceedings of the 2010 USENIX
+[14] G RAY, J., S UNDARESAN , P., E NGLERT, S., BA CLAWSKI , K., AND W EINBERGER , P. J. Quickly generating billion-record synthetic databases. SIGMOD
+Rec. 23, 2 (May 1994), 243–252.
+[15] H UNT, P., KONAR , M., J UNQUEIRA , F. P., AND R EED ,
+B. ZooKeeper: Wait-free coordination for internetscale systems. In Proceedings of the 2010 USENIX
 Conference on USENIX Annual Technical Conference
-(Boston, MA, 2010), USENIXATC’ 10, USENIX Asso-
-ciation, pp. 11-11.
-
-KAASHOEK, M. F., AND TANENBAUM, A. S. Group
-communication in the amoeba distributed operating sys-
-tem. In [1991] Proceedings. 11th International Con-
-ference on Distributed Computing Systems (May 1991),
-pp. 222-230.
-
-LAMPORT, L. The part-time parliament. ACM Transac-
-tions on Computer Systems 16, 2 (May 1998), 133-169.
-
-LAMPORT, L. Generalized consensus and Paxos. Tech.
+(Boston, MA, 2010), USENIXATC’10, USENIX Association, pp. 11–11.
+[16] K AASHOEK , M. F., AND TANENBAUM , A. S. Group
+communication in the amoeba distributed operating system. In [1991] Proceedings. 11th International Conference on Distributed Computing Systems (May 1991),
+pp. 222–230.
+[17] L AMPORT, L. The part-time parliament. ACM Transactions on Computer Systems 16, 2 (May 1998), 133–169.
+[18] L AMPORT, L. Generalized consensus and Paxos. Tech.
 rep., March 2005.
-
-LAMPORT, L. Fast Paxos. Distributed Computing 19
-(October 2006), 79-103.
-
-LEE, C., PARK, S. J., KEJRIWAL, A., MATSUSHITA,
-S., AND OUSTERHOUT, J. Implementing linearizabil-
-ity at large scale and low latency. In Proceedings of
+[19] L AMPORT, L. Fast Paxos. Distributed Computing 19
+(October 2006), 79–103.
+[20] L EE , C., PARK , S. J., K EJRIWAL , A., M ATSUSHITA ,
+S., AND O USTERHOUT, J. Implementing linearizability at large scale and low latency. In Proceedings of
 the 25th Symposium on Operating Systems Principles
-(Monterey, CA, 2015), SOSP ’15, ACM, pp. 71-86.
-
-Li, J., MICHAEL, E., SHARMA, N. K., SZEKERES,
-A., AND Ports, D. R. K. Just say no to Paxos over-
-head: Replacing consensus with network ordering. In
-Proceedings of the 12th USENIX Conference on Oper-
-ating Systems Design and Implementation (Savannah,
-GA, 2016), OSDI’ 16, USENIX Association, pp. 467—
+(Monterey, CA, 2015), SOSP ’15, ACM, pp. 71–86.
+[21] L I , J., M ICHAEL , E., S HARMA , N. K., S ZEKERES ,
+A., AND P ORTS , D. R. K. Just say no to Paxos overhead: Replacing consensus with network ordering. In
+Proceedings of the 12th USENIX Conference on Operating Systems Design and Implementation (Savannah,
+GA, 2016), OSDI’16, USENIX Association, pp. 467–
 483.
 
-MORARU, I., ANDERSEN, D. G., AND KAMINSKY,
-M._ There is more consensus in egalitarian parlia-
-ments. In Proceedings of the Twenty-Fourth ACM Sym-
-posium on Operating Systems Principles (Farminton,
-PA, 2013), SOSP ’13, ACM, pp. 358-372.
+[11] D ÉFAGO , X., S CHIPER , A., AND U RB ÁN , P. Total order broadcast and multicast algorithms: Taxonomy and
+survey. ACM Comput. Surv. 36, 4 (Dec. 2004), 372–421.
 
-Mu, S., NELSON, L., LLOYD, W., AND LI, J. Con-
-solidating concurrency control and consensus for com-
-mits under conflicts. In Proceedings of the 12th USENIX
+[22] M ORARU , I., A NDERSEN , D. G., AND K AMINSKY,
+M. There is more consensus in egalitarian parliaments. In Proceedings of the Twenty-Fourth ACM Symposium on Operating Systems Principles (Farminton,
+PA, 2013), SOSP ’13, ACM, pp. 358–372.
+
+[12] F ELBER , P., AND S CHIPER , A. Optimistic active
+replication. In Proceedings of the The 21st International Conference on Distributed Computing Systems
+
+[23] M U , S., N ELSON , L., L LOYD , W., AND L I , J. Consolidating concurrency control and consensus for commits under conflicts. In Proceedings of the 12th USENIX
 
 USENIX Association
 
-16th USENIX Symposium on Networked Systems Design and Implementation 59
+16th USENIX Symposium on Networked Systems Design and Implementation
 
----
-[24]
+59
 
-[25]
-
-[26]
-
-[27]
-
-[28]
-
-[29]
-
-[30]
-
-[31]
-
-[32]
-
-Conference on Operating Systems Design and Imple-
-mentation (Savannah, GA, 2016), OSDI’ 16, USENIX
-Association, pp. 517-532.
-
-OKI, B. M., AND LISKOv, B. H. Viewstamped repli-
-cation: A new primary copy method to support highly-
-available distributed systems. In Proceedings of the
-Seventh Annual ACM Symposium on Principles of Dis-
-tributed Computing (Toronto, Ontario, Canada, 1988),
-PODC ’88, ACM, pp. 8-17.
-
-ONGARO, D., AND OUSTERHOUT, J. In search
-of an understandable consensus algorithm. In 20/4
+Conference on Operating Systems Design and Implementation (Savannah, GA, 2016), OSDI’16, USENIX
+Association, pp. 517–532.
+[24] O KI , B. M., AND L ISKOV, B. H. Viewstamped replication: A new primary copy method to support highlyavailable distributed systems. In Proceedings of the
+Seventh Annual ACM Symposium on Principles of Distributed Computing (Toronto, Ontario, Canada, 1988),
+PODC ’88, ACM, pp. 8–17.
+[25] O NGARO , D., AND O USTERHOUT, J. In search
+of an understandable consensus algorithm. In 2014
 USENIX Annual Technical Conference (USENIX ATC
 14) (Philadelphia, PA, 2014), USENIX Association,
-pp. 305-319.
-
-ONGARO, D., RUMBLE, S. M., STUTSMAN, R.,
-OUSTERHOUT, J., AND ROSENBLUM, M. Fast crash
-recovery in RAMCloud. In Proceedings of the Twenty-
-Third ACM Symposium on Operating Systems Princi-
-ples (Cascais, Portugal, 2011), SOSP’ 11, ACM, pp. 29-
+pp. 305–319.
+[26] O NGARO , D., RUMBLE , S. M., S TUTSMAN , R.,
+O USTERHOUT, J., AND ROSENBLUM , M. Fast crash
+recovery in RAMCloud. In Proceedings of the TwentyThird ACM Symposium on Operating Systems Principles (Cascais, Portugal, 2011), SOSP ’11, ACM, pp. 29–
 41.
-
-OUSTERHOUT, J., GOPALAN, A., GUPTA, A., KEJRI-
-WAL, A., LEE, C., MONTAZERI, B., ONGARO, D.,
-PARK, S. J., QIN, H., ROSENBLUM, M., RUMBLE,
-S., STUTSMAN, R., AND YANG, S. The RAMCloud
+[27] O USTERHOUT, J., G OPALAN , A., G UPTA , A., K EJRI WAL , A., L EE , C., M ONTAZERI , B., O NGARO , D.,
+PARK , S. J., Q IN , H., ROSENBLUM , M., RUMBLE ,
+S., S TUTSMAN , R., AND YANG , S. The RAMCloud
 storage system. ACM Trans. Comput. Syst. 33, 3 (Aug.
-2015), 7:1-7:55.
+2015), 7:1–7:55.
 
-Ports, D. R. K., LI, J., Liu, V., SHARMA, N. K.,
-AND KRISHNAMURTHY, A. Designing distributed sys-
-tems using approximate synchrony in data center net-
-works. In Proceedings of the 12th USENIX Confer-
-ence on Networked Systems Design and Implementation
-(Oakland, CA, 2015), NSDI’15, USENIX Association,
-pp. 43-57.
-
-Riccl, R., EIDE, E., AND TEAM, C. Introducing
-CloudLab: Scientific infrastructure for advancing cloud
-architectures and applications. ; login:: the magazine of
-USENIX & SAGE 39, 6 (2014), 36-38.
-
-SANFILIPPO, S., ET AL. Redis. https://redis.
-io/,2015. Accessed: 2017-04-18.
-
-SCHNEIDER, F. B. Implementing fault-tolerant ser-
-vices using the state machine approach: A tutorial. ACM
-Comput. Surv. 22, 4 (Dec. 1990), 299-319.
-
-SHVACHKO, K., KUANG, H., RADIA, S., AND
-CHANSLER, R. The Hadoop distributed file system. In
-2010 IEEE 26th Symposium on Mass Storage Systems
-and Technologies (MSST) (May 2010), pp. 1-10.
-
-[33]
-
-[34]
-
-[35]
-
-[36]
-
-[37]
-
-[38]
-
-SIVASUBRAMANIAN, S. Amazon dynamoDB: A seam-
-lessly scalable non-relational database service. In Pro-
-ceedings of the 2012 ACM SIGMOD International Con-
-ference on Management of Data (Scottsdale, AZ, 2012),
-SIGMOD 12, ACM, pp. 729-730.
-
-SPRENKER, L., AND HAMMOND, B. Redis
-C++ Client. https://github.com/mrpi/
+[33] S IVASUBRAMANIAN , S. Amazon dynamoDB: A seamlessly scalable non-relational database service. In Proceedings of the 2012 ACM SIGMOD International Conference on Management of Data (Scottsdale, AZ, 2012),
+SIGMOD ’12, ACM, pp. 729–730.
+[34] S PRENKER , L., AND H AMMOND , B.
+Redis
+C++ Client.
+https://github.com/mrpi/
 redis-cplusplus-client, 2011. Accessed:
 2017-04-20.
-
-TERRY, D. B., PRABHAKARAN, V., KOTLA, R., BAL-
-AKRISHNAN, M., AGUILERA, M. K., AND ABU-
-LIBDEH, H. Consistency-based service level agree-
-ments for cloud storage. In Proceedings of the Twenty-
-Fourth ACM Symposium on Operating Systems Princi-
-ples (Farminton, PA, 2013), SOSP ’13, ACM, pp. 309-
+[35] T ERRY, D. B., P RABHAKARAN , V., KOTLA , R., BAL AKRISHNAN , M., AGUILERA , M. K., AND A BU L IBDEH , H. Consistency-based service level agreements for cloud storage. In Proceedings of the TwentyFourth ACM Symposium on Operating Systems Principles (Farminton, PA, 2013), SOSP ’13, ACM, pp. 309–
 324.
-
-VOGELS, W. Eventually consistent. Commun. ACM 52,
-1 (Jan. 2009), 40-44.
-
-ZHANG, I., SHARMA, N. K., SZEKERES, A., KR-
-ISHNAMURTHY, A., AND PorTs, D. R. K. Build-
-ing consistent transactions with inconsistent replication.
+[36] VOGELS , W. Eventually consistent. Commun. ACM 52,
+1 (Jan. 2009), 40–44.
+[37] Z HANG , I., S HARMA , N. K., S ZEKERES , A., K R ISHNAMURTHY, A., AND P ORTS , D. R. K. Building consistent transactions with inconsistent replication.
 In Proceedings of the 25th Symposium on Operating
-Systems Principles (Monterey, CA, 2015), SOSP °15,
-ACM, pp. 263-278.
+Systems Principles (Monterey, CA, 2015), SOSP ’15,
+ACM, pp. 263–278.
+[38] Z HAO , W. Fast Paxos made easy: Theory and implementation. International Journal of Distributed Systems
+and Technologies (IJDST) 6, 1 (2015), 15–33.
 
-ZHAO, W. Fast Paxos made easy: Theory and imple-
-mentation. International Journal of Distributed Systems
-and Technologies (IJDST) 6, 1 (2015), 15-33.
+[28] P ORTS , D. R. K., L I , J., L IU , V., S HARMA , N. K.,
+AND K RISHNAMURTHY, A. Designing distributed systems using approximate synchrony in data center networks. In Proceedings of the 12th USENIX Conference on Networked Systems Design and Implementation
+(Oakland, CA, 2015), NSDI’15, USENIX Association,
+pp. 43–57.
+[29] R ICCI , R., E IDE , E., AND T EAM , C. Introducing
+CloudLab: Scientific infrastructure for advancing cloud
+architectures and applications. ; login:: the magazine of
+USENIX & SAGE 39, 6 (2014), 36–38.
+[30] S ANFILIPPO , S., ET AL . Redis. https://redis.
+io/, 2015. Accessed: 2017-04-18.
+[31] S CHNEIDER , F. B. Implementing fault-tolerant services using the state machine approach: A tutorial. ACM
+Comput. Surv. 22, 4 (Dec. 1990), 299–319.
+[32] S HVACHKO , K., K UANG , H., R ADIA , S., AND
+C HANSLER , R. The Hadoop distributed file system. In
+2010 IEEE 26th Symposium on Mass Storage Systems
+and Technologies (MSST) (May 2010), pp. 1–10.
 
 60
 
@@ -1965,113 +1864,101 @@ and Technologies (IJDST) 6, 1 (2015), 15-33.
 
 USENIX Association
 
----
-A Informal Proof of Correctness
+A
+
+Informal Proof of Correctness
 
 With the normal operation behaviors described in §3.2,
 the recovery protocol in §3.3 guarantees the following
 correctness properties.
-
-e Durability: if a client completes an operation, it survives
-
+• Durability: if a client completes an operation, it survives
 server crashes.
-
-e Consistency: if a client completes an operation, its result
+• Consistency: if a client completes an operation, its result
 returned to an application remains consistent after server
 crash recoveries.
-
-e Linearizability: an operation appears to be executed
+• Linearizability: an operation appears to be executed
 exactly once between start and completion.
-
 Before presenting proofs, we reiterate some key behaviors
 of the CURP protocol.
-
 (Rule 1) from §3.2.1, a client only completes an update
 operation if (1) it is recorded in all f witnesses or (2) it is
 replicated to f backups.
-
-(Rule 2) a completed unsynced operation must be individ-
-ually commutative with all preceding operations that are not
+(Rule 2) a completed unsynced operation must be individually commutative with all preceding operations that are not
 synced yet. This is the behavior described in §3.2.3; a master
 must sync before responding if the current operation is not
 commutative with any other existing (preceding) unsynced
 operations.
-
 Now, we present proof sketches for the properties.
-
 Durability: recovery of a master only completes after
-recovery from 1 backup and | witness, and the completed
+recovery from 1 backup and 1 witness, and the completed
 operation must exist in the backup or the witness by (Rule 1);
 thus, the completed operation must be recovered when the
-recovery is completed. |
-
+recovery is completed.
+
 Consistency: Consider an individual completed operation
-@ and its consistency. To prove that @’s result doesn’t change
+α and its consistency. To prove that α’s result doesn’t change
 even after crash recovery, we will think about the operation
-execution sequence before @, which we will call history of a
-(or Hq).
-
-Case 1: the operation « has been synced to the backup
+execution sequence before α, which we will call history of α
+(or Hα ).
+Case 1: the operation α has been synced to the backup
 used for recovery. This operation will be recovered from
 the backup (phase 1) and any replay from witnesses (phase
 2) will be ignored (by RIFL). Since backup syncs preserve
-the execution order of operations, the Hg didn’t change; so
+the execution order of operations, the Hα didn’t change; so
 the post-recovery execution sequence should regenerate the
-original execution result of a.
-
-Case 2: the operation a has not been synced to the backup
-used for recovery. & must have been recorded in all witnesses
+original execution result of α.
+Case 2: the operation α has not been synced to the backup
+used for recovery. α must have been recorded in all witnesses
 by (Rule 1) and will be recovered during phase 2. We can
-split the original execution history of @ into two parts as in
-Figure 3: (synced) followed by (unsynced). The Ist phase
+split the original execution history of α into two parts as in
+Figure 3: hsyncedi followed by hunsyncedi. The 1st phase
 of recovery will recover the exactly same execution history
-for the (synced) part. By (Rule 2), we know that losing any
-(unsynced) part of history after crash will not change the
-execution result of @. During phase 2 of recovery (from
+for the hsyncedi part. By (Rule 2), we know that losing any
+hunsyncedi part of history after crash will not change the
+execution result of α. During phase 2 of recovery (from
 a witness), we may replay some other operations before
-replaying @, but the result of @ doesn’t change since all
-operations recorded in the witness must be commutative. O
-
+replaying α, but the result of α doesn’t change since all
+operations recorded in the witness must be commutative. 
 Linearizability: we assume that the underlying system
 before applying CURP guarantees linearizability for op-
+
+USENIX Association
 
 erations that are replicated to backups. CURP may break
 the linearizability of the underlying system since masters in
 CURP return before syncing to backups. So, we will reason
 about how CURP recovers from master crashes without
 breaking linearizability.
-
 The definition of linearizability can be reworded as
 following: if the execution of an operation is observed by
 the issuing client or other clients, no contrary observation
 can occur afterwards (i.e. it should not appear to revert or
 be reordered). Since we only care about what happens after
 recovery, we prove the following proposition: if the execution
-of an individual operation @ is observed before crash, no
+of an individual operation α is observed before crash, no
 contrary observation can occur after recovery.
-
-Case 1: the execution of & was observed by other depen-
-dent operations (e.g. reads). By (Rule 2), the master must
-have synced @ to backups since dependent operations don’t
-commute with @. Since it was replicated to backups, @ will
+Case 1: the execution of α was observed by other dependent operations (e.g. reads). By (Rule 2), the master must
+have synced α to backups since dependent operations don’t
+commute with α. Since it was replicated to backups, α will
 be linearizable as long as the underlying system is.
-
 Case 2: the execution was observed only by the completion
-of &. & must be recovered because of the Durability property.
-The only observation about @ before crash was the returned
+of α. α must be recovered because of the Durability property.
+The only observation about α before crash was the returned
 execution result, and it must be still consistent even after
 recovery because of the Consistency property.
-
-Case 3: no observation was made before crash. a may
+Case 3: no observation was made before crash. α may
 be lost if it didn’t reach to either the backup or witness used
 for recovery. In CURP, the client keeps retrying until it can
-complete @. Regardless of whether @ was recovered or not,
-RIFL ensures the retry will only execute @ at-most once and
-return the result of the sole execution. O
+complete α. Regardless of whether α was recovered or not,
+RIFL ensures the retry will only execute α at-most once and
+return the result of the sole execution.
+
 
-B_ Extra Discussions
-B.1_ Why Are Witnesses Separate from Backups?
+B
 
+Extra Discussions
+
+B.1 Why Are Witnesses Separate from Backups?
 By having witnesses separated from backups, CURP
 requires fewer changes to the existing systems and is more
 applicable to many wildly different backup mechanisms.
@@ -2084,75 +1971,61 @@ ensure durability, so there are no separate backup servers
 to which CURP clients can record inputs. Thus, separating
 witnesses from backups improves CURPs applicability to
 many existing primary-backup systems.
-
 On the other hand, when designing a new storage system,
-combining witnesses and backups can bring extra perfor-
-mance benefits. When they are combined, clients directly
+combining witnesses and backups can bring extra performance benefits. When they are combined, clients directly
 send requests to a master and backups, which now also serve
 as witnesses. The key change is masters now sync operation
-orders (by listing IDs as in witness ge RPCs) instead of full
+orders (by listing IDs as in witness gc RPCs) instead of full
 client requests; then backups lookup the matching requests
 from their witness storage and move them to backup logs.
 This approach will lower network bandwidth consumption.
-Also, most witness ge RPCs can be eliminated; immediately
+Also, most witness gc RPCs can be eliminated; immediately
 
-USENIX Association
+16th USENIX Symposium on Networked Systems Design and Implementation
 
-16th USENIX Symposium on Networked Systems Design and Implementation 61
+61
 
----
-after handling the sync, the requests in the witness storage
+after handling the sync, the requests in the witness storage
 can be deleted as they are now safe in the backup log. (For
 safety, the recovery protocol must pick 1 witness/backup
-combo and must not mix.) This saving of ge RPCs will
+combo and must not mix.) This saving of gc RPCs will
 improve masters’ throughput and will reduce the chance of
 commutativity conflicts.
-
 B.2 Extending CURP to Consensus Protocols
-
 This section illustrates how CURP can be extended to
-reduce the latency of consensus protocols. CURP can be in-
-tegrated in most consensus protocols with strong leaders (e.g.
+reduce the latency of consensus protocols. CURP can be integrated in most consensus protocols with strong leaders (e.g.
 Raft [25], Viewstamped Replication [24]). In such protocols,
 clients send requests to the current leader, which serializes
 the requests into its command log. The leader then replicates
 its command log to a majority of replicas before executing
 the requests and replying back to clients with the results. This
 process takes 2 RTTs, and CURP can reduce it to 1 RTT.
-
 As in primary-backup replication, CURP on consensus
 allows clients to replicate requests to witnesses in parallel
-with sending requests to the leader; the leader then specu-
-latively executes the requests and responds to clients before
+with sending requests to the leader; the leader then speculatively executes the requests and responds to clients before
 replicating the requests to a quorum of replicas. A client can
 complete an operation if it is accepted by a superquorum of
 witnesses or committed in a quorum of replicas.
-
-To mask f failures, consensus protocols use 2f + 1 repli-
-cas, and systems stay available with f failed replicas. For the
-same guarantee, CURP also uses 2f + | replicas, but each
+To mask f failures, consensus protocols use 2 f + 1 replicas, and systems stay available with f failed replicas. For the
+same guarantee, CURP also uses 2 f + 1 replicas, but each
 replica also has a witness component in addition to existing
 components for consensus. Although CURP can proceed
-with f + 1 available replicas, it needs f + [f/2] +1 replicas
+with f + 1 available replicas, it needs f + d f /2e + 1 replicas
 (for superquorum of witnesses) to use 1 RTT operations.
-With less than f +{ f/2]+ 1 replicas, clients must ask masters
-to commit operations in f + 1 replicas before returning result
+With less than f +d f /2e+1 replicas, clients must ask masters
+to commit operations in f +1 replicas before returning result
 (2 RTTs).
-
-Like masters in regular CURP, leader replicas execute oper-
-ations speculatively if they are commutative with existing un-
-synced operations; for an incoming client request, the leader
+Like masters in regular CURP, leader replicas execute operations speculatively if they are commutative with existing unsynced operations; for an incoming client request, the leader
 serializes it into its command log, executes it, and responds
 to the client before committing it in a majority of replicas.
-
 For clients to complete an operation in 1 RTT, it must be
-recorded in a superquorum of f + [f/2]+ 1 witnesses. The
+recorded in a superquorum of f + d f /2e + 1 witnesses. The
 reason why CURP needs a superquorum instead of a simple
 majority is to ensure commutativity of replays from witnesses
-during recovery. During recovery, only f + 1 out of 2f+1
+during recovery. During recovery, only f + 1 out of 2 f + 1
 replicas (each of which embeds a witness) might be available.
 If a client could complete an operation after recording to
-f +1 witnesses, the completed operation may exist in only
+f + 1 witnesses, the completed operation may exist in only
 1 witness out of available f + 1 witnesses during recovery
 (since intersection of two quorums is 1 replica). If the other f
 witnesses accepted other operations that are not commutative
@@ -2162,31 +2035,28 @@ which one is the completed one; executing all appearing
 in any f + 1 witnesses is also not safe since they are not
 commutative, so they must be replayed in a correct order.
 
+62
+
 For correctness, the client requests replayed from witnesses
 during recovery must be commutative and inclusive of all
-completed operations that are not yet committed in a major-
-ity of replicas. By recording to a superquorum, all completed
+completed operations that are not yet committed in a majority of replicas. By recording to a superquorum, all completed
 operations (but not yet committed) are guaranteed to exist in
-a majority ({ f/2] +1) of any quorum of f +1 witnesses, and
-any operations that don’t commute with the completed oper-
-ations cannot exist in more than | f/2| (less than majority of
+a majority (d f /2e+1) of any quorum of f +1 witnesses, and
+any operations that don’t commute with the completed operations cannot exist in more than b f /2c (less than majority of
 any quorum). Thus, during recovery, all requests that appear
-in a majority ({f/2]+ 1) from any quorum of f +1 witnesses
+in a majority (d f /2e+1) from any quorum of f +1 witnesses
 are guaranteed to be commutative and include all completed
 operations; so, recovery can replay requests that appear in
-more than [ f/2]+1 witnesses out of any f +1 witnesses.
-
+more than d f /2e+1 witnesses out of any f +1 witnesses.
 When leadership changes (e.g. leader election in Raft [25]
 or view change in Viewstamped Replication [24]), the new
-leader must recover from witnesses before accepting new op-
-erations. To do so, the new leader must collect saved requests
+leader must recover from witnesses before accepting new operations. To do so, the new leader must collect saved requests
 from at least f +1 witnesses. This collection can be included
 in the existing data collection (e.g. Raft votes) that is required
 by most leadership change protocols. As mentioned in the
 previous paragraph, the new leader should only replay client
-requests that are recorded in at least [ f/2] + 1 witnesses to
+requests that are recorded in at least d f /2e + 1 witnesses to
 ensure commutativity.
-
 After leadership changes, the state machine of the old
 leader could have diverged from other replicas due to
 speculatively executed operations that were not recovered
@@ -2197,7 +2067,6 @@ leadership change was not because of a crash or disconnect of
 the old leader; instead of requring old leader to reload from a
 checkpoint, we can require the new leader to fetch and commit
 all uncommitted operations in the old leader’s command log.
-
 The last problem introduced by speculative execution is
 that clients may use old zombie leaders (which believe they
 are current leaders). Zombie leaders were not possible before
@@ -2212,7 +2081,6 @@ against the term used by its replica (recall that a witness is a
 part of a consensus replica); if the record RPC has an old term
 number, the witness rejects the request and tells the client to
 fetch new leader information.
-
 CURP can use read leases like many consensus protocols
 so that read operations can be executed solely by leaders
 within 1 RTT without recording to witnesses. Optimizing
@@ -2221,11 +2089,35 @@ protocols with strong leaders. A leader replica with a
 valid read lease can safely execute read operations without
 committing the read operations through consensus. For the
 
-62 16th USENIX Symposium on Networked Systems Design and Implementation
+16th USENIX Symposium on Networked Systems Design and Implementation
 
 USENIX Association
 
----
+C
+
+Implementation Details
+
+C.1 Modifications to RIFL
+RIFL [20] is a mechanism for detecting duplicate invocations of RPCs. With RIFL, masters make a durable completion record of each RPC that updates state, which includes
+the RPC result. The completion record survives crashes and
+can be used to detect duplicate invocations of the RPC. When
+a duplicate is detected, the master skips the execution of the
+RPC and returns the result from the completion record.
+RIFL has two mechanisms for garbage collecting completion records: (1) on RPC requests, clients piggyback
+acknowledgments of the results of their previous requests (so
+servers can safely delete these completion records), and (2)
+clients maintain leases in a central server; if a client’s lease
+expires, masters can delete all completion records for that
+client. Both of these must be modified to work with CURP.
+Since both garbage collection mechanisms assume that
+retries always come from the same client that made the
+original request, RIFL must be modified to accommodate
+retries from witnesses. Firstly, once clients acknowledge
+
+USENIX Association
+
+Number of records between conflicts
+
 optimization, each replica grants the read lease to the current
 leader, promising not to agree on a leader change for a lease
 period. With valid leases from a majority of replicas, the
@@ -2233,16 +2125,12 @@ leader knows that no operations can be committed from other
 replicas, so it can safely execute read operations without
 consulting with other replicas. CURP does not interfere with
 this read lease mechanism.
-
-B.3. Why Do Fast / Generalized Paxos require 1.5 RTTs?
-
+B.3 Why Do Fast / Generalized Paxos require 1.5 RTTs?
 There is a widespread misunderstanding that both Fast
-Paxos and Generalized Paxos already achieve 1 RTT opera-
-tions. The confusion probably stems from the fact that both
+Paxos and Generalized Paxos already achieve 1 RTT operations. The confusion probably stems from the fact that both
 Fast and Generalized Paxos allow Paxos learners to know
-about acceptance of an operation in | RTT.
-
-However, | RTT is sufficient to know only that an operation
+about acceptance of an operation in 1 RTT.
+However, 1 RTT is sufficient to know only that an operation
 is committed but not enough to know the result: that requires
 another 0.5 RTT. The abstract for Generalized Paxos says that
 a server can execute the command in two message delays;
@@ -2250,70 +2138,47 @@ however, it take an additional message delay for the result to
 reach a client, for a total of three message delays (1.5 RTT). It
 doesn’t help for the client to be a Paxos learner, because even
 learners don’t know the result after 1 RTT.
-
 For most operations, results are not trivial and clients must
 wait for the results from real executions before completing
-operations. Many writes, such as conditional writes or read-
-modify-writes, have results that clients cannot know before
+operations. Many writes, such as conditional writes or readmodify-writes, have results that clients cannot know before
 executions. Blind writes (those that don’t return results)
 could potentially complete in 1 RTT. However, truly blind
 writes are rarely feasible because they can return exceptions,
 such as “table no longer on this server” or “permission
 denied”; clients must be aware of these exceptions.
-
-As a result, Fast/Generalized Paxos are generally con-
-sidered to have 1.5 RTT latency for clients to complete
+As a result, Fast/Generalized Paxos are generally considered to have 1.5 RTT latency for clients to complete
 operations. [21, 28, 38]
 
-C_ Implementation Details
-C.1 Modifications to RIFL
+1400
+1200
+1000
 
-RIFL [20] is a mechanism for detecting duplicate invoca-
-tions of RPCs. With RIFL, masters make a durable comple-
-tion record of each RPC that updates state, which includes
-the RPC result. The completion record survives crashes and
-can be used to detect duplicate invocations of the RPC. When
-a duplicate is detected, the master skips the execution of the
-RPC and returns the result from the completion record.
+8-way associative
+4-way associative
+2-way associative
+Direct mapping
 
-RIFL has two mechanisms for garbage collecting com-
-pletion records: (1) on RPC requests, clients piggyback
-acknowledgments of the results of their previous requests (so
-servers can safely delete these completion records), and (2)
-clients maintain leases in a central server; if a client’s lease
-expires, masters can delete all completion records for that
-client. Both of these must be modified to work with CURP.
-
-Since both garbage collection mechanisms assume that
-retries always come from the same client that made the
-original request, RIFL must be modified to accommodate
-retries from witnesses. Firstly, once clients acknowledge
-
-81400 7 , 1 t —S
-—--~ 8-way associative oa
-1200 |} —-—.- 4-way associative + see |
----- 2-way associative aot
-1000 } ——— Direct mapping vee 4
-2
-800 + : : poe » : : 4
-
-600 i be ere Tl
+800
+600
 400
 200
+0
+500
 
-0 i i
-500 1000 1500 2000 2500 3000 3500 4000 4500
+1000
+
+1500 2000 2500 3000 3500
 Number of slots in a witness
 
-Number of records between conflict:
+4000
+
+4500
 
 Figure 14: Simulation results for the expected number of recordings
-
 before a collision occurs in a witness’ cache, assuming a random
-
 distribution of keys. Each data point is the average of 10000 simulations.
-
 Introducing associativity reduces the chance of collisions significantly.
+
 the receipts of results, masters remove their completion
 records and start to ignore (not returning results) the duplicate
 requests. Since replays from witnesses happen in random
@@ -2321,7 +2186,6 @@ orders, acknowledgements piggybacked on later requests can
 make masters to ignore the replay of earlier requests. Thus,
 clients’ acknowledgments included in RPC requests must be
 ignored during recovery from witnesses.
-
 Secondly, if a client crashes and its lease expires, masters
 remove all of the completion records for the client; then any
 requests from the expired client are ignored. This can be
@@ -2332,11 +2196,8 @@ before expiring a client lease. In practice, the period of syncs
 is much smaller than the grace period between the time of
 a client crash and the time of its lease expiration; so, most
 systems are safe automatically.
-
 C.2 Why Use Set-associative Cache for Witnesses?
-
-We initially used a direct-mapped cache instead of set-
-associative cache, but this resulted in a high rate of rejections
+We initially used a direct-mapped cache instead of setassociative cache, but this resulted in a high rate of rejections
 because of conflicts (i.e. no slot is available for the mapped
 set). Figure 14 shows the expected number of recordings
 before a conflict occurs on a witness slot. Using a direct
@@ -2349,9 +2210,11 @@ by commutativity. (Once a master hits a non-commutative
 operation and syncs to backups, all saved requests in the
 witness are garbage collected.)
 
-D_ Additional Evaluations
-D.1.RAMCloud’s Throughput by Batch Size
+D
 
+Additional Evaluations
+
+D.1 RAMCloud’s Throughput by Batch Size
 Figure 15 shows the single-server throughput of write
 operations with CURP while varying the aggressiveness of
 syncs. After introducing CURP, RAMCloud can delay the
@@ -2359,79 +2222,84 @@ sync to backups after responding back to clients; delaying
 and batching sync to backups makes the server more efficient
 and improves throughput about 4 times. Since RAMCloud
 
-USENIX Association
+16th USENIX Symposium on Networked Systems Design and Implementation
 
-16th USENIX Symposium on Networked Systems Design and Implementation 63
+63
 
----
-zg
-5900
-8
-$800 +
-8700 +
-gQ
-$000 Asyne |
-2500 a —x— CURP 4
-= —*— CURP )
-3400 |- ° : —s— CURP (f= 3) rt
-$300 b — _ Original RAMCloud
-3
-°
-200 E: 4
-0100 + 1
-= 0 i L L L
-0 10 20 30 40 50
+Write Throughput (k write per second)
 
+900
+800
+700
+Unreplicated
+Async (f = 3)
+CURP (f = 1)
+CURP (f = 2)
+CURP (f = 3)
+Original RAMCloud
+
+600
+500
+400
+300
+200
+100
+0
+0
+
+10
+20
+30
+40
+50
 Minimum Batch Size (number of writes before starting sync)
 
-Figure 15: The aggregate throughput for one server serving 100B RAM-
-Cloud writes with CURP, as a function of sync batch size. Each client
+Figure 15: The aggregate throughput for one server serving 100B RAMCloud writes with CURP, as a function of sync batch size. Each client
 repeatedly issued random writes back to back to a single server. “Original
 RAMCloud” refers to the base RAMCloud system before adding CURP.
 “Unreplicated” refers to RAMCloud without any replication. Each
 datapoint was measured 15 times, and median values are displayed.
-
 500
 
-Original Redis (non-durable) | i
-—— CURP (1 Witness)
-400 | ——— CURP (2 Witnesses) |
-eg — Original Redis (durable)
->
-2300 4
-S
-w
-Ss
-$200 + 4
-s
-o
-<
-100 | |
-0 i i i i i i i i
+Original Redis (non-durable)
+CURP (1 Witness)
+CURP (2 Witnesses)
+Original Redis (durable)
 
-0 20 40 60 80 100 120 140 160
+Average Latency (µs)
+
+400
+300
+200
+100
+0
+0
+
+20
+
+40
+60
+80
+100
+120
+140
 Write Throughput (k write per second)
 
+160
+
 Figure 16: Observed latency at a specific throughput level for one
-
 server serving 100B Redis SET operations with CURP. “Original Redis
-
 (durable)” refers to the base Redis without CURP, but configured to
-
 invoke fsync before replying to clients. Original Redis processes requests
-
 from multiple clients, fsyncs once per eventloop, and replies to all clients.
+
 allows only one outstanding sync, syncs are naturally batched
 for around 15 writes even at 1 minimum batch size.
-D.2_ Redis Latency vs. Throughput
-
+D.2 Redis Latency vs. Throughput
 Figure 16 shows observed latency during the throughput
-
-benchmark. Both CURP and non-durable Redis maintains la-
-tency low until itreaches 80% of max throughput. The latency
+benchmark. Both CURP and non-durable Redis maintains latency low until it reaches 80% of max throughput. The latency
 of durable Redis increases almost linearly due to bathcing.
-The original Redis is designed to provide maximum through-
-put under high load and natively batches fsyncs; for each
+The original Redis is designed to provide maximum throughput under high load and natively batches fsyncs; for each
 event-loop cycle, Redis iterates through TCP sockets for all
 clients and executes all requests from them; after the iteration,
 Redis fsyncs once and responds to the clients. This batching
@@ -2440,8 +2308,10 @@ approaches that of non-durable Redis as the number of clients
 increases. However, this batching adds extra delay before
 responding back to clients, so latency increases linearily.
 
-64 16th USENIX Symposium on Networked Systems Design and Implementation
+64
+
+16th USENIX Symposium on Networked Systems Design and Implementation
 
 USENIX Association
 
----
+
