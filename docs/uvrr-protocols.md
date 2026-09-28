@@ -836,12 +836,13 @@ applies the same command at the same slot.
 The CAS pair is the serving state and the view number. A node applying a
 nomination at commit publishes the bumped view
 `Ballot { era: the era the covering fold established, view: from + offset }`
-as its current view, on the same published transition that carries the
-folded table, if and only if it is `Normal`
+as its current and retained view, on the same published transition that
+carries the folded table, if and only if it is `Normal`
 and its published view number equals `from`. The bump advances the serving
-view by a committed command and re-selects no history: the retained view,
-the retained history's provenance, stays what it was, and a `Normal` node
-serves at or past its retained view. The bumped view's era is
+view by a committed command and re-selects no history: §1.3's equality is
+honoured at every instant, so `retained` advances with `current` on the same
+transition and a `Normal` node sits at equality after the bump exactly as
+after an install. The bumped view's era is
 the era the nomination's own establishing run established, so the bump
 enters the new arithmetic directly: the leader under the new
 configuration is `record(era).primary(from + offset)`, the same node the

@@ -31,7 +31,7 @@
 //! citations of `invariant::Fault` keep compiling.
 
 use crate::ids::Slot;
-use crate::progress::Progress;
+use crate::progress::{Progress, Status};
 use crate::wire::Tag;
 
 pub use crate::ids::Fault;
@@ -244,13 +244,23 @@ fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {
 }
 
 /// Rule 3, `retained` identifies the provenance of the retained history (§1.3),
-/// so it changes only when that history was re-selected. The re-selection inputs
-/// are the peer messages that install a history, [`crate::wire::Tag::DoViewChange`], the one that
+/// so it changes only when that history was re-selected, or when a committed
+/// nomination advances the serving view and §1.3's equality under
+/// [`Status::Normal`] requires `retained` to advance with `current` on the
+/// same transition. The re-selection inputs are the peer messages that install
+/// a history, [`crate::wire::Tag::DoViewChange`], the one that
 /// completes the new primary's quorum (§9.1), [`crate::wire::Tag::StartView`], and [`crate::wire::Tag::NewState`]
 /// (state transfer, §4). The match is exhaustive so a new tag forces a
 /// ruling here rather than inheriting one.
 fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) -> bool {
     if new.retained() == old.retained() {
+        return false;
+    }
+    // The nomination's commit-time bump re-selects no history: it advances the
+    // serving view by committed command, and §1.3's equality under `Normal`
+    // requires `retained` to advance with `current` on the same transition.
+    // The change is legal exactly when the new state joins the two at one view.
+    if new.status() == Status::Normal && new.retained() == new.current() {
         return false;
     }
     let reselects = match input {

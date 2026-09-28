@@ -62,6 +62,12 @@ ViewChange:             current_view >= retained_view
 Restarting/Joining/Replaying:   current_view is not an authority to participate
 ```
 
+Under Active, the equality is maintained at every instant. A committed
+nomination's commit-time bump (the NOMINATE rule of `docs/uvrr-protocols.md`)
+advances `current_view` by committed command and re-selects no history, so
+`retained_view` advances with it on the same transition: after the bump it
+names the view the retained history is served at, and the history's
+provenance is untouched.
 A replica can enter `current_view = v+1` on a timeout or `StartViewChange(v+1)` while still reporting the history retained from view `v`. It has entered the later view as a fence, but no new view state has yet been selected and installed. Therefore `current_view` alone does not identify the provenance of the reported log.
 
 VRR-2012 carries `retained_view` in `DoViewChange`. The new primary ranks candidate histories first by this value and then by the accepted frontier. A longer history retained from an earlier view must not displace history retained from a later view merely because it has a larger slot count. `retained_view` is not needed for normal request processing; it is view-change evidence.

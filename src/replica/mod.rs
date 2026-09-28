@@ -2194,9 +2194,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             .ok_or(ProgressError::RevisionExhausted)
             .map_err(PlanRefusal::Progress)?;
         let current = view.unwrap_or_else(|| self.progress.current());
+        // The nomination's commit-time bump (`docs/uvrr-protocols.md`, the
+        // NOMINATE chapter) advances the serving view by committed command and
+        // re-selects no history: §1.3's equality under `Status::Normal` is
+        // honoured by publishing the bumped view as current AND retained on
+        // the same transition, exactly as after an install.
+        let retained = view.unwrap_or_else(|| self.progress.retained());
         Progress::reconstitute(
             current,
-            self.progress.retained(),
+            retained,
             status,
             accepted,
             committed,

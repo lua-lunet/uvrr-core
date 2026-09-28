@@ -437,25 +437,23 @@ fn rule2_view_succession() {
 }
 
 /// Rule 3, `retained` identifies the provenance of the retained history (§1.3);
-/// it changes only when that history was re-selected by a peer message
+/// it changes when that history was re-selected by a peer message
 /// that installs one ([`uvrr::wire::Tag::DoViewChange`] completing the new primary's quorum,
-/// [`uvrr::wire::Tag::StartView`], [`uvrr::wire::Tag::NewState`]).
+/// [`uvrr::wire::Tag::StartView`], [`uvrr::wire::Tag::NewState`]), or when a committed
+/// nomination's commit-time bump advances the serving view and §1.3's equality
+/// under `Normal` joins `retained` and `current` on the same transition
+/// (`docs/uvrr-protocols.md`, the NOMINATE chapter). The bump re-selects no
+/// history, so no input kind can carry a provenance lie through it.
 #[test]
-fn rule3_retained_changes_only_on_reselection() {
+fn rule3_retained_changes_on_reselection_or_the_nomination_bump() {
     let table = genesis_table();
     let old = normal(view(0, 3), 5, 2, 1, 1, 0, &table);
     let installed = normal(view(0, 4), 5, 2, 1, 1, 1, &table);
 
-    // Retained changed during normal operation.
-    assert_eq!(
-        legal(&old, &installed, &InputKind::ClientRequest),
-        Some(Fault::IllegalTransition)
-    );
-    assert_eq!(
-        legal(&old, &installed, &InputKind::Tick),
-        Some(Fault::IllegalTransition)
-    );
-    // A peer message that does not install history.
+    // The joint advance under Normal is the nomination bump's shape:
+    // `retained` joins `current`, and the bump re-selects no history.
+    assert_eq!(legal(&old, &installed, &InputKind::ClientRequest), None);
+    assert_eq!(legal(&old, &installed, &InputKind::Tick), None);
     assert_eq!(
         legal(
             &old,
@@ -465,6 +463,27 @@ fn rule3_retained_changes_only_on_reselection() {
                 slot: Slot(5),
             },
         ),
+        None
+    );
+
+    // A retained move under ViewChange gets no such clause: the bump's
+    // equality is a Normal-status relation, so a non-install input moving
+    // retained there stays refused.
+    let view_change_joined = Progress::reconstitute(
+        view(0, 4),
+        view(0, 4),
+        Status::ViewChange,
+        Slot(5),
+        Slot(2),
+        Slot(1),
+        Slot(1),
+        1,
+        Arc::clone(&table),
+        None,
+    )
+    .expect("the candidate is internally valid");
+    assert_eq!(
+        legal(&old, &view_change_joined, &InputKind::Tick),
         Some(Fault::IllegalTransition)
     );
 
