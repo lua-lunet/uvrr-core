@@ -126,7 +126,7 @@ def build_deck(output_pptx_path):
     p1_m.font.color.rgb = RGBColor(148, 163, 184)
 
     s1.notes_slide.notes_text_frame.text = (
-        "SOURCE: docs/uvrr-boot-gate.md, research/trex-uvrr-gossip-equivalence.md, formal/uvrr-lean/paper/paper.tex.\n"
+        "SOURCE: docs/uvrr-boot-gate.md, research/trex-uvrr-gossip-equivalence.md, paper/paper.tex.\n"
         "REPORTING BASIS: Formal protocol specification and kernel-checked invariants.\n"
         "PRIMARY MESSAGE: Clean stops and crashes are fundamentally distinct lifecycle transitions. "
         "Resume names nothing in uVRR. This slide deck establishes the exact state transitions, "

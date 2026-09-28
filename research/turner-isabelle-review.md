@@ -4,7 +4,7 @@
 
 **Subject of review.** David C. Turner, "Unbounded Pipelining in Dynamically Reconfigurable Paxos
 Clusters," revision 1A9DBA37, 14 August 2017 (10 pages; extracted text, summary and manifest under
-`formal/uvrr-lean/paper/turner/`). © 2016-7 Tracsis plc, CC BY-SA 4.0. All statements of his
+`research/literature/turner/`). © 2016-7 Tracsis plc, CC BY-SA 4.0. All statements of his
 results below are his; the extracted text is the pinned source of record.
 
 **The question.** Turner writes (p. 2): "The appendices are informal versions of formal proofs

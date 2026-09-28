@@ -53,7 +53,7 @@ interrupted), quoted verbatim in the paper's addendum.
    same responses count everywhere; majority is computed on the first
    message in batch.
 3. **The paper addendum's theorem statement.** Theorem "Fuse telescoping" in
-   `formal/uvrr-lean/paper/fuse_ladder.tex` (from line 47) — the Lean
+   `fuse_ladder.tex` (from line 47) — the Lean
    premises are byte-for-byte the addendum's: "the certified schedule
    preserves the invariant `R ∈ QII_i` at each step, the first slot has `R ∈
    QII_0`".

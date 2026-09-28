@@ -7,7 +7,7 @@
 # output already exists and is non-trivial. Scratch images go to the
 # repository .tmp/ and are removed afterwards.
 #
-# Usage: ./ocr-tesseract.sh   (from formal/uvrr-lean/paper/research)
+# Usage: ./ocr-tesseract.sh   (from research/literature/corpus)
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)

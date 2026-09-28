@@ -8,7 +8,7 @@ For a local draft, run from the repository root:
 
 ```sh
 mkdir -p output/pdf
-tectonic --keep-logs --outdir output/pdf formal/uvrr-lean/paper/paper.tex
+tectonic --keep-logs --outdir output/pdf paper/paper.tex
 ```
 
 This produces `output/pdf/paper.pdf` without publishing a version of record.
@@ -33,7 +33,7 @@ in the gitignored **.published-id** stamp.
 From a terminal:
 
 ```sh
-cd formal/uvrr-lean/paper
+cd paper
 ./build.sh
 open "papers/$(cat .published-id).pdf"
 ```

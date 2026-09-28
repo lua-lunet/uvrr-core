@@ -1,6 +1,0 @@
-*.png
-# The paper's reincarnation figure and the weighted quorum witness are
-# included via \includegraphics, so the rasters must be tracked for the
-# paper to publish from a committed tree.
-!reincarnation.png
-!weighted-quorum-witness.png
