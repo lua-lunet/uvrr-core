@@ -204,6 +204,33 @@ const NODES = [
     abstract: "An engineering-grade Paxos state machine replication implementation (as characterised in Chimera's related work, a crash-recovery baseline)." }
 ];
 
+// Explicit Better BibTeX citation-key crosswalk for the paper's export.
+// Keys are identifiers only; the graph never imports Zotero notes or fields.
+const BIB_KEY_BY_NODE = {
+  vr1988: "vr",
+  vrr2012: "vrr",
+  pms2001: "pms",
+  diskpaxos: "diskpaxos",
+  verticalpaxos: "vertical-paxos",
+  reconfigsm: "reconfig-sm",
+  turner: "turner",
+  curp: "curp",
+  allfs: "allfs",
+  diskless: "diskless",
+  par: "par",
+  zookeeper: "zookeeper",
+  corfu: "corfu",
+  blogVW: "votingweights",
+  blogNetdisk: "netdisk",
+  blogUVRR: "motivation"
+};
+for (const node of NODES) {
+  if (Object.hasOwn(BIB_KEY_BY_NODE, node.id)) node.bibKey = BIB_KEY_BY_NODE[node.id];
+}
+// Keep the focal paper visible when filtering to items in its bibliography.
+const focalPaper = NODES.find(node => node.id === "uvrrpaper");
+if (focalPaper) focalPaper.keepAsContext = true;
+
 // edges: [source, target, note] — source cites/targets/extends
 const EDGES = [
   ["vrr2012", "vr1988", "revisits"],
