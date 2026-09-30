@@ -32,10 +32,12 @@
 <body>
 <div id="chart"></div>
 <section id="controls" aria-label="Bibliography filter">
-  <label for="bib-file"><strong>Read a BibTeX export</strong> (local, read-only)</label>
-  <input id="bib-file" type="file" accept=".bib,.bibtex,text/plain,application/x-bibtex">
-  <label><input id="bib-only" type="checkbox" disabled> Show only graph works with a matched key in this bibliography</label>
-  <p id="bib-status" role="status" aria-live="polite">Choose the paper's Zotero/Better BibTeX export. The graph reads citation keys only; it does not upload or change the file.</p>
+  <label for="bib-file"><strong>Read Zotero collection exports</strong> (local, read-only)</label>
+  <input id="bib-file" type="file" multiple accept=".bib,.bibtex,text/plain,application/x-bibtex">
+  <label for="bib-collection">Collection export</label>
+  <select id="bib-collection" disabled><option>Choose export files above</option></select>
+  <label><input id="bib-only" type="checkbox" disabled> Show only graph works in the selected collection</label>
+  <p id="bib-status" role="status" aria-live="polite">Choose one or more Zotero/Better BibTeX collection exports. Each filename labels a collection. The graph reads citation keys only; it does not upload or change the files.</p>
 </section>
 <div id="panel"><span class="close" onclick="panel.style.display='none'">✕</span>
   <h2 id="p-title"></h2>
@@ -51,10 +53,16 @@
 <script>
 const chart = echarts.init(document.getElementById("chart"));
 const nodeById = new Map(NODES.map(n => [n.id, n]));
-let bibliographyKeys = null;
+const collectionExports = new Map();
+let selectedCollection = null;
 let filterToBibliography = false;
 
+function activeBibliographyKeys() {
+  return selectedCollection ? collectionExports.get(selectedCollection)?.keys ?? null : null;
+}
+
 function graphNodes() {
+  const bibliographyKeys = activeBibliographyKeys();
   return NODES
     .filter(n => !filterToBibliography || n.keepAsContext || (n.bibKey && bibliographyKeys.has(n.bibKey)))
     .map(n => {
@@ -114,6 +122,7 @@ chart.setOption({
 });
 
 const bibFile = document.getElementById("bib-file");
+const bibCollection = document.getElementById("bib-collection");
 const bibOnly = document.getElementById("bib-only");
 const bibStatus = document.getElementById("bib-status");
 
@@ -176,26 +185,52 @@ function readBibTeXKeys(source) {
 }
 
 bibFile.addEventListener("change", async () => {
-  const file = bibFile.files?.[0];
-  if (!file) return;
+  const files = Array.from(bibFile.files ?? []);
+  if (files.length === 0) return;
   // Clear the picker so choosing the same path again after an auto-export
   // updates still emits a change event.
   bibFile.value = "";
   try {
-    const parsed = readBibTeXKeys(await file.text());
-    if (parsed.entries === 0) throw new Error("No BibTeX entries were found.");
-    bibliographyKeys = parsed.keys;
+    const loaded = await Promise.all(files.map(async file => {
+      const parsed = readBibTeXKeys(await file.text());
+      if (parsed.entries === 0) throw new Error(`${file.name}: no BibTeX entries were found.`);
+      return { name: file.name, ...parsed };
+    }));
+    collectionExports.clear();
+    for (const item of loaded) {
+      let name = item.name;
+      let suffix = 2;
+      while (collectionExports.has(name)) name = `${item.name} (${suffix++})`;
+      collectionExports.set(name, { keys: item.keys, entries: item.entries });
+    }
+    bibCollection.replaceChildren(...Array.from(collectionExports.keys(), name => new Option(name, name)));
+    bibCollection.disabled = false;
+    bibCollection.value = collectionExports.keys().next().value;
+    selectedCollection = bibCollection.value;
     bibOnly.disabled = false;
-    const mappedNodes = NODES.filter(n => n.bibKey && !n.keepAsContext);
-    const matched = mappedNodes.filter(n => bibliographyKeys.has(n.bibKey)).length;
-    const absent = mappedNodes.length - matched;
-    const unmapped = NODES.filter(n => !n.bibKey && !n.keepAsContext).length;
-    bibStatus.textContent = `${file.name}: read ${parsed.entries} entries; ${matched} graph works match, ${absent} mapped keys are absent, and ${unmapped} graph nodes have no key mapping. Only citation keys are retained in memory.`;
+    updateCollectionStatus();
     renderGraph();
     updatePanelStatus();
   } catch (error) {
-    bibStatus.textContent = `Could not read this BibTeX file: ${error.message}`;
+    bibStatus.textContent = `Could not read collection exports: ${error.message}`;
   }
+});
+
+function updateCollectionStatus() {
+  const collection = collectionExports.get(selectedCollection);
+  if (!collection) return;
+  const mappedNodes = NODES.filter(n => n.bibKey && !n.keepAsContext);
+  const matched = mappedNodes.filter(n => collection.keys.has(n.bibKey)).length;
+  const absent = mappedNodes.length - matched;
+  const unmapped = NODES.filter(n => !n.bibKey && !n.keepAsContext).length;
+  bibStatus.textContent = `${selectedCollection}: read ${collection.entries} entries; ${matched} graph works match, ${absent} mapped keys are absent, and ${unmapped} graph nodes have no key mapping. Only citation keys are retained in memory.`;
+}
+
+bibCollection.addEventListener("change", () => {
+  selectedCollection = bibCollection.value;
+  updateCollectionStatus();
+  renderGraph();
+  updatePanelStatus();
 });
 
 bibOnly.addEventListener("change", () => {
@@ -209,13 +244,14 @@ let selectedNodeId = null;
 function updatePanelStatus() {
   if (!selectedNodeId) return;
   const n = nodeById.get(selectedNodeId);
+  const bibliographyKeys = activeBibliographyKeys();
   const status = document.getElementById("p-bib");
   if (n.keepAsContext) {
     status.textContent = "Graph context node (not a bibliography entry).";
   } else if (!n.bibKey) {
     status.textContent = "No citation-key mapping is configured for this graph node.";
   } else if (bibliographyKeys === null) {
-    status.textContent = `BibTeX membership not checked; expected key: ${n.bibKey}.`;
+    status.textContent = `Collection membership not checked; expected key: ${n.bibKey}.`;
   } else {
     status.textContent = bibliographyKeys.has(n.bibKey)
       ? `Present in selected .bib export · key: ${n.bibKey}`
