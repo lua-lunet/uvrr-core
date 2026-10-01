@@ -235,3 +235,85 @@ the `Prepare` it cannot simultaneously claim that commit — so the corpus
 carries no clause for it; the reference refusal (`JournalEntryUnavailable`
 at the arriving slot) is pinned by the mint-based exhaustive suite,
 `tests/exhaustive_prepare.rs`'s `PiggyRefused` route.
+
+## 8. The transport
+
+The corpus is data, so a case is replayable over any transport. A
+conforming host MAY expose the abstract host interface of §2 over HTTP,
+which lets a client that is not the host's own language replay the
+corpus without re-deriving the executor, the exact-multiset comparison,
+or the two rendering grammars of §3: the case arrives as the request
+body, and the host answers with what its own replica did.
+
+This clause states the endpoint contract. A host that serves these
+endpoints, and a client that drives them, conform independently of each
+other's implementation language; neither needs the other's source. The
+reference host is the repository's conformance host
+(`tests/conformance_host.rs`), and the reference client is the Hurl
+suite in `tests/hurl/`, generated from the committed corpus.
+
+### 8.1 The case endpoint
+
+`POST /case` takes one case object — the record of §3 verbatim, its
+`expect` included — and replays it. The response is:
+
+| field | meaning |
+|---|---|
+| `id` | The case's `id`, echoed. |
+| `family` | The case's `family`, echoed. |
+| `verdict` | `pass` when every expectation the case names is met, `fail` otherwise. |
+| `mismatch` | Absent on `pass`. On `fail`, the named field that differs, in the form `<field>: expected <named>, captured <observed>`. |
+| `expect` | The full capture: the delivered datagram multiset and the rendered per-node post-state, in the §3 grammars. |
+
+The request carries the expectation, so a host holds no corpus of its
+own and a client needs none: the case is the whole contract. A host MUST
+NOT regenerate the case it is given, and a host MUST NOT answer `pass`
+by comparing anything other than its own capture against the `expect`
+the request carries. A codec divergence MUST therefore surface as a
+`fail` verdict with a `mismatch`, never as a rewritten fixture.
+
+### 8.2 The session endpoints
+
+`POST /session` takes `{"nodes": <usize>, "timeout": <u64>}` — the
+`provision` operation's own arguments — and answers `{"session":
+<id>}`. Three further endpoints drive the named session:
+
+| endpoint | method and body | effect |
+|---|---|---|
+| `/session/<id>/op` | `POST`, one §2 operation in the case record's `op` tagged form | Applies the operation. Answers `{"ok": true}`, or `{"ok": false, "error": <reason>}` when the operation is refused. |
+| `/session/<id>/capture` | `GET` | Drains the network and answers the full capture in the `expect` shape of §8.1, without a verdict. |
+
+The operations are one endpoint, not fourteen: the operation is already
+data, so a route per operation would restate the record's `op` tag as a
+path segment and make the two disagree in two places. A client that
+prefers one route per operation derives it from the same tag.
+
+`capture` is the settling window of §3 made explicit. It MUST drain
+until the network is quiet, within the same bounded, deterministic loop
+the in-process runner uses, with no wall-clock wait, and it MUST return
+the complete delivered set: an empty `deliveries` asserts silence, and a
+client can only assert that silence from a body that carries the whole
+set rather than a prefix.
+
+### 8.3 What the transport must not change
+
+- **Determinism.** The same case against the same host MUST produce the
+  same capture on every run, so the host MUST NOT introduce ordering the
+  case does not state and MUST NOT serialise concurrent sessions into
+  one another's state.
+- **The grammars.** `journal`, `markers`, `status` and the abstract
+  operation names are the §3 grammars. A host MUST render them as that
+  text, never as its own language's debug formatting: the client
+  compares them literally.
+- **Silence.** A case naming no deliveries fails a host that emitted
+  one, and the response is where that is provable.
+
+### 8.4 Conformance over the transport
+
+An implementation conforms over the transport when it serves the
+endpoints of §8.1 and §8.2 over its own bindings and every case in the
+suite returns `pass`. The reference host's equivalence gate asserts the
+stronger property that makes the transport trustworthy: the capture
+served over HTTP and the capture the in-process runner derives MUST be
+the same capture, on every case, byte for byte. A divergence between
+the two runners is itself a finding.

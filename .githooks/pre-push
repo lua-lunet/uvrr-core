@@ -11,6 +11,17 @@ echo "pre-push: the verification gate runs before anything reaches the remote"
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 
+# The Hurl client that drives the conformance transport. The host's own
+# gates run in the full-feature lane below, but the client gate is the one
+# that exercises the corpus over the wire with a process that is not this
+# crate: without the binary it announces a skip, and a push that skipped it
+# is a push that never drove the corpus over the transport.
+if ! command -v hurl >/dev/null 2>&1; then
+	echo "pre-push: hurl is not on PATH, so the conformance transport's client gate" >&2
+	echo "pre-push: would announce a skip. Install hurl and re-run." >&2
+	exit 1
+fi
+
 # The fast lane: the default-feature run never boots the maelstrom harness,
 # because the library, not the harness, is the deliverable.
 cargo test --lib --bins --tests

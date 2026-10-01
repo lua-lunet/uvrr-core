@@ -1,6 +1,6 @@
 [package]
 name = "uvrr-core"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2024"
 # One toolchain rule, recorded beside the fields it governs: CI builds with
 # exactly the toolchain the crate is built and released with locally,
@@ -48,6 +48,17 @@ required-features = ["maelstrom"]
 # library and the JSONL plan codec, and nothing needs it. Its dependencies
 # (clap, serde, serde_json) are the optional `sysadmin_tool` feature's, so a
 # default-features consumer never builds it.
+# The conformance host. A binary, not a second crate: it needs the library
+# and nothing needs it, and its dependencies are the optional
+# `conformance_host` feature's (serde for the corpus reader), so a
+# default-features consumer never builds it. It serves the committed
+# compliance corpus over loopback HTTP, which the Hurl suite in `tests/
+# hurl/` drives (`docs/uvrr-host-compliance.md` §8).
+[[bin]]
+name = "uvrr-conformance"
+path = "src/bin/uvrr-conformance/main.rs"
+required-features = ["conformance_host"]
+
 [[bin]]
 name = "uvrr-reconfig"
 path = "src/bin/uvrr-reconfig/main.rs"
@@ -86,6 +97,10 @@ clap = { version = "4", features = ["derive"], optional = true }
 # deterministic (decision P3). `maelstrom` adds the JSON debug bridge and the
 # Maelstrom node binary. `sysadmin_tool` adds the `uvrr-reconfig` operator
 # binary and the JSONL plan codec it exchanges with the leader.
+# `conformance_host` adds nothing but the corpus reader: the conformance host
+# that serves the compliance corpus over HTTP (`docs/uvrr-host-compliance.md`
+# §8) is a dev tool built on the corpus reader, so the feature names that
+# reader and no crate.
 [features]
 # Gates examples/uvrr-reincarnation only; no dependencies behind it.
 uvrr = []
@@ -98,6 +113,7 @@ default = []
 serde = ["dep:serde", "dep:serde_json"]
 maelstrom = ["serde", "dep:serde_json"]
 sysadmin_tool = ["serde", "dep:serde_json", "dep:clap"]
+conformance_host = ["serde"]
 
 # Build-time tooling for `cargo test`, not a consumer's supply chain: nothing here
 # reaches a crate that depends on `uvrr-core`, and the [dependencies] gate above is

@@ -85,11 +85,75 @@ jobs:
               brew install ripgrep
             fi
           fi
+      # The Hurl client the conformance transport is driven by
+      # (docs/uvrr-host-compliance.md §8): the host serves the committed
+      # corpus over loopback HTTP and `hurl` replays it as a process that
+      # is not this crate. The host's own gates run inside the
+      # `--all-features` lane below, so installing the client is all this
+      # step owes them.
+      #
+      # One toolchain rule, as for Rust: the version is pinned beside the
+      # suite it drives, so the client's jsonpath and predicate behaviour
+      # cannot drift under the assertions, which an unpinned package
+      # manager would let it do. The prebuilt tarball serves every lane
+      # rather than `.deb` or `brew`, so the arm64 container runner needs
+      # no package manager, and one verified artifact covers all three.
+      #
+      # The release publishes each artifact's sha256 as a bare hash with no
+      # filename, so `sha256sum -c` cannot read it. The comparison is made
+      # explicitly, against the hash and the file this step downloaded.
+      - name: Install the Hurl client
+        shell: bash
+        run: |
+          set -euo pipefail
+          HURL=8.0.1
+          base="https://github.com/Orange-OpenSource/hurl/releases/download/${HURL}"
+          case "$(uname -s)/$(uname -m)" in
+            Linux/x86_64)              asset="hurl-${HURL}-x86_64-unknown-linux-gnu.tar.gz" ;;
+            Linux/aarch64|Linux/arm64) asset="hurl-${HURL}-aarch64-unknown-linux-gnu.tar.gz" ;;
+            Darwin/arm64)              asset="hurl-${HURL}-aarch64-apple-darwin.tar.gz" ;;
+            Darwin/x86_64)             asset="hurl-${HURL}-x86_64-apple-darwin.tar.gz" ;;
+            *)
+              echo "no hurl ${HURL} artifact for $(uname -s)/$(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+          curl --fail --location --remote-name "${base}/${asset}"
+          curl --fail --location --remote-name "${base}/${asset}.sha256"
+          if [ "$(uname -s)" = "Darwin" ]; then
+            digest="$(shasum -a 256 "${asset}" | cut -d' ' -f1)"
+          else
+            digest="$(sha256sum "${asset}" | cut -d' ' -f1)"
+          fi
+          if [ "${digest}" != "$(cat "${asset}.sha256")" ]; then
+            echo "hurl ${HURL}: ${asset} does not match its published sha256" >&2
+            exit 1
+          fi
+          stage="$(mktemp -d)"
+          tar xf "${asset}" -C "${stage}"
+          # This glob is expanded by the shell only because the extraction
+          # already happened, which is what keeps the step portable between
+          # GNU tar and bsdtar: neither needs a wildcard flag of its own.
+          # Installed into the runner's own PATH rather than through sudo,
+          # so the step does not assume the runner is a sudoer: the arm64
+          # lane is a third-party runner and this is the one thing about
+          # it the gate should not have to know. GITHUB_PATH carries the
+          # directory into the verification gate step below, which is the
+          # step that actually runs hurl.
+          bindir="${HOME}/.local/bin"
+          mkdir -p "${bindir}"
+          install -m 0755 "${stage}"/hurl-*/bin/hurl "${bindir}/hurl"
+          echo "${bindir}" >> "$GITHUB_PATH"
+          rm -rf "${stage}" "${asset}" "${asset}.sha256"
+          "${bindir}/hurl" --version
       # The repository verification gate, run exactly as it is run locally.
       - name: Verification gate
         shell: bash
         run: |
           set -euo pipefail
+          # The conformance transport's client gate drives the corpus over
+          # the wire with this binary; the step above put it on PATH.
+          hurl --version
           cargo fmt --check
           cargo clippy --all-targets --all-features -- -D warnings
           # The test lane runs fast first, then slow: the default-feature
