@@ -11,11 +11,11 @@
 Multi-model panel review of a LaTeX academic paper.
 
 Usage:
-    ./scripts/panel.py --paper formal/uvrr-lean/paper/paper.tex
-    ./scripts/panel.py --paper formal/uvrr-lean/paper/paper.tex --models glm-5.3-flash
-    ./scripts/panel.py --paper formal/uvrr-lean/paper/paper.tex --models all
-    ./scripts/panel.py --paper formal/uvrr-lean/paper/paper.tex --stage blind
-    ./scripts/panel.py --paper formal/uvrr-lean/paper/paper.tex --stage merge
+    ./scripts/panel.py --paper paper/paper.tex
+    ./scripts/panel.py --paper paper/paper.tex --models glm-5.3-flash
+    ./scripts/panel.py --paper paper/paper.tex --models all
+    ./scripts/panel.py --paper paper/paper.tex --stage blind
+    ./scripts/panel.py --paper paper/paper.tex --stage merge
 
 Stages (run in order, each builds on the previous):
     blind      — "not totally blind" test: can the model read LaTeX/tables?
@@ -1069,7 +1069,7 @@ def main() -> None:
     parser.add_argument(
         "--paper",
         type=Path,
-        default=Path("formal/uvrr-lean/paper/paper.tex"),
+        default=Path("paper/paper.tex"),
         help="Path to the LaTeX paper source",
     )
     parser.add_argument(

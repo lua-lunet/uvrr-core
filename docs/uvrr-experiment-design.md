@@ -1,11 +1,5 @@
 # uVRR experiment design: advisory-lock cluster under Crash-Stop-Reincarnation
 
-> **WARNING: THIS WORK HAS NOT BEEN DONE.** This document is an experimental
-> design, not a report. Nothing here has been executed; no cluster was killed,
-> no flush was forced, no VM was timed. Every timing, percentile, and result in
-> this document is a placeholder. Any document or paper that quotes a number
-> from here as a measurement is wrong.
->
 > **Placeholder notation.** `X.XX` / `XX.X` are latency placeholders showing
 > the significant figures and decimal places the run will report (two decimals
 > below 10 ms, one decimal at tens of milliseconds); `XXX` is an integer count
@@ -382,8 +376,3 @@ sheets live as dated entries under `docs/labbook/`. Columns:
   <https://transactional.blog/blog/2025-torn-writes>
 - PostgreSQL vs MySQL torn-page handling (WAL redundancy vs doublewrite):
   <https://www.percona.com/blog/a-tale-of-two-databases-how-postgresql-and-mysql-handle-torn-pages>
-
-> **WARNING: THIS WORK HAS NOT BEEN DONE.** This document is an experimental
-> design, not a report. No experiment above has been executed. Every timing,
-> percentile, sample count to be filled at run time, and result is the
-> placeholder `xxxx`; nothing here may be quoted as a measurement.

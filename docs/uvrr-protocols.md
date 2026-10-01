@@ -796,7 +796,7 @@ B and D, producing four safe boundaries. Failure tolerance is separate: weights
 but not the heavier one. The solver's guarantee is for `WeightedMajority`;
 other policies must pass the core's role-specific gates independently.
 
-Appendix 2 of `formal/uvrr-lean/paper/paper.tex` gives the proofs and test contract.
+Appendix 2 of `paper/paper.tex` gives the proofs and test contract.
 `research/weighted-reachability/` contains the independent Python enumeration,
 charts and the phantom-identity casting-vote construction. The latter constructs
 an abstract quorum witness without treating absent identities as received

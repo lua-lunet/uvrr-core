@@ -1,0 +1,15 @@
+*.log
+*.aux
+*.out
+*.synctex.gz
+/paper.pdf
+/version.tex
+/.published-id
+/paper_ladder.pdf
+/paper_results.pdf
+/paper_exceeding.pdf
+
+# Figures: only track rasters that are included in LaTeX
+*.png
+!reincarnation.png
+!weighted-quorum-witness.png

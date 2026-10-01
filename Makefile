@@ -20,10 +20,11 @@ RATE       ?= 20
 INTERVAL   ?= 10
 WORKLOAD   ?= lin-kv
 
-.PHONY: help build check test test-clean test-partition test-kill test-resurrect test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local labbook labbook-serve
+.PHONY: help build check test conformance test-clean test-partition test-kill test-resurrect test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local labbook labbook-serve
 
 help:
 	@echo "make test            - the Rust test suite"
+	@echo "make conformance     - the corpus replayed over HTTP by the hurl client"
 	@echo "make check           - fmt, clippy and the Rust test suite"
 	@echo "make build           - release-build the cdylib and the Maelstrom node"
 	@echo "make test-clean      - lin-kv, no faults (plumbing + baseline linearizability)"
@@ -56,6 +57,13 @@ build:
 test:
 	# The Maelstrom adapter binary is feature-gated; the lane must build it.
 	cargo test --features maelstrom
+
+conformance:
+	# The conformance transport: the host serves the committed corpus over
+	# loopback HTTP and the hurl binary drives it as an external client.
+	# Regenerate the suite after a corpus change:
+	#   cargo test --features conformance_host --test conformance_host -- --ignored export_hurl
+	cargo test --features conformance_host --test conformance_host
 
 check:
 	cargo fmt -- --check

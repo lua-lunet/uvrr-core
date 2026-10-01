@@ -53,6 +53,7 @@ mod readme_doctests {
 
 pub mod backoff;
 pub mod configuration;
+pub mod conformance;
 pub mod effects;
 pub mod ids;
 pub mod invariant;

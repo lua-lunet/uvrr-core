@@ -95,6 +95,26 @@ deliverable. Run the full lane with the harness before any push:
 cargo test --features maelstrom
 ```
 
+### The compliance corpus
+
+The protocol's obligations are a corpus of test cases stated as data
+(`docs/uvrr-host-compliance.md`), and the corpus is replayable over a
+network transport, so a second implementation can prove conformance
+without re-deriving the harness. The `uvrr-conformance` binary serves the
+abstract host interface over loopback HTTP and a [Hurl](https://hurl.dev)
+suite drives it as a client that is not this crate:
+
+```shell
+cargo run --features conformance_host --bin uvrr-conformance &
+hurl --test --variable base_url=http://127.0.0.1:8099 tests/hurl
+```
+
+Both lanes are gates. `make conformance` runs them in process: every case
+must return `pass` over the transport, the capture served over HTTP must be
+byte-for-byte the capture the in-process runner derives, the committed Hurl
+suite must equal the suite generated from the committed corpus, and the
+Hurl client must report the whole corpus passing.
+
 ### The pre-push hook
 
 `make hooks` installs the repository's pre-push gate (it points git at the
