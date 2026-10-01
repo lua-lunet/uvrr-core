@@ -35,7 +35,15 @@ cargo test --doc
 
 # The Lean formalisation: the proofs are first-class deliverables and the
 # build is their gate. Warm runs are seconds on the developer's machine.
-(cd formal/uvrr-lean && lake build)
+#
+# Git's repository environment is cleared first. A hook runs with GIT_DIR (and
+# friends) exported at this repository, and Lake drives its pinned packages
+# with `git`; inheriting GIT_DIR makes those calls resolve against THIS
+# repository instead of the package, so Lake decides the pinned revision is
+# unreadable, discards the package and re-clones it, and then fails on the
+# checkout it just made. The gate would abort every push for a defect in
+# nothing. The same build passes in an ordinary shell, which is the tell.
+(cd formal/uvrr-lean && env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE lake build)
 
 # The record checks, exactly as the CI lanes run them: each must find nothing.
 if rg -n '#\[cfg\(test\)\]|mod tests' src; then
