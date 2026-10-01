@@ -1,7 +1,5 @@
 // agent366 citation graph data — categories invented; edges verified against
-// local corpus texts (research/agent366/md, papers/turner-paxos-reconf.tex)
-// or the works' own abstracts. No spurious associations: each edge is backed
-// by a citation observed in the source text.
+// local corpus texts, cited source papers, or the works' own abstracts.
 // Nodes carry tags (topic keywords) and seeAlso (substitutes / closest
 // relatives — works one could cite or read INSTEAD of or ALONGSIDE this one).
 const CATEGORIES = {
@@ -14,7 +12,8 @@ const CATEGORIES = {
   metadata: { name: "Metadata services", color: "#9a60b4" },
   tee: { name: "TEE confidential consensus", color: "#5d8aa8" },
   uvrr: { name: "uVRR (this repo)", color: "#ea7ccc" },
-  selfBlog: { name: "Self-published blog", color: "#bbbbbb" }
+  selfBlog: { name: "Self-published blog", color: "#bbbbbb" },
+  importedBibliography: { name: "Imported Zotero bibliography", color: "#26a69a" }
 };
 
 const NODES = [
@@ -201,7 +200,17 @@ const NODES = [
   { id: "jpaxos", name: "JPaxos: State Machine Replication Based on the Paxos Protocol", cat: "consensusClassic",
     authors: "Kończak, Santos, Żurkowski, Wojciechowski, Schiper", venue: "EPFL TR 167765, 2011",
     url: "https://infoscience.epfl.ch/handle/20.500.14299/69874",
-    abstract: "An engineering-grade Paxos state machine replication implementation (as characterised in Chimera's related work, a crash-recovery baseline)." }
+    abstract: "An engineering-grade Paxos state machine replication implementation (as characterised in Chimera's related work, a crash-recovery baseline)." },
+  { id: "wpaxos", name: "WPaxos: Wide Area Network Flexible Consensus", cat: "consensusClassic",
+    authors: "Ailidani Ailijiang, Aleksey Charapko, Murat Demirbas, Tevfik Kosar", venue: "arXiv:1703.08905v4, 2019",
+    url: "https://arxiv.org/abs/1703.08905",
+    abstract: "WPaxos is a multileader Paxos protocol for wide-area deployments. It partitions objects among concurrent leaders and adapts to changing access locality through object stealing. Leaders take object ownership with phase 1, then commit updates with phase 2 using acceptors placed near the leader. The paper models and model-checks the protocol and evaluates it across five AWS regions." ,
+    tags: ["multi-leader", "flexible-quorums", "wide-area", "object-stealing"], seeAlso: ["epaxos", "fqi2016"] },
+  { id: "epaxos", name: "There Is More Consensus in Egalitarian Parliaments (EPaxos)", cat: "consensusClassic",
+    authors: "Iulian Moraru, David G. Andersen, Michael Kaminsky", venue: "SOSP 2013",
+    url: "https://doi.org/10.1145/2517349.2517350",
+    abstract: "Egalitarian Paxos (EPaxos) is a leaderless distributed consensus protocol. Any replica may propose a command, and commands that do not interfere can commit concurrently. EPaxos targets optimal wide-area commit latency, uniform load balancing, and graceful performance degradation when replicas are slow or crash. Its common case commits in one round trip; interfering commands may require a slower path to establish dependencies and order.",
+    tags: ["leaderless", "wide-area", "dependencies", "fast-path"], seeAlso: ["wpaxos", "mencius"] }
 ];
 
 // Explicit Better BibTeX citation-key crosswalk for the paper's export.
@@ -210,6 +219,8 @@ const BIB_KEY_BY_NODE = {
   vr1988: "vr",
   vrr2012: "vrr",
   pms2001: "pms",
+  wpaxos: "wpaxos",
+  epaxos: "epaxos",
   diskpaxos: "diskpaxos",
   verticalpaxos: "vertical-paxos",
   reconfigsm: "reconfig-sm",
@@ -233,6 +244,7 @@ if (focalPaper) focalPaper.keepAsContext = true;
 
 // edges: [source, target, note] — source cites/targets/extends
 const EDGES = [
+  ["wpaxos", "epaxos", "compares its WAN performance with EPaxos"],
   ["vrr2012", "vr1988", "revisits"],
   ["raft2014", "vr1988", "cites [27] Oki & Liskov"],
   ["raft2014", "vrr2012", "cites [20] Liskov & Cowling"],

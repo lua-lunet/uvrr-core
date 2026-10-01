@@ -278,7 +278,13 @@ exercised on this path. The chart is rendered from the tracked source
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{reincarnation.png}
+\IfFileExists{reincarnation.png}{%
+  \includegraphics[width=\columnwidth]{reincarnation.png}%
+}{%
+  \IfFileExists{/Users/Shared/lua-lunet/uvrr-core/paper/reincarnation.png}{%
+    \includegraphics[width=\columnwidth]{/Users/Shared/lua-lunet/uvrr-core/paper/reincarnation.png}%
+  }{}%
+}
 \caption{The reincarnation forced sequence.}
 \label{fig:reincarnation}
 \end{figure}
@@ -471,7 +477,7 @@ In the Paxos family the configuration itself is replicated consensus state: Lamp
 CORFU provides a concrete precedent for compact configuration metadata alongside a larger storage system~\cite{corfu}. Its reconfiguration is patterned after Vertical Paxos; Section 2.5 describes storage units acting as acceptors in a Paxos-like protocol. Section 2.6 estimates that adding 0.1\% writes keeps projection metadata below 25 MB for a 1 TB cluster under an adversarial workload. The described implementation uses a shared network drive for agreed projections.
 
 \paragraph{External coordination services}
-ZooKeeper and etcd are established ways to supply coordination separately from an application. ZooKeeper offers linearizable state changes and per-client ordering, while local reads have weaker semantics~\cite{zookeeper}. etcd documents strict serializability for its key-value operations and distinguishes default linearizable reads from optional serializable reads~\cite{etcd-guarantees}. An application must choose the operation semantics it actually needs.
+Chubby is an established example of a separately operated advisory-lock service, built around coarse-grained locking and reliable low-volume storage~\cite{burrows2006}. ZooKeeper and etcd are established ways to supply coordination separately from an application. ZooKeeper offers linearizable state changes and per-client ordering, while local reads have weaker semantics~\cite{zookeeper}. etcd documents strict serializability for its key-value operations and distinguishes default linearizable reads from optional serializable reads~\cite{etcd-guarantees}. An application must choose the operation semantics it actually needs.
 
 A separately operated service also brings deployment and resource costs. For scale, etcd's version 3.6 hardware guide gives a small-cluster example with dedicated two-vCPU, 8 GB AWS machines~\cite{etcd-hardware}. etcd can itself be embedded in a Go application~\cite{etcd-embed}. The proposed combination here is small application-owned state, volatile normal-path replication, and replacement through fresh identities and overlapping quorums.
 
@@ -909,35 +915,12 @@ Viewstamped Replication introduced the organisation of replication around views 
 Turner's \emph{Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters} supplies the central quorum geometry, era-based agreement argument and casting-vote construction~\cite{turner}. Withholding the leader's own promise is Turner's mechanism. The present work applies it to reincarnation, proves weighted configuration reachability and an abstract casting-vote completion, and proves agreement for a concrete replacement instantiation from the protocol's history invariants. The application discussion places this design alongside coordination services and CORFU, using their stated semantics and resource context.
 
 
-\begin{thebibliography}{10}
-\bibitem{vr} B. M. Oki and B. H. Liskov, ``Viewstamped replication: A new primary copy method to support highly-available distributed systems,'' in \emph{ACM PODC}, 1988, pp. 8--17.
-\bibitem{vrr} B. Liskov and J. Cowling, ``Viewstamped replication revisited,'' MIT CSAIL, Tech. Rep. MIT-CSAIL-TR-2012-021, 2012. [Online]. Available: \url{https://hdl.handle.net/1721.1/71763}
-\bibitem{diskless} E. Michael, D. R. K. Ports, N. Kr. Sharma, and A. Szekeres, ``Providing stable storage for the diskless crash-recovery failure model,'' University of Washington, Tech. Rep. UW-CSE-16-08-02, Aug. 25, 2016. [Online]. Available: \url{https://syslab.cs.washington.edu/papers/diskless-tr16.pdf}
-\bibitem{par} R. Alagappan, A. Ganesan, E. Lee, A. Albarghouthi, V. Chidambaram, A. C. Arpaci-Dusseau, and R. H. Arpaci-Dusseau, ``Protocol-aware recovery for consensus-based storage,'' in \emph{USENIX FAST}, 2018. [Online]. Available: \url{https://www.usenix.org/system/files/conference/fast18/fast18-alagappan.pdf}
-\bibitem{pms} L. Lamport, ``Paxos made simple,'' \emph{ACM SIGACT News}, vol. 32, no. 4, pp. 51--58, 2001.
-\bibitem{diskpaxos} E. Gafni and L. Lamport, ``Disk Paxos,'' \emph{Distributed Computing}, vol. 16, no. 1, pp. 1--20, 2003. [Online]. Available: \url{https://lamport.azurewebsites.net/pubs/disk-paxos-disc.pdf}
-\bibitem{allfs} T. S. Pillai, V. Chidambaram, R. Alagappan, A. C. Arpaci-Dusseau, and R. H. Arpaci-Dusseau, ``All file systems are not created equal: On the complexity of crafting crash consistent applications,'' in \emph{USENIX OSDI}, 2014. [Online]. Available: \url{https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-pillai.pdf}
-\bibitem{optimistic-crash} V. Chidambaram, T. S. Pillai, A. C. Arpaci-Dusseau, and R. H. Arpaci-Dusseau, ``Optimistic crash consistency: Application-aware fully-extensible crash consistency,'' in \emph{ACM SOSP}, 2013, doi: \href{https://doi.org/10.1145/2517349.2522726}{10.1145/2517349.2522726}.
-\bibitem{turner} D. Turner, ``Unbounded pipelining in dynamically reconfigurable Paxos clusters,'' revision 1A9DBA37, Aug. 14, 2017. [Online]. Available: \url{https://github.com/DaveCTurner/paxos-membership}. The proof artifact includes the consulted PDF and its digest.
-\bibitem{nopaxos} J. Li, E. Michael, N. K. Sharma, A. Szekeres, and D. R. K. Ports, ``Just say NO to Paxos overhead: Replacing consensus with network ordering,'' in \emph{USENIX OSDI}, 2016, pp. 467--483. [Online]. Available: \url{https://www.usenix.org/system/files/conference/osdi16/osdi16-li.pdf}
-\bibitem{curp} S. J. Park and J. Ousterhout, ``Exploiting commutativity for practical fast replication,'' in \emph{USENIX NSDI}, 2019, pp. 47--64. [Online]. Available: \url{https://www.usenix.org/system/files/nsdi19-park.pdf}
-\bibitem{rfc9000} J. Iyengar and M. Thomson, ``QUIC: A UDP-based multiplexed and secure transport,'' RFC 9000, May 2021, doi: \href{https://doi.org/10.17487/RFC9000}{10.17487/RFC9000}.
-\bibitem{rfc9114} M. Bishop, ``HTTP/3,'' RFC 9114, June 2022, doi: \href{https://doi.org/10.17487/RFC9114}{10.17487/RFC9114}.
-\bibitem{motivation} S. Massey, ``Viewstamped replication revisited,'' Aug. 12, 2026. [Online]. Available: \url{https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/}
-\bibitem{corfu} M. Balakrishnan, D. Malkhi, J. D. Davis, V. Prabhakaran, M. Wei, and T. Wobber, ``CORFU: A Distributed Shared Log,'' \emph{ACM Trans. Comput. Syst.}, vol. 31, no. 4, Art. 10, Dec. 2013, doi: \href{https://doi.org/10.1145/2535930}{10.1145/2535930}.
-\bibitem{zookeeper} P. Hunt, M. Konar, F. P. Junqueira, and B. Reed, ``ZooKeeper: Wait-free coordination for Internet-scale systems,'' in \emph{USENIX ATC}, 2010. [Online]. Available: \url{https://www.usenix.org/events/usenix10/tech/full_papers/Hunt.pdf}
-\bibitem{etcd-guarantees} etcd authors, ``etcd API guarantees,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/learning/api_guarantees/}
-\bibitem{etcd-hardware} etcd authors, ``Hardware recommendations,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/op-guide/hardware/}
-\bibitem{etcd-embed} etcd authors, ``Embedding etcd in a Go application,'' documentation v3.6, accessed Sep. 11, 2026. [Online]. Available: \url{https://etcd.io/docs/v3.6/dev-guide/golang_embed_pkg/}
-\bibitem{netdisk} simbo1905, ``The network is faster than the disk,'' 12 April
-2024, accessed 7 September 2026.
-\url{https://simbo1905.wordpress.com/2024/04/12/the-network-is-faster-than-the-disk/}
-\bibitem{votingweights} simbo1905, ``Paxos Voting Weights,'' 16 March 2017,
-accessed 7 September 2026.
-\url{https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/}
-\bibitem{reconfig-sm} L. Lamport, D. Malkhi, and L. Zhou, ``Reconfiguring a state machine,'' \emph{ACM SIGACT News}, vol. 41, no. 1, pp. 63--73, 2010, doi: \href{https://doi.org/10.1145/1753171.1753191}{10.1145/1753171.1753191}.
-\bibitem{vertical-paxos} L. Lamport, D. Malkhi, and L. Zhou, ``Vertical Paxos and primary-backup replication,'' in \emph{Proc. 28th ACM Symp. Principles of Distributed Computing (PODC)}, 2009, pp. 312--313, doi: \href{https://doi.org/10.1145/1582716.1582783}{10.1145/1582716.1582783}.
-\bibitem{artifact} S. Massey, ``uVRR code and proof addendum,'' 2026. [Online]. Available: \url{https://github.com/lua-lunet/uvrr-core}
-\bibitem{lean4} L. de Moura and S. Ullrich, ``The Lean 4 theorem prover and programming language,'' in \emph{Automated Deduction -- CADE 28}, 2021, pp. 625--635, doi: \href{https://doi.org/10.1007/978-3-030-79876-5_37}{10.1007/978-3-030-79876-5\_37}.
-\end{thebibliography}
+\bibliographystyle{IEEEtran}
+\IfFileExists{papers/references.bib}{%
+  \bibliography{papers/references}%
+}{%
+  \IfFileExists{/Users/Shared/lua-lunet/uvrr-core/paper/papers/references.bib}{%
+    \bibliography{/Users/Shared/lua-lunet/uvrr-core/paper/papers/references}%
+  }{}%
+}
 \end{document}

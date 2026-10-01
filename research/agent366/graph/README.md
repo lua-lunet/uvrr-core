@@ -1,13 +1,14 @@
 # uVRR citation graph
 
 This page is a read-only view of the graph data in `data.js`. To compare it
-with the paper's Zotero/Better BibTeX bibliography, choose one or more
-collection export files using **Read Zotero collection exports**. The filename
-is used as the collection label in the dropdown; choose the paper's existing
-`paper/papers/references.bib` for the current paper collection. The page reads
-entry keys in the browser and never edits or uploads the selected files. It
-does not connect to Zotero's database or read Zotero notes, abstracts,
-attachments, or other item fields.
+with a Zotero/Better BibTeX bibliography, choose one or more collection export
+files using **Read Zotero collection exports**. The filename is used as the
+collection label in the dropdown. The page parses exported citation keys and
+item fields, including abstracts, and turns the records into clickable graph
+nodes. It does not connect to Zotero's database, alter the selected files, or
+read Zotero notes and attachments. Item details remain in the browser tab.
+The Paxos and VRR export used for this graph is
+`research/agent366/graph/consensus-paxos-vrr.bib`.
 
 After loading the files, teal outlines mark graph nodes whose explicit
 Better BibTeX key appears in the selected export. Switch exports with the
