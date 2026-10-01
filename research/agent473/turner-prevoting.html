@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Pre-voting in distributed consensus | David Turner says…</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="Pre-voting in distributed consensus" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Ongaro’s thesis describes an optional PreVote phase in Raft that is designed to prevent a partitioned server from disrupting the cluster by forcing a re-election when it rejoins the cluster. This article is about the benefits of using a similar mechanism in a Paxos implementation." />
+<meta property="og:description" content="Ongaro’s thesis describes an optional PreVote phase in Raft that is designed to prevent a partitioned server from disrupting the cluster by forcing a re-election when it rejoins the cluster. This article is about the benefits of using a similar mechanism in a Paxos implementation." />
+<link rel="canonical" href="https://davecturner.github.io/2017/08/17/paxos-pre-voting.html" />
+<meta property="og:url" content="https://davecturner.github.io/2017/08/17/paxos-pre-voting.html" />
+<meta property="og:site_name" content="David Turner says…" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2017-08-17T19:09:09+00:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Pre-voting in distributed consensus" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2017-08-17T19:09:09+00:00","datePublished":"2017-08-17T19:09:09+00:00","description":"Ongaro’s thesis describes an optional PreVote phase in Raft that is designed to prevent a partitioned server from disrupting the cluster by forcing a re-election when it rejoins the cluster. This article is about the benefits of using a similar mechanism in a Paxos implementation.","headline":"Pre-voting in distributed consensus","mainEntityOfPage":{"@type":"WebPage","@id":"https://davecturner.github.io/2017/08/17/paxos-pre-voting.html"},"url":"https://davecturner.github.io/2017/08/17/paxos-pre-voting.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="https://davecturner.github.io/feed.xml" title="David Turner says..." /></head>
+<body><header class="site-header" role="banner">
+  <div class="wrapper">
+    <a class="site-title" href="/">David Turner says...</a>
+  </div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title" itemprop="name headline">Pre-voting in distributed consensus</h1>
+    <p class="post-meta">
+      <time datetime="2017-08-17T19:09:09+00:00" itemprop="datePublished">
+        
+        Aug 17, 2017
+      </time>
+      </p>
+  </header>
+
+  <div class="post-content" itemprop="articleBody">
+    <p><a href="https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf">Ongaro’s thesis</a>
+describes an optional <code class="language-plaintext highlighter-rouge">PreVote</code> phase in Raft that is designed to prevent a
+partitioned server from disrupting the cluster by forcing a re-election when it
+rejoins the cluster. This article is about the benefits of using a similar
+mechanism in a Paxos implementation.</p>
+
+<p>The trick with showing the liveness of a Paxos cluster boils down to making
+sure that nodes send the right quantitiy of <code class="language-plaintext highlighter-rouge">prepare</code> (a.k.a. phase <code class="language-plaintext highlighter-rouge">1a</code>)
+messages: too few can lead to deadlock, whereas too many can lead to livelock.
+The other messages (<code class="language-plaintext highlighter-rouge">promised</code>, <code class="language-plaintext highlighter-rouge">proposed</code> and <code class="language-plaintext highlighter-rouge">accepted</code>) affect the safety of
+the system, but <code class="language-plaintext highlighter-rouge">prepare</code> messages have no bearing on safety. In contrast, as
+long as they are sent in a timely fashion the other messages have no real
+bearing on liveness.</p>
+
+<p><a href="http://lamport.azurewebsites.net/pubs/lamport-paxos.pdf">Presentations of
+Paxos</a> often show its
+liveness property by assuming the existence of a distinguished leader which is
+elected by some unspecified external process. Raft has no need for a separate
+leader-election process as it has a built-in system of timeouts instead, which
+is much cuter. Ongaro’s thesis does not show that Raft satisfies any particular
+liveness properties, but it certainly seems plausible that it works.  <em>[I am
+unaware of much further literature on Raft’s liveness properties but <a href="https://twitter.com/davecturner">please
+get in touch</a> if you know of some.]</em></p>
+
+<p>It’s possible to run Paxos without an external leader-election process in much
+the same way that Raft works, and I found that a similar <code class="language-plaintext highlighter-rouge">PreVote</code> phase was
+very helpful in ensuring its liveness.  The mechanism is as follows. Each term
+number has a well-defined owner, and nodes consider the owner of the term of
+the most-recently-chosen value to be the leader, as long as this value was
+chosen sufficiently recently. In more detail, each node is in one of four
+states:</p>
+
+<ul>
+  <li>
+    <p><strong>Leader</strong> - this node owns the term of the most-recently-chosen value
+that it knows about, and this value was chosen very recently.</p>
+  </li>
+  <li>
+    <p><strong>Incumbent</strong> - this node owns the term of the most-recently-chosen value
+that it knows about, and this value was chosen recently, and not very recently.</p>
+  </li>
+  <li>
+    <p><strong>Follower</strong> - some other node owns the term of the most-recently-chosen
+value that it knows about, and this value was chosen recently or very recently.</p>
+  </li>
+  <li>
+    <p><strong>Candidate</strong> - no value is known to have been chosen recently.</p>
+  </li>
+</ul>
+
+<p>The definitions of <em>recently</em> and <em>very recently</em> are in terms of timeouts set
+by the system’s operator. More formally, nodes implement the following state
+machine.</p>
+
+<p><img src="/assets/2017-08-17/node-states.png" alt="node states" /></p>
+
+<p>State transitions due to timeouts are shown in red, and those due to values
+being chosen are shown in green (if in a term owned by the current node) or
+blue (if in a term owned by another node). If a leader times out and becomes an
+incumbent it also attempts to propose a new no-op value in a term that it owns
+which if successfully chosen will reinstate it as a leader again. The timeouts
+should be set such that leaders become incumbents in good time to become
+leaders again before any followers become candidates. Note that each timeout is
+implemented based on the node’s local clock and there is no need to share time
+values between nodes, so there is no need for any kind of clock synchronisation
+in this setup.</p>
+
+<p>It is hopefully reasonably obvious from this that eventually either there
+exists a node that has learned the next value or else all nodes have become
+candidates.</p>
+
+<p>When a candidate times out it remains a candidate but also attempts to make
+progress (i.e. to learn that a later value is chosen) as follows. Firstly, it
+broadcasts a <code class="language-plaintext highlighter-rouge">seek-votes</code> message indicating the latest value it learned. The
+recipients of this message may do one of three things:</p>
+
+<ul>
+  <li>If the recipient knows that a later value has been chosen then it responds
+with an <code class="language-plaintext highlighter-rouge">offer-catch-up</code> message indicating as such.</li>
+  <li>If not, but the recipient believes there is an active leader (i.e. they are
+not themselves a candidate) then the message is ignored.</li>
+  <li>If neither of the previous cases apply then the recipient responds with an
+<code class="language-plaintext highlighter-rouge">offer-vote</code> message indicating the greatest term number for which it has
+previously sent a <code class="language-plaintext highlighter-rouge">promised</code> message.</li>
+</ul>
+
+<p>If a candidate receives an <code class="language-plaintext highlighter-rouge">offer-catch-up</code> message it communicates directly
+with the sender in order to learn the missing values. If instead it receives
+<code class="language-plaintext highlighter-rouge">offer-vote</code> messages from a quorum of its peers then it sends out a <code class="language-plaintext highlighter-rouge">prepare</code>
+message using a term that is no less than any of the terms received in the
+<code class="language-plaintext highlighter-rouge">offer-vote</code> messages, and runs the usual protocol from there on.</p>
+
+<p><strong>Addendum 2020-05-24</strong>: <a href="https://simbo1905.blog/2020/05/23/one-more-frown-please-upaxos-quorum-overlaps/">simbo1905
+notes</a>
+that <a href="/2016/06/09/unbounded-pipelining-paxos.html">some variants of Paxos</a> allow the quorums to differ between
+the phases of Paxos and/or allow the configuration of the cluster can be
+changed dynamically, and in such variants we need to be more precise about
+exactly which quorum we mean when collecting <code class="language-plaintext highlighter-rouge">offer-vote</code> messages. The node is
+trying to choose a value for the first unchosen instance, which requires it to
+run both phases of the protocol, so in fact it should wait for <code class="language-plaintext highlighter-rouge">offer-vote</code>
+messages from both a phase-I quorum <em>and</em> a phase-II quorum in the
+configuration that corresponds with the first unchosen instance. If it cannot
+contact a quorum for both phases then there is little point in proceeding since
+it will not be able to make meaningful progress.</p>
+
+<h3 id="quiescence">Quiescence</h3>
+
+<p>The protocol as described is <em>eventually quiescent</em>: absent any external
+stimulation (timeouts or client activity) eventually the system reaches a state
+where there are no messages either in flight or being processed. This is,
+approximately, because there are no loops in the graph of the messages that can
+be transmitted on receipt of each type of message:</p>
+
+<p><img src="/assets/2017-08-17/messages.png" alt="messages" /></p>
+
+<p>This helps to completely rule out certain kinds of livelock. The situation is a
+little more complicated than this because a cluster reconfiguration requires a
+new phase 1 to take place, so an <code class="language-plaintext highlighter-rouge">accepted</code> message can result in a <code class="language-plaintext highlighter-rouge">prepare</code>
+message too, but this doesn’t result in livelock as there can only be finitely
+many pending reconfigurations.</p>
+
+<p>If the round-trip time between nodes is bounded then this observation puts a
+bound on the time it takes for the system to become quiescent after external
+stimulation. In particular if there are no pending proposals at any node then
+it takes at most three round-trips to become quiescent.</p>
+
+<h3 id="liveness">Liveness</h3>
+
+<p>As noted above, eventually either there exists a node that has learned the next
+value or else all nodes have become candidates. It remains to show that if all
+nodes are candidates, at least one of which can communicate with a quorum of
+its peers, then the system still makes progress.</p>
+
+<p>If candidates wake up too frequently then the system will never become
+quiescent, but if they wake up too infrequently then the system will take a
+long time to recover from an unexpected failure of the leader. Absent a tight
+bound on the network’s round-trip time, it is preferable that candidates wake
+up with random and growing timeouts because as long as the timeouts grow to be
+sufficiently long compared with the communication round-trip-time between
+nodes, eventually-almost-certainly one candidate will time out at a point in
+time when the system is quiescent and no other node will time out for at least
+three round-trips.</p>
+
+<p><strong>Sketch Theorem</strong> Such a candidate, if connected to a quorum of peers, makes
+progress.</p>
+
+<p><em>Sketch Proof.</em> Let <em>n</em> such a candidate. As noted above, its peers are
+eventually either all candidates or else contain a node which has learned some
+later values. Also, eventually-almost-certainly, it is the only active node. It
+broadcasts its <code class="language-plaintext highlighter-rouge">seek-votes</code> message and receives responses from its peers.  It
+is connected to a quorum of peers, so it either receives an <code class="language-plaintext highlighter-rouge">offer-catch-up</code>
+message or a quorum of <code class="language-plaintext highlighter-rouge">offer-vote</code> messages.</p>
+
+<p>In the former case it learns some later chosen values from the sender. In the
+latter case it sends out a <code class="language-plaintext highlighter-rouge">prepare</code> message to start phase 1 of the usual
+Paxos algorithm. Since <em>n</em> is the only active node, no other <code class="language-plaintext highlighter-rouge">prepare</code> message
+has been sent since any of its peers sent out their <code class="language-plaintext highlighter-rouge">offer-vote</code> messages,
+which means that they will all respond with <code class="language-plaintext highlighter-rouge">promised</code> messages.</p>
+
+<p>On receipt of this quorum of <code class="language-plaintext highlighter-rouge">promised</code> messages, <em>n</em> may propose a value. If
+none of its peers have previously accepted a value in an earlier term then it
+may freely choose to propose any value. Typically it would choose a <code class="language-plaintext highlighter-rouge">no-op</code>
+action in this situation.</p>
+
+<p>On the other hand if some of its peers have previously accepted a value then it
+must propose one of their values according to the rules of the Paxos algorithm.
+Again since <em>n</em> is the only active node then no other <code class="language-plaintext highlighter-rouge">promised</code> messages will
+have been sent before its peers receive the <code class="language-plaintext highlighter-rouge">proposed</code> message, so the proposal
+will result in a quorum of <code class="language-plaintext highlighter-rouge">accepted</code> messages which results in the proposed
+value being chosen and learned as required. QED.</p>
+
+<h3 id="unboundedly-large-messages">Unboundedly large messages</h3>
+
+<p>The time it takes to send and receive a message is a function of its size, so
+it is only safe to assume that the round-trip time is bounded if messages have
+bounded size. In practice if a message is too large then nodes time-out before
+it is fully delivered, which can lead to a leadership election, and also breaks
+the liveness proof above: if <code class="language-plaintext highlighter-rouge">promised</code> messages may take arbitrarily long to
+deliver then there may never be a time when there is a unique active node and
+therefore no election may ever succeed. It’s a good idea to limit the size of
+values and to set any timeout limits accordingly.</p>
+
+<p>Alternatively, one could split up <code class="language-plaintext highlighter-rouge">promised</code> and <code class="language-plaintext highlighter-rouge">proposed</code> messages into
+chunks of bounded size and reset the timeout timer each time a chunk is
+received.</p>
+
+<h3 id="abdication">Abdication</h3>
+
+<p>There is no need for nodes to send out <code class="language-plaintext highlighter-rouge">prepare</code> messages for terms that they
+own, and this can be used to implement an <em>abdication</em> mechanism allowing the
+current leader to step down having determined its successor. The alternative to
+abdication is for the leader to simply stop sending out any messages and to
+wait for the other nodes to time out. The disadvantages of this include</p>
+
+<ul>
+  <li>
+    <p>the system is effectively unavailable until the timeouts expire, whereas with
+abdication the new leader normally takes over within a few round-trips without
+any risk of contention</p>
+  </li>
+  <li>
+    <p>the new leader is chosen by a nondeterministic race, whereas with abdication
+the new leader can be selected explicitly. For example, if there are a number
+of clusters running in a shared environment then it may make sense to try and
+distribute the leaders as evenly as possible across the environment.</p>
+  </li>
+</ul>
+
+<p>A leader abdicates simply by sending a <code class="language-plaintext highlighter-rouge">prepare</code> message for a term owned by
+the new leader that is larger than the current term. Nodes should respond with
+a <code class="language-plaintext highlighter-rouge">promised</code> message sent <em>to the owner of the term</em> and not to the original
+sender, and from there the usual Paxos message flow leads to the new leader
+owning the term of the next value to be chosen and therefore being recognised
+as the cluster leader.</p>
+
+<h3 id="alternatives">Alternatives</h3>
+
+<p>As mentioned above, there could be a completely separate leader-election
+process which determines which node is permitted to send <code class="language-plaintext highlighter-rouge">prepare</code> messages.
+This seems inelegant compared with the idea of building leader-election into
+the consensus system, but could be appropriate if there are particular
+requirements on how nodes may become leader that are not well-served by the
+mechanism above.</p>
+
+<p>Another strategy that implementations sometimes use is to consider the leader
+to have failed if a value has not been chosen for a period, and to immediately
+send out a <code class="language-plaintext highlighter-rouge">prepare</code> message after this timeout expires. Raft (without its
+<code class="language-plaintext highlighter-rouge">PreVote</code> phase) uses this kind of strategy.  The main challenge with this
+approach seems to be the selection of an appropriate term to put in the
+<code class="language-plaintext highlighter-rouge">prepare</code> message: it’s common to choose a term that is slightly higher than
+the greatest term seen so far in any known message. In practice this seems to
+work ok although it does seem to suffer from (temporary) livelocks more. In
+theory it’s a bit problematic: my attempted proofs that this works always
+seemed to get stuck on the fact that there’s no guarantee that the selected
+term is large enough, so any particular node may fail to be elected when it
+times out. It’s not at all obvious that always there is eventually a node that
+selects a high-enough term.</p>
+
+<p>It was these failed proofs that led me to the idea of the <code class="language-plaintext highlighter-rouge">seek-votes</code> message
+and <code class="language-plaintext highlighter-rouge">offer-vote</code> responses to determine an appropriate term for the subsequent
+<code class="language-plaintext highlighter-rouge">prepare</code> message.  With that idea, the proof fell into place.</p>
+
+<h3 id="disruption-on-reconnection">Disruption on reconnection</h3>
+
+<p>As in Raft, this extra phase prevents nodes from triggering a new leader
+election when they reconnect: out-of-date nodes receive a <code class="language-plaintext highlighter-rouge">offer-catch-up</code>
+message before they have received a quorum of <code class="language-plaintext highlighter-rouge">offer-vote</code> messages. This means
+that the leader tends to be stable for as long as it remains connected to a
+quorum of its peers, and other nodes may only send a <code class="language-plaintext highlighter-rouge">prepare</code> message once
+there is a quorum of nodes that believe the leader to have failed.</p>
+
+<p>After a reconnection the system can get itself into a subtle and rare state in
+which it’s still making progress, but some minority of nodes have entered a
+later term than the one in which the majority is working. This means that this
+minority can’t accept any proposals from the leader, but nor can they gather
+enough <code class="language-plaintext highlighter-rouge">offer-vote</code> messages to trigger a leader election in a later term.
+Instead, they continually receive <code class="language-plaintext highlighter-rouge">offer-catch-up</code> messages and learn new
+values through the catch-up process. This may not be too much of a problem, and
+the situation will resolve itself at the next election, but elections should be
+relatively uncommon so the situation could last for many days. It’s also
+operationally irritating: if it weren’t for this state then you could consider
+candidate nodes to be indicative of <a href="/2017/08/18/observability-in-paxos.html">problems in the cluster for monitoring
+purposes</a>.</p>
+
+<p>The fix is to include the candidate’s current term in its <code class="language-plaintext highlighter-rouge">seek-votes</code> message,
+and if a leader receives a <code class="language-plaintext highlighter-rouge">seek-votes</code> message containing a later term then it
+performs another phase 1 at an even later term. This has the effect of keeping
+a stable leader while allowing the other nodes to start accepting its proposals
+again, which avoids upsetting the monitoring system.</p>
+
+<hr />
+
+<p><strong>Addendum 2017-08-31</strong></p>
+
+<p>There’s an enthusiastic review of this article over on <a href="https://simbo1905.blog/2017/08/22/pre-voting-in-distributed-consensus/">simbo1905’s
+blog</a>
+which gives some more intuitive coverage of the ideas in this article as well
+as some thoughts on how this mechanism relates to the one in
+<a href="https://github.com/trex-paxos/trex">TRex</a>.</p>
+
+<p><strong>Addendum 2020-12-15</strong></p>
+
+<p>By “Raft” in this post I mean the full protocol including the <code class="language-plaintext highlighter-rouge">PreVote</code> and
+<code class="language-plaintext highlighter-rouge">CheckQuorum</code> features. It <a href="https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/">doesn’t work without
+them</a>,
+so it’s a bit misleading to describe them as “extensions” or “optimisations”.
+At least one major implementation of Raft <a href="https://github.com/etcd-io/etcd/blob/a3174d0f8ec6ec58827d7d86448bb4df08ae69e4/raft/raft.go#L175-L182">gets this wrong
+today</a>
+and is <a href="https://github.com/etcd-io/etcd/blob/28d1af294e4394df1ed967a4ac4fbaf437be3463/server/embed/config.go#L235-L236">buggy by
+default</a>,
+with <a href="https://blog.cloudflare.com/a-byzantine-failure-in-the-real-world/">predictably disastrous
+consequences</a>.</p>
+
+  </div>
+
+  <div class="page-navigation">
+    
+      <a class="prev" href="/2017/08/15/weighted-majorities.html">&laquo; Weighted majorities</a>
+    
+    
+      <a class="next" href="/2017/08/18/observability-in-paxos.html">Observability in Paxos clusters &raquo;</a>
+    
+  </div>
+
+</article>
+
+      </div>
+    </main><footer class="site-footer">
+
+  <div class="wrapper">
+    <div class="footer-col-wrapper">
+      <p class="rss-subscribe">Subscribe <a href="/feed.xml">using RSS</a>. Discuss using
+      <a rel="me" href="https://mastodon.online/@davecturner" target="_blank" title="davecturner"><svg class="svg-icon grey"><use xlink:href="/assets/minima-social-icons.svg#mastodon"></use></svg>Mastodon</a>.</p>
+      <div class="footer-licence"><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a>Copyright &copy; David Turner<br/>This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.</div>
+    </div>
+  </div>
+
+</footer>
+</body>
+
+</html>

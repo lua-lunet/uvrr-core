@@ -24,7 +24,9 @@
 //! closed intersection gate), `message` (the protocol bodies), `effects` (the host
 //! effect vocabulary), `backoff` (the recommended randomized-timeout schedule, as
 //! pure arithmetic for the host), `lifecycle` (the boot gate and the typestate
-//! marker driver) and `replica` (the plan/publish/confirm pipeline and the
+//! marker driver), `prevote` (the leader-overlap handshake, specified in
+//! `docs/prevoting.md` and not yet on the wire) and `replica` (the
+//! plan/publish/confirm pipeline and the
 //! lifecycle) carry contract tests. `replica` is split into `normal` (§4
 //! [`crate::wire::Tag::Prepare`]/[`crate::wire::Tag::PrepareOk`]/[`crate::wire::Tag::Commit`]), `view_change` (§9),
 //! `transfer` (state transfer, §13.1 step 5), `reincarnation` (§10, §6.1) and
@@ -61,6 +63,7 @@ pub mod lifecycle;
 pub mod message;
 pub mod observe;
 pub mod plan;
+pub mod prevote;
 pub mod progress;
 pub mod quorum;
 pub mod reconfiguration;
