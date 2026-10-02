@@ -188,7 +188,14 @@ function skipBibEntry(source, openingAt, opening) {
 }
 
 function cleanBibValue(value) {
-  return value.replace(/[{}]/g, "").replace(/\\([#%&_{}])/g, "$1").replace(/\s+/g, " ").trim();
+  const accents = { "'": "\u0301", "`": "\u0300", "^": "\u0302", '"': "\u0308", "~": "\u0303", c: "\u0327", v: "\u030c", "=": "\u0304" };
+  return value
+    .replace(/\\(['`^"~cv=])\{?([A-Za-z])\}?/g, (_, mark, letter) => (letter + accents[mark]).normalize("NFC"))
+    .replace(/\\textohm\{\}/g, "Ω")
+    .replace(/\\textbackslash\s*n/g, " ")
+    .replace(/[{}]/g, "")
+    .replace(/\\([#%&_{}])/g, "$1")
+    .replace(/\s+/g, " ").trim();
 }
 
 function readBibFields(body) {
