@@ -771,10 +771,11 @@ pub enum Tag {
     /// protocol exists to have eliminated) and stay retired.
     Reincarnation = 13,
     /// One datagram packing the per-slot [`Tag::Prepare`] messages of one
-    /// reconfiguration schedule (`docs/uvrr-fuse.md` §1): the shared ballot
-    /// in the header, `first_slot` in the header slot, and `count` then
-    /// `count × SystemOperation` in the body. Receiving a [`Tag::Fuse`] is defined
-    /// as receiving the equivalent sequence of [`Tag::Prepare`]s at the same ballot.
+    /// reconfiguration schedule (`docs/uvrr-fuse.md` §1): the head ballot in
+    /// the header, `first_slot` in the header slot, and `count` then
+    /// `count × SystemOperation` in the body. Every packed slot carries its
+    /// own ballot; the header names the first of them, and the slab's last is
+    /// the tail ballot.
     Fuse = 14,
     /// An acceptor's acknowledgement of a [`Tag::Fuse`] (`docs/uvrr-fuse.md` §3):
     /// `count`, then one accepted slot per packed op, in batch order. No

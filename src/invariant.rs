@@ -128,7 +128,7 @@ impl HeaderSlotRole {
 /// | [`crate::wire::Tag::GetState`] | `Frontier` | the requester's accepted frontier; the fetch resumes one past it (§4, §13.1 step 5) |
 /// | [`crate::wire::Tag::NewState`] | `Frontier` | the last slot the chunk covers; `more` on a partial answer resumes from the requester's cursor (§4, §13.1 step 5) |
 /// | `Reincarnation` | `Absent` | names two identities, no history claim (`docs/uvrr-protocols.md`, the reincarnation chapter §4) |
-/// | [`crate::wire::Tag::Fuse`] | `Operation` | `first_slot`, the slot of the first packed op; each subsequent op occupies `first_slot + i` (`docs/uvrr-fuse.md` §1) |
+/// | [`crate::wire::Tag::Fuse`] | `Operation` | `first_slot`, the slot of the first packed op, carrying that slot's ballot; each subsequent op occupies `first_slot + i` at its own ballot (`docs/uvrr-fuse.md` §1) |
 /// | [`crate::wire::Tag::FuseOk`] | `Operation` | the last accepted slot of the batch (`docs/uvrr-fuse.md` §3) |
 /// | [`crate::wire::Tag::CommitBatch`] | `Frontier` | the last committed frontier of the batch, mirroring [`crate::wire::Tag::Commit`] (`docs/uvrr-fuse.md` §4) |
 /// | [`crate::wire::Tag::GossipRequest`] | `Absent` | the frontiers ride the body (`docs/uvrr-protocols.md`, the rejoin chapter §2–§3) |
@@ -278,8 +278,8 @@ fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) ->
             // §2–§3), so it can never reselect a retained history.
             | Tag::GossipRequest => false,
             // The fuse envelopes are ordinary accept-path packing
-            // (`docs/uvrr-fuse.md`): receiving a `Fuse` is defined as
-            // receiving the equivalent sequence of `Prepare`s at the same
+            // (`docs/uvrr-fuse.md`): receiving a `Fuse` is receiving the
+            // equivalent sequence of `Prepare`s, every packed slot at its own
             // ballot, and none of the three reselects a retained history.
             Tag::Fuse | Tag::FuseOk | Tag::CommitBatch => false,
         },

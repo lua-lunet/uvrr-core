@@ -824,19 +824,24 @@ Weighted quorums and the even-sized configuration described in §8 reduce steady
 ### 13.8 Fuse: packed reconfiguration Phase2s
 
 Fuse packs the per-slot `Prepare` messages of one reconfiguration schedule into
-one datagram: the shared ballot in the envelope header, `first_slot` in the
+one datagram: the head ballot in the envelope header, `first_slot` in the
 header slot, and `count × SystemOperation` in the body, one op per consecutive
-slot. Receiving a `Fuse` is defined as receiving the equivalent sequence of
-`Prepare` messages at the same ballot; per-op safety is the ordinary accept
+slot. Every packed slot carries its own ballot, computed by the solver as it
+folds the schedule slot by slot. Accepting a Phase2 at a slot promises that
+slot's ballot even when the Phase1 was lost, so the acceptor ends promised at
+the tail ballot, the slab's last; per-op safety is the ordinary accept
 path and no new quorum family, configuration state, or era rule exists. The
 full statement is `docs/uvrr-fuse.md`.
 
 Its load-bearing property is the atomic batch: the envelope is a single
 checksummed datagram of cache-line scale, so loss or interruption inside a
 batch is impossible. The first operation in the batch decides the whole batch,
-majority is computed on the first op, and "first accepts ⇒ all accept" is a
-finite induction over the schedule, not a proof over interruption points
-mid-sequence. The acceptor replies `FuseOk` (one accepted slot per op, no
+majority is computed on the first op with each packed slot judged at its own
+ballot, and "first accepts ⇒ all accept" is a finite induction over the
+schedule, not a proof over interruption points mid-sequence. The slab installs
+over `[first_slot, first_slot + count)`: the accept frontier and the promise
+advance per packed slot, and the promise ends at the tail ballot. The acceptor
+replies `FuseOk` (one accepted slot per op, no
 range encoding); on quorum the primary commits the packed schedule whole:
 the commit fold recognises the run of consecutive system entries as the one
 establishing batch it is, one era, and the commit emission is per era: one

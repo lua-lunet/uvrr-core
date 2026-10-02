@@ -156,9 +156,9 @@ pub enum Body {
     /// The packed Phase2s of one reconfiguration schedule
     /// (`docs/uvrr-fuse.md` §1): the body carries `count`, then
     /// `count × SystemOperation` in batch order, while the header carries the
-    /// shared ballot and `first_slot`. Receiving a [`Body::Fuse`] is defined as
-    /// receiving the equivalent sequence of [`Body::Prepare`]s at the same ballot.
-    /// No range encodings: count, then the things, one slot at a time.
+    /// head ballot and `first_slot`. Every packed slot carries its own ballot;
+    /// the header names the first of them, and the slab's last is the tail
+    /// ballot. No range encodings: count, then the things, one slot at a time.
     Fuse {
         /// The schedule's operations, in batch order; the `i`th occupies
         /// slot `first_slot + i`.

@@ -1,10 +1,11 @@
-//! The [`uvrr::wire::Tag::Fuse`] acceptor (`docs/uvrr-fuse.md` §3): one envelope, one ballot,
-//! one atomic batch. Receiving a [`uvrr::wire::Tag::Fuse`] is *defined* as receiving the
-//! equivalent sequence of [`uvrr::wire::Tag::Prepare`] messages at the same ballot, one per
-//! slot, in batch order; only the wire shape changes, so every assertion
+//! The [`uvrr::wire::Tag::Fuse`] acceptor (`docs/uvrr-fuse.md` §3): one envelope,
+//! one slab of consecutive slots, each at its own ballot,
+//! one atomic batch. Only the wire shape changes, so every assertion
 //! here runs through the ordinary accept perimeter's observables: the
 //! journal (the durable configuration record, §8.7.1), the queued replies,
-//! and the harness's independent safety checker.
+//! and the harness's independent safety checker. Accepting a Phase2 at a slot
+//! promises that slot's ballot even when the Phase1 was lost, so the acceptor's
+//! promise ends at the slab's tail ballot.
 //!
 //! The leader side (§4) is exercised through the public plan path: the
 //! armed schedule's establishing batch travels as one [`uvrr::wire::Tag::Fuse`] per backup,
@@ -142,10 +143,10 @@ fn valid_fuse_is_accepted_as_a_whole() {
         "acks name every packed slot in batch order"
     );
 
-    // The journal records the contiguous batch, each op at its own slot,
-    // exactly as the equivalent sequence of `Prepare`s would have journaled
-    // it (§1's definition; the configuration record of §8.7.1 advanced per
-    // op). The era table itself advances at commit (§8.7.1: the commit-time
+    // The journal records the contiguous slab, each op at its own slot and
+    // its own ballot, exactly as the equivalent sequence of `Prepare`s
+    // would have journaled it (§1; the configuration record of §8.7.1
+    // advanced per op). The era table itself advances at commit (§8.7.1: the commit-time
     // fold is the only place the era advances) and is untouched here.
     let entries = h.journal_entries(n(1));
     assert_eq!(
@@ -501,7 +502,7 @@ fn leader_emits_one_fuse_per_backup_for_a_whole_schedule() {
     }
 
     // The leader accepted its own proposal: one journaled entry per packed
-    // slot, each stamped with the ballot's era (§1, ruling 3).
+    // slot, each stamped with the era of that slot's own ballot (§1).
     let entries = h.journal_entries(n(0));
     assert_eq!(entries.len(), 4, "genesis plus the two packed slots");
     assert_eq!(entries[2].slot, Slot(3));
@@ -1197,7 +1198,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
 
     // Era 2, the crossing batch proposed WITH the verdict: two ops, one
     // Fuse per backup of the era-1 cluster, and the body carries the
-    // schedule in plan order at the shared ballot.
+    // schedule in plan order, each packed slot at its own ballot.
     for to in [n(1), n(2)] {
         let message = h
             .peek_queued(to, Tag::Fuse)

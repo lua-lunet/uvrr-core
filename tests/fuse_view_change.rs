@@ -137,7 +137,7 @@ fn payload_of(entry: &LogEntry) -> &[u8] {
 }
 
 /// Asserts the journal at `id` carries `ops` one per slot from `first`
-/// upwards, each stamped with the ballot's era: the fuse's per-slot
+/// upwards, each stamped with the era of that slot's own ballot: the fuse's per-slot
 /// journal shape (docs/uvrr-fuse.md §1).
 fn assert_fused_slots(h: &Harness, id: NodeId, first: u64, ops: &[SystemOperation]) {
     for (offset, op) in ops.iter().enumerate() {
