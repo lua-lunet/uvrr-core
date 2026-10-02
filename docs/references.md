@@ -49,6 +49,13 @@ D. Turner. *Paxos membership change*: the weighted three-node example and
 the general weighted-majority overlap lemma.
 <https://github.com/DaveCTurner/paxos-membership>
 
+## [TURNER-PREVOTE]
+
+D. Turner. *Pre-voting in distributed consensus*: the four roles, the reply
+rule, and the dual-quorum rule for electing into a configuration whose phase-1
+and phase-2 quorums may differ. 2017. CC BY-SA 4.0.
+<https://davecturner.github.io/2017/08/17/paxos-pre-voting.html>
+
 ## [TIGERBEETLE-REPO]
 
 TigerBeetle. The superblock construction: four checksummed, hash-chained

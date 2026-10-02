@@ -66,6 +66,18 @@ draft, rather than a proved theorem. The current ladder is:
 | 30 | `ViewJump.lean` | The view-jump safety lemma: a view may jump by more than one during a reconfiguration without violating safety, because the safety requirements do not demand that the views of commits advance uniformly. `Rule` names the four disciplines of a legal jump (strict increase, freshness of the target, era adjacency for the non-stop path, entitlement over an accepted history containing the establishing reconfiguration); `view_jump_safe` discharges agreement at the jumped-to ballot from P1–P7 via Theorem 10, whose hypotheses never quantify over intermediate ballots (successor-by-one unrepresentable as a safety requirement); `successor_not_required` proves uniformity for successor and gap jumps from the same rule instance. Negative controls: era skip of two refused (`era_skip_not_rule`) and no two-era cross frown (`two_era_cross_frown_fails`, rung-5 majority-family idiom over five nodes); reuse refused (`self_jump_not_rule`, `enter_guard_refuses`, `enter_guard_refuses_concrete`); hand-landed, kernel-checked |
 | 31 | `Witness.lean` | The telescoped-promise equivalence of the witness stream: over the witness's accept history (the `(view, accepted-prefix)` pairs the stream delivered; `Monotone` well-formedness — views strictly increase) the induced promise floor is the highest accepted view (`floor_eq_getLast`), and `telescoped_promise_equivalence` carries the three conjuncts: the P23-shaped fence over every split of the history (`fence_of_monotone`: promised at the induced floor, no later acceptance lands below it); the induced promise state equal to a member's phase-1 state at the floor view (`inducedPromiseState`, the last entry the greatest acceptance reported); and promotion consistency under H5 kept as the named hypothesis `LeaderEarned` (the floor equal to the leader's view, the committed prefix equal via `promotion_committed_prefix`). Negative controls: a witness accepting below its highest accepted view (`backslide_breaks_equivalence` — `Monotone` and the fence both fail on a concrete two-entry history) and a promotion below the leader's prefix (`short_promotion_breaks_equivalence`, the `gapped_replay_fails` idiom); hand-landed, kernel-checked |
 
+## Not a rung: the pre-vote module
+
+`UVRR/PreVote.lean` is in the library and in `lake build` and in the axiom audit, and it
+is **not** a rung of the ladder above. The ladder enumerates safety rungs of the
+reconfiguration argument, each with a `ladder/` rung document, a mutation control and a
+replay. The pre-vote module carries none of those, because it discharges no rung: it is
+the specification of a mechanism that is not yet wired into the engine
+(`docs/prevoting.md` §9), and its theorems are about that mechanism's own state machine
+and about the quorum overlap it rests on. Its scope boundary — including the
+promise-freshness corollary it does *not* carry — is stated in `docs/prevoting.md` §7.3
+rather than inferred from silence here.
+
 ```sh
 export PATH="$HOME/.elan/bin:$PATH"
 cd formal/uvrr-lean
