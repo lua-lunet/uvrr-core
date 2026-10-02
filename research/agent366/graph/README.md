@@ -41,7 +41,10 @@ The `Consensus — Paxos & VRR` saved search is exported manually to
 abstract for every record, but Zotero's Better BibTeX automatic-export list
 does not include this saved search. Refresh it in Zotero with the saved search's
 **Export…** command after changing its items, using Better BibTeX with URL
-export enabled. The graph reads the refreshed disk file on page reload.
+export enabled. Clear any Quick Search filter and reselect the saved search
+before exporting. Write to a temporary filename and check the entry count
+before replacing the disk snapshot; Zotero can export only a filtered view.
+The graph reads the refreshed disk file on page reload.
 
 The key crosswalk is explicit in `data.js`. If a citekey changes in Zotero,
 update that mapping to match the next export. The chart does not infer identity
