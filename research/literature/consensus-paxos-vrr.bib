@@ -552,8 +552,14 @@
   abstract = {In this paper, we describe ZooKeeper, a service for coordinating processes of distributed applications. Since ZooKeeper is part of critical infrastructure, ZooKeeper aims to provide a simple and high performance kernel for building more complex coordination primitives at the client. It incorporates elements from group messaging, shared registers, and distributed lock services in a replicated, centralized service. The interface exposed by Zoo-Keeper has the wait-free aspects of shared registers with an event-driven mechanism similar to cache invalidations of distributed file systems to provide a simple, yet powerful coordination service. The ZooKeeper interface enables a high-performance service implementation. In addition to the wait-free property, ZooKeeper provides a per client guarantee of FIFO execution of requests and linearizability for all requests that change the ZooKeeper state. These design decisions enable the implementation of a high performance processing pipeline with read requests being satisfied by local servers. We show for the target workloads, 2:1 to 100:1 read to write ratio, that ZooKeeper can handle tens to hundreds of thousands of transactions per second. This performance allows ZooKeeper to be used extensively by client applications. 1}
 }
 
-@article{zotero-item-65,
+@inproceedings{zotero-item-65,
   title = {Zab: {{High-Performance Broadcast}} for {{Primary-Backup Systems}}},
+  booktitle = {2011 {{IEEE}}/{{IFIP}} 41st {{International Conference}} on {{Dependable Systems}} \& {{Networks}} ({{DSN}})},
+  author = {Junqueira, F. P. and Reed, B. C. and Serafini, M.},
+  year = 2011,
+  pages = {245--256},
+  doi = {10.1109/dsn.2011.5958223},
+  url = {https://doi.org/10.1109/dsn.2011.5958223},
   abstract = {Zab is a crash-recovery atomic broadcast algorithm we designed for the ZooKeeper coordination service. ZooKeeper implements a primary-backup scheme in which a primary process executes clients operations and uses Zab to propagate the corresponding incremental state changes to backup processes. Due the dependence of an incremental state change on the sequence of changes previously generated, Zab must guarantee that if it delivers a given state change, then all other changes it depends upon must be delivered first. Since primaries may crash, Zab must satisfy this requirement despite crashes of primaries.}
 }
 

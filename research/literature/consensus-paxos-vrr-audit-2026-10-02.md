@@ -1,13 +1,12 @@
 # Zotero saved-search export audit, 2 October 2026
 
-The `Consensus — Paxos & VRR` Better BibTeX snapshot contains 79 entries. Every entry has an Abstract field. The 26 entries below lack one or more of a creator, year, or source identifier in the exported fields. The audit reads the export file only; it does not infer the state of Zotero notes or attachments.
+The `Consensus — Paxos & VRR` Better BibTeX snapshot contains 79 entries. Every entry has an Abstract field. The 25 entries below lack one or more of a creator, year, or source identifier in the exported fields. The audit reads the export file only; it does not infer the state of Zotero notes or attachments.
 
 The `zotero-item-78` title and journal were checked in Zotero. A fresh 79-entry foreground export matched the on-disk snapshot exactly, including those fields.
 
 | Citation key | Title | Missing exported fields |
 | --- | --- | --- |
 | `zotero-item-64` | ZooKeeper: Wait-Free Coordination for Internet-Scale Systems | creator, year, source link |
-| `zotero-item-65` | Zab: High-Performance Broadcast for Primary-Backup Systems | creator, year, source link |
 | `zotero-item-67` | Spanner: Google's Globally-Distributed Database | creator, year, source link |
 | `zotero-item-68` | Megastore: Providing Scalable, Highly Available Storage for Interactive Services | creator, year, source link |
 | `zotero-item-69` | SALT: Combining ACID and BASE in a Distributed Database | creator, year, source link |
