@@ -83,6 +83,35 @@ The last minute of the tape carries no speech in either source: the caption
 track ends at 52:59 with a music cue and the Mistral transcription at 52:58. The
 final 1:50 is unattended audio and nothing is recoverable there.
 
+## Canonical written sources
+
+The formal notes, not this synthesis, are what citations should quote. The
+lecture's two worked problems both have written sources in Dijkstra's hand:
+
+- **First problem** (the urn, the parity of the white count): EWD720, *Why
+  correctness must be a mathematical concern*, the inaugural lecture for the
+  Chaire Internationale d'Informatique at the Université de Liège, freely hosted
+  at the public EWD archive,
+  <https://www.cs.utexas.edu/~EWD/transcriptions/EWD07xx/EWD720.html>. The text
+  is recorded in this repository at `research/literature/sources/ewd720.md`.
+- **Second problem** (the N red and N blue points joined one-to-one by
+  non-intersecting segments, with the termination argument over the N! states
+  and the decreasing sum of segment lengths): EWD1215, *Courtesy Dr. Birgit
+  Schieder*, Austin, 17 September 1995,
+  <https://www.cs.utexas.edu/~EWD/transcriptions/EWD12xx/EWD1215.html>. The text
+  is recorded at `research/literature/sources/ewd1215.md`.
+
+The pattern headed "C.A.R. Hoare" on the board is Hoare's own: *An Axiomatic
+Basis for Computer Programming*, Communications of the ACM 12(10):576–580, 583,
+1969, whose Rule of Iteration (D3) concludes `P {while B do S} ¬B ∧ P` from
+`P ∧ B {S} P`. The text is recorded at
+`research/literature/sources/hoare-axiomatic-1969.md`.
+
+The tape itself is catalogued as *Reasoning about programs (videotape)*,
+University Video Communications, 28 May 1990. The chair the introducer names at
+01:02, mangled by both recognitions, is the Schlumberger Centennial Chair of
+Computer Sciences at the University of Texas at Austin.
+
 ## Transcript
 ## 00:00–09:00
 
@@ -90,7 +119,7 @@ final 1:50 is unattended audio and nothing is recoverable there.
 
 [00:39] The introducer, Eric Schmidt, vice president of the General Systems Group of Sun Microsystems, opens the recording: "Hello, I'm Eric Schmidt, vice president of the General Systems Group of Sun Microsystems. It's my pleasure to inaugurate the University Video Communications Academic Honor Series." In this series, he explains, renowned academics will present talks on topics of their choosing, for widespread distribution around the world to corporate, technical and academic audiences.
 
-[01:02] "It's Sun's pleasure to sponsor the first speaker in this series, Dr Edsger W. Dijkstra, who occupies the [?] Centennial Chair of Computer Sciences at the University of Texas at Austin. He'll present two exercises on reasoning about programs. May I introduce Professor Dr Edsger W. Dijkstra." [Music]
+[01:02] "It's Sun's pleasure to sponsor the first speaker in this series, Dr Edsger W. Dijkstra, who occupies the Schlumberger Centennial Chair of Computer Sciences at the University of Texas at Austin. He'll present two exercises on reasoning about programs. May I introduce Professor Dr Edsger W. Dijkstra." [Music]
 
 Dijkstra begins, and it is he — not the introducer — who speaks for the remaining fifty-three minutes: "Welcome to this talk on reasoning about programs."
 
@@ -152,7 +181,7 @@ Dijkstra begins, and it is he — not the introducer — who speaks for the rema
 
 [16:04] Now obviously the precondition k at least two guarantees that after the decrease, k becomes k minus one, k is at least one. So we see that the repeatable statement k becomes k minus one nicely maintains the truth of k at least one.
 
-[16:28] So upon completion we know two things: that the guard is [?] — so k is no longer at least two, so k is less than two — and furthermore that k is at least one, which has only one solution, k equal one. So using the techniques of invariance we have proved the simple fact that our game terminates with one pebble in the urn.
+[16:28] So upon completion we know two things: that the guard is false — so k is no longer at least two, so k is less than two — and furthermore that k is at least one, which has only one solution, k equal one. So using the techniques of invariance we have proved the simple fact that our game terminates with one pebble in the urn.
 
 [17:13] We are indeed entitled to talk about the final pebble. Let us now return to the original question, and that is: given the initial contents of the urn, what can we say about the colour of the final pebble?
 
