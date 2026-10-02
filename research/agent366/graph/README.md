@@ -1,15 +1,22 @@
 # uVRR citation graph
 
-This page is a read-only view of the graph data in `data.js`. To compare it
-with the paper's Zotero/Better BibTeX bibliography, choose one or more
-collection export files using **Read Zotero collection exports**. The filename
-is used as the collection label in the dropdown; choose the paper's existing
-`paper/papers/references.bib` for the current paper collection. The page reads
-exported records in the browser and never edits or uploads the selected files.
+This page is a read-only view of the graph data in `data.js`. When served from
+the repository root, it loads `paper/papers/references.bib` and
+`research/literature/consensus-paxos-vrr.bib` on opening. The former is the
+paper's bibliography; the latter is a snapshot of the Zotero saved search.
+Choose other files using **Read Zotero collection exports**. The filename is
+used as the collection label in the dropdown. The page reads exported records
+in the browser and never edits or uploads the selected files.
 It does not connect to Zotero's database or read Zotero notes, attachments, or
 fields that Better BibTeX did not export. Use **Find a loaded reference** to
 search citation keys, titles, authors, and abstracts; click a result to read
-its exported abstract in the details panel.
+its exported abstract in the details panel. Each loaded reference also has a
+clickable graph node. Existing nodes with a matching citation key display the
+Zotero title, authors, abstract, and link in the details panel; other loaded
+references appear as grey Zotero nodes without invented citation edges.
+The details panel opens an exported URL when present, a DOI or arXiv landing
+page when identifiable, or a clearly labelled title search when the record has
+no source link.
 
 After loading the files, teal outlines mark graph nodes whose explicit
 Better BibTeX key appears in the selected export. Switch exports with the
@@ -20,7 +27,8 @@ full graph remains available.
 
 ## Abstract refresh
 
-Better BibTeX is the source of truth for the loaded abstracts. When an export
+Zotero is the source of truth for the loaded abstracts and links. Better BibTeX
+auto-exports that data to `references.bib`, including URL fields. When an export
 has a gap, prefer the primary paper's published abstract. For a self-published
 post, derive a short abstract from the front-page snippet; if no snippet exists,
 take a first-sentence summary from the opening text and keep it descriptive
@@ -28,14 +36,21 @@ rather than evaluative. Keep the derived text in Zotero's Abstract field and let
 the export refresh, rather than editing abstracts inside the graph. The current
 `references.bib` has an abstract for every exported record.
 
+The `Consensus — Paxos & VRR` saved search is exported manually to
+`research/literature/consensus-paxos-vrr.bib`. Its current export has an
+abstract for every record, but Zotero's Better BibTeX automatic-export list
+does not include this saved search. Refresh it in Zotero with the saved search's
+**Export…** command after changing its items, using Better BibTeX with URL
+export enabled. The graph reads the refreshed disk file on page reload.
+
 The key crosswalk is explicit in `data.js`. If a citekey changes in Zotero,
 update that mapping to match the next export. The chart does not infer identity
 from titles or abstracts and does not treat an unkeyed graph node as a match.
-Each file is a one-time browser read: reselect the updated exports after Better
-BibTeX refreshes them. This is an export-based sync, not a live Zotero
-connection. Give each collection export a distinct filename so it is easy to
-identify in the dropdown. For example, load `references.bib` alongside a
-separate `software-security.bib`.
+The two built-in exports are reread on page reload. Files chosen through the
+picker are a one-time browser read: reselect them after Better BibTeX refreshes
+them. This is an export-based sync, not a live Zotero connection. Give each
+additional collection export a distinct filename so it is easy to identify in
+the dropdown.
 
 Edges are directed from source to target; edge labels describe the recorded
 citation or relationship. The bibliography filter checks node membership in

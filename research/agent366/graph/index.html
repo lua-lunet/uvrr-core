@@ -44,7 +44,7 @@
   <label for="bib-search">Find a loaded reference</label>
   <input id="bib-search" type="search" disabled placeholder="Search title, author, abstract, or citation key">
   <div id="bib-results" aria-live="polite"></div>
-  <p id="bib-status" role="status" aria-live="polite">Choose one or more Zotero/Better BibTeX collection exports. Each filename labels a collection. The graph reads citation keys only; it does not upload or change the files.</p>
+  <p id="bib-status" role="status" aria-live="polite">Reading the on-disk Zotero exports…</p>
 </section>
 <div id="panel"><span class="close" onclick="panel.style.display='none'">✕</span>
   <h2 id="p-title"></h2>
@@ -60,6 +60,7 @@
 <script>
 const chart = echarts.init(document.getElementById("chart"));
 const nodeById = new Map(NODES.map(n => [n.id, n]));
+const graphCategories = { ...CATEGORIES, bibliography: { name: "Zotero reference", color: "#6b7280" } };
 const collectionExports = new Map();
 let selectedCollection = null;
 let filterToBibliography = false;
@@ -68,16 +69,34 @@ function activeBibliographyKeys() {
   return selectedCollection ? collectionExports.get(selectedCollection)?.keys ?? null : null;
 }
 
+function activeRecord(key) {
+  return collectionExports.get(selectedCollection)?.records.find(record => record.key === key);
+}
+
+function recordURL(record) {
+  return (/^https?:\/\//i.test(record?.url ?? "") ? record.url : "")
+    || (record?.fields.doi ? `https://doi.org/${encodeURIComponent(record.fields.doi)}` : "")
+    || (/^\d{4}\.\d{4,5}$/.test(record?.fields.eprint ?? "") ? `https://arxiv.org/abs/${record.fields.eprint}` : "")
+    || (record ? `https://www.google.com/search?q=${encodeURIComponent(`"${record.title}" paper`)}` : "");
+}
+
+function recordLinkText(record) {
+  if (!record) return "";
+  return /^https?:\/\//i.test(record.url ?? "") || record.fields.doi || /^\d{4}\.\d{4,5}$/.test(record.fields.eprint ?? "")
+    ? recordURL(record) : "Search for this title";
+}
+
 function graphNodes() {
   const bibliographyKeys = activeBibliographyKeys();
-  return NODES
+  const mapped = new Set(NODES.map(n => n.bibKey).filter(Boolean));
+  const nodes = NODES
     .filter(n => !filterToBibliography || n.keepAsContext || (n.bibKey && bibliographyKeys.has(n.bibKey)))
     .map(n => {
       const isMatched = bibliographyKeys !== null && n.bibKey && bibliographyKeys.has(n.bibKey);
       return {
         id: n.id,
         name: n.name,
-        category: Object.keys(CATEGORIES).indexOf(n.cat),
+        category: Object.keys(graphCategories).indexOf(n.cat),
         symbolSize: n.cat === "uvrr" || n.cat === "raftLine" || n.cat === "homa" ? 34 : 24,
         label: { show: true, fontSize: 10, position: "right" },
         itemStyle: bibliographyKeys === null ? undefined : {
@@ -88,6 +107,15 @@ function graphNodes() {
         value: n.id
       };
     });
+  for (const record of collectionExports.get(selectedCollection)?.records ?? []) {
+    if (!mapped.has(record.key)) {
+      const id = `bib:${record.key}`;
+      nodes.push({ id, value: id, name: record.title, category: Object.keys(graphCategories).indexOf("bibliography"),
+        symbolSize: 21, label: { show: true, fontSize: 10, position: "right" },
+        itemStyle: { borderColor: "#009688", borderWidth: 2 } });
+    }
+  }
+  return nodes;
 }
 
 function graphLinks(visibleIds) {
@@ -104,9 +132,9 @@ function graphLinks(visibleIds) {
 function renderGraph() {
   const data = graphNodes();
   const visibleIds = new Set(data.map(n => n.id));
-  const visibleCategories = [...new Set(data.map(n => NODES.find(node => node.id === n.id)?.cat))]
+  const visibleCategories = [...new Set(data.map(n => n.id.startsWith("bib:") ? "bibliography" : nodeById.get(n.id)?.cat))]
     .filter(Boolean)
-    .map(category => CATEGORIES[category].name);
+    .map(category => graphCategories[category].name);
   chart.setOption({
     legend: [{ data: visibleCategories }],
     series: [{ data, links: graphLinks(visibleIds) }]
@@ -121,9 +149,9 @@ chart.setOption({
     type: "graph", layout: "force", roam: true, draggable: true,
     force: { repulsion: 580, edgeLength: 140, gravity: 0.035 },
     edgeSymbol: ["none", "arrow"], edgeSymbolSize: 8,
-    label: { show: true, formatter: p => nodeById.get(p.value)?.name ?? String(p.value) },
+    label: { show: true, formatter: p => nodeById.get(p.value)?.name ?? activeRecord(String(p.value).slice(4))?.title ?? String(p.value) },
     labelLayout: { hideOverlap: true },
-    categories: Object.values(CATEGORIES).map(c => ({ name: c.name, itemStyle: { color: c.color } })),
+    categories: Object.values(graphCategories).map(c => ({ name: c.name, itemStyle: { color: c.color } })),
     data: graphNodes(), links: graphLinks(new Set(NODES.map(n => n.id)))
   }]
 });
@@ -163,6 +191,47 @@ function cleanBibValue(value) {
   return value.replace(/[{}]/g, "").replace(/\\([#%&_{}])/g, "$1").replace(/\s+/g, " ").trim();
 }
 
+function readBibFields(body) {
+  const fields = {};
+  let i = 0;
+  while (i < body.length) {
+    while (/[\s,]/.test(body[i] ?? "")) i++;
+    const start = i;
+    while (/[\w-]/.test(body[i] ?? "")) i++;
+    const name = body.slice(start, i).toLowerCase();
+    while (/\s/.test(body[i] ?? "")) i++;
+    if (!name || body[i] !== "=") { i++; continue; }
+    i++;
+    while (/\s/.test(body[i] ?? "")) i++;
+    const opening = body[i];
+    let value;
+    if (opening === "{") {
+      const start = ++i;
+      let depth = 1;
+      while (i < body.length && depth) {
+        if (body[i] === "\\") { i += 2; continue; }
+        if (body[i] === "{") depth++;
+        if (body[i] === "}") depth--;
+        i++;
+      }
+      value = body.slice(start, i - 1);
+    } else if (opening === '"') {
+      const start = ++i;
+      while (i < body.length && body[i] !== '"') {
+        if (body[i] === "\\") i++;
+        i++;
+      }
+      value = body.slice(start, i++);
+    } else {
+      const start = i;
+      while (i < body.length && body[i] !== ",") i++;
+      value = body.slice(start, i);
+    }
+    fields[name] = cleanBibValue(value);
+  }
+  return fields;
+}
+
 function readBibTeX(source) {
   const keys = new Set();
   const records = [];
@@ -192,11 +261,8 @@ function readBibTeX(source) {
     if (comma < source.length && source[comma] === "," && key && !["comment", "preamble", "string"].includes(type)) {
       entries++;
       keys.add(key);
-      const fields = {};
       const body = source.slice(comma + 1, end - 1);
-      for (const match of body.matchAll(/(?:^|,)\s*([\w-]+)\s*=\s*(\{(?:[^{}]|\{[^{}]*\})*\}|"(?:[^"\\]|\\.)*"|[^,\n]+)/g)) {
-        fields[match[1].toLowerCase()] = cleanBibValue(match[2].replace(/^\{|\}$/g, "").replace(/^"|"$/g, ""));
-      }
+      const fields = readBibFields(body);
       records.push({ key, type, title: fields.title || key, author: fields.author || "", abstract: fields.abstract || "", url: fields.url || "", year: fields.year || fields.date || "", fields });
     }
     i = Math.max(end, j + 1);
@@ -204,20 +270,13 @@ function readBibTeX(source) {
   return { keys, entries, records };
 }
 
-bibFile.addEventListener("change", async () => {
-  const files = Array.from(bibFile.files ?? []);
-  if (files.length === 0) return;
-  // Clear the picker so choosing the same path again after an auto-export
-  // updates still emits a change event.
-  bibFile.value = "";
+function loadCollections(sources) {
   try {
-    const loaded = await Promise.all(files.map(async file => {
-      const parsed = readBibTeX(await file.text());
-      if (parsed.entries === 0) throw new Error(`${file.name}: no BibTeX entries were found.`);
-      return { name: file.name, ...parsed };
-    }));
     collectionExports.clear();
-    for (const item of loaded) {
+    for (const { name: originalName, source } of sources) {
+      const parsed = readBibTeX(source);
+      if (parsed.entries === 0) throw new Error(`${originalName}: no BibTeX entries were found.`);
+      const item = { name: originalName, ...parsed };
       let name = item.name;
       let suffix = 2;
       while (collectionExports.has(name)) name = `${item.name} (${suffix++})`;
@@ -227,6 +286,8 @@ bibFile.addEventListener("change", async () => {
     bibCollection.disabled = false;
     bibCollection.value = collectionExports.keys().next().value;
     selectedCollection = bibCollection.value;
+    panel.style.display = "none";
+    selectedNodeId = null;
     bibOnly.disabled = false;
     bibSearch.disabled = false;
     updateCollectionStatus();
@@ -236,7 +297,31 @@ bibFile.addEventListener("change", async () => {
   } catch (error) {
     bibStatus.textContent = `Could not read collection exports: ${error.message}`;
   }
+}
+
+bibFile.addEventListener("change", async () => {
+  const files = Array.from(bibFile.files ?? []);
+  if (files.length === 0) return;
+  // Clear the picker so choosing the same path again after an auto-export
+  // updates still emits a change event.
+  bibFile.value = "";
+  loadCollections(await Promise.all(files.map(async file => ({ name: file.name, source: await file.text() }))));
 });
+
+async function loadDiskExports() {
+  const paths = [
+    ["references.bib", "../../../paper/papers/references.bib"],
+    ["consensus-paxos-vrr.bib", "../../literature/consensus-paxos-vrr.bib"]
+  ];
+  const attempts = await Promise.allSettled(paths.map(async ([name, path]) => {
+    const response = await fetch(path, { cache: "no-store" });
+    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+    return { name, source: await response.text() };
+  }));
+  const available = attempts.filter(result => result.status === "fulfilled").map(result => result.value);
+  if (available.length) loadCollections(available);
+  else bibStatus.textContent = "On-disk exports were unavailable. Choose one or more local .bib files above.";
+}
 
 function updateCollectionStatus() {
   const collection = collectionExports.get(selectedCollection);
@@ -245,11 +330,13 @@ function updateCollectionStatus() {
   const matched = mappedNodes.filter(n => collection.keys.has(n.bibKey)).length;
   const absent = mappedNodes.length - matched;
   const unmapped = NODES.filter(n => !n.bibKey && !n.keepAsContext).length;
-  bibStatus.textContent = `${selectedCollection}: read ${collection.entries} entries; ${matched} graph works match, ${absent} mapped keys are absent, and ${unmapped} graph nodes have no key mapping. Titles, metadata, and abstracts remain available locally in this browser tab.`;
+  bibStatus.textContent = `${selectedCollection}: read ${collection.entries} entries; ${matched} existing graph nodes match, ${collection.entries - matched} references appear as Zotero nodes, ${absent} mapped keys are absent, and ${unmapped} original graph nodes have no key mapping. Titles, metadata, abstracts, and links remain local to this browser tab.`;
 }
 
 bibCollection.addEventListener("change", () => {
   selectedCollection = bibCollection.value;
+  panel.style.display = "none";
+  selectedNodeId = null;
   updateCollectionStatus();
   renderBibliographyResults();
   renderGraph();
@@ -263,7 +350,7 @@ function showBibliographyRecord(record) {
   document.getElementById("p-bib").textContent = `Loaded from ${selectedCollection} · key: ${record.key}`;
   document.getElementById("p-abs").textContent = record.abstract || "No abstract was exported for this item.";
   const a = document.getElementById("p-url");
-  a.href = record.url || ""; a.textContent = record.url || "";
+  a.href = recordURL(record); a.textContent = recordLinkText(record);
   document.getElementById("p-tags").textContent = "";
   document.getElementById("p-also").textContent = "";
   panel.style.display = "block";
@@ -312,15 +399,21 @@ function updatePanelStatus() {
 }
 
 chart.on("click", p => {
+  if (String(p.value).startsWith("bib:")) {
+    const record = activeRecord(String(p.value).slice(4));
+    if (record) showBibliographyRecord(record);
+    return;
+  }
   const n = nodeById.get(p.value);
   if (!n) return;
+  const record = n.bibKey ? activeRecord(n.bibKey) : null;
   selectedNodeId = n.id;
-  document.getElementById("p-title").textContent = n.name;
-  document.getElementById("p-meta").textContent = n.authors + " — " + n.venue;
+  document.getElementById("p-title").textContent = record?.title || n.name;
+  document.getElementById("p-meta").textContent = record ? [record.author, record.year].filter(Boolean).join(" — ") : n.authors + " — " + n.venue;
   updatePanelStatus();
-  document.getElementById("p-abs").textContent = n.abstract;
+  document.getElementById("p-abs").textContent = record?.abstract || n.abstract;
   const a = document.getElementById("p-url");
-  a.href = n.url; a.textContent = n.url;
+  a.href = recordURL(record) || n.url; a.textContent = record ? recordLinkText(record) : n.url;
   const tags = document.getElementById("p-tags");
   tags.innerHTML = n.tags ? n.tags.map(t =>
     `<span style="display:inline-block;background:#eee;border-radius:3px;padding:1px 6px;margin:1px;font-size:11px">${t}</span>`).join("") : "";
@@ -335,13 +428,14 @@ chart.on("click", p => {
 function focusNode(id) {
   const n = nodeById.get(id);
   if (!n) return;
+  const record = n.bibKey ? activeRecord(n.bibKey) : null;
   selectedNodeId = n.id;
-  document.getElementById("p-title").textContent = n.name;
-  document.getElementById("p-meta").textContent = n.authors + " — " + n.venue;
+  document.getElementById("p-title").textContent = record?.title || n.name;
+  document.getElementById("p-meta").textContent = record ? [record.author, record.year].filter(Boolean).join(" — ") : n.authors + " — " + n.venue;
   updatePanelStatus();
-  document.getElementById("p-abs").textContent = n.abstract;
+  document.getElementById("p-abs").textContent = record?.abstract || n.abstract;
   const a = document.getElementById("p-url");
-  a.href = n.url; a.textContent = n.url;
+  a.href = recordURL(record) || n.url; a.textContent = record ? recordLinkText(record) : n.url;
   const tags = document.getElementById("p-tags");
   tags.innerHTML = n.tags ? n.tags.map(t =>
     `<span style="display:inline-block;background:#eee;border-radius:3px;padding:1px 6px;margin:1px;font-size:11px">${t}</span>`).join("") : "";
@@ -355,6 +449,7 @@ function focusNode(id) {
   chart.dispatchAction({ type: "highlight", seriesIndex: 0, name: n.name });
 }
 renderGraph();
+loadDiskExports();
 window.addEventListener("resize", () => chart.resize());
 </script>
 </body>
