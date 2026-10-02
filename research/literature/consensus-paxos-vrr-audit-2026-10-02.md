@@ -1,6 +1,6 @@
 # Zotero saved-search export audit, 2 October 2026
 
-The `Consensus — Paxos & VRR` Better BibTeX snapshot contains 79 entries. Every entry has an Abstract field. The 29 entries below lack one or more of a creator, year, or source identifier in the exported fields. The audit reads the export file only; it does not infer the state of Zotero notes or attachments.
+The `Consensus — Paxos & VRR` Better BibTeX snapshot contains 79 entries. Every entry has an Abstract field. The 28 entries below lack one or more of a creator, year, or source identifier in the exported fields. The audit reads the export file only; it does not infer the state of Zotero notes or attachments.
 
 The `zotero-item-78` title and journal were checked in Zotero. A fresh 79-entry foreground export matched the on-disk snapshot exactly, including those fields.
 
@@ -29,7 +29,6 @@ The `zotero-item-78` title and journal were checked in Zotero. A fresh 79-entry 
 | `zotero-item-87` | Thrifty Generic Broadcast | creator, year, source link |
 | `zotero-item-88` | S-Paxos: Offloading the Leader for High Throughput State Machine Replication | creator, year, source link |
 | `zotero-item-89` | Multicoordinated Paxos | creator, year, source link |
-| `zotero-item-90` | Unreliable Failure Detectors for Reliable Distributed Systems | creator, year, source link |
 | `zotero-item-93` | Eve: Execute-Verify Replication for Multi-Core Servers | creator, year, source link |
 | `zotero-item-94` | MDCC: Multi-Data Center Consistency | creator, year, source link |
 | `zotero-item-97` | Boxwood: Abstractions as the Foundation for Storage Infrastructure | creator, year, source link |
