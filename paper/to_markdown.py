@@ -60,6 +60,10 @@ def flatten_math(text: str) -> str:
 def clean(markdown: str) -> str:
     # Pandoc resolves \ref to an HTML anchor; keep the label's text only.
     markdown = re.sub(r'<a href="[^"]*"[^>]*>([^<]*)</a>', r"\1", markdown)
+    # The IEEE keywords block arrives as a raw div; it is a plain line.
+    markdown = re.sub(r'<div class="IEEEkeywords">\s*(.*?)\s*</div>',
+                      lambda m: "**Keywords:** " + flatten_math(m.group(1)),
+                      markdown, flags=re.S)
     markdown = re.sub(r"\[(?:eq|tab|fig|sec):[A-Za-z0-9_-]+\]", "", markdown)
     markdown = re.sub(r"``` math\n(.*?)```",
                       lambda m: "```\n" + flatten_math(m.group(1)) + "\n```",
