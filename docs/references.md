@@ -84,3 +84,11 @@ TigerBeetle-style durability framing. 2026.
 S. Massey. *The Network Is Faster Than the Disk*: the deferred-flush
 economic rationale. 2024.
 <https://simbo1905.wordpress.com/2024/04/12/the-network-is-faster-than-the-disk/>
+
+## [EWD-1990]
+
+E. W. Dijkstra. *Reasoning about Programs*: the do-loop invariant discipline
+in his own notation as written on the lecture whiteboard, the pattern for
+proving things about the repetitive construct; credited to C. A. R. Hoare.
+1990.
+<https://youtu.be/GX3URhx6i2E>
