@@ -2,6 +2,8 @@
 
 The `Consensus — Paxos & VRR` Better BibTeX snapshot contains 79 entries. Every entry has an Abstract field. The 33 entries below lack one or more of a creator, year, or source identifier in the exported fields. The audit reads the export file only; it does not infer the state of Zotero notes or attachments.
 
+The on-disk `zotero-item-78` record includes its verified title and journal. During Zotero editing, a later GUI export omitted the title and rendered the journal as `f`; that export was rejected. Inspect those two fields in Zotero before the next refresh, and compare the new export with this snapshot before replacing it.
+
 | Citation key | Title | Missing exported fields |
 | --- | --- | --- |
 | `zotero-item-101` | Optimistic Generic Broadcast | creator, year, source link |
