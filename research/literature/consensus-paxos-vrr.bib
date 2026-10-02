@@ -720,8 +720,17 @@
   abstract = {Advances in virtualization technology are enabling the creation of resource pools of servers that permit multiple application workloads to share each server in the pool. Understanding the nature of enterprise workloads is crucial to properly designing and provisioning current and future services in such pools. This paper considers issues of workload analysis, performance modeling, and capacity planning. Our goal is to automate the efficient use of resource pools when hosting large numbers of enterprise services. We use a trace based approach for capacity management that relies on i) the characterization of workload demand patterns, ii) the generation of synthetic workloads that predict future demands based on the patterns, and m) a workload placement recommendation service. The accuracy of capacity planning predictions depends on our ability to characterize workload demand patterns, to recognize trends for expected changes in future demands, and to reflect business forecasts for otherwise unexpected changes in future demands. A workload analysis demonstrates the busrtiness and repetitive nature of enterprise workloads. Workloads are automatically classified according to their periodic behavior. The similarity among repeated occurrences of patterns is evaluated. Synthetic workloads are generated from the patterns in a manner that maintains the periodic nature, burstiness, and trending behavior of the workloads. A case study involving six months of data for 139 enterprise applications is used to apply and evaluate the enterprise workload analysis and related capacity planning methods. The results show that when consolidating to 8 processor systems, we predicted future per-server required capacity to within one processor 95\% of the time. The accuracy of predictions for required capacity suggests that such resource savings can be achieved with little risk.}
 }
 
-@article{zotero-item-87,
+@incollection{zotero-item-87,
   title = {Thrifty {{Generic Broadcast}}},
+  booktitle = {Distributed {{Computing}}},
+  author = {Kawazoe Aguilera, Marcos and {Delporte-Gallet}, Carole and Fauconnier, Hugues and Toueg, Sam},
+  year = 2000,
+  series = {Lecture {{Notes}} in {{Computer Science}}},
+  number = {1914},
+  pages = {268--282},
+  publisher = {Springer Berlin Heidelberg},
+  doi = {10.1007/3-540-40026-5_18},
+  url = {https://doi.org/10.1007/3-540-40026-5_18},
   abstract = {We consider generic broadcast in asynchronous systems with crashes. Given a conflict relation on messages, generic broadcast delivers conflicting messages in the same order while allowing non-conflicting messages to be delivered in different orders. We define thrifty implementations and give implementations that are optimal in resiliency, with an application to atomic broadcast.}
 }
 
