@@ -661,8 +661,14 @@
   abstract = {We present a protocol for general state machine replication -- a\textbackslash nmethod that provides strong consistency -- that has high performance in a\textbackslash nwide-area network. In particular, our protocol Mencius has high throughput\textbackslash nunder high client load and low latency under low client load even under\textbackslash nchanging wide-area network environment and client load. We develop our protocol\textbackslash nas a derivation from the well-known protocol Paxos. Such a development can be\textbackslash nchanged or further refined to take advantage of specific network or application\textbackslash nrequirements.Pre-2018 CSE ID: CS2008-0930}
 }
 
-@article{zotero-item-80,
+@inproceedings{zotero-item-80,
   title = {Making {{Fast Consensus Generally Faster}}},
+  booktitle = {2016 46th {{Annual IEEE}}/{{IFIP International Conference}} on {{Dependable Systems}} and {{Networks}} ({{DSN}})},
+  author = {Peluso, Sebastiano and Turcu, Alexandru and Palmieri, Roberto and Losa, Giuliano and Ravindran, Binoy},
+  year = 2016,
+  pages = {156--167},
+  doi = {10.1109/dsn.2016.23},
+  url = {https://doi.org/10.1109/dsn.2016.23},
   abstract = {New multi-leader consensus protocols leverage the Generalized Consensus specification to enable low latency, even load balancing, and high parallelism. However, these protocols introduce inherent costs with significant performance impact: they need quorums bigger than the minimum required to solve consensus and need to track dependency relations among proposals. In this paper we present M2PAXOS, an implementation of Generalized Consensus that provides fast decisions (i.e., delivery of a command in two communication delays) by leveraging quorums composed of a majority of nodes and by exploiting workload locality. M2PAXOS does not establish command dependencies based on conflicts, instead mapping nodes to accessed objects and enforcing that commands accessing the same objects be ordered by the same node. Our experimental evaluation confirms the effectiveness of M2PAXOS, gaining up to 7X over state-of-the-art Consensus and Generalized Consensus algorithms under partitioned data accesses and up to 5.5\texttimes{} using the TPC-C workload.}
 }
 
@@ -676,8 +682,14 @@
   abstract = {Consensus has been regarded as the fundamental problem that must be solved to implement a fault-tolerant distributed system. However, only a weaker problem than traditional consensus need be solved. We generalize the consensus problem to include both traditional consensus and this weaker version. A straightforward generalization of the Paxos consensus algorithm implements general consensus. The generalizations of consensus and of the Paxos algorithm require a mathematical detour de force into a type of object called a command-structure set.}
 }
 
-@article{zotero-item-83,
+@inproceedings{zotero-item-83,
   title = {Benchmarking {{Cloud Serving Systems}} with {{YCSB}}},
+  booktitle = {Proceedings of the 1st {{ACM Symposium}} on {{Cloud Computing}}},
+  author = {Cooper, Brian F. and Silberstein, Adam and Tam, Erwin and Ramakrishnan, Raghu and Sears, Russell},
+  year = 2010,
+  pages = {143--154},
+  doi = {10.1145/1807128.1807152},
+  url = {https://doi.org/10.1145/1807128.1807152},
   abstract = {While the use of MapReduce systems (such as Hadoop) for large scale data analysis has been widely recognized and studied, we have recently seen an explosion in the number of systems developed for cloud data serving. These newer systems address "cloud OLTP" applications, though they typically do not support ACID transactions. Examples of systems proposed for cloud serving use include BigTable, PNUTS, Cassandra, HBase, Azure, CouchDB, SimpleDB, Voldemort, and many others. Further, they are being applied to a diverse range of applications that differ considerably from traditional (e.g., TPC-C like) serving workloads. The number of emerging cloud serving systems and the wide range of proposed applications, coupled with a lack of apples-to-apples performance comparisons, makes it difficult to understand the tradeoffs between systems and the workloads for which they are suited. We present the "Yahoo! Cloud Serving Benchmark" (YCSB) framework, with the goal of facilitating performance comparisons of the new generation of cloud data serving systems. We define a core set of benchmarks and report results for four widely used systems: Cassandra, HBase, Yahoo!'s PNUTS, and a simple sharded MySQL implementation. We also hope to foster the development of additional cloud benchmark suites that represent other classes of applications by making our benchmark tool available via open source. In this regard, a key feature of the YCSB framework/tool is that it is extensible--it supports easy definition of new workloads, in addition to making it easy to benchmark new systems.}
 }
 

@@ -1,6 +1,6 @@
 # Zotero saved-search export audit, 2 October 2026
 
-The `Consensus — Paxos & VRR` Better BibTeX snapshot contains 79 entries. Every entry has an Abstract field. The 23 entries below lack one or more of a creator, year, or source identifier in the exported fields. The audit reads the export file only; it does not infer the state of Zotero notes or attachments.
+The `Consensus — Paxos & VRR` Better BibTeX snapshot contains 79 entries. Every entry has an Abstract field. The 21 entries below lack one or more of a creator, year, or source identifier in the exported fields. The audit reads the export file only; it does not infer the state of Zotero notes or attachments.
 
 The `zotero-item-78` title and journal were checked in Zotero. A fresh 79-entry foreground export matched the on-disk snapshot exactly, including those fields.
 
@@ -17,10 +17,8 @@ The `zotero-item-78` title and journal were checked in Zotero. A fresh 79-entry 
 | `zotero-item-75` | Modular Composition of Coordination Services | creator, year, source link |
 | `zotero-item-76` | Bizur: A Key-Value Consensus Algorithm for Scalable File-Systems | creator, year, source link |
 | `zotero-item-79` | Mencius: Building Efficient Replicated State Machine for WANs | creator, year, source link |
-| `zotero-item-80` | Making Fast Consensus Generally Faster | creator, year, source link |
 | `zotero-item-81` | DPaxos: Managing Data Closer to Users for Low-Latency and Mobile Applications | creator, year, source link |
 | `zotero-item-82` | Generalized Consensus and Paxos | creator, year, source link |
-| `zotero-item-83` | Benchmarking Cloud Serving Systems with YCSB | creator, year, source link |
 | `zotero-item-84` | The Overlapping Coefficient as a Measure of Agreement Between Probability Distributions | creator, year, source link |
 | `zotero-item-87` | Thrifty Generic Broadcast | creator, year, source link |
 | `zotero-item-88` | S-Paxos: Offloading the Leader for High Throughput State Machine Replication | creator, year, source link |
