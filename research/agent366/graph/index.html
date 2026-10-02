@@ -24,6 +24,10 @@
   }
   #controls label { display: block; margin: 4px 0; }
   #controls input[type="file"] { display: block; max-width: 100%; margin: 5px 0; }
+  #bib-search { box-sizing: border-box; width: 100%; margin: 7px 0 0; }
+  #bib-results { max-height: 180px; overflow-y: auto; margin: 5px 0 0; }
+  #bib-results button { display: block; width: 100%; border: 0; border-top: 1px solid #eee; background: #fff; padding: 5px 0; text-align: left; cursor: pointer; }
+  #bib-results button:hover { background: #f3f7f7; }
   #bib-status { color: #555; margin: 5px 0 0; }
   #panel .bib-status { color: #555; font-size: 12px; }
   #legend-note { position: absolute; bottom: 8px; left: 12px; color: #666; font-size: 12px; }
@@ -37,6 +41,9 @@
   <label for="bib-collection">Collection export</label>
   <select id="bib-collection" disabled><option>Choose export files above</option></select>
   <label><input id="bib-only" type="checkbox" disabled> Show only graph works in the selected collection</label>
+  <label for="bib-search">Find a loaded reference</label>
+  <input id="bib-search" type="search" disabled placeholder="Search title, author, abstract, or citation key">
+  <div id="bib-results" aria-live="polite"></div>
   <p id="bib-status" role="status" aria-live="polite">Choose one or more Zotero/Better BibTeX collection exports. Each filename labels a collection. The graph reads citation keys only; it does not upload or change the files.</p>
 </section>
 <div id="panel"><span class="close" onclick="panel.style.display='none'">✕</span>
@@ -125,6 +132,8 @@ const bibFile = document.getElementById("bib-file");
 const bibCollection = document.getElementById("bib-collection");
 const bibOnly = document.getElementById("bib-only");
 const bibStatus = document.getElementById("bib-status");
+const bibSearch = document.getElementById("bib-search");
+const bibResults = document.getElementById("bib-results");
 
 function skipBibEntry(source, openingAt, opening) {
   let braces = opening === "{" ? 1 : 0;
@@ -150,8 +159,13 @@ function skipBibEntry(source, openingAt, opening) {
   return source.length;
 }
 
-function readBibTeXKeys(source) {
+function cleanBibValue(value) {
+  return value.replace(/[{}]/g, "").replace(/\\([#%&_{}])/g, "$1").replace(/\s+/g, " ").trim();
+}
+
+function readBibTeX(source) {
   const keys = new Set();
+  const records = [];
   let entries = 0;
   let i = 0;
   while (i < source.length) {
@@ -178,10 +192,16 @@ function readBibTeXKeys(source) {
     if (comma < source.length && source[comma] === "," && key && !["comment", "preamble", "string"].includes(type)) {
       entries++;
       keys.add(key);
+      const fields = {};
+      const body = source.slice(comma + 1, end - 1);
+      for (const match of body.matchAll(/(?:^|,)\s*([\w-]+)\s*=\s*(\{(?:[^{}]|\{[^{}]*\})*\}|"(?:[^"\\]|\\.)*"|[^,\n]+)/g)) {
+        fields[match[1].toLowerCase()] = cleanBibValue(match[2].replace(/^\{|\}$/g, "").replace(/^"|"$/g, ""));
+      }
+      records.push({ key, type, title: fields.title || key, author: fields.author || "", abstract: fields.abstract || "", url: fields.url || "", year: fields.year || fields.date || "", fields });
     }
     i = Math.max(end, j + 1);
   }
-  return { keys, entries };
+  return { keys, entries, records };
 }
 
 bibFile.addEventListener("change", async () => {
@@ -192,7 +212,7 @@ bibFile.addEventListener("change", async () => {
   bibFile.value = "";
   try {
     const loaded = await Promise.all(files.map(async file => {
-      const parsed = readBibTeXKeys(await file.text());
+      const parsed = readBibTeX(await file.text());
       if (parsed.entries === 0) throw new Error(`${file.name}: no BibTeX entries were found.`);
       return { name: file.name, ...parsed };
     }));
@@ -201,14 +221,16 @@ bibFile.addEventListener("change", async () => {
       let name = item.name;
       let suffix = 2;
       while (collectionExports.has(name)) name = `${item.name} (${suffix++})`;
-      collectionExports.set(name, { keys: item.keys, entries: item.entries });
+      collectionExports.set(name, { keys: item.keys, entries: item.entries, records: item.records });
     }
     bibCollection.replaceChildren(...Array.from(collectionExports.keys(), name => new Option(name, name)));
     bibCollection.disabled = false;
     bibCollection.value = collectionExports.keys().next().value;
     selectedCollection = bibCollection.value;
     bibOnly.disabled = false;
+    bibSearch.disabled = false;
     updateCollectionStatus();
+    renderBibliographyResults();
     renderGraph();
     updatePanelStatus();
   } catch (error) {
@@ -223,15 +245,45 @@ function updateCollectionStatus() {
   const matched = mappedNodes.filter(n => collection.keys.has(n.bibKey)).length;
   const absent = mappedNodes.length - matched;
   const unmapped = NODES.filter(n => !n.bibKey && !n.keepAsContext).length;
-  bibStatus.textContent = `${selectedCollection}: read ${collection.entries} entries; ${matched} graph works match, ${absent} mapped keys are absent, and ${unmapped} graph nodes have no key mapping. Only citation keys are retained in memory.`;
+  bibStatus.textContent = `${selectedCollection}: read ${collection.entries} entries; ${matched} graph works match, ${absent} mapped keys are absent, and ${unmapped} graph nodes have no key mapping. Titles, metadata, and abstracts remain available locally in this browser tab.`;
 }
 
 bibCollection.addEventListener("change", () => {
   selectedCollection = bibCollection.value;
   updateCollectionStatus();
+  renderBibliographyResults();
   renderGraph();
   updatePanelStatus();
 });
+
+function showBibliographyRecord(record) {
+  selectedNodeId = null;
+  document.getElementById("p-title").textContent = record.title;
+  document.getElementById("p-meta").textContent = [record.author, record.year].filter(Boolean).join(" — ");
+  document.getElementById("p-bib").textContent = `Loaded from ${selectedCollection} · key: ${record.key}`;
+  document.getElementById("p-abs").textContent = record.abstract || "No abstract was exported for this item.";
+  const a = document.getElementById("p-url");
+  a.href = record.url || ""; a.textContent = record.url || "";
+  document.getElementById("p-tags").textContent = "";
+  document.getElementById("p-also").textContent = "";
+  panel.style.display = "block";
+}
+
+function renderBibliographyResults() {
+  const records = collectionExports.get(selectedCollection)?.records ?? [];
+  const query = bibSearch.value.trim().toLowerCase();
+  const matched = records.filter(record => !query || [record.key, record.title, record.author, record.abstract].join(" ").toLowerCase().includes(query));
+  bibResults.replaceChildren(...matched.slice(0, 80).map(record => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${record.title}${record.author ? ` — ${record.author}` : ""}`;
+    button.addEventListener("click", () => showBibliographyRecord(record));
+    return button;
+  }));
+  if (matched.length > 80) bibResults.append(`Showing 80 of ${matched.length} matching records.`);
+}
+
+bibSearch.addEventListener("input", renderBibliographyResults);
 
 bibOnly.addEventListener("change", () => {
   filterToBibliography = bibOnly.checked;

@@ -1,0 +1,2617 @@
+Matchmaker Paxos: A Reconfigurable Consensus Protocol
+[Technical Report]
+Michael Whittaker1
+, Neil Giridharan1
+, Adriana Szekeres2
+, Joseph M. Hellerstein1
+,
+Heidi Howard3
+, Faisal Nawab4
+, Ion Stoica1
+1
+University of California, Berkeley, 2
+University of Washington, 3
+University of
+Cambridge, 4
+University of California, Santa Cruz
+ABSTRACT
+State machine replication protocols, like MultiPaxos and
+Raft, are at the heart of nearly every strongly consistent dis-
+tributed database. To tolerate machine failures, these proto-
+cols must replace failed machines with live machines, a pro-
+cess known as reconfiguration. Reconfiguration has become
+increasingly important over time as the need for frequent
+reconfiguration has grown. Despite this, reconfiguration has
+largely been neglected in the literature. In this paper, we
+present Matchmaker Paxos and Matchmaker MultiPaxos, a
+reconfigurable consensus and state machine replication pro-
+tocol respectively. Our protocols can perform a reconfigura-
+tion with little to no impact on the latency or throughput of
+command processing; they can perform a reconfiguration in
+one round trip (theoretically) and a few milliseconds (em-
+pirically); they provide a number of theoretical insights; and
+they present a framework that can be generalized to other
+replication protocols in a way that previous reconfiguration
+techniques can not. We provide proofs of correctness for the
+protocols and optimizations, and present empirical results
+from an open source implementation.
+This version of the paper is a technical report that in-
+cludes some additional information that is not present in
+our main publication. Additional text (like this) is anno-
+tated with a red bar along its left side.
+PVLDB Reference Format:
+Michael Whittaker, Neil Giridharan, Adriana Szekeres, Joseph M.
+Hellerstein, Heidi Howard, Faisal Nawab, and Ion Stoica. Match-
+maker Paxos: A Reconfigurable Consensus Protocol [Technical
+Report]. PVLDB, 13(xxx): xxxx-yyyy, 2020.
+DOI: https://doi.org/10.14778/xxxxxxx.xxxxxxx
+1. INTRODUCTION
+Strongly consistent distributed databases—like Spanner [8],
+CockroachDB [14], and FoundationDB [7]—are becoming
+increasingly adopted in industry and increasingly studied in
+academia. All of these distributed databases rely on some
+state machine replication protocol, like MultiPaxos [15] or
+This work is licensed under the Creative Commons Attribution-
+NonCommercial-NoDerivatives 4.0 International License. To view a copy
+of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/. For
+anyuse beyondthosecoveredby thislicense, obtain permissionbyemailing
+info@vldb.org. Copyrightisheldbytheowner/author(s). Publicationrights
+licensed to the VLDB Endowment.
+Proceedings of the VLDB Endowment, Vol. 13, No. xxx
+ISSN 2150-8097.
+DOI: https://doi.org/10.14778/xxxxxxx.xxxxxxx
+Raft [32], to keep multiple replicas of their data in sync. To
+ensure system availability, these replication protocols must
+be able to dynamically replace failed machines with live ma-
+chines, a process known as reconfiguration.
+Reconfiguration is an old problem, but recent computing
+trends make it a particularly timely topic of research. His-
+torically, state machine replication protocols were deployed
+on a fixed set of machines, and reconfiguration was used only
+to replace failed nodes with live nodes – an infrequent occur-
+rence. Recently however, systems have become increasingly
+elastic, and the need for frequent reconfiguration has grown.
+These elastic systems don’t just perform reconfigurations
+reactively when machines fail; they reconfigure proactively.
+For example, cloud databases can proactively request more
+resources to handle workload spikes, and orchestration tools
+like Kubernetes [13] are making it easier to build these types
+of elastic systems. Similarly, in environments with short-
+lived cloud instances—as with serverless computing and spot
+instances—and in mobile edge and Internet of Things set-
+tings, protocols must adapt to a changing set of machines
+much more frequently.
+Despite the (increasing) importance of reconfiguration, it
+has largely been neglected by current academic literature.
+Researchers have invented dozens of state machine replica-
+tion protocols, yet many papers either discuss reconfigura-
+tion briefly with no evaluation [28, 34, 36, 35], propose the-
+oretically safe but inefficient reconfiguration protocols [16,
+23], or do not discuss reconfiguration at all [17, 25, 26, 4, 3].
+In recent years, state-of-the-art databases—like MDCC [12],
+Janus [29], and TAPIR [43]—have begun to adopt more so-
+phisticated replication protocols, but these are exactly the
+protocols for which there are not well-established, high per-
+formance techniques for reconfiguration. Inventing new re-
+configuration protocols for these new databases is challeng-
+ing. Reconfiguration protocols are notoriously complicated
+and hard to get right. In one recent anecdote, Raft’s authors
+proposed a “simpler single-server” reconfiguration protocol
+to replace their original, more complicated protocol, but this
+simpler protocol turned out to be unsafe [31].
+In this paper, we present Matchmaker Paxos and Match-
+maker MultiPaxos, a reconfigurable consensus protocol and
+state machine replication protocol respectively. Our proto-
+cols have the following desirable properties:
+Little to No Performance Degradation. Matchmaker
+MultiPaxos can perform a reconfiguration without signifi-
+cantly degrading the throughput or latency of processing
+client commands. For example, we show that reconfigu-
+ration has less than a 2% effect on median and standard
+deviation latency measurements (Section 8).
+1
+arXiv:2007.09468v2 [cs.DC] 21 Jul 2020Quick Reconfiguration. Matchmaker MultiPaxos can
+perform a reconfiguration quickly. Theoretically, reconfigur-
+ing to a new set of machines takes one round trip of commu-
+nication (Section 4). Empirically, this requires only a few
+milliseconds within a single data center (Section 8).
+Theoretical Insights. Matchmaker Paxos offers theo-
+retical insights into many existing protocols (Section 7). It
+extends Vertical Paxos [20], it is the first protocol to achieve
+the theoretical lower bound on Fast Paxos [17] quorum sizes,
+and it corrects errors in DPaxos [30].
+Generality. Reconfiguration protocols are hard to in-
+vent, so ideally we would re-use existing protocols whenever
+possible. MultiPaxos’ horizontal reconfiguration [21] is ar-
+guably the most popular reconfiguration technique, but it
+makes assumptions that make it incompatible with many
+existing replication protocols. Matchmaker Paxos does not
+makes these restrictive assumptions, and can be more easily
+used by other replication protocols (Section 7).
+Proven Safe. We describe Matchmaker Paxos and Match-
+maker MultiPaxos precisely and prove that both are safe
+(Sections 3, 4, 5, 6). Unfortunately, this is not often done
+for reconfiguration protocols [27, 34, 36, 35].
+In a nutshell, our protocols work by leveraging two key de-
+sign ideas. The first is to decouple reconfiguration from the
+standard processing path. Many replication protocols [21,
+32] have nodes that are responsible for both processing com-
+mands and for orchestrating reconfigurations. By contrast,
+Matchmaker Paxos introduces a set of distinguished match-
+maker nodes that are solely responsible for managing recon-
+figurations. This decoupling, along with a number of novel
+protocol optimizations, allow us to perform reconfiguration
+quickly in the background, without degrading performance.
+The second design point is to reconfigure across rounds,
+not commands. Replication protocols based on classical
+MultiPaxos assume a totally ordered log of chosen com-
+mands, and reconfigure across log entries: each log entry
+is handled by a single configuration. Matchmaker Paxos in-
+stead works across rounds of consensus, as proposed by Ver-
+tical Paxos [20]. Different Paxos rounds—even for the same
+command—can use different configurations. Many replica-
+tion protocols in fact have no sequential log, but almost
+every one has some form of rounds (a.k.a. terms, epochs,
+views). Matchmaker Paxos gets its generality from this de-
+sign point, and goes beyond Vertical Paxos in terms of sim-
+plicity and efficiency (Section 7).
+2. BACKGROUND
+2.1 System Model
+Throughout the paper, we assume an asynchronous net-
+work model in which messages can be arbitrarily dropped,
+delayed, and reordered. We assume machines can fail by
+crashing but do not act maliciously; i.e., we do not consider
+Byzantine failures. We assume that machines operate at ar-
+bitrary speeds, and we do not assume clock synchronization.
+We assume a discovery service that nodes can use to find
+each other, but do not require that this service be strongly
+consistent. A node can safely communicate with outdated
+nodes. A system like DNS would suffice. Every protocol
+discussed in this paper assumes that at most f machines
+will fail for some configurable f.
+2.2 Paxos
+A consensus protocol is a protocol that selects a sin-
+gle value from a set of proposed values. Paxos [15, 18] is
+one of the oldest and most popular consensus protocols. We
+assume that the reader is familiar with Paxos, but we re-
+view the parts of the protocol that are most important to
+understand for the rest of the paper.
+A Paxos deployment that tolerates f faults consists of an
+arbitrary number of clients, f + 1 nodes called proposers,
+and 2f + 1 nodes called acceptors, as illustrated in Fig-
+ure 1. To reach consensus on a value, an execution of Paxos
+is divided into a number of rounds, each round having two
+phases: Phase 1 and Phase 2. Every round is orchestrated
+by a single pre-determined proposer. The set of rounds can
+be any unbounded totally ordered set with a least element.
+It is common to let the set of rounds be the set of lexico-
+graphically ordered integer pairs (r,id) where r is an integer
+and id is a proposer id, where a proposer is responsible for
+executing every round that contains its id.
+c1
+c2
+c3
+p1
+p2
+a1
+a2
+a3
+Clients
+f + 1
+Proposers
+2f + 1
+Acceptors
+1 2
+2
+3
+3
+(a) Phase 1
+c1
+c2
+c3
+p1
+p2
+a1
+a2
+a3
+Clients
+f + 1
+Proposers
+2f + 1
+Acceptors
+4
+4
+5
+5
+6
+(b) Phase 2
+Figure 1: Paxos communication diagram (f = 1).
+When a proposer executes a round, say round i, it at-
+tempts to get some value x chosen in that round. Paxos is
+a consensus protocol, so it must only choose a single value.
+Thus, Paxos must ensure that if a value x is chosen in round
+i, then no other value besides x can ever be chosen in any
+round less than i. This is the purpose of Paxos’ two phases.
+In Phase 1 of round i, the proposer contacts the acceptors
+to (a) learn of any value that may have already been chosen
+in any round less than i and (b) prevent any new values
+from being chosen in any round less than i. In Phase 2, the
+proposer proposes a value to the acceptors, and the accep-
+tors vote on whether or not to choose it. In Phase 2, the
+proposer is careful to only propose a value x if it learned
+through Phase 1 that no other value has been or will be
+chosen in a previous round.
+More concretely, Paxos executes as follows. When a client
+wants to propose a value x, it sends x to a proposer p.
+Upon receiving x, p begins executing one round of Paxos,
+say round i. First, it executes Phase 1. It sends Phase1Ahii
+messages to at least a majority of the acceptors. An accep-
+tor ignores a Phase1Ahii message if it has already received
+a message in a larger round. Otherwise, it replies with a
+Phase1Bhi,vr,vvi message containing the largest round vr
+in which the acceptor voted and the value it voted for, vv.
+If the acceptor hasn’t voted yet, then vr = −1 and vv =
+null. When the proposer receives Phase1b messages from a
+majority of the acceptors, Phase 1 ends and Phase 2 begins.
+At the start of Phase 2, the proposer uses the Phase1B
+messages that it received in Phase 1 to select a value x such
+that no value other than x has been or will be chosen in any
+2round less than i. Specifically x is the vote value associated
+with the largest received vote round, or any value if no ac-
+ceptor had voted (see [18] for details). Then, the proposer
+sends Phase2Ahi,xi messages to at least a majority of the
+acceptors. An acceptor ignores a Phase2Ahi,xi message if
+it has already received a message in a larger round. Other-
+wise, it votes for x and sends back a Phase2Bhii message
+to the proposer. If a majority of acceptors vote for the value
+(i.e. if the proposer receives Phase2Bhii messages from at
+least a majority of the acceptors), then the value is cho-
+sen, and the proposer informs the client. This execution is
+illustrated in Figure 1.
+2.3 Flexible Paxos
+Paxos deploys a set of 2f + 1 acceptors, and proposers
+communicate with at least a majority of the acceptors in
+Phase 1 and in Phase 2. Flexible Paxos [10] is a Paxos
+variant that generalizes the notion of a majority to that of a
+quorum. Specifically, Flexible Paxos introduces the notion
+of a configuration C = (A;P1;P2). A is a set of acceptors.
+P1 and P2 are sets of quorums, where each quorum is a
+subset of A. A configuration satisfies the property that every
+quorum in P1 (known as a Phase 1 quorum) intersects
+every quorum in P2 (known as a Phase 2 quorum).
+Flexible Paxos is identical to Paxos with the exception
+that proposers now communicate with an arbitrary Phase
+1 quorum in Phase 1 and an arbitrary Phase 2 quorum in
+Phase 2. In the remainder of this paper, we assume that all
+protocols operate using quorums from an arbitrary configu-
+ration rather than majorities from a fixed set of 2f + 1 ac-
+ceptors. So when we say Paxos, for example, we really mean
+Flexible Paxos. Note that configurations are also known as
+quorum systems [40].
+3. MATCHMAKER PAXOS
+We now present Matchmaker Paxos, a Paxos variant
+that allows us to reconfigure the set of acceptors. After
+we build some intuition about the protocol, we describe the
+protocol in detail and prove it is safe. In the next section,
+we’ll extend Matchmaker Paxos to Matchmaker MultiPaxos.
+3.1 Overview and Intuition
+Matchmaker Paxos is largely identical to Paxos. Like
+Paxos, a Matchmaker Paxos deployment includes an arbi-
+trary number of clients, a set of at least f + 1 proposers,
+and some set of acceptors, as illustrated in Figure 2. Paxos
+assumes that a single, fixed configuration of acceptors is
+used for every round. The big difference between Paxos and
+Matchmaker Paxos is that Matchmaker Paxos allows every
+round to have a different configuration of acceptors. Round
+0 may use some configuration C0, while round 1 may use
+some completely different configuration C1. This idea was
+first introduced by Vertical Paxos [20].
+Recall from Section 2, that a Paxos proposer in round i
+executes Phase 1 in order to (1) learn of any value that may
+have been chosen in a round less than i and (2) prevent any
+new values from being chosen in any round less than i. To
+do so, the proposer contacts the fixed set of acceptors. A
+Matchmaker Paxos proposer is no different. It must also ex-
+ecute Phase 1 and establish that these two properties hold.
+The difference is that there is no longer a single fixed con-
+figuration of acceptors to contact. Instead, a Matchmaker
+c1
+c2
+c3
+p1
+p2
+m1
+m2
+m3
+a1
+a2
+a3
+b1
+b2
+b3
+Clients
+f + 1
+Proposers
+2f + 1
+Matchmakers
+C0 Acceptors
+C1 Acceptors
+1
+8
+2
+2 3
+3
+4
+4
+5
+5
+6
+6
+7
+7
+2/3 Matchmaking Phase
+4/5 Phase 1 6/7 Phase 2
+Figure 2: Matchmaker Paxos communication diagram.
+Paxos proposer has to contact all of the configurations used
+in rounds less than i.
+However, every round uses a different configuration of ac-
+ceptors, so how does the proposer of round i know which
+acceptors to contact in Phase 1? To resolve this question, a
+Matchmaker Paxos deployment also includes a set of 2f +1
+matchmakers. When a proposer begins executing round i,
+it selects a configuration Ci. It sends the configuration Ci to
+the matchmakers, and the matchmakers reply with the con-
+figurations used in previous rounds. We call this the Match-
+making phase. The proposer then executes Phase 1 of Paxos
+with these prior configurations, and then executes Phase 2
+with configuration Ci, as illustrated in Figure 2. Naively,
+the extra round trip of communication with the matchmak-
+ers and the large number of configurations in Phase 1 make
+Matchmaker Paxos slow. In Sections 3.4, 4.4, and 5, we’ll
+introduce optimizations to eliminate these costs. It may also
+seem like we’ve solved the problem of reconfiguring acceptors
+by introducing a new problem of reconfiguring matchmak-
+ers, but this is not the case. In Section 6, we explain how we
+can reconfigure the matchmakers in a straightforward way.
+3.2 Details
+Every matchmaker maintains a log L of configurations
+indexed by round. That is, L[i] stores the configuration of
+round i. When a proposer receives a request x from a client
+and begins executing round i, it first selects a configuration
+Ci to use in round i. It then sends a MatchAhi,Cii message
+to all of the matchmakers.
+When a matchmaker receives a MatchAhi,Cii message,
+it checks to see if it had previously received a MatchAhj,Cji
+message for some round j ≥ i. If so, the matchmaker ignores
+the MatchAhi,Cii message. Otherwise, it inserts Ci in log
+entry i and computes the set Hi of previous configurations
+in the log: Hi = {(j,Cj)|j < i,Cj ∈ L}. It then replies
+to the proposer with a MatchBhi,Hii message. An exam-
+ple execution of a matchmaker is illustrated in Figure 3.
+Matchmaker pseudocode is given in Algorithm 1.
+When the proposer in round i receives MatchBhi,H1
+i i,
+30
+1
+2
+3
+(a)
+C0 0
+1
+2
+3
+(b)
+C0 0
+1
+C2 2
+3
+(c)
+C0 0
+1
+C2 2
+C3 3
+(d)
+Figure 3: A matchmaker’s log over time. (a) Initially, the
+matchmaker’s log is empty. (b) Then, the matchmaker re-
+ceives MatchAh0,C0i. It inserts C0 in log entry 0 and
+returns MatchBh0,∅i since the log does not contain any
+configuration in any round less than 0. (c) The match-
+maker then receives MatchAh2,C2i. It inserts C2 in log
+entry 2 and returns MatchBh2,{(0,C0)}i. (d) It then re-
+ceives MatchAh3,C3i, inserts C3 in log entry 3, and returns
+MatchBh3,{(0,C0),(2,C2)}i. At this point, if the match-
+maker were to receive MatchAh1,C1i, it would ignore it.
+Algorithm 1 Matchmaker Pseudocode
+State: a log L indexed by round, initially empty
+1: upon receiving MatchAhi,Cii from proposer p do
+2: if ∃ a configuration Cj in round j ≥ i in L then
+3: ignore the MatchAhi,Cii message
+4: else
+5: Hi ← {(j,Cj)|Cj ∈ L}
+6: L[i] ← Ci
+7: send MatchBhi,Hii to p
+..., MatchBhi,Hf+1
+i i from f+1 matchmakers, it computes
+Hi = ∪f+1
+j=1 Hj
+i . For example, with f = 1 and i = 2, if
+the proposer in round 2 receives MatchBh2,{(0,C0)}i and
+MatchBh2,{(1,C1)}i, it computes H2 = {(0,C0),(1,C1)}.
+Note that every round is statically assigned to a single pro-
+poser and that a proposer selects a single configuration for
+a round. So, if two matchmakers return configurations for
+the same round, they are guaranteed to be the same.
+The proposer then ends the Matchmaking phase and be-
+gins Phase 1. It sends Phase1A messages to every acceptor
+in every configuration in Hi and waits to receive Phase1B
+messages from at least a Phase 1 quorum from every con-
+figuration in Hi. Using the previous example, the proposer
+would send Phase1A messages to every acceptor in C0 and
+C1 and would wait for Phase1B messages from a Phase 1
+quorum of C0 and a Phase 1 quorum of C1. The proposer
+then runs Phase 2 with Ci.
+Acceptor and proposer pseudocode are shown in Algo-
+rithm 2 and Algorithm 3 respectively. To keep things simple,
+we assume that round numbers are integers, but generalizing
+is straightforward. A Matchmaker Paxos acceptor is iden-
+tical to a Paxos acceptor. A Matchmaker Paxos proposer
+is nearly identical to a regular Paxos proposer with the ex-
+ception of the Matchmaking phase and the configurations
+used in Phase 1 and Phase 2. For clarity of exposition, we
+omit straightforward details surrounding re-sending dropped
+messages and nacking ignored messages.
+3.3 Proof of Safety
+We now prove that Matchmaker Paxos is safe; i.e. ev-
+ery execution of Matchmaker Paxos chooses at most one
+value. We include the proof not only to convince you that
+Algorithm 2 Acceptor Pseudocode
+State: the largest seen round r, initially −1
+State: the largest round vr voted in, initially −1
+State: the value vv voted for in round vr, initially null
+1: upon receiving Phase1Ahii from p with i > r do
+2: r ← i
+3: send Phase1Bhi,vr,vvi to p
+4: upon receiving Phase2Ahi,xi from p with i ≥ r do
+5: r,vr,vv ← i,i,x
+6: send Phase2Bhii to p
+Algorithm 3 Proposer Pseudocode
+State: a value x, initially null
+State: a round i, initially −1
+State: the configuration Ci for round i, initially null
+State: the prior configurations Hi for round i, initially null
+1: upon receiving value y from a client do
+2: i ← next largest round owned by this proposer
+3: x ← y
+4: Ci ← an arbitrary configuration
+5: send MatchAhi,Cii to all of the matchmakers
+6: upon receiving MatchBhi,H1
+i i,...,MatchBhi,Hf+1
+i i
+from f + 1 matchmakers do
+7: Hi ←
+Sf+1
+j=1 Hj
+i
+8: send Phase1Ahii to every acceptor in Hi
+9: upon receiving Phase1Bhi,−,−i from a Phase 1 quo-
+rum from every configuration in Hi do
+10: k ← the largest vr in any Phase1Bhi,vr,vvi
+11: if k 6= −1 then
+12: x ← the corresponding vv in round k
+13: send Phase2Ahi,xi to every acceptor in Ci
+14: upon receiving Phase2Bhii from a Phase 2 quorum do
+15: x is chosen, inform the client
+the protocol is safe, but also because we believe that the
+proof makes it clear how and why Matchmaker Paxos works
+the way it does.
+Proof. Our proof is based off of the Paxos safety proof in [17].
+We prove, for every round i, the statement P(i): “if a pro-
+poser proposes a value v in round i (i.e. sends a Phase2A
+message for value v in round i), then no value other than v
+has been or will be chosen in any round less than i.” P(i)
+suffices to prove that Matchmaker Paxos is safe for the fol-
+lowing reason. Assume for contradiction that Matchmaker
+Paxos chooses distinct values x and y in rounds i and j with
+i < j. Some proposer must have proposed y in round j, so
+P(j) ensures us that no value other than y could have been
+chosen in round i. But, x was chosen, a contradiction.
+We prove P(i) by strong induction on i. P(0) is vacuous
+because there are no rounds less than 0. For the general
+case P(i), we assume P(0),...,P(i−1). We perform a case
+analysis on the proposer’s pseudocode. Either k is −1 or it
+is not (line 11). First, assume it is not. In this case, the
+proposer proposes x, the value proposed in round k (line
+12). We perform a case analysis on j to show that no value
+other than x has been or will be chosen in any round j < i.
+Case 1: j > k. We show that no value has been or
+will be chosen in round j. Recall that at the end of the
+Matchmaking phase, the proposer computed the set Hi of
+4prior configurations using responses from a set M of f +
+1 matchmakers. Either Hi contains a configuration Cj in
+round j or it doesn’t.
+First, suppose it does. Then, the proposer sent Phase1Ahii
+messages to all of the acceptors in Cj. A Phase 1 quorum
+of these acceptors, say Q, all received Phase1Ahii messages
+and replied with Phase1B messages. Thus, every acceptor
+in Q set its round r to i, and in doing so, promised to never
+vote in any round less than i. Moreover, none of the accep-
+tors in Q had voted in any round greater than k. So, every
+acceptor in Q has not voted and never will vote in round j.
+For a value v0
+to be chosen in round j, it must receive votes
+from some Phase 2 quorum Q0
+of round j acceptors. But,
+Q and Q0
+necessarily intersect, so this is impossible. Thus,
+no value has been or will be chosen in round j.
+Now suppose that Hi does not contain a configuration for
+round j. Hi is the union of f + 1 MatchB messages from
+the f + 1 matchmakers in M. Thus, if Hi does not con-
+tain a configuration for round j, then none of the MatchB
+messages did either. This means that for every matchmaker
+m ∈ M, when m received MatchAhi,Cii, it did not con-
+tain a configuration for round j in its log. Moreover, by
+processing the MatchAhi,Cii request and inserting Ci in
+log entry i, the matchmaker is guaranteed to never process
+a MatchAhj,Cji request in the future. Thus, every match-
+maker in M has not processed a MatchA request in round
+j and never will. For a value to be chosen in round j, the
+proposer executing round j must first receive replies from
+f + 1 matchmakers, say M0
+, in round j. But, M and M0
+necessarily intersect, so this is impossible. Thus, no value
+has been or will be chosen in round j.
+Case 2: j = k. In a given round, at most one value is
+proposed, let alone chosen. x is the value proposed in round
+k, so no other value could be chosen in round k.
+Case 3: j < k. We can apply the inductive hypothesis to
+get P(k) which states that no value other than x has been
+or will be chosen in any round less than k. This includes
+round j, which is exactly what we’re trying to prove.
+Finally, if k is −1, then we are in the same situation as in
+Case 1. No value has been or will be chosen in any round
+less than i.
+3.4 Optimizations
+Optimization 1: Proactive Matchmaking. Note that
+the Matchmaking phase is independent of any client value,
+so a proposer can proactively run the Matchmaking phase
+in round i before it hears from a client. This is similar to
+proactively executing Phase 1, a standard optimization.
+Optimization 2: Phase 1 Bypassing. Assume that
+the proposer in round i has proactively executed the Match-
+making phase and Phase 1. Through Phase 1, it finds that
+k = −1 and thus learns that no value has been chosen in
+any round less than i (see the safety proof above). Assume
+that before executing Phase 2, the proposer transitions from
+round i to round i + 1, which it also owns. After executing
+the Matchmaking phase in round i + 1, the proposer can
+skip Phase 1 and proceed directly to Phase 2. Why? The
+proposer established in round i that no value has been or
+will be chosen in any round less than i. Moreover, because
+it did not run Phase 2 in round i, it also knows that no value
+has been or will be chosen in round i. Together, these imply
+that no value has been or will be chosen in any round less
+than i + 1. Normally, the proposer would run Phase 1 in
+round i + 1 to establish this fact, but since it has already
+established it, it can instead proceed directly to Phase 2.
+Similarly, assume that the proposer in round i has exe-
+cuted the Matchmaking phase and Phase 1. It then pro-
+poses a value v in round i. The proposer then transitions
+from round i to round i + 1, which it also owns. After exe-
+cuting the Matchmaking phase in round i + 1, the proposer
+can skip Phase 1 and proceed directly to Phase 2 to propose
+v. Why? The proposer established in round i that no value
+other than v has been or will be chosen in any round less
+than i. Moreover, no value other than v has been or will
+be chosen in round i. Together, these imply that no value
+other than v has been or will be chosen in any round less
+than i + 1. Normally, the proposer would run Phase 1 in
+round i + 1 to establish this fact, but since it has already
+established it, it can instead proceed immediately to Phase
+2.
+This optimization depends on a proposer being the leader
+of round i and the leader of the next round i + 1. We can
+construct a set of rounds such that this is always the case
+(remember that the set of rounds can be any unbounded
+totally ordered set with a least element). Let the set of
+rounds be the set of lexicographically ordered tuples (r,id,s)
+where r and s are both integers and id is a proposer id.
+A proposer owns all the rounds that contain its id. For
+example given two proposers a and b, we have the following
+ordering on rounds:
+(0,a,0) < (0,a,1) < (0,a,2) < (0,a,3) < ···
+(0,b,0) < (0,b,1) < (0,b,2) < (0,b,3) < ···
+(1,a,0) < (1,a,1) < (1,a,2) < (1,a,3) < ···
+With this set of rounds, the proposer p in round (r,p,s)
+always owns the next round (r,p,s + 1).
+We acknowledge that, for now, this optimization sounds
+very esoteric. For Matchmaker Paxos, it is. In the next sec-
+tion, we’ll see that this optimization is essential for imple-
+menting Matchmaker MultiPaxos with good performance.
+Also note that this optimization is not particular to Match-
+maker Paxos. Paxos and MultiPaxos can both take advan-
+tage of this optimization.
+Optimization 3: Garbage Collection. A proposer
+performs Phase 1 with every configuration returned by the
+matchmakers. This can be prohibitively expensive if the
+matchmakers return a large number of configurations. Later
+in Section 5, we introduce a garbage collection protocol to
+delete old configurations. In Section 8, we see empirically
+that Matchmakers usually return just a single configuration.
+Optimization 4: Round Pruning. Note that a pro-
+poser does not always need to receive Phase1B messages
+from all previous rounds. If the proposer in round i receives
+a Phase1Bhi,vr,vvi message, then it no longer needs to
+intersect configurations in rounds less than vr. This opti-
+mization is a lighter weight version of the garbage collection
+protocol we describe in Section 5.
+Optimization 5: Concurrent Matchmaking, Phase
+1. Note that a proposer can safely execute the Matchmaking
+phase and Phase 1 in parallel. This is useful if proposers
+rarely change the set of acceptors during a leader change. It
+is particularly useful if we co-locate the 2f +1 matchmakers
+with 2f + 1 acceptors and combine the Matchmaking and
+Phase 1 messages together. This makes Matchmaker Paxos
+have equal message complexity to MultiPaxos’ horizontal
+5reconfiguration protocol.
+Optimization 6: Flexible Matchmakers. For sim-
+plicity, we described matchmakers as a fixed set of 2f + 1
+matchmakers. In reality, we can deploy an arbitrary set of
+matchmakers with an arbitrary set of matchmaker quorums,
+so long as every pair of quorums intersect.
+4. MATCHMAKER MULTIPAXOS
+In this section, we extend Matchmaker Paxos to Match-
+maker MultiPaxos.
+4.1 MultiPaxos
+First, we summarize MultiPaxos. Whereas Paxos is a
+consensus protocol that agrees on a single value, Multi-
+Paxos [15, 38] is a state machine replication protocol
+that agrees on a sequence, or “log” of values. MultiPaxos
+manages multiple replicas of a state machine. Clients send
+state machine commands to MultiPaxos, MultiPaxos places
+the commands in a totally ordered log, and state machine
+replicas execute the commands in log order. By beginning in
+the same initial state and executing the same commands in
+the same order, all state machine replicas are kept in sync.
+c1
+c2
+c3
+p1
+p2
+a1
+a2
+a3
+r1
+r2
+Clients
+f + 1
+Proposers
+Configuration C
+of Acceptors
+f + 1
+Replicas
+1 2
+2
+3
+3
+4
+4
+5
+Figure 4: An example execution of MultiPaxos (f = 1). The
+leader is adorned with a crown.
+To agree on a log of commands, MultiPaxos implements
+one instance of Paxos for every log entry. The ith instance of
+Paxos chooses the command in log entry i. More concretely,
+a MultiPaxos deployment that tolerates f faults consists of
+an arbitrary number of clients, at least f + 1 proposers, a
+configuration C of acceptors, and at least f + 1 replicas, as
+illustrated in Figure 4.
+One of the proposers is elected leader in some round, say
+round i. We assume the leader knows that log entries up to
+and including log entry w have already been chosen (e.g.,
+by communicating with previous leaders, or by communi-
+cating with the replicas). The leader then runs Phase 1 of
+Paxos in round i for every log entry larger than w. Note
+that even though there are an infinite number of log entries
+larger than w, the leader can execute Phase 1 using a finite
+amount of information. In particular, the leader sends a
+single Phase1Ahii message that acts as the Phase1A mes-
+sage for every log entry larger than w. Also, an acceptor
+replies with a Phase1Bhi,vr,vvi message only for log en-
+tries in which the acceptor has voted. The infinitely many
+log entries in which the acceptor has not yet voted do not
+yield an explicit Phase1B message.
+The leader’s knowledge about the log after Phase 1 is
+shown in Figure 5. The leader knows that a prefix of the
+log (up to and including log entry w) has already been cho-
+sen. Then, there is a subsequence of the log that contains
+commands that may have already been chosen in a round
+less than i. This subsequence may contain unchosen entries,
+which we call “holes”. Finally, the log has an infinite tail of
+empty entries in which the leader knows no command has
+previously been chosen.
+a
+0
+b
+1
+c
+w
+d?
+3 4
+e?
+5 6 7 8
+···
+already
+chosen
+maybe
+chosen
+not
+chosen
+Figure 5: A leader’s knowledge of the log after Phase 1.
+After Phase 1, the leader sends a Phase2A message for
+every log entry in the middle subsequence of potentially cho-
+sen commands, proposing a “no-op” command for the holes.
+Simultaneously, the leader begins accepting client requests.
+When a client wants to propose a state machine command,
+it sends the command to the leader. The leader assigns log
+entries to commands in increasing order, beginning at the
+start of the infinite tail of unchosen entries. It then runs
+Phase 2 of Paxos to get the command chosen in that entry
+in round i. Once the leader learns that a command has been
+chosen in a given log entry, it informs the replicas. Replicas
+insert chosen commands into their logs and execute the logs
+in prefix order, sending the results of execution back to the
+clients. This execution is illustrated in Figure 4.
+It is critical to note that a leader performs Phase 1 of
+Paxos only once per round, not once per command. In other
+words, Phase 1 is not performed during normal operation.
+It is performed only when the leader fails and new leader is
+elected in a larger round, an uncommon occurrence.
+4.2 Matchmaker MultiPaxos
+We first extend Matchmaker Paxos to Matchmaker Mul-
+tiPaxos with Optimization 1 (Proactive Matchmaking) but
+without Optimization 2 (Phase 1 Bypassing) or 3 (Garbage
+Collection). We’ll see how to incorporate Optimization 2
+momentarily and Optimization 3 in the next section. The
+extension from Matchmaker Paxos to Matchmaker Multi-
+Paxos is completely analogous to the extension of Paxos to
+MultiPaxos. Matchmaker MultiPaxos reaches consensus on
+a totally ordered log of state machine commands, one log
+entry at a time, using one instance of Matchmaker Paxos
+for every log entry.
+More concretely, a Matchmaker MultiPaxos deployment
+consists of an arbitrary number of clients, at least f + 1
+proposers, a set of 2f + 1 matchmakers, a dynamic set of
+acceptors (one configuration per round), and a set of at least
+f + 1 state machine replicas. We assume, as is standard,
+that a leader election algorithm is used to select one of the
+proposers as a stable leader in some round, say round i.
+The leader selects a configuration Ci of acceptors that it
+will use for every log entry. The mechanism by which the
+configuration is chosen is an orthogonal concern.
+The leader then executes the Matchmaking phase in ex-
+actly the same way as in Matchmaker Paxos (i.e. it sends
+MatchAhi,Cii messages to the matchmakers and awaits
+MatchBhi,Hii responses). After the Matchmaking phase
+completes, the leader executes Phase 1 for every log entry.
+This is identical to MultiPaxos, except that the leader uses
+the configurations returned by the matchmakers rather than
+6assuming a fixed configuration. Note that Optimization 1
+allows the leader to execute the Matchmaking phase and
+Phase 1 before receiving any client requests.
+The leader then enters Phase 2 and operates exactly as it
+would in MultiPaxos. It executes Phase 2 with Ci for any
+potentially unchosen values it learned about in Phase 1, and
+it fills in any holes in the log with no-ops. Moreover, when it
+receives a state machine command from a client, it assigns
+the command a log entry, runs Phase 2 with the acceptors in
+Ci, and informs the replicas when the command is chosen.
+Replicas execute commands in log order and send the results
+of executing commands back to the clients.
+4.3 Discussion
+Note that unlike regular MultiPaxos, Matchmaker Mul-
+tiPaxos does not require a separate mechanism to perform
+a reconfiguration. Reconfiguration is baked into the proto-
+col. To change from some configuration Cold in round i to
+some new configuration Cnew, the leader of round i simply
+advances to round i + 1 and selects the new configuration
+Cnew. The new configuration is active immediately after
+the Matchmaking phase, a one round trip delay. Though
+the new configuration is active immediately, it is not safe
+to deactivate the acceptors in the old configuration immedi-
+ately. They are still needed. In Section 5, we’ll see why this
+is the case and when it is safe to retire old configurations.
+Also note that Matchmaker MultiPaxos does not perform
+the Matchmaking Phase or Phase 1 on the critical path
+of normal execution. Similar to how MultiPaxos executes
+Phase 1 only once per leader change (and not once per
+command), Matchmaker MultiPaxos runs the Matchmaking
+phase and Phase 1 only when a new leader is elected or when
+a leader changes its round (e.g., when a leader transitions
+from round i to round i + 1 as part of a reconfiguration).
+In the normal case (i.e. during Phase 2), Matchmaker Mul-
+tiPaxos and MultiPaxos are identical. Matchmaker Multi-
+Paxos does not introduce any overheads in the normal case.
+Further note that configurations do not have to be unique
+across rounds. The leader in round i is free to re-use a
+configuration Cj that was used in some round j < i.
+Finally note that, in theory, the Matchmaking phase of
+Matchmaker Paxos is not fully live (which is fundamentally
+unavoidable [9]). If multiple proposers simultaneously ex-
+ecute the Matchmaking phase, it is possible to experience
+“dueling proposers” [18]. Matchmaker MultiPaxos avoids
+this in practice using leader election. A proposer only initi-
+ates the Matchmaking phase if it is elected leader.
+4.4 Optimization
+Ideally, Matchmaker MultiPaxos’ performance would be
+unaffected by a reconfiguration. The latency of every client
+request and the protocol’s overall throughput would remain
+constant throughout a reconfiguration. Matchmaker Multi-
+Paxos as we’ve described it so far, however, does not meet
+this ideal. During a reconfiguration, a leader must tem-
+porarily stop processing client commands and wait for the
+reconfiguration to finish before resuming normal operation.
+This is illustrated in Figure 6. Figure 6 shows a leader p1
+reconfiguring from a configuration of acceptors Cold consist-
+ing of acceptors a1, a2, and a3 in round i to a new configu-
+ration of acceptors Cnew consisting of acceptors b1, b2, and
+b3 in round i + 1. While the leader performs the reconfig-
+uration, clients continue to send state machine commands
+to the leader. We consider such a command and perform a
+case analysis on when the command arrives at the leader to
+see whether or not the command has to be stalled.
+Case 1: Matchmaking (Figure 6a). If the leader re-
+ceives a command during the Matchmaking phase, then the
+leader can process the command as normal in round i using
+the acceptors in Cold. Even though the leader is executing
+the Matchmaking phase in round i+1 and is communicating
+with the matchmakers, the acceptors in Cold are oblivious
+to this and can process commands in Phase 2 in round i.
+Case 2: Phase 1 (Figure 6b). If the leader receives
+a command during Phase 1, then the leader cannot process
+the command. It must delay the processing of the command
+until Phase 1 finishes. Here’s why. Once an acceptor in Cold
+receives a Phase1Ahi+1i message, it will reject any future
+commands in rounds less than i + 1, so the leader is unable
+to send the command to Cold. The leader also cannot send
+the command to Cnew in round i + 1 because it has not yet
+finished executing Phase 1.
+Case 3: Phase 2 (Figure 6c). If the leader receives
+a command during Phase 2, then the leader can send the
+command to the new acceptors in Cnew in round i+1. This
+is the normal case of execution.
+In summary, any commands received during Phase 1 of a
+reconfiguration are delayed. Fortunately, we can eliminate
+this problem by applying Optimization 2 (Phase 1 Bypass-
+ing) from Section 3 to Matchmaker MultiPaxos. Consider
+a leader performing a reconfiguration from Ci in round i to
+Ci+1 in round i + 1. At the end of the Matchmaking phase
+and at the beginning of Phase 1 (in round i+1), let k be the
+largest log entry that the leader has assigned to a command.
+That is, all log entries after entry k are empty. These log
+entries satisfy the preconditions of Optimization 2, so it is
+safe for the leader to bypass Phase 1 in round i+1 for these
+log entries in the following way. When a leader receives a
+command after the Matchmaking phase, it assigns the com-
+mand a log entry larger than k, skips Phase 1, and executes
+Phase 2 in round i + 1 with Cnew immediately.
+With this optimization and the round scheme described in
+Section 3.4, no state machine commands are delayed. Com-
+mands received during the Matchmaking phase or earlier are
+chosen in round i by Cold in log entries up to and including
+k. Commands received during Phase 1, Phase 2, or later are
+chosen in round i+1 by Cnew in log entries k+1, k+2, k+3,
+and so on. With this optimization Matchmaker MultiPaxos
+can be reconfigured with minimal performance degradation.
+We confirm this empirically in Section 8.
+5. RETIRING OLD CONFIGURATIONS
+We’ve discussed how to introduce new configurations. Now,
+we explain how to shut down old configurations. We discuss
+Matchmaker Paxos, then Matchmaker MultiPaxos.
+5.1 Matchmaker Paxos (How)
+At the beginning of round i, a proposer p executes the
+Matchmaking phase and computes a set Hi of configura-
+tions in rounds less than i. The proposer then executes
+Phase 1 with the acceptors in these configurations. Assume
+Hi contains a configuration Cj for a round j < i. If we
+prematurely shut down the acceptors in Cj, then proposer
+p will get stuck in Phase 1, waiting for Phase1B messages
+from a quorum of nodes that have been shut down. There-
+fore, we cannot shut down the acceptors in a configuration
+7c1
+c2
+c3
+p1
+p2
+m1
+m2
+m3
+a1
+a2
+a3
+b1
+b2
+b3
+1
+1 2
+2
+a
+b
+b
+c
+c
+d
+(a) Matchmaking
+c1
+c2
+c3
+p1
+p2
+m1
+m2
+m3
+a1
+a2
+a3
+b1
+b2
+b3
+3
+3
+4
+4
+a
+(b) Phase 1
+c1
+c2
+c3
+p1
+p2
+m1
+m2
+m3
+a1
+a2
+a3
+b1
+b2
+b3
+5
+5
+6
+6
+a
+b
+b
+c
+c
+d
+(c) Phase 2
+Figure 6: An example Matchmaker MultiPaxos reconfiguration without Optimization 2. The leader p1 reconfigures from the
+acceptors a1, a2, a3 to the acceptors b1, b2, b3. Client commands are drawn as gray dashed lines. Note that every subfigure
+shows one phase of a reconfiguration using solid colored lines, but the dashed lines show the complete execution of a client
+request that runs concurrently with the reconfiguration. For simplicity, we assume that every proposer also serves as a replica.
+Cj until we are sure that the matchmakers will never again
+return Cj during the Matchmaking phase.
+Thus, we extend Matchmaker Paxos to allow matchmak-
+ers to garbage collect configurations from their logs, ensur-
+ing that the garbage collected configurations will not be re-
+turned during any future Matchmaking phase. More con-
+cretely, a proposer p can now send a GarbageAhii com-
+mand to the matchmakers informing them to garbage collect
+all configurations in rounds less than i. When a matchmaker
+receives a GarbageAhii message, it deletes log entry L[j]
+for every round j < i. It then updates a garbage collection
+watermark w to the maximum of w and i and sends back a
+GarbageBhii message to the proposer. See Algorithm 4.
+Algorithm 4 Matchmaker Pseudocode (with GC). Changes
+to Algorithm 1 are shown in red.
+State: a log L indexed by round, initially empty
+State: a garbage collection watermark w, initially 0
+1: upon receiving GarbageAhii from proposer p do
+2: for all j < i do
+3: delete L[j]
+4: w ← max(w,i)
+5: send GarbageBhii to p
+6: upon receiving MatchAhi,Cii from proposer p do
+7: if i < w or ∃ Cj in round j ≥ i in L then
+8: ignore the MatchAhi,Cii message
+9: else
+10: Hi ← {(j,Cj)|Cj ∈ L}
+11: L[i] ← Ci
+12: send MatchBhi,w,Hii to p
+We also update the Matchmaking phase in three ways.
+First, a matchmaker ignores a MatchAhi,Cii message if i
+has been garbage collected (i.e. if i < w). Second, a match-
+maker returns its garbage collection watermark w in every
+MatchB that it sends. Third, when a proposer receives
+MatchBhi,w1,H1
+i i, ..., MatchBhi,wf+1,Hf+1
+i i from f+1
+matchmakers, it again computes Hi = ∪f+1
+j=1 Hj
+i . It then
+computes w = maxf+1
+j=1 wj and prunes every configuration
+in Hi in a round less than w. In other words, if any of the
+f +1 matchmakers have garbage collected round j, then the
+proposer also garbage collects round j.
+Once a proposer receives GarbageBhii messages from at
+least f + 1 matchmakers M, it is guaranteed that all future
+Matchmaking phases will not include any configuration in
+any round less than i. Why? Consider a future Match-
+making phase run with f + 1 matchmakers M0
+. M and M0
+intersect, so some matchmaker m in the intersection has a
+garbage collection watermark at least as large as i.
+Thus, once a configuration has been garbage collected by
+a majority of the matchmakers, we can shut down the ac-
+ceptors in the configuration.
+5.2 Matchmaker Paxos (When)
+Once a configuration has been garbage collected, it is safe
+to shut it down, but when is it safe to garbage collect a
+configuration? It is certainly not always safe. For example,
+if we prematurely garbage collect configuration Cj in round
+j, a future proposer in round i > j may not learn about a
+value v chosen in round j and then erroneously get a value
+other than v chosen in round i. There are three situations
+in which it is safe for a proposer pi in round i to issue a
+GarbageAhii command. We explain the three situations
+and provide intuition on why they are safe.
+Scenario 1. If the proposer pi gets a value x chosen in
+round i, then it can safely issue a GarbageAhii command.
+Why? When a proposer pj in round j > i executes Phase 1,
+it will learn about the value x and propose x in Phase 2. But
+first, it must establish that no value other than x has been
+or will be chosen in any round less than j. The proposer
+pi already established this fact for all rounds less than i, so
+any communication with the configurations in these rounds
+is redundant. Thus, we can garbage collect them.
+Scenario 2. If the proposer pi executes Phase 1 in round
+i and finds k = −1, then it can safely issue a GarbageAhii
+command. Recall from Section 3 that if k = −1, then no
+value has been or will be chosen in any round less than i.
+This situation is similar to Scenario 1. Any future proposer
+pj in round j > i does not have to redundantly communicate
+with the configurations in rounds less than i since pi already
+established that no value has been chosen in these rounds.
+Scenario 3. If the proposer pi learns that a value x
+8has already been chosen and has been stored on f +1 other
+machines, then the proposer can safely issue a GarbageAhii
+command after it informs a Phase 2 quorum of acceptors in
+Ci of this fact. Any future proposer pj in round j > i will
+contact a Phase 1 quorum of Ci and encounter at least one
+acceptor that knows the value x has already been chosen.
+When this acceptor informs pj that a value x has already
+been chosen, pj stops executing the protocol entirely and
+simply fetches the value x from one of the f + 1 machines
+that store the value. Note that the decision of exactly which
+f + 1 machines is not important. Any f + 1 machines can
+be used. In our implementation, we use f + 1 replicas.
+To prove that these three scenarios are safe, we repeat the
+safety proof from Section 3. The new bits are shown in red.
+Proof. We prove, for every round i, the statement P(i): “if a
+proposer proposes a value v in round i (i.e. sends a Phase2A
+message for value v in round i), then no value other than v
+has been or will be chosen in any round less than i.” P(i)
+suffices to prove that Matchmaker Paxos is safe for the fol-
+lowing reason. Assume for contradiction that Matchmaker
+Paxos chooses distinct values x and y in rounds i and j with
+i < j. Some proposer must have proposed y in round j, so
+P(j) ensures us that no value other than y could have been
+chosen in round i. But, x was chosen, a contradiction.
+We prove P(i) by strong induction on i. P(0) is vacuous
+because there are no rounds less than 0. For the general
+case P(i), we assume P(0),...,P(i−1). We perform a case
+analysis on the proposer’s pseudocode. Either k is −1 or it
+is not (line 11). First, assume it is not. In this case, the
+proposer proposes x, the value proposed in round k (line
+12). We perform a case analysis on j to show that no value
+other than x has been or will be chosen in any round j < i.
+Case 1: j > k. We show that no value has been or
+will be chosen in round j. Recall that at the end of the
+Matchmaking phase, the proposer computed the set Hi of
+prior configurations using responses from a set M of f +
+1 matchmakers. Either Hi contains a configuration Cj in
+round j or it doesn’t.
+First, suppose it does. Then, the proposer sent Phase1Ahii
+messages to all of the acceptors in Cj. A Phase 1 quorum
+of these acceptors, say Q, all received Phase1Ahii messages
+and replied with Phase1B messages. Thus, every acceptor
+in Q set its round r to i, and in doing so, promised to never
+vote in any round less than i. Moreover, none of the accep-
+tors in Q had voted in any round greater than k. So, every
+acceptor in Q has not voted and never will vote in round j.
+For a value v0
+to be chosen in round j, it must receive votes
+from some Phase 2 quorum Q0
+of round j acceptors. But,
+Q and Q0
+necessarily intersect, so this is impossible. Thus,
+no value has been or will be chosen in round j.
+Now suppose that Hi does not contain a configuration for
+round j. Either a configuration Cj was garbage collected
+from Hi or it wasn’t. First, assume it wasn’t. Then, Hi is
+the union of f +1 MatchB messages from the f +1 match-
+makers in M. Thus, if Hi does not contain a configuration
+for round j, then none of the MatchB messages did either.
+This means that for every matchmaker m ∈ M, when m
+received MatchAhi,Cii, it did not contain a configuration
+for round j in its log and never did. Moreover, by pro-
+cessing the MatchAhi,Cii request and inserting Ci in log
+entry i, the matchmaker is guaranteed to never process a
+MatchAhj,Cji request in the future. Thus, every match-
+maker in M has not processed a MatchA request in round
+j and never will. For a value to be chosen in round j, the
+proposer executing round j must first receive replies from
+f + 1 matchmakers, say M0
+, in round j. But, M and M0
+necessarily intersect, so this is impossible. Thus, no value
+has been or will be chosen in round j.
+Otherwise, a configuration Cj was garbage collected from
+Hi. Note that none of the matchmakers in M had received
+a GarbageAhi0
+i command for a round i0
+> i when they
+responded with their MatchB messages. If they had, they
+would have ignored our MatchAhi,Cii message. Let i0
+be
+the largest round j < i0
+< i such that a matchmaker in M
+had received a GarbageAhi0
+i message before responding to
+our MatchAhi,Cii message.
+If i0
+was garbage collected because of Scenario 1, then k
+would be at least as large as i0
+since we would have inter-
+sected the Phase 2 quorum of Ci0 used in round i0
+to get
+a value chosen. But k < j < i0
+, a contradiction. If i0
+was
+garbage collected because of Scenario 2, then we know no
+value has been or will be chosen in round j. If i0
+was garbage
+collected because of Scenario 3, then we would have inter-
+sected the Phase 2 quorum of Ci0 that knows a value was
+already chosen, and we would have not proposed a value in
+the first place. But, we proposed x, a contradiction.
+Case 2: j = k. In a given round, at most one value is
+proposed, let alone chosen. x is the value proposed in round
+k, so no other value could be chosen in round k.
+Case 3: j < k. We can apply the inductive hypothesis to
+get P(k) which states that no value other than x has been
+or will be chosen in any round less than k. This includes
+round j, which is exactly what we’re trying to prove.
+Finally, if k is −1, then we are in the same situation as in
+Case 1.
+5.3 Matchmaker MultiPaxos
+Recall that the Matchmaker MultiPaxos leader pi in round
+i uses a single configuration Ci for every log entry. The
+leader pi can safely issue a GarbageAhii command to the
+matchmakers once it ensures that every log entry satisfies
+one of the three scenarios listed above. It does so as follows.
+Recall from Figure 5 that at the end of Phase 1 and at
+the beginning of Phase 2, the log can be divided into three
+regions: a prefix of log entries that the leader knows have
+already been chosen, a subsequence of commands that the
+leader gets chosen in Phase 2, and an infinite tail of empty
+entries. Scenario 2 applies to the infinite tail of empty log
+entries. These are the log entries for which k = −1. Scenario
+1 applies to the middle subsequence of commands once the
+leader gets them chosen. Scenario 3 applies to the prefix of
+chosen entries if we make the following adjustments. First,
+we deploy 2f+1 replicas instead of f+1. Second, the leader
+ensures that the prefix of previously chosen log entries are
+stored on at least f+1 of the 2f+1 replicas (this ensures that
+despite f replica failures, some replica will store the values).
+Third, the leader informs a Phase 2 quorum of Ci acceptors
+that these commands have been stored on the replicas.
+In summary, the leader pi of round i executes as follows.
+It executes the Matchmaking phase yielding prior configu-
+rations Hi. It then executes Phase 1 with the configurations
+in Hi. It enters Phase 2 and gets the middle subsequence
+of commands chosen. It also informs a Phase 2 quorum
+of Ci acceptors once the prefix of previously chosen com-
+9mands have been stored on f + 1 replicas. It then issues
+a GarbageAhii command to the matchmakers and awaits
+f + 1 GarbageBhii responses. At this point, all previous
+configurations can be shut down.
+Note that the leader can begin processing state machine
+commands from clients as soon as it enters Phase 2. It does
+not have to stall client commands during garbage collec-
+tion. Note also that during normal operation (i.e. operation
+with a single stable leader), old configurations are garbage
+collected after a few round trips of communication. In Sec-
+tion 8, we find that Hi almost always contains only a single
+configuration (i.e. Ci−1).
+6. RECONFIGURING MATCHMAKERS
+We’ve discussed how Matchmaker MultiPaxos allows us to
+reconfigure the set of acceptors. In this section, we discuss
+how to reconfigure proposers, replicas, and matchmakers.
+Reconfiguring proposers and replicas is straightforward.
+In fact, Matchmaker MultiPaxos reconfigures proposers and
+replicas in exactly the same way as MultiPaxos [38], so we
+do not discuss it at length. In short, a proposer can be safely
+added or removed at any time. Replicas can also be safely
+added or removed at any time so long as we ensure that
+commands replicated on f +1 replicas remain replicated on
+f+1 replicas. For performance, a newly introduced proposer
+should contact an existing proposer or replica to learn about
+the prefix of already chosen commands, and a newly intro-
+duced replica should copy the log from an existing replica.
+Reconfiguring matchmakers is a bit more involved, but
+still relatively straightforward. Recall that proposers per-
+forms the Matchmaking phase only during a change in round.
+Thus, for the vast majority of the time—specifically, when
+there is a single, stable leader—the matchmakers are idle.
+When idle, they don’t send or receive any messages and
+are off the critical path of command processing. This means
+that the way we reconfigure the matchmakers has to be safe,
+but it doesn’t have to be efficient. The matchmakers can be
+reconfigured at any time between leader changes without
+any impact on the performance of the protocol.
+Thus, we use the simplest approach to reconfiguration: we
+shut down the old matchmakers and replace them with new
+ones, making sure that the new matchmakers’ initial state
+is the same as the old matchmakers’ final state. More con-
+cretely, we reconfigure from a set Mold of matchmakers to
+a new set Mnew as follows. First, a proposer (or any other
+node, it doesn’t really matter) sends a StopAhi message to
+the matchmakers in Mold. When a matchmaker mi receives
+a StopAhi message, it stops processing messages (except for
+other StopAhi messages) and replies with StopBhLi,wii
+where Li is mi’s log and wi is its garbage collection water-
+mark. When the proposer receives StopB messages from
+f + 1 matchmakers, it knows that the matchmakers have
+effectively been shut down. It computes w as the maximum
+of every returned wi. It computes L as the union of the
+returned logs, and removes all entries of L that appear in a
+round less than w.
+An example of this log merging is illustrated in Figure 7.
+The proposer then sends L and w to all of the matchmak-
+ers in Mnew. Each matchmaker adopts these values as its
+initial state. At this point, the matchmakers in Mnew cannot
+begin processing commands yet. Naively, it is possible that
+C0 0
+C1 1
+2
+3
+C4 4
+L0
+× 0
+× 1
+C2 2
+3
+4
+L1
+× 0
+C1 1
+C2 2
+3
+4
+L2
+× 0
+× 1
+C2 2
+3
+C4 4
+Figure 7: An example of merging three matchmaker logs
+(L0, L1, and L2) during a matchmaker reconfiguration.
+Garbage collected log entries are shown in red.
+two different nodes could simultaneously attempt to recon-
+figure to two disjoint sets of matchmakers, say Mnew and
+M0
+new. To avoid this, every matchmaker in Mold doubles
+as a Paxos acceptor. A proposer attempting to reconfigure
+to Mnew acts as a Paxos proposer and gets the value Mnew
+chosen by the matchmakers (which are acting as Paxos ac-
+ceptors). Once Mnew is chosen, the proposer notifies the
+matchmakers in Mnew that the reconfiguration is complete
+and that they are free to start processing commands. A
+safety proof for Matchmaker MultiPaxos with matchmaker
+reconfiguration is given in the technical report [41].
+We repeat the safety proof from Section 5. The new bits
+are shown in red.
+Proof. We prove, for every round i, the statement P(i): “if a
+proposer proposes a value v in round i (i.e. sends a Phase2A
+message for value v in round i), then no value other than v
+has been or will be chosen in any round less than i.” P(i)
+suffices to prove that Matchmaker Paxos is safe for the fol-
+lowing reason. Assume for contradiction that Matchmaker
+Paxos chooses distinct values x and y in rounds i and j with
+i < j. Some proposer must have proposed y in round j, so
+P(j) ensures us that no value other than y could have been
+chosen in round i. But, x was chosen, a contradiction.
+We prove P(i) by strong induction on i. P(0) is vacuous
+because there are no rounds less than 0. For the general
+case P(i), we assume P(0),...,P(i−1). We perform a case
+analysis on the proposer’s pseudocode. Either k is −1 or it
+is not (line 11). First, assume it is not. In this case, the
+proposer proposes x, the value proposed in round k (line
+12). We perform a case analysis on j to show that no value
+other than x has been or will be chosen in any round j < i.
+Case 1: j > k. We show that no value has been or
+will be chosen in round j. Recall that at the end of the
+Matchmaking phase, the proposer computed the set Hi of
+prior configurations using responses from a set M of f +
+1 matchmakers. Either Hi contains a configuration Cj in
+round j or it doesn’t.
+First, suppose it does. Then, the proposer sent Phase1Ahii
+messages to all of the acceptors in Cj. A Phase 1 quorum
+of these acceptors, say Q, all received Phase1Ahii messages
+and replied with Phase1B messages. Thus, every acceptor
+in Q set its round r to i, and in doing so, promised to never
+vote in any round less than i. Moreover, none of the accep-
+tors in Q had voted in any round greater than k. So, every
+acceptor in Q has not voted and never will vote in round j.
+For a value v0
+to be chosen in round j, it must receive votes
+from some Phase 2 quorum Q0
+of round j acceptors. But,
+10Q and Q0
+necessarily intersect, so this is impossible. Thus,
+no value has been or will be chosen in round j.
+Now suppose that Hi does not contain a configuration for
+round j. Either a configuration Cj was garbage collected
+from Hi or it wasn’t. First, assume it wasn’t. Then, Hi is
+the union of f +1 MatchB messages from the f +1 match-
+makers in M. Thus, if Hi does not contain a configuration
+for round j, then none of the MatchB messages did either.
+This means that for every matchmaker m ∈ M, when m re-
+ceived MatchAhi,Cii, it did not contain a configuration for
+round j in its log and never did. Moreover, no majority in
+any previous set of matchmakers contained a configuration
+in round j. If any majority did have a configuration in round
+j, then all subsequent matchmakers would as well since a set
+of matchmakers is initialized from a majority of the previous
+matchmakers. Moreover, by processing the MatchAhi,Cii
+request and inserting Ci in log entry i, the matchmaker is
+guaranteed to never process a MatchAhj,Cji request in the
+future. Moreover, no future set of matchmakers will either.
+A majority of M have a configuration in entry i, so all sub-
+sequent configurations will as well. Therefore, they will all
+reject a configuration in round j. Thus, every matchmaker
+in M has not processed a MatchA request in round j and
+never will. For a value to be chosen in round j, the pro-
+poser executing round j must first receive replies from f +1
+matchmakers, say M0
+, in round j. But, M and M0
+neces-
+sarily intersect, so this is impossible. This argument holds
+for every set of matchmakers. Thus, no value has been or
+will be chosen in round j.
+Otherwise, a configuration Cj was garbage collected from
+Hi. Note that none of the matchmakers in M had re-
+ceived a GarbageAhi0
+i command for a round i0
+> i when
+they responded with their MatchB messages. If they had,
+they would have ignored our MatchAhi,Cii message. Sim-
+ilarly, none of the matchmakers in M were initialized with
+a garbage collection watermark w > i. Let i0
+be the largest
+round j < i0
+< i that a matchmaker in M garbage collected
+before responding to our MatchAhi,Cii message.
+If i0
+was garbage collected because of Scenario 1, then k
+would be at least as large as i0
+since we would have inter-
+sected the Phase 2 quorum of Ci0 used in round i0
+to get
+a value chosen. But k < j < i0
+, a contradiction. If i0
+was
+garbage collected because of Scenario 2, then we know no
+value has been or will be chosen in round j. If i0
+was garbage
+collected because of Scenario 3, then we would have inter-
+sected the Phase 2 quorum of Ci0 that knows a value was
+already chosen, and we would have not proposed a value in
+the first place. But, we proposed x, a contradiction.
+Case 2: j = k. In a given round, at most one value is
+proposed, let alone chosen. x is the value proposed in round
+k, so no other value could be chosen in round k.
+Case 3: j < k. We can apply the inductive hypothesis to
+get P(k) which states that no value other than x has been
+or will be chosen in any round less than k. This includes
+round j, which is exactly what we’re trying to prove.
+Finally, if k is −1, then we are in the same situation as in
+Case 1.
+7. INSIGHTS AND GENERALITY
+7.1 Insights
+Vertical Paxos Matchmaker Paxos was inspired by Ver-
+tical Paxos [20], but differs in ways that improve simplicity,
+Algorithm 5 Fast Paxos Proposer Pseudocode
+State: a round i, initially −1
+State: the configuration Ci for round i, initially null
+State: the prior configurations Hi for round i, initially null
+1: i ← next largest round owned by this proposer
+2: Ci ← an arbitrary configuration
+3: send MatchAhi,Cii to all of the matchmakers
+4: upon receiving MatchBhi,H1
+i i,...,MatchBhi,Hf+1
+i i
+from f + 1 matchmakers do
+5: Hi ←
+Sf+1
+j=1 Hj
+i
+6: send Phase1Ahii to every acceptor in Hi
+7: upon receiving Phase1Bhi,−,−i from a Phase 1 quo-
+rum from every configuration in Hi do
+8: k ← the largest vr in any Phase1Bhi,vr,vvi
+9: V ← the corresponding vv’s in round k
+10: if k = −1 then
+11: send Phase2Ahi,anyi to every acceptor in Ci
+12: else if V = {v} then
+13: send Phase2Ahi,vi to every acceptor in Ci
+14: else
+15: send Phase2Ahi,anyi to every acceptor in Ci
+efficiency, and garbage collection. In terms of simplicity,
+Vertical Paxos requires an external master, which is itself
+implemented using state machine replication. Our match-
+makers are analogous to the external master but show that
+such a master does not require a nested invocation of state
+machine replication. From an efficiency perspective, Ver-
+tical Paxos requires that a proposer executes Phase 1 in
+order to perform a reconfiguration. Thus, Vertical Paxos
+cannot be extended to MultiPaxos without causing perfor-
+mance degradation during reconfiguration. This is not the
+case for matchmakers thanks to Phase 1 Bypassing. Finally,
+Vertical Paxos garbage collects old configurations in situa-
+tions similar to Scenario 1 and Scenario 2 from Section 5. It
+does not include Scenario 3, and as a result, it is unclear how
+to extend Vertical Paxos’ garbage collection to MultiPaxos.
+Fast Paxos. Fast Paxos [17] is a Paxos variant that
+shaves off one network delay from Paxos in the best case,
+but can have higher delays if concurrently proposed com-
+mands conflict. While Paxos quorums consist of f +1 out of
+2f +1 acceptors, Fast Paxos requires larger quorums. Many
+protocols have reduced Fast Paxos quorum sizes a bit, but
+to date, Fast Paxos quorum sizes have remained larger than
+classic Paxos quorum sizes. Using matchmakers, we can im-
+plement Fast Paxos with a fixed set of f +1 acceptors (and
+hence with f + 1-sized quorums). Specifically, we deploy
+Fast Paxos with f + 1 acceptors, with a single unanimous
+Phase 2 quorum, and with singleton Phase 1 quorums. A
+full description of the protocol and a proof of correctness is
+given in our technical report [41].
+Fast Paxos proposer pseudocode is given in Algorithm 5.
+We do not modify the Fast Paxos acceptor or the match-
+makers. For simplicity, we assume that we are using the
+unanimous configurations described above. Generalizing to
+arbitrary configurations that satisfy Fast Paxos’ quorum in-
+tersection requirements is straightforward. Note that Fast
+Paxos cannot leverage Phase 1 Bypassing. Also note while
+both MultiPaxos and our Fast Paxos variant both have quo-
+rums of size f + 1, our Fast Paxos variant has a fixed set
+of f + 1 acceptors, while MultiPaxos can choose any set of
+11f + 1 acceptors from all 2f + 1 acceptors. This has some
+disadvantages in terms of tail latency and fault tolerance.
+We now prove that our modifications to Fast Paxos are
+safe. For simplicity, we ignore garbage collection and match-
+maker reconfiguration. Introducing those two features and
+proving them correct is pretty much identical to what we
+did with Matchmaker Paxos.
+Proof. We prove, for every round i, the statement P(i) which
+states that if a an acceptor votes for a value v in round i (i.e.
+sends a Phase2B message for value v in round i), then no
+value other than v has been or will be chosen in any round
+less than i. P(i) suffices to prove that Matchmaker Paxos
+is safe. Why? Well, assume for contradiction that Match-
+maker Paxos chooses distinct values x and y in rounds i and
+j with i < j. Some acceptor must have voted for y in round
+j, so P(j) ensures us that no value other than y could have
+been chosen in round i. But, x was chosen, a contradiction.
+We prove P(i) by strong induction on i. P(0) is vacuous
+because there are no rounds less than 0. For the general
+case P(i), we assume P(0),...,P(i−1). We perform a case
+analysis on the proposer’s pseudocode. Either k is −1 or it
+is not (line 8). First, assume it is not. We perform a case
+analysis on rounds j < i.
+Case 1: j > k. Recall that at the end of the Match-
+making phase, the proposer computed the set Hi of prior
+configurations using responses from a set M of f +1 match-
+makers. Either Hi contains a configuration Cj in round j or
+it doesn’t.
+First, suppose it does. Then, the proposer sent Phase1Ahii
+messages to all of the acceptors in Cj. A Phase 1 quorum
+of these acceptors, say Q, all received Phase1Ahii messages
+and replied with Phase1B messages. Thus, every acceptor
+in Q set its round r to i, and in doing so, promised to never
+vote in any round less than i. Moreover, none of the accep-
+tors in Q had voted in any round greater than k. So, every
+acceptor in Q has not voted and never will vote in round j.
+For a value v0
+to be chosen in round j, it must receive votes
+from some Phase 2 quorum Q0
+of round j acceptors. But,
+Q and Q0
+necessarily intersect, so this is impossible. Thus,
+no value has been or will be chosen in round j.
+Now suppose that Hi does not contain a configuration for
+round j. Hi is the union of f + 1 MatchB messages from
+the f + 1 matchmakers in M. Thus, if Hi does not con-
+tain a configuration for round j, then none of the MatchB
+messages did either. This means that for every matchmaker
+m ∈ M, when m received MatchAhi,Cii, it did not con-
+tain a configuration for round j in its log. Moreover, by
+processing the MatchAhi,Cii request and inserting Ci in
+log entry i, the matchmaker is guaranteed to never process
+a MatchAhj,Cji request in the future. Thus, every match-
+maker in M has not processed a MatchA request in round
+j and never will. For a value to be chosen in round j, the
+proposer executing round j must first receive replies from
+f + 1 matchmakers, say M0
+, in round j. But, M and M0
+necessarily intersect, so this is impossible. Thus, no value
+has been or will be chosen in round j.
+Case 2: j = k. If V = {v}, then the proposer proposes
+v. We must prove that no value other than v has been
+or will be chosen in round k. For a value to be chosen in
+round k, every acceptor must vote for it in round k. Some
+acceptor voted for v in round k, so it is the only value with
+the possibility of receiving a unanimous vote.
+Otherwise V contains multiple distinct elements, and the
+proposer proposes any. We must prove that no value has
+been or will be chosen in round k. This is immediate since
+no value can receive a unanimous vote in round k, if two
+different values have received votes in round k.
+Case 3: j < k. If V = {v}, then the proposer proposes
+v, and we must prove that no value other than v has been or
+will be chosen in any round less than k. This is immediate
+from P(k). Otherwise, V = {v1,v2,...}, and the proposer
+proposes any. We must prove that no value has been or will
+be chosen in any round less than k. P(k) tells us that no
+value other than v1 has been or will be chosen in any round
+less than k. P(k) also tells us that no value other than v2
+has been or will be chosen in any round less than k. Thus,
+no value has been or will be chosen in any round less than
+k.
+Finally, if k is −1, then we are in the same situation as in
+Case 1. No value has been or will be chosen in any round
+less than i.
+DPaxos. Matchmaker Paxos subsumes DPaxos and cor-
+rects some previously undiscovered errors in the protocol.
+DPaxos is a Paxos variant that allows every round to use a
+different subset of acceptors from some fixed set of acceptors.
+Matchmaker Paxos obviates the need for a fixed set of nodes.
+DPaxos’ scope is limited to a single instance of consensus,
+whereas Matchmaker MultiPaxos shows how to efficiently
+reconfigure across multiple instances of consensus simulta-
+neously. We also discovered that DPaxos’ garbage collection
+algorithm is unsafe. Matchmaker MultiPaxos’ garbage col-
+lection algorithm fixes the bug (see our technical report for
+details [41]).
+Consider a DPaxos deployment with fd = 1, fz = 0, three
+zones, three nodes per zone, and delegate quorums. Thus,
+a replication quorum consists of two nodes in one zone, and
+a leader election quorum consists of two nodes in two zones.
+We name the nodes A through I. Beside each node, we
+display its ballot, vote ballot, vote value, and intents [18].
+Zone 1
+A
+B
+C
+Zone 2
+D
+E
+F
+Zone 3
+G
+H
+I
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+Proposer 1 initiates the leader election phase in ballot 0
+for value x. It selects {A,B,D,E} as its leader election quo-
+rum and {B,C} as its intent. It sends prepare messages to
+the leader election quorum, and the leader election quorum
+replies. Proposer 1 doesn’t receive any intents, so it does
+not expand its leader election quorum. It also learns that
+no value has been chosen yet, so it proposes value x to B
+and C. Both accept the value.
+12Zone 1
+A
+B
+C
+Zone 2
+D
+E
+F
+Zone 3
+G
+H
+I
+0,−1,⊥,{0 : {B,C}}
+0,0,x,{0 : {B,C}}
+0,0,x,∅
+0,−1,⊥,{0 : {B,C}}
+0,−1,⊥,{0 : {B,C}}
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+−1,−1,⊥,∅
+Next, proposer 2 initiates the leader election phase in bal-
+lot 1 for value y. It selects {E,F,H,I} as its leader election
+quorum and {G,H} as its intent. It sends prepare messages
+to the leader election quorum, and the leader election quo-
+rum replies. Proposer 2 receives the intent {B,C} in ballot
+0 from E, so it expands its leader election quorum and sends
+a prepare message to C. Proposer 2 learns that value x was
+chosen in ballot 0, so it ditches y and proposes x to G and
+H. G accepts, but the propose message to H is dropped.
+Zone 1
+A
+B
+C
+Zone 2
+D
+E
+F
+Zone 3
+G
+H
+I
+0,−1,⊥,{0 : {B,C}}
+0,0,x,{0 : {B,C}}
+0,0,x,{1 : {G,H}}
+0,−1,⊥,{0 : {B,C}}
+1,−1,⊥,{0 : {B,C},1 : {G,H}}
+1,−1,⊥,{1 : {G,H}}
+1,1,x,∅
+1,−1,⊥,{1 : {G,H}}
+1,−1,⊥,{1 : {G,H}}
+Next, garbage collection is run. The garbage collector
+contacts G and sees that it has accepted a value in ballot
+1. It informs all the nodes to discard intents in ballots less
+than 1.
+Zone 1
+A
+B
+C
+Zone 2
+D
+E
+F
+Zone 3
+G
+H
+I
+0,−1,⊥,∅
+0,0,x,∅
+0,0,x,{1 : {G,H}}
+0,−1,⊥,∅
+1,−1,⊥,{1 : {G,H}}
+1,−1,⊥,{1 : {G,H}}
+1,1,x,∅
+1,−1,⊥,{1 : {G,H}}
+1,−1,⊥,{1 : {G,H}}
+Next, proposer 3 initiates the leader election phase in bal-
+lot 2 for value z It selects {D,E,H,I} as its leader election
+quorum and {E,F} as its intent. It sends prepare messages
+to the leader election quorum, and the leader election quo-
+rum replies. Proposer 3 receives intent {G,H} in ballot 1,
+but has already included H in its leader election quorum,
+so it does not send any additional prepares. It learns that
+no value has been chosen (this is a bug, x was chosen), so it
+proposes value z to E and G. Both accept the value, and z
+is chosen. This is a bug since x was already chosen.
+Zone 1
+A
+B
+C
+Zone 2
+D
+E
+F
+Zone 3
+G
+H
+I
+0,−1,⊥,∅
+0,0,x,∅
+0,0,x,{1 : {G,H}}
+2,−1,⊥,∅2 : {E,F}
+2,2,z,{1 : {G,H},2 : {E,F}}
+2,2,z,{1 : {G,H}}
+1,1,x,∅
+2,−1,⊥,{1 : {G,H},2 : {E,F}}
+2,−1,⊥,{1 : {G,H},2 : {E,F}}
+Cheap Paxos. Cheap Paxos [22] is a MultiPaxos variant
+that consists of a fixed set of f+1 main acceptors and f aux-
+iliary acceptors. During failure-free execution (the normal
+case) only the main acceptors are contacted. The auxil-
+iary acceptors perform MultiPaxos’ horizontal reconfigura-
+tion protocol to replace failed main acceptors. As with Fast
+Paxos, we can deploy Matchmaker MultiPaxos with only
+f + 1 acceptors, f fewer than Cheap Paxos. Matchmaker
+Paxos does require 2f + 1 matchmakers, but matchmakers
+do not act as acceptors and have to process only a single
+message (i.e. a MatchA message) to perform a reconfigura-
+tion.
+7.2 Generality
+First, we elaborate on MultiPaxos’ horizontal reconfigu-
+ration. To reconfigure from a set of nodes N to a new set of
+nodes N0
+, the MultiPaxos leader gets the value N0
+chosen in
+the log at some index i. All commands in the log starting at
+position i+α are chosen using the nodes in N0
+instead of the
+nodes in N, where α is some configurable parameter. Note
+that the MultiPaxos leader can process at most α unchosen
+commands at a time.
+a
+0
+b
+1
+c
+2
+N0
+3
+d
+4
+no-
+op
+5
+no-
+op
+6
+e
+7
+f
+8
+···
+α
+chosen with N chosen with N0
+Figure 8: A MultiPaxos log during reconfiguration (α = 4).
+MultiPaxos’ horizontal reconfiguration protocol is simple
+and has been proven correct. Unfortunately, it is funda-
+mentally incompatible with replication protocols that do not
+have a log. Moreover, researchers are finding that avoiding
+a log can often be advantageous [16, 28, 42, 3, 36, 43, 37].
+For example, protocols like Generalized Paxos [16], EPaxos [28],
+Janus [29], BPaxos [42], and Caesar [3] arrange commands in
+a partially ordered graph instead of a totally ordered log to
+exploit commutativity between commands. CASPaxos [36]
+maintains a single value, instead of a log or graph, for sim-
+plicity. Databases like TAPIR [43] avoid ordering transac-
+tions in a log for improved performance, and databases like
+Meerkat [37] do the same to improve scalability.
+Because these protocols do not have logs, they cannot
+use MultiPaxos’ horizontal reconfiguration protocol. How-
+ever, while none of the protocols have logs, all of them have
+rounds. This means that the protocols can either use Match-
+maker Paxos directly, or at least borrow ideas from Match-
+maker Paxos for reconfiguration. BPaxos [41], for example,
+13is an EPaxos [28] variant that partially orders commands
+into a graph. BPaxos is a modular protocol that uses Paxos
+as a black box subroutine. Due to this modularity, we can di-
+rectly replace Paxos with Matchmaker Paxos to support re-
+configuration. The same idea can also be applied to EPaxos.
+CASPaxos [36] is almost identical to Paxos and can be ex-
+tended to Matchmaker CASPaxos in the same way we ex-
+tended Paxos to Matchmaker Paxos. These are two simple
+examples, and we don’t claim that extending Matchmaker
+Paxos to some of the other more complicated protocols is
+always easy. But, the universality of rounds makes Match-
+maker Paxos an attractive foundation on top of which other
+non-log based protocols can build their own reconfiguration
+protocols.
+8. EVALUATION
+We now evaluate Matchmaker MultiPaxos. Refer to our
+technical report [41] for further evaluation. Our implemen-
+tation of Matchmaker MultiPaxos is available at github.
+com/mwhittaker/frankenpaxos. Matchmaker MultiPaxos is
+implemented in Scala using the Netty networking library.
+We deployed Matchmaker MultiPaxos on m5.xlarge AWS
+EC2 instances within a single availability zone. For a given
+f, we deployed f + 1 proposers, 2f + 1 acceptors, 2f + 1
+matchmakers, and 2f + 1 replicas. For simplicity, every
+node is deployed on its own machine, but in practice, nodes
+can be physically co-located. In particular, any two log-
+ical roles can be placed on the same machine, so long as
+the two roles are not the same. For example, we can co-
+locate a leader, an acceptor, a replica, and a matchmaker,
+but we can’t co-locate two acceptors (without reducing the
+fault tolerance of the system). All of our results hold in a
+co-located deployment as well. For simplicity, we deploy
+Matchmaker MultiPaxos with a trivial no-op state machine
+in which every state machine command is a one byte no-op.
+8.1 Reconfiguration
+Experiment Description. For each f, we run a bench-
+mark with 1, 4, and 8 clients. Every client repeatedly pro-
+poses a state machine command, waits to receive a response,
+and then immediately proposes another command. Every
+benchmark runs for 35 seconds. During the first 10 sec-
+onds, we perform no reconfigurations. From 10 seconds to
+20 seconds, the leader reconfigures the set of acceptors once
+every second. In practice, we would reconfigure much less
+often. For each of the ten reconfigurations, the leader selects
+a random set of 2f +1 acceptors from a pool of 2×(2f +1)
+acceptors. At 25 seconds, we fail one of the acceptors. 5 sec-
+onds later, the leader performs a reconfiguration to replace
+the failed acceptor. The delay of 5 seconds is completely
+arbitrary. The leader can reconfigure sooner if desired.
+We also perform this experiment with an implementation
+of MultiPaxos with horizontal reconfiguration. We set α to
+8. Because α is equal to the number of clients, MultiPaxos
+never stalls because of an insufficiently large α.
+Results. The latency and throughput of Matchmaker
+MultiPaxos for f = 1 is shown in Figure 9. Throughput
+and latency are both computed using sliding one second win-
+dows. Median latency is shown using solid lines, while the
+95% latency is shown as a shaded region above the median
+latency. The black vertical lines denote reconfigurations,
+and the red dashed vertical line denotes the acceptor fail-
+ure.
+1
+2
+Latency (ms)
+0:00 0:05 0:10 0:15 0:20 0:25 0:30 0:35
+Time
+0
+10000
+20000
+Throughput
+(cmds/second)
+1client 4clients 8clients
+Figure 9: Matchmaker MultiPaxos’ latency and throughput
+(f = 1). Median latency is shown using solid lines, while the
+95% latency is shown as a shaded region above the median
+latency. The vertical black lines show reconfigurations. The
+vertical dashed red line shows an acceptor failure.
+The medians, interquartile ranges (IQR), and standard
+deviations of the latency and throughput (a) during the first
+10 seconds and (b) between 10 and 20 seconds are shown in
+Table 1. Figure 13 includes violin plots of the same data.
+The white circles show the median values, while the thick
+black rectangles show the 25th and 75th percentiles. For
+latency, reconfiguration has little to no impact (roughly 2%
+changes) on the medians, IQRs, or standard deviations. The
+one exception is that the 8 client standard deviation is signif-
+icantly larger. This is due to a small number of outliers. Re-
+configuration has little impact on median throughput, with
+all differences being statistically insignificant. The IQRs
+and standard deviations sometimes increase and sometimes
+decrease. The IQR is always less than 1% of the median
+throughput, and the standard deviation is always less than
+4%.
+For every reconfiguration, the new acceptors become ac-
+tive within a millisecond. The old acceptors are garbage
+collected within five milliseconds. This means that only
+one configuration is ever returned by the matchmakers. We
+implement Matchmaker MultiPaxos with an optimization
+called thriftiness [28]—where Phase2A messages are sent
+to a randomly selected Phase 2 quorum—so the throughput
+and latency expectedly degrade after we fail an acceptor. Af-
+ter we replace the failed acceptor, throughput and latency
+return to normal within two seconds.
+The latency and throughput of MultiPaxos for f = 1 is
+shown in Figure 10. As with Matchmaker MultiPaxos, Mul-
+tiPaxos can perform a horizontal reconfiguration without
+any performance degradation.
+Without thriftiness, a Matchmaker MultiPaxos leader sends
+Phase2A messages to all of the acceptors, even though it
+only needs to hear back from a Phase 2 quorum of them.
+With thriftiness, on the other hand, a Matchmaker Multi-
+Paxos leader only sends Phase2A messages to a Phase 2
+quorum of acceptors, rather than to all of them.
+Thriftiness is a trade-off between failure resilience and
+141
+2 Latency (ms)
+0:00 0:05 0:10 0:15 0:20 0:25 0:30 0:35 0:40
+Time
+0
+5000
+10000
+15000
+Throughput
+(cmds/second)
+1client 4clients 8clients
+Figure 10: The latency and throughput of MultiPaxos with
+horizontal reconfiguration (f = 1).
+Table 1: Figure 9 median, interquartile range, and standard
+deviation of latency and throughput.
+Latency (ms)
+1 Client 4 Clients 8 Clients
+0s-10s 10s-20s 0s-10s 10s-20s 0s-10s 10s-20s
+median 0.292 0.287 0.317 0.321 0.398 0.410
+IQR 0.040 0.026 0.029 0.036 0.036 0.039
+stdev 0.114 0.085 0.076 0.081 0.089 0.305
+Throughput (commands/second)
+1 Client 4 Clients 8 Clients
+0s-10s 10s-20s 0s-10s 10s-20s 0s-10s 10s-20s
+median 2,995 3,177 11,874 11,478 19,146 18,446
+IQR 152 53 175 145 140 373
+stdev 157 111 298 307 358 520
+normal-case throughput. A non-thrifty leader has to send
+and receive more messages than a thrifty leader, so Match-
+maker MultiPaxos’ throughput is lower without thriftiness.
+However, because a thrifty leader only sends Phase2A mes-
+sages to a Phase 2 quorum of acceptors, if any one of the
+acceptors in this Phase 2 quorum fails, then the leader is
+stuck. The leader has to wait for a timeout to expire before
+resending Phase2A messages to all of the acceptors. This
+reduces throughput significantly. Thus, the throughput of
+thrifty Matchmaker MultiPaxos is higher in the normal case
+but lower when an acceptor fails.
+Note that the decision of whether to enable thriftiness is
+orthogonal to the design of Matchmaker MultiPaxos. Match-
+maker MultiPaxos can be deployed with or without thrifti-
+ness.
+In Figure 14, we show the latency and throughput of
+Matchmaker MultiPaxos with and without thriftiness for
+various numbers of clients, without any failures. As ex-
+pected, the peak throughput of Matchmaker MultiPaxos is
+higher when thriftiness is enabled. In Figure 15, we recreate
+Figure 9, but with thriftiness disabled. Again as expected,
+1
+2
+Latency (ms)
+0:00 0:05 0:10 0:15 0:20 0:25 0:30 0:35
+Time
+0
+5000
+10000
+Throughput
+(cmds/second)
+1client 4clients 8clients
+Figure 11: Matchmaker MultiPaxos’ latency and through-
+put (f = 2). The vertical black lines show reconfigurations.
+The vertical dashed red line shows an acceptor failure.
+an acceptor failure has less of an effect on the latency and
+throughput of non-thrifty Matchmaker MultiPaxos.
+Figure 14 shows that the peak throughput of Matchmaker
+MultiPaxos is higher than the throughput reported in Fig-
+ure 9 and requires more than eight clients. However, we
+intentionally perform our experiment with fewer than eight
+clients and below peak throughput. We do this to reduce the
+performance variations that naturally occur in our bench-
+marks.
+As Matchmaker MultiPaxos executes (even without any
+reconfigurations), the throughput and latency does not re-
+main perfectly steady. For various reasons (e.g., JVM garbage
+collection, JVM just-in-time compilation, network jitter, op-
+erating system scheduling), the performance of the system
+varies over time. These performance variations increase as
+we add more clients. For example, more clients leads to
+higher throughput which triggers JVM garbage collection
+more often. More clients also leads to more congested net-
+work links which leads to more network jitter.
+All of our results still hold when we increase the number
+of clients and operate at peak load, but it becomes more
+difficult to tease apart which performance fluctuations oc-
+cur naturally and which are caused by reconfiguration. Fig-
+ure 16, for example, recreates Figure 9 but with 100 clients.
+We see the same trends at higher throughput, but we also
+see more performance fluctuations, even when we are not
+performing any reconfigurations.
+Summary. This experiment confirms that Matchmaker
+MultiPaxos’s throughput and latency remain steady even
+during abnormally frequent reconfiguration. Moreover, it
+confirms that Matchmaker MultiPaxos can reconfigure to a
+new set of acceptors and retire the old set of acceptors on
+the order of milliseconds.
+8.2 Ablation Study
+Experiment Description. We now perform an abla-
+tion study to measure the effects of the three optimiza-
+tions presented in Section 3. We deploy Matchmaker Multi-
+Paxos as above. Each benchmark runs for 20 seconds with
+150s-10s 10s-20s
+0.3
+0.4
+0.5
+0.6
+0.7
+Latency (ms) 1client
+0s-10s 10s-20s
+0.3
+0.4
+0.5
+0.6
+4clients
+0s-10s 10s-20s
+0.3
+0.4
+0.5
+0.6
+0.7
+8clients
+0s-10s 10s-20s
+2800
+3000
+3200
+Throughput (commands/second)
+1client
+0s-10s 10s-20s
+11000
+11500
+12000
+4clients
+0s-10s 10s-20s
+17500
+18000
+18500
+19000
+19500
+8clients
+Figure 12: Violin plots of Figure 9 latency and throughput
+during the first 10 seconds and between 10 and 20 seconds.
+eight clients. The leader reconfigures the set of acceptors
+five times throughout the course of the benchmark. Every
+benchmark is run with a different subset of the optimizations
+in Section 3 enabled. When garbage collection (Optimiza-
+tion 3) is disabled, no garbage collection is performed. When
+Phase 1 Bypassing (Optimization 2) is disabled, the leader
+does not process commands during Phase 1 of a reconfigu-
+ration. When Proactive Matchmaking (Optimization 3) is
+disabled, the leader does not process commands during the
+Matchmaking phase of a reconfiguration. To simulate run-
+ning on a wide area network—a common scenario [8, 2]—
+the acceptors and matchmakers delay their Phase1B and
+MatchB messages by 250 milliseconds. To keep normal
+case throughout and latency consistent with the previous
+benchmarks, Phase2Bs are not delayed.
+Results. The max latency (computed over 500 millisec-
+ond rolling windows) and throughput (250 millisecond win-
+dows) of Matchmaker MultiPaxos are shown in Figure 17.
+Without any optimizations, the latency of Matchmaker Mul-
+tiPaxos expectedly spikes to 500 milliseconds after every re-
+configuration, while the throughput drops to zero. Enabling
+garbage collection has little effect on throughput or latency,
+but garbage collection is required to shut down old config-
+urations, so we cannot disable it in practice. With garbage
+collection and Phase 1 Bypassing, the latency peaks only at
+250 milliseconds. The throughput drops to zero, but now
+only for 250 milliseconds. With all three optimizations en-
+abled, the performance of the protocol is steady.
+This ablation study serves three purposes. First, it high-
+lights the importance of the three optimizations outlined in
+Section 3. Second, it highlights that Matchmaker Multi-
+Paxos can mask the latency of a reconfiguration, even when
+the latency is large. Third, the ablation study is indirectly
+a comparison with stop-the-world reconfiguration protocols
+like the one used by Viewstamped Replication [23]. A stop-
+the-world reconfiguration protocol behaves like the unopti-
+mized protocols in our ablation study. They stop processing
+commands entirely for some duration of time, so latency
+0s-10s 10s-20s
+0.18
+0.20
+0.22
+0.24
+0.26
+0.28
+Latency (ms)
+1client
+0s-10s 10s-20s
+0.20
+0.25
+0.30
+0.35
+4clients
+0s-10s 10s-20s
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7 8clients
+0s-10s 10s-20s
+4200
+4300
+4400
+4500
+Throughput (commands/second)
+1client
+0s-10s 10s-20s
+13000
+13500
+14000
+4clients
+0s-10s 10s-20s
+14000
+15000
+16000
+17000
+18000
+8clients
+Figure 13: Violin plots of Figure 10 latency and throughput
+during the first 10 seconds and between 10 and 20 seconds.
+spikes and throughput drops to zero.
+8.3 Leader Failure
+Experiment Description. We deploy Matchmaker Mul-
+tiPaxos exactly as before. Now, each benchmark runs for 20
+seconds. During the first 7 seconds, there are no reconfig-
+urations and no failures. At 7 seconds, we fail the leader.
+5 seconds later, a new leader is elected and resumes normal
+operation. The 5 second delay is arbitrary; a new leader
+could be elected quicker if desired.
+Results. The latency and throughput of the benchmarks
+are shown in Figure 19. During the first 7 seconds, through-
+put and latency are both stable. When the leader fails, the
+throughput expectedly drops to zero. The throughput and
+latency return to normal within two seconds after a new
+leader is elected.
+Matchmaker MultiPaxos can also tolerate many simulta-
+neous failures. We repeat the experiment above but this
+time fail a leader, an acceptor, and a matchmaker at the
+same time, as shown in Figure 20. When the leader fails,
+the throughput expectedly drops to zero. Four seconds later,
+a new leader is elected and the protocol resumes execution,
+though the throughput is reduced because of the failed ac-
+ceptor. Six seconds later, the leader reconfigures away from
+the failed acceptor and the throughput returns to normal.
+Five seconds later, the leader reconfigures away from the
+failed matchmaker, but since matchmaker reconfiguration is
+off the critical path, it has no effect on performance (this is
+discussed more in the next subsection).
+Note that the delays we use for reconfiguration are ar-
+bitrary. The leader, acceptor, and matchmaker can all be
+reconfigured simultaneously. We artificially stagger their re-
+configuration to better see the effects of each.
+Summary. This experiment confirms that the extra la-
+tency of the Matchmaker phase during a leader change is
+negligible.
+8.4 Matchmaker Reconfiguration
+165000 10000 15000 20000 25000 30000
+Throughput(commandspersecond)
+0
+2
+4
+6
+8
+Median latency (ms)
+thrifty
+non-thrifty
+Figure 14: Latency-throughput curves for Matchmaker Mul-
+tiPaxos with and without thriftiness. The standard devia-
+tion of throughput measurements are shown as shaded re-
+gions around the mean.
+Experiment Description. We deploy Matchmaker Mul-
+tiPaxos as above. We again run three benchmarks with 1,
+4, and 8 clients. Each benchmark runs for 40 seconds. Dur-
+ing the first 10 seconds, there are no reconfigurations and
+no failures. Between 10 and 20 seconds, the leader recon-
+figures the set of matchmakers once every second. Every
+reconfiguration randomly selects 2f + 1 matchmakers from
+a set of 2 × (2f + 1) matchmakers. At 25 seconds, we fail
+a matchmaker. At 30 we perform a matchmaker reconfigu-
+ration to replace the failed matchmaker. At 35 seconds, we
+reconfigure the acceptors.
+Table 2: Figure 21 median, interquartile range, and stan-
+dard deviation of latency and throughput.
+Latency (ms)
+1 Client 4 Clients 8 Clients
+0s-10s 10s-20s 0s-10s 10s-20s 0s-10s 10s-20s
+median 0.297 0.292 0.314 0.313 0.404 0.398
+IQR 0.032 0.024 0.031 0.030 0.035 0.028
+stdev 0.077 0.061 0.093 0.098 0.383 0.067
+Throughput (commands/second)
+1 Client 4 Clients 8 Clients
+0s-10s 10s-20s 0s-10s 10s-20s 0s-10s 10s-20s
+median 3019 3147 11631 11726 18569 19248
+IQR 41 51 140 145 391 71
+stdev 66 72 250 231 478 159
+Results. The latency and throughput of Matchmaker
+MultiPaxos are shown in Figure 21. The latency and through-
+put of the protocol remain steady through the first ten match-
+maker reconfigurations, through the matchmaker failure and
+recovery, and through the acceptor reconfiguration. The
+medians, IQRs, and standard deviations of the latency and
+throughput are very similar to the ones in Table 1.
+0.25
+0.50
+0.75
+1.00
+Latency (ms)
+0:00 0:05 0:10 0:15 0:20 0:25 0:30 0:35
+Time
+5000
+10000
+15000
+20000
+Throughput
+(cmds/second)
+1client 4clients 8clients
+Figure 15: A recreation of Figure 9, but without thriftiness.
+5
+10
+Latency (ms)
+0:00 0:05 0:10 0:15 0:20 0:25 0:30 0:35
+Time
+10000
+20000
+30000
+Throughput
+(cmds/second)
+Figure 16: A recreation of Figure 9, but with 100 clients.
+This is confirmed by the medians, IQRs, and standard
+deviations of the latency and throughput during the first 10
+seconds and between 10 and 20 seconds, which are shown in
+Table 2.
+Summary. This benchmark confirms that matchmak-
+ers are off the critical path. The latency and throughput
+of Matchmaker MultiPaxos remains steady during a match-
+maker reconfiguration and matchmaker failure. Moreover, a
+matchmaker reconfiguration does not affect the performance
+of subsequent acceptor reconfigurations.
+9. RELATED WORK
+MultiPaxos’ Horizontal Reconfiguration. MultiPaxos’
+horizontal reconfiguration protocol [15, 21] uses the consen-
+sus it implements in order to reach consensus on a given
+configuration. This approach, also taken by systems such
+as Chubby [5, 6], does not require an extra reconfiguration
+algorithm or any additional nodes. Horizontal reconfigura-
+tion limits concurrency, as the proposer cannot have more
+than α outstanding operations. It can also be slow to re-
+170
+200
+400 Latency (ms)
+Nooptimizations Optimization3 Optimizations2,3 Optimizations1,2,3
+0:00
+0:05
+0:10
+0:15
+0:20
+Time
+0
+10000
+20000
+Throughput
+(cmds/second)
+0:00
+0:05
+0:10
+0:15
+0:20
+Time
+0:00
+0:05
+0:10
+0:15
+0:20
+Time
+0:00
+0:05
+0:10
+0:15
+0:20
+Time
+Figure 17: The latency and throughput of Matchmaker MultiPaxos with various optimizations enabled.
+0.0
+0.5
+1.0
+1.5
+2.0
+Latency (ms)
+0:00 0:05 0:10 0:15 0:20
+Time
+5000
+10000
+15000
+Throughput
+(cmds/second)
+1client 4clients 8clients
+Figure 18: Matchmaker MultiPaxos’ latency and through-
+put (f = 1). The dashed red line denotes a leader failure.
+configure, as it needs to wait for α operations to be decided
+(though no-ops can help mitigate this). Unlike with Match-
+maker Paxos, MultiPaxos cannot perform a reconfiguration
+if a proposer cannot contact a Phase 2 quorum of acceptors.
+Both MultiPaxos and Matchmaker MultiPaxos can perform
+a reconfiguration without disrupting the throughput or la-
+tency of the state machine.
+Matchmaker Paxos instead decouples reconfiguration from
+command processing. Matchmakers are rarely used and can
+be optimized for reliability, unlike the acceptors which are
+under high-load and thus optimized for performance. The
+approach of separating configuration management from the
+distributed system being configured is a common pattern
+and is also used by Chain Replication [39].
+SMART. SMART [24] is a reconfiguration protocol that
+resolves many ambiguities in MultiPaxos’ horizontal approach
+(e.g., when it is safe to retire old configurations). Like Multi-
+Paxos’ horizontal reconfiguration protocol, SMART can re-
+configure a protocol with minimal performance degradation.
+0.0
+0.5
+1.0
+1.5
+2.0
+Latency (ms)
+0:00 0:05 0:10 0:15 0:20
+Time
+5000
+10000
+15000
+Throughput
+(cmds/second)
+1client 4clients 8clients
+Figure 19: The latency and throughput of Horizontal Mul-
+tiPaxos with f = 1.
+SMART differs from Matchmaker Paxos is a number of
+ways. First, like MultiPaxos’ horizontal reconfiguration pro-
+tocol, SMART is fundamentally log based and is therefore
+incompatible with many sophisticated state machine repli-
+cation protocols. Second, SMART assumes that acceptors
+and replicas are always co-located. This prevents us from
+reconfiguring the acceptors without reconfiguring the repli-
+cas. This is not ideal since we can reconfigure an acceptor
+without copying any state, but must transfer logs from an
+old replica to a new replica. SMART’s garbage collection
+also has higher latency that Matchmaker Paxos’ garbage
+collection. For Scenario 3, Matchmaker Paxos proposers
+wait until a prefix of the log is stored on f + 1 replicas.
+SMART waits for the prefix of the log to be executed and
+snapshotted by f + 1 replicas.
+Raft. Raft [33] uses a reconfiguration protocol called
+joint consensus. Like MultiPaxos’ horizontal reconfigura-
+tion, joint consensus is log-based and therefore incompatible
+with many existing replication protocols.
+180.0
+0.5
+1.0
+1.5
+2.0 Latency (ms)
+0:00 0:05 0:10 0:15 0:20 0:25 0:30 0:35
+Time
+0
+10000
+20000
+Throughput
+(cmds/second)
+1client 4clients 8clients
+Figure 20: The latency and throughput of Matchmaker Mul-
+tiPaxos with f = 1. The vertical dashed red line shows the
+failure of a leader, an acceptor, and a matchmaker. The
+first solid vertical black line shows the recovery of the leader,
+the second black line shows a reconfiguration away from the
+failed acceptor, and the third black line shows a reconfigu-
+ration away from the failed matchmaker.
+A simpler reconfiguration protocol for Raft was proposed
+in [32] but requires more rounds of communication.
+Viewstamped Replication (VR). VR [23] uses a stop-
+the-world approach to reconfiguration. During a reconfigu-
+ration, the entire protocol stops processing commands. Thus,
+while the reconfiguration is quite simple, it is inefficient.
+Stoppable Paxos [19] is similar to MultiPaxos’ horizontal
+reconfiguration, but also uses a stop-the-world approach.
+VR’s stop-the-world approach to reconfiguration is also
+adopted by databases built on VR, including TAPIR [43]
+and Meerkat [37]. We use a similar approach to reconfigure
+matchmakers, but because matchmakers are off the critical
+path, the performance overheads are invisible.
+Fast Paxos Coordinated Recovery. Fast Paxos has
+an optimization called coordinated recovery that is similar
+to Phase 1 Bypassing. The main difference is that in coordi-
+nated recovery, a leader uses Phase 2 information in round
+i to skip Phase 1 in round i + 1, whereas with Phase 1 By-
+passing, the leader instead uses Phase 1 information.
+Note that coordinated recovery is not useful for Match-
+maker MultiPaxos. It is subsumed by Phase 1 Bypassing.
+Coordinated recovery is only needed for Fast Paxos because
+the leader may not know which values were proposed in a
+round it owns. Phase 1 Bypassing cannot be applied to Fast
+Paxos for pretty much the same reason.
+DynaStore. Vertical Paxos assumes its external mas-
+ter is implemented using state machine replication. Multi-
+Paxos’ horizontal reconfiguration also depends on consensus.
+Matchmaker Paxos does not require consensus to implement
+matchmakers, but we are not the first to notice this. Dyna-
+Store [1] showed that reconfiguring atomic storage does not
+require consensus.
+0.4
+0.6
+Latency (ms)
+0:00 0:05 0:10 0:15 0:20 0:25 0:30 0:35
+Time
+5000
+10000
+15000
+20000
+Throughput
+(cmds/second)
+1client 4clients 8clients
+Figure 21: The latency and throughput of Matchmaker Mul-
+tiPaxos (f = 1). The dotted blue, dashed red, and verti-
+cal black lines show matchmaker reconfigurations, a match-
+maker failure, and an acceptor reconfiguration respectively.
+ZooKeeper. ZooKeeper, a distributed coordinated ser-
+vice, which uses ZooKeeper Atomic Broadcast [11] is a pro-
+tocol similar to MultiPaxos that can also reconfigure quickly
+after leader failures.
+10. CONCLUSION
+We presented Matchmaker Paxos and Matchmaker Mul-
+tiPaxos to address the lack of research on the increasingly
+important topic of reconfiguration. Our protocols achieve a
+number of desirable properties, both theoretical and practi-
+cal: they can reconfigure without performance degradation,
+they provide insights into existing protocols, and they gen-
+eralize better than existing techniques.
+11. REFERENCES
+[1] M. K. Aguilera, I. Keidar, D. Malkhi, and A. Shraer.
+Dynamic atomic storage without consensus. Journal
+of the ACM (JACM), 58(2):1–32, 2011.
+[2] A. Ailijiang, A. Charapko, M. Demirbas, and
+T. Kosar. Wpaxos: Wide area network flexible
+consensus. IEEE Transactions on Parallel and
+Distributed Systems, 31(1):211–223, 2019.
+[3] B. Arun, S. Peluso, R. Palmieri, G. Losa, and
+B. Ravindran. Speeding up consensus by chasing fast
+decisions. In 2017 47th Annual IEEE/IFIP
+International Conference on Dependable Systems and
+Networks (DSN), pages 49–60. IEEE, 2017.
+[4] M. Biely, Z. Milosevic, N. Santos, and A. Schiper.
+S-paxos: Offloading the leader for high throughput
+state machine replication. In 2012 IEEE 31st
+Symposium on Reliable Distributed Systems, pages
+111–120. IEEE, 2012.
+[5] M. Burrows. The chubby lock service for
+loosely-coupled distributed systems. In Proceedings of
+the 7th Symposium on Operating Systems Design and
+Implementation, OSDI 06, page 335350, USA, 2006.
+USENIX Association.
+19[6] T. D. Chandra, R. Griesemer, and J. Redstone. Paxos
+made live: An engineering perspective. In Proceedings
+of the Twenty-Sixth Annual ACM Symposium on
+Principles of Distributed Computing, PODC 07, page
+398407, New York, NY, USA, 2007. Association for
+Computing Machinery.
+[7] C. Chrysafis, B. Collins, S. Dugas, J. Dunkelberger,
+M. Ehsan, S. Gray, A. Grieser, O. Herrnstadt,
+K. Lev-Ari, T. Lin, et al. Foundationdb record layer:
+A multi-tenant structured datastore. In Proceedings of
+the 2019 International Conference on Management of
+Data, pages 1787–1802, 2019.
+[8] J. C. Corbett, J. Dean, M. Epstein, A. Fikes, C. Frost,
+J. J. Furman, S. Ghemawat, A. Gubarev, C. Heiser,
+P. Hochschild, et al. Spanner: Googles globally
+distributed database. ACM Transactions on Computer
+Systems (TOCS), 31(3):1–22, 2013.
+[9] M. J. Fischer, N. A. Lynch, and M. S. Paterson.
+Impossibility of distributed consensus with one faulty
+process. Journal of the ACM (JACM), 32(2):374–382,
+1985.
+[10] H. Howard, D. Malkhi, and A. Spiegelman. Flexible
+paxos: Quorum intersection revisited. In 20th
+International Conference on Principles of Distributed
+Systems (OPODIS 2016). Schloss
+Dagstuhl-Leibniz-Zentrum fuer Informatik, 2017.
+[11] F. P. Junqueira, B. C. Reed, and M. Serafini. Zab:
+High-performance broadcast for primary-backup
+systems. In 2011 IEEE/IFIP 41st International
+Conference on Dependable Systems & Networks
+(DSN), pages 245–256. IEEE, 2011.
+[12] T. Kraska, G. Pang, M. J. Franklin, S. Madden, and
+A. Fekete. Mdcc: Multi-data center consistency. In
+Proceedings of the 8th ACM European Conference on
+Computer Systems, pages 113–126, 2013.
+[13] Kubernetes. Kubernetes. https://kubernetes.io.
+accessed: 2020-03-01.
+[14] C. Labs. CockroachDB.
+https://www.cockroachlabs.com/. accessed:
+2020-03-01.
+[15] L. Lamport. The part-time parliament. ACM
+Transactions on Computer Systems (TOCS),
+16(2):133–169, 1998.
+[16] L. Lamport. Generalized consensus and paxos.
+Technical Report MSR-TR-2005-33, Microsoft
+Research, 2005.
+[17] L. Lamport. Fast paxos. Distributed Computing,
+19(2):79–103, 2006.
+[18] L. Lamport et al. Paxos made simple. ACM Sigact
+News, 32(4):18–25, 2001.
+[19] L. Lamport, D. Malkhi, and L. Zhou. Stoppable
+paxos. TechReport, Microsoft Research, 2008.
+[20] L. Lamport, D. Malkhi, and L. Zhou. Vertical paxos
+and primary-backup replication. In Proceedings of the
+28th ACM symposium on Principles of distributed
+computing, pages 312–313, 2009.
+[21] L. Lamport, D. Malkhi, and L. Zhou. Reconfiguring a
+state machine. SIGACT News, 41(1):63–73, 2010.
+[22] L. Lamport and M. Massa. Cheap paxos. In
+International Conference on Dependable Systems and
+Networks, 2004, pages 307–314. IEEE, 2004.
+[23] B. Liskov and J. Cowling. Viewstamped replication
+revisited. MIT-CSAIL-TR-2012-021, 2012.
+[24] J. R. Lorch, A. Adya, W. J. Bolosky, R. Chaiken,
+J. R. Douceur, and J. Howell. The smart way to
+migrate replicated stateful services. In Proceedings of
+the 1st ACM SIGOPS/EuroSys European Conference
+on Computer Systems 2006, pages 103–115, 2006.
+[25] Y. Mao, F. P. Junqueira, and K. Marzullo. Mencius:
+Building efficient replicated state machines for wans.
+In Proceedings of the 8th USENIX Conference on
+Operating Systems Design and Implementation,
+OSDI08, page 369384, USA, 2008. USENIX
+Association.
+[26] P. J. Marandi, M. Primi, N. Schiper, and F. Pedone.
+Ring paxos: A high-throughput atomic broadcast
+protocol. In 2010 IEEE/IFIP International
+Conference on Dependable Systems & Networks
+(DSN), pages 527–536. IEEE, 2010.
+[27] I. Moraru, D. G. Andersen, and M. Kaminsky. A
+proof of correctness for egalitarian paxos. Technical
+report, Technical report, Parallel Data Laboratory,
+Carnegie Mellon University, 2013.
+[28] I. Moraru, D. G. Andersen, and M. Kaminsky. There
+is more consensus in egalitarian parliaments. In
+Proceedings of the Twenty-Fourth ACM Symposium on
+Operating Systems Principles, pages 358–372, 2013.
+[29] S. Mu, L. Nelson, W. Lloyd, and J. Li. Consolidating
+concurrency control and consensus for commits under
+conflicts. In 12th {USENIX} Symposium on Operating
+Systems Design and Implementation ({OSDI} 16),
+pages 517–532, 2016.
+[30] F. Nawab, D. Agrawal, and A. El Abbadi. Dpaxos:
+Managing data closer to users for low-latency and
+mobile applications. In Proceedings of the 2018
+International Conference on Management of Data,
+pages 1221–1236. ACM, 2018.
+[31] D. Ongaro. Bug in single-server membership changes.
+https://groups.google.com/forum/#!msg/
+raft-dev/t4xj6dJTP6E/d2D9LrWRza8J. accessed:
+2020-03-01.
+[32] D. Ongaro. Consensus: Bridging theory and practice.
+PhD thesis, Stanford University, 2014.
+[33] D. Ongaro and J. Ousterhout. In search of an
+understandable consensus algorithm. In 2014
+{USENIX} Annual Technical Conference
+({USENIX}{ATC} 14), pages 305–319, 2014.
+[34] D. R. Ports, J. Li, V. Liu, N. K. Sharma, and
+A. Krishnamurthy. Designing distributed systems
+using approximate synchrony in data center networks.
+In 12th {USENIX} Symposium on Networked Systems
+Design and Implementation ({NSDI} 15), pages
+43–57, 2015.
+[35] S. Rizvi, B. Wong, and S. Keshav. Canopus: A
+scalable and massively parallel consensus protocol. In
+Proceedings of the 13th International Conference on
+emerging Networking EXperiments and Technologies,
+pages 426–438, 2017.
+[36] D. Rystsov. Caspaxos: Replicated state machines
+without logs. arXiv preprint arXiv:1802.07000, 2018.
+[37] A. Szekeres, M. Whittaker, J. Li, S. Naveen,
+A. Krishnamurthy, D. Ports, and I. Zhang. Meerkat:
+Multicore-scalable replicated transactions following
+the zero-coordination principle. In Proceedings of the
+20Fourteenth EuroSys Conference 2020, 2020.
+[38] R. Van Renesse and D. Altinbuken. Paxos made
+moderately complex. ACM Computing Surveys
+(CSUR), 47(3):1–36, 2015.
+[39] R. van Renesse and F. B. Schneider. Chain replication
+for supporting high throughput and availability. In
+Proceedings of the 6th Conference on Symposium on
+Operating Systems Design & Implementation - Volume
+6, OSDI04, page 7, USA, 2004. USENIX Association.
+[40] M. Vukolić et al. The origin of quorum systems.
+Bulletin of EATCS, 2(101), 2013.
+[41] M. Whittaker, N. Giridharan, A. Szekeres, J. M.
+Hellerstein, H. Howard, F. Nawab, and I. Stoica.
+Matchmaker paxos: A reconfigurable consensus
+protocol [technical report]. https://mwhittaker.
+github.io/publications/matchmaker_paxos_tr.pdf.
+[42] M. Whittaker, N. Giridharan, A. Szekeres, J. M.
+Hellerstein, and I. Stoica. Bipartisan paxos: A
+modular state machine replication protocol.
+https://mwhittaker.github.io/publications/
+compartmentalized_bipartisan_paxos.pdf.
+[43] I. Zhang, N. K. Sharma, A. Szekeres,
+A. Krishnamurthy, and D. R. Ports. Building
+consistent transactions with inconsistent replication.
+ACM Transactions on Computer Systems (TOCS),
+35(4):1–37, 2018.
+21

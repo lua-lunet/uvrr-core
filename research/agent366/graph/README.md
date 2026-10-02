@@ -5,9 +5,11 @@ with the paper's Zotero/Better BibTeX bibliography, choose one or more
 collection export files using **Read Zotero collection exports**. The filename
 is used as the collection label in the dropdown; choose the paper's existing
 `paper/papers/references.bib` for the current paper collection. The page reads
-entry keys in the browser and never edits or uploads the selected files. It
-does not connect to Zotero's database or read Zotero notes, abstracts,
-attachments, or other item fields.
+exported records in the browser and never edits or uploads the selected files.
+It does not connect to Zotero's database or read Zotero notes, attachments, or
+fields that Better BibTeX did not export. Use **Find a loaded reference** to
+search citation keys, titles, authors, and abstracts; click a result to read
+its exported abstract in the details panel.
 
 After loading the files, teal outlines mark graph nodes whose explicit
 Better BibTeX key appears in the selected export. Switch exports with the
@@ -15,6 +17,16 @@ collection dropdown; **Show only graph works in the selected collection**
 hides unmatched nodes and edges. The `uvrrpaper` node stays as context so its
 outgoing references remain visible. The checkbox starts unchecked so the
 full graph remains available.
+
+## Abstract refresh
+
+Better BibTeX is the source of truth for the loaded abstracts. When an export
+has a gap, prefer the primary paper's published abstract. For a self-published
+post, derive a short abstract from the front-page snippet; if no snippet exists,
+take a first-sentence summary from the opening text and keep it descriptive
+rather than evaluative. Keep the derived text in Zotero's Abstract field and let
+the export refresh, rather than editing abstracts inside the graph. The current
+`references.bib` has an abstract for every exported record.
 
 The key crosswalk is explicit in `data.js`. If a citekey changes in Zotero,
 update that mapping to match the next export. The chart does not infer identity

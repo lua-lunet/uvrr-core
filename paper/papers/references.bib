@@ -1,0 +1,367 @@
+@article{ailidaniailijiang2019,
+  title = {{{WPaxos}}: {{Wide Area Network Flexible Consensus}}},
+  author = {{Ailidani Ailijiang} and {Aleksey Charapko} and {Murat Demirbas} and {Tevfik Kosar}},
+  year = 2019,
+  abstract = {WPaxos is a multileader Paxos protocol that provides low-latency and high-throughput consensus across wide-area network deployments. It partitions the object space among leaders and adapts to changing access locality through object stealing. Concurrent leaders take ownership of objects with phase 1 and commit updates locally with phase 2 using flexible quorums and nearby acceptors. The implementation is evaluated across five AWS regions.}
+}
+
+@misc{ailijiang2019,
+  title = {{{WPaxos}}: {{Wide Area Network Flexible Consensus}}},
+  shorttitle = {{{WPaxos}}},
+  author = {Ailijiang, Ailidani and Charapko, Aleksey and Demirbas, Murat and Kosar, Tevfik},
+  year = 2019,
+  month = apr,
+  number = {arXiv:1703.08905},
+  eprint = {1703.08905},
+  primaryclass = {cs.DC},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.1703.08905},
+  urldate = {2026-10-01},
+  abstract = {WPaxos is a multileader Paxos protocol that provides low-latency and high-throughput consensus across wide-area network (WAN) deployments. WPaxos uses multileaders, and partitions the object-space among these multileaders. Unlike statically partitioned multiple Paxos deployments, WPaxos is able to adapt to the changing access locality through object stealing. Multiple concurrent leaders coinciding in different zones steal ownership of objects from each other using phase-1 of Paxos, and then use phase-2 to commit update-requests on these objects locally until they are stolen by other leaders. To achieve fast phase-2 commits, WPaxos adopts the flexible quorums idea in a novel manner, and appoints phase-2 acceptors to be close to their respective leaders. We implemented WPaxos and evaluated it on WAN deployments across 5 AWS regions. The dynamic partitioning of the object-space and emphasis on zone-local commits allow WPaxos to significantly outperform both partitioned Paxos deployments and leaderless Paxos approaches.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Distributed Parallel and Cluster Computing},
+  file = {/Users/consensussolutions/Zotero/storage/Y9AHNITE/Ailijiang et al. - 2019 - WPaxos Wide Area Network Flexible Consensus.pdf;/Users/consensussolutions/Zotero/storage/SZGCNMXZ/1703.html}
+}
+
+@misc{artifact,
+  title = {{{uVRR}} Code and Proof Addendum,},
+  author = {Massey, S.},
+  year = 2026,
+  url = {https://github.com/lua-lunet/uvrr-core},
+  abstract = {Repository addendum for the uVRR paper: the sans-IO implementation, Lean 4 formalisation, test harnesses, and protocol documentation that accompany the paper.},
+  keywords = {consensus,viewstamped-replication}
+}
+
+@misc{diskpaxos,
+  title = {Disk Paxos,},
+  author = {Gafni, E. and Lamport, L.},
+  year = 2003,
+  url = {https://lamport.azurewebsites.net/pubs/disk-paxos-disc.pdf},
+  abstract = {A method is described for implementing a distributed shared register with processor consensus using disks; it substitutes reliable disk writes for reliable processor-to-processor communication.},
+  keywords = {consensus}
+}
+
+@article{iulianmoraru2013,
+  title = {There {{Is More Consensus}} in {{Egalitarian Parliaments}}},
+  author = {{Iulian Moraru} and {David G. Andersen} and {Michael Kaminsky}},
+  year = 2013,
+  abstract = {This paper describes the design and implementation of Egalitarian Paxos (EPaxos), a distributed consensus algorithm based on Paxos. EPaxos targets optimal wide-area commit latency, uniform load balancing across replicas, and graceful performance degradation when replicas are slow or crash. In the common case, commands commit in one communication round; interfering commands may require an additional round to establish dependencies and order.}
+}
+
+@inproceedings{moraru2013,
+  title = {There Is More Consensus in {{Egalitarian}} Parliaments},
+  booktitle = {Proceedings of the {{Twenty-Fourth ACM Symposium}} on {{Operating Systems Principles}}},
+  author = {Moraru, Iulian and Andersen, David G. and Kaminsky, Michael},
+  year = 2013,
+  month = nov,
+  pages = {358--372},
+  publisher = {ACM},
+  address = {Farminton Pennsylvania},
+  doi = {10.1145/2517349.2517350},
+  urldate = {2026-10-01},
+  isbn = {978-1-4503-2388-8},
+  langid = {english},
+  abstract = {This paper describes the design and implementation of Egalitarian Paxos (EPaxos), a distributed consensus algorithm based on Paxos. EPaxos achieves three goals: (1) optimal commit latency in the wide-area when tolerating one and two failures, under realistic conditions; (2) uniform load balancing across all replicas (thus achieving high throughput); and (3) graceful performance degradation when replicas are slow or crash.}
+}
+
+@misc{motivation,
+  title = {Viewstamped Replication Revisited,},
+  author = {Massey, S.},
+  year = 2026,
+  url = {https://simbo1905.wordpress.com/2026/08/12/viewstamped-replication-revisited/},
+  abstract = {Self-published motivation post: why has nobody open-sourced strong consistency with single-digit-millisecond primary failover and non-stop reconfiguration on VRR? TigerBeetle took the VRR high road but does not support dynamic cluster size.},
+  keywords = {consensus,viewstamped-replication}
+}
+
+@misc{nopaxos,
+  title = {Just Say {{NO}} to {{Paxos}} Overhead: {{Replacing}} Consensus with Network Ordering,},
+  author = {J. Li, E. Michael, N. K. Sharma and Ports, D. R. K.},
+  year = 2016,
+  url = {https://www.usenix.org/system/files/conference/nsdi16/nsdi16-paper-li.pdf},
+  abstract = {Paxos and its variants impose a per-request communication and ordering overhead that limits the performance of distributed services in datacenters. NOPaxos removes that ordering bottleneck by making the network itself order message batches, then uses consensus only to tolerate faults and recover from network reordering.},
+  keywords = {consensus}
+}
+
+@misc{par,
+  title = {Protocol-Aware Recovery for Consensus-Based Storage,},
+  author = {R. Alagappan, A. Ganesan, E. Lee and {Arpaci-Dusseau}, R. H.},
+  year = 2018,
+  url = {https://www.usenix.org/system/files/conference/fast18/fast18-alagappan.pdf},
+  abstract = {A single disk sector fault, in the write-ahead log of a single replica, can propagate through the distributed Raft or MultiPaxos consensus protocol and cause global cluster data loss. Protocol-aware recovery detects protocol-level inconsistencies rather than treating each replica independently.},
+  keywords = {consensus,consensus-protocols}
+}
+
+@misc{pms,
+  title = {Paxos Made Simple,},
+  author = {Lamport, L.},
+  year = 2001,
+  url = {https://lamport.azurewebsites.net/pubs/paxos-simple.pdf},
+  abstract = {The Paxos algorithm, when presented in plain English, is very simple.},
+  keywords = {consensus}
+}
+
+@misc{reconfig-sm,
+  title = {Reconfiguring a State Machine,},
+  author = {L. Lamport, D. Malkhi and Zhou, L.},
+  year = 2010,
+  url = {http://www-sop.inria.fr/members/Francesco.Bongiovanni/reconfiguring%20a%20state%20machine.pdf},
+  abstract = {A tutorial on reconfiguration in replicated state machines, covering the history of the reconfiguration problem, the window property, and practical approaches to changing membership while preserving safety.},
+  keywords = {consensus}
+}
+
+@misc{turner,
+  title = {Unbounded Pipelining in Dynamically Reconfigurable {{Paxos}} Clusters,},
+  author = {Turner, D.},
+  year = 2017,
+  url = {https://github.com/DaveCTurner/paxos-membership},
+  abstract = {UPaxos enables unbounded pipelining in dynamically reconfigurable Paxos clusters. It uses weighted voting, era-indexed configurations, leader overlap, and a casting vote to change membership while maintaining the quorum intersections required by safety; the argument is formalised in Isabelle/HOL.},
+  keywords = {consensus}
+}
+
+@misc{vertical-paxos,
+  title = {Vertical {{Paxos}} and Primary-Backup Replication,},
+  author = {L. Lamport, D. Malkhi and Zhou, L.},
+  year = 2009,
+  url = {https://lamport.azurewebsites.net/pubs/vertical-paxos.pdf},
+  abstract = {We introduce a class of Paxos algorithms called Vertical Paxos, in which reconfiguration can occur in the middle of reaching agreement on an individual state-machine command. Vertical Paxos algorithms use an auxiliary configuration master that facilitates agreement on reconfiguration. A special case of these algorithms leads to traditional primary-backup protocols.},
+  keywords = {consensus}
+}
+
+@misc{votingweights,
+  title = {Paxos Voting Weights,},
+  author = {{simbo1905}},
+  year = 2017,
+  url = {https://simbo1905.wordpress.com/2017/03/16/paxos-voting-weights/},
+  abstract = {Self-published worked example of Turner's hot-swap using Paxos voting weights: double all weights, add the new node at one, then halve; unit steps keep consecutive majorities overlapping. Zero-weight acceptors are learners or standbys.},
+  keywords = {consensus}
+}
+
+@misc{vr,
+  title = {Viewstamped Replication: {{A}} New Primary Copy Method to Support Highly-Available Distributed Systems,},
+  author = {Oki, B. M. and Liskov, B. H.},
+  year = 1988,
+  url = {https://www.cs.princeton.edu/courses/archive/fall11/cos518/papers/viewstamped.pdf},
+  abstract = {One of the potential benefits of distributed systems is their use to provide highly-available services. We describe a primary copy method for managing replicated data that supports highly-available distributed systems. The method provides consistency even in the face of node failures and restarts.},
+  keywords = {consensus,viewstamped-replication}
+}
+
+@misc{vrr,
+  title = {Viewstamped Replication Revisited,},
+  author = {Liskov, B. and Cowling, J.},
+  year = 2012,
+  eprint = {1721.1/71763},
+  eprinttype = {hdl},
+  url = {https://hdl.handle.net/1721.1/71763},
+  abstract = {This paper presents an updated version of Viewstamped Replication, a replication technique that handles failures in which nodes crash. It describes how client requests are handled, how the group reorganizes when a replica fails, and how a failed replica is able to rejoin the group. The paper also describes a number of important optimizations and presents a protocol for handling reconfigurations that can change both the group membership and the number of failures the group is able to handle.},
+  keywords = {consensus,viewstamped-replication}
+}
+
+@article{zotero-item-100,
+  title = {Optimistic {{Atomic Broadcast}}: {{A Pragmatic Viewpoint}}},
+  abstract = {The Optimistic Atomic Broadcast algorithm exploits the spontaneous total-order property experienced in local-area networks for fast message delivery. It operates in stages: processes deliver messages quickly during a stage, and when spontaneous total order fails, they terminate the stage and solve consensus, which may deliver remaining messages. The paper evaluates delivery latency.}
+}
+
+@article{zotero-item-101,
+  title = {Optimistic {{Generic Broadcast}}},
+  abstract = {We consider an asynchronous system with the \textohm{} failure detector and the communication steps required by broadcast protocols when the leader does not change. We present an algorithm subsuming Optimistic Atomic Broadcast and Generic Broadcast: delivery takes two steps when conflicting messages arrive in the same order and three otherwise. The protocol assumes fewer than one third of processes are faulty.}
+}
+
+@article{zotero-item-60,
+  title = {Impossibility of {{Distributed Consensus}} with {{One Faulty Processor}}},
+  abstract = {The consensus problem involves an asynchronous system of processes, some of which may be unreliable. The problem is for the reliable processes to agree on a binary value. In this paper, it is shown that every protocol for this problem has the possibility of nontermination, even with only one faulty process. By way of contrast, solutions are known for the synchronous case, the ``Byzantine Generals'' problem.}
+}
+
+@article{zotero-item-61,
+  title = {The {{Byzantine Generals Problem}}},
+  abstract = {Reliable computer systems must handle malfunctioning components that give conflicting information to different parts of the system.This situation can be expressed abstractly in terms of a group of generals of the Byzantine army camped with their troops around an enemy city.Communicating only by messenger, the generals must agree upon a common battle plan.However, one or more of them may be traitors who will try to confuse the others.The problem is to find an algorithm to ensure that the loyal generals will reach agreement.It is shown that, using only oral messages, this problem is solvable if and only if more than two-thirds of the generals are loyal; so a single traitor can confound two loyal generals.With unforgeable written messages, the problem is solvable for any number of generals and possible traitors.Applications of the solutions to reliable computer systems are then discussed.}
+}
+
+@article{zotero-item-62,
+  title = {The {{Chubby Lock Service}} for {{Loosely-Coupled Distributed Systems}}},
+  abstract = {We describe our experiences with the Chubby lock service, which is intended to provide coarse-grained locking as well as reliable (though low-volume) storage for a loosely-coupled distributed system. Chubby provides an interface much like a distributed file system with advisory locks, but the design emphasis is on availability and reliability, as opposed to high performance. Many instances of the service have been used for over a year, with several of them each handling a few tens of thousands of clients concurrently. The paper describes the initial design and expected use, compares it with actual use, and explains how the design had to be modified to accommodate the differences.}
+}
+
+@article{zotero-item-63,
+  title = {Paxos {{Made Moderately Complex}}},
+  abstract = {This article explains the full reconfigurable multidecree Paxos (or multi-Paxos) protocol. Paxos is by no means a simple protocol, even though it is based on relatively simple invariants. We provide pseudocode and explain it guided by invariants. We initially avoid optimizations that complicate comprehension. Next we discuss liveness, list various optimizations that make the protocol practical, and present variants of the protocol.}
+}
+
+@article{zotero-item-64,
+  title = {{{ZooKeeper}}: {{Wait-Free Coordination}} for {{Internet-Scale Systems}}},
+  abstract = {In this paper, we describe ZooKeeper, a service for coordinating processes of distributed applications. Since ZooKeeper is part of critical infrastructure, ZooKeeper aims to provide a simple and high performance kernel for building more complex coordination primitives at the client. It incorporates elements from group messaging, shared registers, and distributed lock services in a replicated, centralized service. The interface exposed by Zoo-Keeper has the wait-free aspects of shared registers with an event-driven mechanism similar to cache invalidations of distributed file systems to provide a simple, yet powerful coordination service. The ZooKeeper interface enables a high-performance service implementation. In addition to the wait-free property, ZooKeeper provides a per client guarantee of FIFO execution of requests and linearizability for all requests that change the ZooKeeper state. These design decisions enable the implementation of a high performance processing pipeline with read requests being satisfied by local servers. We show for the target workloads, 2:1 to 100:1 read to write ratio, that ZooKeeper can handle tens to hundreds of thousands of transactions per second. This performance allows ZooKeeper to be used extensively by client applications. 1}
+}
+
+@article{zotero-item-65,
+  title = {Zab: {{High-Performance Broadcast}} for {{Primary-Backup Systems}}},
+  abstract = {Zab is a crash-recovery atomic broadcast algorithm we designed for the ZooKeeper coordination service. ZooKeeper implements a primary-backup scheme in which a primary process executes clients operations and uses Zab to propagate the corresponding incremental state changes to backup processes. Due the dependence of an incremental state change on the sequence of changes previously generated, Zab must guarantee that if it delivers a given state change, then all other changes it depends upon must be delivered first. Since primaries may crash, Zab must satisfy this requirement despite crashes of primaries.}
+}
+
+@article{zotero-item-66,
+  title = {In {{Search}} of an {{Understandable Consensus Algorithm}}},
+  abstract = {Raft is a consensus algorithm for managing a replicated log. It produces a result equivalent to (multi-)Paxos, and it is as efficient as Paxos, but its structure is different from Paxos; this makes Raft more understandable than Paxos and also provides a better foundation for build-ing practical systems. In order to enhance understandabil-ity, Raft separates the key elements of consensus, such as leader election, log replication, and safety, and it enforces a stronger degree of coherency to reduce the number of states that must be considered. Results from a user study demonstrate that Raft is easier for students to learn than Paxos. Raft also includes a new mechanism for changing the cluster membership, which uses overlapping majori-ties to guarantee safety. 1}
+}
+
+@article{zotero-item-67,
+  title = {Spanner: {{Google}}'s {{Globally-Distributed Database}}},
+  abstract = {Spanner is Google's scalable, multi-version, globallydistributed, and synchronously-replicated database. It is the first system to distribute data at global scale and support externally-consistent distributed transactions. This paper describes how Spanner is structured, its feature set, the rationale underlying various design decisions, and a novel time API that exposes clock uncertainty. This API and its implementation are critical to supporting external consistency and a variety of powerful features: nonblocking reads in the past, lock-free read-only transactions, and atomic schema changes, across all of Spanner. 1}
+}
+
+@article{zotero-item-68,
+  title = {Megastore: {{Providing Scalable}}, {{Highly Available Storage}} for {{Interactive Services}}},
+  abstract = {Megastore is a storage system developed to meet the requirements of today's interactive online services. Megastore blends the scalability of a NoSQL datastore with the convenience of a traditional RDBMS in a novel way, and provides both strong consistency guarantees and high availability. We provide fully serializable ACID semantics within fine-grained partitions of data. This partitioning allows us to synchronously replicate each write across a wide area network with reasonable latency and support seamless failover between datacenters. This paper describes Megastore's semantics and replication algorithm. It also describes our experience supporting a wide range of Google production services built with Megastore.}
+}
+
+@article{zotero-item-69,
+  title = {{{SALT}}: {{Combining ACID}} and {{BASE}} in a {{Distributed Database}}},
+  abstract = {Abstract: This paper presents Salt, a distributed database that allows developers to improve the perfor-mance and scalability of their ACID applications through the incremental adoption of the BASE approach. Salt's motivation is rooted in the Pareto principle: for many ap-plications, the transactions that actually test the perfor-mance limits of ACID are few. To leverage this insight, Salt introduces BASE transactions, a new abstraction that encapsulates the workflow of performance-critical transactions. BASE transactions retain desirable proper-ties like atomicity and durability, but, through the new mechanism of Salt Isolation, control which granularity of isolation they offer to other transactions, depending on whether they are BASE or ACID. This flexibility al-lows BASE transactions to reap the performance benefits of the BASE paradigm without compromising the guar-antees enjoyed by the remaining ACID transactions. For example, in our MySQL Cluster-based implementation of Salt, BASE-ifying just one out of 11 transactions in the open source ticketing application Fusion Ticket yields a 6.5x increase over the throughput obtained with an ACID implementation. 1}
+}
+
+@article{zotero-item-70,
+  title = {Replication, {{History}}, and {{Grafting}} in the {{Ori File System}}},
+  abstract = {Ori is a file system that manages user data in a modern setting where users have multiple devices and wish to access files everywhere, synchronize data, recover from disk failure, access old versions, and share data. The key to satisfying these needs is keeping and replicating file system history across devices, which is now practical as storage space has outpaced both wide-area network (WAN) bandwidth and the size of managed data. Replication provides access to files from multiple devices. History provides synchronization and offline access. Replication and history together subsume backup by providing snapshots and avoiding any single point of failure. In fact, Ori is fully peer-to-peer, offering opportunistic synchronization between user devices in close proximity and ensuring that the file system is usable so long as a single replica remains. Cross-file system data sharing with history is provided by a new mechanism called grafting. An evaluation shows that as a local file system, Ori has low overhead compared to a File system in User Space (FUSE) loopback driver; as a network file system, Ori over a WAN outperforms NFS over a LAN.}
+}
+
+@article{zotero-item-71,
+  title = {{{GFFS}} -- {{The XSEDE Global Federated File System}}},
+  abstract = {Federated, secure, standardized, scalable, and transparent mechanism to access and share resources, particularly data resources, across organizational boundaries that does not require application modification and does not disrupt existing data access patterns has been needed for some time in the computational science community. The Global Federated File System (GFFS) addresses this need and is a foundational component of the NSF-funded eXtreme Science and Engineering Discovery Environment (XSEDE) program. The GFFS allows user applications to access (create, read, update, delete) remote resources in a location-transparent fashion. Existing applications, whether they are statically linked binaries, dynamically linked binaries, or scripts (shell, PERL, Python), can access resources anywhere in the GFFS without modification (subject to access control). In this paper we present an overview of the GFFS and its most common use cases: accessing data at an NSF center from a home or campus, accessing data on a campus machine from an NSF center, directly sharing data with a collaborator at another institution, accessing remote computing resources, and interacting with remote running jobs. We present these uses cases and how they are realized using the GFFS.}
+}
+
+@article{zotero-item-72,
+  title = {{{TAO}}: {{Facebook}}'s {{Distributed Data Store}} for the {{Social Graph}}},
+  abstract = {We introduce a simple data model and API tailored for serving the social graph, and TAO, an implementation of this model. TAO is a geographically distributed data store that provides efficient and timely access to the social graph for Facebook's demanding workload using a fixed set of queries. It is deployed at Facebook, replacing memcache for many data types that fit its model. The system runs on thousands of machines, is widely distributed, and provides access to many petabytes of data. TAO can process a billion reads and millions of writes each second.}
+}
+
+@article{zotero-item-73,
+  title = {Don't {{Settle}} for {{Eventual}}: {{Scalable Causal Consistency}} for {{Wide-Area Storage}} with {{COPS}}},
+  abstract = {COPS provides causal consistency for wide-area storage while preserving high availability and low latency. It presents mechanisms for convergent conflict handling and causal dependency enforcement across datacentres.}
+}
+
+@article{zotero-item-74,
+  title = {There {{Is More Consensus}} in {{Egalitarian Parliaments}}},
+  abstract = {This paper describes the design and implementation of Egalitarian Paxos (EPaxos), a new distributed consensus algorithm based on Paxos. EPaxos achieves three goals: (1) optimal commit latency in the wide-area when tolerating one and two failures, under realistic conditions; (2) uniform load balancing across all replicas (thus achieving high throughput); and (3) graceful performance degradation when replicas are slow or crash.}
+}
+
+@article{zotero-item-75,
+  title = {Modular {{Composition}} of {{Coordination Services}}},
+  abstract = {ZooNet composes coordination services across regions from independent ZooKeeper instances. The design preserves local operation latency while providing cross-region coordination and reports substantial performance gains over a monolithic wide-area service.}
+}
+
+@article{zotero-item-76,
+  title = {Bizur: {{A Key-Value Consensus Algorithm}} for {{Scalable File-Systems}}},
+  abstract = {Bizur is a consensus algorithm exposing a key-value interface. It is used by a distributed file-system that scales to 100s of servers, delivering millions of IOPS, both data and metadata, with consistent low-latency. Bizur is aimed for services that require strongly consistent state, but do not require a distributed log; for example, a distributed lock manager or a distributed service locator. By avoiding a distributed log scheme, Bizur outperforms distributed log based consensus algorithms, producing more IOPS and guaranteeing lower latencies during normal operation and especially during failures. Paxos-like algorithms (e.g., Zab and Raft) which are used by existing distributed file-systems, can have artificial contention points due to their dependence on a distributed log. The distributed log is needed when replicating a general service, but when the desired service is key-value based, the contention points created by the distributed log can be avoided. Bizur does exactly that, by reaching consensus independently on independent keys. This independence allows Bizur to handle failures more efficiently and to scale much better than other consensus algorithms, allowing the file-system that utilizes Bizur to scale with it.}
+}
+
+@article{zotero-item-77,
+  title = {Flexible {{Paxos}}: {{Quorum Intersection Revisited}}},
+  abstract = {Distributed consensus is integral to modern distributed systems. The widely adopted Paxos algorithm uses two phases, each requiring majority agreement, to reliably reach consensus. In this paper, we demonstrate that Paxos, which lies at the foundation of many production systems, is conservative. Specifically, we observe that each of the phases of Paxos may use non-intersecting quorums. Majority quorums are not necessary as intersection is required only across phases. Using this weakening of the requirements made in the original formulation, we propose Flexible Paxos, which generalizes over the Paxos algorithm to provide flexible quorums. We show that Flexible Paxos is safe, efficient and easy to utilize in existing distributed systems. We conclude by discussing the wide reaching implications of this result. Examples include improved availability from reducing the size of second phase quorums by one when the number of acceptors is even and utilizing small disjoint phase-2 quorums to speed up the steady-state.}
+}
+
+@article{zotero-item-78,
+  title = {The {{Temporal Logic}} of {{Actions}}},
+  abstract = {The temporal logic of actions (TLA) is a logic for specifying and reasoning about concurrent systems. Systems and their properties are represented in the same logic, so the assertion that a system meets its specification and the assertion that one system implements another are both expressed by logical implication. TLA is very simple; its syntax and complete formal semantics are summarized in about a page. Yet, TLA is not just a logician's toy; it is extremely powerful, both in principle and in practice. This report introduces TLA and describes how it is used to specify and verify concurrent algorithms. The use of TLA to specify and reason about open systems will be described elsewhere.}
+}
+
+@article{zotero-item-79,
+  title = {Mencius: {{Building Efficient Replicated State Machine}} for {{WANs}}},
+  abstract = {We present a protocol for general state machine replication -- a\textbackslash nmethod that provides strong consistency -- that has high performance in a\textbackslash nwide-area network. In particular, our protocol Mencius has high throughput\textbackslash nunder high client load and low latency under low client load even under\textbackslash nchanging wide-area network environment and client load. We develop our protocol\textbackslash nas a derivation from the well-known protocol Paxos. Such a development can be\textbackslash nchanged or further refined to take advantage of specific network or application\textbackslash nrequirements.Pre-2018 CSE ID: CS2008-0930}
+}
+
+@article{zotero-item-80,
+  title = {Making {{Fast Consensus Generally Faster}}},
+  abstract = {New multi-leader consensus protocols leverage the Generalized Consensus specification to enable low latency, even load balancing, and high parallelism. However, these protocols introduce inherent costs with significant performance impact: they need quorums bigger than the minimum required to solve consensus and need to track dependency relations among proposals. In this paper we present M2PAXOS, an implementation of Generalized Consensus that provides fast decisions (i.e., delivery of a command in two communication delays) by leveraging quorums composed of a majority of nodes and by exploiting workload locality. M2PAXOS does not establish command dependencies based on conflicts, instead mapping nodes to accessed objects and enforcing that commands accessing the same objects be ordered by the same node. Our experimental evaluation confirms the effectiveness of M2PAXOS, gaining up to 7X over state-of-the-art Consensus and Generalized Consensus algorithms under partitioned data accesses and up to 5.5\texttimes{} using the TPC-C workload.}
+}
+
+@article{zotero-item-81,
+  title = {{{DPaxos}}: {{Managing Data Closer}} to {{Users}} for {{Low-Latency}} and {{Mobile Applications}}},
+  abstract = {DPaxos adapts Paxos to geo-distributed and mobile settings by placing data closer to users and changing quorum participation with access patterns. It aims to reduce request latency while preserving consensus safety under failures and movement.}
+}
+
+@article{zotero-item-82,
+  title = {Generalized {{Consensus}} and {{Paxos}}},
+  abstract = {Consensus has been regarded as the fundamental problem that must be solved to implement a fault-tolerant distributed system. However, only a weaker problem than traditional consensus need be solved. We generalize the consensus problem to include both traditional consensus and this weaker version. A straightforward generalization of the Paxos consensus algorithm implements general consensus. The generalizations of consensus and of the Paxos algorithm require a mathematical detour de force into a type of object called a command-structure set.}
+}
+
+@article{zotero-item-83,
+  title = {Benchmarking {{Cloud Serving Systems}} with {{YCSB}}},
+  abstract = {While the use of MapReduce systems (such as Hadoop) for large scale data analysis has been widely recognized and studied, we have recently seen an explosion in the number of systems developed for cloud data serving. These newer systems address "cloud OLTP" applications, though they typically do not support ACID transactions. Examples of systems proposed for cloud serving use include BigTable, PNUTS, Cassandra, HBase, Azure, CouchDB, SimpleDB, Voldemort, and many others. Further, they are being applied to a diverse range of applications that differ considerably from traditional (e.g., TPC-C like) serving workloads. The number of emerging cloud serving systems and the wide range of proposed applications, coupled with a lack of apples-to-apples performance comparisons, makes it difficult to understand the tradeoffs between systems and the workloads for which they are suited. We present the "Yahoo! Cloud Serving Benchmark" (YCSB) framework, with the goal of facilitating performance comparisons of the new generation of cloud data serving systems. We define a core set of benchmarks and report results for four widely used systems: Cassandra, HBase, Yahoo!'s PNUTS, and a simple sharded MySQL implementation. We also hope to foster the development of additional cloud benchmark suites that represent other classes of applications by making our benchmark tool available via open source. In this regard, a key feature of the YCSB framework/tool is that it is extensible--it supports easy definition of new workloads, in addition to making it easy to benchmark new systems.}
+}
+
+@article{zotero-item-84,
+  title = {The {{Overlapping Coefficient}} as a {{Measure}} of {{Agreement Between Probability Distributions}}},
+  abstract = {The overlapping coefficient is defined as a measure of agreement between two probability distributions. The paper relates it to the dissimilarity index and its properties, and treats maximum-likelihood estimation of overlap between two normal distributions as an example.}
+}
+
+@article{zotero-item-85,
+  title = {Adaptive {{Data Migration}} in {{Multi-Tiered Storage Based Cloud Environment}}},
+  abstract = {Multi-tiered storage systems today are integrating Solid State Disks (SSD) on top of traditional rotational hard disks for performance enhancement due to the significant IO improvements in SSD technology. It is widely recognized that automated data migration between SSD and HDD plays a critical role in effective integration of SSD into multi-tiered storage systems. Furthermore, effective data migration has to take into account of application specific workload characteristics, deadlines, and IO profiles. An important and interesting challenge for automated data migration in multi-tiered storage systems is how to fully release the power of data migration while guaranteeing the migration deadline is critical to maximizing the performance of SSD-enabled multi-tiered storage system. In this paper, we present an adaptive look ahead data migration model that can incorporate application specific characteristics and I/O profiles as well as workload deadlines. Our adaptive data migration model has three unique features. First, it incorporates a set of key factors that may impact on the performance of look ahead migration efficiency in our formal model develop. Second, our data migration model can adaptively determine the optimal look ahead window size, based on several parameters, to optimize the effectiveness of look ahead migration. Third, we formally and experimentally show that the adaptive data migration model can improve overall system performance and resource utilization while meeting workload deadlines. Through our trace driven experimental study, we compare the adaptive look ahead migration approach with the basic migration model and show that the adaptive migration model is effective and efficient for continuously improving and tuning of the performance and scalability of multi-tier storage systems.}
+}
+
+@article{zotero-item-86,
+  title = {Workload {{Analysis}} and {{Demand Prediction}} of {{Enterprise Data Center Applications}}},
+  abstract = {Advances in virtualization technology are enabling the creation of resource pools of servers that permit multiple application workloads to share each server in the pool. Understanding the nature of enterprise workloads is crucial to properly designing and provisioning current and future services in such pools. This paper considers issues of workload analysis, performance modeling, and capacity planning. Our goal is to automate the efficient use of resource pools when hosting large numbers of enterprise services. We use a trace based approach for capacity management that relies on i) the characterization of workload demand patterns, ii) the generation of synthetic workloads that predict future demands based on the patterns, and m) a workload placement recommendation service. The accuracy of capacity planning predictions depends on our ability to characterize workload demand patterns, to recognize trends for expected changes in future demands, and to reflect business forecasts for otherwise unexpected changes in future demands. A workload analysis demonstrates the busrtiness and repetitive nature of enterprise workloads. Workloads are automatically classified according to their periodic behavior. The similarity among repeated occurrences of patterns is evaluated. Synthetic workloads are generated from the patterns in a manner that maintains the periodic nature, burstiness, and trending behavior of the workloads. A case study involving six months of data for 139 enterprise applications is used to apply and evaluate the enterprise workload analysis and related capacity planning methods. The results show that when consolidating to 8 processor systems, we predicted future per-server required capacity to within one processor 95\% of the time. The accuracy of predictions for required capacity suggests that such resource savings can be achieved with little risk.}
+}
+
+@article{zotero-item-87,
+  title = {Thrifty {{Generic Broadcast}}},
+  abstract = {We consider generic broadcast in asynchronous systems with crashes. Given a conflict relation on messages, generic broadcast delivers conflicting messages in the same order while allowing non-conflicting messages to be delivered in different orders. We define thrifty implementations and give implementations that are optimal in resiliency, with an application to atomic broadcast.}
+}
+
+@article{zotero-item-88,
+  title = {S-{{Paxos}}: {{Offloading}} the {{Leader}} for {{High Throughput State Machine Replication}}},
+  abstract = {Implementations of state machine replication are prevalently using variants of Paxos or other leader-based protocols. Typically these protocols are also leader-centric, in the sense that the leader performs more work than the non-leader replicas. Such protocols scale poorly, because as the number of replicas or the load on the system increases, the leader replica quickly reaches the limits of one of its resources. In this paper we show that much of the work performed by the leader in a leader-centric protocol can in fact be evenly distributed among all the replicas, thereby leaving the leader only with minimal additional workload. This is done (i) by distributing the work of handling client communication among all replicas, (ii) by disseminating client requests among replicas in a distributed fashion, and (iii) by executing the ordering protocol on ids. We derive a variant of Paxos incorporating these ideas. Compared to leader-centric protocols, our protocol not only achieves significantly higher throughput for any given number of replicas, but also increases its throughput with the number of replicas.}
+}
+
+@article{zotero-item-89,
+  title = {Multicoordinated {{Paxos}}},
+  abstract = {No abstract available.}
+}
+
+@article{zotero-item-90,
+  title = {Unreliable {{Failure Detectors}} for {{Reliable Distributed Systems}}},
+  abstract = {We introduce the concept of unreliable failure detectors and study how they can be used to solve Consensus in asynchronous systems with crash failures. We characterise unreliable failure detectors in terms of two properties---completeness and accuracy. We show that Consensus can be solved even with unreliable failure detectors that make an infinite number of mistakes, and determine which ones can be used to solve Consensus despite any number of crashes, and which ones require a majority of correct processes. We prove that Consensus and Atomic Broadcast are reducible to each other in asynchronous systems with crash failures; thus, the above results also apply to Atomic Broadcast. A companion paper shows that one of the failure detectors introduced here is the weakest failure detector for solving Consensus [Chandra et al. 1992].}
+}
+
+@article{zotero-item-91,
+  title = {Paxos {{Made Live}}: {{An Engineering Perspective}}},
+  abstract = {We describe our experience building a fault-tolerant database using the Paxos consensus algorithm. Despite the existing literature, building such a database proved non-trivial. We describe selected algorithmic and engineering problems encountered, and the solutions we found. Our measurements indicate that we built a competitive system.}
+}
+
+@article{zotero-item-92,
+  title = {Linearizability: {{A Correctness Condition}} for {{Concurrent Objects}}},
+  abstract = {A concurrent object is a data object shared by concurrent processes. Linearizability is a correctness condition for concurrent objects that exploits the semantics of abstract data types. It permits a high degree of concurrency, yet it permits programmers to specify and reason about concurrent objects using known techniques from the sequential domain. Linearizability provides the illusion that each operation applied by concurrent processes takes effect instantaneously at some point between its invocation and its response, implying that the meaning of a concurrent object's operations can be given by pre- and post-conditions. This paper defines linearizability, compares it to other correctness conditions, presents and demonstrates a method for proving the correctness of implementations, and shows how to reason about concurrent objects, given they are linearizable.}
+}
+
+@article{zotero-item-93,
+  title = {Eve: {{Execute-Verify Replication}} for {{Multi-Core Servers}}},
+  abstract = {International audience}
+}
+
+@article{zotero-item-94,
+  title = {{{MDCC}}: {{Multi-Data Center Consistency}}},
+  abstract = {Replicating data across multiple data centers not only allows moving the data closer to the user and, thus, reduces latency for applications, but also increases the availability in the event of a data center failure. Therefore, it is not surprising that companies like Google, Yahoo, and Netflix already replicate user data across geographically different regions. However, replication across data centers is expensive. Inter-data center network delays are in the hundreds of milliseconds and vary significantly. Synchronous wide-area replication is therefore considered to be unfeasible with strong consistency and current solutions either settle for asynchronous replication which implies the risk of losing data in the event of failures, restrict consistency to small partitions, or give up consistency entirely. With MDCC (Multi-Data Center Consistency), we describe the first optimistic commit protocol, that does not require a master or partitioning, and is strongly consistent at a cost similar to eventually consistent protocols. MDCC can commit transactions in a single round-trip across data centers in the normal operational case. We further propose a new programming model which empowers the application developer to handle longer and unpredictable latencies caused by inter-data center communication. Our evaluation using the TPC-W benchmark with MDCC deployed across 5 geographically diverse data centers shows that MDCC is able to achieve throughput and latency similar to eventually consistent quorum protocols and that MDCC is able to sustain a data center outage without a significant impact on response times while guaranteeing strong consistency.}
+}
+
+@article{zotero-item-95,
+  title = {The {{Part-Time Parliament}}},
+  abstract = {Recent archaeological discoveries on the island of Paxos reveal that the parliament functioned despite the peripatetic propensity of its part-time legislators. The legislators maintained consistent copies of the parliamentary record, despite their frequent forays from the chamber and the forgetfulness of their messengers. The Paxon parliament's protocol provides a new way of implementing the state machine approach to the design of distributed systems.}
+}
+
+@article{zotero-item-96,
+  title = {Fast {{Paxos}}},
+  abstract = {Fast Paxos generalises classic Paxos and can learn a chosen value in two or three message delays depending on concurrent proposals. It achieves two message delays only in the absence of conflicting concurrent proposals, which is optimal for a general consensus algorithm.}
+}
+
+@article{zotero-item-97,
+  title = {Boxwood: {{Abstractions}} as the {{Foundation}} for {{Storage Infrastructure}}},
+  abstract = {Writers of complex storage applications such as distributed file systems and databases are faced with the challenges of building complex abstractions over simple storage devices like disks. These challenges are exacerbated due to the additional requirements for faulttolerance and scaling. This paper explores the premise that high-level, fault-tolerant abstractions supported directly by the storage infrastructure can ameliorate these problems. We have built a system called Boxwood to explore the feasibility and utility of providing high-level abstractions or data structures as the fundamental storage infrastructure. Boxwood currently runs on a small cluster of eight machines. The Boxwood abstractions perform very close to the limits imposed by the processor, disk, and the native networking subsystem. Using these abstractions directly, we have implemented an NFSv2 file service that demonstrates the promise of our approach.}
+}
+
+@article{zotero-item-98,
+  title = {A {{Proof}} of {{Correctness}} for {{Egalitarian Paxos}}},
+  abstract = {This report gives a formal proof of correctness for Egalitarian Paxos, establishing the protocol's safety and liveness properties from its quorum and dependency rules.}
+}
+
+@article{zotero-item-99,
+  title = {Handling {{Message Semantics}} with {{Generic Broadcast Protocols}}},
+  abstract = {Message ordering is a fundamental abstraction in distributed systems, but ordering guarantees usually ignore message semantics that could avoid unnecessary ordering. We define Generic Broadcast, which orders messages only when required by semantic conflict relations. Reliable Broadcast and Atomic Broadcast are special cases, and we present two algorithms that solve Generic Broadcast.}
+}

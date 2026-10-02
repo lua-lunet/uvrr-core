@@ -1,0 +1,758 @@
+It’s not a lie if you don’t get caught:
+simplifying reconfiguration in SMR through dirty logs
+Allen Clement
+Subzero Labs
+Natacha Crooks
+Subzero Labs
+UC Berkeley
+Neil Giridharan
+Subzero Labs
+UC Berkeley
+Alex Shamis
+Subzero Labs
+Abstract
+Production state-machine replication (SMR) implementa-
+tions are complex, multi-layered architectures comprising
+data dissemination, ordering, execution, and reconfiguration
+components. Existing research consensus protocols rarely
+discuss reconfiguration. Those that do tightly couple mem-
+bership changes to a specific algorithm. This prevents the in-
+dependent upgrade of individual building blocks and forces
+expensive downtime when transitioning to new protocol
+implementations. Instead, modularity is essential for main-
+tainability and system evolution in production deployments.
+We present Gauss, a reconfiguration engine designed to treat
+consensus protocols as interchangeable modules. By intro-
+ducing a distinction between a consensus protocol’s inner
+log and a sanitized outer log exposed to the RSM node, Gauss
+allows engineers to upgrade membership, failure thresholds,
+and the consensus protocol itself independently and with
+minimal global downtime. Our initial evaluation on the Rialo
+blockchain shows that this separation of concerns enables
+a seamless evolution of the SMR stack across a sequence of
+diverse protocol implementations.
+1 Introduction
+State-machine replication (SMR) [26] has emerged as the
+fundamental fault-tolerant core of modern distributed ap-
+plications. Most database systems use crash-fault-tolerant
+SMR protocols such as Raft or Paxos to defend against data
+loss in the event of machine failures. Spanner, Google’s geo-
+distributed flagship database uses Multi-Paxos at its core;
+Neo4J, a popular graph database, uses Raft, while Cassan-
+dra leverages Accord [1], a leaderless consensus protocol.
+BlockchainsystemssuchasRialo[25]orSui[11]similarlyde-
+rive their security guarantees from Byzantine-fault-tolerant
+(BFT) consensus protocols like PBFT [5], Hotstuff [31], Mys-
+ticeti [3] or Autobahn [12].
+Consensus protocols have a hard job: they must offer
+strong safety and liveness guarantees at high throughput
+and low latency. Research in this space is rich [2, 3, 5–8, 12,
+13, 17, 21, 22, 27]. Consensus engineers, however, have an
+even harder job! Not only must they deliver on the promises
+made by the protocol, but they must additionally face the
+operational realities of modern distributed systems, both
+technical and socio-technical.
+On the technical front, engineers must grapple with the
+realities of hardware degradation, network partitions and
+shifting load patterns. Whether it is a global database like
+Spannermigratingashardbetweencontinentstofollowuser
+activity, permissioned blockchains like Sui or Rialo rotating
+its validator set to ensure forward security, or a graph data-
+base removing a misconfigured machine suffering from a
+fail-slow fault, the system must support the dynamic addi-
+tion and removal of consensus participants. Unfortunately,
+academic research on consensus primarily assumes a fixed
+universeofparticipants,𝑃,knownaprioriandimmutablefor
+the duration of the system’s execution. In this idealised static
+model, the quorum size 𝑄 is constant, the failure threshold
+𝑓 is fixed, and the identity of every participant is hard-coded
+into the protocol state. A survey of recent consensus papers
+published at top security/systems venues show that only
+a small fraction had a detailed reconfiguration protocol to
+change the participant set.
+On the socio-technical front, engineers must also navigate
+organisational changes, team restructurings, and evolving
+business requirements that impact system design and op-
+eration. There are two primary software engineering chal-
+lenges: 1) modularity is essential for future-proofing 2) code
+evolves. Modularity, even inside of the consensus module,
+is key for maintainability. A realistic SMR implementation
+contains several components: the data dissemination layer,
+the ordering layer, the execution engine, and the reconfigu-
+ration logic among others. Each of these components should
+be modifiable and testable independently. Moreover, these
+building-blocks evolve in ways that are often unpredictable.
+A database or blockchain company rarely deploys a single
+consensus protocol. Instead, it deploys a sequence of consen-
+sus implementations. Each implementation improves over
+time as the company matures. Sui, for instance, a popular
+blockchain system, recently announced a "v2" of their in-
+ternal consensus algorithm Mysticeti [29] while Cassandra
+recently migrated to the leaderless Accord CFT consensus
+protocol [10]. Overall correctness must not only hold across
+arXiv:2602.09441v2 [cs.DC] 17 Jul 2026Conference’17, July 2017, Washington, DC, USA Allen Clement, Natacha Crooks, Neil Giridharan, and Alex Shamis
+a dynamic set of participants, but across a sequence of con-
+sensus protocol implementations! Unfortunately, all existing
+reconfiguration algorithms today tightly couple the reconfig-
+urationlogicwithasingleconsensusprotocol.Theredoesnot
+currently exist a clean way to update consensus. Incremen-
+tal updates are hard enough; dramatic changes, including
+adoption of a new protocol entirely, are expensive and take
+years. Evolution usually results in protocol downtime and
+code bases often lose the ability to access old committed
+transactions when consensus changes.
+In this paper, we argue that a practical reconfiguration
+protocol should achieve the following three properties: 1)
+arbitrary membership changes 2) full modularity 3) minimal
+downtime:
+• Arbitrary Membership Change It should be possible to
+replace any and all participants from one configuration
+to the next. This consideration is especially important in
+blockchainsystemswherevalidatorshavestakeassociated
+with their votes.
+• Full Modularity The reconfiguration logic should be
+strictly independent of all other components in the SMR
+node. It should be possible to transition the underlying
+consensus engine from one arbitrary consensus protocol
+to another, without knowing anything about the details,
+except for the fact that it satisfies the traditional safety
+and liveness definitions.
+• Minimal Downtime We contend that the operational
+benefits of satisfying Goals 1 and 2 outweigh the benefits
+ofachievingoptimalperformanceduringareconfiguration
+event. Reconfiguration is traditionally rare. As such, we
+cantoleratebrieflatencyspikesduringthereconfiguration
+process as long as downtime remains minimal.
+This paper presents the design and implementation of a
+novel reconfiguration engine, Gauss, that satisfies all three
+properties. The reconfiguration logic makes no assumption
+about the underlying consensus protocol used to order trans-
+actions, only that it satisfies the safety and liveness property
+of consensus. Yet it achieves full generality: two epochs𝑖 and
+𝑖+1 can differ in their consensus protocol, membership, as
+well as failure thresholds. Gauss achieves this with minimal
+downtime.
+To achieve this, we take as our starting point the ideas
+of Horizontal Paxos [19], a classic reconfiguration protocol
+for crash-fault-tolerant (CFT) systems. Each consensus’s log
+within an epoch provides a global consistent order across
+replicas that can be leveraged to disseminate reconfiguration
+information. To achieve full generality, however, we make
+a second observation: the log of operations generated by
+the consensus protocol itself need not necessarily be the log
+exposed by the consensus engine to other components of
+the SMR node. We can lie! Specifically, a transaction marked
+as committed in a consensus protocol’s inner log need not
+necessarily be marked committed in the outer log exposed
+to other components, as long as the overall SMR properties
+are preserved. Fundamentally, this idea is not new. Trans-
+actions submitted to multiple leaders must be deduplicated
+in most leader-based systems, BFT or CFT. Blockchain sys-
+tems check external validity predicates prior to executing
+the transaction.
+Applied to reconfiguration, however, distinguishing the
+inner log and outer log in this way is powerful. It allows
+seamless transition between consensus epochs without mak-
+ing any assumptions about the protocols themselves. For
+instance, it achieves even greater generality than the orig-
+inal Horizontal Paxos algorithm: Gauss need not bound the
+number of concurrent/pending transactions in the system.
+We implement this idea as part of the Rialo blockchain,
+cleanly modularising each RSM component for future up-
+gradeability.
+2 System Model
+Practical deployments of state machine replication protocols
+must support 1) a changing set of participants 2) updates
+to the consensus protocol itself. Existing formalisms rarely
+consider this reality. We first introduce formalisms that cap-
+ture the long-term, evolving nature of real SMR deployments
+that must continue to provide safety and liveness guarantees
+across a sequence of changing configurations and consensus
+protocols.
+An SMR system must satisfy the following top-level prop-
+erties:
+• Safety. If two honest nodes commit transactions (𝑗,𝑥)
+and (𝑗,𝑥′), respectively, for the same log position 𝑗,
+then 𝑥 =𝑥′.
+• Liveness. If an honest node proposes a transaction
+𝑥, then all honest nodes eventually commit (𝑗,𝑥) for
+some log position 𝑗.
+• Integrity. A transaction 𝑥 appears in the log at most
+once. In particular, there do not exist two distinct log
+positions 𝑗 ≠ 𝑗′ such that honest nodes decide (𝑗,𝑥)
+and (𝑗′,𝑥).
+• External Validity. For any committed transaction
+𝑥, ExVal(𝑥) =𝑡𝑟𝑢𝑒, where ExVal is a predicate that
+checks whether 𝑥 upholds all application invariants.
+These are the properties that external clients observe. The
+SMRsystemcaningestthislogtomaterializesharedstate.In-
+ternally,however,theSMRsystemiscomposedofasequence
+of epochs 𝑒1,𝑒2,.... Each epoch 𝑒𝑖 is associated with a mem-
+bership configuration 𝑀𝑖, which specifies a set of 𝑛𝑖 partic-
+ipating nodes, and a consensus protocol𝐶𝑖. The protocol𝐶𝑖
+exposespropose(𝑥) anddecide(𝑗,𝑥) events,wheredecide(𝑗,𝑥)
+indicates that transaction 𝑥 is chosen for log position 𝑗. We
+assume that𝐶𝑖 satisfies the safety and liveness properties for
+consensus-itoutputsatotallyorderedlog,butmakenoaddi-
+tional assumptions about the internal structure of𝐶𝑖. NodesIt’s not a lie if you don’t get caught:
+simplifying reconfiguration in SMR through dirty logs Conference’17, July 2017, Washington, DC, USA
+Epoch 1
+Incoming Transaction Pool
+Execution Engine
+Consensus Engine
+Outer Log
+Inner Log
+Log Sanitiser
+Inner Log Inner Log
+Consensus Protocol
+A v1.0
+Consensus Protocol
+A v1.1
+Consensus Protocol
+B
+Reconfig
+Engine
+Epoch K Epoch K+1 Epoch K+i Data
+Layer
+Engine
+Figure 1. RSM Node SubComponents
+in a configuration communicate over an asynchronous net-
+workthatplacesnoboundsonmessagedeliverytimes.Weas-
+sume that in an epoch𝑒𝑖 with𝑛𝑖 nodes, at most 𝑓𝑖 nodes may
+fail during execution. Failures follow either the crash fault
+model or the Byzantine fault model. In the crash fault model,
+a faulty node may halt at any time but otherwise behaves
+correctly. In the Byzantine fault model, faulty nodes may be-
+have arbitrarily. To tolerate 𝑓𝑖 failures, we assume 𝑛𝑖 ≥2𝑓𝑖 +1
+under crash faults and 𝑛≥3𝑓𝑖 +1 under Byzantine faults.
+The system combines all of the inner logs to produce a
+final, sanitized, totally ordered log called the outer log that
+satisfies the aforementioned SMR properties. This layered
+structurecapturestherealityofmodernSMRsystems,where
+the consensus protocol is but one component in a larger ar-
+chitecture.
+3 Design
+In this section, we present the design of Gauss, our modu-
+lar architecture that supports the independent evolution of
+individual system components.
+3.1 RSM Node Architecture
+An RSM node typically consists of four key components
+(Figure 1): 1) a data dissemination layer, tasked with dis-
+seminating transaction data to all nodes in the system 2) a
+consensus engine, tasked with outputting an ordered log
+of transactions consistently across all RSM replicas 3) an
+execution engine, tasked with ingesting this log to material-
+ize the final application state 4) the reconfiguration engine,
+tasked with upgrading the different components of the sys-
+tem. These components work closely together to maintain
+the correctness of the replicated state machine. In a produc-
+tion implementation of an RSM node, these units must be
+designed in a modular fashion such that they can be inde-
+pendently modified and upgraded over time. This requires
+careful interface design, and clear separation of concerns at
+each component boundary. In this paper, we focus on the
+design of the reconfiguration engine, responsible for coor-
+dinating the transition between epochs.
+3.2 Reconfiguration Engine
+In line with our stated objective, our reconfiguration engine,
+Gauss, makes no assumption about the underlying consen-
+sus protocol used to order transactions, only that it satisfies
+the safety and liveness property of consensus (Section 2). Yet
+it achieves full generality: two epochs 𝑖 and 𝑖+1 can differ
+in their consensus protocol, membership, as well as failure
+thresholds. Gauss achieves this with minimal downtime, by
+leveraging two observations: 1) a given consensus protocol
+within an epoch already outputs a totally ordered inner log
+of transactions across all correct nodes in the epoch 2) this
+inner log need not be directly executed, instead, it can be
+sanitised and transformed to produce a new outer log. Only
+the outer log is exposed to the other node subcomponents.
+The reconfiguration engine runs a three stage protocol
+ensuring a safe (and live) transition from one epoch config-
+uration to the next. The prepare phase ensures that members
+of the new configuration prepare their local state and compo-
+nents to begin processing transactions. The handover phase
+coordinates between the two epoch configurations to seam-
+lessly transfer control and establish a trust chain between
+each configuration. This trust chain provides evidence to
+external users that the previous configuration agrees and
+supports the next configuration. Finally, the shutdown phase
+ensures that the outgoing members of the old configuration
+can safely wind down while preserving liveness. The log
+sanitizer component at each replica regulates the translation
+from the consensus inner logs to the outer log exposed to
+other components of the RSM node.
+We next describe each phase in turn, illustrating the tran-
+sition between epochs 𝑖 and 𝑖 +1. Epoch 𝑖 uses consensus
+protocol 𝐶𝑖 with membership 𝑀𝑖 and failure threshold 𝑓𝑖,
+while epoch𝑖+1 uses consensus protocol𝐶𝑖+1 with member-
+ship 𝑀𝑖+1 and failure threshold 𝑓𝑖+1. Consensus protocol𝐶𝑖
+produces inner log 𝐿𝑖, while𝐶𝑖+1 produces inner log 𝐿𝑖+1. By
+definition of consensus (Section 2), all correct nodes in epoch
+𝑖 agree on the same log 𝐿𝑖, and all correct nodes in epoch
+𝑖+1 agree on the same log 𝐿𝑖+1. Similarly, if a correct node
+sees𝑇𝑖 at position 𝑖 in the log, all correct nodes eventually
+see𝑇𝑖 at position 𝑖 in the log. For simplicity, we assign dif-
+ferent identities to all nodes in 𝑀𝑖 and 𝑀𝑖+1. We write 𝑅(𝑖,𝑘)
+to denote the 𝑘-th replica in epoch 𝑖. In practice, there may
+be significant overlap between configurations. As shown in
+Figure 1, nodes then simply run concurrent epoch instances.
+Prepare Phase An operator submits an EpochChange()
+transaction to consensus instance 𝐶𝑖. The logic by which
+the EpochChange() transaction is generated and submitted
+is outside the scope of this paper. It may be generated by a
+trusted operator, via an on-chain governance mechanism, or
+as a result of a protocol update. This transaction is treated
+as any other transaction in the RSM node. By properties of
+consensus, it will eventually appear in the log of consensus
+𝐶𝑖 atsomeposition𝐾.TheepochchangetransactionconsistsConference’17, July 2017, Washington, DC, USA Allen Clement, Natacha Crooks, Neil Giridharan, and Alex Shamis
+of the identity of the current epoch being transitioned from𝑖,
+the new epoch being transitioned to𝑒𝑖+1. The latter addition-
+ally contains the new configuration parameters: the member-
+ship𝑀𝑖+1,failurethreshold 𝑓𝑖+1,andconsensusprotocol𝐶𝑖+1.
+𝑅(𝑖,𝑘): Detects EpochChange(𝑖, 𝑒𝑖+1) transaction
+Upon commitment of the EpochChange() transaction at
+position 𝐾 in 𝐿𝑖, the log sanitizer of 𝑅(𝑖,𝑘) begins waiting
+for Ready() messages from all members of epoch 𝑖+1. No
+other changes occur. Notably, the log sanitizer continues to
+process and output transactions from 𝐿𝑖 to the outer log 𝑂
+for execution as normal.
+𝑅(𝑖+1,𝑘): Detects EpochChange(𝑖, 𝑒𝑖+1) transaction
+Upon observing an EpochChange() message, each incom-
+ing replica member 𝑅(𝑖+1,𝑘) of the new epoch 𝑖+1 synchro-
+nises its local components to begin processing transactions
+from epoch 𝑖+1. This includes initializing its consensus pro-
+tocol𝐶𝑖+1, ensuring that it is sufficiently up-to-date with the
+current outer log, as well as synchronising application and
+execution state. Once ready, it submits a Ready(𝑖, 𝑖+1, hash,
+𝑠𝑖𝑔𝑘) transaction to𝐶𝑖 where 𝑖 and 𝑖+1 denote respectively
+the epochs being transitioned from and to, ℎ𝑎𝑠ℎ is the hash
+of the EpochChange() transaction, and 𝑠𝑖𝑔𝑘 is a signature
+of the Ready() message. By properties of consensus, this
+transaction will eventually appear in the log of consensus
+𝐶𝑖 at some position 𝑗.
+𝑅(𝑖+1,𝑘): Submits Ready() message as a transaction to𝐶𝑖
+Handover Phase Two possible cases arise: 1) all Ready()
+transactions for epoch 𝑖 + 1 appear committed in the log
+before a new epoch change transaction is observed 2) a new
+epoch change transaction commits, preempting the initial
+epochchange.Wediscusseachscenariointurn.Crucially,ev-
+eryreplicainepoch𝑖 candeterministicallydecidewhichcase
+has occurred by examining the log 𝐿𝑖. By properties of con-
+sensus,allcorrectreplicasinepoch𝑖 agreeonthesamelog𝐿𝑖.
+Case1:SuccessfulHandover IfallReady()transactionsfrom
+members of epoch 𝑖+1 appear committed in the log before a
+new epoch change transaction is observed,𝑅𝑖,𝑘 considers the
+handover to be successful. It forms a handover certificate for
+epoch 𝑖, indicating that epoch 𝑖 finished at position ℎ in log
+𝐿𝑖, whereℎ is the log position of the last Ready() transaction.
+The handover certificate contains the id of the old epoch
+𝑖, information about the new epoch 𝐸𝑖, the position of the
+handover certificate in the log ℎ, as well as the hash of the
+previous handover certificate for epoch𝑖 (ℎ𝑎𝑠ℎ𝑖). It signs the
+handover certificate and submits this as a Done() transaction
+to consensus𝐶𝑖+1. Replica 𝑅(𝑖,𝑘) continues participating in
+protocol𝐶𝑖 as normal.
+𝑅(𝑖,𝑘): Forms signed Handover(𝑖, 𝐸𝑖+1, ℎ, ℎ𝑎𝑠ℎ𝑖) certifi-
+cate. Submits as transaction to𝐶𝑖+1
+Because the reconfiguration protocol makes no assump-
+tion about the underlying consensus protocol, it is possible
+that transactions continue to be committed in 𝐿𝑖 after posi-
+tion ℎ. This is true for multi-proposer systems [3, 12, 28], as
+wellassystemsthatallowforparallelconsensusinstances[5].
+Therein lies the power of combining horizontal reconfigu-
+ration with the inner/outer log distinction. By definition, all
+replicas output the same inner log. They consequently all
+form the same handover certificate, and stop processing the
+inner log of epoch𝑖 at the same positionℎ in𝐿𝑖. The log sani-
+tizer of𝑅(𝑖,𝑘) simply ignores all transactions at positionsℎ′ >
+ℎ in𝐿𝑖 anddoesnotsubmitthemtotheouterlog𝑂.Theywill
+neverappearcommittedtotheoverallSMRnode.Submitting
+Ready() messages to consensus increases latency for new
+configurations to become active, but is key to achieving min-
+imal downtime. Transactions continue to be committed and
+executedinepoch𝑖 untilthehandovercertificateisformedat
+position ℎ. Only transactions after position ℎ are discarded.
+Case 2: Preemption Members of the new epoch may fail to
+reply, or fail to synchronize their state in a timely fashion
+such that they are ready to proceed in the new epoch. The
+protocol simply allows later epoch changes to preempt ear-
+lier ones. If a new EpochChange() transaction appears in 𝐿𝑖
+before all Ready() transactions from epoch 𝑖+1 have been
+committed, replica 𝑅(𝑖,𝑘) in epoch 𝑖 considers the handover
+to have been preempted. It informs the log sanitizer to stop
+listening for Ready() transactions from epoch 𝑖+1, and to
+instead listen for Ready() transactions from members of the
+new epoch 𝑖+2. The protocol then proceeds as before.
+ShutdownPhaseTheshutdownphaseensuresthatmem-
+bers of epoch 𝑖 can safely wind down and terminate the
+epoch without violating safety or liveness. To achieve this,
+the protocol should make sure that 1) the new epoch is fully
+operational before old epoch members stop participating in
+the consensus protocol𝐶𝑖 2) there is a single such epoch.
+𝑅(𝑖,𝑘): Detects 𝑓𝑖 +1 Done(i, 𝑒𝑖+1, ℎ𝑎𝑠ℎ𝑖) transactions in
+𝐶𝑖+1
+Upon detecting 𝑓𝑖 +1 Done() transactions from distinct
+members of epoch 𝑖 in consensus𝐶𝑖+1, replica 𝑅(𝑖,𝑘) consid-
+ers epoch𝑖+1 to be fully active. At least one correct member
+ofepoch𝑖 hassubmittedaDone()transaction(thereisamax-
+imum of 𝑓𝑖 malicious replicas), indicating that it has safely
+formed a handover certificate and submitted it to consensus
+𝐶𝑖+1. The presence of an honest replica’s Done() transac-
+tion offers two guarantees: 1) all subsequent members can
+recover sufficient state (as the Done() transaction includes a
+signed checkpoint and 2) the guarantee that no other epoch
+is active. Honest nodes would never send conflicting Done()
+transactions. It can now safely stop participating in consen-
+sus protocol𝐶𝑖 and shutdown the epoch.It’s not a lie if you don’t get caught:
+simplifying reconfiguration in SMR through dirty logs Conference’17, July 2017, Washington, DC, USA
+𝑅(𝑖+1,𝑘): Detects 𝑓𝑖 +1 Done(i, 𝑒𝑖+1, ℎ𝑎𝑠ℎ𝑖) transactions in
+𝐶𝑖+1
+Upon detecting 𝑓𝑖 +1 Done() transactions from members
+of epoch𝑖 in consensus𝐶𝑖+1, replica 𝑅(𝑖+1,𝑘) considers epoch
+𝑖+1 to be fully active. At least one correct member of epoch
+𝑖 has submitted a Done() transaction (there is a maximum of
+𝑓𝑖 malicious replicas), indicating that it has safely formed a
+handover certificate and submitted it to consensus𝐶𝑖+1. By
+properties of consensus, all correct members of epoch 𝑖+1
+will see these 𝑓𝑖 +1 Done() transactions at the same positions
+in 𝐿𝑖+1. The log sanitizer can now begin outputting commit-
+ted transactions from 𝐿𝑖+1 to the outer log 𝑂 for execution.
+All other replicas in epoch 𝑖+1 proceed similarly.
+3.3 Worked Example
+We provide a short worked example to further explain our
+approach. Consider epochs 𝑘 and 𝑘+1 as shown in Figure 2.
+Epoch 𝑘 uses consensus protocol𝐶𝑘 (Mysticeti) with mem-
+bership 𝑀𝑘 ={𝑅(𝑘,1),𝑅(𝑘,2),𝑅(𝑘,3),𝑅(𝑘,4)
+} and failure threshold
+𝑓𝑘 =1, while epoch𝑘+1 uses consensus protocol𝐶𝑘+1 (PBFT)
+with membership 𝑀𝑘+1 = {𝑅(𝑘+1,5),𝑅(𝑘+1,6),𝑅(𝑘+1,7),𝑅(𝑘+1,8)
+}
+and failure threshold 𝑓𝑘+1 =1. .
+Transactions𝑇1,𝑇2 commit in inner log 𝐿𝑘 at positions 1
+and 2. The log sanitizer forwards them to the outer log 𝑂.
+At position 3, an epoch change transaction is initiated, tran-
+sitioning the system from epoch 𝑘 to 𝑘+1 with a disjoint set
+of validators. The log sanitizer begins waiting to see Ready()
+transactions appear in 𝐿𝑘. While waiting for these transac-
+tions,𝑇3 and𝑇4 commit in 𝐿𝑘 and the log sanitizer forwards
+them to 𝑂. Upon detecting the final Ready() transaction at
+position 9 in the log, the node forms a handover certificate fi-
+nalising the epoch. It submits this certificate to𝐶𝑖+1 in epoch
+𝑘 +1 and discards transactions 𝑇5 and 𝑇6 (Figure 2). Upon
+seeing two Done() messages, epoch 𝑘 +1 becomes active.
+𝑇5 is resubmitted by a client and commits at position 3 of
+inner log 𝐿𝑘+1. Transactions𝑇7 and𝑇8 commit at positions
+4 and 5 of inner log 𝐿𝑘+1. All are forwarded to the outer log
+for execution. The outer log exposes a single totally ordered
+log consisting of transactions𝑇1,𝑇2,𝑇3,𝑇4,𝑇5,𝑇7,𝑇8 and a trust
+chain of epoch transitions.
+4 Proofs
+We provide short proof sketches describing how our recon-
+figuration engine Gauss preserves the SMR properties of
+safety and liveness during epoch transitions for arbitrary
+consensus protocols and membership configurations.
+Theorem 1 (Safety). If two honest nodes decide (𝑗,𝑥) and
+(𝑗,𝑥′) for the same outer log position 𝑗, then 𝑥 =𝑥′.
+Proof. Suppose, for contradiction, that 𝑥 ≠ 𝑥′. Let 𝑁1 and
+𝑁2 be two honest nodes such that 𝑁1 decides (𝑗,𝑥) and 𝑁2
+decides (𝑗,𝑥′). Each outer log position corresponds to an
+inner log position in some epoch. Let 𝑘 denote the inner log
+Outer Log
+Epoch k+1
+(N=4, f=1), PBFT, (R5,R6,R7,R8)
+Epoch k
+(N=4, f = 1), Mysteciti, (R1, R2, R3, R4)
+T2
+EPOCH
+(PBFT,R5-8)
+T3 T4
+GO!
+(R5)
+GO!
+(R6)
+GO!
+(R7)
+GO!
+(R8)
+T1 T5
+DONE!
+R1
+DONE!
+R2
+T5 T7 T8
+T2 T1 T5 T7 T8
+EPOCH
+(PBFT,R5-8)
+HANDOVER
+T3 T4 T6
+HANDOVER
+Figure 2. Epoch Transition Example
+position corresponding to outer position 𝑗, and 𝑒 the corre-
+sponding epoch. For each epoch 𝑖, let 𝐿𝑖 and 𝐿′
+𝑖 denote the
+inner logs produced by epoch 𝑖 as observed by 𝑁1 and 𝑁2,
+respectively. Let 𝐿≤𝑘
+𝑒 (resp., (𝐿′
+𝑒)≤𝑘) denote the prefix of 𝐿𝑒
+(resp., 𝐿′
+𝑒) truncated to its first 𝑘 entries.
+Node 𝑁1 computes 𝑥 by applying the deterministic log
+sanitizer 𝑆 to the concatenation 𝐿1||𝐿2||···||𝐿𝑒−1||𝐿≤𝑘
+𝑒 , and
+similarly,𝑁2 computes𝑥′ byapplying𝑆 to𝐿′
+1||𝐿′
+2||···||𝐿′
+𝑒−1||(𝐿′
+𝑒)≤𝑘.
+By the safety property of each consensus protocol𝐶𝑖, all
+honestnodesagreeonthecontentsoftheinnerlogforepoch
+𝑖. Therefore, for all 𝑖 < 𝑒, we have 𝐿𝑖 = 𝐿′
+𝑖 , and moreover
+𝐿≤𝑘
+𝑒 =(𝐿′
+𝑒)≤𝑘. Since 𝑆 is deterministic, it follows that 𝑥 =𝑥′,
+contradicting our assumption.
+Hence, 𝑥 =𝑥′, completing the proof. □
+5 Implementation and Evaluation
+This modular architecture is being implemented as part of
+the Rialo blockchain [25]. It provides the starting point for
+the seamless integration of future upgrades to the consensus
+engine, execution engine or data dissemination layer.
+Initial results are promising. We evaluate the performance
+of our reconfiguration protocol on a local testbed to measure
+the latency of reconfiguration operations. We measure the
+time required to complete epoch transitions with varying
+validator set sizes. We test Rialo with 4 epoch transitions:
+from 4 to 4 validators (no size change), 4 to 7 validators, 7
+to 10 validators, and 10 to 13 validators.
+Figure 3a shows the performance characteristics of epoch
+transitions. We break down each transition into three phases:
+(1) from EpochChange commit to Ready message, (2) from
+Ready message to Handover (when the Ready quorum is
+reached), and (3) from Handover to completion.
+The results show that the epoch change protocol performs
+efficiently across all tested configurations. We observe that
+the size of the validator set has a minimal impact on the
+overall latency of epoch transitions. The Ready to Handover
+phase takes approximately 93% of the total epoch change
+latency.ThisshowsthecommitofReadymessagesinconsen-
+sus is the main bottleneck. We expect that this would furtherConference’17, July 2017, Washington, DC, USA Allen Clement, Natacha Crooks, Neil Giridharan, and Alex Shamis
+Epoch 0 1
+(4 4)
+Epoch 1 2
+(4 7)
+Epoch 2 3
+(7 10)
+Epoch 3 4
+(10 13)
+EpochTransition(ValidatorCount)
+0
+100
+200
+300
+400
+Time (ms)
+436.8ms 435.5ms 429.4ms 437.7ms
+EpochChangePhaseBreakdown
+Commit Ready
+Ready Handover
+Handover Complete
+(a) Breakdown of each transition showing time spent in each stage.
+4 7 10 13
+TargetValidatorCount
+0
+100
+200
+300
+400
+Time (ms)
+EpochChangeLatencyvs.NetworkSize
+Commit Ready
+Ready Handover
+Handover Complete
+Total
+(b) Latency scaling with validator count.
+increase when we deploy the protocol in a geo-distributed
+setting.
+6 Related Work
+Reconfiguration in state machine replication has been care-
+fully studied, both in the context of crash fault tolerance [15,
+16, 18, 20, 24, 30] and Byzantine fault tolerance [4, 9, 14].
+Unfortunately, the majority of consensus algorithms today
+do not explicitly discuss reconfiguration. Those that do so
+propose algorithms that are specific to a particular protocol,
+and thus tightly coupled with it.
+CFT Reconfiguration. Classical state machine replica-
+tion protocols like Paxos and Raft handle reconfiguration
+by treating configuration changes as special log entries, that
+must themselves go through consensus. The key challenge
+comes from handling the transition from one configuration
+to another. The work discusses a number of strategies to
+achieve that, often halting progress or limiting availabil-
+ity during the transition. Gauss is able to achieve identical
+results without limiting pipelining at the cost of delaying re-
+configuration taking effect for additional consensus rounds.
+In SMART [20], reconfiguration of the system is managed by
+creating an additional group of replicas. The two groups of
+replicas run parallel Paxos instances until the system state
+is fully migrated to the new group. The popularRaft [24]
+consensus protocol initially proposed a joint-consensus ap-
+proach where majorities from both old and new configura-
+tions must overlap, later refining this to single-server mem-
+bership changes to simplify safety.
+Vertical approaches to reconfiguration [18] decouple the
+configuration from the consensus protocol. Vertical Paxos,
+for instance, allows the set of acceptors to change within
+a single instance by relying on an auxiliary configuration
+master to manage membership. This “vertical” shift enables
+reconfiguration without stopping the stream of commands
+but introduces a dependency on an external, highly available
+master.MatchmakerPaxos[30]generalizesVerticalPaxosby
+replacing the auxiliary master with a set of “matchmakers.”
+These matchmakers persist configuration data, allowing the
+system to reconfigure without a stall in the pipeline or a
+single point of failure.
+BFT Reconfiguration. BFT-SMART [4] extends the ideas
+of Horizontal Paxos to the Byzantine setting, allowing repli-
+cas to be added or removed one at a time through a special
+reconfiguration command. Duan et al. [9] offers a formal
+treatment of BFT with dynamic membership - and high-
+lights the different possible optimisations as a function of
+assumptions on the system, including assuming a fraction of
+correct replicas never leave the system. BChain takes a differ-
+ent approach called rechaining for BFT protocols based on
+chain-replication. When a BFT service experiences failures
+or asynchrony, the head reorders the chain when a replica
+is suspected to be faulty, so that a fault cannot affect the
+critical path.
+Permissionless Blockchains Permissionless blockchain
+systems such as Ethereum require that the consensus pro-
+tocol remain live even if 1) a large number of participants is
+offline 2) the system has high churn rates, where the set of
+participants changes frequently. Neu et al. [23] explores the
+theoretical limits of consensus under dynamic availability,
+where nodes can join or leave arbitrarily. In this orthogo-
+nal setting, it identifies necessary conditions for safety and
+highlights that existing protocols often make unrealistic as-
+sumptions such as requiring synchrony.
+7 Conclusion
+This paper introduced Gauss, a novel reconfiguration pro-
+tocol that supports both arbitrary membership changes and
+updates to consensus, while remaining fully modular. By
+distinguishing between the inner and outer logs, Gauss al-
+lows for seamless transitions between different consensus
+implementations without tightly coupling the reconfigura-
+tion logic to any specific protocol.
+References
+[1] Karolos Antoniadis, Julien Benhaim, Antoine Desjardins, Elias
+Poroma, Vincent Gramoli, Rachio Guerraoui, Gauthier Voron, and Igor
+Zablotchi. Leaderless consensus. Journal of Parallel and Distributed
+Computing, 176:1–19, 2023.
+[2] DiogoS.Antunes,AfonsoN.Oliveira,AndréBreda,MatheusG.Franco,
+Henrique Moniz, and Rodrigo Rodrigues. Alea-bft: Practical asynchro-
+nous byzantine fault tolerance. In Proceedings of the 21st USENIX Sym-
+posium on Networked Systems Design and Implementation (NSDI), 2024.It’s not a lie if you don’t get caught:
+simplifying reconfiguration in SMR through dirty logs Conference’17, July 2017, Washington, DC, USA
+[3] Kushal Babel, Andrey Chursin, George Danezis, Anastasios Kichidis,
+Lefteris Kokoris-Kogias, Arun Koshy, Alberto Sonnino, and Mingwei
+Tian. Mysticeti: Reaching the latency limits with uncertified dags.
+In Network and Distributed System Security (NDSS) Symposium. The
+Internet Society, 2025.
+[4] Alysson Bessani, João Sousa, and Eduardo E. P. Alchieri. State
+machine replication for the masses with bft-smart. In Proceedings
+of the 44th Annual IEEE/IFIP International Conference on Dependable
+Systems and Networks (DSN), pages 355–366, 2014.
+[5] Miguel Castro and Barbara Liskov. Practical byzantine fault tolerance.
+In Proceedings of the 3rd Symposium on Operating Systems Design and
+Implementation (OSDI), pages 173–186. USENIX Association, 1999.
+[6] Allen Clement, Edmund Wong, Lorenzo Alvisi, Mike Dahlin, and
+Mirco Marchetti. Making byzantine fault tolerant systems tolerate
+byzantine faults. In Proceedings of the 6th USENIX Symposium on
+Networked Systems Design and Implementation (NSDI), 2009.
+[7] James Cowling, Daniel Myers, Barbara Liskov, Rodrigo Rodrigues,
+and Liuba Shrira. Hq replication: A hybrid quorum protocol for
+byzantine fault tolerance. In Proceedings of the 7th USENIX Symposium
+on Operating Systems Design and Implementation (OSDI), 2006.
+[8] George Danezis, Lefteris Kokoris-Kogias, Alberto Sonnino, and
+Alexander Spiegelman. Narwhal and tusk: A dag-based mempool and
+efficient bft consensus. In Proceedings of the 2022 European Conference
+on Computer Systems (EuroSys), 2022.
+[9] Sisi Duan and Haibin Zhang. Foundations of dynamic bft. In 2022
+IEEE Symposium on Security and Privacy (SP), pages 1317–1334, 2022.
+[10] Apache Software Foundation. Cep-15: Fast general purpose trans-
+actions (accord). https://cwiki.apache.org/confluence/display/
+CASSANDRA/CEP-15%3A+Fast+General+Purpose+Transactions,
+2023. Accessed: 2026-01-30.
+[11] Sui Foundation. Sui: A next-generation smart contract platform.
+https://www.sui.io/, 2026. Accessed: 2026-01-30.
+[12] Neil Giridharan, Florian Suri-Payer, Ittai Abraham, Lorenzo Alvisi, and
+Natacha Crooks. Autobahn: Seamless high-speed bft. In Proceedings of
+the 30th ACM Symposium on Operating Systems Principles (SOSP), 2024.
+[13] Guy G. Gueta, Ittai Abraham, Shelly Grossman, Dahlia Malkhi, Benny
+Pinkas, Michael Reiter, Dragos Seredinschi, Orr Tamir, and Alin
+Tomescu. Sbft: A scalable and decentralized trust infrastructure.
+In Proceedings of the 40th IEEE Symposium on Security and Privacy
+(Oakland), 2019.
+[14] Heidi Howard, Fritz Alder, Edward Ashton, Amaury Chamayou, Syl-
+van Clebsch, Manuel Costa, Antoine Delignat-Lavaud, Cédric Fournet,
+Andrew Jeffery, Matthew Kerner, Fotios Kounelis, Markus A. Kuppe,
+Julien Maffre, Mark Russinovich, and Christoph M. Wintersteiger.
+Confidential consortium framework: Secure multiparty applications
+with confidentiality, integrity, and high availability. Proc. VLDB
+Endow., 17(2):225–240, October 2023.
+[15] Leander Jehl and Hein Meling. Asynchronous reconfiguration
+for paxos state machines. In Proceedings of the 15th International
+Conference on Distributed Computing and Networking (ICDCN), 2014.
+[16] Leander Jehl, Roman Vitenberg, and Hein Meling. Smartmerge: A new
+approach to reconfiguration for atomic storage. In Proceedings of the
+29th International Symposium on Distributed Computing (DISC), 2015.
+[17] Ramakrishna Kotla, Lorenzo Dahlin, Allen Clement, Edmund Wong,
+and Mike Dahlin. Zyzzyva: Speculative byzantine fault tolerance.
+In Proceedings of the 21st ACM Symposium on Operating Systems
+Principles (SOSP), 2007.
+[18] Leslie Lamport, Dahlia Malkhi, and Lidong Zhou. Vertical paxos
+and primary-backup replication. In Proceedings of the 28th ACM
+symposium on Principles of distributed computing, pages 312–313, 2009.
+[19] Leslie Lamport, Dahlia Malkhi, and Lidong Zhou. Reconfiguring a
+state machine. ACM SIGACT News, 41(1):63–73, 2010.
+[20] Jacob R. Lorch, Atul Adya, William J. Bolosky, Ronnie Chaiken, John R.
+Douceur, and Jon Howell. The smart way to migrate replicated
+stateful services. SIGOPS Oper. Syst. Rev., 40(4):103–115, April 2006.
+[21] Andrew Miller, Yu Xia, Kyle Croman, Elaine Shi, and Dawn Song. The
+honey badger of bft protocols. In Proceedings of the 2016 ACM SIGSAC
+Conference on Computer and Communications Security (CCS), 2016.
+[22] Ray Neiheiser, Miguel Matos, and Luís Rodrigues. Kauri: Scalable bft
+consensus with pipelined tree-based dissemination and aggregation.
+In Proceedings of the 28th ACM Symposium on Operating Systems
+Principles (SOSP), 2021.
+[23] Joachim Neu, Javier Nieto, and Ling Ren. On the limits of consensus
+under dynamic availability and reconfiguration. arXiv preprint
+arXiv:2510.03625, 2025.
+[24] Diego Ongaro and John Ousterhout. In search of an understandable
+consensus algorithm. In Proceedings of the 2014 USENIX Annual
+Technical Conference (USENIX ATC 14), pages 305–319, 2014.
+[25] Rialo. Rialo:Thehigh-performancemodularblockchainfordistributed
+systems. https://www.rialo.io/, 2026. Accessed: 2026-01-30.
+[26] Fred B. Schneider. Implementing fault-tolerant services using the state
+machine approach: A tutorial. ACM Computing Surveys, 22(4):299–319,
+1990.
+[27] Alexander Spiegelman, Neil Giridharan, Alberto Sonnino, and Lefteris
+Kokoris-Kogias. Bullshark: Dag bft protocols made practical. In
+Proceedings of the 2022 ACM SIGSAC Conference on Computer and
+Communications Security (CCS), 2022.
+[28] Chrysoula Stathakopoulou, Tudor David Tudor, and Marko Vukolić.
+Mir-bft: High-throughput bft for blockchains. In Proceedings of the
+2nd Workshop on Scalable and Resilient Infrastructures for Distributed
+Ledgers (SRIDL), 2019.
+[29] Sui. Mysticeti: The next generation of sui consensus. https:
+//blog.sui.io/mysticeti-v2-sui-consensus/, 2025. Accessed: 2026-01-30.
+[30] Michael Whittaker, Neil Giridharan, Joseph M Hellerstein, Heidi
+Howard, Ion Stoica, and Natacha Crooks. Matchmaker paxos: A
+reconfigurable consensus protocol. In Proceedings of the 18th USENIX
+Symposium on Networked Systems Design and Implementation (NSDI
+21), pages 67–84, 2021.
+[31] Maofan Yin, Dahlia Malkhi, Michael K. Reiter, Guy Golan Gueta,
+and Ittai Abraham. Hotstuff: Bft consensus with linearity and
+responsiveness. In Proceedings of the 2019 ACM Symposium on
+Principles of Distributed Computing (PODC), 2019.
