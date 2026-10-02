@@ -191,6 +191,21 @@ toolchain) as build-time proof tooling. Per-file imports stay targeted
 elaboration timing measurements behind that ruling are recorded in the
 proof auditors' doc comments. The paper's build (tectonic) is unchanged.
 
+### The Rust toolchain pin does not move
+
+SCREAMING: DO NOT MOVE ANYTHING. The repo pins `rust-toolchain.toml` to
+`1.96.0` and that pin is load-bearing, not hygiene. macOS XProtect scans
+every freshly linked executable on first exec, one at a time, through
+syspolicyd; the Developer Tools privilege exempts binaries whose parent app
+chain is granted, and that exemption holds only while the toolchain home
+never moves. A routine bump, a channel switch, or a `rustup update`
+relocates every build binary and re-triggers the whole scan tax
+(15-59 seconds per fresh test binary; roughly twenty minutes of scanning
+per full suite for under a minute of test execution). A toolchain move is
+an operator ruling; agents never bump it, and `rustup update` is never run
+on a working checkout. Downstream repos in the lua-lunet family pin the
+same channel so the family shares one non-moving toolchain home.
+
 ### Submodules
 
 - `maelstrom/`, Rust Maelstrom test harness. Retained. Unrelated to the paper. To be run on push as it is with IO and we are SANS-IO so its a feature that does as nemesis test so a search for bugs in both the core lib and its own example host app `maelstrom-lin-kv`
