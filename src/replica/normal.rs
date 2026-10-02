@@ -855,7 +855,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// §2): one [`crate::wire::Tag::FuseOk`] is ONE atomic vote vouching for the whole
     /// envelope, a node processes the full datagram before reading any
     /// other message, so the leader counts a majority response on the
-    /// FIRST message in batch and telescopes the remaining slots. The
+    /// FIRST message in batch and telescopes the remaining slots, each packed
+    /// slot's acceptance being evidence at that slot's own ballot. The
     /// guards mirror `plan_prepare_ok`, [`crate::progress::Status::Normal`], own is the primary of
     /// the current view, the view matches, the sender is a member voting
     /// with weight ≥ 1, the HEADER slot an outstanding proposal slot (a
@@ -868,7 +869,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `plan_prepare_ok` feeds.
     ///
     /// The commit cascade is `plan_prepare_ok`'s, segment-atomic: the
-    /// packed schedule's slots share their ackers (§2), so the batch's
+    /// packed schedule's slots share their ackers (§2), each accept carrying
+    /// its own slot's ballot, so the batch's
     /// quorum lands whole, the establishing batch commits as the ONE era
     /// it is, the commit cascade runs in slot order, and the per-era
     /// [`crate::wire::Tag::CommitBatch`] joins the ordinary commit announcement. The
@@ -925,7 +927,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The sender is vouched cumulatively onto every outstanding slot
         // the header slot covers, `plan_prepare_ok`'s bookkeeping pairs,
         // driven by the header's coverage (§2: majority is computed on
-        // the first message in batch; the remaining slots telescope).
+        // the first message in batch; the remaining slots telescope, each
+        // at its own ballot).
         let mut oks: Vec<(Slot, NodeId)> = Vec::new();
         let mut covered = self.progress.committed();
         while let Some(next) = covered.next() {

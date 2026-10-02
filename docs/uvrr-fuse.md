@@ -2,22 +2,32 @@
 
 Fuse is a wire envelope that packs the per-slot Phase2 (`Prepare`) messages of one
 reconfiguration schedule into a single datagram. It is not a new protocol semantic:
-receiving one `Fuse` is *defined* as receiving the equivalent sequence of `Prepare`
-messages at the same ballot, one per slot, in batch order. Per-op safety is the
-ordinary accept path; only the wire shape changes. This document states what Fuse
-IS; the command alphabet and its boundaries are `docs/uvrr-protocols.md` (the reconfiguration-rules chapter),
-and the durability framing is `docs/uvrr-durability-model.md` §13.8.
+the packed ops are one slab of consecutive slots, every packed slot carries its own
+ballot, and per-op safety is the ordinary accept path; only the wire shape changes.
+Accepting a Phase2 at a slot is a promise to that slot's ballot even when the
+corresponding Phase1 was lost, so an acceptor that folds a slab ends promised at the
+slab's tail ballot, never at the head ballot it started from. This document states
+what Fuse IS; the command alphabet and its boundaries are
+`docs/uvrr-protocols.md` (the reconfiguration-rules chapter), and the durability
+framing is `docs/uvrr-durability-model.md` §13.8.
 
 ## 1. The envelope
 
 A `Fuse` is one protocol message with the standard 20-byte header. The header
-carries the common ballot once:
+carries the head ballot of the slab once:
 
 | Field | Role |
 |---|---|
-| `view`, `era` | the ballot shared by every packed op |
+| `view`, `era` | `head_ballot`: the ballot of the first packed slot |
 | `slot` | `first_slot`: the slot of the first packed op; each subsequent op occupies `first_slot + i` |
 | body | `count`, then `count × SystemOperation`, in batch order |
+
+`head_ballot` is the ballot of slot `first_slot` and of no other packed slot. The
+slab's `tail_ballot` is the ballot of its final packed slot,
+`first_slot + count - 1`, and the header does not carry it: the tail ballot is
+computed by the reconfiguration solver as it folds the schedule slot by slot, one
+ballot per packed slot, and the acceptor's fold arrives at those ballots in the same
+order as it folds the slab. The slab's slots are `[first_slot, first_slot + count)`.
 
 The body discriminant and pack/unpack live beside the membership command codec
 (`src/configuration.rs`); the tag tables carry the mapping. No range encodings:
@@ -31,12 +41,15 @@ transport's checksum. Loss or interruption *inside* a batch is impossible: the
 envelope arrives whole or not at all.
 
 Therefore the first operation in the batch decides the whole batch. Membership,
-view, era, and slot discipline are checked on `first_slot`; if the first op is
-acceptable, every following op is acceptable at its own slot under the same
-ballot, a promise is a promise to all future accepts of that ballot. "First
-accepts ⇒ all accept" is a finite induction over at most `FUSE_MAX_OPS`
-operations, not a proof over interruption points mid-sequence. Majority and
-quorum accounting are computed on the first op in the batch.
+view, era, and slot discipline are checked on `first_slot` at `head_ballot`; if the
+first op is acceptable, every following op is acceptable at its own slot and its own
+ballot, the ballot the solver computed for that slot as it folded the schedule. A
+promise to a slot's ballot is a promise to every future accept at that ballot, and
+the slab's promise ends at `tail_ballot` (§3). "First accepts ⇒ all accept" is a
+finite induction over at most `FUSE_MAX_OPS` operations, not a proof over
+interruption points mid-sequence. Majority and quorum accounting are computed on the
+first op in the batch, and each packed slot's eligibility is judged at that slot's
+own ballot.
 
 Consequences:
 
@@ -51,14 +64,17 @@ On receiving a `Fuse` from the primary:
 
 1. Validate the header once, exactly as `plan_prepare` validates a `Prepare`:
    sender is primary of the message's view, view discipline, era discipline of
-   the first op, and the boot-adoption carve-outs.
+   the first op, and the boot-adoption carve-outs. The header's ballot is
+   `head_ballot`, so the header's guards discipline the head slot and no other
+   packed slot.
 2. If the header refuses, the whole envelope is dropped and one named
    diagnostic is recorded. Nothing is partially applied; there is no partial
    acceptance and no wire nack.
 3. If the header passes, explode the batch logically: for each `i`, slot
    `first_slot + i` must equal the local accept frontier's next slot, and the
    op folds through the ordinary system-op perimeter (the same `Configuration`
-   refusals R1–R15 that an individual `Prepare` would meet). The accept frontier
+   refusals R1–R15 that an individual `Prepare` would meet) at that slot's own
+   ballot, the ballot the solver computed for it. The accept frontier
    advances per op and the journal records the batch as one contiguous accept.
 4. Any op refusing mid-batch is unrepresentable when the header passed and the
    schedule is legal: the planner already certified the sequence, and slots are
@@ -68,6 +84,29 @@ On receiving a `Fuse` from the primary:
 5. All ops accepted: reply `FuseOk`, `count`, then one accepted slot per op in
    batch order. No ranges.
 
+**The promise-to-tail obligation.** A Phase2 accepted at a slot is a promise to
+that slot's ballot, whether or not the corresponding Phase1 ever reached this
+acceptor: the debt is incurred by the accept, and a lost Phase1 does not withdraw
+it. An acceptor that has folded the slab has accepted at `head_ballot`, at the
+ballots between, and at `tail_ballot`, so it owes `tail_ballot` and accepts
+nothing below it from then on. The promise is the slab's last ballot and never the
+head ballot the envelope started from: a promise at the head would leave every
+later packed slot's accept unpromised.
+
+**The slab assert.** The acceptor asserts the slab before it folds it, and the
+assert is hard: `tail_ballot > head_ballot && head_ballot >= current_promise`,
+where `current_promise` is the acceptor's standing promise, the greatest ballot it
+has entered. A slab whose ballots did not strictly advance is not a schedule the
+solver computed slot by slot, and a slab whose head ballot sits below the standing
+promise would break that promise at its first accept. Neither is a judgement call
+and neither is a wire refusal: the check is an assert, and an acceptor that cannot
+meet it does not fold the slab.
+
+**The slab install.** The install covers `[first_slot, first_slot + count)`: the
+journal entries, the accept frontier, and the promise advance together across the
+range, one packed slot per step as the loop names them, the promise ending at
+`tail_ballot`.
+
 ## 4. The leader transition
 
 On proposing an establishing batch of at least two operations (a single-op
@@ -75,16 +114,20 @@ batch travels as an ordinary `Prepare` and needs no envelope):
 
 1. Build one `Fuse` per recipient backup: header `first_slot` = the next
    unsent slot, body = the batch's operations in plan order, one op per
-   consecutive slot. The batch's legality is gated whole before the
-   envelope is built: the same reconfiguration gates an ordinary
-   establishing `Prepare` passes, run on the batch the envelope packs.
+   consecutive slot. The solver has folded the schedule slot by slot, so each
+   packed slot carries its own ballot and the header carries the first of them,
+   `head_ballot`; the final packed slot's ballot is `tail_ballot`. The batch's
+   legality is gated whole before the envelope is built: the same
+   reconfiguration gates an ordinary establishing `Prepare` passes, run on the
+   batch the envelope packs.
 2. Register one proposal record per packed slot; the leader's own vote is
    implicit, as in the ordinary path.
 3. One `FuseOk` is ONE atomic vote (§2): the leader counts the sender
    once, cumulatively onto every outstanding slot the header slot covers:
-   the header slot is the batch's last slot as the acceptor stamps it, so
-   the vouch spans the batch whole. Majority is computed on the first
-   message in batch and the remaining slots telescope. The `acks` body is
+   the header slot is the slab's last slot as the acceptor stamps it, so
+   the vouch spans the slab whole. Majority is computed on the first
+   message in batch; the one reply set is the evidence at every packed
+   slot, each judged at that slot's own ballot. The `acks` body is
    the acceptor's wire evidence and is not examined for counting.
 4. When every packed slot holds a quorum, the commit cascade commits the
    batch whole: the packed schedule folds as the ONE establishing batch it
@@ -140,10 +183,11 @@ every accept or none. The set of nodes acknowledging the first packed op is
 therefore exactly the set acknowledging every packed op: a quorum for the
 first is a quorum for all, and the leader counts the replies once. Each
 payload's guards, slot consecutiveness, command legality, era discipline,
-are evaluated against the in-memory configuration the fold of the preceding
-payloads established, exactly as though the payloads had arrived as separate
-datagrams with nothing between them; the header's checks are the ones that
-telescope, the per-payload state is the thing that advances.
+and ballot are evaluated against the in-memory configuration the fold of the
+preceding payloads established, exactly as though the payloads had arrived as
+separate datagrams with nothing between them; the header's checks discipline
+the head slot alone, and the per-payload state, ballot included, is the thing
+that advances.
 
 Emitting one envelope per establishing batch, one round trip per era, six
 for the five-node weighted swap, the ordinary view change into each
@@ -160,7 +204,7 @@ steps the paced emission already runs back to back.
 - A stale-view acceptor refuses the whole envelope: zero slots accepted, one
   diagnostic, no partial fold.
 - A valid acceptor accepts all slots, records one contiguous journal accept,
-  and replies one `FuseOk`.
+  replies one `FuseOk`, and ends promised at the slab's `tail_ballot`.
 - On quorum, every packed slot commits in order; one `CommitBatch` is
   broadcast; the era table advances through the whole schedule; subsequent
   client proposals land above the fused range.
@@ -172,9 +216,10 @@ steps the paced emission already runs back to back.
 
 The ruling this document closes on: Fuse is a wire format and a transport-layer
 optimisation, nothing more. The algorithm never knows it is talking to a
-batch.
+batch: the promise to the tail ballot is the ordinary Phase2 promise at each
+of the slab's slots, discharged at the last of them.
 
-**The wire shape.** One datagram: the 20-byte header carrying the shared
+**The wire shape.** One datagram: the 20-byte header carrying the head
 ballot once and `first_slot`, then the body, `count`, then `count ×
 SystemOperation`, in batch order. The reply is `count` + the accepted slots;
 the commit emission is `count` + one committed frontier per slot. No range
@@ -182,22 +227,25 @@ encodings anywhere on the fuse surface: the count names the things and the
 things follow, one element at a time.
 
 **The one-unpack explode.** The acceptor unpacks the envelope once at the
-codec boundary and never re-encodes. The explode is a struct copy: the shared
-header is carried alongside each packed op, the data off the wire is exactly
+codec boundary and never re-encodes. The explode is a struct copy: the head
+ballot is carried alongside each packed op, which then takes the ballot the
+solver computed for its own slot, so the data off the wire is exactly
 what sending N individual `Prepare`s would have produced, minus the N
 datagrams. No per-message `Message` value is constructed and no per-message
-codec work runs; the reply is the single `FuseOk` the whole batch earns.
+codec work runs; the reply is the single `FuseOk` the whole slab earns.
 
 **The explicit algorithm loop.** The acceptor's only fuse-aware site is the
 explode loop itself: for each `i`, the op at `first_slot + i`, the explicit
 per-element step, one `Slot::next()` per element, folds through the
 ordinary system-op perimeter, the same guards per op, the same journal
-accept batch, the frontier advancing per op. There is no fuse-specific branch
-inside the per-slot logic beyond the loop: every op is judged exactly as an
-individually-arrived `Prepare` at its own slot would be. The leader side is
-symmetric: the builder packs the schedule's ops with the shared ballot,
-transport only, and the proposal bookkeeping is what N individual proposals
-would register, one record and one journal entry per packed slot.
+accept batch, the frontier and the promise advancing per op, the promise
+ending at `tail_ballot`. There is no fuse-specific branch inside the per-slot
+logic beyond the loop: every op is judged exactly as an individually-arrived
+`Prepare` at its own slot and its own ballot would be. The leader side is
+symmetric: the builder packs the schedule's ops with the head ballot in the
+header and each op's own ballot on its slot, transport only, and the proposal
+bookkeeping is what N individual proposals would register, one record and one
+journal entry per packed slot.
 
 **The no-ranged-actions rule.** No range arithmetic and no span computation
 exists anywhere on the fuse surface: no range types, no span arithmetic, no
@@ -205,11 +253,12 @@ chunking or windowing over fused slots. Every slot a fuse datagram touches is
 named explicitly, either by the envelope header's `first_slot` plus the
 explode loop's per-element step or by an element of the body's list.
 
-**The equivalence claim.** A fused batch of N ops produces the same accepts,
+**The equivalence claim.** A fused slab of N ops produces the same accepts,
 journal entries, acks, and commits as the same N ops arriving as N individual
-`Prepare`s at consecutive slots; only the datagram count differs. The wire
-carries the shared ballot once where N messages would carry it N times, and
-the acceptor's explode loop reconstructs the identical per-slot sequence.
+`Prepare`s at consecutive slots, and the same promise at the end of it; only
+the datagram count differs. The wire carries the head ballot once where N
+messages would carry each slot's ballot, and the acceptor's explode loop
+reconstructs the identical per-slot sequence.
 
 **The proposal vehicles.** The fuse path's proposal vehicle is the plan-execution
 machine (§4): an accepted plan steps one batch per era, each proposed through

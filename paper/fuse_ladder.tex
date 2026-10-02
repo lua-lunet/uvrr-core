@@ -31,14 +31,21 @@ identity to reply. The existing module \path{ReincarnationThree.lean} records
 both intersections and both casting witnesses.
 
 \subsection{What a fused acknowledgement certifies}
-Fuse carries a shared header, a count, and the ordered commands for consecutive
+Fuse carries one header, a count, and the ordered commands for consecutive
 slots. FuseOk carries the individual slot acknowledgements; CommitBatch carries
 the individual commits. None of these needs a range encoding. Logical slots,
 configuration boundaries and their quorum families remain distinct.
 
-Let $F=(b,s,[c_0,\ldots,c_{k-1}])$. An acknowledgement of $F$ certifies that
-the sender accepted every specified command at ballot $b$ and its specified
-slot. The leader matches the ballot, first slot, count and slot contents to its
+Let $F=(b,s,[c_0,\ldots,c_{k-1}])$, where $b$ is the ballot of the first
+packed slot, the \emph{head ballot}, and let $t$ be the ballot of the last
+packed slot $s+k-1$, the \emph{tail ballot}. Every packed slot carries its own
+ballot; the solver computes them as it folds the schedule slot by slot and the
+header names only the first. An acknowledgement of $F$ certifies that
+the sender accepted every specified command at its own slot and at that slot's
+own ballot, and that it therefore promises $t$: an acceptor which has accepted
+a phase-two message at a slot owes that slot's ballot even when the
+corresponding phase one never reached it. The leader matches the ballot, first
+slot, count and slot contents to its
 pending envelope, counts each identity once, and checks its own eligibility
 when adding its own acknowledgement. Let $R$ be that set of acknowledgers.
 Then one collection of replies gives acceptance evidence at every packed slot.
@@ -139,7 +146,7 @@ The induction for local acceptance needs its own invariant: the next slot is
 consecutive; every command is legal in the accumulated configuration; the
 promise still permits its ballot; and the slot's era permits that proposal.
 A certified sequence plus preservation of these guards proves that accepting
-the first permits accepting the rest. A shared header can hoist repeated
+the first permits accepting the rest. One header can hoist repeated
 fields out of the wire encoding; it cannot discharge a changing era guard.
 In particular, Turner's multi-era argument includes phase-one and value
 selection obligations. A Phase2-only envelope must inherit those obligations
@@ -148,20 +155,27 @@ telescoping theorem alone does not perform phase one.
 
 Concretely, the current ordinary accept path in
 \path{src/replica/normal.rs} requires the entry era to equal the ballot era
-or its successor. If a shared ballot has era $e$ and expanded entries are
-assigned eras $e,e+1,\ldots,e+k$ against that one ballot, this guard implies
-$k\leq1$; \path{Fuse.same_ballot_era_guard} checks that arithmetic in Lean.
-That is the degenerate reading, not the envelope's. Under the atomic handler
+or its successor; judged against a single ballot's era that guard leaves one
+era of headroom, and \path{Fuse.same_ballot_era_guard} checks the arithmetic in
+Lean. The solver assigns each packed slot its own ballot as it
+folds the schedule, so the entry eras run over the slab's own ballots and no
+packed slot is judged at the head ballot. Under the atomic handler
 model above, the fold evaluates each payload against the in-memory
 configuration the preceding payloads established: payload $i{+}1$'s era
 guard is judged in the era payload $i$'s commit folded, exactly as though
 the payloads had arrived as separate datagrams with no intervening network.
 The entry eras are therefore per-payload facts of the fold, discharged in
 order, and the era the header carries disciplines the first payload alone.
-Phase-one authority for every packed slot is the header ballot itself:
-Lamport's leader executes phase one once for all future instances at the
-same proposal number~\cite{fuse-paxos}, which is the induction the
-telescoping theorem records.
+The promise obligation is likewise per payload: accepting a phase two at
+payload $i{+}1$'s slot promises that slot's ballot whether or not its phase one
+arrived, so the slab ends promised at the tail ballot, the last slot's ballot,
+and never at the head ballot the envelope carried. The hard assert
+$t>b\wedge b\geq$ the standing promise is what makes that obligation sound:
+a slab whose ballots did not strictly advance, or whose head ballot sits below
+the standing promise, is not a slab that any fold may perform. Lamport's
+leader executes phase one once per ballot, for that ballot's future slots
+until interrupted~\cite{fuse-paxos}, and the telescoping theorem records the
+per-slot induction that follows from it.
 
 The proof dependencies are consequently:
 \[
@@ -182,9 +196,10 @@ Lamport states the same induction as ``A newly chosen leader executes phase 1 fo
 infinitely many instances of the consensus algorithm \ldots\ Using the same
 proposal number for all instances''~\cite{fuse-paxos}, where the ballot $b$ of a
 standard message is defined to apply to all future slots until the leader is
-interrupted. The fuse telescoping theorem is the same inductive logic in that the
-fuse header ballot number is both a Phase~1 and Phase~2 for all commands in the
-fused batch. As the messages are processed as a slab they cannot be interrupted.
+interrupted. The fuse telescoping theorem is the same inductive logic at the
+slab's granularity: one reply set certifies one phase two at every packed slot,
+each at that slot's own ballot, and the slab's last ballot is the promise it
+leaves behind. As the messages are processed as a slab they cannot be interrupted.
 Turner supplies the era-history conditions and the weighted reconfiguration
 setting~\cite{turner}. The present
 telescoping argument combines those obligations with a common response set;

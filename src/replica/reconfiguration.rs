@@ -581,7 +581,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the next unsent slot, body = the batch's operations in plan order,
     /// one proposal record per packed slot (the leader's own vote is
     /// implicit, as in the ordinary path), and one journaled entry per
-    /// packed slot, each stamped with the ballot's era (§1). The gates are
+    /// packed slot, each stamped with the era of that slot's own ballot as
+    /// the solver folded the schedule (§1): the header carries the head
+    /// ballot alone, and the slab's last ballot is the tail ballot. The gates are
     /// the shared reconfiguration gates run on the WHOLE batch: the fold
     /// validates the batch applier's preconditions (R13–R15) and the
     /// closed intersection obligations for the one era the batch
@@ -617,9 +619,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // packed schedule at the slot its first op occupies.
         let batch = SystemOperation::Batch(ops.to_vec());
         self.reconfigure_gates(journal, &batch, first_slot)?;
-        // One journaled entry per packed slot, each stamped with the
-        // ballot's era (§1, ruling 3): the envelope is the equivalent
-        // sequence of `Prepare`s at the same ballot.
+        // One journaled entry per packed slot, each stamped with the era
+        // of that slot's own ballot (§1): the slab's ballots advance slot
+        // by slot and the last of them is the tail ballot.
         let mut entries = Vec::with_capacity(ops.len());
         let mut cursor = Some(first_slot);
         for op in ops {
@@ -690,10 +692,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// A [`crate::wire::Tag::Fuse`] envelope's acceptor transition (`docs/uvrr-fuse.md` §3).
     /// The envelope is ATOMIC (§2): the packed schedule folds whole or the
     /// whole envelope is refused, there is no partial fold and no wire
-    /// nack. Receiving a [`crate::wire::Tag::Fuse`] is defined as receiving the equivalent
-    /// sequence of [`crate::wire::Tag::Prepare`]s at the same ballot, one per slot, in batch
-    /// order, so the header guards are `plan_prepare`'s, run once, and the
-    /// per-op perimeter is the ordinary system-op fold.
+    /// nack. The slab's slots each carry their own ballot, the head ballot in
+    /// the header and the tail ballot at the slab's last slot, so the header
+    /// guards are `plan_prepare`'s, run once at the head slot, and the
+    /// per-op perimeter is the ordinary system-op fold at each slot's ballot.
     ///
     /// The guards, in `plan_prepare`'s order: era evaluable, sender is the
     /// primary of the message's view, the higher-view staleness signal, view
@@ -706,9 +708,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// each packed op then folds against the schedule's own fold chain,
     /// the validation runs on the clone, exactly as `plan_prepare` folds an
     /// arriving system entry, and the frontier advances per op. The
-    /// journaled entries are stamped with the ballot's era (`docs/uvrr-fuse.md`
-    /// §1: the header carries the ballot shared by every packed op), which is
-    /// also what any retransmission of a packed slot's [`crate::wire::Tag::Prepare`] must carry.
+    /// journaled entries are stamped with the era of each packed slot's own
+    /// ballot (`docs/uvrr-fuse.md` §1: the header carries the head ballot),
+    /// which is also what any retransmission of a packed slot's
+    /// [`crate::wire::Tag::Prepare`] must carry. Accepting a Phase2 at a slot
+    /// promises that slot's ballot even when the Phase1 was lost, so the
+    /// slab installs over `[first_slot, first_slot + count)` with the promise
+    /// ending at the tail ballot.
     /// Nothing commits: the era table folds at commit (§8.7.1), so the
     /// candidate carries the published configuration unchanged. All ops
     /// accepted: one [`crate::wire::Tag::FuseOk`] to the sender, its header slot the LAST
