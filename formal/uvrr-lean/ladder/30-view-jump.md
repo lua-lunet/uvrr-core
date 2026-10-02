@@ -129,6 +129,44 @@ theorem successor_not_required {A : Type} {V : Type} (P : Paxos A Ballot V)
   ⟨fun _ => view_jump_safe P hlt hera hI hne r hjump hother,
    fun _ => view_jump_safe P hlt hera hI hne r hjump hother⟩
 
+/-- The era-only move is a strict ballot increase: under the lex order, bumping
+the era with the round standing is already a jump. Nothing in the order forces
+the round component to move when the era does. -/
+theorem era_only_strict (e v : Nat) : bLt (e, v) (e + 1, v) :=
+  Prod.Lex.left v v (Nat.lt_succ_self e)
+
+/-- The era-only jump satisfies the rule: its era disciplines hold by
+reflexivity, and its freshness and entitlement are the same history hypotheses
+any jump carries. The rule admits the era ascending with the round standing. -/
+theorem era_only_rule {A : Type} {V : Type} (P : Paxos A Ballot V)
+    (hlt : P.lt = bLt) (hera : P.era = Ballot.era) {e v : Nat}
+    (hno : (∀ i a, ¬ P.promised i a (e + 1, v)) ∧
+      (∀ i a b'', ¬ P.promisedV i a (e + 1, v) b'') ∧ (∀ i a, ¬ P.accepted i a (e + 1, v)))
+    (hent : ∃ i bc, P.chosen i bc ∧ P.lt bc (e + 1, v)) :
+    Rule P (e, v) (e + 1, v) where
+  strictIncrease := by rw [hlt]; exact era_only_strict e v
+  noReuse := hno
+  eraAdjacency := by rw [hera]; exact Nat.le_refl _
+  entitlement := hent
+
+/-- Agreement is unaffected by an era-only jump: the era may ascend with the
+round standing, and a choice at the jumped-to ballot agrees with every other
+choice at the instance. The safety argument never quantifies over the round
+component of the boundary. The applications are the scalings and the learner
+steps: `Double` and `Halve` preserve the voter sequence elementwise, and a
+weight-zero `Join` or `Leave` inserts or removes a learner, so the era ascends
+with the leader computation unchanged and the accompanying view bump is the
+mechanism's simplicity, never a safety requirement — nothing is depleted. A
+fused schedule telescopes its acknowledgements and its commit lands one new
+ballot, so the intermediate steps of a plan have zero impact on it. -/
+theorem era_only_safe {A : Type} {V : Type} (P : Paxos A Ballot V)
+    (hlt : P.lt = bLt) (hera : P.era = Ballot.era)
+    (hI : P.Inv) (hne : ∀ e q, P.QII e q → ∃ a, q a)
+    {i : Nat} {e v : Nat} (r : Rule P (e, v) (e + 1, v))
+    (hjump : P.chosen i (e + 1, v)) {c : Ballot} (hother : P.chosen i c) :
+    P.v i (e + 1, v) = P.v i c :=
+  view_jump_safe P hlt hera hI hne r hjump hother
+
 /-- Era skip refused, rule side: a jump of two eras violates era adjacency, so
 no rule spans it. -/
 theorem era_skip_not_rule {A : Type u} {B : Type v} {V : Type w} (P : Paxos A B V)
@@ -189,10 +227,8 @@ python3 check_axioms.py
 ```
 
 ```output
-✔ [28/30] Built UVRR.ViewJump (294ms)
-✔ [29/30] Built UVRR (276ms)
-Build completed successfully (30 jobs).
-PASS 500 declarations: only standard Lean axioms
+Build completed successfully (32 jobs).
+PASS 539 declarations: only standard Lean axioms
 ```
 
 Direct axiom query:
