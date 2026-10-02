@@ -1,0 +1,186 @@
+TY  - CONF
+TI  - Cheap Paxos
+AU  - Lamport, Leslie
+AU  - Massa, Mike
+T2  - International Conference on Dependable Systems and Networks
+PY  - 2004
+SP  - 307
+EP  - 314
+UR  - https://consensus.app/papers/cheap-paxos-lamport-massa/355660d6b49b5d68868edec255a0bad7/
+AB  - Asynchronous algorithms for implementing a fault-tolerant distributed system, which can make progress despite the failure of any F processors, require 2F + 1 processors. Cheap Paxos, a variant of the Paxos algorithm, guarantees liveness under the additional assumption that the set of nonfaulty processors does not "jump around" too fast, but uses only F + 1 main processors that actually execute the system and F auxiliary processors that are used only to handle the failure of a main processor. The auxiliary processors take part in reconfiguring the system to remove the failed processor, after which they can remain idle until another main processor fails.
+KW  - consensus
+ER  -
+
+TY  - CHAP
+TI  - Conflict-Free Replicated Data Types
+AU  - Shapiro, Marc
+AU  - Preguiça, Nuno
+AU  - Baquero, Carlos
+AU  - Zawirski, Marek
+T2  - Stabilization, Safety, and Security of Distributed Systems
+ET  - 13th International Symposium, SSS 2011
+PY  - 2011
+SP  - 386
+EP  - 400
+PB  - Springer Berlin Heidelberg
+CY  - Berlin, Heidelberg
+DO  - 10.1007/978-3-642-24550-3_29
+UR  - https://consensus.app/papers/conflictfree-replicated-data-types-shapiro-preguiça/7f88eff91e1a5133844c2229ab446cd8/
+AB  - Replicating data under Eventual Consistency (EC) allows any replica to accept updates without remote synchronisation. This ensures performance and scalability in large-scale distributed systems (e.g., clouds). However, published EC approaches are ad-hoc and error-prone. Under a formal Strong Eventual Consistency (SEC) model, we study sufficient conditions for convergence. A data type that satisfies these conditions is called a Conflict-free Replicated Data Type (CRDT). Replicas of any CRDT are guaranteed to converge in a self-stabilising manner, despite any number of failures. This paper formalises two popular approaches (state- and operation-based) and their relevant sufficient conditions. We study a number of useful CRDTs, such as sets with clean semantics, supporting both add and remove operations, and consider in depth the more complex Graph data type. CRDT types can be composed to develop large-scale distributed applications, and have interesting theoretical properties.
+KW  - consensus
+ER  -
+
+TY  - CONF
+TI  - The SMART way to migrate replicated stateful services
+AU  - Lorch, Jacob R.
+AU  - Adya, Atul
+AU  - Bolosky, William J.
+AU  - Chaiken, Ronnie
+AU  - Douceur, John R.
+AU  - Howell, Jon
+T2  - Proceedings of the 2006 EuroSys Conference
+PY  - 2006
+SP  - 103
+EP  - 115
+PB  - Association for Computing Machinery
+CY  - Leuven, Belgium
+UR  - https://consensus.app/papers/the-smart-way-to-migrate-replicated-stateful-services-lorch-adya/5e2486b0952f5155911f1bb5c896250f/
+AB  - Many stateful services use the replicated state machine approach for high availability. In this approach, a service runs on multiple machines to survive machine failures. This paper describes SMART, a new technique for changing the set of machines where such a service runs, i.e., migrating the service. SMART improves upon existing techniques in three important ways. First, SMART allows migrations that replace non-failed machines. Thus, SMART enables load balancing and lets an automated system replace failed machines. Such autonomic migration is an important step toward full autonomic operation, in which administrators play a minor role and need not be available twenty-four hours a day, seven days a week. Second, SMART can pipeline concurrent requests, a useful performance optimization. Third, prior published migration techniques are described in insufficient detail to admit implementation, whereas our description of SMART is complete. In addition to describing SMART, we also demonstrate its practicality by implementing it, evaluating our implementation's performance, and using it to build a consistent, replicated, migratable file system. Our experiments demonstrate the performance advantage of pipelining concurrent requests, and show that migration has only a minor and temporary effect on performance.
+KW  - consensus
+ER  -
+
+TY  - CHAP
+TI  - Asynchronous Reconfiguration for Paxos State Machines
+AU  - Jehl, Leander
+AU  - Meling, Hein
+T2  - Distributed Computing and Networking
+ET  - 15th International Conference, ICDCN 2014
+PY  - 2014
+SP  - 119
+EP  - 133
+PB  - Springer Berlin Heidelberg
+CY  - Coimbatore, India
+DO  - 10.1007/978-3-642-45249-9_8
+UR  - https://consensus.app/papers/asynchronous-reconfiguration-for-paxos-state-machines-jehl-meling/51c649ac67175082804ed158f504a0db/
+AB  - This paper addresses reconfiguration of a Replicated State Machine RSM in an asynchronous system. It is well known that consensus cannot be solved in an asynchronous system. Therefore an RSM providing strong consistency, cannot guarantee progress in an asynchronous system. However, we show that reconfiguring the RSM is possible in a purely asynchronous system. This differs from all existing reconfiguration methods which rely on consensus to choose a new configuration. Since a reconfiguration to a new set of machines or even a different datacenter can serve to restore synchrony between replicas, asynchronous reconfiguration can also serve to increase the availability of an RSM.
+KW  - consensus
+ER  -
+
+TY  - RPRT
+TI  - Stoppable Paxos
+AU  - Lamport, Leslie
+AU  - Malkhi, Dahlia
+AU  - Zhou, Lidong
+T2  - Microsoft Research Technical Report
+PY  - 2008
+M3  - MSR-TR-2008-197
+PB  - Microsoft Research
+UR  - https://consensus.app/papers/stoppable-paxos-lamport-malki/23368ae220f95170b9e9271aeb542213/
+AB  - A stoppable state machine is one whose execution can be terminated by a special stopping command. Stoppable state machines can be used to implement reconfiguration in a replicated state machine; a reconfigurable state machine is implemented by a sequence of stoppable state machines, each running in a fixed configuration. Stoppable Paxos, a variant of the ordinary Paxos algorithm, implements a replicated stoppable state machine.
+KW  - consensus
+ER  -
+
+TY  - CONF
+TI  - Omega Meets Paxos: Leader Election and Stability without Eventual Timely Links
+AU  - Malkhi, Dahlia
+AU  - Oprea, Florin
+AU  - Zhou, Lidong
+T2  - 19th International Symposium on Distributed Computing (DISC 2005)
+PY  - 2005
+SP  - 199
+EP  - 213
+UR  - https://consensus.app/papers/omega-meets-paxos-leader-election-and-stability-without-malki-oprea/c3fc39faf51a57ee856c8e4dd7f0404f/
+AB  - This paper provides a realization of distributed leader election without having any eventual timely links. Progress is guaranteed in the following weak setting: Eventually one process can send messages such that every message obtains f timely responses, where f is a resilience bound. A crucial facet of this property is that the f responders need not be fixed, and may change from one message to another. In particular, this means that no specific link needs to remain timely. In the common case where f=1, this implies that the FLP impossibility result on consensus is circumvented if one process can at any time communicate in a timely manner with one other process in the system. The protocol also bears significant practical importance to well-known coordination schemes such as Paxos, because our setting more precisely captures the conditions on the elected leader for reaching timely consensus. Additionally, an extension of our protocol provides leader stability, which guarantees against arbitrary demotion of a qualified leader and avoids performance penalties associated with leader changes in schemes such as Paxos.
+KW  - consensus
+ER  -
+
+TY  - CONF
+TI  - Dynamic Reconfiguration of Primary/Backup Clusters
+AU  - Shraer, Alexander
+AU  - Reed, Benjamin C.
+AU  - Malkhi, Dahlia
+AU  - Junqueira, Flavio P.
+T2  - 2012 USENIX Annual Technical Conference
+PY  - 2012
+SP  - 425
+EP  - 437
+PB  - USENIX Association
+UR  - https://www.usenix.org/conference/atc12/technical-sessions/presentation/shraer
+AB  - Dynamically changing (reconfiguring) the membership of a replicated distributed system while preserving data consistency and system availability is a challenging problem. In this paper, we show that reconfiguration can be simplified by taking advantage of certain properties commonly provided by Primary/Backup systems. We describe a new reconfiguration protocol, recently implemented in Apache Zookeeper. It fully automates configuration changes and minimizes any interruption in service to clients while maintaining data consistency. By leveraging the properties already provided by Zookeeper our protocol is considerably simpler than state of the art.
+KW  - consensus
+ER  -
+
+TY  - CONF
+TI  - A Simple Totally Ordered Broadcast Protocol
+AU  - Reed, Benjamin
+AU  - Junqueira, Flavio P.
+T2  - Proceedings of the 2nd Workshop on Large-Scale Distributed Systems and Middleware
+T3  - LADIS '08
+PY  - 2008
+SP  - 2:1
+EP  - 2:6
+DO  - 10.1145/1529974.1529978
+UR  - https://consensus.app/papers/a-simple-totally-ordered-broadcast-protocol-reed-junqueira/1df52a2e713a5d4db5f3655a631e9233/
+AB  - This is a short overview of a totally ordered broadcast protocol used by ZooKeeper, called Zab. It is conceptually easy to understand, is easy to implement, and gives high performance. In this paper we present the requirements ZooKeeper makes on Zab, we show how the protocol is used, and we give an overview of how the protocol works.
+KW  - consensus
+ER  -
+
+TY  - BOOK
+TI  - Isabelle/HOL: A Proof Assistant for Higher-Order Logic
+AU  - Nipkow, Tobias
+AU  - Wenzel, Markus
+AU  - Paulson, Lawrence C.
+T2  - Isabelle/HOL
+T3  - Lecture Notes in Computer Science, volume 2283
+PY  - 2002
+DO  - 10.1007/3-540-45949-9
+PB  - Springer Berlin Heidelberg
+UR  - https://link.springer.com/book/10.1007/3-540-45949-9
+AB  - This volume is a self-contained introduction to interactive proof in higher-order logic (HOL), using the proof assistant Isabelle 2002. It provides a direct route into higher-order logic and presents techniques for modelling functional programs, reasoning about sets and relations, and verifying a security protocol.
+KW  - consensus
+ER  -
+
+TY  - CHAP
+TI  - How to Build a Highly Available System Using Consensus
+AU  - Lampson, Butler W.
+T2  - Proceedings of the 10th International Workshop on Distributed Algorithms
+T3  - WDAG '96
+PY  - 1996
+SP  - 1
+EP  - 17
+PB  - Springer-Verlag
+UR  - https://consensus.app/papers/how-to-build-a-highly-available-system-using-consensus-lampson/c460c7c1b4dc5de4b2b73884a5ea87be/
+AB  - Lamport showed that a replicated deterministic state machine is a general way to implement a highly available system, given a consensus algorithm that the replicas can use to agree on each input. His Paxos algorithm is the most fault-tolerant way to get consensus without real-time guarantees. Because general consensus is expensive, practical systems reserve it for emergencies and use leases (locks that time out) for most of the computing. This paper explains the general scheme for efficient highly available computing, gives a general method for understanding concurrent and fault-tolerant programs, and derives the Paxos algorithm as an example of the method.
+KW  - consensus
+ER  -
+
+TY  - RPRT
+TI  - Virtually Synchronous Methodology for Dynamic Service Replication
+AU  - Birman, Ken
+AU  - Malkhi, Dahlia
+AU  - van Renesse, Robbert
+T2  - Microsoft Research Technical Report
+PY  - 2010
+UR  - https://consensus.app/papers/virtually-synchronous-methodology-for-dynamic-service-malki/1caefbe3ba4e5928bb31f842ef4fb696/
+AB  - In designing and building distributed systems, it is common engineering practice to separate steady-state operation from abnormal events such as recovery from failure. This paper explores this topic in a dynamic reconfiguration model that unifies virtual synchrony for reliable group communication and state machine replication, including Paxos.
+KW  - consensus
+ER  -
+
+TY  - CONF
+TI  - Reconfigurable State Machine Replication from Non-reconfigurable Building Blocks
+AU  - Bortnikov, V.
+AU  - Chockler, G.
+AU  - Roytman, A.
+AU  - Shachor, S.
+AU  - Shnayderman, I.
+AU  - Perelman, D.
+T2  - Proceedings of the 31st Annual ACM Symposium on Principles of Distributed Computing
+PY  - 2012
+SP  - 93
+EP  - 94
+DO  - 10.1145/2332432.2332449
+UR  - https://doi.org/10.1145/2332432.2332449
+N1  - Abstract is from the authors' extended 2015 arXiv version (arXiv:1512.08943); the cited 2012 conference abstract is two pages.
+AB  - Reconfigurable state machine replication is an important enabler of elasticity for replicated cloud services, which must be able to dynamically adjust their size as a function of changing load and resource availability. We introduce a new generic framework to allow a reconfigurable state machine implementation to be derived from arbitrary non-reconfigurable state machines. It allows speculative command execution to ensure uninterrupted progress during reconfiguration, even when failures delay agreement. We apply the framework to non-reconfigurable Paxos and evaluate it on a distributed testbed.
+KW  - consensus
+ER  -
