@@ -72,7 +72,7 @@ jobs:
       # deliberate older pin: a toolchain exists to build this code, and a
       # version CI does not share with the developers hides lint drift
       # until it blocks a release.
-      - uses: dtolnay/rust-toolchain@1.96
+      - uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: rustfmt, clippy
       - name: Ensure ripgrep
