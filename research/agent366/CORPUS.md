@@ -23,6 +23,12 @@ for born-digital PDFs, `pdftoppm` + `tesseract` (300 dpi, eng) for scans.
 | [OSDI-2014] / `allfs` | osdi14-pillai-allfs.md | usenix.org |
 | [SOSP-2013] / `optimistic-crash` | sosp13-optimistic-crash.md | research.cs.wisc.edu |
 | [LAMPSON-1979] | lampson-sturgis-1979.md | microsoft.com/research (OCR, scan) |
+| `lamport1998` (TOCS '98) | lamport1998-part-time-parliament.md | lamport.azurewebsites.net (title page verified) |
+| `lamport2004` (DSN '04) | lamport2004-cheap-paxos.md | lamport.azurewebsites.net (title page verified) |
+| `lamport2008` (MSR 2008) | lamport2008-stoppable-paxos.md | lamport.azurewebsites.net (title page verified) |
+| `birman2010` (MSR-TR-2010-151) | birman2010-virtually-synchronous.md | microsoft.com/research (title page verified) |
+| `lorch2006` (EuroSys '06) | lorch2006-smart.md | microsoft.com/research (title page verified) |
+| `burrows2006` (OSDI '06) | burrows2006-chubby-osdi06.md | usenix.org legacy proceedings (title page verified) |
 | `par` (FAST'18) | fast18-alagappan-par.md | usenix.org |
 | `diskless` (UW TR 16-08-02) | diskless-tr16.md | syslab.cs.washington.edu |
 | `corfu` (TOCS 2013) | corfu-tocs2013.md | malkhi.com (exact cited version) |
