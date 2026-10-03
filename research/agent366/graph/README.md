@@ -4,7 +4,8 @@ This page is a read-only view of the graph data in `data.js`. To compare it
 with the paper's Zotero/Better BibTeX bibliography, choose one or more
 collection export files using **Read Zotero collection exports**. The filename
 is used as the collection label in the dropdown; choose the paper's existing
-`paper/papers/references.bib` for the current paper collection. The page reads
+`research/literature/turner/paxos-reconf-latest.bib` for the current paper
+collection. The page reads
 entry keys in the browser and never edits or uploads the selected files. It
 does not connect to Zotero's database or read Zotero notes, abstracts,
 attachments, or other item fields.
@@ -34,8 +35,10 @@ whether an entry is actually cited in the paper body.
 
 Use one Zotero library with project collections and topic tags. A reference
 can belong to more than one collection without creating duplicate items.
-For the uVRR paper, keep its Better BibTeX auto-export targeted at the current
-paper bibliography and preserve that path because the TeX source uses it.
+For the uVRR paper, the live Better BibTeX auto-export is in the `uvrr-core`
+worktree at `paper/papers/references.bib`.
+`research/literature/turner/paxos-reconf-latest.bib` is the corresponding
+snapshot in this worktree.
 For the software-security research, use a separate collection and a distinct
 export file outside this paper's bibliography path. Load both exports in the
 graph and select a collection there. Do not point the paper's TeX command at a
