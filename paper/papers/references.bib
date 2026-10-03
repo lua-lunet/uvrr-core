@@ -46,6 +46,18 @@
   abstract = {Chubby is a distributed lock service used within Google to coordinate loosely coupled systems. The paper describes its design, intended uses, fault tolerance, and operational experience.}
 }
 
+@inproceedings{chandra2007,
+  title = {Paxos {{Made Live}}: {{An Engineering Perspective}}},
+  booktitle = {Proceedings of the {{Twenty-Sixth Annual ACM Symposium}} on {{Principles}} of {{Distributed Computing}}},
+  author = {Chandra, Tushar D. and Griesemer, Robert and Redstone, Joshua},
+  year = 2007,
+  pages = {398--407},
+  publisher = {ACM},
+  doi = {10.1145/1281100.1281103},
+  url = {https://research.google.com/archive/paxos_made_live.pdf},
+  abstract = {We describe our experience building a fault-tolerant database using the Paxos consensus algorithm. Despite the existing literature, building such a database proved non-trivial. We describe selected algorithmic and engineering problems encountered, and the solutions we found. Our measurements indicate that we built a competitive system.}
+}
+
 @misc{corfu,
   title = {{{CORFU}}: A Distributed Shared Log},
   author = {Balakrishnan, Mahesh and Malkhi, Dahlia and Davis, John D. and Prabhakaran, Vijayan and Wei, Michael and Wobber, Ted},
@@ -79,6 +91,18 @@
   keywords = {consensus}
 }
 
+@inproceedings{duan2025,
+  title = {Crash {{Consistency}} in {{Block-Level Caching Systems}}: {{An Open CAS Case Study}}},
+  booktitle = {2025 {{USENIX Annual Technical Conference}}},
+  author = {Duan, Shaohua and Chen, Youmin},
+  year = 2025,
+  pages = {749--764},
+  url = {https://www.usenix.org/conference/atc25/presentation/duan-shaohua},
+  abstract = {Byte-addressable non-volatile memory (NVM) proposes a new opportunity to enable file systems with better performance and durability by adding a new persistent caching layer. However, crash consistency of caching layers and compatibility with diverse reliability features of file systems remains unknown. This paper conducts a crash consistency case study of Open CAS, a popular block-level caching system. Through careful and thorough crash consistency experiments, we show that Open CAS cannot always maintain crash consistency in the persistent caching layer. We also demonstrate some reliability features of file systems are not compatible with Open CAS. Our analysis reveals the importance of a systematic crash consistency test to caching systems and reliability feature co-design with file systems in the construction of a reliable end-to-end file system.},
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/F793QKPV/duan-open-cas-2025.pdf}
+}
+
 @misc{etcd-embed,
   title = {Embedding Etcd in a {{Go}} Application},
   author = {{authors}, etcd},
@@ -103,6 +127,81 @@
   abstract = {This guide gives hardware recommendations for etcd clusters, including CPU, memory, disk, and network considerations for different workloads.}
 }
 
+@unpublished{ewd1215,
+  type = {Manuscript},
+  title = {Courtesy {{Dr}}. {{Birgit Schieder}}},
+  author = {Dijkstra, Edsger W.},
+  year = 1995,
+  month = sep,
+  number = {EWD1215},
+  publisher = {University of Texas at Austin},
+  address = {Austin, Texas},
+  url = {https://www.cs.utexas.edu/~EWD/transcriptions/EWD12xx/EWD1215.html},
+  abstract = {Summary (archive text has no labelled abstract): Dijkstra presents an affine-geometric termination proof for repeatedly replacing two crossing red--blue matching segments with uncrossed segments. The note credits Birgit Schieder's counting argument: each flip decreases the number of intersections between the fixed set of red--blue lines and the current matching segments.}
+}
+
+@misc{ewd720,
+  type = {Inaugural Lecture},
+  title = {Why Correctness Must Be a Mathematical Concern},
+  author = {Dijkstra, Edsger W.},
+  year = 1979,
+  month = nov,
+  address = {Universit\'e de Li\`ege, Belgium},
+  url = {https://www.cs.utexas.edu/~EWD/transcriptions/EWD07xx/EWD720.html},
+  abstract = {Summary (archive text has no labelled abstract): This inaugural lecture argues that reliable programming is a mathematical activity. Dijkstra uses a nondeterministic urn game to show how an invariant proves a result for all possible executions, then discusses the scale of program texts and the need to reason about them directly rather than by tracing computations.}
+}
+
+@article{fischer1985,
+  title = {Impossibility of {{Distributed Consensus}} with {{One Faulty Process}}},
+  author = {Fischer, Michael J. and Lynch, Nancy A. and Paterson, Michael S.},
+  year = 1985,
+  journal = {Journal of the ACM},
+  volume = {32},
+  number = {2},
+  pages = {374--382},
+  doi = {10.1145/3149.214121},
+  abstract = {The consensus problem involves an asynchronous system of processes, some of which may be unreliable. The problem is for the reliable processes to agree on a binary value. In this paper, it is shown that every protocol for this problem has the possibility of nontermination, even with only one faulty process. By way of contrast, solutions are known for the synchronous case, the ``Byzantine Generals'' problem.}
+}
+
+@article{hoare1969,
+  title = {An Axiomatic Basis for Computer Programming},
+  author = {Hoare, C. A. R.},
+  year = 1969,
+  month = oct,
+  journal = {Communications of the ACM},
+  volume = {12},
+  number = {10},
+  pages = {576--580},
+  publisher = {Association for Computing Machinery},
+  doi = {10.1145/363235.363259},
+  url = {https://doi.org/10.1145/363235.363259},
+  abstract = {In this paper an attempt is made to explore the logical foundations of computer programming by use of techniques which were first applied in the study of geometry and have later been extended to other branches of mathematics. This involves the elucidation of sets of axioms and rules of inference which can be used in proofs of the properties of computer programs. Examples are given of such axioms and rules, and a formal proof of a simple theorem is displayed. Finally, it is argued that important advantage, both theoretical and practical, may follow from a pursuance of these topics.}
+}
+
+@misc{howard2016,
+  title = {Flexible {{Paxos}}: {{Quorum Intersection Revisited}}},
+  author = {Howard, Heidi and Malkhi, Dahlia and Spiegelman, Alexander},
+  year = 2016,
+  number = {1608.06696},
+  eprint = {1608.06696},
+  publisher = {arXiv},
+  url = {https://arxiv.org/abs/1608.06696},
+  abstract = {Distributed consensus is integral to modern distributed systems. The widely adopted Paxos algorithm uses two phases, each requiring majority agreement, to reliably reach consensus. In this paper, we demonstrate that Paxos, which lies at the foundation of many production systems, is conservative. Specifically, we observe that each of the phases of Paxos may use non-intersecting quorums. Majority quorums are not necessary as intersection is required only across phases. Using this weakening of the requirements made in the original formulation, we propose Flexible Paxos, which generalizes over the Paxos algorithm to provide flexible quorums. We show that Flexible Paxos is safe, efficient and easy to utilize in existing distributed systems. We conclude by discussing the wide reaching implications of this result. Examples include improved availability from reducing the size of second phase quorums by one when the number of acceptors is even and utilizing small disjoint phase-2 quorums to speed up the steady-state.},
+  archiveprefix = {arXiv}
+}
+
+@inproceedings{hu2026,
+  title = {Come {{Hell}} or {{Still Water}}: {{Alleviating Tail Latency}} in {{Cloud Block Store}}},
+  booktitle = {23rd {{USENIX Symposium}} on {{Networked Systems Design}} and {{Implementation}}},
+  author = {Hu, Chaolei and Qian, Kun and Xu, Erci and Shen, Yifan and Zhang, Haoran and Li, Xue and Gu, Yuesheng and Ma, Shu and Zhu, Lingjun and Ren, Fengyuan and Zhai, Ennan},
+  year = 2026,
+  pages = {1259--1274},
+  url = {https://www.usenix.org/conference/nsdi26/presentation/hu-chaolei},
+  abstract = {Maintaining low tail latency is crucial for cloud storage services. In ALIBABA CLOUD, our Elastic Block Storage (EBS), like many others, adopts layers of load balancing to avoid hot-spot I/Os, a dominant contributor to tail latency. However, in the field, EBS has still been suffering from tail latency spikes. Through extensive analysis of production workloads, we have identified the root cause: the workload bursts caused by a small group of Virtual Disks (VDs), which fundamentally influence the tail latency of the entire cluster. We hence propose a lightweight dual-bucket throttling mechanism to effectively mitigate the issue while maintaining fairness. In addition, we discover that, even under underloaded scenarios, the tail latency remains suboptimal due to the event-loop thread model. We propose a prioritybased scheduling mechanism to separate I/O-related tasks from I/O-unrelated ones. Our evaluation shows that the proposed mechanisms can reduce the tail latency by up to 97\% in burst and 43\% in underloaded scenarios. Our mechanisms have been deployed across dozens of clusters for more than three months, and have served hundreds of trillions of I/O requests. They reduce the P99999 tail latency of steady segments by 59.7\% under burst scenarios and of all I/Os by 22\% in underloaded scenarios.},
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/R4PV8X26/hu-cloud-block-tail-2026.pdf}
+}
+
 @incollection{jehl2014,
   title = {Asynchronous {{Reconfiguration}} for {{Paxos State Machines}}},
   booktitle = {Distributed {{Computing}} and {{Networking}}},
@@ -116,6 +215,31 @@
   url = {https://consensus.app/papers/asynchronous-reconfiguration-for-paxos-state-machines-jehl-meling/51c649ac67175082804ed158f504a0db/},
   abstract = {This paper addresses reconfiguration of a Replicated State Machine RSM in an asynchronous system. It is well known that consensus cannot be solved in an asynchronous system. Therefore an RSM providing strong consistency, cannot guarantee progress in an asynchronous system. However, we show that reconfiguring the RSM is possible in a purely asynchronous system. This differs from all existing reconfiguration methods which rely on consensus to choose a new configuration. Since a reconfiguration to a new set of machines or even a different datacenter can serve to restore synchrony between replicas, asynchronous reconfiguration can also serve to increase the availability of an RSM.},
   keywords = {consensus}
+}
+
+@article{kuschewski2026,
+  title = {{{BtrLog}}: {{Low-Latency Logging}} for {{Cloud Database Systems}}},
+  author = {Kuschewski, Maximilian and Nguyen, Lam-Duy and Jasny, Matthias and Ziegler, Tobias and Leis, Viktor and {El-Hindi}, Muhammad},
+  year = 2026,
+  journal = {Proceedings of the VLDB Endowment},
+  pages = {2894--2907},
+  doi = {10.14778/3828612.3828640},
+  url = {https://arxiv.org/abs/2606.27051},
+  abstract = {Cloud database systems cannot rely on instance-local disks for write-ahead logging (WAL) durability, forcing WAL onto remote storage. Existing options are unsatisfying: remote block storage like EBS is easy to adopt but adds substantial write latency and cost, while object storage offers excellent durability and low storage cost but is impractical for OLTP due to high latency and per-append cost. Many cloud-native databases, therefore, depend on purpose-built logging backends, which are typically proprietary and tightly coupled to engine-specific replication and recovery protocols, limiting reuse. We present BtrLog, a reusable cloud logging service that combines low-latency durable appends with low-cost archival for the common single-writer architecture. BtrLog replicates log records across a quorum of SSD-backed log nodes in a single network round trip, reducing sensitivity to stragglers in commit latency. To minimize storage cost, log nodes archive records to object storage as large segments, which are written asynchronously and off the latency-critical write path. In our evaluation, BtrLog achieves lower latency than EBS and enables higher end-to-end transaction throughput when integrated into a DBMS.},
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/SWYJY8J3/kuschewski-btrlog-2026.pdf}
+}
+
+@article{lamport1998,
+  title = {The {{Part-Time Parliament}}},
+  author = {Lamport, Leslie},
+  year = 1998,
+  journal = {ACM Transactions on Computer Systems},
+  volume = {16},
+  number = {2},
+  pages = {133--169},
+  url = {https://doi.org/10.1145/279227.279229},
+  abstract = {Recent archaeological discoveries on the island of Paxos reveal that the parliament functioned despite the peripatetic propensity of its part-time legislators. The legislators maintained consistent copies of the parliamentary record, despite their frequent forays from the chamber and the forgetfulness of their messengers. The Paxon parliament's protocol provides a new way of implementing the state machine approach to the design of distributed systems.}
 }
 
 @inproceedings{lamport2004,
@@ -238,6 +362,28 @@
   url = {https://www.usenix.org/system/files/conference/osdi16/osdi16-li.pdf},
   abstract = {NOPaxos uses network ordering to reduce consensus overhead in replicated services. It replaces part of the ordering work normally performed by replicas with an ordered network path while retaining fault tolerance.},
   keywords = {consensus}
+}
+
+@inproceedings{norris2024,
+  title = {Why Fsync() on {{OpenZFS}} Can't Fail (and What Happens When It Does)},
+  booktitle = {{{AsiaBSDCon}} 2024},
+  author = {Norris, Rob},
+  year = 2024,
+  url = {https://papers.freebsd.org/2024/asiabsdcon/norris_openzfs-fsync-failure/},
+  abstract = {On OpenZFS, fsync() cannot fail - it will wait until the application's changes are on disk before it returns. If there is a problem, such as a hardware failure, that causes the pool to suspend, then it may wait forever. This feels strange, but is acceptable according to the API contract: fsync() never returned success, so the application has no reason to believe its data is on disk. However, OpenZFS pools can recover if the fault is repaired, and so fsync() can still return. As it turns out though, it's possible in rare situations for the pool to return to service but not have actually put the data on disk. fsync() returns success, because it cannot fail, and the application has been lied to. This paper describes the path taken from the fsync() call, through the ZFS Intent Log, the transaction machinery, the pool failure system and the IO pipeline to understand what happens to IO when disks fail, and why OpenZFS believed that writes had succeeded when they had not. It goes on to describe changes to make OpenZFS understand that something had gone wrong and respond appropriately, such that fsync() once again cannot fail.},
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/RDLM3HJ6/norris-openzfs-fsync-2024.pdf}
+}
+
+@inproceedings{ongaro2014,
+  title = {In {{Search}} of an {{Understandable Consensus Algorithm}}},
+  booktitle = {Proceedings of the 2014 {{USENIX Annual Technical Conference}}},
+  author = {Ongaro, Diego and Ousterhout, John},
+  year = 2014,
+  pages = {305--320},
+  publisher = {USENIX Association},
+  url = {https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro},
+  abstract = {Raft is a consensus algorithm for managing a replicated log. It produces a result equivalent to (multi-)Paxos, and it is as efficient as Paxos, but its structure is different from Paxos; this makes Raft more understandable than Paxos and also provides a better foundation for building practical systems. In order to enhance understandability, Raft separates the key elements of consensus, such as leader election, log replication, and safety, and it enforces a stronger degree of coherency to reduce the number of states that must be considered. Results from a user study demonstrate that Raft is easier for students to learn than Paxos. Raft also includes a new mechanism for changing the cluster membership, which uses overlapping majorities to guarantee safety.}
 }
 
 @misc{optimistic-crash,
@@ -378,68 +524,22 @@
   keywords = {consensus,viewstamped-replication}
 }
 
+@inproceedings{zhang2024,
+  title = {{{MSFRD}}: {{Mutation Similarity}} Based {{SSD Failure Rating}} and {{Diagnosis}} for {{Complex}} and {{Volatile Production Environments}}},
+  booktitle = {2024 {{USENIX Annual Technical Conference}}},
+  author = {Zhang, Yuqi and Zhang, Tianyi and Hao, Wenwen and Wang, Shuyang and Liu, Na and He, Xing and Zhang, Yang and Wang, Weixin and Cheng, Yongguang and Wang, Huan and Xu, Jie and Wang, Feng and Jiang, Bo and Gwon, Yongwong and Na, Jongsung and Kim, Zoe and Oh, Geunrok},
+  year = 2024,
+  pages = {869--884},
+  url = {https://www.usenix.org/conference/atc24/presentation/zhang-yuqi},
+  abstract = {SSD failures have an increasing impact on storage reliability and performance in data centers. Some manufacturers have customized fine-grained Telemetry attributes to analyze and identify SSD failures. Based on Telemetry data, this paper proposes the mutation similarity based failure rating and diagnosis (MSFRD) scheme to predict failures in dynamic environment of data centers and improve failure handling efficiency. MSFRD dynamically detects the internal mutations of SSDs in real time and measures their similarity to the mutations of historical failed SSDs and healthy SSDs for failure prediction and early rating. Based on the rating, unavailable SSDs with serious failures are handled immediately, while available SSDs with less serious failures will be continuously tracked and diagnosed. The MSFRD is evaluated on real Telemetry datasets collected from large-scale SSDs in data centers. Compared with the existing schemes, MSFRD improves precision by 23.8\% and recall by 38.9\% on average for failure prediction. The results also show the effectiveness of MSFRD on failure rating and progressive diagnosis.},
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/GBQ94MB8/zhang-msfrd-2024.pdf}
+}
+
 @misc{zookeeper,
   title = {{{ZooKeeper}}: {{Wait}}-Free Coordination for Internet-Scale Systems},
   author = {Hunt, Patrick and Konar, Mahadev and Junqueira, Flavio P. and Reed, Benjamin},
   year = 2010,
   url = {https://www.usenix.org/events/usenix10/tech/full_papers/Hunt.pdf},
   abstract = {ZooKeeper is a coordination service for distributed applications. The paper describes its wait-free interface, replicated architecture, implementation, and evaluation.}
-}
-
-@article{zotero-item-60,
-  title = {Impossibility of {{Distributed Consensus}} with {{One Faulty Process}}},
-  author = {Fischer, Michael J. and Lynch, Nancy A. and Paterson, Michael S.},
-  year = 1985,
-  journal = {Journal of the ACM},
-  volume = {32},
-  number = {2},
-  pages = {374--382},
-  doi = {10.1145/3149.214121},
-  abstract = {The consensus problem involves an asynchronous system of processes, some of which may be unreliable. The problem is for the reliable processes to agree on a binary value. In this paper, it is shown that every protocol for this problem has the possibility of nontermination, even with only one faulty process. By way of contrast, solutions are known for the synchronous case, the ``Byzantine Generals'' problem.}
-}
-
-@inproceedings{zotero-item-66,
-  title = {In {{Search}} of an {{Understandable Consensus Algorithm}}},
-  booktitle = {Proceedings of the 2014 {{USENIX Annual Technical Conference}}},
-  author = {Ongaro, Diego and Ousterhout, John},
-  year = 2014,
-  pages = {305--320},
-  publisher = {USENIX Association},
-  url = {https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro},
-  abstract = {Raft is a consensus algorithm for managing a replicated log. It produces a result equivalent to (multi-)Paxos, and it is as efficient as Paxos, but its structure is different from Paxos; this makes Raft more understandable than Paxos and also provides a better foundation for building practical systems. In order to enhance understandability, Raft separates the key elements of consensus, such as leader election, log replication, and safety, and it enforces a stronger degree of coherency to reduce the number of states that must be considered. Results from a user study demonstrate that Raft is easier for students to learn than Paxos. Raft also includes a new mechanism for changing the cluster membership, which uses overlapping majorities to guarantee safety.}
-}
-
-@misc{zotero-item-77,
-  title = {Flexible {{Paxos}}: {{Quorum Intersection Revisited}}},
-  author = {Howard, Heidi and Malkhi, Dahlia and Spiegelman, Alexander},
-  year = 2016,
-  number = {1608.06696},
-  eprint = {1608.06696},
-  publisher = {arXiv},
-  url = {https://arxiv.org/abs/1608.06696},
-  abstract = {Distributed consensus is integral to modern distributed systems. The widely adopted Paxos algorithm uses two phases, each requiring majority agreement, to reliably reach consensus. In this paper, we demonstrate that Paxos, which lies at the foundation of many production systems, is conservative. Specifically, we observe that each of the phases of Paxos may use non-intersecting quorums. Majority quorums are not necessary as intersection is required only across phases. Using this weakening of the requirements made in the original formulation, we propose Flexible Paxos, which generalizes over the Paxos algorithm to provide flexible quorums. We show that Flexible Paxos is safe, efficient and easy to utilize in existing distributed systems. We conclude by discussing the wide reaching implications of this result. Examples include improved availability from reducing the size of second phase quorums by one when the number of acceptors is even and utilizing small disjoint phase-2 quorums to speed up the steady-state.},
-  archiveprefix = {arXiv}
-}
-
-@inproceedings{zotero-item-91,
-  title = {Paxos {{Made Live}}: {{An Engineering Perspective}}},
-  booktitle = {Proceedings of the {{Twenty-Sixth Annual ACM Symposium}} on {{Principles}} of {{Distributed Computing}}},
-  author = {Chandra, Tushar D. and Griesemer, Robert and Redstone, Joshua},
-  year = 2007,
-  pages = {398--407},
-  publisher = {ACM},
-  doi = {10.1145/1281100.1281103},
-  abstract = {We describe our experience building a fault-tolerant database using the Paxos consensus algorithm. Despite the existing literature, building such a database proved non-trivial. We describe selected algorithmic and engineering problems encountered, and the solutions we found. Our measurements indicate that we built a competitive system.}
-}
-
-@article{zotero-item-95,
-  title = {The {{Part-Time Parliament}}},
-  author = {Lamport, Leslie},
-  year = 1998,
-  journal = {ACM Transactions on Computer Systems},
-  volume = {16},
-  number = {2},
-  pages = {133--169},
-  url = {https://doi.org/10.1145/279227.279229},
-  abstract = {Recent archaeological discoveries on the island of Paxos reveal that the parliament functioned despite the peripatetic propensity of its part-time legislators. The legislators maintained consistent copies of the parliamentary record, despite their frequent forays from the chamber and the forgetfulness of their messengers. The Paxon parliament's protocol provides a new way of implementing the state machine approach to the design of distributed systems.}
 }

@@ -281,7 +281,11 @@ function loadCollections(sources) {
   try {
     collectionExports.clear();
     for (const { name: originalName, source } of sources) {
-      const parsed = readBibTeX(source);
+      const parsed = typeof source === "string" ? readBibTeX(source) : {
+        keys: new Set(source.records.map(record => record.key)),
+        entries: source.records.length,
+        records: source.records
+      };
       if (parsed.entries === 0) throw new Error(`${originalName}: no BibTeX entries were found.`);
       const item = { name: originalName, ...parsed };
       let name = item.name;
@@ -317,13 +321,13 @@ bibFile.addEventListener("change", async () => {
 
 async function loadDiskExports() {
   const paths = [
-    ["references.bib", "../../../paper/papers/references.bib"],
-    ["consensus-paxos-vrr.bib", "../../literature/consensus-paxos-vrr.bib"]
+    ["references.bib", "../../../paper/papers/references.bib", "bib"],
+    ["consensus-paxos-vrr.json", "../../literature/consensus-paxos-vrr.json", "json"]
   ];
-  const attempts = await Promise.allSettled(paths.map(async ([name, path]) => {
+  const attempts = await Promise.allSettled(paths.map(async ([name, path, format]) => {
     const response = await fetch(path, { cache: "no-store" });
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
-    return { name, source: await response.text() };
+    return { name, source: format === "json" ? await response.json() : await response.text() };
   }));
   const available = attempts.filter(result => result.status === "fulfilled").map(result => result.value);
   if (available.length) loadCollections(available);

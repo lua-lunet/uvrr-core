@@ -2,8 +2,9 @@
 
 This page is a read-only view of the graph data in `data.js`. When served from
 the repository root, it loads `paper/papers/references.bib` and
-`research/literature/consensus-paxos-vrr.bib` on opening. The former is the
-paper's bibliography; the latter is a snapshot of the Zotero saved search.
+`research/literature/consensus-paxos-vrr.json` on opening. The BibTeX file is
+Zotero's automatic export of the paper collection; the JSON file preserves the
+wider consensus reading collection for the graph.
 Choose other files using **Read Zotero collection exports**. The filename is
 used as the collection label in the dropdown. The page reads exported records
 in the browser and never edits or uploads the selected files.
@@ -36,20 +37,16 @@ rather than evaluative. Keep the derived text in Zotero's Abstract field and let
 the export refresh, rather than editing abstracts inside the graph. The current
 `references.bib` has an abstract for every exported record.
 
-The `Consensus — Paxos & VRR` saved search is exported manually to
-`research/literature/consensus-paxos-vrr.bib`. Its current export has an
-abstract for every record, but Zotero's Better BibTeX automatic-export list
-does not include this saved search. Refresh it in Zotero with the saved search's
-**Export…** command after changing its items, using Better BibTeX with URL
-export enabled. Clear any Quick Search filter and reselect the saved search
-before exporting. Write to a temporary filename and check the entry count
-before replacing the disk snapshot; Zotero can export only a filtered view.
-The graph reads the refreshed disk file on page reload.
+The `Consensus — Paxos & VRR` reading collection is represented in the graph
+by `research/literature/consensus-paxos-vrr.json`. It has an abstract for every
+record. Refresh the JSON from a complete Zotero export of that collection;
+check the item count before replacing the snapshot, because Zotero can export
+only a filtered view. The graph reads the refreshed JSON on page reload.
 
 The key crosswalk is explicit in `data.js`. If a citekey changes in Zotero,
 update that mapping to match the next export. The chart does not infer identity
 from titles or abstracts and does not treat an unkeyed graph node as a match.
-The two built-in exports are reread on page reload. Files chosen through the
+The two built-in sources are reread on page reload. Files chosen through the
 picker are a one-time browser read: reselect them after Better BibTeX refreshes
 them. This is an export-based sync, not a live Zotero connection. Give each
 additional collection export a distinct filename so it is easy to identify in
@@ -57,7 +54,7 @@ the dropdown.
 
 Edges are directed from source to target; edge labels describe the recorded
 citation or relationship. The bibliography filter checks node membership in
-the selected `.bib` export. It does not parse the LaTeX source to decide
+the selected bibliography source. It does not parse the LaTeX source to decide
 whether an entry is actually cited in the paper body.
 
 ## Keeping Zotero projects separate
@@ -67,7 +64,7 @@ can belong to more than one collection without creating duplicate items.
 For the uVRR paper, keep its Better BibTeX auto-export targeted at the current
 paper bibliography and preserve that path because the TeX source uses it.
 For the software-security research, use a separate collection and a distinct
-export file outside this paper's bibliography path. Load both exports in the
+export file outside this paper's bibliography path. Load both sources in the
 graph and select a collection there. Do not point the paper's TeX command at a
 combined library export when you want a paper-specific bibliography.
 
