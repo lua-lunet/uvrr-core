@@ -361,16 +361,45 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // entry the piggyback did not commit must fold onto the
             // post-piggyback table BEFORE it may be accepted, a peer's
             // invalid operation is dropped by name, never journaled.
-            if let Payload::System(op) = &entry.payload
-                && let Err(error) = config.extend(op, entry.slot)
-            {
-                return self.drop_plan(
-                    Diagnostic::InvalidSystemOperation {
-                        slot: entry.slot,
-                        error,
-                    },
-                    kind,
-                );
+            if let Payload::System(op) = &entry.payload {
+                // The post-piggyback table is the base of the chain, not the
+                // judge: the entry's guards are evaluated against the
+                // configuration the fold of the accepted-but-uncommitted
+                // predecessors established (`docs/uvrr-fuse.md` §6), exactly
+                // as though they had arrived as separate datagrams with
+                // nothing between them, or the step-through diverges from
+                // the slab it mirrors.
+                let mut chain = Arc::clone(&config);
+                let mut cursor = new_committed;
+                while let Some(next) = cursor.next() {
+                    if next >= entry.slot {
+                        break;
+                    }
+                    let held = journal
+                        .get(next)
+                        .ok_or(PlanRefusal::JournalEntryUnavailable { slot: next })?;
+                    if let Payload::System(predecessor) = &held.payload {
+                        chain = match chain.extend(predecessor, next) {
+                            Ok(folded) => Arc::new(folded),
+                            Err(error) => {
+                                return self.drop_plan(
+                                    Diagnostic::InvalidSystemOperation { slot: next, error },
+                                    kind,
+                                );
+                            }
+                        };
+                    }
+                    cursor = next;
+                }
+                if let Err(error) = chain.extend(op, entry.slot) {
+                    return self.drop_plan(
+                        Diagnostic::InvalidSystemOperation {
+                            slot: entry.slot,
+                            error,
+                        },
+                        kind,
+                    );
+                }
             }
             // Era authorization (§8.7.3, §8.7.8): the entry's era must
             // name an era the committed history has established, the
