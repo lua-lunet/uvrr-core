@@ -629,7 +629,11 @@ results never enter consensus state. A host may keep an ephemeral
 association exists, discarding it otherwise; a crash clears associations, so an I/O
 failure leaves the write outcome unknowable to the caller, who must reconnect and
 query according to the host protocol. Transport, leader forwarding, connection
-tracking, and response formatting remain host extensions.
+tracking, and response formatting remain host extensions. The reference
+client-facing deployment (a two-site cluster behind a layer-4 load balancer,
+the command circuit from accept to reply, and where the paper's
+one-outstanding-request rule lands in the host) is stated in
+`docs/clients.md`.
 
 **Recorded API consequences** (normative for the implementation items that follow):
 
