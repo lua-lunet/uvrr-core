@@ -16,7 +16,9 @@ fetch() { # $1 = output name, $2 = url
 fetch vr-revisited-2012.pdf          https://pmg.csail.mit.edu/papers/vr-revisited.pdf
 fetch paxos-made-simple-2001.pdf     https://lamport.azurewebsites.net/pubs/paxos-simple.pdf
 fetch vertical-paxos-2009.pdf        https://lamport.azurewebsites.net/pubs/vertical-paxos.pdf
-fetch vertical-paxos-disc-2017.pdf   https://arxiv.org/pdf/1708.04871
+fetch smaug-2017-gorke-armknecht.pdf  https://arxiv.org/pdf/1708.04871
+fetch shraer2012-atc12-dynamic-reconfig.pdf https://www.usenix.org/system/files/conference/atc12/atc12-final74.pdf
+fetch diskless-disc2017-recovering-shared-objects.pdf "https://drops.dagstuhl.de/storage/00lipics/lipics-vol091-disc2017/LIPIcs.DISC.2017.36/LIPIcs.DISC.2017.36.pdf"
 fetch reconfiguring-a-state-machine-2010.pdf "http://www-sop.inria.fr/members/Francesco.Bongiovanni/reconfiguring%20a%20state%20machine.pdf"
 fetch osdi14-pillai-allfs.pdf        https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-pillai.pdf
 fetch sosp13-optimistic-crash.pdf    https://research.cs.wisc.edu/adsl/Publications/optfs-sosp13.pdf

@@ -16,7 +16,9 @@ for born-digital PDFs, `pdftoppm` + `tesseract` (300 dpi, eng) for scans.
 | [PMS-2001] / `pms`, `fuse-paxos` | paxos-made-simple-2001.md | lamport.azurewebsites.net |
 | `diskpaxos` | disk-paxos-2003.md | lamport.azurewebsites.net |
 | `vertical-paxos` (PODC'09) | vertical-paxos-2009.md | lamport.azurewebsites.net |
-| [DISC-2017] | vertical-paxos-disc-2017.md | arxiv 1708.04871 |
+| [SMAUG-2017] (not a Vertical Paxos paper; fetched under that name by mistake) | smaug-2017-gorke-armknecht.md | arxiv 1708.04871 |
+| `shraer2012` (ATC'12) / [ATC12-SHRAER] | shraer2012-atc12-dynamic-reconfig.md | usenix.org atc12-final74 |
+| [DISC-2017] (Michael et al., the published `diskless`) | diskless-disc2017-recovering-shared-objects.md | drops.dagstuhl.de LIPIcs.DISC.2017.36 |
 | `reconfig-sm` (SIGACT News 2010) | reconfiguring-a-state-machine-2010.md | INRIA mirror |
 | [OSDI-2014] / `allfs` | osdi14-pillai-allfs.md | usenix.org |
 | [SOSP-2013] / `optimistic-crash` | sosp13-optimistic-crash.md | research.cs.wisc.edu |
