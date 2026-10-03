@@ -124,3 +124,35 @@ check here.
   Two collisions in the first render (crash label over arrow 2's head
   label; era 2's label over arrow 9's head label) and a left-edge clip of
   the era 2 label were found and fixed before this check passed.
+
+## Zotero is the database of record
+
+The bibliography lives in Zotero. The repository holds one Better BibTeX
+auto-export snapshot per worktree and nothing else; the snapshot is
+replaced wholesale from the export, never hand-edited, never copied
+around.
+
+The Zotero **local API** (Zotero Settings → Advanced → "Allow other
+applications on this computer to communicate with Zotero"):
+
+- base URL `http://localhost:23119/api/`
+- reads need no credential; every write needs two headers:
+  `Zotero-Server-ID` (this database's persistent local server id, readable
+  with `select value from settings where setting='localAPI' and
+  key='serverID'` in `~/Zotero/zotero.sqlite`) and `Zotero-API-Key`
+- obtain the key by asking: `POST /api/local/authorize` with
+  `{"appName": "<name>"}`; Zotero prompts the person to allow the app
+  once or persistently and answers `{"key": …, "remember": …}`. A write
+  with no or an unrecognised key is 401 with
+  `WWW-Authenticate: Zotero-API-Key realm="Zotero Local API"`.
+- `X-Zotero-API-Version: 3` on every request.
+- attaching a PDF is two steps: POST the attachment item
+  (`itemType: attachment`, `linkMode: imported_file`, its `parentItem`),
+  then POST the bytes to that attachment's `/file` endpoint.
+- item keys: `data.citationKey` when Better BibTeX has pinned one; that
+  is what the snapshot's keys match.
+
+Credentials never enter git: the API key lives in the environment
+(`ZOTERO_API_KEY`) and the server id is read from the database. The
+local-API authorisation is a per-application consent, so the repository
+records the flow, not the secret.
