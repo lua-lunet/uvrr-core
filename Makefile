@@ -115,7 +115,7 @@ serve:
 	cd maelstrom && $(LEIN) run serve
 
 labbook:
-	python3 .tmp/labbook/build_labbook.py
+	python3 scripts/build_labbook.py
 
 labbook-serve:
 	python3 .tmp/labbook/serve_labbook.py
