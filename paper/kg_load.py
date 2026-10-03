@@ -103,6 +103,13 @@ def main():
         for a, b in zip(ordered, ordered[1:]):
             kg.link(f"/paper/{a[0]}", "FOLLOWS", f"/paper/{b[0]}")
             follows += 1
+        rows = []
+        for name, _tex, _labels, _text in parsed:
+            nid = kg.node_id(f"/paper/{name}")
+            props = kg.propfind(f"/paper/{name}")
+            rows.append((name, nid or "", props.get("_sha256", "")))
+        tsv = HOME / "nodes.tsv"
+        tsv.write_text("name\tid\tsha256\n" + "\n".join("\t".join(r) for r in rows) + "\n")
         print(
             {
                 "fragments": len(fragments),
@@ -112,6 +119,7 @@ def main():
                 "follows_links": follows,
                 "bib_entries": bib_out["entries"],
                 "bib_abstracts": bib_out["abstracts_stored"],
+                "name_id_map": str(tsv),
             }
         )
 
