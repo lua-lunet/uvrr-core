@@ -28,8 +28,6 @@
 //! Dependency-free: std only. Run through `build.sh`, which compiles the
 //! vendored Zig tree with TB's pinned Zig 0.14.1 and links it.
 
-pub mod reconfigurations;
-
 #[cfg(not(test))]
 mod demo {
     use std::ffi::{CString, c_char, c_int};
