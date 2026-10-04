@@ -385,6 +385,17 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 // the slab it mirrors.
                 let mut chain = Arc::clone(&config);
                 let mut cursor = new_committed;
+                // The run the candidate joins: the accepted-but-uncommitted
+                // predecessors sharing the entry's era are the head of the
+                // maximal same-era run the commit fold glues as ONE
+                // establishing batch, so the perimeter judges the candidate
+                // inside that run's fold and the per-op refusal that would
+                // name a rider solitary never fires. The fold's rule is
+                // mirrored exactly: the batch fold first, the per-entry
+                // fallback on a batch refusal.
+                let mut run: Vec<SystemOperation> = Vec::new();
+                let mut run_first_slot = entry.slot;
+                let mut chain_at_run = Arc::clone(&chain);
                 while let Some(next) = cursor.next() {
                     if next >= entry.slot {
                         break;
@@ -393,6 +404,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                         .get(next)
                         .ok_or(PlanRefusal::JournalEntryUnavailable { slot: next })?;
                     if let Payload::System(predecessor) = &held.payload {
+                        if held.era == entry.era && run.is_empty() {
+                            run_first_slot = next;
+                            chain_at_run = Arc::clone(&chain);
+                        }
+                        if held.era == entry.era {
+                            run.push(predecessor.clone());
+                        }
                         chain = match chain.extend(predecessor, next) {
                             Ok(folded) => Arc::new(folded),
                             Err(error) => {
@@ -405,7 +423,16 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                     }
                     cursor = next;
                 }
-                if let Err(error) = chain.extend(op, entry.slot) {
+                let judged = if run.is_empty() {
+                    chain.extend(op, entry.slot)
+                } else {
+                    let mut ops = run;
+                    ops.push(op.clone());
+                    chain_at_run
+                        .extend(&SystemOperation::Batch(ops), run_first_slot)
+                        .or_else(|_| chain.extend(op, entry.slot))
+                };
+                if let Err(error) = judged {
                     return self.drop_plan(
                         Diagnostic::InvalidSystemOperation {
                             slot: entry.slot,

@@ -853,8 +853,18 @@ view the committing advance started from, and a committed nomination
 lands the serving view there in the one published transition — the walk
 is grounded, every spanned era established by a slot the same advance
 commits, which is the clause the transition gate's view-succession rule
-checks (the era window's adjacency, era equal or +1, still governs every
-view change; the bump is not a view change).
+checks. The law the walk is judged by is the per-slot advance: the slab
+is transmitted as one uninterruptible unit and within it everything is
+one slot at a time, so the total era jump divided by the slot count the
+advance commits is a decimal in `(0, 1]`: one era per establishing
+slot, no slot advancing the view by more than its unit, the walk always
+advancing. A jump with no slots carrying it is not a commit-time walk.
+The era window's adjacency, era equal or +1, still governs every view
+change; the bump is not a view change, it is a commit. The walk's
+correctness is not pen and paper: the same schedule fed through a node
+one slot at a time, each step honouring the rule, lands in the same
+final state the fused jump does, and that equivalence is the jump's
+proof.
 
 The nomination issues no `StartViewChange`, no fence, no evidence, no
 install: the bump is not a view change, it is a commit. At the wrap the
