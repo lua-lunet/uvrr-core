@@ -227,12 +227,12 @@ encodings anywhere on the fuse surface: the count names the things and the
 things follow, one element at a time.
 
 **The one-unpack explode.** The acceptor unpacks the envelope once at the
-codec boundary and never re-encodes. The explode is a struct copy: the head
-ballot is carried alongside each packed op, which then takes the ballot the
-solver computed for its own slot, so the data off the wire is exactly
-what sending N individual `Prepare`s would have produced, minus the N
-datagrams. No per-message `Message` value is constructed and no per-message
-codec work runs; the reply is the single `FuseOk` the whole slab earns.
+codec boundary and never re-encodes. The explode is a struct copy: each
+packed op takes the ballot the solver computed for its own slot, so the
+data off the wire is exactly what sending N individual `Prepare`s would
+have produced, minus the N datagrams. No per-message `Message` value is
+constructed and no per-message codec work runs; the reply is the single
+`FuseOk` the whole slab earns.
 
 **The explicit algorithm loop.** The acceptor's only fuse-aware site is the
 explode loop itself: for each `i`, the op at `first_slot + i`, the explicit
