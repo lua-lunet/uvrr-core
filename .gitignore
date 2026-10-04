@@ -42,3 +42,4 @@ docs/slides/*.pdf
 .verdent/
 __pycache__/
 .idea/
+.kg/

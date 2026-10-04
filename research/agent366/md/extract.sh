@@ -32,7 +32,12 @@ ocr() { # $1 = pdf name (no ext), $2 = output suffix (default .md)
 
 # born-digital
 for n in vr-revisited-2012 paxos-made-simple-2001 vertical-paxos-2009 \
-         vertical-paxos-disc-2017 reconfiguring-a-state-machine-2010 \
+         smaug-2017-gorke-armknecht shraer2012-atc12-dynamic-reconfig \
+         diskless-disc2017-recovering-shared-objects \
+         lamport1998-part-time-parliament lamport2004-cheap-paxos \
+         lamport2008-stoppable-paxos birman2010-virtually-synchronous \
+         lorch2006-smart burrows2006-chubby-osdi06 \
+         reconfiguring-a-state-machine-2010 \
          osdi14-pillai-allfs sosp13-optimistic-crash fast18-alagappan-par \
          diskless-tr16 disk-paxos-2003 corfu-tocs2013 zookeeper-atc10-hunt \
          fqi-2016-howard raft-atc14-ongaro lean4-cade28 \

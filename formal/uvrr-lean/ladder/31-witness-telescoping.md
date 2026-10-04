@@ -431,10 +431,8 @@ python3 check_axioms.py
 ```
 
 ```output
-✔ [28/30] Built UVRR.Witness (519ms)
-✔ [29/30] Built UVRR (332ms)
-Build completed successfully (30 jobs).
-PASS 518 declarations: only standard Lean axioms
+Build completed successfully (32 jobs).
+PASS 539 declarations: only standard Lean axioms
 ```
 
 Direct axiom query:

@@ -22,10 +22,12 @@ L. Lamport. *Paxos Made Simple*. 2001.
 
 ## [DISC-2017]
 
-M. Michael, A. Spiegelman, D. Andersen, W. Lloyd. *Vertical Paxos and
-Primary-Backup Replication*. DISC 2017; the classic recovery protocol's
-published amnesia failure is the extended version's Appendix B.1.
-<https://arxiv.org/abs/1708.04871>
+E. Michael, D. R. K. Ports, N. K. Sharma, A. Szekeres. *Recovering
+Shared Objects Without Stable Storage*. DISC 2017; the published version
+of the 2016 technical report cited as `diskless`, whose Appendix A.1
+carries the amnesia counterexample against Viewstamped Replication
+Revisited.
+<https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.DISC.2017.36>
 
 ## [OSDI-2014]
 
@@ -84,3 +86,11 @@ TigerBeetle-style durability framing. 2026.
 S. Massey. *The Network Is Faster Than the Disk*: the deferred-flush
 economic rationale. 2024.
 <https://simbo1905.wordpress.com/2024/04/12/the-network-is-faster-than-the-disk/>
+
+## [EWD-1990]
+
+E. W. Dijkstra. *Reasoning about Programs*: the do-loop invariant discipline
+in his own notation as written on the lecture whiteboard, the pattern for
+proving things about the repetitive construct; credited to C. A. R. Hoare.
+1990.
+<https://youtu.be/GX3URhx6i2E>

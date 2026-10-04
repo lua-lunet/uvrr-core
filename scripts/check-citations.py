@@ -70,6 +70,9 @@ SOURCES = {
     "curp": "research/literature/sources/curp.md",
     "rfc9000": "research/literature/sources/rfc9000.md",
     "rfc9114": "research/literature/sources/rfc9114.md",
+    "ewd720": "research/literature/sources/ewd720.md",
+    "ewd1215": "research/literature/sources/ewd1215.md",
+    "hoare1969": "research/literature/sources/hoare-axiomatic-1969.md",
 }
 
 STOPWORDS = set("""a an and are as at be been but by can could did do does for

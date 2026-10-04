@@ -16,7 +16,15 @@ fetch() { # $1 = output name, $2 = url
 fetch vr-revisited-2012.pdf          https://pmg.csail.mit.edu/papers/vr-revisited.pdf
 fetch paxos-made-simple-2001.pdf     https://lamport.azurewebsites.net/pubs/paxos-simple.pdf
 fetch vertical-paxos-2009.pdf        https://lamport.azurewebsites.net/pubs/vertical-paxos.pdf
-fetch vertical-paxos-disc-2017.pdf   https://arxiv.org/pdf/1708.04871
+fetch smaug-2017-gorke-armknecht.pdf  https://arxiv.org/pdf/1708.04871
+fetch shraer2012-atc12-dynamic-reconfig.pdf https://www.usenix.org/system/files/conference/atc12/atc12-final74.pdf
+fetch diskless-disc2017-recovering-shared-objects.pdf "https://drops.dagstuhl.de/storage/00lipics/lipics-vol091-disc2017/LIPIcs.DISC.2017.36/LIPIcs.DISC.2017.36.pdf"
+fetch lamport1998-part-time-parliament.pdf https://lamport.azurewebsites.net/pubs/lamport-paxos.pdf
+fetch lamport2004-cheap-paxos.pdf            https://lamport.azurewebsites.net/pubs/web-dsn-submission.pdf
+fetch lamport2008-stoppable-paxos.pdf        https://lamport.azurewebsites.net/pubs/stoppable.pdf
+fetch birman2010-virtually-synchronous.pdf  https://www.microsoft.com/en-us/research/wp-content/uploads/2010/11/vs-submit.pdf
+fetch lorch2006-smart.pdf                   https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/eurosys2006.pdf
+fetch burrows2006-chubby-osdi06.pdf          https://www.usenix.org/legacy/events/osdi06/tech/full_papers/burrows/burrows.pdf
 fetch reconfiguring-a-state-machine-2010.pdf "http://www-sop.inria.fr/members/Francesco.Bongiovanni/reconfiguring%20a%20state%20machine.pdf"
 fetch osdi14-pillai-allfs.pdf        https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-pillai.pdf
 fetch sosp13-optimistic-crash.pdf    https://research.cs.wisc.edu/adsl/Publications/optfs-sosp13.pdf

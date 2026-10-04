@@ -13,6 +13,7 @@ aW
 axiomatised
 Balakrishnan
 balancer
+Birgit
 bV
 CADE
 CAS
@@ -53,6 +54,7 @@ EraStep
 etcd
 etcd's
 EvictedNeverVoter
+EWD
 failover
 FairSpec
 FFI
@@ -65,6 +67,7 @@ gafni
 Ganesan
 gitignored
 gray
+Hoare
 html
 HTTPS
 instantiation
@@ -167,6 +170,7 @@ rrrr
 RTT
 RTTs
 runnable
+Schieder
 sdn
 sep
 SequenceCompletes

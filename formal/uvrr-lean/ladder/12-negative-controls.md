@@ -124,6 +124,12 @@ end NegativeControls
 Compile rejection measures proof sensitivity, not universal necessity. See
 UVRR/NegativeControls.lean for constructive independence witnesses.
 """
+
+# Elaboration timing measurements behind the targeted-imports ruling, recorded
+# here because AGENTS.md carries rulings, not measurements (measured on macOS,
+# Mathlib v4.33.1, the pinned toolchain): elaboration is 0.78 s per file bare,
+# 1.47 s with targeted tactic imports, and ~4.3 s warm / 24 s cold with a full
+# Mathlib import; the package cache is 7.5 GB.
 from pathlib import Path
 import subprocess
 import tempfile

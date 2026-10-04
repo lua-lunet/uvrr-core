@@ -86,6 +86,29 @@ esac
 
 printf 'published %s (footer id asserted, %s pages)\n' "$DISPLAY_OUT" "$(pdfinfo "$OUT" | awk '/^Pages:/{print $2}')"
 
+# A draft is for reading, and reading happens off the repository. When
+# UVRR_DRAFT_FOLDER names a path, the draft also lands there: the versioned
+# <id>.pdf and <id>.md of this build, AND the stable device name UVRR-2026.pdf /
+# UVRR-2026.md, so a reader opening that file on any device is always looking at
+# the newest draft rather than a stale copy from an earlier month. Unset, a draft
+# stays exactly where it was written above. The published version of record is
+# never copied: it lives in the repository.
+if [ "$DRAFT" -eq 1 ] && [ -n "${UVRR_DRAFT_FOLDER:-}" ]; then
+    mkdir -p "$UVRR_DRAFT_FOLDER"
+    cp "$ABS_OUT" "$UVRR_DRAFT_FOLDER/$ID.pdf"
+    cp "$ABS_OUT" "$UVRR_DRAFT_FOLDER/UVRR-2026.pdf"
+    if command -v pandoc >/dev/null 2>&1; then
+        if python3 "$SCRIPT_DIR/to_markdown.py" "$SCRIPT_DIR/paper.tex" "$UVRR_DRAFT_FOLDER/$ID.md"; then
+            cp "$UVRR_DRAFT_FOLDER/$ID.md" "$UVRR_DRAFT_FOLDER/UVRR-2026.md"
+            printf 'draft copied to %s (pdf, md, and refreshed UVRR-2026.pdf/.md)\n' "$UVRR_DRAFT_FOLDER"
+        else
+            printf 'draft PDF copied to %s; markdown failed\n' "$UVRR_DRAFT_FOLDER" >&2
+        fi
+    else
+        printf 'draft copied to %s (pdf; no markdown: pandoc absent)\n' "$UVRR_DRAFT_FOLDER"
+    fi
+fi
+
 if [ "$DO_OPEN" -eq 1 ]; then
     if [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then
         open "$ABS_OUT"
