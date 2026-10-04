@@ -2,8 +2,9 @@
 
 Every external work cited from `docs/*` or `paper/*`, pulled down on 2026-09-28,
 plus Raft (user instruction: "i have not mentioned RAFT … yet go get it").
-PDFs in `papers/`; extracted text in `md/`. Extraction: `pdftotext -layout`
-for born-digital PDFs, `pdftoppm` + `tesseract` (300 dpi, eng) for scans.
+PDFs in `papers/`; extracted text in `md/`. Extraction: `pdftotext` default
+mode (reading order; two-column layouts come out de-columnised) for
+born-digital PDFs, `pdftoppm` + `tesseract` (300 dpi, eng) for scans.
 `paper.pdf` has both (`paper.md` = pdftotext, `paper.ocr.md` = tesseract).
 
 ## Papers (peer-reviewed / tech reports)
@@ -37,6 +38,31 @@ for born-digital PDFs, `pdftoppm` + `tesseract` (300 dpi, eng) for scans.
 | FQI (Howard et al. 2016) | fqi-2016-howard.md | arxiv 1608.06696 |
 | **Raft (ATC'14)** | raft-atc14-ongaro.md | usenix.org — added per user instruction, not cited anywhere in the tree |
 | [TURNER-RECONF] / `turner` | papers/turner-paxos-reconf.tex (LaTeX source) | github.com/DaveCTurner/paxos-membership, branch raft-like-reconfiguration |
+| `chandra2007` (PODC '07) | chandra2007-paxos-made-live.md | research.google.com archive (authors' 16-pp. version) |
+| `nopaxos` (OSDI '16) | nopaxos-osdi16.md | usenix.org |
+| `lampson1996` (WDAG '96) | lampson1996-highly-available-consensus.md | author's site |
+| `fischer1985` (JACM 32(2)) | fischer1985-flp-impossibility.md | course-mirror copy, JACM header verified |
+| `bortnikov2012` (PODC '12 brief announcement) | bortnikov2012-reconfigurable-smr.md | arXiv:1512.08943 full version; the 2-page BA has no free copy — the bib keys to the BA |
+| `jehl2014` (ICDCN '14) | jehl2014-async-reconfiguration.md | author's UiS copy via Wayback |
+| `malkhi2005` (DISC '05) | malkhi2005-omega-meets-paxos.md | DISC LNCS 3724 pp. 199–213 header verified |
+| `nipkow2002` (LNCS 2283) | nipkow2002-isabelle-hol-book.md | isabelle.in.tum.de distribution copy (the maintained edition the book page sanctions) |
+| `reed2008` (LADIS '08, the Zab paper) | reed2008-zab-ladis08.md | Yahoo Labs archive via Wayback |
+| `shapiro2011` (SSS '11) | shapiro2011-crdt.md | HAL inria-00609399 (INRIA RR-7687 open version) |
+| `duan2025` (ATC '25) | duan2025-open-cas.md | usenix.org open access |
+| `kuschewski2026` (PVLDB 19(10)) | kuschewski2026-btrlog.md | VLDB open access / arXiv |
+| `norris2024` (AsiaBSDCon '24) | norris2024-openzfs-fsync.md | papers.freebsd.org |
+| `zhang2024` (ATC '24) | zhang2024-msfrd.md | usenix.org open access |
+| `hu2026` (NSDI '26) | hu2026-cloud-block-tail.md | usenix.org open access |
+
+## Manuscripts and standards
+
+| Cited as | File (md/) | Source |
+|---|---|---|
+| `hoare1969` (CACM 12(10)) | hoare1969-axiomatic-basis.md | CMU course-mirror scan; OCR (tesseract), title page verified |
+| `ewd720` | ewd720-why-correctness.md | UT EWD archive transcription (pandoc); the scan PDF sits in papers/ |
+| `ewd1215` | ewd1215-courtesy-birgit-schieder.md | UT EWD archive transcription (pandoc); the scan PDF sits in papers/ |
+| `rfc9000` | rfc9000-quic.md | rfc-editor.org canonical text |
+| `rfc9114` | rfc9114-http3.md | rfc-editor.org canonical text |
 
 ## Blogs (the self-citations under discussion)
 
