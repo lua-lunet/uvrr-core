@@ -135,7 +135,8 @@ around.
 The Zotero **local API** (Zotero Settings → Advanced → "Allow other
 applications on this computer to communicate with Zotero"):
 
-- base URL `http://localhost:23119/api/`
+- base URL `http://localhost:23119/api/`; the library's items live under
+  `/api/users/0/` (the local API's synthetic user — bare `/api/items` is 404)
 - reads need no credential; every write needs two headers:
   `Zotero-Server-ID` (this database's persistent local server id, readable
   with `select value from settings where setting='localAPI' and
