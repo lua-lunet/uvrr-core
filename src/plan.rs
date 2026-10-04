@@ -3,7 +3,7 @@
 //! (`docs/uvrr-protocols.md`, the solver chapter).
 //!
 //! A [`Plan`] is serde-free: it is the core's type, built from the solver's
-//! schedule ([`crate::solver`]) and replayed by the leader one batch per era.
+//! schedule ([`crate::solve`]) and replayed by the leader one batch per era.
 //! The JSONL form exists only at the tool perimeter, the codec below is
 //! feature-gated, and a plan crossing that perimeter is validated once, on
 //! the way in, against the same transition gates the leader applies

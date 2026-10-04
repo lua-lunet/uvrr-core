@@ -716,6 +716,53 @@ impl Configuration {
         Ok(current)
     }
 
+    /// The per-slot fold of a packed slab (`docs/uvrr-fuse.md` §1, the
+    /// reconfiguration law): the ops of one establishing batch judged in slot
+    /// order, each **in-era** at its point in the sequence — a [`SystemOperation::Nominate`]
+    /// rider folds to the identical configuration beside its carrier, never the
+    /// solitary refusal [`Configuration::apply`] names for it — and the era
+    /// advancing once per ESTABLISHING slot. Returns each slot's authorising
+    /// era, the era the fold of the preceding slots established, and the
+    /// configuration the whole fold establishes. The head slot is authorised
+    /// by the receiver's era, so the envelope's header ballot disciplines the
+    /// first payload alone; every later slot's era is a per-slot fact of the
+    /// fold, payload `i + 1` judged in the era payload `i`'s fold established.
+    /// A rider establishes no era of its own: its slot shares the era of the
+    /// slot it rides, so the commit fold's segmentation — a maximal run of
+    /// journal entries sharing one era folds as one era's establishing
+    /// operation — keeps the rider inside its carrier's boundary, where the
+    /// batch applier admits it.
+    ///
+    /// This is the fuse envelope's judging on both sides of the wire
+    /// ([`crate::replica`]'s builder and acceptor explode): the ordinary
+    /// per-op system perimeter per slot at that slot's own ballot. The batch
+    /// applier [`Configuration::apply_batch`] is unchanged: a `Batch` journal
+    /// entry is one slot and establishes one era, the same rule as ever — the
+    /// slab's many eras are a fact of the per-slot journal shape, established
+    /// at commit one per maximal same-era run.
+    pub(crate) fn fold_slots(
+        &self,
+        ops: &[SystemOperation],
+    ) -> Result<(Vec<Era>, Configuration), ConfigError> {
+        let mut eras = Vec::with_capacity(ops.len());
+        let mut current = self.clone();
+        for op in ops {
+            let stamp = if matches!(op, SystemOperation::Nominate { .. }) {
+                // The rider shares its carrying slot's era; a rider leading
+                // the slab has no carrier and is authorised by the head era.
+                eras.last().copied().unwrap_or(current.era)
+            } else {
+                current.era
+            };
+            current = current.apply_in_era(op)?;
+            if !matches!(op, SystemOperation::Nominate { .. }) {
+                current.era = current.era.next().ok_or(ConfigError::EraExhausted)?;
+            }
+            eras.push(stamp);
+        }
+        Ok((eras, current))
+    }
+
     /// The per-node mass R14 bounds between two configurations: over the union of
     /// both memberships, `Σ_a |W_before(a) − W_after(a)|`, with a node absent on
     /// one side weighing 0. Each term is at most 2 and the count is capped at

@@ -21,11 +21,11 @@
 \newcommand{\QII}{\mathcal{Q}^{\mathrm {II}}}
 \newcommand{\code}[1]{\texttt{#1}}
 \newcommand{\uwrweightcell}[1]{\ifx-#1\textendash\else#1\fi}
-\newcommand{\uwrweightrow}[5]{#1 & \uwrweightcell{#2} & \uwrweightcell{#3} & \uwrweightcell{#4} & \uwrweightcell{#5} \\}
+\newcommand{\uwrweightrow}[6]{#1 & \uwrweightcell{#2} & \uwrweightcell{#3} & \uwrweightcell{#4} & \uwrweightcell{#5} & #6 \\}
 \newcommand{\uwrweightstable}[1]{%
-  \begin{tabular}{@{}lcccc@{}}
+  \begin{tabular}{@{}l*{5}{c}@{}}
   \toprule
-  Era & A & B & C & D\\
+  Era & A & B & C & D & leader view\\
   \midrule
   #1
   \bottomrule
@@ -167,6 +167,10 @@ Section~\ref{sec:method} develops the lifecycle and leader-overlap construction.
 Section~\ref{sec:results} starts with three-voter Crash-Stop-Reincarnation
 and extends the argument to five voters, stating the history invariants needed
 for agreement, exclusion of the evicted voter and identity nonreuse.
+Section~\ref{sec:solver} states the machinery that executes such a schedule as
+one fused message round: the solver that computes and certifies it, and the
+repetitive construct that telescopes its verification onto the head and tail
+commands of the packed batch.
 Section~\ref{sec:discussion} develops the metadata applications; the accompanying
 addendum gives the mathematical working and verification evidence.
 The name ``unbounded'' follows Turner's treatment of pipelining through
@@ -285,12 +289,12 @@ exercised on this path. The chart is rendered from the tracked source
 
 \begin{table}[t]
 \centering\small
-\caption{Reincarnation forced weight sequence.}
+\caption{Reincarnation forced weight sequence, the leader $B$ held stable throughout. The leader-view column records the serving view at each era, counted from view 1, the least view electing $B$ under the opening arithmetic. The parenthesised increment at a boundary is the nomination rider's offset: the least positive offset re-electing the leader under the new arithmetic (Section~\ref{sec:solver}).}
 \label{tab:reincarnationweights}
 \uwrweightstable{%
-  \uwrweightrow{start}{1}{1}{1}{-}
-  \uwrweightrow{era 1: \code{DECREMENT(C)}~+~\code{JOIN(D)}}{1}{1}{0}{0}
-  \uwrweightrow{era 2: \code{INCREMENT(D)}~+~\code{LEAVE(C)}}{1}{1}{-}{1}}
+  \uwrweightrow{start}{1}{1}{1}{-}{1}
+  \uwrweightrow{era 1: \code{DECREMENT(C)}~+~\code{JOIN(D)}}{1}{1}{0}{0}{3 (+2)}
+  \uwrweightrow{era 2: \code{INCREMENT(D)}~+~\code{LEAVE(C)}}{1}{1}{-}{1}{4 (+1)}}
 \end{table}
 
 The addendum published with the code~\cite{artifact} provides a Lean theorem that composes an era-based agreement theorem with replacement weights and an abstract identity lifecycle. The work builds upon Turner's P2--P7~\cite{turner}: promises preserve their fences, reports identify prior acceptances, proposals preserve the selected history, and chosen values have quorum evidence. A well-founded total ballot order and the ballot/slot era conditions complete the contract. The addendum states each hypothesis and the exercise that connects operational executions to it.
@@ -308,20 +312,20 @@ For five original voters, $n_0$ is replaced by $n_5$ while $n_1,\ldots,n_4$ surv
 
 \begin{table}[t]
 \centering
-\caption{Five-node Crash-Stop-Reincarnation: six committed batches. Zero denotes voting weight, including identities absent from membership.}
+\caption{Five-node Crash-Stop-Reincarnation: six committed batches, the leader $n_1$ held stable throughout. Zero denotes voting weight, including identities absent from membership. The leader-view column records the serving view at each stage, counted from view 1, the least view electing $n_1$ under the opening arithmetic. The parenthesised increment at a boundary is the nomination rider's offset at a moving boundary, and the full voter cycle of the leader-preserving view change at a scaling boundary (Double, Halve) (Section~\ref{sec:solver}).}
 \label{tab:weights}
 \small
-\begin{tabular}{lrrrrrr}
+\begin{tabular}{l*{7}{r}}
 \toprule
-Stage & $n_0$ & $n_1$ & $n_2$ & $n_3$ & $n_4$ & $n_5$\\
+Stage & $n_0$ & $n_1$ & $n_2$ & $n_3$ & $n_4$ & $n_5$ & leader view\\
 \midrule
-Initial & 1&1&1&1&1&0\\
-Double & 2&2&2&2&2&0\\
-Join, increment & 2&2&2&2&2&1\\
-Decrement old & 1&2&2&2&2&1\\
-Decrement, leave & 0&2&2&2&2&1\\
-Increment new & 0&2&2&2&2&2\\
-Halve & 0&1&1&1&1&1\\
+Initial & 1&1&1&1&1&0 & 1\\
+Double & 2&2&2&2&2&0 & 6 (+5)\\
+Join, increment & 2&2&2&2&2&1 & 7 (+1)\\
+Decrement old & 1&2&2&2&2&1 & 13 (+6)\\
+Decrement, leave & 0&2&2&2&2&1 & 15 (+2)\\
+Increment new & 0&2&2&2&2&2 & 20 (+5)\\
+Halve & 0&1&1&1&1&1 & 25 (+5)\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -336,6 +340,60 @@ For a history using Table~\ref{tab:weights}, under the same order, era and P2--P
 \begin{proof}
 Doubling and exact halving preserve the majority family. Each of the four intervening boundaries changes one unit of voting mass. The same local intersection argument therefore applies six times. Induction over these boundaries establishes the era intersection invariant, and Turner's theorem gives agreement. Evaluation of the commands gives the stated final weights.
 \end{proof}
+
+\section{Reconfiguration as a repetitive construct}\label{sec:solver}
+The replacement schedules of Sections~\ref{sec:results} and~\ref{sec:five-node-reincarnation} are stated longhand: one committed batch per era, the leader streaming the reincarnated standby between batches. This section states the machinery that executes such a schedule as one fused message round: the solver that computes and certifies the schedule before anything is sent, the wire encoding that packs it, and the repetitive construct that reduces its verification to the inspection of the head and the tail of the packed batch. The formalism is the present work's. The quorum geometry and the era-based agreement argument it preserves are Turner's~\cite{turner}; the underlying consensus invariants are those of Lamport~\cite{pms}.
+
+\subsection{The repetitive construct}
+The repetitive construct --- the name and the guarded notation are due to Dijkstra~\cite{ewd720,ewd1215} --- is a pattern of assertions over a repetition $\code{do}\ B \to S\ \code{od}$:
+\begin{align}
+\{P\} &\quad \text{established before entry,}\label{eq:loop-entry}\\
+\{P \wedge B\}\, S\, \{P\} &\quad \text{the body, the induction step,}\label{eq:loop-body}\\
+\{P \wedge \neg B\} &\quad \text{at the exit.}\label{eq:loop-exit}
+\end{align}
+$P$ is the invariant, $B$ the guard and $S$ the statement: the same statement carries $P$ from each iteration into the next, which is what makes the repetition one induction rather than a sequence of unrelated steps. The pattern is the Rule of Iteration of Hoare~\cite{hoare1969}, D3 of the axiomatic basis: from $\vdash P \wedge B\ \{S\}\ P$ conclude $\vdash P\ \{\code{while}\ B\ \code{do}\ S\}\ \neg B \wedge P$. The discipline is that of the 1979 lecture: correctness is a mathematical concern, and one precise argument settles an unbounded number of cases~\cite{ewd720}. Two obligations stand apart in the pattern. Preservation is the body's: where $B$ holds and $S$ completes, $P$ holds again. Termination is what supplies $\neg B$ at the exit, and it is a separate proof: an invariant that holds at every step is consistent with a repetition that never ends, so the termination argument stands apart from the preservation argument~\cite{ewd1215}. Here termination is the finite count the envelope carries.
+
+\subsection{The mapping: one message step per iteration}
+A node processes a message through one partial function
+\begin{equation*}
+\mathit{message} \times \mathit{state} \to \mathit{state}' \times \mathit{list}(\mathit{messages}),
+\end{equation*}
+decomposed as one clause per (node role, message type) pair, with guards on the invariants and an exhaustive match; the sans-IO core of Section~\ref{sec:demo} is this function, made total by its host loop. The fuse is a wire encoding of a schedule over that function, not a new protocol type: $\code{fuse}(c_1, c_2, c_3, \ldots)$ hydrates logically to the phase-2 sequence $\code{phase-2}(c_1), \code{phase-2}(c_2), \code{phase-2}(c_3), \ldots$ at consecutive slots, the envelope carrying the shared ballot once and the first slot once. Read against the construct, the three names instantiate as follows.
+\begin{itemize}
+\item $S$ is one message step: the application of the next fused phase two. Each application folds one command through the ordinary accept path at its own slot, exactly as though the commands had arrived as separate datagrams with nothing between them: the per-slot guards --- the next slot is consecutive, the command is legal in the configuration the fold has established, the promise still permits the ballot, the slot's era permits the proposal --- are evaluated against the in-memory state the preceding applications produced.
+\item $B$ is the loop over the packed slots: the iteration continues while commands of the envelope remain.
+\item $P$ is the strong-consistency invariant set: the within-era and adjacent-era intersections~\eqref{eq:same}--\eqref{eq:adjacent}, the promise fence of the ballot and the commit frontier's advance, together with the two operational facts the solver is constructed to preserve at every slot of the schedule --- that the leader holds, and that the overlap holds.
+\end{itemize}
+The entry assertion~\eqref{eq:loop-entry} is the head guard. The envelope arrives whole or not at all --- one datagram of cache-line scale under the transport's checksum --- so the first command decides the whole batch: when $\code{head.ballot} < \code{state.promise}$ or $\code{head.slot} \le \code{state.commit\_frontier}$, the whole envelope is refused, the loop never runs, and there is no partial acceptance and no negative acknowledgement on the wire. The exit assertion~\eqref{eq:loop-exit} is the tail adoption: on completion the node adopts the tail's ballot as its promise,
+\begin{equation*}
+\code{state.promise} \leftarrow \code{tail.ballot},
+\end{equation*}
+one fence covering every packed slot, exactly as if a prepare at that ballot had arrived first: per Lamport, a promise at a ballot covers every lower ballot~\cite{pms}.
+
+\subsection{Telescoping to the head and the tail}
+Read against the construct, verifying a fused reconfiguration reduces to its ends: the head admits or refuses the envelope whole, and the tail fixes the exit assertion, while the body~\eqref{eq:loop-body} is the per-slot fold. The mechanised ladder carries the three pieces of this reading, each with its stated scope~\cite{artifact}. The accept direction is finite response-quorum telescoping: a fixed response set eligible at one era is eligible at the next under the preservation hypothesis, and with every responder acknowledging all the packed slots, every slot holds quorum-backed evidence; the concrete eligibility of every row of both replacement schedules --- the three rows of the three-voter schedule and the seven rows of the five-voter one --- is mechanised beside it. The first transition telescopes the rest: for the three-node two-transition schedule, a base quorum at the first era and a preservation step across the first boundary give quorum eligibility at every slot through the last era, and the equal-total swap $(1,2,1,2) \to (2,1,2,1)$ is the negative control --- the response set $\{B,D\}$ is a majority at the first era and a minority at the second, so the preservation hypothesis is load-bearing rather than decorative. That theorem assumes the quorum family is preserved across the boundaries; it does not perform phase one, and it is not a refinement of the executable system. The commit direction runs from the tail: the accept path admits an entry only as the next slot, so per-node acceptance is downward closed, and under a fixed configuration --- the stable-leader setting of no view change and no era change inside the range, one quorum family, the preservation step the identity --- a quorum's acceptance of the range's last slot is already its acceptance of every slot in the range, so a commit naming the last slot decides them all; the next-slot guard is load-bearing, since a responder that accepted slot 1 while skipping slot 0 defeats the argument even with the last slot unanimous.
+Phase-one authority for every packed slot is the header ballot itself: the distinguished leader executes phase one once for all future instances at one proposal number until interrupted~\cite{pms}. The telescoping records that induction at the envelope's granularity --- one header ballot that is both phase one and phase two for every packed command, the batch processed as a slab whose only interruption point is the envelope boundary --- and the quorum telescoping alone performs no phase one.
+
+\subsection{The solver: a runtime proof assistant}
+The schedule is computed, not configured. A constructive solver --- Rust code embedded in the engine, as in the demonstration of Section~\ref{sec:demo} --- answers the demand: get from configuration $A$ to configuration $B$ without a violation of the rules. Given the serving configuration and the target, concretely the crashed identity evicted and the fresh identity seated, the solver emits the series of operations that takes one into the other: joins and leaves at weight zero, unit increments and decrements, and exact doubling and halving~\cite{votingweights}. Each emitted batch changes at most one unit of total absolute weight or scales every weight exactly, so every intermediate era satisfies the intersections~\eqref{eq:same}--\eqref{eq:adjacent} on its own (Section~\ref{sec:method}). For a response set $R$ that is a strict majority at both endpoints, writing $M_w(R) = \sum_{n \in R} w(n)$ and $T(w) = \sum_n w(n)$, the construction keeps the margin
+\begin{equation*}
+\mu_w(R) = 2 M_w(R) - T(w) > 0
+\end{equation*}
+at every row: the edits move only towards their targets, so the margin never falls below the strictly positive final margin, each unit edit preserves the cross-era intersection, exact scaling preserves the quorum families, and zero-weight membership edits touch neither. The plan the solver emits is its own certificate, the invariants verified against every boundary before a single message is sent: a formal proof assistant embedded in the running system, and no prior system does this. Plans arrive on the leader's dedicated admin ingress, which the host polls before the regular client queue at every selection, so a reincarnation request never waits behind client traffic. A step the gates refuse, because the cluster changed underneath the plan, aborts the execution and the operator re-plans from the configuration that committed; a leader dying mid-sequence leaves only safe eras that a new leader can continue (Section~\ref{sec:results}).
+
+\subsection{Holding the leader: the view increment}
+A ballot is the pair $(\mathit{era}, \mathit{view})$ under the lexicographic order; a host may carry it as one scalar wherever the encoding is strictly monotone into a well-founded strict total order, and the agreement proof does not know which representation the wire carried~\cite{artifact}. Under the view's era configuration the leader is a ballot outcome, not a function of membership:
+\begin{equation*}
+\ell(v) = \mathit{voters}[\,v \bmod |\mathit{voters}|\,],
+\end{equation*}
+the positive-weight sequence in membership order. A boundary that changes that sequence moves the arithmetic mid-plan: at an unmoved view number the new arithmetic may name a different node, and no node can independently compute a stable leader through the transition. The nomination rider settles the assignment at the committed slot itself. The command $\code{Nominate}\{\mathit{from}, u\}$ rides as the last sub-operation of every establishing batch that carries no scaling operation --- a solitary nomination is refused, and a zero offset is refused --- and a node applies it as a compare-and-swap: serving the view $\mathit{from}$, it publishes $\code{Ballot}\{\mathit{era}', \mathit{from} + u\}$, the era component being the era the batch's own fold established, so at a wrap the bump is the era-boundary crossing and no view-change message is owed there. The emission names the least positive offset re-electing the serving leader,
+\begin{equation*}
+u = \min\{\,u' > 0 : \ell_{\mathit{next}}(v + u') = \ell_{\mathit{prev}}(v)\,\}.
+\end{equation*}
+The rider shares the wrap's establishing slot, so there is no era in which the modulo rule names the wrong leader and none in which the bump has not yet landed. A new leader committing an old leader's nomination finds the compare-and-swap stale and commits it as a no-op. A step that evicts the serving leader cannot re-elect it, and names the era-entering increment alone. The jump's safety licence is the view-jump lemma: a view may jump by more than one during a reconfiguration, because no hypothesis of the agreement argument quantifies over intermediate ballots; eras may not jump, the adjacency discipline of the era map~\cite{artifact}. Scaling boundaries are the remaining case: doubling and halving preserve every entry of the positive-weight sequence, so the leader never moves at one, and the era crossing is the leader-preserving view change to the least view past the running one that selects the same leader. Tables~\ref{tab:reincarnationweights} and~\ref{tab:weights} record the increment at each boundary of the two replacement schedules, the leader held stable throughout --- $B$ for the three-voter schedule, $n_1$ for the five-voter one, each counted from serving view 1, the least view electing the leader under the opening arithmetic. At a moving boundary the parenthesised figure is the rider's offset; at a scaling boundary it is the full voter cycle of the leader-preserving view change.
+
+\subsection{The reincarnation budget}
+The packing and the construct together remove the per-message round trips. The solver computes the whole schedule before anything is emitted; the leader packs it as one envelope per recipient; one request--reply round collects the fused acknowledgements; one batch-commit broadcast follows, and the reincarnated node learns of its membership on the push of the telescoped reconfiguration. The three-voter replacement carries no scaling operation, so both of its boundaries cross on their riders inside the same commits: the whole reincarnation completes in one round trip. The five-voter schedule packs the same way, its two scaling boundaries crossed by the leader-preserving view change between the envelopes of its unit-mass batches. End to end the rejoin is the classic two round trips, the theoretical Paxos optimum~\cite{pms}: the gossip answer of Section~\ref{sec:rejoin-gossip} and the reconfiguration round. No forced flush stands anywhere on the path --- the boot fence is written only at a clean shutdown and asynchronously at startup, so neither reconfiguration nor reincarnation pays a disk flush (Section~\ref{sec:method}) --- the deferred-flush economics that make the round affordable at all~\cite{netdisk}. A crashed node therefore reads only a trivial amount of state at startup: the demonstration process boots in double-digit milliseconds including the fence reads, the node rejoins in two round trips, and the cluster returns to full capacity in dozens of milliseconds on commodity hardware.
 
 \section{Rejoin gossip and witnesses}\label{sec:rejoin-gossip}
 The replacement schedules of Sections~\ref{sec:results}
@@ -939,5 +997,8 @@ accessed 7 September 2026.
 \bibitem{vertical-paxos} L. Lamport, D. Malkhi, and L. Zhou, ``Vertical Paxos and primary-backup replication,'' in \emph{Proc. 28th ACM Symp. Principles of Distributed Computing (PODC)}, 2009, pp. 312--313, doi: \href{https://doi.org/10.1145/1582716.1582783}{10.1145/1582716.1582783}.
 \bibitem{artifact} S. Massey, ``uVRR code and proof addendum,'' 2026. [Online]. Available: \url{https://github.com/lua-lunet/uvrr-core}
 \bibitem{lean4} L. de Moura and S. Ullrich, ``The Lean 4 theorem prover and programming language,'' in \emph{Automated Deduction -- CADE 28}, 2021, pp. 625--635, doi: \href{https://doi.org/10.1007/978-3-030-79876-5_37}{10.1007/978-3-030-79876-5\_37}.
+\bibitem{ewd720} E. W. Dijkstra, ``Why correctness must be a mathematical concern,'' inaugural lecture, Nov. 18, 1979. [Online]. Available: \url{https://www.cs.utexas.edu/~EWD/transcriptions/EWD07xx/EWD720.html}
+\bibitem{ewd1215} E. W. Dijkstra, ``Courtesy Dr. Birgit Schieder,'' EWD1215, Austin, Sep. 17, 1995. [Online]. Available: \url{https://www.cs.utexas.edu/~EWD/transcriptions/EWD12xx/EWD1215.html}
+\bibitem{hoare1969} C. A. R. Hoare, ``An axiomatic basis for computer programming,'' \emph{Communications of the ACM}, vol. 12, no. 10, pp. 576--580, 1969, doi: \href{https://doi.org/10.1145/363235.363237}{10.1145/363235.363237}.
 \end{thebibliography}
 \end{document}

@@ -16,8 +16,7 @@ cat UVRR/Eras.lean
   Rung 4 — Consistency of era-indexed Paxos (Turner, UPaxos paper, Appendix C).
 
   Configurations ⟨QI_e, QII_e⟩ are indexed by era e. Every ballot b carries an
-  era e(b) (encoded in its most significant bits, so the ballot order respects
-  eras). Every instance (slot) i has an era e(i). Phase I for ballot b uses
+  era e(b). Every instance (slot) i has an era e(i). Phase I for ballot b uses
   QI_{e(b)}; phase II for instance i uses QII_{e(i)}.
 
   P1 (the UPaxos safety equation)      QII_e ⌢ QI_e ⌢ QII_{e+1}   for every e
@@ -58,7 +57,7 @@ variable {A : Type u} {B : Type v} {V : Type w} (P : Paxos A B V)
 /-- P1: the UPaxos safety equation, era-adjacent. -/
 def P1 : Prop := ∀ e, Frown (P.QII e) (P.QI e) ∧ Frown (P.QI e) (P.QII (e+1))
 
-/-- Ballot order respects eras (era lives in the most significant bits). -/
+/-- Ballot order respects eras. -/
 def EraMono : Prop := ∀ b1 b2, P.lt b2 b1 → P.era b2 ≤ P.era b1
 
 /-- Consequence of P2–P5 in the paper: a proposal's ballot era is at most the instance era. -/

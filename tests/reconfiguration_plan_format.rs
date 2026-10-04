@@ -1,19 +1,17 @@
-//! The plan format and the CLI surface: the plan type, its JSONL codec, and
-//! the schedules `uvrr-reconfig plan` emits
-//! (`docs/uvrr-protocols.md`, the solver chapter).
+//! The plan format: the plan type, its JSONL codec, and the schedules the
+//! solver emits (`docs/uvrr-protocols.md`, the solver chapter).
 //!
-//! The lib-level solver schedules are pinned in `tests/reconfiguration_solver.rs`
-//! and `tests/reconfiguration_plan.rs`; what is pinned here is the plan artefact
-//! itself, the paper's two-era and six-era replacement schedules expressed as
-//! plan JSONL, the codec round trip, the leader-side acceptance rule, and the
-//! `uvrr-reconfig` binary.
+//! The solver's law is pinned in `tests/solve_spec.rs`; what is pinned here
+//! is the plan artefact itself: the replacement schedules the solver emits
+//! expressed as plans, the codec round trip, and the leader-side acceptance
+//! rule.
 
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use uvrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use uvrr::ids::{CrashCounter, Era, NodeId, SystemId, View};
+use uvrr::ids::{CrashCounter, Era, NodeId, Slot, SystemId, View};
 use uvrr::plan::{Plan, PlanRejection};
-use uvrr::solver::solve_replacement;
+use uvrr::solve;
 
 fn n(id: u32) -> NodeId {
     NodeId::new(
@@ -35,8 +33,21 @@ fn config(order: Vec<Member>) -> Configuration {
         .expect("the configuration is legal")
 }
 
-fn plan_replacement(start: &Configuration, old: NodeId, new: NodeId, live: &[NodeId]) -> Plan {
-    let steps = solve_replacement(start, old, new, live, View(0)).expect("the schedule solves");
+/// The operator's replacement plan: the target with `old`'s seat and
+/// weight under the fresh identity, the exhaustive path folded at the
+/// running view, one step per establishing slot with the fold's
+/// `Nominate` riders minted (the NOMINATE chapter).
+fn plan_replacement(start: &Configuration, old: NodeId, new: NodeId) -> Plan {
+    let mut snapshot = start.to_snapshot();
+    for member in &mut snapshot.order {
+        if member.node == old {
+            member.node = new;
+        }
+    }
+    let target = snapshot.inflate().expect("the replacement target is legal");
+    let path = solve::solve(start, &target).expect("the schedule solves");
+    let steps = solve::fold(&path, start, (start.era(), View(0), Slot(0)))
+        .expect("the fold rides a legal path");
     Plan {
         initial: start.order().to_vec(),
         steps: steps.into_iter().map(|step| step.ops).collect(),
@@ -47,7 +58,7 @@ fn plan_replacement(start: &Configuration, old: NodeId, new: NodeId, live: &[Nod
 /// JSONL schema of `docs/uvrr-protocols.md`, the solver chapter. The ids are the
 /// lawful packed pairs: systems 1, 2, 3 at crash counter 1, and the
 /// reincarnated identity is system 4's first life.
-#[cfg(any(feature = "serde", feature = "sysadmin_tool"))]
+#[cfg(feature = "serde")]
 const THREE_NODE_PLAN: &str = concat!(
     "{\"kind\":\"plan\",\"version\":1,\"initial\":[{\"id\":65537,\"weight\":1},",
     "{\"id\":131073,\"weight\":1},{\"id\":196609,\"weight\":1}],",
@@ -58,56 +69,73 @@ const THREE_NODE_PLAN: &str = concat!(
     "{\"op\":\"leave\",\"node\":196609},{\"op\":\"nominate\",\"from\":2,\"offset\":1}]}\n",
 );
 
-/// The three-node unit cluster's replacement is exactly the paper's two-era
-/// schedule: `[Decrement(old), Join(new)]` then `[Increment(new), Leave(old)]`.
+/// The three-node unit cluster's replacement is the per-slot schedule:
+/// join the fresh identity, promote it, drain the old, evict it — one era
+/// per establishing slot, every step carrying the fold's re-electing rider.
 #[test]
-fn three_node_replacement_is_the_two_era_schedule() {
+fn three_node_replacement_is_the_per_slot_schedule() {
     let start = config(vec![m(0, 1), m(1, 1), m(2, 1)]);
-    let live = vec![n(0), n(1), n(3)];
-    let plan = plan_replacement(&start, n(2), n(3), &live);
+    let plan = plan_replacement(&start, n(2), n(3));
     assert_eq!(
         plan.steps,
         vec![
             vec![
-                SystemOperation::Decrement(n(2)),
                 SystemOperation::Join {
                     node: n(3),
                     position: 2,
                 },
                 SystemOperation::Nominate {
                     from: View(0),
-                    offset: 2,
+                    offset: 3,
                 },
             ],
             vec![
                 SystemOperation::Increment(n(3)),
-                SystemOperation::Leave(n(2)),
                 SystemOperation::Nominate {
-                    from: View(2),
+                    from: View(3),
                     offset: 1,
                 },
             ],
+            vec![
+                SystemOperation::Decrement(n(2)),
+                SystemOperation::Nominate {
+                    from: View(4),
+                    offset: 2,
+                },
+            ],
+            vec![
+                SystemOperation::Leave(n(2)),
+                SystemOperation::Nominate {
+                    from: View(6),
+                    offset: 3,
+                },
+            ],
         ],
-        "the paper's two-era replacement schedule, every step carrying its rider: the drain's wrap keeps the leader at view 0 (the count-preserving offset), the promotion's wrap moves it (the re-electing offset)"
+        "the per-slot replacement schedule, one era per establishing slot, \
+         the riders chaining the running view across the plan"
     );
 }
 
-/// The five-node unit cluster's replacement is exactly the paper's six-batch
-/// schedule.
+/// The five-node unit cluster's replacement is the per-slot schedule:
+/// join, promote, drain, evict, one era per establishing slot.
 #[test]
-fn five_node_replacement_is_the_six_batch_schedule() {
+fn five_node_replacement_is_the_per_slot_schedule() {
     let start = config((0..5).map(|id| m(id, 1)).collect());
-    let live: Vec<_> = (1..6).map(n).collect();
-    let plan = plan_replacement(&start, n(4), n(5), &live);
+    let plan = plan_replacement(&start, n(4), n(5));
     assert_eq!(
         plan.steps,
         vec![
-            vec![SystemOperation::Double],
             vec![
                 SystemOperation::Join {
                     node: n(5),
                     position: 4,
                 },
+                SystemOperation::Nominate {
+                    from: View(0),
+                    offset: 5,
+                },
+            ],
+            vec![
                 SystemOperation::Increment(n(5)),
                 SystemOperation::Nominate {
                     from: View(5),
@@ -118,27 +146,19 @@ fn five_node_replacement_is_the_six_batch_schedule() {
                 SystemOperation::Decrement(n(4)),
                 SystemOperation::Nominate {
                     from: View(6),
-                    offset: 6,
+                    offset: 4,
                 },
             ],
             vec![
-                SystemOperation::Decrement(n(4)),
                 SystemOperation::Leave(n(4)),
                 SystemOperation::Nominate {
-                    from: View(12),
-                    offset: 3,
-                },
-            ],
-            vec![
-                SystemOperation::Increment(n(5)),
-                SystemOperation::Nominate {
-                    from: View(15),
+                    from: View(10),
                     offset: 5,
                 },
             ],
-            vec![SystemOperation::Halve],
         ],
-        "the paper's six-batch weighted replacement, every unit step carrying its rider, the scaling steps staying solitary (R13)"
+        "the per-slot replacement schedule, one era per establishing slot, \
+         the riders chaining the running view across the plan"
     );
 }
 
@@ -148,8 +168,7 @@ fn five_node_replacement_is_the_six_batch_schedule() {
 #[test]
 fn plans_drifted_from_the_committed_configuration_are_rejected_by_name() {
     let start = config(vec![m(0, 1), m(1, 1), m(2, 1)]);
-    let live = vec![n(0), n(1), n(3)];
-    let plan = plan_replacement(&start, n(2), n(3), &live);
+    let plan = plan_replacement(&start, n(2), n(3));
 
     // Wrong weights: node 1 has moved to weight 2 since the plan was computed.
     let heavier = config(vec![m(0, 1), m(1, 2), m(2, 1)]);
@@ -270,11 +289,7 @@ proptest! {
                 .map(|(id, &weight)| m(id as u32, weight))
                 .collect(),
         );
-        let live: Vec<_> = (0..7)
-            .filter(|&id| id != killed as u32)
-            .map(n)
-            .collect();
-        let plan = plan_replacement(&start, n(killed as u32), n(6), &live);
+        let plan = plan_replacement(&start, n(killed as u32), n(6));
         plan.validate_against(&start)
             .map_err(|error| TestCaseError::fail(format!("the fresh plan is refused: {error}")))?;
         let mut current = start.clone();
@@ -303,13 +318,36 @@ mod jsonl {
     use super::*;
     use uvrr::plan::{Plan, PlanCodecError};
 
-    /// The three-node plan's JSONL is exactly the schema's two-era form, and
-    /// the codec round-trips it to the same plan.
+    /// The three-node plan's JSONL is exactly the schema's two-era form,
+    /// and the codec round-trips it to the same plan. The schedule is the
+    /// hand-written fixture, the codec the only thing under test.
     #[test]
     fn the_three_node_plan_jsonl_is_exact_and_round_trips() {
         let start = config(vec![m(0, 1), m(1, 1), m(2, 1)]);
-        let live = vec![n(0), n(1), n(3)];
-        let plan = plan_replacement(&start, n(2), n(3), &live);
+        let plan = Plan {
+            initial: start.order().to_vec(),
+            steps: vec![
+                vec![
+                    SystemOperation::Decrement(n(2)),
+                    SystemOperation::Join {
+                        node: n(3),
+                        position: 2,
+                    },
+                    SystemOperation::Nominate {
+                        from: View(0),
+                        offset: 2,
+                    },
+                ],
+                vec![
+                    SystemOperation::Increment(n(3)),
+                    SystemOperation::Leave(n(2)),
+                    SystemOperation::Nominate {
+                        from: View(2),
+                        offset: 1,
+                    },
+                ],
+            ],
+        };
         assert_eq!(
             plan.to_jsonl().expect("the plan serialises"),
             THREE_NODE_PLAN
@@ -321,15 +359,18 @@ mod jsonl {
             .expect("the round trip is valid");
     }
 
-    /// The five-node plan's JSONL is a header plus six step lines, and the
-    /// codec round-trips it.
+    /// The five-node plan's JSONL is a header plus one step line per
+    /// establishing slot, and the codec round-trips it.
     #[test]
     fn the_five_node_plan_jsonl_round_trips() {
         let start = config((0..5).map(|id| m(id, 1)).collect());
-        let live: Vec<_> = (1..6).map(n).collect();
-        let plan = plan_replacement(&start, n(4), n(5), &live);
+        let plan = plan_replacement(&start, n(4), n(5));
         let text = plan.to_jsonl().expect("the plan serialises");
-        assert_eq!(text.lines().count(), 7, "header + six step lines");
+        assert_eq!(
+            text.lines().count(),
+            5,
+            "header + one step line per establishing slot"
+        );
         let decoded = Plan::from_jsonl(&text).expect("the JSONL parses");
         assert_eq!(decoded, plan, "the codec round-trips");
         decoded
@@ -385,14 +426,13 @@ mod jsonl {
         ));
     }
 
-    /// The datagram budget: a five-node six-era plan is far inside the
-    /// 60_000-byte submission limit, so the UDP submission is a real path, not
-    /// a corner case.
+    /// The datagram budget: a five-node replacement plan is far inside the
+    /// 60_000-byte submission limit, so the single-datagram submission is a
+    /// real path, not a corner case.
     #[test]
-    fn a_six_era_plan_is_far_inside_the_datagram_budget() {
+    fn a_replacement_plan_is_far_inside_the_datagram_budget() {
         let start = config((0..5).map(|id| m(id, 1)).collect());
-        let live: Vec<_> = (1..6).map(n).collect();
-        let plan = plan_replacement(&start, n(4), n(5), &live);
+        let plan = plan_replacement(&start, n(4), n(5));
         let text = plan.to_jsonl().expect("the plan serialises");
         let submission = "{\"kind\":\"plan_submit\",\"version\":1}".len() + 1 + text.len();
         assert!(submission < 60_000, "the submission fits one datagram");
@@ -419,11 +459,7 @@ mod jsonl {
                     .map(|(id, &weight)| m(id as u32, weight))
                     .collect(),
             );
-            let live: Vec<_> = (0..7)
-                .filter(|&id| id != killed as u32)
-                .map(n)
-                .collect();
-            let plan = plan_replacement(&start, n(killed as u32), n(6), &live);
+            let plan = plan_replacement(&start, n(killed as u32), n(6));
             let text = plan.to_jsonl().map_err(|error| {
                 TestCaseError::fail(format!("the plan does not serialise: {error}"))
             })?;
@@ -432,164 +468,5 @@ mod jsonl {
             })?;
             prop_assert_eq!(decoded, plan.clone(), "the codec round-trips");
         }
-    }
-}
-
-/// The CLI surface: the real binary, driven exactly as an operator drives it.
-/// Without the `sysadmin_tool` feature the module compiles to nothing: the
-/// test compilation, the binary's build and the binary-path environment
-/// variable are all keyed off the one flag and cannot disagree.
-#[cfg(feature = "sysadmin_tool")]
-mod sysadmin_tool_lane {
-    use super::*;
-    use std::net::UdpSocket;
-    use std::process::{Command, Stdio};
-
-    /// The binary under test, guaranteed present and built by cargo when this
-    /// module compiles: the feature that gates the module gates the bin target.
-    const BINARY: &str = env!("CARGO_BIN_EXE_uvrr-reconfig");
-
-    /// A scratch directory for the script's files, unique to the test process.
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "uvrr-reconfig-format-{}-{name}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("the scratch directory exists");
-        dir
-    }
-
-    /// `plan --current --replace` prints the paper's two-era plan exactly.
-    #[test]
-    fn cli_plan_replace_prints_the_two_era_plan() {
-        let dir = scratch("plan");
-        let members = dir.join("members.jsonl");
-        std::fs::write(
-            &members,
-            "{\"id\":65537,\"weight\":1}\n{\"id\":131073,\"weight\":1}\n{\"id\":196609,\"weight\":1}\n",
-        )
-        .expect("the member file is written");
-        let output = Command::new(BINARY)
-            .args(["plan", "--current"])
-            .arg(&members)
-            .args([
-                "--replace",
-                "196609:262145",
-                "--available",
-                "65537,131073,262145",
-                "--view",
-                "0",
-            ])
-            .output()
-            .expect("the CLI runs");
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(
-            String::from_utf8(output.stdout).expect("the plan is UTF-8"),
-            THREE_NODE_PLAN,
-            "the CLI prints the two-era plan exactly"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// `plan --current --target` computes the general schedule, and its output
-    /// is a plan the codec accepts.
-    #[test]
-    fn cli_plan_target_prints_a_valid_plan() {
-        let dir = scratch("target");
-        let members = dir.join("members.jsonl");
-        std::fs::write(
-            &members,
-            "{\"id\":0,\"weight\":1}\n{\"id\":1,\"weight\":1}\n{\"id\":2,\"weight\":1}\n",
-        )
-        .expect("the member file is written");
-        let doubled = dir.join("doubled.jsonl");
-        std::fs::write(
-            &doubled,
-            "{\"id\":0,\"weight\":2}\n{\"id\":1,\"weight\":2}\n{\"id\":2,\"weight\":2}\n",
-        )
-        .expect("the target file is written");
-        let output = Command::new(BINARY)
-            .args(["plan", "--current"])
-            .arg(&members)
-            .args(["--target"])
-            .arg(&doubled)
-            .args(["--available", "0,1,2", "--view", "0"])
-            .output()
-            .expect("the CLI runs");
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let text = String::from_utf8(output.stdout).expect("the plan is UTF-8");
-        let decoded = Plan::from_jsonl(&text).expect("the CLI's plan parses");
-        assert_eq!(
-            decoded.steps,
-            vec![vec![SystemOperation::Double]],
-            "the exact global double is one era"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// `apply` sends the header-prefixed plan as one datagram, prints the
-    /// verdict, and exits 0 on `accepted`, 1 on `rejected`.
-    #[test]
-    fn cli_apply_prints_the_verdict_and_sets_the_exit_code() {
-        let dir = scratch("apply");
-        let plan_path = dir.join("plan.jsonl");
-        std::fs::write(&plan_path, THREE_NODE_PLAN).expect("the plan file is written");
-
-        let listener = UdpSocket::bind("127.0.0.1:0").expect("the fake leader binds");
-        let leader = format!("127.0.0.1:{}", listener.local_addr().expect("bound").port());
-
-        for (response, expected_code, needle) in [
-            (
-                "{\"kind\":\"plan_response\",\"verdict\":\"accepted\"}",
-                0,
-                "accepted",
-            ),
-            (
-                "{\"kind\":\"plan_response\",\"verdict\":\"rejected\",\"reason\":\"drifted\"}",
-                1,
-                "rejected: drifted",
-            ),
-        ] {
-            let child = Command::new(BINARY)
-                .args(["apply", "--plan"])
-                .arg(&plan_path)
-                .args(["--leader", &leader])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .expect("the CLI runs");
-            let mut buffer = [0u8; 65_536];
-            let (received, source) = listener
-                .recv_from(&mut buffer)
-                .expect("the submission arrives");
-            assert_eq!(
-                String::from_utf8_lossy(&buffer[..received]),
-                format!(
-                    "{{\"kind\":\"plan_submit\",\"version\":1}}\n{}\n",
-                    THREE_NODE_PLAN.trim_end()
-                ),
-                "the submission is the header line and the plan JSONL"
-            );
-            listener
-                .send_to(response.as_bytes(), source)
-                .expect("the verdict is sent");
-            let output = child.wait_with_output().expect("the CLI exits");
-            assert_eq!(output.status.code(), Some(expected_code), "{response}");
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(
-                stdout.contains(needle) || stderr.contains(needle),
-                "stdout: {stdout} stderr: {stderr}"
-            );
-        }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

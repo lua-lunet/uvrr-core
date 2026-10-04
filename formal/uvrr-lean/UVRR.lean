@@ -25,3 +25,5 @@ import UVRR.Fuse
 import UVRR.Witness
 import UVRR.IdentityLaw
 import UVRR.ViewJump
+import UVRR.BallotEncoding
+import UVRR.CommitTelescoping

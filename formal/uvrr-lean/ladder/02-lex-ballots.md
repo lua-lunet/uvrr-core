@@ -14,8 +14,7 @@ cat UVRR/LexBallot.lean
 ```output
 /-
   Rung 2 — Concrete UPaxos ballots: (era, round) ordered lexicographically.
-  The era occupies the most significant position, exactly as the paper encodes
-  the era in the high bits of the ballot number. We prove the order is a
+  The era occupies the most significant position. We prove the order is a
   well-founded strict total order (so `Synod.Order` / `theorem10` apply) and
   that it respects eras (`EraMono`).
 -/

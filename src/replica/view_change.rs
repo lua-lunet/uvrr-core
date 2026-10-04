@@ -601,8 +601,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // (`docs/uvrr-protocols.md`, the NOMINATE chapter): the view this
         // transition publishes is the electing message's own.
         let config =
-            match self.fold_committed(journal, suffix, self.progress.committed(), committed) {
-                Ok((config, _bump)) => config,
+            match self.fold_committed(journal, suffix, self.progress.committed(), committed, false)
+            {
+                Ok((config, _covered, _stopped, _bump)) => config,
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
@@ -714,8 +715,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             &selected.suffix,
             self.progress.committed(),
             committed,
+            false,
         ) {
-            Ok((config, _bump)) => config,
+            Ok((config, _covered, _stopped, _bump)) => config,
             Err(CommitFold::Unavailable(slot)) => {
                 return Err(PlanRefusal::JournalEntryUnavailable { slot });
             }
