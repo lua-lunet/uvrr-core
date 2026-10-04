@@ -66,6 +66,7 @@ pub mod progress;
 pub mod quorum;
 pub mod reconfiguration;
 pub mod replica;
+pub mod solve;
 pub mod solver;
 pub mod timeout;
 pub mod wire;

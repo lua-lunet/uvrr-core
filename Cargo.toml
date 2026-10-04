@@ -64,6 +64,14 @@ name = "uvrr-reconfig"
 path = "src/bin/uvrr-reconfig/main.rs"
 required-features = ["sysadmin_tool"]
 
+# The reconfiguration solver as the administrator's offline tool: given a
+# current and a target configuration file, it prints the legal operation
+# path as a per-slot plan (era and view each slot establishes, riders
+# included). The solver is the library's own code, ungated and std-only.
+[[bin]]
+name = "uvrr-solve"
+path = "src/bin/uvrr-solve/main.rs"
+
 # The flavoured-timeout policy tool. A binary, not a second crate: it is living
 # documentation for the timeout model, printing the matcher's opinion for a
 # state and a timeout flavour on the command line, runbook included. Std
