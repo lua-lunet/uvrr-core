@@ -474,17 +474,27 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // next round (the cursor below, or the re-retain's fetch once the
         // stalled ruling re-runs).
         let fold = if boot_acquisition {
-            self.fold_committed_windowed(
+            self.fold_committed(
                 journal,
                 entries,
                 self.progress.committed(),
                 new_committed,
-                current.era.next(),
+                true,
             )
             .map(|(table, covered, stopped, _bump)| (table, None, Some((covered, stopped))))
         } else {
-            self.fold_committed(journal, entries, self.progress.committed(), new_committed)
-                .map(|(table, bump)| (table, bump, None))
+            // The current-view transfer paces the fold by the node's own
+            // serving view, exactly as the ordinary commit paths do: a
+            // covered run the view cannot carry defers, and the covered
+            // frontier the fold names is what the candidate publishes.
+            self.fold_committed(
+                journal,
+                entries,
+                self.progress.committed(),
+                new_committed,
+                true,
+            )
+            .map(|(table, covered, stopped, bump)| (table, bump, Some((covered, stopped))))
         };
         let (config, bump, folded_state) = match fold {
             Ok(pair) => {

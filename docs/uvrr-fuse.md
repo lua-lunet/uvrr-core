@@ -4,10 +4,13 @@ Fuse is a wire envelope that packs the per-slot Phase2 (`Prepare`) messages of o
 reconfiguration schedule into a single datagram. It is not a new protocol semantic:
 the packed ops are one slab of consecutive slots, every packed slot carries its own
 ballot, and per-op safety is the ordinary accept path; only the wire shape changes.
-Accepting a Phase2 at a slot is a promise to that slot's ballot even when the
-corresponding Phase1 was lost, so an acceptor that folds a slab ends promised at the
-slab's tail ballot, never at the head ballot it started from. This document states
-what Fuse IS; the command alphabet and its boundaries are
+The slab's ballots advance per slot: the fold stamps each packed slot with the era
+the fold of the preceding slots established, so the slab spans one era per
+establishing operation it packs, and the era the header carries disciplines the
+first payload alone. Accepting a Phase2 at a slot is a promise to that slot's ballot even
+when the corresponding Phase1 was lost, so an acceptor that folds a slab ends
+promised at the slab's tail ballot, never at the head ballot it started from. This
+document states what Fuse IS; the command alphabet and its boundaries are
 `docs/uvrr-protocols.md` (the reconfiguration-rules chapter), and the durability
 framing is `docs/uvrr-durability-model.md` §13.8.
 
@@ -22,12 +25,25 @@ carries the head ballot of the slab once:
 | `slot` | `first_slot`: the slot of the first packed op; each subsequent op occupies `first_slot + i` |
 | body | `count`, then `count × SystemOperation`, in batch order |
 
-`head_ballot` is the ballot of slot `first_slot` and of no other packed slot. The
-slab's `tail_ballot` is the ballot of its final packed slot,
-`first_slot + count - 1`, and the header does not carry it: the tail ballot is
-computed by the reconfiguration solver as it folds the schedule slot by slot, one
-ballot per packed slot, and the acceptor's fold arrives at those ballots in the same
-order as it folds the slab. The slab's slots are `[first_slot, first_slot + count)`.
+`head_ballot` is the ballot of slot `first_slot` and of no other packed slot: the
+header's era authorises the head slot's op, and the header's guards discipline the
+head slot alone. Every later packed slot is authorised by the era the fold of the
+preceding slots established: the era advances once per establishing slot, so slot
+`first_slot + i` carries the era `era(head_ballot) + j`, where `j` counts the
+establishing operations among the first `i` packed ops. A `Nominate` rider
+establishes no era of its own: it shares the era of the slot it rides, so the
+rider's slot carries its carrier's era and the rider's commit-time bump enters the
+era the carrier's fold established (the NOMINATE chapter of
+`docs/uvrr-protocols.md`). The slab's `tail_ballot` is the ballot of its final
+packed slot, `first_slot + count - 1`, and the header does not carry it: the tail
+ballot is computed by the reconfiguration solver as it folds the schedule slot by
+slot, one ballot per packed slot, and the acceptor's fold arrives at those ballots
+in the same order as it folds the slab. `tail_ballot` strictly exceeds
+`head_ballot` exactly when the slab spans an era boundary — when it packs more
+than one establishing operation; a slab whose packed ops share one era (one
+establishing op and the riders it carries) is an in-era slab and lands
+`tail_ballot == head_ballot`. The slab's slots are
+`[first_slot, first_slot + count)`.
 
 The body discriminant and pack/unpack live beside the membership command codec
 (`src/configuration.rs`); the tag tables carry the mapping. No range encodings:
@@ -43,13 +59,17 @@ envelope arrives whole or not at all.
 Therefore the first operation in the batch decides the whole batch. Membership,
 view, era, and slot discipline are checked on `first_slot` at `head_ballot`; if the
 first op is acceptable, every following op is acceptable at its own slot and its own
-ballot, the ballot the solver computed for that slot as it folded the schedule. A
-promise to a slot's ballot is a promise to every future accept at that ballot, and
-the slab's promise ends at `tail_ballot` (§3). "First accepts ⇒ all accept" is a
-finite induction over at most `FUSE_MAX_OPS` operations, not a proof over
-interruption points mid-sequence. Majority and quorum accounting are computed on the
-first op in the batch, and each packed slot's eligibility is judged at that slot's
-own ballot.
+ballot, the ballot the solver computed for that slot as it folded the schedule. The
+induction's invariant is the ordinary accept path's, evaluated per slot against the
+in-memory configuration the fold of the preceding payloads established: the next
+slot is consecutive, the command is legal in the accumulated configuration, the
+promise still permits the slot's ballot, and the slot's era — the era the preceding
+payloads' fold established — permits the proposal. A promise to a slot's ballot is
+a promise to every future accept at that ballot, and the slab's promise ends at
+`tail_ballot` (§3). "First accepts ⇒ all accept" is a finite induction over at most
+`FUSE_MAX_OPS` operations, not a proof over interruption points mid-sequence.
+Majority and quorum accounting are computed on the first op in the batch, and each
+packed slot's eligibility is judged at that slot's own ballot.
 
 Consequences:
 
@@ -74,8 +94,13 @@ On receiving a `Fuse` from the primary:
    `first_slot + i` must equal the local accept frontier's next slot, and the
    op folds through the ordinary system-op perimeter (the same `Configuration`
    refusals R1–R15 that an individual `Prepare` would meet) at that slot's own
-   ballot, the ballot the solver computed for it. The accept frontier
-   advances per op and the journal records the batch as one contiguous accept.
+   ballot, the ballot the solver computed for it. Each op is judged in-era at
+   its point in the sequence — a `Nominate` rider folds to the identical
+   configuration, never a solitary refusal, because the rider is judged inside
+   the slab's fold, never alone — and the journal stamps each packed slot with
+   the era the fold of the preceding slots established (§1), the rider's slot
+   sharing its carrier's era. The accept frontier advances per op and the
+   journal records the batch as one contiguous accept.
 4. Any op refusing mid-batch is unrepresentable when the header passed and the
    schedule is legal: the planner already certified the sequence, and slots are
    consecutive. If an implementation-level refusal nevertheless occurs, the
@@ -91,16 +116,23 @@ it. An acceptor that has folded the slab has accepted at `head_ballot`, at the
 ballots between, and at `tail_ballot`, so it owes `tail_ballot` and accepts
 nothing below it from then on. The promise is the slab's last ballot and never the
 head ballot the envelope started from: a promise at the head would leave every
-later packed slot's accept unpromised.
+later packed slot's accept unpromised. The obligation is discharged as per-slot
+facts: the journal stamps each packed slot with the ballot's era the slot's accept
+promised, and the node's serving view lands at the tail's era when the slab
+commits — the nomination rider's bump carries it there in the same advance — or
+paces the slab's eras one established era at a time (§4 step 4).
 
 **The slab assert.** The acceptor asserts the slab before it folds it, and the
-assert is hard: `tail_ballot > head_ballot && head_ballot >= current_promise`,
+assert is hard: `tail_ballot >= head_ballot && head_ballot >= current_promise`,
 where `current_promise` is the acceptor's standing promise, the greatest ballot it
-has entered. A slab whose ballots did not strictly advance is not a schedule the
-solver computed slot by slot, and a slab whose head ballot sits below the standing
-promise would break that promise at its first accept. Neither is a judgement call
-and neither is a wire refusal: the check is an assert, and an acceptor that cannot
-meet it does not fold the slab.
+has entered, and the inequality is strict exactly when the slab spans an era
+boundary (§1: more than one establishing operation). A slab whose ballots
+retreat is not a schedule the solver computed slot by slot — the fold's per-slot
+ballots never retreat, and an in-era slab lawfully lands
+`tail_ballot == head_ballot` — and a slab whose head ballot sits below the
+standing promise would break that promise at its first accept. Neither is a
+judgement call and neither is a wire refusal: the check is an assert, and an
+acceptor that cannot meet it does not fold the slab.
 
 **The slab install.** The install covers `[first_slot, first_slot + count)`: the
 journal entries, the accept frontier, and the promise advance together across the
@@ -130,16 +162,29 @@ batch travels as an ordinary `Prepare` and needs no envelope):
    slot, each judged at that slot's own ballot. The `acks` body is
    the acceptor's wire evidence and is not examined for counting.
 4. When every packed slot holds a quorum, the commit cascade commits the
-   batch whole: the packed schedule folds as the ONE establishing batch it
-   is, a maximal run of consecutive system entries in the journal, and
-   establishes exactly one era, at the batch's first slot (§8.7.1). The
-   commit emission is PER ERA: one `CommitBatch` per establishing batch
-   committed, `count`, then one committed frontier per slot of that
-   batch, in batch order. No ranges. The `CommitBatch` is a broadcast
-   fired the instant the batch's quorum completes, never a round trip;
-   backups advance their frontiers and fold the era through the ordinary
-   commit announcement that travels with it. A fast-forward single-commit
-   collapsing the batch is future work.
+   batch whole: the packed schedule's maximal run of consecutive system
+   entries segments into one era per establishing slot, the per-slot era
+   stamps of §1 marking the boundaries — a maximal run of entries sharing
+   one era is one era's establishing fold, the establishing op and the
+   riders it carries — and the fold establishes the slab's eras in slot
+   order (§8.7.1). The fold advances only as far as the serving view can
+   carry: a run establishes at most one era past the view's era, except
+   that a run whose rider's nomination matches the serving view redeems
+   its own advance, the bump landing the view at the run's era in the
+   same advance, so the solver's ridered schedules commit the whole slab
+   in one advance and the leader stays stable across the slab's eras.
+   What the view cannot carry defers: the fold stops before the run, the
+   committed frontier stops at the last folded slot, and the deferred
+   tail commits as the view paces the slab's eras, one ordinary view
+   change into each established era — the same machine the unpaced
+   envelope elides (§6). The commit emission is PER ERA: one
+   `CommitBatch` per establishing run committed, `count`, then one
+   committed frontier per slot of that run, in batch order. No ranges.
+   The `CommitBatch` is a broadcast fired the instant the run's quorum
+   completes, never a round trip; backups advance their frontiers and
+   fold the era through the ordinary commit announcement that travels
+   with it. A fast-forward single-commit collapsing the batch is future
+   work.
 5. Fallback: if the batch exceeds `FUSE_MAX_OPS` or the builder's envelope
    budget, the leader emits the ordinary per-op `Prepare`s instead. The
    codec has no size constant (W5); the builder's cap is a build-site
@@ -159,7 +204,11 @@ batch travels as an ordinary `Prepare` and needs no envelope):
   flush, and no flush elision: the durability profile in force applies
   unchanged.
 - Fuse introduces no new quorum family, no new configuration state, and no new
-  era rule. It is message packing.
+  era rule. The slab's per-slot eras are the ordinary fold's per-operation
+  establishment discharged in slot order — an era is still established by the
+  commit of its establishing operation, never by an acceptance (§8.7.1) — so
+  the consecutive-era intersection obligations hold per boundary, each a unit
+  change. It is message packing.
 
 ## 6. The single round trip
 
@@ -189,12 +238,13 @@ separate datagrams with nothing between them; the header's checks discipline
 the head slot alone, and the per-payload state, ballot included, is the thing
 that advances.
 
-Emitting one envelope per establishing batch, one round trip per era, six
-for the five-node weighted swap, the ordinary view change into each
-established era between envelopes, is the same machine unpaced, and is
-equally valid: packing changes the wire, not the machine. The engine emits
-per batch today; whole-schedule packing elides only the network between the
-steps the paced emission already runs back to back.
+Emitting one envelope per establishing batch, one round trip per batch, the
+batch's eras committing in one advance under the nomination the batch rides,
+the ordinary view change into each established era between the paced
+emissions, is the same machine unpaced, and is equally valid: packing changes
+the wire, not the machine. The engine emits per batch today; whole-schedule
+packing elides only the network between the steps the paced emission already
+runs back to back.
 
 ## 7. Test obligations
 
@@ -203,11 +253,15 @@ steps the paced emission already runs back to back.
   `first_slot`.
 - A stale-view acceptor refuses the whole envelope: zero slots accepted, one
   diagnostic, no partial fold.
-- A valid acceptor accepts all slots, records one contiguous journal accept,
-  replies one `FuseOk`, and ends promised at the slab's `tail_ballot`.
+- A valid acceptor accepts all slots, records one contiguous journal accept
+  with the per-slot era stamps of §1, replies one `FuseOk`, and ends owing
+  the slab's `tail_ballot`, the per-slot promises discharged in the journal's
+  stamps.
 - On quorum, every packed slot commits in order; one `CommitBatch` is
-  broadcast; the era table advances through the whole schedule; subsequent
-  client proposals land above the fused range.
+  broadcast per establishing run; the era table advances through the whole
+  schedule, one era per establishing slot, the serving view landing at the
+  slab's final era on the rider's bump; subsequent client proposals land
+  above the fused range.
 - The oversized schedule falls back to ordinary `Prepare`s.
 - The existing reconfiguration, reincarnation, and cold-start corpora pass
   unmodified: Fuse changes the wire, not the machine.
@@ -254,18 +308,26 @@ named explicitly, either by the envelope header's `first_slot` plus the
 explode loop's per-element step or by an element of the body's list.
 
 **The equivalence claim.** A fused slab of N ops produces the same accepts,
-journal entries, acks, and commits as the same N ops arriving as N individual
+journal entries — the same slot, the same era stamp, the same value at every
+packed slot — acks, and commits as the same N ops arriving as N individual
 `Prepare`s at consecutive slots, and the same promise at the end of it; only
 the datagram count differs. The wire carries the head ballot once where N
 messages would carry each slot's ballot, and the acceptor's explode loop
-reconstructs the identical per-slot sequence.
+reconstructs the identical per-slot sequence, the per-slot eras included:
+payload `i + 1`'s era guard is judged in the era payload `i`'s fold
+established, exactly as though the payloads had arrived as separate datagrams
+with nothing between them.
 
 **The proposal vehicles.** The fuse path's proposal vehicle is the plan-execution
-machine (§4): an accepted plan steps one batch per era, each proposed through
+machine (§4): an accepted plan steps one batch per step, each proposed through
 the shared step-proposal router that emits the envelope when the batch packs
 at least two operations within the budget and the ordinary establishing
 `Prepare` otherwise. The forced-reincarnation machine proposes the same
 schedules' batches as ordinary establishing `Prepare`s, one `Batch` entry
-per era, the ordinary pipeline, and its memo-stream copy is the establishing
-`Prepare` itself. Both machines commit the batch as the ONE establishing
-operation it is; the wire shape differs, the machine does not.
+per step, the ordinary pipeline, and its memo-stream copy is the establishing
+`Prepare` itself. Both machines commit what they journal: the fused slab's
+per-slot stamps establish one era per establishing slot, while the single
+`Batch` entry is one journal slot and establishes one era — the era numbering
+follows the journal shape, the configuration sequence the batch folds is the
+same either way, and the machine's guards, quorums, and commitments are
+indifferent to the numbering.

@@ -1031,40 +1031,36 @@ fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
                 .expect("the test never exhausts the counter");
             h.restart_as(n(killed), bumped).unwrap();
             let start = h.era_table(n(leader)).unwrap().current().config.clone();
-            let live: Vec<_> = (0..6)
-                .filter(|&id| id != killed)
-                .map(n)
-                .chain(std::iter::once(bumped))
-                .collect();
-            let steps = uvrr::solver::solve_replacement(
-                &start,
-                n(killed),
-                bumped,
-                &live,
-                // The serving view the plan's riders name; this test drives
-                // its own view changes between eras and the machine
-                // recomputes the forced schedule at runtime, so the riders
-                // ride the solver's plans alone and stay inert here.
-                current_view(&h, n(leader)).view,
-            )
-            .unwrap();
-            for (index, step) in steps.iter().enumerate() {
+            // The per-era oracle is the runtime's own forced schedule
+            // (`replica::forced_steps`, the §6 recomputation the machine
+            // itself runs), folded era by era on the spot: this test
+            // drives its own view changes between the eras, and no rider
+            // rides the machine's steps.
+            let steps = uvrr::replica::forced_steps(&start, n(killed), bumped);
+            let mut oracle = Vec::with_capacity(steps.len());
+            let mut walking = start.as_ref().clone();
+            for batch in &steps {
+                walking = walking
+                    .apply(batch, Slot(0))
+                    .expect("the forced schedule is legal");
+                oracle.push(walking.clone());
+            }
+            for (index, step_config) in oracle.iter().enumerate() {
                 h.reincarnate(bumped, n(killed));
                 h.deliver_all();
                 assert_eq!(
                     h.era_table(n(leader)).unwrap().current().config,
-                    step.config.clone().into(),
+                    step_config.clone().into(),
                     "leader {original_leader}, failed {killed}, step {index}"
                 );
-                let voters: Vec<_> = step
-                    .config
+                let voters: Vec<_> = step_config
                     .order()
                     .iter()
                     .filter(|m| m.weight.0 > 0)
                     .map(|m| m.node)
                     .collect();
                 let target = Ballot {
-                    era: step.config.era(),
+                    era: step_config.era(),
                     view: uvrr::ids::next_view_selecting(
                         current_view(&h, n(leader)).view,
                         voters.iter().position(|&id| id == n(leader)).unwrap() as u32,

@@ -44,10 +44,6 @@ name = "maelstrom-lin-kv"
 path = "src/bin/maelstrom-lin-kv/main.rs"
 required-features = ["maelstrom"]
 
-# The reconfiguration operator CLI. A binary, not a second crate: it needs the
-# library and the JSONL plan codec, and nothing needs it. Its dependencies
-# (clap, serde, serde_json) are the optional `sysadmin_tool` feature's, so a
-# default-features consumer never builds it.
 # The conformance host. A binary, not a second crate: it needs the library
 # and nothing needs it, and its dependencies are the optional
 # `conformance_host` feature's (serde for the corpus reader), so a
@@ -58,11 +54,6 @@ required-features = ["maelstrom"]
 name = "uvrr-conformance"
 path = "src/bin/uvrr-conformance/main.rs"
 required-features = ["conformance_host"]
-
-[[bin]]
-name = "uvrr-reconfig"
-path = "src/bin/uvrr-reconfig/main.rs"
-required-features = ["sysadmin_tool"]
 
 # The reconfiguration solver as the administrator's offline tool: given a
 # current and a target configuration file, it prints the legal operation
@@ -93,18 +84,15 @@ required-features = ["uvrr"]
 # Every entry is optional, so a consumer's non-optional dependency set is empty
 # and `default-features = false` pulls in zero transitive crates. Enforced by
 # tests/manifest_contract.rs, which is a gate rather than a smoke test.
-# `sysadmin_tool` additionally adds the operator CLI (`uvrr-reconfig`, clap)
-# and its JSONL plan codec (serde_json): both optional, never in a consumer's graph.
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-clap = { version = "4", features = ["derive"], optional = true }
 
 # `serde` buys derives on the wire types only. It never becomes the wire format:
 # the binary codec in `wire` is normative so the spec §13.1 suffix budget stays
 # deterministic (decision P3). `maelstrom` adds the JSON debug bridge and the
-# Maelstrom node binary. `sysadmin_tool` adds the `uvrr-reconfig` operator
-# binary and the JSONL plan codec it exchanges with the leader.
+# Maelstrom node binary. The `serde` lane also carries the plan codec: the
+# JSONL plan artefact the leader's admin ingress accepts.
 # `conformance_host` adds nothing but the corpus reader: the conformance host
 # that serves the compliance corpus over HTTP (`docs/uvrr-host-compliance.md`
 # §8) is a dev tool built on the corpus reader, so the feature names that
@@ -120,7 +108,6 @@ trace = []
 default = []
 serde = ["dep:serde", "dep:serde_json"]
 maelstrom = ["serde", "dep:serde_json"]
-sysadmin_tool = ["serde", "dep:serde_json", "dep:clap"]
 conformance_host = ["serde"]
 
 # Build-time tooling for `cargo test`, not a consumer's supply chain: nothing here

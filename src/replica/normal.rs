@@ -270,21 +270,30 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // §8.7.1: the era table folds the system operations the
             // advance newly covers. Every entry in the range is journaled
             // here, so a fold refusal is committed history the
-            // configuration cannot hold, the breach faults.
-            let (config, bump) =
-                match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
-                    Ok((config, bump)) => (config, bump),
-                    Err(CommitFold::Unavailable(slot)) => {
-                        return Err(PlanRefusal::JournalEntryUnavailable { slot });
-                    }
-                    // The commit frontier would split an establishing
-                    // batch (`docs/uvrr-fuse.md`): refused by name, the
-                    // gap rule's fetch is the repair.
-                    Err(CommitFold::SplitBatch) => {
-                        return self.drop_plan(Diagnostic::FuseRefusal, kind);
-                    }
-                    Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
-                };
+            // configuration cannot hold, the breach faults. The paced
+            // fold covers only what this node's own view can carry
+            // (`docs/uvrr-fuse.md` §4 step 4); a deferred tail commits
+            // once the view has walked.
+            let (config, covered, _stopped, bump) = match self.fold_committed(
+                journal,
+                &[],
+                self.progress.committed(),
+                new_committed,
+                true,
+            ) {
+                Ok((config, covered, stopped, bump)) => (config, covered, stopped, bump),
+                Err(CommitFold::Unavailable(slot)) => {
+                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
+                }
+                // The commit frontier would split an establishing
+                // batch (`docs/uvrr-fuse.md`): refused by name, the
+                // gap rule's fetch is the repair.
+                Err(CommitFold::SplitBatch) => {
+                    return self.drop_plan(Diagnostic::FuseRefusal, kind);
+                }
+                Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+            };
+            let new_committed = covered;
             let candidate = self.candidate_with(
                 status,
                 accepted,
@@ -329,13 +338,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // refusal names committed history the configuration cannot hold,
         // the breach faults.
         let overlay = [entry.clone()];
-        let (config, bump) = match self.fold_committed(
+        let (config, covered, _stopped, bump) = match self.fold_committed(
             journal,
             &overlay,
             self.progress.committed(),
             new_committed,
+            true,
         ) {
-            Ok((config, bump)) => (config, bump),
+            Ok((config, covered, stopped, bump)) => (config, covered, stopped, bump),
             Err(CommitFold::Unavailable(slot)) => {
                 return Err(PlanRefusal::JournalEntryUnavailable { slot });
             }
@@ -356,6 +366,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
         };
+        // The paced fold covers only what this node's own view can carry
+        // (`docs/uvrr-fuse.md` §4 step 4); a deferred tail commits once the
+        // view has walked.
+        let new_committed = covered;
         if new_committed < entry.slot {
             // The system-operation perimeter (§8.7.2): an arriving system
             // entry the piggyback did not commit must fold onto the
@@ -616,10 +630,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // the advance newly covers. Every entry in the range is
         // journaled (the cascade walks the accepted tail), so a fold
         // refusal is committed history the configuration cannot hold,
-        // the breach faults.
-        let (config, bump) =
-            match self.fold_committed(journal, &[], self.progress.committed(), committed) {
-                Ok((config, bump)) => (config, bump),
+        // the breach faults. The paced fold covers only what this node's
+        // own view can carry (`docs/uvrr-fuse.md` §4 step 4): a run the
+        // view cannot carry defers, the committed frontier stops at the
+        // last folded slot, and the tail commits once the view has
+        // walked — the nomination rider's bump is what carries the whole
+        // slab in one advance.
+        let (config, committed, _stopped, bump) =
+            match self.fold_committed(journal, &[], self.progress.committed(), committed, true) {
+                Ok((config, covered, stopped, bump)) => (config, covered, stopped, bump),
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
@@ -771,10 +790,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // the advance newly covers. Every entry in the range is
         // journaled (the frontier never claims what the journal does not
         // record), so a fold refusal is committed history the
-        // configuration cannot hold, the breach faults.
-        let (config, bump) =
-            match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
-                Ok((config, bump)) => (config, bump),
+        // configuration cannot hold, the breach faults. The paced fold
+        // covers only what this node's own view can carry
+        // (`docs/uvrr-fuse.md` §4 step 4); a deferred tail commits once
+        // the view has walked.
+        let (config, covered, _stopped, bump) =
+            match self.fold_committed(journal, &[], self.progress.committed(), new_committed, true)
+            {
+                Ok((config, covered, stopped, bump)) => (config, covered, stopped, bump),
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
@@ -786,6 +809,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 }
                 Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
             };
+        let new_committed = covered;
         let candidate = self.candidate_with(
             status,
             self.progress.accepted(),
@@ -799,19 +823,28 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The commit cascade's atomic segment beginning at `next`: a maximal
-    /// run of consecutive system entries, the establishing batch a fuse
-    /// envelope packed (`docs/uvrr-fuse.md` §1), commits whole, and any
-    /// other slot commits alone. The run is bounded by the accepted
-    /// frontier, which is where the journal's system tail ends.
+    /// run of consecutive system entries SHARING ONE ENTRY ERA, one era's
+    /// establishing fold — the fused slab's per-slot stamps mark the era
+    /// boundaries (`docs/uvrr-fuse.md` §1) — commits whole, and any other
+    /// slot commits alone. The run is bounded by the accepted frontier,
+    /// which is where the journal's system tail ends.
     fn commit_segment(&self, journal: &J::View, next: Slot, accepted: Slot) -> (Slot, Slot) {
         let mut end = next;
         let mut cursor = next;
+        let Some(head) = journal.get(next) else {
+            return (next, end);
+        };
         while let Some(follow) = cursor.next() {
             if follow > accepted {
                 break;
             }
             match journal.get(follow) {
                 Some(entry) if matches!(entry.payload, Payload::System(_)) => {
+                    // A new era begins a new segment: the eras commit one
+                    // establishing fold at a time (§8.7.1).
+                    if entry.era != head.era {
+                        break;
+                    }
                     end = follow;
                     cursor = follow;
                 }

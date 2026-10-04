@@ -1,16 +1,20 @@
-//! Reproduction: the slab's per-slot ballot sequence.
+//! The slab's per-slot ballot sequence: the reconfiguration law's pin.
 //!
 //! The slab assert `docs/uvrr-fuse.md` §3 puts on the acceptor before it
-//! folds a slab is `tail_ballot > head_ballot && head_ballot >=
-//! current_promise`, where `tail_ballot` is the ballot of the slab's final
-//! packed slot, `first_slot + count - 1` (§1). This test drives one legal
-//! fused slab through the public path and reads the ballot the library
-//! itself installed at each packed slot, so the assert's premise is an
-//! observation rather than an assumption.
+//! folds a slab is `tail_ballot >= head_ballot && head_ballot >=
+//! current_promise`, strict exactly when the slab spans an era boundary,
+//! where `tail_ballot` is the ballot of the slab's final packed slot,
+//! `first_slot + count - 1` (§1). Under the per-slot era law (the era
+//! advances once per establishing slot, the nomination riding with it) a
+//! crossing slab's tail ballot strictly exceeds its head ballot: this test
+//! drives one legal fused slab through the public path and reads the ballot
+//! the library itself installed at each packed slot, so the law is an
+//! observation of the wire, not an assumption.
 //!
-//! Red on unchanged code: the packed slots of one establishing batch carry
-//! ONE ballot, so `head_ballot == tail_ballot` and the strict advance the
-//! assert demands is absent.
+//! This is the pin that the one-era reading is gone: under it the packed
+//! slots of one establishing batch carried ONE ballot, `head_ballot ==
+//! tail_ballot`, and the strict advance was absent — the #136 Andon this
+//! file was born to reproduce.
 
 mod harness;
 
@@ -34,8 +38,9 @@ fn n(id: u32) -> NodeId {
     )
 }
 
-/// The join-and-promote batch of `tests/fuse_prepare_equivalence.rs`: two
-/// packed slots, one establishing batch.
+/// The join-and-promote schedule: two packed slots, one establishing
+/// operation each, so the slab spans an era boundary and its ballots
+/// strictly advance.
 fn schedule(size: u32) -> Vec<SystemOperation> {
     let learner = n(size);
     vec![
@@ -93,8 +98,8 @@ fn the_slab_carries_one_ballot_per_packed_slot_and_strictly_advances() {
 
     assert!(
         tail_ballot > head_ballot,
-        "the slab assert's premise fails on unchanged code: the packed slots \
-         do not strictly advance. head_ballot={head_ballot:?} \
+        "the per-slot era law: a crossing slab's tail ballot strictly \
+         exceeds its head ballot. head_ballot={head_ballot:?} \
          tail_ballot={tail_ballot:?} (tail slot {tail_slot})\n{}",
         h.trace_dump()
     );
