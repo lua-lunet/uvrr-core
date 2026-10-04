@@ -629,7 +629,10 @@ results never enter consensus state. A host may keep an ephemeral
 association exists, discarding it otherwise; a crash clears associations, so an I/O
 failure leaves the write outcome unknowable to the caller, who must reconnect and
 query according to the host protocol. Transport, leader forwarding, connection
-tracking, and response formatting remain host extensions. The reference
+tracking, and response formatting remain host extensions. The role a node
+holds when it terminates alien application traffic is the **gateway**; the
+gateway, the session it holds, and the obligations an application protocol
+owes are specified in `docs/uvrr-application-protocol.md`. The reference
 client-facing deployment (a two-site cluster behind a layer-4 load balancer,
 the command circuit from accept to reply, and where the paper's
 one-outstanding-request rule lands in the host) is stated in

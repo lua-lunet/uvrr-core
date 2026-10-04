@@ -250,8 +250,10 @@ fn rule1_frontiers_violated(old: &Progress, new: &Progress) -> bool {
 /// The gate admits the walk on the pair's own evidence, never on trust in
 /// how the candidate was built: the pair sits at the §1.3 [`Status::Normal`]
 /// equality (the bump re-selects no history, so `retained` joins `current`),
-/// the ballot and the view number both strictly increase, and every era the
-/// jump spans is GROUNDED — established by a slot the new committed frontier
+/// the ballot and the view number both strictly increase, the per-slot
+/// advance law holds — the total era jump divided by the slot count the
+/// transition commits lies in `(0, 1]` — and every era the
+/// jump spans is GROUNDED, established by a slot the new committed frontier
 /// covers. A jump that fails any conjunct is no walk and refuses; every view
 /// change keeps the `+1` adjacency, enforced at construction by
 /// [`crate::progress::Progress::with_view_change`] and
@@ -268,16 +270,32 @@ fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {
 
 /// The walk clause of rule 2: the serving view may cross more than one era
 /// in one transition exactly when the crossing is the nomination walk —
-/// `Normal` at the §1.3 equality, both components strictly advancing, and
-/// every era in `(old.era, new.era]` established by a slot the new committed
-/// frontier covers, so the node serves no era its own committed history has
-/// not established.
+/// `Normal` at the §1.3 equality, both components strictly advancing, the
+/// per-slot advance law, and every era in `(old.era, new.era]` established
+/// by a slot the new committed frontier covers, so the node serves no era
+/// its own committed history has not established.
+///
+/// The per-slot advance law (Dijkstra's Repetitive Construct: the slab is
+/// transmitted as one uninterruptible unit, and within it everything is one
+/// slot at a time): the fused message carries a slot count and the view
+/// jumps by a total; the quotient — the total era jump divided by the slot
+/// count the transition commits — is a decimal that MUST lie in `(0, 1]`.
+/// One era per establishing slot: no slot advances the view by more than
+/// its unit, and a walk advances. In integer terms the check is
+/// `1 <= jump <= committed` — in particular a jump with no slots carrying
+/// it (the quotient's denominator zero, every spanned era established by an
+/// earlier commit) is not a commit-time walk and refuses.
 fn is_grounded_nomination_walk(old: &Progress, new: &Progress) -> bool {
     let (from, to) = (old.current(), new.current());
     if new.status() != Status::Normal || new.retained() != to {
         return false;
     }
     if to.era <= from.era || to.view <= from.view {
+        return false;
+    }
+    let jump = u64::from(to.era.0 - from.era.0);
+    let count = new.committed().0.saturating_sub(old.committed().0);
+    if jump > count {
         return false;
     }
     let mut era = from.era;
