@@ -35,7 +35,11 @@ cargo test --lib --bins --tests
 
 # The full-feature lane: the real maelstrom binary end to end and every
 # feature-gated target the matrix admits, the gate a push must
-# have passed locally.
+# have passed locally. The compliance corpus and its Hurl suite are
+# feature-gated with it, so this lane is also the sync gate: a changed
+# reference means regenerate both artefacts (`make corpus-export`, then
+# `make hurl-export`) and commit them, or this hook fails the push, and
+# `--no-verify` remains the deliberate bypass.
 cargo test --all-features --lib --bins --tests
 
 cargo test --doc

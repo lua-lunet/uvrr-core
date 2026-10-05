@@ -20,11 +20,13 @@ RATE       ?= 20
 INTERVAL   ?= 10
 WORKLOAD   ?= lin-kv
 
-.PHONY: help build check test conformance test-clean test-partition test-kill test-resurrect test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local labbook
+.PHONY: help build check test conformance corpus-export hurl-export test-clean test-partition test-kill test-resurrect test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local labbook
 
 help:
 	@echo "make test            - the Rust test suite"
 	@echo "make conformance     - the corpus replayed over HTTP by the hurl client"
+	@echo "make corpus-export   - regenerate the compliance corpus (commit the result)"
+	@echo "make hurl-export     - regenerate the Hurl suite from the corpus (commit the result)"
 	@echo "make check           - fmt, clippy and the Rust test suite"
 	@echo "make build           - release-build the cdylib and the Maelstrom node"
 	@echo "make test-clean      - lin-kv, no faults (plumbing + baseline linearizability)"
@@ -63,6 +65,18 @@ conformance:
 	# Regenerate the suite after a corpus change:
 	#   cargo test --features conformance_host --test conformance_host -- --ignored export_hurl
 	cargo test --features conformance_host --test conformance_host
+
+# The two exporters for the generated compliance artefacts, the corpus
+# first and then the Hurl suite that replays it. Both artefacts are
+# committed files and both are generated: a reference change that moves a
+# byte of either requires a regeneration here and a commit of the result,
+# or the sync gates fail (see tests/compliance/mod.rs). These targets wrap
+# the exporters exactly as they are invoked, so there is one spelling.
+corpus-export:
+	cargo test --all-features --test compliance -- --ignored export_corpus
+
+hurl-export:
+	cargo test --features conformance_host --test conformance_host -- --ignored export_hurl
 
 check:
 	cargo fmt -- --check
