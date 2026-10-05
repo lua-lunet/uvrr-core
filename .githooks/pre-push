@@ -6,6 +6,13 @@
 # deliberate act reserved for the user's hand.
 set -eu
 
+# A proof that passes with a compile warning is no proof. Every lane below
+# compiles with warnings denied: rustc and rustdoc treat any warning as an
+# error, so a target that emits one fails the gate here exactly as it fails
+# the CI lanes, in any feature combination.
+export RUSTFLAGS="-D warnings"
+export RUSTDOCFLAGS="-D warnings"
+
 echo "pre-push: the verification gate runs before anything reaches the remote"
 
 cargo fmt --check
@@ -26,8 +33,8 @@ fi
 # because the library, not the harness, is the deliverable.
 cargo test --lib --bins --tests
 
-# The full-feature lane: the real maelstrom binary end to end and the
-# sysadmin_tool operator binary its format tests spawn, the gate a push must
+# The full-feature lane: the real maelstrom binary end to end and every
+# feature-gated target the matrix admits, the gate a push must
 # have passed locally.
 cargo test --all-features --lib --bins --tests
 
