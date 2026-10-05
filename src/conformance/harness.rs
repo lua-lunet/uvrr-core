@@ -72,7 +72,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::configuration::{EraTable, INIT_SLOT, SystemOperation, VOID_SLOT};
+use crate::configuration::{EraTable, INIT_SLOT, Member, SystemOperation, VOID_SLOT, Weight};
 use crate::effects::{Effect, PlanVerdict, Stability, StabilityResult};
 use crate::ids::{
     Ballot, CrashCounter, Era, Fault, NodeId, Operation, OperationId, Slot, SystemId, Tick, View,
@@ -134,6 +134,29 @@ pub fn mint_pair() -> (SystemId, CrashCounter) {
 pub fn mint_id() -> NodeId {
     let (system, crash) = mint_pair();
     NodeId::new(system, crash)
+}
+
+/// The deterministic identity of the harness's `i`-th provisioned node
+/// (zero-indexed): the one-indexed system id with the first crash
+/// counter. Every harness the scripts build mints its roster from this
+/// convention, so a script names a provisioned node by its index.
+#[must_use]
+pub fn provisioned_id(i: usize) -> NodeId {
+    NodeId::new(
+        SystemId::new(u16::try_from(i + 1).expect("cluster size fits the system-id space"))
+            .expect("a one-indexed system id is non-zero"),
+        CrashCounter::new(1).expect("one is non-zero"),
+    )
+}
+
+/// A member of a configuration the scripts build: the provisioned
+/// identity of index `i` at the given weight.
+#[must_use]
+pub fn provisioned_member(i: usize, weight: u32) -> Member {
+    Member {
+        node: provisioned_id(i),
+        weight: Weight(weight),
+    }
 }
 
 /// The replica configuration every harness node runs: the default journal
@@ -820,17 +843,7 @@ impl Harness {
         tail_capacity: Option<usize>,
         witnesses: &[NodeId],
     ) -> Harness {
-        let genesis_order: Vec<NodeId> = (0..n)
-            .map(|i| {
-                NodeId::new(
-                    SystemId::new(
-                        u16::try_from(i + 1).expect("cluster size fits the system-id space"),
-                    )
-                    .expect("a one-indexed system id is non-zero"),
-                    CrashCounter::new(1).expect("one is non-zero"),
-                )
-            })
-            .collect();
+        let genesis_order: Vec<NodeId> = (0..n).map(provisioned_id).collect();
         let mut nodes = Vec::with_capacity(n);
         // The root is unique across processes, not only within one: the
         // name carries the process id and the construction instant, and the
@@ -1037,6 +1050,25 @@ impl Harness {
             outcomes.push(outcome);
         }
         outcomes
+    }
+
+    /// Delivers until the network is empty: proposals, cascades and
+    /// announcements are all ordinary steps, and a committed cascade may
+    /// queue more, so one [`Self::deliver_all`] does not always quiesce.
+    pub fn quiesce(&mut self) {
+        while self.queued_len() > 0 {
+            self.deliver_all();
+        }
+    }
+
+    /// The standard bootstrap: the genesis primary promotes itself and the
+    /// backups adopt the initial view from the promotion's commit
+    /// announcement (§13.3), then safety is asserted before the script
+    /// starts.
+    pub fn bootstrap(&mut self) {
+        self.tick_all();
+        self.quiesce();
+        self.assert_safety();
     }
 
     /// Delivers the oldest queued datagram addressed to `id` with the given

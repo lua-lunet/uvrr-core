@@ -37,9 +37,9 @@
 
 mod harness;
 
-use harness::Harness;
+use harness::{Harness, provisioned_id as n};
 use uvrr::configuration::SystemOperation;
-use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, Slot, SystemId, View};
+use uvrr::ids::{Ballot, Era, NodeId, Slot, View};
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, Message};
 use uvrr::wire::{Header, Tag};
@@ -53,26 +53,10 @@ fn current_view() -> Ballot {
     }
 }
 
-fn n(id: u32) -> NodeId {
-    NodeId::new(
-        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
-        CrashCounter::new(1).expect("one is non-zero"),
-    )
-}
-
-/// The bootstrap of `tests/fuse.rs`: the genesis primary promotes itself and
-/// the backups adopt view (1, 0) from the promotion's commit announcement
-/// (§13.3).
-fn bootstrap(h: &mut Harness) {
-    h.tick_all();
-    h.deliver_all();
-    h.assert_safety();
-}
-
 /// The schedule: join a fresh learner at the succession end, then promote
 /// it, one era per establishing slot (`docs/uvrr-fuse.md` §1).
 fn schedule(size: u32) -> Vec<SystemOperation> {
-    let learner = n(size);
+    let learner = n(usize::try_from(size).expect("the size fits"));
     vec![
         SystemOperation::Join {
             node: learner,
@@ -184,7 +168,7 @@ fn equivalence_case(size: u32) {
     // The fused path: the schedule as one envelope, then the commit
     // announcement covering both packed slots.
     let mut fused = Harness::provision(size as usize);
-    bootstrap(&mut fused);
+    fused.bootstrap();
     fuse_whole(&mut fused, primary, acceptor, head, &ops);
     commit_through(&mut fused, primary, acceptor, tail);
 
@@ -193,7 +177,7 @@ fn equivalence_case(size: u32) {
     // proposals so the tail's era stamp is admissible, then the same
     // commit announcement.
     let mut stepped = Harness::provision(size as usize);
-    bootstrap(&mut stepped);
+    stepped.bootstrap();
     prepare_slot(
         &mut stepped,
         primary,
