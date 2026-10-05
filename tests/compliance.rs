@@ -54,6 +54,7 @@ mod serde_gated {
     };
     use uvrr::configuration::SystemOperation;
     use uvrr::ids::{Ballot, Era, Slot, View};
+    use uvrr::journal::{LogEntry, Payload};
 
     /// Where the corpus lives.
     const CORPUS: &str = "tests/compliance/corpus";
@@ -416,7 +417,9 @@ mod serde_gated {
     /// cross product of its dimensions, minus the unreachable input
     /// (`docs/uvrr-host-compliance.md` §7): the piggyback claiming the arriving
     /// slot itself, which no conforming primary emits, whose refusal is
-    /// recorded by the mint-based exhaustive suite.
+    /// recorded by the mint-based exhaustive suite. The chain-fold pair
+    /// closes over the system entry's own dimension, the fold the arriving
+    /// entry is judged against.
     fn prepare_accept_family() -> Vec<Case> {
         let mut seq = 1;
         let mut cases = Vec::new();
@@ -433,7 +436,103 @@ mod serde_gated {
                 }
             }
         }
+        cases.extend(chain_fold_cases());
         cases
+    }
+
+    /// An establishing operation at its own slot, stamped with the era the
+    /// case names: the corpus's own rendering of a [`Payload::System`]
+    /// entry, the shape a fused slab's packed slots journal.
+    fn system_entry(slot: Slot, era: Era, op: SystemOperation) -> LogEntry {
+        LogEntry {
+            slot,
+            era,
+            payload: Payload::System(op),
+        }
+    }
+
+    /// The accept-perimeter chain fold (`docs/uvrr-fuse.md` §6): an arriving
+    /// system entry's guards are evaluated against the configuration the
+    /// fold of the accepted-but-uncommitted predecessors established, not
+    /// against the committed configuration alone, exactly as though the
+    /// predecessors had arrived as separate datagrams.
+    ///
+    /// The pair discriminates the rule, because the two cases carry the same
+    /// operation at the same era and differ in one thing only: the join the
+    /// first accepts at the slot before, uncommitted. Judged against the
+    /// committed configuration alone the promotion names a member no
+    /// committed fold has introduced and is refused; judged against the
+    /// chain fold it is the promotion the join's own fold made legal.
+    fn chain_fold_cases() -> Vec<Case> {
+        let learner = identity("4:1").expect("the corpus identity is lawful");
+        let join = SystemOperation::Join {
+            node: learner,
+            position: 3,
+        };
+        let promote = SystemOperation::Increment(learner);
+        let bare = settled_setup();
+        let (view, accepted, committed) = probe_state(&bare, "2:1");
+        let slot = Slot(accepted + 1);
+        let piggyback = Slot(committed);
+        // The chain: the join accepted at the receiver's next slot, its own
+        // commit frontier untouched.
+        let mut chained = bare.clone();
+        chained.push(Op::Deliver {
+            to: "2:1".into(),
+            from: "1:1".into(),
+            wire: wire_hex(&prepare(
+                view,
+                slot,
+                system_entry(slot, view.era, join),
+                piggyback,
+            )),
+        });
+        let tail = Slot(slot.0 + 1);
+        vec![
+            case(
+                "prepare-accept-the-chain-fold-judges-the-promotion-inside-it",
+                "prepare-accept",
+                "Acceptor.accept_preserves",
+                "A system entry MUST be judged against the configuration the \
+                 fold of its accepted but uncommitted predecessors \
+                 established: the member an uncommitted join introduced is \
+                 promoted, the entry journals at its own slot, and the \
+                 committed frontier stays where the chain left it"
+                    .into(),
+                chained,
+                Op::Deliver {
+                    to: "2:1".into(),
+                    from: "1:1".into(),
+                    wire: wire_hex(&prepare(
+                        view,
+                        tail,
+                        system_entry(tail, view.era, promote.clone()),
+                        piggyback,
+                    )),
+                },
+            ),
+            case(
+                "prepare-accept-without-the-accepted-predecessor-the-promotion-is-refused",
+                "prepare-accept",
+                "Acceptor.reachable_inv",
+                "The same promotion with nothing accepted before it MUST be \
+                 refused: the committed configuration holds no such member, \
+                 the receiver keeps its own state, and nothing journals or \
+                 answers"
+                    .into(),
+                bare,
+                Op::Deliver {
+                    to: "2:1".into(),
+                    from: "1:1".into(),
+                    wire: wire_hex(&prepare(
+                        view,
+                        slot,
+                        system_entry(slot, view.era, promote),
+                        piggyback,
+                    )),
+                },
+            ),
+        ]
     }
 
     fn prepare_case(seq: u64, boot: Boot, v: Rel, s: Rel, p: Rel) -> Case {
@@ -638,7 +737,7 @@ mod serde_gated {
     fn reconfiguration_family() -> Vec<Case> {
         let setup = settled_setup();
         let (_, primary) = probe_primary(&setup, "1:1");
-        vec![
+        let mut cases = vec![
             case(
                 "reconfiguration-the-establishing-commit-opens-the-next-era",
                 "reconfiguration",
@@ -669,6 +768,89 @@ mod serde_gated {
                         position: 3,
                     },
                 },
+            ),
+        ];
+        cases.extend(view_jump_cases());
+        cases
+    }
+
+    /// The commit-time view advance over a slab's own eras: the grounded
+    /// nomination walk of the per-slot era law
+    /// (`docs/uvrr-fuse.md` §4 step 4, the NOMINATE chapter of
+    /// `docs/uvrr-protocols.md`) and the per-slot view-jump law that
+    /// governs it.
+    ///
+    /// The slab is the join-and-promote schedule with the nomination rider
+    /// appended, so its fold stamps two establishing packed slots one era
+    /// apart and the rider rides the last of them. The two cases differ in
+    /// the rider alone, and that is the whole of the rule: a rider naming
+    /// the running view redeems the second era, so the serving view crosses
+    /// both eras of the slab in the one published advance, each spanned era
+    /// established by a slot the committed frontier covers; a rider naming
+    /// no running view redeems nothing, the fold stops before the run the
+    /// view cannot carry, and the committed frontier lands on the head slot
+    /// with the serving view where it stood.
+    ///
+    /// The quotient the walk clause enforces, the total era jump divided by
+    /// the slot count the advance commits, is in `(0, 1]` exactly where the
+    /// walk lands: one era per establishing packed slot, and a walk that
+    /// advances. The transition-legality refusals themselves are gate-level
+    /// and no abstract host operation reaches them, so the corpus states the
+    /// law as the two advances the library itself performs.
+    fn view_jump_cases() -> Vec<Case> {
+        let settled = settled_setup();
+        let (view, accepted, _) = probe_state(&settled, "2:1");
+        let head_slot = Slot(accepted + 1);
+        // The slab, with the rider's `from` naming the running view or none
+        // of it: the pair differs in that one field.
+        let schedule = |from: View| {
+            let mut ops = fuse_ops();
+            ops.push(SystemOperation::Nominate { from, offset: 1 });
+            ops
+        };
+        let walked = schedule(view.view);
+        let idle = schedule(View(view.view.0 + 1));
+        let tail_slot = Slot(head_slot.0 + walked.len() as u64 - 1);
+        let folded = |ops: Vec<SystemOperation>| {
+            let mut setup = settled.clone();
+            setup.push(Op::Deliver {
+                to: "2:1".into(),
+                from: "1:1".into(),
+                wire: wire_hex(&fuse(view, head_slot, ops)),
+            });
+            setup
+        };
+        let announce = || Op::Deliver {
+            to: "2:1".into(),
+            from: "1:1".into(),
+            wire: wire_hex(&commit(view, tail_slot)),
+        };
+        vec![
+            case(
+                "reconfiguration-the-rider-walks-the-view-across-the-slabs-eras",
+                "reconfiguration",
+                "ViewJump.view_jump_safe",
+                "A commit-time view advance MUST cross more than one era \
+                 exactly when the pair's own evidence grounds it: the rider \
+                 names the running view, every era the jump spans is \
+                 established by a slot the committed frontier covers, and the \
+                 whole advance lands in one transition with the serving view \
+                 at the slab's own final era"
+                    .into(),
+                folded(walked),
+                announce(),
+            ),
+            case(
+                "reconfiguration-without-the-matching-rider-the-tail-defers",
+                "reconfiguration",
+                "ViewJump.successor_not_required",
+                "The same slab with no rider naming the running view MUST NOT \
+                 walk: the fold stops before the run the serving view cannot \
+                 carry, the committed frontier lands on the head slot, and \
+                 the view stands where the pair left it"
+                    .into(),
+                folded(idle),
+                announce(),
             ),
         ]
     }
@@ -744,7 +926,7 @@ mod serde_gated {
             era: current.era,
             view: View(current.view.0 - 1),
         };
-        vec![
+        let mut cases = vec![
             case(
                 "fuse-the-valid-batch-is-accepted-as-a-whole",
                 "fuse",
@@ -775,6 +957,104 @@ mod serde_gated {
                     from: "1:1".into(),
                     wire: wire_hex(&fuse(stale_view, stale_slot, fuse_ops())),
                 },
+            ),
+        ];
+        cases.extend(slab_ballot_cases());
+        cases
+    }
+
+    /// The slab's per-slot ballots, as the cross product of the packed slot a
+    /// retransmitted [`uvrr::wire::Tag::Prepare`] names (the head or the tail)
+    /// against the era that entry carries (the head ballot's era or the
+    /// tail's).
+    ///
+    /// The slab is the join-and-promote schedule of `fuse_ops`, one
+    /// establishing operation per packed slot, so its fold stamps the head
+    /// slot with the head ballot's era and the tail slot with the era one
+    /// establishing operation on (`docs/uvrr-fuse.md` §1). The acceptor's
+    /// journal holds those stamped entries, and the era authorisation admits
+    /// the header's era and its successor at either slot, so all four routes
+    /// reach the retransmission rule and are discriminated by the entry the
+    /// fold installed alone: a packed slot re-answers at the ballot its own
+    /// fold stamped and is refused at any other's.
+    ///
+    /// The two tail-slot cases state the promise-to-tail obligation
+    /// (`docs/uvrr-fuse.md` §3): the promise the accept incurred is the
+    /// slab's last ballot, so the tail slot answers at the tail's own era and
+    /// nothing below it is ever folded into that slot. The two head-slot cases
+    /// state the per-slot era law: the head slot carries the head's era and
+    /// no other, one era per establishing operation.
+    fn slab_ballot_cases() -> Vec<Case> {
+        let settled = settled_setup();
+        let (view, accepted, committed) = probe_state(&settled, "2:1");
+        let ops = fuse_ops();
+        let head_slot = Slot(accepted + 1);
+        let tail_slot = Slot(head_slot.0 + ops.len() as u64 - 1);
+        let head_era = view.era;
+        let tail_era = head_era.next().expect("the era space is not spent");
+        // The piggyback rides the sender's own commit frontier, as it does
+        // on the wire: the two cases of a slot differ in the era alone.
+        let piggyback = Slot(committed);
+        // The folded slab: the crossing envelope the receiver takes whole.
+        let mut slab = settled.clone();
+        slab.push(Op::Deliver {
+            to: "2:1".into(),
+            from: "1:1".into(),
+            wire: wire_hex(&fuse(view, head_slot, ops.clone())),
+        });
+        let route = |slot: Slot, era: Era, op: SystemOperation| Op::Deliver {
+            to: "2:1".into(),
+            from: "1:1".into(),
+            wire: wire_hex(&prepare(view, slot, system_entry(slot, era, op), piggyback)),
+        };
+        let head_op = ops[0].clone();
+        let tail_op = ops[1].clone();
+        vec![
+            case(
+                "fuse-the-head-slot-re-answers-at-the-head-ballot",
+                "fuse",
+                "Fuse.decide_all",
+                "Every packed slot MUST carry its own ballot: the head slot \
+                 re-answers a retransmission stamped with the head ballot's \
+                 era, the journal holds that entry, and no frontier moves"
+                    .into(),
+                slab.clone(),
+                route(head_slot, head_era, head_op.clone()),
+            ),
+            case(
+                "fuse-the-head-slot-at-the-tail-ballot-is-refused",
+                "fuse",
+                "Fuse.same_ballot_era_guard",
+                "A packed slot MUST NOT hold another packed slot's ballot: the \
+                 head slot stamped with the tail ballot's era is not the \
+                 entry the fold installed, so it is refused and nothing \
+                 journals or answers"
+                    .into(),
+                slab.clone(),
+                route(head_slot, tail_era, head_op),
+            ),
+            case(
+                "fuse-the-tail-slot-at-the-head-ballot-is-refused",
+                "fuse",
+                "Fuse.Telescope.telescope_pass",
+                "The promise a folded slab ends at MUST be the tail ballot: the \
+                 tail slot stamped with the head ballot's era is refused, \
+                 because the accept incurred the tail's own ballot and nothing \
+                 below it may be folded into that slot"
+                    .into(),
+                slab.clone(),
+                route(tail_slot, head_era, tail_op.clone()),
+            ),
+            case(
+                "fuse-the-tail-slot-re-answers-at-the-tail-ballot",
+                "fuse",
+                "Fuse.Telescope.telescope_pass",
+                "The slab's promise MUST be discharged at the tail ballot: the \
+                 tail slot re-answers a retransmission stamped with the era \
+                 the fold of the head slot established, and no frontier moves"
+                    .into(),
+                slab,
+                route(tail_slot, tail_era, tail_op),
             ),
         ]
     }
