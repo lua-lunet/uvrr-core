@@ -24,94 +24,17 @@
 //! an era-table record the library itself installed.
 
 mod harness;
+#[path = "support/nominate.rs"]
+mod nominate;
 
 use harness::{Harness, StepOutcome};
-use uvrr::configuration::{Configuration, Member, Snapshot, SystemOperation, Weight};
-use uvrr::ids::{Ballot, Era, NodeId, Slot, SystemId, View};
+use nominate::{committed_config, cross_boundary, member, n, serve_at, solver_steps};
+use uvrr::configuration::{Configuration, Snapshot, SystemOperation};
+use uvrr::ids::{Ballot, Era, NodeId, Slot, View};
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, Message};
 use uvrr::plan::Plan;
-use uvrr::solve;
 use uvrr::wire::{Header, Tag};
-
-fn n(id: u32) -> NodeId {
-    NodeId::new(
-        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
-        uvrr::ids::CrashCounter::new(1).expect("one is non-zero"),
-    )
-}
-
-fn member(id: u32, weight: u32) -> Member {
-    Member {
-        node: n(id),
-        weight: Weight(weight),
-    }
-}
-
-/// Delivers everything until the network is empty: proposals, cascades
-/// and announcements are all ordinary steps, and a committed cascade may
-/// queue more.
-fn quiesce(h: &mut Harness) {
-    while h.queued_len() > 0 {
-        h.deliver_all();
-    }
-}
-
-/// The bootstrap: the genesis primary promotes itself and the backups
-/// adopt view (1, 0) from the promotion's commit announcement (§13.3).
-fn bootstrap(h: &mut Harness) {
-    h.tick_all();
-    quiesce(h);
-    h.assert_safety();
-}
-
-/// Forces the cluster's serving view to `(1, view)` (§14.2), the leader
-/// the primary under the genesis order.
-fn serve_at(h: &mut Harness, view: u32) {
-    h.force_view(
-        n(0),
-        Ballot {
-            era: Era(1),
-            view: View(view),
-        },
-    );
-    quiesce(h);
-    for id in (0..3).map(n) {
-        let snapshot = h.snapshot(id).expect("the node is live");
-        assert_eq!(
-            (snapshot.era, snapshot.view),
-            (1, view),
-            "n{} serves at the forced view",
-            id.0
-        );
-    }
-    h.assert_safety();
-}
-
-/// The committed configuration the cluster's history has established.
-fn committed_config(h: &Harness, id: NodeId) -> Configuration {
-    h.era_table(id)
-        .expect("the node is live")
-        .current()
-        .config
-        .as_ref()
-        .clone()
-}
-
-/// The solver's schedule: the exhaustive path from the committed
-/// configuration to the target, folded at the running era and view into
-/// one step per establishing slot, each step's `Nominate` rider computed
-/// by the fold's leader-stability arithmetic.
-fn solver_steps(
-    start: &Configuration,
-    target: &Configuration,
-    view: View,
-) -> Vec<Vec<SystemOperation>> {
-    let path = solve::solve(start, target).expect("the scenario solves");
-    let steps = solve::fold(&path, start, (start.era(), view, Slot(0)))
-        .expect("the fold rides a legal path");
-    steps.into_iter().map(|step| step.ops).collect()
-}
 
 /// One run's final observation, named whole so the two runs' equality is
 /// asserted in one step and a divergence prints both states entire.
@@ -148,46 +71,6 @@ fn observe(h: &Harness, roster: &[NodeId], journal_of: NodeId) -> FinalState {
     }
 }
 
-/// The era boundary where no rider landed (§14.2, §8.7.8): the view lags
-/// the established era and the gate would refuse the next establishing
-/// operation, so the script drives the leader-preserving forced change,
-/// the least view past the current one selecting the constant leader.
-fn cross_boundary(h: &mut Harness, leader: NodeId) {
-    let snapshot = h.snapshot(leader).expect("the leader is live");
-    let table = h.era_table(leader).expect("the leader is live");
-    let established = table.current().era;
-    if Era(snapshot.era) == established {
-        return;
-    }
-    let voters: Vec<NodeId> = table
-        .current()
-        .config
-        .order()
-        .iter()
-        .filter(|m| m.weight.0 > 0)
-        .map(|m| m.node)
-        .collect();
-    let index = voters
-        .iter()
-        .position(|&voter| voter == leader)
-        .expect("the constant leader is a voter of the established era");
-    let target = uvrr::ids::next_view_selecting(
-        View(snapshot.view),
-        u32::try_from(index).expect("the roster fits the view arithmetic"),
-        u32::try_from(voters.len()).expect("the roster fits the view arithmetic"),
-    )
-    .expect("a view selecting the leader always exists past any view");
-    h.force_view(
-        leader,
-        Ballot {
-            era: established,
-            view: target,
-        },
-    );
-    quiesce(h);
-    h.assert_safety();
-}
-
 /// The stepped run: the fused run's own journal, fed through a node one
 /// at a time as individual `Prepare` datagrams, one op per slot, each
 /// commit announcement covering a whole maximal same-era run (a run the
@@ -196,7 +79,7 @@ fn cross_boundary(h: &mut Harness, leader: NodeId) {
 /// meets.
 fn run_stepped(journal: &[LogEntry]) -> FinalState {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
     serve_at(&mut h, 3);
     let roster: Vec<NodeId> = vec![n(1), n(2)];
     let leader = n(0);
@@ -277,7 +160,7 @@ fn run_stepped(journal: &[LogEntry]) -> FinalState {
             }
             committed_runs += 1;
         }
-        quiesce(&mut h);
+        h.quiesce();
     }
     assert!(committed_runs > 0, "no run committed");
     h.assert_safety();
@@ -291,7 +174,7 @@ fn run_stepped(journal: &[LogEntry]) -> FinalState {
 /// cascade may queue more.
 fn run_fused(steps: Vec<Vec<SystemOperation>>) -> FinalState {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
     serve_at(&mut h, 3);
     let roster: Vec<NodeId> = vec![n(1), n(2)];
     let leader = n(0);
@@ -306,12 +189,12 @@ fn run_fused(steps: Vec<Vec<SystemOperation>>) -> FinalState {
         h.trace_dump()
     );
     for _ in 0..64 {
-        quiesce(&mut h);
+        h.quiesce();
         if h.queued_len() == 0 {
             h.tick_all();
-            quiesce(&mut h);
+            h.quiesce();
         }
-        cross_boundary(&mut h, leader);
+        cross_boundary(&mut h, &roster, leader, "the fused jump");
         let config = committed_config(&h, leader);
         if config.order()
             == [
@@ -325,7 +208,7 @@ fn run_fused(steps: Vec<Vec<SystemOperation>>) -> FinalState {
             break;
         }
     }
-    quiesce(&mut h);
+    h.quiesce();
     h.assert_safety();
     observe(&h, &roster, n(1))
 }
@@ -336,7 +219,7 @@ fn the_fused_jump_lands_where_the_step_through_steps() {
     // runs boot into, so the two runs drive byte-identical steps.
     let probe = {
         let mut h = Harness::provision(3);
-        bootstrap(&mut h);
+        h.bootstrap();
         serve_at(&mut h, 3);
         committed_config(&h, n(0))
     };

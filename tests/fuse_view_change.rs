@@ -24,21 +24,14 @@
 
 mod harness;
 
-use harness::{Harness, StepOutcome};
-use uvrr::configuration::{Member, SystemOperation, Weight};
-use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
+use harness::{Harness, StepOutcome, provisioned_id as n, provisioned_member as member};
+use uvrr::configuration::SystemOperation;
+use uvrr::ids::{Ballot, Era, NodeId, OperationId, Slot, View};
 use uvrr::journal::{LogEntry, Payload};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
 use uvrr::plan::Plan;
 use uvrr::wire::{Header, Tag};
-
-fn n(id: u32) -> NodeId {
-    NodeId::new(
-        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
-        CrashCounter::new(1).expect("one is non-zero"),
-    )
-}
 
 /// A view in era 1: every scenario here is same-era (W1).
 fn view(number: u32) -> Ballot {
@@ -48,33 +41,10 @@ fn view(number: u32) -> Ballot {
     }
 }
 
-/// The bootstrap of `tests/fuse.rs`: the genesis primary promotes itself
-/// and both backups adopt view (1, 0) from the promotion's [`uvrr::wire::Tag::Commit`]
-/// announcement (§13.3).
-fn bootstrap(h: &mut Harness) {
-    h.tick_all();
-    h.deliver_all();
-    h.assert_safety();
-}
-
-/// Delivers everything until the network is empty.
-fn quiesce(h: &mut Harness) {
-    while h.queued_len() > 0 {
-        h.deliver_all();
-    }
-}
-
 /// An operation identity for the scripts: the host assigns it, the core
 /// carries it opaque (§11.1, B2).
 fn op_id(lsb: u64) -> OperationId {
     OperationId { msb: 0, lsb }
-}
-
-fn member(id: u32, weight: u32) -> Member {
-    Member {
-        node: n(id),
-        weight: Weight(weight),
-    }
 }
 
 /// The least view in `era` past the leader's current one whose voter-only
@@ -188,7 +158,7 @@ fn assert_fused_slots(h: &Harness, id: NodeId, first: u64, head_era: u32, ops: &
 #[test]
 fn fused_acceptance_survives_leader_crash_into_next_view() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The fused batch under view (1, 0): slots 3 and 4, accepted by the
     // leader and by both backups. The commit emission never leaves the
@@ -214,7 +184,7 @@ fn fused_acceptance_survives_leader_crash_into_next_view() {
         "the forced fence publishes: {outcome:?}\n{}",
         h.trace_dump()
     );
-    quiesce(&mut h);
+    h.quiesce();
 
     // The installed log carries the fused values at the fused slots: the
     // evidence quorum's knowledge overlaps the accept quorum's at n(1)
@@ -243,7 +213,7 @@ fn fused_acceptance_survives_leader_crash_into_next_view() {
     // quorum fuse-accepted.
     let outcome = h.propose(n(1), op_id(1), b"after");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     for id in [n(1), n(2)] {
         let snapshot = h.snapshot(id).expect("live");
         assert_eq!(
@@ -279,10 +249,10 @@ fn fused_acceptance_survives_leader_crash_into_next_view() {
         "the forced fence publishes: {outcome:?}\n{}",
         h.trace_dump()
     );
-    quiesce(&mut h);
+    h.quiesce();
     let outcome = h.propose(n(1), op_id(2), b"paced");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     for id in [n(1), n(2)] {
         let snapshot = h.snapshot(id).expect("live");
         assert_eq!(
@@ -312,7 +282,7 @@ fn fused_acceptance_survives_leader_crash_into_next_view() {
 #[test]
 fn old_view_messages_are_fenced_after_the_view_change() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The fused batch is accepted under view (1, 0); the leader crashes
     // before the commit emission; the new view forms without it.
@@ -323,7 +293,7 @@ fn old_view_messages_are_fenced_after_the_view_change() {
     h.crash(n(0));
     let outcome = h.force_view(n(1), view(1));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(2)).expect("live").accepted, 4);
 
     // The stray: a view (1, 0) Prepare from the dead leader's identity,
@@ -379,7 +349,7 @@ fn old_view_messages_are_fenced_after_the_view_change() {
 #[test]
 fn selection_is_view_first_not_length_first() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // View (1, 0): X@3 committed everywhere.
     h.propose(n(0), op_id(1), b"x");
@@ -399,7 +369,7 @@ fn selection_is_view_first_not_length_first() {
     // X@3, so both survivors re-select under the newer retained view.
     let outcome = h.force_view(n(1), view(1));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(1)).expect("live").accepted, 3);
 
     // The fused batch under view (1, 1): slots 4 and 5 carry the packed
@@ -487,7 +457,7 @@ fn selection_is_view_first_not_length_first() {
 
     // The isolated node converges on the same installed history.
     h.heal();
-    quiesce(&mut h);
+    h.quiesce();
     for id in [n(0), n(1), n(2)] {
         let snapshot = h.snapshot(id).expect("live");
         assert_eq!((snapshot.era, snapshot.view), (1, 2), "{id:?} settled");
@@ -505,7 +475,7 @@ fn selection_is_view_first_not_length_first() {
 #[test]
 fn per_slot_resolution_after_fuse_interrupted() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The fused batch covers slots 3, 4 and 5: three learner joins, one
     // envelope, accepted by the leader and both backups under view (1, 0).
@@ -527,7 +497,7 @@ fn per_slot_resolution_after_fuse_interrupted() {
     // The new view forms among the survivors.
     let outcome = h.force_view(n(1), view(1));
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
 
     // Per slot: the quorum fuse-accepted slots keep their values, and
     // the slot only the dead leader knew remains open. No third value
@@ -556,7 +526,7 @@ fn per_slot_resolution_after_fuse_interrupted() {
     // the head join commits, the later eras defer.
     let outcome = h.propose(n(1), op_id(2), b"filled");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     for id in [n(1), n(2)] {
         let snapshot = h.snapshot(id).expect("live");
         assert_eq!(
@@ -583,10 +553,10 @@ fn per_slot_resolution_after_fuse_interrupted() {
         "the forced fence publishes: {outcome:?}\n{}",
         h.trace_dump()
     );
-    quiesce(&mut h);
+    h.quiesce();
     let outcome = h.propose(n(1), op_id(3), b"paced-2");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(1)).expect("live").committed, 4);
     let table = h.era_table(n(1)).expect("live");
     let record = table.record(Era(3)).expect("era 3 is recorded");
@@ -607,10 +577,10 @@ fn per_slot_resolution_after_fuse_interrupted() {
         "the forced fence publishes: {outcome:?}\n{}",
         h.trace_dump()
     );
-    quiesce(&mut h);
+    h.quiesce();
     let outcome = h.propose(n(1), op_id(4), b"paced-3");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     for id in [n(1), n(2)] {
         let snapshot = h.snapshot(id).expect("live");
         assert_eq!(
@@ -638,7 +608,7 @@ fn per_slot_resolution_after_fuse_interrupted() {
     // into the network, cannot displace the resolution: it is fenced out
     // by name and slot 6 stands.
     h.heal();
-    quiesce(&mut h);
+    h.quiesce();
     for id in [n(1), n(2)] {
         let entry = h.journal_entry(id, Slot(6)).expect("slot 6 stands");
         assert_eq!(payload_of(&entry), b"filled");

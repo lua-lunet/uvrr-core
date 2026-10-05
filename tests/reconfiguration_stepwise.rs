@@ -8,12 +8,12 @@
 
 mod harness;
 
-use harness::{Harness, StepOutcome};
+use harness::{Harness, StepOutcome, provisioned_id as n};
 use uvrr::configuration::{
     ConfigError, Configuration, INIT_SLOT, SystemOperation, VOID_SLOT, Weight,
 };
 use uvrr::effects::{Effect, Stability};
-use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, Tick, View};
+use uvrr::ids::{Ballot, Era, NodeId, OperationId, Slot, Tick, View};
 use uvrr::journal::{Journal, JournalView, LogEntry, Payload, SegmentedLog};
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
@@ -21,13 +21,6 @@ use uvrr::progress::{ProgressSnapshot, Status};
 use uvrr::quorum::{QuorumError, QuorumStrategy, R2Direction, Role};
 use uvrr::replica::{Input, PlanRefusal, Replica, TimedInput, ViewChangeKnobs};
 use uvrr::wire::{Header, Tag};
-
-fn n(id: u32) -> NodeId {
-    NodeId::new(
-        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
-        CrashCounter::new(1).expect("one is non-zero"),
-    )
-}
 
 /// An operation identity for the scripts: the host assigns it, the core
 /// carries it opaque (§11.1, B2).
@@ -76,7 +69,7 @@ fn status_of(h: &Harness, id: NodeId) -> Status {
 /// rule with no learner present. A configuration with a weight-0 member
 /// asserts its primary from the era table instead (§8.4).
 fn primary_of(view: Ballot) -> NodeId {
-    n(view.view.0 % 3)
+    n((view.view.0 % 3) as usize)
 }
 
 /// The newest era the node's committed configuration history has
@@ -111,15 +104,6 @@ fn cluster() -> Harness {
             view_change_budget: usize::MAX,
         },
     )
-}
-
-/// Bootstraps the cluster: the genesis primary promotes itself and both
-/// backups adopt view (1, 0) from the promotion's [`uvrr::wire::Tag::Commit`] announcement
-/// (§13.3).
-fn bootstrap(h: &mut Harness) {
-    h.tick_all();
-    h.deliver_all();
-    h.assert_safety();
 }
 
 /// Ticks a node until its timeout fires (one tick past the knob),
@@ -189,7 +173,7 @@ fn genesis_is_law() {
         assert_eq!(current.established_by, INIT_SLOT);
         assert_eq!(current.config.len(), 3);
         for (position, member) in current.config.order().iter().enumerate() {
-            assert_eq!(member.node, n(u32::try_from(position).expect("small")));
+            assert_eq!(member.node, n(position));
             assert_eq!(member.weight, Weight(1));
         }
         // The era-0 record is the VOID record: an empty configuration,
@@ -207,7 +191,7 @@ fn genesis_is_law() {
     }
     // Identical provisioning, three nodes, one genesis: after the
     // bootstrap tick the primary serves the first real slot.
-    bootstrap(&mut h);
+    h.bootstrap();
     let outcome = h.propose(n(0), op_id(1), b"x");
     assert!(
         matches!(outcome, StepOutcome::Published { .. }),
@@ -221,7 +205,7 @@ fn genesis_is_law() {
 #[test]
 fn stop_the_world_reconfigure_advances_the_era() {
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The primary proposes INCREMENT(n2) through the ordinary pipeline,
     // one published proposal, Prepare effects to the era-1 membership,
@@ -312,7 +296,7 @@ fn stop_the_world_reconfigure_advances_the_era() {
 #[test]
 fn stop_the_world_join_completes_under_a_continuous_stream() {
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The client stream is live before the reconfiguration.
     h.propose(n(0), op_id(1), b"stream");
@@ -393,7 +377,7 @@ fn stop_the_world_join_completes_under_a_continuous_stream() {
 #[test]
 fn era_slot_relation_is_enforced_at_accept() {
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // A forged Prepare from the current primary, in the current view, at
     // the next slot, everything legal except the era. Three fabrications:
@@ -462,7 +446,7 @@ fn committed_configuration_survives_reclamation() {
         },
         1,
     );
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // A reconfiguration commits at slot 3; the applied frontier walks
     // the system slot (B2's system-slot ruling), so the host may
@@ -527,7 +511,7 @@ fn primary_crash_mid_reconfiguration_never_half_installs() {
     // crash. The era-1 view change carries it into the new history
     // (§9.3), still uncommitted, the era has NOT advanced...
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
     let outcome = h.reconfigure(n(0), SystemOperation::Increment(n(1)), None);
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.deliver_to(n(1)).expect("the Prepare is queued for n1");
@@ -561,7 +545,7 @@ fn primary_crash_mid_reconfiguration_never_half_installs() {
     // moved, and the slot is reused by the next ordinary proposal (§9.2:
     // the suffix beyond the committed frontier is replaced wholesale).
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
     let outcome = h.reconfigure(n(0), SystemOperation::Increment(n(1)), None);
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     h.drop_queued(n(1));
@@ -705,7 +689,7 @@ fn unsafe_transition_is_refused_pre_proposal_with_its_witness() {
 #[test]
 fn precondition_refusals_are_named_and_leave_the_log_untouched() {
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // Every refusal leaves the frontier exactly where it was.
     let refused = |h: &mut Harness, op: SystemOperation, expected: PlanRefusal| {
@@ -799,7 +783,7 @@ fn precondition_refusals_are_named_and_leave_the_log_untouched() {
 #[test]
 fn void_and_init_outside_genesis_are_refused() {
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
     let genesis: Vec<NodeId> = vec![n(0), n(1), n(2)];
 
     // VOID after genesis: refused by name at the gate.
@@ -885,7 +869,7 @@ fn void_and_init_outside_genesis_are_refused() {
 #[test]
 fn five_node_replacement_completes_all_six_eras_after_leader_crash() {
     let mut h = Harness::provision(5);
-    bootstrap(&mut h);
+    h.bootstrap();
     h.crash(n(4));
     let bumped = n(4)
         .next_life()
@@ -1008,14 +992,14 @@ fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
                     view_change_budget: usize::MAX,
                 },
             );
-            bootstrap(&mut h);
+            h.bootstrap();
             if original_leader != 0 {
-                h.force_view(n(original_leader), view(original_leader));
+                h.force_view(n(original_leader as usize), view(original_leader));
                 h.deliver_all();
             }
-            assert_eq!(status_of(&h, n(original_leader)), Status::Normal);
+            assert_eq!(status_of(&h, n(original_leader as usize)), Status::Normal);
             h.crash(n(killed));
-            let leader = if original_leader == killed {
+            let leader = if original_leader as usize == killed {
                 let successor = (killed + 1) % 6;
                 for _ in 0..=TIMEOUT {
                     h.tick(n(successor));
@@ -1023,7 +1007,7 @@ fn solver_reincarnation_all_six_leaders_and_failed_hosts() {
                 h.deliver_all();
                 successor
             } else {
-                original_leader
+                original_leader as usize
             };
             assert_eq!(status_of(&h, n(leader)), Status::Normal);
             let bumped = n(killed)

@@ -14,33 +14,17 @@
 
 mod harness;
 
-use harness::{Harness, StepOutcome};
+use harness::{Harness, StepOutcome, provisioned_id as n, provisioned_member as member};
 use std::sync::Arc;
 
-use uvrr::configuration::{Member, SystemOperation, Weight};
+use uvrr::configuration::SystemOperation;
 use uvrr::effects::Effect;
-use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
+use uvrr::ids::{Ballot, Era, NodeId, OperationId, Slot, View};
 use uvrr::journal::Payload;
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
 use uvrr::plan::Plan;
 use uvrr::wire::{Header, Pack, Tag, Unpack, UnpackError};
-
-fn n(id: u32) -> NodeId {
-    NodeId::new(
-        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
-        CrashCounter::new(1).expect("one is non-zero"),
-    )
-}
-
-/// The bootstrap of `tests/reconfiguration_stepwise.rs`: the genesis
-/// primary promotes itself and both backups adopt view (1, 0) from the
-/// promotion's [`uvrr::wire::Tag::Commit`] announcement (§13.3).
-fn bootstrap(h: &mut Harness) {
-    h.tick_all();
-    h.deliver_all();
-    h.assert_safety();
-}
 
 /// The view every node here bootstraps into: era 1, view 0, primary `n(0)`
 /// under the genesis order `[0, 1, 2]` (§1.2).
@@ -89,7 +73,7 @@ fn encode_header(header: &Header) -> Vec<u8> {
 #[test]
 fn valid_fuse_is_accepted_as_a_whole() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The schedule: `[Join(new), Increment(new)]`, the shape of the
     // five-node replacement's second batch (`docs/uvrr-protocols.md`, the reincarnation chapter
@@ -197,7 +181,7 @@ fn valid_fuse_is_accepted_as_a_whole() {
 #[test]
 fn stale_view_fuse_is_refused_as_a_whole() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The same legal schedule, but the header names the genesis view
     // (era 0, view 0), below the acceptor's current view (1, 0). Era 0 is
@@ -255,7 +239,7 @@ fn malformed_fuse_is_dropped_without_partial_accept() {
     // test cannot construct the mid-batch refusal without forging a
     // schedule no planner would certify, which §3 rules out of scope.
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The malformed-decode drop: a valid 20-byte header tagging `Fuse`,
     // then a body whose first op carries an unknown discriminant. The
@@ -295,7 +279,7 @@ fn malformed_fuse_is_dropped_without_partial_accept() {
 #[test]
 fn fuse_slots_must_be_contiguous_from_the_accept_frontier() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // A legal schedule whose `first_slot` is NOT the acceptor's next slot:
     // the envelope claims a range the frontier does not start at.
@@ -324,7 +308,7 @@ fn fuse_slots_must_be_contiguous_from_the_accept_frontier() {
 #[test]
 fn accepted_fuse_reply_slots_are_explicit_not_ranges() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // Three zero-mass ops: three joins of absent learners. R14's unit rule
     // moves no mass, so the schedule is legal at every op boundary, and
@@ -405,13 +389,6 @@ fn op_id(lsb: u64) -> OperationId {
     OperationId { msb: 0, lsb }
 }
 
-fn member(id: u32, weight: u32) -> Member {
-    Member {
-        node: n(id),
-        weight: Weight(weight),
-    }
-}
-
 /// The 3-node two-step reincarnation shape
 /// (`docs/uvrr-protocols.md`, the reincarnation chapter §5, the weight-1 row) submitted as an
 /// operator plan: the crossing batch `[Decrement(old), Join(new), Nominate]`
@@ -474,17 +451,10 @@ fn join_and_promote_step() -> Plan {
     }
 }
 
-/// Delivers everything until the network is empty.
-fn quiesce(h: &mut Harness) {
-    while h.queued_len() > 0 {
-        h.deliver_all();
-    }
-}
-
 #[test]
 fn leader_emits_one_fuse_per_backup_for_a_whole_schedule() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let outcome = h.submit_plan(n(0), reincarnation_shape_plan());
     let StepOutcome::Published { effects, .. } = outcome else {
@@ -576,7 +546,7 @@ fn leader_emits_one_fuse_per_backup_for_a_whole_schedule() {
 #[test]
 fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let outcome = h.submit_plan(n(0), join_and_promote_step());
     assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -670,7 +640,7 @@ fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
     // blocking: the next proposal lands at first_slot + N and commits.
     let outcome = h.propose(n(0), op_id(1), b"after");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 6);
     assert_eq!(h.snapshot(n(1)).expect("live").committed, 6);
     h.assert_safety();
@@ -699,7 +669,7 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
     // Four nodes: the commit quorum is three, so the forged subset vote
     // alone leaves the round in flight and the next genuine vote decides.
     let mut h = Harness::provision(4);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let plan = Plan {
         initial: vec![member(0, 1), member(1, 1), member(2, 1), member(3, 1)],
@@ -834,7 +804,7 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
 
     // The third backup's envelope lands late; its FuseOk arrives to a
     // committed header slot and is dropped as harmless-but-named.
-    quiesce(&mut h);
+    h.quiesce();
     h.assert_safety();
 }
 
@@ -858,7 +828,7 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
 #[test]
 fn the_riderless_slab_commits_as_the_view_paces_its_eras() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The packed schedule: two establishing operations, two slots, two
     // eras under the per-slot fold — and no rider to carry the view.
@@ -950,7 +920,7 @@ fn the_riderless_slab_commits_as_the_view_paces_its_eras() {
     // now, so the fold covers it and the client slot behind it.
     let outcome = h.propose(n(0), op_id(1), b"paced");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     let snapshot = h.snapshot(n(1)).expect("live");
     assert_eq!(
         snapshot.committed, 5,
@@ -979,14 +949,14 @@ fn the_riderless_slab_commits_as_the_view_paces_its_eras() {
 #[test]
 fn oversized_schedule_falls_back_to_ordinary_prepares() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // One establishing batch packing eight zero-mass joins, one past the
     // builder's envelope budget (`FUSE_MAX_OPS`, justified by the nominal
     // 1300-byte payload check in `tests/wire_contract.rs`).
     let joins: Vec<SystemOperation> = (0..8)
         .map(|i| SystemOperation::Join {
-            node: n(u32::try_from(i + 3).expect("eight learners fit a u32")),
+            node: n(i + 3),
             position: u32::try_from(i + 3).expect("eight positions fit a u32"),
         })
         .collect();
@@ -1020,7 +990,7 @@ fn oversized_schedule_falls_back_to_ordinary_prepares() {
     // The batch commits as ONE era; the final committed state is the fold
     // of the same schedule the fuse path would have carried, the two
     // paths are the same sequence of logical accepts (§4 step 5).
-    quiesce(&mut h);
+    h.quiesce();
     let snapshot = h.snapshot(n(0)).expect("live");
     assert_eq!(snapshot.committed, 3, "the batch committed at its slot");
     let expected = uvrr::configuration::Configuration::void()
@@ -1054,7 +1024,7 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
     // Four nodes: the commit quorum is three, so one FuseOk leaves the
     // round in flight.
     let mut h = Harness::provision(4);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The packed schedule carries no rider: the pending round has nothing
     // to carry a surviving view across the slab's eras.
@@ -1089,7 +1059,7 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
         },
     );
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(
         h.snapshot(n(1)).expect("live").committed,
         2,
@@ -1108,7 +1078,7 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
     // client slot with it, the frontier a prefix as ever.
     let outcome = h.propose(n(1), op_id(1), b"catch-up");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     let snapshot = h.snapshot(n(1)).expect("live");
     assert_eq!(
         snapshot.committed, 3,
@@ -1138,7 +1108,7 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
     view_change_between_eras(&mut h, n(1), target, &[n(0), n(1), n(2), n(3)]);
     let outcome = h.propose(n(1), op_id(2), b"paced");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     let snapshot = h.snapshot(n(1)).expect("live");
     assert_eq!(
         snapshot.committed, 6,
@@ -1173,7 +1143,7 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
 #[test]
 fn client_operations_are_not_blocked_by_the_fuse_round() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let outcome = h.submit_plan(n(0), join_and_promote_step());
     assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -1226,7 +1196,7 @@ fn client_operations_are_not_blocked_by_the_fuse_round() {
     // The round completes; the packed slots commit in order and the client
     // op lands behind them, in the same advance.
     h.deliver_tag(n(0), Tag::FuseOk);
-    quiesce(&mut h);
+    h.quiesce();
     let snapshot = h.snapshot(n(0)).expect("live");
     assert_eq!(
         snapshot.committed,
@@ -1312,7 +1282,7 @@ fn fuse_round(h: &mut Harness, leader: NodeId, backups: &[NodeId], committed_thr
         }
     }
     fuse_acks_until_committed(h, leader, committed_through);
-    quiesce(h);
+    h.quiesce();
     h.assert_safety();
 }
 
@@ -1333,7 +1303,7 @@ fn prepare_round(h: &mut Harness, leader: NodeId, backups: &[NodeId], committed_
         committed_through,
         "the ordinary establishing batch committed"
     );
-    quiesce(h);
+    h.quiesce();
     h.assert_safety();
 }
 
@@ -1365,7 +1335,7 @@ fn view_change_between_eras(h: &mut Harness, leader: NodeId, target: Ballot, liv
         "the forced fence publishes: {outcome:?}\n{}",
         h.trace_dump()
     );
-    quiesce(h);
+    h.quiesce();
     for &id in live {
         let snapshot = h
             .snapshot(id)
@@ -1391,7 +1361,7 @@ fn view_change_between_eras(h: &mut Harness, leader: NodeId, target: Ballot, liv
 #[test]
 fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let outcome = h.submit_plan(n(0), reincarnation_shape_plan());
     let StepOutcome::Published { effects, .. } = outcome else {
@@ -1524,7 +1494,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
     // the fused range and commits under the final configuration.
     let outcome = h.propose(n(0), op_id(1), b"after");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 9);
     h.assert_safety();
 }
@@ -1541,7 +1511,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
 #[test]
 fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     let mut h = Harness::provision(5);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The schedule (rules §6): `[DOUBLE]`, `[JOIN(new), INCREMENT(new)]`,
     // `[DECREMENT(old)]`, `[DECREMENT(old), LEAVE(old)]`, `[INCREMENT(new)]`,
@@ -1856,7 +1826,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     // The client stream is never blocked by the sequence.
     let outcome = h.propose(n(0), op_id(1), b"after");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 15);
     h.assert_safety();
 }
@@ -1882,7 +1852,7 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
 #[test]
 fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority() {
     let mut h = Harness::provision(4);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // Four unit voters: the strict majority of the even total is three
     // (§8.4's eager `2n → n+1`), the leader plus TWO acks, one fewer
@@ -1966,7 +1936,7 @@ fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority()
         5,
         "the ordinary commit announcement advances the backup"
     );
-    quiesce(&mut h);
+    h.quiesce();
 
     // The era rows: one era per establishing slot, the rider sharing its
     // carrier's era, the joiner voting.
@@ -1999,7 +1969,7 @@ fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority()
 #[test]
 fn even_sized_six_node_cluster_commits_the_fused_batch_with_an_eager_majority() {
     let mut h = Harness::provision(6);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // Six unit voters: the strict majority of the even total is four,
     // the leader plus THREE acks. The schedule carries its nomination
@@ -2054,7 +2024,7 @@ fn even_sized_six_node_cluster_commits_the_fused_batch_with_an_eager_majority() 
         5,
         "the eager majority commits the batch whole"
     );
-    quiesce(&mut h);
+    h.quiesce();
 
     // The era rows: one era per establishing slot, the batch's span
     // established over seven members.
