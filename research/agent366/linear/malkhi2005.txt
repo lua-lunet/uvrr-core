@@ -1,0 +1,709 @@
+---
+title: "Omega Meets Paxos: Leader Election and Stability without Eventual Timely Links"
+authors:
+  - "Dahlia Malkhi"
+  - "Florin Oprea"
+  - "Lidong Zhou"
+year: "2005"
+publication: "19th International Symposium on Distributed Computing (DISC 2005)"
+handle_url: "https://consensus.app/papers/omega-meets-paxos-leader-election-and-stability-without-malki-oprea/c3fc39faf51a57ee856c8e4dd7f0404f/"
+source_pdf: "research/agent366/papers/malkhi2005-omega-meets-paxos.pdf"
+source_pdf_sha256: "5aa3e6efb1f140378191c74d52c0ca17f2607b535c4f28a7168a07c2244a89a4"
+page_count: 15
+extracted_text_runs: 2226
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  This paper provides a realization of distributed leader election without having any eventual timely links. Progress is guaranteed in the following weak setting: Eventually one process can send messages such that every message obtains f timely responses, where f is a resilience bound. A crucial facet of this property is that the f responders need not be fixed, and may change from one message to another. In particular, this means that no specific link needs to remain timely. In the common case where f=1, this implies that the FLP impossibility result on consensus is circumvented if one process can at any time communicate in a timely manner with one other process in the system. The protocol also bears significant practical importance to well-known coordination schemes such as Paxos, because our setting more precisely captures the conditions on the elected leader for reaching timely consensus. Additionally, an extension of our protocol provides leader stability, which guarantees against arbitrary demotion of a qualified leader and avoids performance penalties associated with leader changes in schemes such as Paxos.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Ω Meets Paxos:
+
+    2  Leader Election and Stability Without Eventual
+
+    3  Timely Links
+
+    4  Dahlia Malkhi1, Florin Oprea2,, and Lidong Zhou3
+    5  1 Microsoft Research Silicon Valley and the Hebrew University of Jerusalem
+    6  2 Department of Electrical and Computer Engineering, Carnegie Mellon University
+    7  3 Microsoft Research Silicon Valley
+
+    8  Abstract. This paper provides a realization of distributed leader election without having any eventual timely links. Progress is guaranteed
+    9  in the following weak setting: Eventually one process can send messages
+   10  such that every message obtains f timely responses, where f is a resilience bound. A crucial facet of this property is that the f responders
+   11  need not be fixed, and may change from one message to another. In
+   12  particular, this means that no specific link needs to remain timely. In
+   13  the (common) case where f = 1, this implies that the FLP impossibility result on consensus is circumvented if one process can at any time
+   14  communicate in a timely manner with one other process in the system.
+   15  The protocol also bears significant practical importance to well-known
+   16  coordination schemes such as Paxos, because our setting more precisely
+   17  captures the conditions on the elected leader for reaching timely consensus. Additionally, an extension of our protocol provides leader stability,
+   18  which guarantees against arbitrary demotion of a qualified leader and
+   19  avoids performance penalties associated with leader changes in schemes
+   20  such as Paxos.
+
+   21  1 Introduction
+
+   22  A fundamental design guideline pioneered in the Paxos protocol [1] and later
+   23  employed in numerous coordination protocols is to separate safety properties
+   24  from liveness properties. Safety must be preserved at all times, and hence, its
+   25  implementation must not rely on synchrony assumptions. Liveness, on the other
+   26  hand, may be hampered during periods of instability, but eventually, when the
+   27  system resumes normal behavior, progress should be guaranteed. In various coordination protocols such as Paxos, liveness hinges on a separate leader election
+   28  algorithm, with the problem of finding a good leader election algorithm left open.
+   29  It is well known in the theory of distributed computing that liveness of consensus cannot be guaranteed in a purely asynchronous system with no timing
+   30  assumptions [2]. Ω is known to be the weakest failure detector [3,4] that is
+   31  sufficient for consensus, hence provides the liveness properties of consensus. Ω
+   32  Work done during a summer internship at Microsoft Research Silicon Valley.
+
+   33  P. Fraigniaud (Ed.): DISC 2005, LNCS 3724, pp. 199–213, 2005.
+   34  c Springer-Verlag Berlin Heidelberg 2005
+=== PAGE 2 ===
+
+   35  200 D. Malkhi, F. Oprea, and L. Zhou
+
+   36  essentially implements an eventual leader election, where all non-faulty processes
+   37  eventually trust the same non-faulty process as the leader.
+   38  While Ω captures the abstract properties needed to provide liveness, it does
+   39  not say under which pragmatic system conditions is progress guaranteed. It
+   40  leaves open the interesting questions of what synchrony conditions should be
+   41  assumed when implementing Ω and what additional properties would yield an
+   42  ideal leader election algorithm for practical coordination schemes such as Paxos.
+
+   43  A revisit of Paxos. In this paper, rather than cooking up arbitrary synchrony
+   44  assumptions and additional properties, we derive the desired features of our
+   45  protocols from Paxos, a cornerstone coordination scheme employed in various
+   46  reliable storage systems such as Petal [5], Frangipani [6], Chain Replication [7],
+   47  and Boxwood [8].
+   48  At a high level, Paxos is a protocol for a set of processes to reach consensus
+   49  on a series of proposals. With a leader election algorithm, a process p that is
+   50  elected leader first carries out the prepare phase of the protocol. In this phase,
+   51  p sends a prepare message to all processes to declare the ballot number it uses
+   52  for its proposals, learns about all the existing proposals, and requests promises
+   53  that no smaller ballot numbers be accepted afterwards. The prepare phase is
+   54  completed once p receives acknowledgments from n − f processes. Once the
+   55  prepare phase is completed, to have a proposal committed, leader p initiates the
+   56  accept phase by sending an accept message to all processes with the proposal and
+   57  the ballot number it declares in the prepare phase. The proposal is committed
+   58  when p receives acknowledgments from f + 1 processes. Whenever a higher
+   59  ballot number is encountered in the prepare phase or the accept phase, the
+   60  leader has to initiate a new prepare phase with an even higher ballot number.
+   61  This could happen if there are other processes acting as leaders, unavoidable in
+   62  an asynchronous system.
+   63  To implement a replicated state machine, Paxos streamlines a series of consensus decisions. A new leaderpcarries out the preparephase once for all its proposals.
+   64  After the completion of the prepare phase,p carries out only the accept phase for
+   65  each proposal until a new leader emerges by initiating a new prepare phase.
+   66  Our goal is to distill the conditions under which Paxos can have new proposals
+   67  committed in a timely fashion and to provide a leader election protocol exactly
+   68  under those conditions. Therefore, we make the following observations:
+   69  – After an initial prepare phase, in order for a leader p to make timely
+   70  progress, it suffices for p to obtain timely responses for its accept message
+   71  from any set of f + 1 processes (or f processes besides itself). The set could
+   72  change for different accept messages.
+   73  – Any leader change incurs the cost of an extra round of communication for
+   74  the prepare phase.
+   75  Contribution. Complying with the conditions under which we wish to enable
+   76  progress in Paxos, our leader algorithm features the following two desired
+   77  properties1:
+   78  1 Formal definitions of these properties are provided in the body of the paper.
+=== PAGE 3 ===
+
+   79  Leader Election and Stability Without Eventual Timely Links 201
+
+   80  First, the algorithm guarantees to elect a leader without having any eventual
+   81  timely links. Progress is guaranteed in the following surprisingly weak setting:
+   82  Eventually one process can send messages such that every message obtains f
+   83  timely responses, where f is a resilience bound. We name such a process 3faccessible. A crucial facet of this property is that the f responders need not be
+   84  fixed, and may change from one message to another. We emphasize that this
+   85  condition stems from the workings of Paxos, whose safety does not necessitate
+   86  that the f processes with which a leader interacts be fixed.
+   87  Our solution bears the following ramification on the foundations of distributed computing. It implies that the FLP [2] impossibility result on consensus
+   88  with one failure (f = 1) is circumvented if one process can at any time interact
+   89  in a timely manner with one other process in the system.
+   90  No previous leader election protocol provides any guarantee in these settings.
+   91  In fact, the approach taken in most previous protocols is fundamentally incompatible with this condition, because previous protocols gossip about suspicions
+   92  until the system converges. This does not allow for a leader to communicate at
+   93  different times with different subsets of the system, as the leader will constantly
+   94  be under suspicion of some part of the system. Thus, no easy "engineering" of
+   95  previous protocols can provide progress under the 3f-accessibility condition.
+   96  The second contribution provided by our algorithm is leader stability. This
+   97  is based on the observation that a leader change necessitates an execution of
+   98  a prepare phase by the new leader, an often costly operation. We therefore
+   99  embrace the notion of stability that a qualified leader not be demoted, where a
+  100  leader is considered qualified if it remains capable of having proposals committed
+  101  in a timely fashion. For Paxos, when n = 2f + 1 holds, a leader is qualified if it is
+  102  non-faulty and maintains timely communication with a set of f other processes
+  103  at all times, with the set possibly changing over time.
+  104  An important practical measure for a leader election protocol is its communication complexity [9]. It is desirable that under a steady state, where a qualified
+  105  leader operates without being suspected by any other process, only the leader
+  106  incurs periodic communication with the rest of the system (hence achieving O(n)
+  107  steady-state link-utilization communication complexity.) In Section 6, we sketch
+  108  an extension of our protocol that achieves this ideal. This extension works only
+  109  with the basic version of our protocol for Ω, which does not uphold stability. It
+  110  is left as an open question whether a stable leader election algorithm with O(n)
+  111  steady-state message complexity exists under the condition of 3f accessibility.
+
+  112  2 Related Work
+
+  113  Our review of previous work concentrates on the two properties of interest to
+  114  us: synchrony conditions and leader stability.
+  115  On synchrony conditions. A simple solution for the leader election problem is
+  116  as follows [1,10]. Periodically send alive messages from all to all, and let each
+  117  process collect data on all the processes it heard from within the last broadcast
+=== PAGE 4 ===
+
+  118  202 D. Malkhi, F. Oprea, and L. Zhou
+
+  119  period. Each process elects as leader the process with the lowest process id from
+  120  its view. This implementation requires that eventually all n2 communication
+  121  links become timely with a known communication bound.
+  122  A number of papers [11,9] relax this by assuming an unknown communication bound. The reduction to the known bound model involves gradually increasing timeout periods until no false alarms incur on the current leader. This
+  123  "trick" may be used in almost all leader-election protocols, as is done, e.g., in
+  124  [11,9,12,13,14,15]. Nevertheless, all communication links are required to be eventually synchronous.
+  125  Aguilera et al. further relaxes the model to one that has a process maintaining
+  126  eventually timely links with the rest of system [12] and to one that has a process
+  127  whose outgoing links to the rest of the system are eventually timely [13]. In [13], a
+  128  single correct process called 3-source is assumed to have outgoing non-lossy and
+  129  timely links eventually . Their protocol works by processes sending accusation
+  130  messages to one another when they timeout. Intuitively, every process converges
+  131  on the suspicions of the 3-source process, since its accusations are guaranteed
+  132  to arrive timely at their destinations.
+  133  More recently, and most relevant to our work, there are several pieces of work
+  134  that require surprisingly weak synchrony conditions for implementing Ω and consensus. This line of work limits the scope of timely links from the correct pivot
+  135  process to only a subset of the system. There are two main flavors, one deals with
+  136  failure-detection abstractions without explicit mentioning of synchrony conditions, and the second builds directly over partial synchrony conditions. We start
+  137  with the first approach, which historically precedes the second.
+  138  The work of [16,17] introduces the notion of limited scope failure detectors,
+  139  where the scope of the accuracy property of an unreliable failure detector is
+  140  defined with respect to a parameter (x) as the minimum number of processes
+  141  that must not erroneously suspect a correct process to have crashed. This yields
+  142  failure detector classes S (respectively, 3S ), whose accuracy properties are
+  143  x x
+  144  required to hold only on a subset of the processes whose size is x. The usual
+  145  failure detectors S (respectively, 3S) implicitly consider a scope equal to the
+  146  total number of processes. A limited-scope detector in the classes Sk or 3Sk is
+  147  straight-forward to implement using periodic alive messages and timeouts, given
+  148  a system in which one correct process (eventually) has x outgoing timely links.
+  149  Therefore, under these conditions, a possible construction of Ω is to as follows:
+  150  first implement 3Sx; then transform 3Sx to 3S [14]; finally transform 3S to
+  151  Ω [18].
+  152  Aguilera et al. [15] adopts a more direct approach. Define a process p to be
+  153  a 3f-source if eventually it has f outgoing links that are timely. Any of the f
+  154  recipient endpoints of these links may be faulty. Assuming a bound f on the
+  155  number of crashed processes, Aguilera et al. [15] presents an Ω construction
+  156  with the existence of one correct 3f-source. The protocol counts suspicions of
+  157  processes about all other processes and exchanges vectors of suspicion-counters.
+  158  Each process elects as leader the process with the lowest suspicion counter, breaking ties by process ids. Intuitively, the suspicion counters of crashed processes
+=== PAGE 5 ===
+
+  159  Leader Election and Stability Without Eventual Timely Links 203
+
+  160  grow indefinitely, whereas the 3f-source has a guaranteed bounded suspicioncounter. This guarantees that eventually a correct process is elected as leader
+  161  (among all the ones whose counters are bounded), and furthermore, it remains
+  162  so permanently because all counters are non-decreasing.
+  163  Both the Sf condition and the 3f-source condition are neither weaker nor
+  164  stronger than ours: Let p denote, respectively, the pivot correct process that
+  165  upholds any of these models. The 3f-source assumption and the 3Sf accuracy
+  166  assumption require timeliness only on f outgoing links from p, and no correctness
+  167  of the f recipients. Our 3f-accessible assumption requires f bi-directional timely
+  168  links from p, as well as correctness from the f recipients, which are stronger
+  169  assumptions. However, in 3f-source, the set of f links is fixed throughout the
+  170  execution, as is the limited-scope subset of 3S , whereas 3f-accessible allows
+  171  f
+  172  the f links to vary in time, which is a weaker assumption.
+  173  Although formally these models are incomparable, we note that our assumptions are strongly motivated by practical needs, particularly those of the Paxos
+  174  protocol. In Paxos, if there is a single leader, the leader can carry out the accept
+  175  phase and make progress so long as it is able to communicate with f processes.
+  176  This is exactly the condition under which our Ω implementation is guaranteed
+  177  to operate. In particular, the leader may in realistic settings have a "moving
+  178  set" of f timely links. But so long as at any moment, some set of f links are
+  179  timely, our protocol can guarantee progress. Under these conditions, the 3fsource assumption does not hold, nor does 3Sf, and the protocols of [14,15]
+  180  may fail.
+
+  181  Leader stability. The only previous work we are aware of that considers some
+  182  form of leader stability is the protocol of Aguilera et al. [12]. Their notion of
+  183  stability relates to a leader that is recognized by all non-faulty processes as
+  184  leader. For practical consensus protocols such as Paxos, this condition might
+  185  have limited value, because no process inside the system can know when a leader
+  186  is known to all others. In Paxos, a process must know whether it is a leader in
+  187  order to decide whether to initiate the prepare phase. Therefore, our stability
+  188  condition uses the leader's own perspective as the determining time to when its
+  189  leadership stabilizes. This is what Paxos needs to avoid having leaders being
+  190  arbitrarily de-crowned due to unnecessary prepare messages.
+
+  191  3 Informal Model
+
+  192  The system consists of a set P of n processes, each pair of which can directly
+  193  communicate by sending and receiving messages over a bi-directional link. Each
+  194  process is equipped with a drift-free local clock. Clocks of different processes need
+  195  not be synchronized. When we reason about the system, we often use a global
+  196  wall-clock t, which is not known or used by the processes within the system.
+  197  Each process executes a sequence of steps triggered either by message reception or timer expiration. In a step, a process may perform any number of local
+  198  computations, send messages, and set timers. For simplicity, we denote the time
+  199  it takes to perform a step as zero.
+=== PAGE 6 ===
+
+  200  204 D. Malkhi, F. Oprea, and L. Zhou
+
+  201  Process and Communication Faults. Processes may fail by crashing permanently,
+  202  and otherwise are non-faulty. A failure pattern Fp is a function from wall clock
+  203  time to sets of processes that have crashed by that time. We say that p is
+  204  non-faulty at time t if p ∈ Fp(t). We say that p is non-faulty if it is always nonfaulty. There is a known resilience bound f ≤n−1 on the number of crashed
+  205  2
+  206  processes.2
+  207  Communication links are reliable, in the sense that no message from a nonfaulty process can be dropped, duplicated, or changed, and no messages are
+  208  generated by the links.
+  209  Communication Synchrony. The conditions regarding timeliness of links are at
+  210  the heart of our investigation. There is a known upper bound δ on the round-trip
+  211  delay of messages, but it does not hold on all pairs of processes at all times. What
+  212  is known is that eventually there is one process that is able to exchange messages
+  213  within the δ delay with f other processes. We will now make this notion precise.
+  214  Definition 1. Let (p, q) denote the communication link between p and q. We say
+  215  that (p, q) is timely at time t if any message sent by p to q at time t receives a
+  216  response within δ time. Note that if q becomes faulty before handling p's message,
+  217  or q is slow to respond, then by definition the link is not timely.
+  218  Definition 2. A process p ∈ P is said to be f-accessible at time t if there exist
+  219  f other processes q such that the links (p, q) are timely at t.
+  220  Our synchrony requirement is the following.
+  221  Definition 3. (3f-accessibility) There is a time t and a process p such that for
+  222  all t ≥ t, p is f-accessible at t .
+  223  Note that the definition of f-accessibility allows a process p to be considered
+  224  f-accessible even if the sets of f processes accessed by p at different times change.
+  225  This property is fundamentally more practical than fixing a subset with which p
+  226  must interact forever. This definition is derived from the way consensus protocols
+  227  like Paxos [1] and revolving-coordinator consensus [3] operate.
+  228  We also note that there are several known ways to weaken our model with
+  229  variations that bear practical importance. First, it is easy to extend the model to
+  230  account for a non-zero bound on local processing time and clock drifts, but this
+  231  would just be a syntactic burden. Second, it is possible to relax the assumption
+  232  that the communication round-trip bound δ is a priori known. The trick for
+  233  overcoming this uncertainty is to start with an aggressively-low guess of δ and
+  234  gradually increase it when premature expirations are encountered. Most of the
+  235  2 It is easy to generalize the discussion to use quorum systems instead of counting
+  236  processes. A read/write quorum system for P , denoted R(P ), W(P ) ⊆ 2P , is a pair of
+  237  sets of subsets of P , such that every pair Q1 ∈ W(P ), Q2 ∈ W(P) ∪R(P ) has a nonempty intersection, Q1 ∩Q2 = ∅. Each subset is called a quorum. Quorums generalize
+  238  thresholds as follows. Operations on (f + 1)-subsets are replaced with operations on
+  239  write quorums; operations on (n − f)-subsets are replaced with operations on read
+  240  quorums.
+=== PAGE 7 ===
+
+  241  Leader Election and Stability Without Eventual Timely Links 205
+
+  242  claims in this paper can be adapted to reflect this technique of learning δ. For
+  243  simplicity, we omit this from the discussion. Finally, our non-timely reliable links
+  244  may be easily replaced with fair lossy-links as in [15], which are links that deliver
+  245  infinitely many times any message-type that has been sent infinitely often. This
+  246  requires repeatedly sending messages until acknowledged, and once again, is
+  247  omitted from the discussion.
+  248  Problem statement. Our goal is to construct in our model a weak leader Ω,
+  249  defined as follows [3]: Ω provides every process q at any time t with a local hint
+  250  Ωq (t), such that the following holds:
+
+  251  Definition 4 (Ω). There exist a time t and a non-faulty process p, such that
+  252  for any t ≥ t, every process q that is not faulty at time t has Ω (t ) = p.
+  253  q
+
+  254  4 Ω with 3f-Accessibility
+
+  255  Our first protocol implements Ω under the 3f-accessibility condition. The protocol for process p appears in Figure 1. It works as follows.
+  256  Each process maintains for itself a non-decreasing epoch number, as well as an
+  257  epoch freshness counter. Epochs are implemented using the following data types
+  258  and variables. An epoch number is a pair that consists of an integer field named
+  259  serialNum and another field named processId, which stores either a process id
+  260  or null. We assume a total ordering on process ids with null smaller than any
+  261  process id. Epoch numbers are ordered lexicographically, first by serialNum and
+  262  then by processId.
+  263  We define a state to be a pair consisting of an epoch-number field named
+  264  epochNum and an integer field named freshness. States are ordered lexicographically, first by epochNum and then by freshness.
+  265  A process refreshes its epoch number in fixed periodicity of length ∆, by
+  266  incrementing the epoch freshness counter and writing it to its registry, which is
+  267  replicated on all processes in the system. If the refresh fails to complete updating
+  268  the registry at f + 1 processes within the known δ round-trip bound, the process
+  269  increases its own epoch number. The vector registry[] records locally at each
+  270  process the latest state it received from others: registry[q] is updated upon receipt
+  271  of a refresh message from q.
+  272  Process p records the states it reads of all other processes in a vector named
+  273  views[]. A process updates its view by periodically reading the entire registry
+  274  vector from n − f processes. Each entry views[q] has two fields. One is a state
+  275  field, and the other is a bit called expired indicating whether q's state has been
+  276  continuously refreshed or not. Initially, all serialNum and freshness fields are
+  277  zeroed, and expired field set to true.
+  278  The idea is to select as a leader the process with the lowest non-expired epoch
+  279  number (breaking ties using process ids). To assess whether an epoch number
+  280  has expired or not, every process reads the registry of all processes from n − f
+  281  processes periodically. The exact period between the completion of a previous
+  282  read and the start of the next must be at least ∆ + δ to guarantee that every
+=== PAGE 8 ===
+
+  283  206 D. Malkhi, F. Oprea, and L. Zhou
+
+  284  process has had a chance to refresh its registry at least once between reads. If a
+  285  process p detects no change in another process q's counter, p expires q's epoch
+  286  number and no longer considers q a contender for leadership until a new epoch
+  287  is detected for q.
+  288  The intuition behind the success of the protocol is as follows. First, unless
+  289  a process always manages to write its registry to f other processes within δ
+  290  time units after some point, its epoch number will increase indefinitely or will
+  291  be considered expired (e.g., when it fails).
+  292  Second, consider a processp that after a certain time t always manages to write
+  293  its registry tof other processes within δ. It follows that eventually p stops increasing its epoch number. Note that this is true for any 3f-accessible process. Let p
+  294  be the process whose epoch number stops increasing at the lowest value in the system. Denote that lowest epoch number as ep. The timely refreshing of ep makes it
+  295  eventually known as p's epoch by all non-faulty processes. Observe that ep never
+  296  expires at any other process, becausepsucceeds in refreshingep's freshness counter
+  297  every∆ time period. Furthermore, eventually all higher epoch numbers either become known to all non-faulty processes, or belong to processes whose (lower) epoch
+  298  numbers expire. Hence, eventually all other processes will consider p leader.
+  299  The protocol also makes use of monotonically increasing counters, such as
+  300  refreshNum and readNum, to associate responses with requests. These counters
+  301  are initialized to 0. Variables epochStartTime and lastCompletedReadStartTime
+  302  are introduced for later use, when the protocol is extended for stability in
+  303  Section 5.
+  304  Process p also has a variable leader : P ∪ null, that captures p's view of
+  305  the current leader. leader is initially set to null. Ωp(t) is thus defined to be the
+  306  value of leaderp on process p at time t. The correctness proof showing that the
+  307  protocol in Figure 1 implements Ω appears in the full version of this paper [19].
+
+  308  5 Stability
+
+  309  Driven by our need to employ Ω within repeated consensus instances of the
+  310  Paxos protocol, we now introduce a crucial addition to Ω.
+  311  The definition of Ω mandates that eventually a single leader stabilizes and
+  312  is never replaced. However, it allows many leaders to be replaced many times
+  313  until that time arrives. This is undesirable in many respects. In Paxos, replacing
+  314  a leader is a costly operation. The new leader needs to perform an extra round
+  315  of communication in order to collect information about the latest actions of the
+  316  previous leader. In many other settings, electing a new leader involves heavy
+  317  re-configuration procedures, which should be avoided if possible.
+  318  We therefore would like to require that a qualified leader (e.g., a 3f-accessible
+  319  leader) never be demoted. To this end, we first need to define precisely what it
+  320  means for a process to be a leader. Our definition is simple and is grounded in
+  321  practice: A process p is a leader at time t if it considers itself a leader at time t.
+  322  More precisely, we have the following simple definition:
+=== PAGE 9 ===
+
+  323  Leader Election and Stability Without Eventual Timely Links 207
+
+  324  Start refreshTimer with ∆ time units; Start readTimer with ∆ + δ time units;
+
+  325  REFRESH:
+  326  Upon refreshTimer timeout: /* time to refresh the registry */
+  327  start refreshTimer with ∆ time units;
+  328  ackMsgCount := 0; refreshNum ++;
+  329  send refresh, p, registry[p], refreshNum to every q ∈ P;
+  330  start roundTripTimer with δ time units;
+
+  331  Upon receiving refresh, q, rg, rn :
+  332  if (registry[q ] < rg ) registry[q] := rg; send to q ack, p, q, rn ; end if
+
+  333  Upon receiving ack, q, p, rn = refreshNum :
+  334  if (++ackMsgCount ≥ f + 1)
+  335  stop roundTripTimer; registry[p].freshness ++;
+  336  end if
+
+  337  ADVANCE EPOCH:
+  338  Upon roundTripTimer timeout: /* no timely links to a quorum */
+  339  views[p].expired := true; registry[p].epochNum.serialNum ++;
+  340  epochStartTime := currentTime;
+
+  341  COLLECT:
+  342  Upon readTimer timeout: /* time to read the registries */
+  343  lastReadStartTime := currentTime; readNum ++;
+  344  statusMsgCount := 0; oldViews := views; /* store for comparison */
+  345  send collect, p, readNum to every q ∈ P ;
+
+  346  Upon receiving collect, q, rn : send to q status, p, q, rn, registry ;
+
+  347  Upon receiving status, q, p, rn = readNum, qReg :
+  348  for each r ∈ P views[r].state := max(qReg[r ], views[r ].state ); end for
+  349  if (++statusMsgCount ≥ n − f) /* responses from a quorum collected */
+  350  lastCompletedReadStartTime := lastReadStartTime ;
+  351  for every r ∈ P /* check if r has refreshed its epoch number */
+  352  if (views[r].state ≤ oldViews [r ].state ) views[r].expired := true; end if
+  353  if (views[r].state.epochNum > oldViews[r].state.epochNum )
+  354  views[r].expired := false;
+  355  end if
+  356  end for
+  357  leaderEpoch := min({views[q].state.epochNum | views[q].expired = false}
+  358  ∪{0, null});
+  359  leader := leaderEpoch.processId ; start readTimer with ∆ + δ time units;
+  360  end if
+
+  361  Fig. 1. Ω with 3f-accessibility
+=== PAGE 10 ===
+
+  362  208 D. Malkhi, F. Oprea, and L. Zhou
+
+  363  Definition 5. Process p is a leader at time t iff Ωp(t) = p.
+
+  364  Intuitively, this definition is desirable because, once p considers itself a leader,
+  365  it takes actions as leader and may incur any cost mentioned earlier associated
+  366  with leadership. Leader stability is then defined simply as follows:
+  367  Definition 6 (Leader Stability:). Let p be a leader at time t, and assume
+  368  that p is f-accessible during the period [t − δ, t + τ]. We say that a protocol
+  369  implementing Ω satisfies leader stability at time t+τ if p is still a leader at time
+  370  t + τ, and no other process q = p is a leader at time t + τ.
+
+  371  Ω with Stability
+
+  372  In this section, we introduce changes to the above protocol in order to provide
+  373  for leader stability. In order for these changes to work, however, we require
+  374  n = 2f + 1.3
+  375  In the protocol of Figure 1, p considers itself a leader immediately when p sets
+  376  leaderp to p; that is, when p's current epoch number is the lowest non-expired
+  377  epoch number in p's view. This is insufficient; the scenario that disrupts stability
+  378  is as follows. Suppose a process p becomes a leader at time t because its current
+  379  epoch number ep is the lowest non-expired epoch number in its view at t. In the
+  380  meantime, another process q times out on an epoch number eq < ep − 1 and
+  381  advances to a new epoch number eq + 1 < ep. If q now becomes f-accessible,
+  382  eq + 1 will eventually become the lowest epoch number, demoting leader p even
+  383  if p has been f-accessible; leader stability is thus violated.
+  384  To achieve stability, for a process p to become a leader, we not only require
+  385  that p's epoch number be the lowest non-expired epoch number in p's view, but
+  386  further require that p declare itself a leader only after making sure that no nonexpired lower epoch number will cause other processes to claim leadership. This
+  387  can be achieved by the following two extensions to the first protocol:
+
+  388  1. Whenever a process initiates a new epoch number, rather than incrementing
+  389  the epoch number by 1, it learns the highest existing epoch number through
+  390  a timely communication (with bound δ) with n−f processes and then picks
+  391  an epoch number that is higher than any existing epoch number.
+  392  2. Process p not only checks whether its current epoch number is the lowest in
+  393  its current view, but also waits for sufficiently long to ensure that all nonexpiring epoch numbers that can be lower than ep must have been reflected
+  394  in p's view.
+  395  To be precise, let t be the time when the current epoch number ep is chosen,
+  396  a process p has to wait until the completion of a collect/status round that
+  397  starts at least 2∆ + 3δ time units after time t. This is because a non-faulty
+  398  and f-accessible p will start its first refresh for ep at t + ∆ and receive f + 1
+  399  responses before t + ∆ + δ. In order for another process q to pick an epoch
+  400  3 Alternatively, we could require that an accessible process have timely links to n − f
+  401  processes, rather than f + 1 processes.
+=== PAGE 11 ===
+
+  402  Leader Election and Stability Without Eventual Timely Links 209
+
+  403  Start refreshTimer with ∆ time units; Start readTimer with ∆ + δ time units;
+
+  404  REFRESH: same as in Figure 1
+
+  405  ADVANCE EPOCH:
+  406  Upon initialization or roundTripTimer timeout:
+  407  /* no timely links to a quorum, retrieving existing epoch numbers */
+  408  stop refreshTimer;
+  409  refreshNum ++; isLeader := false; views[p].expired := true;
+  410  epochCount := 0;
+  411  globalMaxEn := registry[p].epochNum;
+  412  seqNum ++;
+  413  send getEpochNum, p, seqNum to each process q ∈ P;
+  414  start getEpochTimer with δ time units;
+
+  415  Upon getEpochTimer timeout: /* no timely links to a quorum, retry */
+  416  seqNum ++;
+  417  epochCount := 0;
+  418  globalMaxEn := registry[p].epochNum;
+  419  send getEpochNum, p, seqNum to each process q ∈ P;
+  420  start getEpochTimer with δ time units;
+
+  421  Upon receiving getEpochNum, q, sn :
+  422  localMaxEn :=max{registry[r].epochNum | r ∈ P };
+  423  send to q retEpochNum, p, q, sn , localMaxEn ;
+
+  424  Upon receiving retEpochNum, q, p, sn = seqNum , en :
+  425  if (en > globalMaxEn) globalMaxEn := en; end if
+  426  if (++epochCount ≥ n − f) /* epoch numbers from a quorum collected */
+  427  registry[p].serialNum := globalMaxEn.serialNum + 1;
+  428  epochStartTime := currentTime;
+  429  start refreshTimer with ∆ time units;
+  430  end if
+
+  431  COLLECT: same as in Figure 1
+
+  432  BECOME LEADER:
+  433  Upon change to lastCompletedReadStartTime
+  434  if (leaderEpoch = registry[p].epochNum ∧
+  435  lastCompletedReadStartTime − epochStartTime ≥ 2∆ + 3δ)
+  436  isLeader := true;
+  437  end if
+
+  438  Fig. 2. Stable Leader Election Protocol with 3f-accessibility
+=== PAGE 12 ===
+
+  439  210 D. Malkhi, F. Oprea, and L. Zhou
+
+  440  number eq lower than ep, q must have started the (timely) communication
+  441  to learn existing epoch numbers before t + ∆ +δ and then started epoch eq
+  442  at t+∆ + 2δ; otherwise, due to n−f +f + 1 > n, one of the n−f processes
+  443  reporting existing epoch numbers will be among the t + 1 that know ep and
+  444  will report an epoch number that is ep or higher. If q never expires eq, then
+  445  it will complete its refresh for eq at t + 2∆ + 3δ. Any collect/status round
+  446  after t + 2∆ + 3δ will reflect eq; therefore, ep is not the lowest non-expired
+  447  epoch and p will not become a leader.
+
+  448  To capture the condition under which a process considers itself a leader, we
+  449  introduce, in addition to variable leaderp, a boolean local variable isLeaderp for
+  450  each process p and define Ωp as follows:
+  451  ⎧
+  452  ⎪⎪p isLeader = true
+  453  ⎪⎪ p
+  454  ⎨
+  455  Ωp := leader leader = p∧ leader = null
+  456  ⎪ p p p
+  457  ⎪⎪
+  458  ⎪⎩
+  459  null otherwise
+
+  460  The full protocol is given in Figure 2. The correctness proofs appear in the full
+  461  version of this paper [19].
+
+  462  6 Reducing Message Complexity
+
+  463  As suggested in [9], a crucial measure of communication complexity is the number
+  464  of links that are utilized infinitely often in the protocol. Our protocols use all-toall communication infinitely often to keep leader information up to date, hence
+  465  employ O(n2) infinite-utilization links.
+  466  For the protocol in Figure 1, the steady-state communication complexity can
+  467  be reduced to O(n), where in a steady state there exists a unique f-accessible
+  468  leader that is never suspected by any non-faulty process. We briefly sketch the
+  469  required changes here. The full paper [19] contains a precise protocol description
+  470  and its correctness proof.
+  471  The first change is related to the refreshing of epoch numbers. A process
+  472  p that is not currently the leader need not refresh its own epoch number; it
+  473  can simply let it become inactive, since it is not contending for the leadership.
+  474  Therefore, we disable the periodic refresh at p when it is not a leader. A process increments its epoch number only when it experiences a roundTripTimer
+  475  timeout, as in the original protocol, and may "revive" an inactive epoch number
+  476  when becoming a leader.
+  477  The second change is related to the monitoring of epoch numbers in the
+  478  system. In a steady state, there is no reason for a process p to monitor the states
+  479  of all other processes. Therefore, we disable periodic collect altogether.
+  480  A process p that does not obtain any refresh message carrying the current
+  481  presumed leader's epoch number for some timeout period suspects that the current leader has failed. Likewise, a process p that hears a refresh message carrying
+=== PAGE 13 ===
+
+  482  Leader Election and Stability Without Eventual Timely Links 211
+
+  483  a lower epoch number than the current presumed leader's epoch number assumes
+  484  that it does not have up-to-date information about the current leader .
+  485  In these two cases (only), a process activates the collect procedure twice,
+  486  where the second one is activated at least ∆ + δ time units after the first one
+  487  completes, as in the original protocol. Process p then determines the lowest active
+  488  epoch number and compares it with its current epoch number. If p's current
+  489  epoch number is no higher than the lowest active epoch number, p becomes a
+  490  leader and activates refresh periodically as in the original protocol. Otherwise,
+  491  p will consider the process owning the lowest epoch number as the leader and
+  492  expect to receive refresh messages from that process periodically.
+  493  The intuition behind the success of the modified protocol is somewhat similar
+  494  to our original protocol, but with crucial differences. As before, consider a process
+  495  p that, after a certain time t, always manages to write its registry to f other
+  496  processes within δ. It follows that eventually p stops increasing its epoch number.
+  497  Note that this is true for any 3f-accessible process.
+  498  Now, consider a non-crashed process q with the lowest current epoch number
+  499  in the system. If q is not the leader yet, then q believes that there exists a lower
+  500  active epoch number than its own. Because such an epoch number no longer
+  501  exists, eventually q times out on that epoch number and performs two collects.
+  502  Because its epoch number is the lowest among the non-crashed processes, it will
+  503  learn that its epoch number is no higher than the lowest active epoch number
+  504  in the system and become a leader. If q is not 3f-accessible, eventually it will
+  505  fail updating its own freshness counter and will increase its epoch number.
+  506  Together, we have that, on the one hand, the 3f-accessible processes stop
+  507  increasing their epoch numbers. On the other hand, any non 3f-accessible process either crashes or increases its own epoch number to be higher than the
+  508  lowest epoch number in the system. As before, the process p whose epoch stops
+  509  increasing at the lowest value in the system becomes a permanent leader.
+  510  In terms of message complexity, once an f-accessible leader is elected and all
+  511  processes receive its refresh messages without suspecting the leader, eventually
+  512  all non-leader processes stop refreshing their epochs and stop reading, hence the
+  513  communication complexity drops to O(n).
+
+  514  7 Discussion
+
+  515  The condition we introduced to uphold stability in this paper, namelyn = 2f +1,
+  516  is stronger than what is required in practice. It is worth noting that, for both
+  517  Paxos and our stable leader election protocol, it suffices for a leader p to interact
+  518  in a timely fashion once with n −f processes. Subsequently, p can maintain its
+  519  leadership and proceed with consensus decisions, provided that it can interact
+  520  at any time with f + 1 processes.
+  521  Stability also appears to be in conflict with the ability to reduce the steadystate message complexity to O(n). Intuitively, the reduced message complexity
+  522  forces a process to decide whether to become a leader based on less accurate information, thereby creating opportunities for unnecessary demotion. For example,
+=== PAGE 14 ===
+
+  523  212 D. Malkhi, F. Oprea, and L. Zhou
+
+  524  in our protocol, to ensure stability, a process becomes a leader only when it is certain that no process can have a lower active epoch number. This is hard because
+  525  epoch numbers can remain inactive (and unknown to other processes) before they
+  526  are revived. It is left as an open question whether a stable leader protocol exists
+  527  under 3f-accessibility with O(n) steady-state message complexity.
+
+  528  8 Conclusion
+
+  529  It is our firm belief that leader election algorithms that implement Ω should be
+  530  studied in the context of practical coordination schemes that realize consensus.
+  531  This paper makes two contributions toward this goal.
+  532  First, it contributes to the study of weak synchrony conditions that enable
+  533  leader election. 3f-accessibility, the synchrony condition we require, is new and
+  534  surprisingly weak, in that it requires no eventual timely links. It is incomparable to (but also not stronger than) previously known conditions for leader
+  535  election. The condition is derived by our observations on Paxos, leading to an
+  536  implementation of Ω under f-accessibility.
+  537  Second, it provides practical and stable leader election protocol that eliminates unnecessary and potentially expensive leader changes. The paper therefore
+  538  provides Paxos with a "good" leader election protocol; this was left as an open
+  539  problem in Lamport's original Paxos paper [1].
+
+  540  References
+
+  541  1. Lamport, L.: The part-time parliament. ACM Transactions on Computer Systems
+  542  16 (1998) 133–169
+  543  2. Fischer, M.J., Lynch, N.A., Paterson, M.S.: Impossibility of distributed consensus
+  544  with one faulty process. Journal of the ACM 32 (1985) 374–382
+  545  3. Chandra, T.D., Toueg, S.: Unreliable failure detectors for reliable distributed systems. Journal of the ACM 43 (1996) 225–267
+  546  4. Chandra, T.D., Hadzilacos, V., Toueg, S.: The weakest failure detector for solving
+  547  consensus. Journal of the ACM 43 (1996) 685–722
+  548  5. Lee, E.K., Thekkath, C.: Petal: Distributed virtual disks. In: Proceedings of the 7th
+  549  International Conference on Architectural Support for Programming Languages
+  550  and Operating Systems (ASPLOS 1996). (1996) 84–92
+  551  6. Thekkath, C., Mann, T., Lee, E.K.: Frangipani: A scalable distributed file system.
+  552  In: proceedings of the 16th ACM Symposium on Operating Systems Principles
+  553  (SOSP 1997). (1997) 224–237
+  554  7. van Renesse, R., Schneider, F.B.: Chain replication for supporting high throughput
+  555  and availability. In: Proceedings of the 6th Usenix Symposium on Operating System
+  556  Design and Implementation (OSDI 2004). (2004) 91–104
+  557  8. MacCormick, J., Murphy, N., Najork, M., Thekkath, C.A., Zhou, L.: Boxwood:
+  558  Abstractions as the foundation for storage infrastructure. In: Proceedings of the
+  559  6th Usenix Symposium on Operating System Design and Implementation (OSDI
+  560  2004). (2004) 105–120
+=== PAGE 15 ===
+
+  561  Leader Election and Stability Without Eventual Timely Links 213
+
+  562  9. Larrea, M., Fernndez, A., Arvalo, S.: Optimal implementation of the weakest failure
+  563  detector for solving consensus. In: Proceedings of the 19th IEEE Symposium on
+  564  Reliable Distributed Systems (SRDS 2000). (2000) 52–59
+  565  10. Prisco, R.D., Lampson, B., Lynch, N.: Revisiting the Paxos algorithm. In: Proceedings of the 11th Workshop on Distributed Algorithms(WDAG). (1997) 11–125
+  566  11. Larrea, M., Arvalo, S., Fernndez, A.: Efficient algorithms to implement unreliable
+  567  failure detectors in partially synchronous systems. In: Proceedings of the 13th
+  568  International Symposium on Distributed Computing (DISC 1999). (1999) 34–48
+  569  12. Aguilera, M., Delporte-Gallet, C., Fauconnier, H., Toueg, S.: Stable leader election.
+  570  In: Proceedings of the 15th International Symposium on Distributed Computing
+  571  (DISC 2001). (2001)
+  572  13. Aguilera, M.K., Delporte-Gallet, C., Fauconnier, H., Toueg, S.: On implementing
+  573  Omega with weak reliability and synchrony assumptions. In: Proceedings of the
+  574  Twenty-Second Annual ACM Symposium on Principles of Distributed Computing
+  575  (PODC 2003), ACM Press (2003) 306–314
+  576  14. Anceaume, E., Fernndez, A., Mostefaoui, A., Neiger, G., Raynal, M.: A necessary
+  577  and sufficient condition for transforming limited accuracy failure detectors. J.
+  578  Comput. Syst. Sci. 68 (2004) 123–133
+  579  15. Aguilera, M.K., Delporte-Gallet, C., Fauconnier, H., Toueg, S.: Communicationefficient leader election and consensus with limited link synchrony. In: Proceedings
+  580  of the 23rd Annual ACM Symposium on Principles of Distributed Computing
+  581  (PODC 2004), ACM Press (2004) 328–337
+  582  16. Yang, J., Neiger, G., Gafni, E.: Structured derivations of consensus algorithms
+  583  for failure detectors. In: Proceedings of the 17th Annual ACM Symposium on
+  584  Principles of Distributed Computing (PODC 1998). (1998) 297–308
+  585  17. Mostefaoui, A., Raynal, M.: Unreliable failure detectors with limited scope accuracy and an application to consensus. In: Proceedings of the 19th International
+  586  Conference on Foundations of Software Technology and Theoretical Computer Science (FST&TCS99), Springer-Verlag LNCS #1738 (1999) 329–340
+  587  18. Chu, F.: Reducing Ω to 3W . Information Processing Letters 67 (1998) 298–293
+  588  19. Malkhi, D., Oprea, F., Zhou, L.: Omega meets Paxos: Leader election and stability without eventual timely links. Technical Report MSR-TR-2005-93, Microsoft
+  589  Research, Redmond, WA (2005)

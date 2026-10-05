@@ -1,0 +1,1299 @@
+---
+title: "ZooKeeper: Wait-Free Coordination for Internet-Scale Systems"
+authors:
+  - "Patrick Hunt"
+  - "Mahadev Konar"
+  - "Flavio P Junqueira"
+  - "Benjamin Reed"
+year: "2010"
+publication: ""
+handle_url: "https://www.usenix.org/events/usenix10/tech/full_papers/Hunt.pdf"
+source_pdf: "research/agent366/papers/zookeeper-atc10-hunt.pdf"
+source_pdf_sha256: "743d56888f7b698cf4d0a86a4538793bbbf3c94c8e21d5c27dc34369d56102a0"
+page_count: 14
+extracted_text_runs: 2109
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  ZooKeeper is a coordination service for distributed applications. The paper describes its wait-free interface, replicated architecture, implementation, and evaluation.
+tags: []
+---
+
+=== PAGE 1 ===
+
+    1  ZooKeeper: Wait-free coordination for Internet-scale systems
+
+    2  Patrick Hunt and Mahadev Konar
+
+    3  Yahoo! Grid
+    4  {phunt,mahadev}@yahoo-inc.com
+
+    5  Abstract
+    6  In this paper, we describe ZooKeeper, a service for coordinating processes of distributed applications. Since
+    7  ZooKeeper is part of critical infrastructure, ZooKeeper
+    8  aims to provide a simple and high performance kernel
+    9  for building more complex coordination primitives at the
+   10  client. It incorporates elements from group messaging,
+   11  shared registers, and distributed lock services in a replicated, centralized service. The interface exposed by Zoo-
+   12  Keeper has the wait-free aspects of shared registers with
+   13  an event-driven mechanism similar to cache invalidations
+   14  of distributed file systems to provide a simple, yet powerful coordination service.
+   15  The ZooKeeper interface enables a high-performance
+   16  service implementation. In addition to the wait-free
+   17  property, ZooKeeper provides a per client guarantee of
+   18  FIFO execution of requests and linearizability for all requests that change the ZooKeeper state. These design decisions enable the implementation of a high performance
+   19  processing pipeline with read requests being satisfied by
+   20  local servers. We show for the target workloads, 2:1
+   21  to 100:1 read to write ratio, that ZooKeeper can handle
+   22  tens to hundreds of thousands of transactions per second.
+   23  This performance allows ZooKeeper to be used extensively by client applications.
+
+   24  1 Introduction
+
+   25  Large-scale distributed applications require different
+   26  forms of coordination. Configuration is one of the most
+   27  basic forms of coordination. In its simplest form, configuration is just a list of operational parameters for the
+   28  system processes, whereas more sophisticated systems
+   29  have dynamic configuration parameters. Group membership and leader election are also common in distributed
+   30  systems: often processes need to know which other processes are alive and what those processes are in charge
+   31  of. Locks constitute a powerful coordination primitive
+
+   32  Flavio P. Junqueira and Benjamin Reed
+
+   33  Yahoo! Research
+   34  {fpj,breed}@yahoo-inc.com
+
+   35  that implement mutually exclusive access to critical resources.
+   36  One approach to coordination is to develop services
+   37  for each of the different coordination needs. For example, Amazon Simple Queue Service [3] focuses specifically on queuing. Other services have been developed specifically for leader election [25] and configuration [27]. Services that implement more powerful primitives can be used to implement less powerful ones. For
+   38  example, Chubby [6] is a locking service with strong
+   39  synchronization guarantees. Locks can then be used to
+   40  implement leader election, group membership, etc.
+   41  When designing our coordination service, we moved
+   42  away from implementing specific primitives on the
+   43  server side, and instead we opted for exposing an API
+   44  that enables application developers to implement their
+   45  own primitives. Such a choice led to the implementation of a coordination kernel that enables new primitives
+   46  without requiring changes to the service core. This approach enables multiple forms of coordination adapted to
+   47  the requirements of applications, instead of constraining
+   48  developers to a fixed set of primitives.
+   49  When designing the API of ZooKeeper, we moved
+   50  away from blocking primitives, such as locks. Blocking
+   51  primitives for a coordination service can cause, among
+   52  other problems, slow or faulty clients to impact negatively the performance of faster clients. The implementation of the service itself becomes more complicated
+   53  if processing requests depends on responses and failure detection of other clients. Our system, Zookeeper,
+   54  hence implements an API that manipulates simple waitfree data objects organized hierarchically as in file systems. In fact, the ZooKeeper API resembles the one of
+   55  any other file system, and looking at just the API signatures, ZooKeeper seems to be Chubby without the lock
+   56  methods, open, and close. Implementing wait-free data
+   57  objects, however, differentiates ZooKeeper significantly
+   58  from systems based on blocking primitives such as locks.
+   59  Although the wait-free property is important for per-
+=== PAGE 2 ===
+
+   60  formance and fault tolerance, it is not sufficient for coordination. We have also to provide order guarantees for
+   61  operations. In particular, we have found that guaranteeing both FIFO client ordering of all operations and linearizable writes enables an efficient implementation of
+   62  the service and it is sufficient to implement coordination
+   63  primitives of interest to our applications. In fact, we can
+   64  implement consensus for any number of processes with
+   65  our API, and according to the hierarchy of Herlihy, Zoo-
+   66  Keeper implements a universal object [14].
+   67  The ZooKeeper service comprises an ensemble of
+   68  servers that use replication to achieve high availability
+   69  and performance. Its high performance enables applications comprising a large number of processes to use
+   70  such a coordination kernel to manage all aspects of coordination. We were able to implement ZooKeeper using a simple pipelined architecture that allows us to have
+   71  hundreds or thousands of requests outstanding while still
+   72  achieving low latency. Such a pipeline naturally enables
+   73  the execution of operations from a single client in FIFO
+   74  order. Guaranteeing FIFO client order enables clients to
+   75  submit operations asynchronously. With asynchronous
+   76  operations, a client is able to have multiple outstanding
+   77  operations at a time. This feature is desirable, for example, when a new client becomes a leader and it has to manipulate metadata and update it accordingly. Without the
+   78  possibility of multiple outstanding operations, the time
+   79  of initialization can be of the order of seconds instead of
+   80  sub-second.
+   81  To guarantee that update operations satisfy linearizability, we implement a leader-based atomic broadcast
+   82  protocol [23], called Zab [24]. A typical workload
+   83  of a ZooKeeper application, however, is dominated by
+   84  read operations and it becomes desirable to scale read
+   85  throughput. In ZooKeeper, servers process read operations locally, and we do not use Zab to totally order them.
+   86  Caching data on the client side is an important technique to increase the performance of reads. For example,
+   87  it is useful for a process to cache the identifier of the
+   88  current leader instead of probing ZooKeeper every time
+   89  it needs to know the leader. ZooKeeper uses a watch
+   90  mechanism to enable clients to cache data without managing the client cache directly. With this mechanism,
+   91  a client can watch for an update to a given data object,
+   92  and receive a notification upon an update. Chubby manages the client cache directly. It blocks updates to invalidate the caches of all clients caching the data being
+   93  changed. Under this design, if any of these clients is
+   94  slow or faulty, the update is delayed. Chubby uses leases
+   95  to prevent a faulty client from blocking the system indefinitely. Leases, however, only bound the impact of slow
+   96  or faulty clients, whereas ZooKeeper watches avoid the
+   97  problem altogether.
+   98  In this paper we discuss our design and implementation of ZooKeeper. With ZooKeeper, we are able to implement all coordination primitives that our applications
+   99  require, even though only writes are linearizable. To validate our approach we show how we implement some
+  100  coordination primitives with ZooKeeper.
+  101  To summarize, in this paper our main contributions are:
+  102  Coordination kernel: We propose a wait-free coordination service with relaxed consistency guarantees
+  103  for use in distributed systems. In particular, we describe our design and implementation of a coordination kernel, which we have used in many critical applications to implement various coordination
+  104  techniques.
+  105  Coordination recipes: We show how ZooKeeper can
+  106  be used to build higher level coordination primitives, even blocking and strongly consistent primitives, that are often used in distributed applications.
+  107  Experience with Coordination: We share some of the
+  108  ways that we use ZooKeeper and evaluate its performance.
+
+  109  2 The ZooKeeper service
+
+  110  Clients submit requests to ZooKeeper through a client
+  111  API using a ZooKeeper client library. In addition to exposing the ZooKeeper service interface through the client
+  112  API, the client library also manages the network connections between the client and ZooKeeper servers.
+  113  In this section, we first provide a high-level view of the
+  114  ZooKeeper service. We then discuss the API that clients
+  115  use to interact with ZooKeeper.
+
+  116  Terminology. In this paper, we use client to denote a
+  117  user of the ZooKeeper service, server to denote a process
+  118  providing the ZooKeeper service, and znode to denote
+  119  an in-memory data node in the ZooKeeper data, which
+  120  is organized in a hierarchical namespace referred to as
+  121  the data tree. We also use the terms update and write to
+  122  refer to any operation that modifies the state of the data
+  123  tree. Clients establish a session when they connect to
+  124  ZooKeeper and obtain a session handle through which
+  125  they issue requests.
+
+  126  2.1 Service overview
+
+  127  ZooKeeper provides to its clients the abstraction of a set
+  128  of data nodes (znodes), organized according to a hierarchical name space. The znodes in this hierarchy are data
+  129  objects that clients manipulate through the ZooKeeper
+  130  API. Hierarchical name spaces are commonly used in file
+  131  systems. It is a desirable way of organizing data objects,
+  132  since users are used to this abstraction and it enables better organization of application meta-data. To refer to a
+=== PAGE 3 ===
+
+  133  given znode, we use the standard UNIX notation for file
+  134  system paths. For example, we use /A/B/C to denote
+  135  the path to znode C, where C has B as its parent and B
+  136  has A as its parent. All znodes store data, and all znodes,
+  137  except for ephemeral znodes, can have children.
+
+  138  /
+
+  139  /app1 /app2
+
+  140  /app1/p_1 /app1/p_2 /app1/p_3
+
+  141  Figure 1: Illustration of ZooKeeper hierarchical name
+  142  space.
+
+  143  There are two types of znodes that a client can create:
+  144  Regular: Clients manipulate regular znodes by creating
+  145  and deleting them explicitly;
+  146  Ephemeral: Clients create such znodes, and they either delete them explicitly, or let the system remove
+  147  them automatically when the session that creates
+  148  them terminates (deliberately or due to a failure).
+  149  Additionally, when creating a new znode, a client can
+  150  set a sequential flag. Nodes created with the sequential flag set have the value of a monotonically increasing counter appended to its name. If n is the new znode
+  151  and p is the parent znode, then the sequence value of n
+  152  is never smaller than the value in the name of any other
+  153  sequential znode ever created under p.
+  154  ZooKeeper implements watches to allow clients to
+  155  receive timely notifications of changes without requiring polling. When a client issues a read operation
+  156  with a watch flag set, the operation completes as normal except that the server promises to notify the client
+  157  when the information returned has changed. Watches
+  158  are one-time triggers associated with a session; they
+  159  are unregistered once triggered or the session closes.
+  160  Watches indicate that a change has happened, but do
+  161  not provide the change. For example, if a client issues a getData(''/foo'', true) before "/foo"
+  162  is changed twice, the client will get one watch event
+  163  telling the client that data for "/foo" has changed. Session events, such as connection loss events, are also sent
+  164  to watch callbacks so that clients know that watch events
+  165  may be delayed.
+
+  166  Data model. The data model of ZooKeeper is essentially a file system with a simplified API and only full
+  167  data reads and writes, or a key/value table with hierarchical keys. The hierarchal namespace is useful for allocating subtrees for the namespace of different applications and for setting access rights to those subtrees. We
+  168  also exploit the concept of directories on the client side to
+  169  build higher level primitives as we will see in section 2.4.
+  170  Unlike files in file systems, znodes are not designed
+  171  for general data storage. Instead, znodes map to abstractions of the client application, typically corresponding
+  172  to meta-data used for coordination purposes. To illustrate, in Figure 1 we have two subtrees, one for Application 1 (/app1) and another for Application 2 (/app2).
+  173  The subtree for Application 1 implements a simple group
+  174  membership protocol: each client process p⟩ creates a
+  175  znode p i under /app1, which persists as long as the
+  176  process is running.
+  177  Although znodes have not been designed for general
+  178  data storage, ZooKeeper does allow clients to store some
+  179  information that can be used for meta-data or configuration in a distributed computation. For example, in a
+  180  leader-based application, it is useful for an application
+  181  server that is just starting to learn which other server is
+  182  currently the leader. To accomplish this goal, we can
+  183  have the current leader write this information in a known
+  184  location in the znode space. Znodes also have associated
+  185  meta-data with time stamps and version counters, which
+  186  allow clients to track changes to znodes and execute conditional updates based on the version of the znode.
+
+  187  Sessions. A client connects to ZooKeeper and initiates
+  188  a session. Sessions have an associated timeout. Zoo-
+  189  Keeper considers a client faulty if it does not receive anything from its session for more than that timeout. A session ends when clients explicitly close a session handle
+  190  or ZooKeeper detects that a clients is faulty. Within a session, a client observes a succession of state changes that
+  191  reflect the execution of its operations. Sessions enable a
+  192  client to move transparently from one server to another
+  193  within a ZooKeeper ensemble, and hence persist across
+  194  ZooKeeper servers.
+
+  195  2.2 Client API
+  196  We present below a relevant subset of the ZooKeeper
+  197  API, and discuss the semantics of each request.
+  198  create(path, data, flags): Creates a znode
+  199  with path name path, stores data[] in it, and
+  200  returns the name of the new znode. flags enables a client to select the type of znode: regular,
+  201  ephemeral, and set the sequential flag;
+  202  delete(path, version): Deletes the znode
+  203  path if that znode is at the expected version;
+  204  exists(path, watch): Returns true if the znode
+  205  with path name path exists, and returns false otherwise. The watch flag enables a client to set a
+=== PAGE 4 ===
+
+  206  watch on the znode;
+  207  getData(path, watch): Returns the data and
+  208  meta-data, such as version information, associated
+  209  with the znode. The watch flag works in the same
+  210  way as it does for exists(), except that Zoo-
+  211  Keeper does not set the watch if the znode does not
+  212  exist;
+  213  setData(path, data, version): Writes
+  214  data[] to znode path if the version number is
+  215  the current version of the znode;
+  216  getChildren(path, watch): Returns the set of
+  217  names of the children of a znode;
+  218  sync(path): Waits for all updates pending at the start
+  219  of the operation to propagate to the server that the
+  220  client is connected to. The path is currently ignored.
+  221  All methods have both a synchronous and an asynchronous version available through the API. An application uses the synchronous API when it needs to execute
+  222  a single ZooKeeper operation and it has no concurrent
+  223  tasks to execute, so it makes the necessary ZooKeeper
+  224  call and blocks. The asynchronous API, however, enables an application to have both multiple outstanding
+  225  ZooKeeper operations and other tasks executed in parallel. The ZooKeeper client guarantees that the corresponding callbacks for each operation are invoked in order.
+  226  Note that ZooKeeper does not use handles to access
+  227  znodes. Each request instead includes the full path of
+  228  the znode being operated on. Not only does this choice
+  229  simplifies the API (no open() or close() methods),
+  230  but it also eliminates extra state that the server would
+  231  need to maintain.
+  232  Each of the update methods take an expected version number, which enables the implementation of conditional updates. If the actual version number of the znode does not match the expected version number the update fails with an unexpected version error. If the version
+  233  number is −1, it does not perform version checking.
+
+  234  2.3 ZooKeeper guarantees
+
+  235  ZooKeeper has two basic ordering guarantees:
+  236  Linearizable writes: all requests that update the state
+  237  of ZooKeeper are serializable and respect precedence;
+  238  FIFO client order: all requests from a given client are
+  239  executed in the order that they were sent by the
+  240  client.
+  241  Note that our definition of linearizability is different
+  242  from the one originally proposed by Herlihy [15], and
+  243  we call it A-linearizability (asynchronous linearizability). In the original definition of linearizability by Herlihy, a client is only able to have one outstanding operation at a time (a client is one thread). In ours, we allow a
+
+  244  client to have multiple outstanding operations, and consequently we can choose to guarantee no specific order
+  245  for outstanding operations of the same client or to guarantee FIFO order. We choose the latter for our property.
+  246  It is important to observe that all results that hold for
+  247  linearizable objects also hold for A-linearizable objects
+  248  because a system that satisfies A-linearizability also satisfies linearizability. Because only update requests are Alinearizable, ZooKeeper processes read requests locally
+  249  at each replica. This allows the service to scale linearly
+  250  as servers are added to the system.
+  251  To see how these two guarantees interact, consider the
+  252  following scenario. A system comprising a number of
+  253  processes elects a leader to command worker processes.
+  254  When a new leader takes charge of the system, it must
+  255  change a large number of configuration parameters and
+  256  notify the other processes once it finishes. We then have
+  257  two important requirements:
+  258  • As the new leader starts making changes, we do not
+  259  want other processes to start using the configuration
+  260  that is being changed;
+  261  • If the new leader dies before the configuration has
+  262  been fully updated, we do not want the processes to
+  263  use this partial configuration.
+  264  Observe that distributed locks, such as the locks provided by Chubby, would help with the first requirement
+  265  but are insufficient for the second. With ZooKeeper,
+  266  the new leader can designate a path as the ready znode;
+  267  other processes will only use the configuration when that
+  268  znode exists. The new leader makes the configuration
+  269  change by deleting ready, updating the various configuration znodes, and creating ready. All of these changes
+  270  can be pipelined and issued asynchronously to quickly
+  271  update the configuration state. Although the latency of a
+  272  change operation is of the order of 2 milliseconds, a new
+  273  leader that must update 5000 different znodes will take
+  274  10 seconds if the requests are issued one after the other;
+  275  by issuing the requests asynchronously the requests will
+  276  take less than a second. Because of the ordering guarantees, if a process sees the ready znode, it must also see
+  277  all the configuration changes made by the new leader. If
+  278  the new leader dies before the ready znode is created, the
+  279  other processes know that the configuration has not been
+  280  finalized and do not use it.
+  281  The above scheme still has a problem: what happens
+  282  if a process sees that ready exists before the new leader
+  283  starts to make a change and then starts reading the configuration while the change is in progress. This problem
+  284  is solved by the ordering guarantee for the notifications:
+  285  if a client is watching for a change, the client will see
+  286  the notification event before it sees the new state of the
+  287  system after the change is made. Consequently, if the
+  288  process that reads the ready znode requests to be notified
+  289  of changes to that znode, it will see a notification inform-
+=== PAGE 5 ===
+
+  290  ing the client of the change before it can read any of the
+  291  new configuration.
+  292  Another problem can arise when clients have their own
+  293  communication channels in addition to ZooKeeper. For
+  294  example, consider two clients A andB that have a shared
+  295  configuration in ZooKeeper and communicate through a
+  296  shared communication channel. If A changes the shared
+  297  configuration in ZooKeeper and tells B of the change
+  298  through the shared communication channel, B would expect to see the change when it re-reads the configuration.
+  299  If B's ZooKeeper replica is slightly behind A's, it may
+  300  not see the new configuration. Using the above guarantees B can make sure that it sees the most up-to-date
+  301  information by issuing a write before re-reading the configuration. To handle this scenario more efficiently Zoo-
+  302  Keeper provides the sync request: when followed by
+  303  a read, constitutes a slow read. sync causes a server
+  304  to apply all pending write requests before processing the
+  305  read without the overhead of a full write. This primitive
+  306  is similar in idea to the flush primitive of ISIS [5].
+  307  ZooKeeper also has the following two liveness and
+  308  durability guarantees: if a majority of ZooKeeper servers
+  309  are active and communicating the service will be available; and if the ZooKeeper service responds successfully
+  310  to a change request, that change persists across any number of failures as long as a quorum of servers is eventually able to recover.
+
+  311  2.4 Examples of primitives
+
+  312  In this section, we show how to use the ZooKeeper API
+  313  to implement more powerful primitives. The ZooKeeper
+  314  service knows nothing about these more powerful primitives since they are entirely implemented at the client using the ZooKeeper client API. Some common primitives
+  315  such as group membership and configuration management are also wait-free. For others, such as rendezvous,
+  316  clients need to wait for an event. Even though ZooKeeper
+  317  is wait-free, we can implement efficient blocking primitives with ZooKeeper. ZooKeeper's ordering guarantees
+  318  allow efficient reasoning about system state, and watches
+  319  allow for efficient waiting.
+
+  320  Configuration Management ZooKeeper can be used
+  321  to implement dynamic configuration in a distributed application. In its simplest form configuration is stored in
+  322  a znode, zc. Processes start up with the full pathname
+  323  of zc. Starting processes obtain their configuration by
+  324  reading zc with the watch flag set to true. If the configuration in zc is ever updated, the processes are notified
+  325  and read the new configuration, again setting the watch
+  326  flag to true.
+  327  Note that in this scheme, as in most others that use
+  328  watches, watches are used to make sure that a process has
+
+  329  the most recent information. For example, if a process
+  330  watching zc is notified of a change to zc and before it
+  331  can issue a read for zc there are three more changes to
+  332  zc , the process does not receive three more notification
+  333  events. This does not affect the behavior of the process,
+  334  since those three events would have simply notified the
+  335  process of something it already knows: the information
+  336  it has for zc is stale.
+
+  337  Rendezvous Sometimes in distributed systems, it is
+  338  not always clear a priori what the final system configuration will look like. For example, a client may want to
+  339  start a master process and several worker processes, but
+  340  the starting processes is done by a scheduler, so the client
+  341  does not know ahead of time information such as addresses and ports that it can give the worker processes to
+  342  connect to the master. We handle this scenario with Zoo-
+  343  Keeper using a rendezvous znode, zr, which is an node
+  344  created by the client. The client passes the full pathname
+  345  of zr as a startup parameter of the master and worker
+  346  processes. When the master starts it fills in zr with information about addresses and ports it is using. When
+  347  workers start, they read zr with watch set to true. If zr
+  348  has not been filled in yet, the worker waits to be notified
+  349  when zr is updated. If zr is an ephemeral node, master
+  350  and worker processes can watch for zr to be deleted and
+  351  clean themselves up when the client ends.
+
+  352  Group Membership We take advantage of ephemeral
+  353  nodes to implement group membership. Specifically, we
+  354  use the fact that ephemeral nodes allow us to see the state
+  355  of the session that created the node. We start by designating a znode, zg to represent the group. When a process
+  356  member of the group starts, it creates an ephemeral child
+  357  znode under zg. If each process has a unique name or
+  358  identifier, then that name is used as the name of the child
+  359  znode; otherwise, the process creates the znode with the
+  360  SEQUENTIAL flag to obtain a unique name assignment.
+  361  Processes may put process information in the data of the
+  362  child znode, addresses and ports used by the process, for
+  363  example.
+  364  After the child znode is created under zg the process
+  365  starts normally. It does not need to do anything else. If
+  366  the process fails or ends, the znode that represents it under zg is automatically removed.
+  367  Processes can obtain group information by simply listing the children of zg. If a process wants to monitor
+  368  changes in group membership, the process can set the
+  369  watch flag to true and refresh the group information (always setting the watch flag to true) when change notifications are received.
+=== PAGE 6 ===
+
+  370  Simple Locks Although ZooKeeper is not a lock service, it can be used to implement locks. Applications
+  371  using ZooKeeper usually use synchronization primitives
+  372  tailored to their needs, such as those shown above. Here
+  373  we show how to implement locks with ZooKeeper to
+  374  show that it can implement a wide variety of general synchronization primitives.
+  375  The simplest lock implementation uses "lock files".
+  376  The lock is represented by a znode. To acquire a lock,
+  377  a client tries to create the designated znode with the
+  378  EPHEMERAL flag. If the create succeeds, the client
+  379  holds the lock. Otherwise, the client can read the znode with the watch flag set to be notified if the current
+  380  leader dies. A client releases the lock when it dies or explicitly deletes the znode. Other clients that are waiting
+  381  for a lock try again to acquire a lock once they observe
+  382  the znode being deleted.
+  383  While this simple locking protocol works, it does have
+  384  some problems. First, it suffers from the herd effect. If
+  385  there are many clients waiting to acquire a lock, they will
+  386  all vie for the lock when it is released even though only
+  387  one client can acquire the lock. Second, it only implements exclusive locking. The following two primitives
+  388  show how both of these problems can be overcome.
+
+  389  Simple Locks without Herd Effect We define a lock
+  390  znode l to implement such locks. Intuitively we line up
+  391  all the clients requesting the lock and each client obtains
+  392  the lock in order of request arrival. Thus, clients wishing
+  393  to obtain the lock do the following:
+
+  394  Lock
+  395  1 n = create(l + "/lock-", EPHEMERAL|SEQUENTIAL)
+  396  2 C = getChildren(l, false)
+  397  3 if n is lowest znode in C, exit
+  398  4 p = znode in C ordered just before n
+  399  5 if exists(p, true) wait for watch event
+  400  6 goto 2
+
+  401  Unlock
+  402  1 delete(n)
+  403  The use of the SEQUENTIAL flag in line 1 of Lock
+  404  orders the client's attempt to acquire the lock with respect to all other attempts. If the client's znode has the
+  405  lowest sequence number at line 3, the client holds the
+  406  lock. Otherwise, the client waits for deletion of the znode that either has the lock or will receive the lock before this client's znode. By only watching the znode
+  407  that precedes the client's znode, we avoid the herd effect
+  408  by only waking up one process when a lock is released
+  409  or a lock request is abandoned. Once the znode being
+  410  watched by the client goes away, the client must check
+  411  if it now holds the lock. (The previous lock request may
+  412  have been abandoned and there is a znode with a lower
+  413  sequence number still waiting for or holding the lock.)
+  414  Releasing a lock is as simple as deleting the znode n that represents the lock request. By using the
+
+  415  EPHEMERAL flag on creation, processes that crash will
+  416  automatically cleanup any lock requests or release any
+  417  locks that they may have.
+  418  In summary, this locking scheme has the following advantages:
+  419  1. The removal of a znode only causes one client to
+  420  wake up, since each znode is watched by exactly
+  421  one other client, so we do not have the herd effect;
+  422  2. There is no polling or timeouts;
+  423  3. Because of the way we have implemented locking,
+  424  we can see by browsing the ZooKeeper data the
+  425  amount of lock contention, break locks, and debug
+  426  locking problems.
+
+  427  Read/Write Locks To implement read/write locks we
+  428  change the lock procedure slightly and have separate
+  429  read lock and write lock procedures. The unlock procedure is the same as the global lock case.
+
+  430  Write Lock
+  431  1 n = create(l + "/write-", EPHEMERAL|SEQUENTIAL)
+  432  2 C = getChildren(l, false)
+  433  3 if n is lowest znode in C, exit
+  434  4 p = znode in C ordered just before n
+  435  5 if exists(p, true) wait for event
+  436  6 goto 2
+
+  437  Read Lock
+  438  1 n = create(l + "/read-", EPHEMERAL|SEQUENTIAL)
+  439  2 C = getChildren(l, false)
+  440  3 if no write znodes lower than n in C, exit
+  441  4 p = write znode in C ordered just before n
+  442  5 if exists(p, true) wait for event
+  443  6 goto 3
+  444  This lock procedure varies slightly from the previous
+  445  locks. Write locks differ only in naming. Since read
+  446  locks may be shared, lines 3 and 4 vary slightly because
+  447  only earlier write lock znodes prevent the client from obtaining a read lock. It may appear that we have a "herd
+  448  effect" when there are several clients waiting for a read
+  449  lock and get notified when the "write-" znode with the
+  450  lower sequence number is deleted; in fact, this is a desired behavior, all those read clients should be released
+  451  since they may now have the lock.
+
+  452  Double Barrier Double barriers enable clients to synchronize the beginning and the end of a computation.
+  453  When enough processes, defined by the barrier threshold, have joined the barrier, processes start their computation and leave the barrier once they have finished. We
+  454  represent a barrier in ZooKeeper with a znode, referred
+  455  to as b. Every process p registers with b – by creating
+  456  a znode as a child of b – on entry, and unregisters – removes the child – when it is ready to leave. Processes
+  457  can enter the barrier when the number of child znodes
+  458  of b exceeds the barrier threshold. Processes can leave
+  459  the barrier when all of the processes have removed their
+  460  children. We use watches to efficiently wait for enter and
+=== PAGE 7 ===
+
+  461  exit conditions to be satisfied. To enter, processes watch
+  462  for the existence of a ready child of b that will be created by the process that causes the number of children to
+  463  exceed the barrier threshold. To leave, processes watch
+  464  for a particular child to disappear and only check the exit
+  465  condition once that znode has been removed.
+
+  466  3 ZooKeeper Applications
+
+  467  We now describe some applications that use ZooKeeper,
+  468  and explain briefly how they use it. We show the primitives of each example in bold.
+
+  469  The Fetching Service Crawling is an important part of
+  470  a search engine, and Yahoo! crawls billions of Web documents. The Fetching Service (FS) is part of the Yahoo!
+  471  crawler and it is currently in production. Essentially, it
+  472  has master processes that command page-fetching processes. The master provides the fetchers with configuration, and the fetchers write back informing of their status
+  473  and health. The main advantages of using ZooKeeper
+  474  for FS are recovering from failures of masters, guaranteeing availability despite failures, and decoupling the
+  475  clients from the servers, allowing them to direct their request to healthy servers by just reading their status from
+  476  ZooKeeper. Thus, FS uses ZooKeeper mainly to manage configuration metadata, although it also uses Zoo-
+  477  Keeper to elect masters (leader election).
+
+  478  2000 read
+  479  write
+  480  1500
+
+  481  1000
+
+  482  Number of operations 500
+
+  483  0
+  484  0h 6h 12h 18h 24h 30h 36h 42h 48h 54h 60h 66h
+  485  Time in seconds
+  486  Figure 2: Workload for one ZK server with the Fetching
+  487  Service. Each point represents a one-second sample.
+  488  Figure 2 shows the read and write traffic for a Zoo-
+  489  Keeper server used by FS through a period of three days.
+  490  To generate this graph, we count the number of operations for every second during the period, and each point
+  491  corresponds to the number of operations in that second.
+  492  We observe that the read traffic is much higher compared
+  493  to the write traffic. During periods in which the rate is
+  494  higher than 1, 000 operations per second, the read:write
+  495  ratio varies between 10:1 and 100:1. The read operations
+  496  in this workload are getData(), getChildren(),
+  497  and exists(), in increasing order of prevalence.
+
+  498  Katta Katta [17] is a distributed indexer that uses Zoo-
+  499  Keeper for coordination, and it is an example of a non-
+  500  Yahoo! application. Katta divides the work of indexing
+  501  using shards. A master server assigns shards to slaves
+  502  and tracks progress. Slaves can fail, so the master must
+  503  redistribute load as slaves come and go. The master can
+  504  also fail, so other servers must be ready to take over in
+  505  case of failure. Katta uses ZooKeeper to track the status
+  506  of slave servers and the master (group membership),
+  507  and to handle master failover (leader election). Katta
+  508  also uses ZooKeeper to track and propagate the assignments of shards to slaves (configuration management).
+
+  509  Yahoo! Message Broker Yahoo! Message Broker
+  510  (YMB) is a distributed publish-subscribe system. The
+  511  system manages thousands of topics that clients can publish messages to and receive messages from. The topics
+  512  are distributed among a set of servers to provide scalability. Each topic is replicated using a primary-backup
+  513  scheme that ensures messages are replicated to two machines to ensure reliable message delivery. The servers
+  514  that makeup YMB use a shared-nothing distributed architecture which makes coordination essential for correct
+  515  operation. YMB uses ZooKeeper to manage the distribution of topics (configuration metadata), deal with failures of machines in the system (failure detection and
+  516  group membership), and control system operation.
+
+  517  broker domain
+
+  518  s h u t d o w n nodes migration_prohibited topics broker_disabled
+
+  519  < h o s t n a m e > < h o s t n a m e > ..... < h o s t n a m e > < t o p i c > < t o p i c > .... < t o p i c >
+  520  load
+  521  # o f t o p i c s
+  522  p r i m a r y b a c k u p
+  523  h o s t n a m e
+
+  524  Figure 3: The layout of Yahoo! Message Broker (YMB)
+  525  structures in ZooKeeper
+
+  526  Figure 3 shows part of the znode data layout for YMB.
+  527  Each broker domain has a znode called nodes that has
+  528  an ephemeral znode for each of the active servers that
+  529  compose the YMB service. Each YMB server creates
+  530  an ephemeral znode under nodes with load and status information providing both group membership and
+  531  status information through ZooKeeper. Nodes such as
+  532  shutdown and migration prohibited are monitored by all of the servers that make up the service and
+  533  allow centralized control of YMB. The topics directory has a child znode for each topic managed by YMB.
+  534  These topic znodes have child znodes that indicate the
+=== PAGE 8 ===
+
+  535  primary and backup server for each topic along with the
+  536  subscribers of that topic. The primary and backup
+  537  server znodes not only allow servers to discover the
+  538  servers in charge of a topic, but they also manage leader
+  539  election and server crashes.
+
+  540  Z o o K e e p e r S e r v i c e
+  541  Write Request t x n Response
+  542  Request Processor
+  543  Replicated
+  544  Database
+  545  A t o m i c
+  546  Broadcast t x n
+
+  547  Read
+  548  Request
+  549  Figure 4: The components of the ZooKeeper service.
+
+  550  4 ZooKeeper Implementation
+
+  551  ZooKeeper provides high availability by replicating the
+  552  ZooKeeper data on each server that composes the service. We assume that servers fail by crashing, and such
+  553  faulty servers may later recover. Figure 4 shows the highlevel components of the ZooKeeper service. Upon receiving a request, a server prepares it for execution (request processor). If such a request requires coordination among the servers (write requests), then they use an
+  554  agreement protocol (an implementation of atomic broadcast), and finally servers commit changes to the Zoo-
+  555  Keeper database fully replicated across all servers of the
+  556  ensemble. In the case of read requests, a server simply
+  557  reads the state of the local database and generates a response to the request.
+  558  The replicated database is an in-memory database containing the entire data tree. Each znode in the tree stores a
+  559  maximum of 1MB of data by default, but this maximum
+  560  value is a configuration parameter that can be changed in
+  561  specific cases. For recoverability, we efficiently log updates to disk, and we force writes to be on the disk media
+  562  before they are applied to the in-memory database. In
+  563  fact, as Chubby [8], we keep a replay log (a write-ahead
+  564  log, in our case) of committed operations and generate
+  565  periodic snapshots of the in-memory database.
+  566  Every ZooKeeper server services clients. Clients connect to exactly one server to submit its requests. As we
+  567  noted earlier, read requests are serviced from the local
+  568  replica of each server database. Requests that change the
+  569  state of the service, write requests, are processed by an
+  570  agreement protocol.
+  571  As part of the agreement protocol write requests are
+  572  forwarded to a single server, called the leader1. The
+  573  rest of the ZooKeeper servers, called followers, receive
+  574  1 Details of leaders and followers, as part of the agreement protocol,
+  575  are out of the scope of this paper.
+
+  576  message proposals consisting of state changes from the
+  577  leader and agree upon state changes.
+
+  578  4.1 Request Processor
+
+  579  Since the messaging layer is atomic, we guarantee that
+  580  the local replicas never diverge, although at any point in
+  581  time some servers may have applied more transactions
+  582  than others. Unlike the requests sent from clients, the
+  583  transactions are idempotent. When the leader receives
+  584  a write request, it calculates what the state of the system will be when the write is applied and transforms it
+  585  into a transaction that captures this new state. The future state must be calculated because there may be outstanding transactions that have not yet been applied to
+  586  the database. For example, if a client does a conditional
+  587  setDataand the version number in the request matches
+  588  the future version number of the znode being updated,
+  589  the service generates a setDataTXN that contains the
+  590  new data, the new version number, and updated time
+  591  stamps. If an error occurs, such as mismatched version
+  592  numbers or the znode to be updated does not exist, an
+  593  errorTXN is generated instead.
+
+  594  4.2 Atomic Broadcast
+
+  595  All requests that update ZooKeeper state are forwarded
+  596  to the leader. The leader executes the request and
+  597  broadcasts the change to the ZooKeeper state through
+  598  Zab [24], an atomic broadcast protocol. The server that
+  599  receives the client request responds to the client when it
+  600  delivers the corresponding state change. Zab uses by default simple majority quorums to decide on a proposal,
+  601  so Zab and thus ZooKeeper can only work if a majority
+  602  of servers are correct (i.e., with 2f + 1 server we can
+  603  tolerate f failures).
+  604  To achieve high throughput, ZooKeeper tries to keep
+  605  the request processing pipeline full. It may have thousands of requests in different parts of the processing
+  606  pipeline. Because state changes depend on the application of previous state changes, Zab provides stronger
+  607  order guarantees than regular atomic broadcast. More
+  608  specifically, Zab guarantees that changes broadcast by a
+  609  leader are delivered in the order they were sent and all
+  610  changes from previous leaders are delivered to an established leader before it broadcasts its own changes.
+  611  There are a few implementation details that simplify
+  612  our implementation and give us excellent performance.
+  613  We use TCP for our transport so message order is maintained by the network, which allows us to simplify our
+  614  implementation. We use the leader chosen by Zab as
+  615  the ZooKeeper leader, so that the same process that creates transactions also proposes them. We use the log to
+  616  keep track of proposals as the write-ahead log for the in-
+=== PAGE 9 ===
+
+  617  memory database, so that we do not have to write messages twice to disk.
+  618  During normal operation Zab does deliver all messages in order and exactly once, but since Zab does not
+  619  persistently record the id of every message delivered,
+  620  Zab may redeliver a message during recovery. Because
+  621  we use idempotent transactions, multiple delivery is acceptable as long as they are delivered in order. In fact,
+  622  ZooKeeper requires Zab to redeliver at least all messages
+  623  that were delivered after the start of the last snapshot.
+
+  624  4.3 Replicated Database
+  625  Each replica has a copy in memory of the ZooKeeper
+  626  state. When a ZooKeeper server recovers from a crash, it
+  627  needs to recover this internal state. Replaying all delivered messages to recover state would take prohibitively
+  628  long after running the server for a while, so ZooKeeper
+  629  uses periodic snapshots and only requires redelivery of
+  630  messages since the start of the snapshot. We call Zoo-
+  631  Keeper snapshots fuzzy snapshots since we do not lock
+  632  the ZooKeeper state to take the snapshot; instead, we do
+  633  a depth first scan of the tree atomically reading each znode's data and meta-data and writing them to disk. Since
+  634  the resulting fuzzy snapshot may have applied some subset of the state changes delivered during the generation of
+  635  the snapshot, the result may not correspond to the state
+  636  of ZooKeeper at any point in time. However, since state
+  637  changes are idempotent, we can apply them twice as long
+  638  as we apply the state changes in order.
+  639  For example, assume that in a ZooKeeper data tree two
+  640  nodes /foo and /goo have values f1 and g1 respectively and both are at version 1 when the fuzzy snapshot begins, and the following stream of state changes
+  641  arrive having the form ⟨transactionType, path,
+  642  value, new-version⟩:
+  643  ⟨SetDataTXN, /foo, f2, 2⟩
+  644  ⟨SetDataTXN, /goo, g2, 2⟩
+  645  ⟨SetDataTXN, /foo, f3, 3⟩
+
+  646  After processing these state changes, /foo and /goo
+  647  have values f3 and g2 with versions 3 and 2 respectively. However, the fuzzy snapshot may have recorded
+  648  that /foo and /goo have values f3 and g1 with versions 3 and 1 respectively, which was not a valid state
+  649  of the ZooKeeper data tree. If the server crashes and
+  650  recovers with this snapshot and Zab redelivers the state
+  651  changes, the resulting state corresponds to the state of the
+  652  service before the crash.
+
+  653  4.4 Client-Server Interactions
+  654  When a server processes a write request, it also sends out
+  655  and clears notifications relative to any watch that corresponds to that update. Servers process writes in order
+  656  and do not process other writes or reads concurrently.
+  657  This ensures strict succession of notifications. Note that
+  658  servers handle notifications locally. Only the server that
+  659  a client is connected to tracks and triggers notifications
+  660  for that client.
+  661  Read requests are handled locally at each server. Each
+  662  read request is processed and tagged with azxid that corresponds to the last transaction seen by the server. This
+  663  zxid defines the partial order of the read requests with respect to the write requests. By processing reads locally,
+  664  we obtain excellent read performance because it is just an
+  665  in-memory operation on the local server, and there is no
+  666  disk activity or agreement protocol to run. This design
+  667  choice is key to achieving our goal of excellent performance with read-dominant workloads.
+  668  One drawback of using fast reads is not guaranteeing
+  669  precedence order for read operations. That is, a read operation may return a stale value, even though a more
+  670  recent update to the same znode has been committed.
+  671  Not all of our applications require precedence order, but
+  672  for applications that do require it, we have implemented
+  673  sync. This primitive executes asynchronously and is
+  674  ordered by the leader after all pending writes to its local replica. To guarantee that a given read operation returns the latest updated value, a client calls sync followed by the read operation. The FIFO order guarantee
+  675  of client operations together with the global guarantee of
+  676  sync enables the result of the read operation to reflect
+  677  any changes that happened before the sync was issued.
+  678  In our implementation, we do not need to atomically
+  679  broadcast sync as we use a leader-based algorithm, and
+  680  we simply place the sync operation at the end of the
+  681  queue of requests between the leader and the server executing the call to sync. In order for this to work, the
+  682  follower must be sure that the leader is still the leader.
+  683  If there are pending transactions that commit, then the
+  684  server does not suspect the leader. If the pending queue
+  685  is empty, the leader needs to issue a null transaction to
+  686  commit and orders the sync after that transaction. This
+  687  has the nice property that when the leader is under load,
+  688  no extra broadcast traffic is generated. In our implementation, timeouts are set such that leaders realize they are
+  689  not leaders before followers abandon them, so we do not
+  690  issue the null transaction.
+  691  ZooKeeper servers process requests from clients in
+  692  FIFO order. Responses include the zxid that the response
+  693  is relative to. Even heartbeat messages during intervals
+  694  of no activity include the last zxid seen by the server that
+  695  the client is connected to. If the client connects to a new
+  696  server, that new server ensures that its view of the Zoo-
+  697  Keeper data is at least as recent as the view of the client
+  698  by checking the last zxid of the client against its last zxid.
+  699  If the client has a more recent view than the server, the
+=== PAGE 10 ===
+
+  700  server does not reestablish the session with the client until the server has caught up. The client is guaranteed to
+  701  be able to find another server that has a recent view of the
+  702  system since the client only sees changes that have been
+  703  replicated to a majority of the ZooKeeper servers. This
+  704  behavior is important to guarantee durability.
+  705  To detect client session failures, ZooKeeper uses timeouts. The leader determines that there has been a failure
+  706  if no other server receives anything from a client session within the session timeout. If the client sends requests frequently enough, then there is no need to send
+  707  any other message. Otherwise, the client sends heartbeat
+  708  messages during periods of low activity. If the client
+  709  cannot communicate with a server to send a request or
+  710  heartbeat, it connects to a different ZooKeeper server to
+  711  re-establish its session. To prevent the session from timing out, the ZooKeeper client library sends a heartbeat
+  712  after the session has been idle for s/3 ms and switch to a
+  713  new server if it has not heard from a server for 2s/3 ms,
+  714  where s is the session timeout in milliseconds.
+
+  715  5 Evaluation
+
+  716  We performed all of our evaluation on a cluster of 50
+  717  servers. Each server has one Xeon dual-core 2.1GHz
+  718  processor, 4GB of RAM, gigabit ethernet, and two SATA
+  719  hard drives. We split the following discussion into two
+  720  parts: throughput and latency of requests.
+
+  721  5.1 Throughput
+
+  722  To evaluate our system, we benchmark throughput when
+  723  the system is saturated and the changes in throughput
+  724  for various injected failures. We varied the number of
+  725  servers that make up the ZooKeeper service, but always
+  726  kept the number of clients the same. To simulate a large
+  727  number of clients, we used 35 machines to simulate 250
+  728  simultaneous clients.
+  729  We have a Java implementation of the ZooKeeper
+  730  server, and both Java and C clients2. For these experiments, we used the Java server configured to log to one
+  731  dedicated disk and take snapshots on another. Our benchmark client uses the asynchronous Java client API, and
+  732  each client has at least 100 requests outstanding. Each
+  733  request consists of a read or write of 1K of data. We
+  734  do not show benchmarks for other operations since the
+  735  performance of all the operations that modify state are
+  736  approximately the same, and the performance of nonstate modifying operations, excluding sync, are approximately the same. (The performance of sync approximates that of a light-weight write, since the request must
+  737  2 The implementation is publicly available at http://hadoop.
+  738  apache.org/zookeeper.
+
+  739  go to the leader, but does not get broadcast.) Clients
+  740  send counts of the number of completed operations every 300ms and we sample every 6s. To prevent memory
+  741  overflows, servers throttle the number of concurrent requests in the system. ZooKeeper uses request throttling
+  742  to keep servers from being overwhelmed. For these experiments, we configured the ZooKeeper servers to have
+  743  a maximum of 2, 000 total requests in process.
+
+  744  Throughput of saturated system
+  745  90000
+  746  80000 3 servers
+  747  5 servers
+  748  7 servers
+  749  70000 9 servers
+  750  13 servers
+  751  60000
+  752  50000
+  753  40000
+  754  30000
+  755  Operations per second
+  756  20000
+  757  10000
+  758  0
+  759  0 20 40 60 80 100
+  760  Percentage of read requests
+
+  761  Figure 5: The throughput performance of a saturated system as the ratio of reads to writes vary.
+
+  762  Servers 100% Reads 0% Reads
+  763  13 460k 8k
+  764  9 296k 12k
+  765  7 257k 14k
+  766  5 165k 18k
+  767  3 87k 21k
+
+  768  Table 1: The throughput performance of the extremes of
+  769  a saturated system.
+  770  In Figure 5, we show throughput as we vary the ratio
+  771  of read to write requests, and each curve corresponds to
+  772  a different number of servers providing the ZooKeeper
+  773  service. Table 1 shows the numbers at the extremes of
+  774  the read loads. Read throughput is higher than write
+  775  throughput because reads do not use atomic broadcast.
+  776  The graph also shows that the number of servers also has
+  777  a negative impact on the performance of the broadcast
+  778  protocol. From these graphs, we observe that the number
+  779  of servers in the system does not only impact the number of failures that the service can handle, but also the
+  780  workload the service can handle. Note that the curve for
+  781  three servers crosses the others around 60%. This situation is not exclusive of the three-server configuration,
+  782  and happens for all configurations due to the parallelism
+  783  local reads enable. It is not observable for other configurations in the figure, however, because we have capped
+  784  the maximum y-axis throughput for readability.
+  785  There are two reasons for write requests taking longer
+  786  than read requests. First, write requests must go through
+  787  atomic broadcast, which requires some extra processing
+=== PAGE 11 ===
+
+  788  and adds latency to requests. The other reason for longer
+  789  processing of write requests is that servers must ensure
+  790  that transactions are logged to non-volatile store before
+  791  sending acknowledgments back to the leader. In principle, this requirement is excessive, but for our production systems we trade performance for reliability since
+  792  ZooKeeper constitutes application ground truth. We use
+  793  more servers to tolerate more faults. We increase write
+  794  throughput by partitioning the ZooKeeper data into multiple ZooKeeper ensembles. This performance trade off
+  795  between replication and partitioning has been previously
+  796  observed by Gray et al. [12].
+
+  797  Throughput of saturated system (all requests to leader)
+  798  90000 3 servers
+  799  80000 5 servers
+  800  7 servers
+  801  9 servers
+  802  70000 13 servers
+  803  60000
+  804  50000
+  805  40000
+  806  30000
+  807  Operations per second
+  808  20000
+  809  10000
+  810  0
+  811  0 20 40 60 80 100
+  812  Percentage of read requests
+
+  813  Figure 6: Throughput of a saturated system, varying the
+  814  ratio of reads to writes when all clients connect to the
+  815  leader.
+
+  816  ZooKeeper is able to achieve such high throughput by
+  817  distributing load across the servers that makeup the service. We can distribute the load because of our relaxed
+  818  consistency guarantees. Chubby clients instead direct all
+  819  requests to the leader. Figure 6 shows what happens if
+  820  we do not take advantage of this relaxation and forced
+  821  the clients to only connect to the leader. As expected the
+  822  throughput is much lower for read-dominant workloads,
+  823  but even for write-dominant workloads the throughput is
+  824  lower. The extra CPU and network load caused by servicing clients impacts the ability of the leader to coordinate the broadcast of the proposals, which in turn adversely impacts the overall write performance.
+  825  The atomic broadcast protocol does most of the work
+  826  of the system and thus limits the performance of Zoo-
+  827  Keeper more than any other component. Figure 7 shows
+  828  the throughput of the atomic broadcast component. To
+  829  benchmark its performance we simulate clients by generating the transactions directly at the leader, so there is
+  830  no client connections or client requests and replies. At
+  831  maximum throughput the atomic broadcast component
+  832  becomes CPU bound. In theory the performance of Figure 7 would match the performance of ZooKeeper with
+  833  100% writes. However, the ZooKeeper client communication, ACL checks, and request to transaction con-
+
+  834  Atomic Broadcast Throughput
+  835  70000
+  836  60000
+  837  50000
+  838  40000
+  839  30000
+  840  Requests per second 20000
+  841  10000
+  842  0
+  843  2 4 6 8 10 12 14
+  844  Size of ensemble
+  845  Figure 7: Average throughput of the atomic broadcast
+  846  component in isolation. Error bars denote the minimum
+  847  and maximum values.
+
+  848  versions all require CPU. The contention for CPU lowers ZooKeeper throughput to substantially less than the
+  849  atomic broadcast component in isolation. Because Zoo-
+  850  Keeper is a critical production component, up to now our
+  851  development focus for ZooKeeper has been correctness
+  852  and robustness. There are plenty of opportunities for improving performance significantly by eliminating things
+  853  like extra copies, multiple serializations of the same object, more efficient internal data structures, etc.
+  854  Time series with failures
+  855  70000 Throughput
+  856  60000
+  857  dn 50000
+  858  oc
+  859  es r
+  860  ep 40000 4c
+  861  sn 4b 6
+  862  oit 30000 1 2 4a
+  863  are
+  864  pO 20000
+  865  10000
+  866  3 5
+  867  0
+  868  0 50 100 150 200 250 300
+  869  Seconds since start of series
+
+  870  Figure 8: Throughput upon failures.
+  871  To show the behavior of the system over time as failures are injected we ran a ZooKeeper service made up
+  872  of 5 machines. We ran the same saturation benchmark
+  873  as before, but this time we kept the write percentage at
+  874  a constant 30%, which is a conservative ratio of our expected workloads. Periodically we killed some of the
+  875  server processes. Figure 8 shows the system throughput
+  876  as it changes over time. The events marked in the figure
+  877  are the following:
+  878  1. Failure and recovery of a follower;
+  879  2. Failure and recovery of a different follower;
+  880  3. Failure of the leader;
+  881  4. Failure of two followers (a, b) in the first two marks,
+  882  and recovery at the third mark (c);
+  883  5. Failure of the leader.
+=== PAGE 12 ===
+
+  884  6. Recovery of the leader.
+  885  There are a few important observations from this
+  886  graph. First, if followers fail and recover quickly, then
+  887  ZooKeeper is able to sustain a high throughput despite
+  888  the failure. The failure of a single follower does not prevent servers from forming a quorum, and only reduces
+  889  throughput roughly by the share of read requests that the
+  890  server was processing before failing. Second, our leader
+  891  election algorithm is able to recover fast enough to prevent throughput from dropping substantially. In our observations, ZooKeeper takes less than 200ms to elect a
+  892  new leader. Thus, although servers stop serving requests
+  893  for a fraction of second, we do not observe a throughput
+  894  of zero due to our sampling period, which is on the order
+  895  of seconds. Third, even if followers take more time to recover, ZooKeeper is able to raise throughput again once
+  896  they start processing requests. One reason that we do
+  897  not recover to the full throughput level after events 1, 2,
+  898  and 4 is that the clients only switch followers when their
+  899  connection to the follower is broken. Thus, after event 4
+  900  the clients do not redistribute themselves until the leader
+  901  fails at events 3 and 5. In practice such imbalances work
+  902  themselves out over time as clients come and go.
+
+  903  5.2 Latency of requests
+
+  904  To assess the latency of requests, we created a benchmark modeled after the Chubby benchmark [6]. We create a worker process that simply sends a create, waits
+  905  for it to finish, sends an asynchronous delete of the new
+  906  node, and then starts the next create. We vary the number
+  907  of workers accordingly, and for each run, we have each
+  908  worker create 50,000 nodes. We calculate the throughput
+  909  by dividing the number of create requests completed by
+  910  the total time it took for all the workers to complete.
+
+  911  Number of servers
+  912  Workers 3 5 7 9
+  913  1 776 748 758 711
+  914  10 2074 1832 1572 1540
+  915  20 2740 2336 1934 1890
+
+  916  Table 2: Create requests processed per second.
+
+  917  Table 2 show the results of our benchmark. The create requests include 1K of data, rather than 5 bytes in
+  918  the Chubby benchmark, to better coincide with our expected use. Even with these larger requests, the throughput of ZooKeeper is more than 3 times higher than the
+  919  published throughput of Chubby. The throughput of the
+  920  single ZooKeeper worker benchmark indicates that the
+  921  average request latency is 1.2ms for three servers and
+  922  1.4ms for 9 servers.
+
+  923  # of clients
+
+  924  # of barriers 50 100 200
+  925  200 9.4 19.8 41.0
+  926  400 16.4 34.1 62.0
+  927  800 28.9 55.9 112.1
+  928  1600 54.0 102.7 234.4
+
+  929  Table 3: Barrier experiment with time in seconds. Each
+  930  point is the average of the time for each client to finish
+  931  over five runs.
+
+  932  5.3 Performance of barriers
+  933  In this experiment, we execute a number of barriers sequentially to assess the performance of primitives implemented with ZooKeeper. For a given number of barriers
+  934  b, each client first enters all b barriers, and then it leaves
+  935  all b barriers in succession. As we use the double-barrier
+  936  algorithm of Section 2.4, a client first waits for all other
+  937  clients to execute the enter() procedure before moving to next call (similarly for leave()).
+  938  We report the results of our experiments in Table 3.
+  939  In this experiment, we have 50, 100, and 200 clients
+  940  entering a number b of barriers in succession, b ∈
+  941  {200, 400, 800,1600}. Although an application can have
+  942  thousands of ZooKeeper clients, quite often a much
+  943  smaller subset participates in each coordination operation as clients are often grouped according to the
+  944  specifics of the application.
+  945  Two interesting observations from this experiment are
+  946  that the time to process all barriers increase roughly linearly with the number of barriers, showing that concurrent access to the same part of the data tree did not produce any unexpected delay, and that latency increases
+  947  proportionally to the number of clients. This is a consequence of not saturating the ZooKeeper service. In
+  948  fact, we observe that even with clients proceeding in
+  949  lock-step, the throughput of barrier operations (enter and
+  950  leave) is between 1,950 and 3,100 operations per second
+  951  in all cases. In ZooKeeper operations, this corresponds
+  952  to throughput values between 10,700 and 17,000 operations per second. As in our implementation we have a
+  953  ratio of reads to writes of 4:1 (80% of read operations),
+  954  the throughput our benchmark code uses is much lower
+  955  compared to the raw throughput ZooKeeper can achieve
+  956  (over 40,000 according to Figure 5). This is due to clients
+  957  waiting on other clients.
+
+  958  6 Related work
+
+  959  ZooKeeper has the goal of providing a service that mitigates the problem of coordinating processes in distributed applications. To achieve this goal, its design uses
+  960  ideas from previous coordination services, fault tolerant
+  961  systems, distributed algorithms, and file systems.
+=== PAGE 13 ===
+
+  962  We are not the first to propose a system for the coordination of distributed applications. Some early systems
+  963  propose a distributed lock service for transactional applications [13], and for sharing information in clusters
+  964  of computers [19]. More recently, Chubby proposes a
+  965  system to manage advisory locks for distributed applications [6]. Chubby shares several of the goals of Zoo-
+  966  Keeper. It also has a file-system-like interface, and it uses
+  967  an agreement protocol to guarantee the consistency of the
+  968  replicas. However, ZooKeeper is not a lock service. It
+  969  can be used by clients to implement locks, but there are
+  970  no lock operations in its API. Unlike Chubby, ZooKeeper
+  971  allows clients to connect to any ZooKeeper server, not
+  972  just the leader. ZooKeeper clients can use their local
+  973  replicas to serve data and manage watches since its consistency model is much more relaxed than Chubby. This
+  974  enables ZooKeeper to provide higher performance than
+  975  Chubby, allowing applications to make more extensive
+  976  use of ZooKeeper.
+  977  There have been fault-tolerant systems proposed in
+  978  the literature with the goal of mitigating the problem of
+  979  building fault-tolerant distributed applications. One early
+  980  system is ISIS [5]. The ISIS system transforms abstract
+  981  type specifications into fault-tolerant distributed objects,
+  982  thus making fault-tolerance mechanisms transparent to
+  983  users. Horus [30] and Ensemble [31] are systems that
+  984  evolved from ISIS. ZooKeeper embraces the notion of
+  985  virtual synchrony of ISIS. Finally, Totem guarantees total
+  986  order of message delivery in an architecture that exploits
+  987  hardware broadcasts of local area networks [22]. Zoo-
+  988  Keeper works with a wide variety of network topologies
+  989  which motivated us to rely on TCP connections between
+  990  server processes and not assume any special topology or
+  991  hardware features. We also do not expose any of the ensemble communication used internally in ZooKeeper.
+  992  One important technique for building fault-tolerant
+  993  services is state-machine replication [26], and Paxos [20]
+  994  is an algorithm that enables efficient implementations
+  995  of replicated state-machines for asynchronous systems.
+  996  We use an algorithm that shares some of the characteristics of Paxos, but that combines transaction logging
+  997  needed for consensus with write-ahead logging needed
+  998  for data tree recovery to enable an efficient implementation. There have been proposals of protocols for practical
+  999  implementations of Byzantine-tolerant replicated statemachines [7, 10, 18, 1, 28]. ZooKeeper does not assume
+ 1000  that servers can be Byzantine, but we do employ mechanisms such as checksums and sanity checks to catch
+ 1001  non-malicious Byzantine faults. Clement et al. discuss an approach to make ZooKeeper fully Byzantine
+ 1002  fault-tolerant without modifying the current server code
+ 1003  base [9]. To date, we have not observed faults in production that would have been prevented using a fully Byzantine fault-tolerant protocol. [29].
+
+ 1004  Boxwood [21] is a system that uses distributed lock
+ 1005  servers. Boxwood provides higher-level abstractions to
+ 1006  applications, and it relies upon a distributed lock service
+ 1007  based on Paxos. Like Boxwood, ZooKeeper is a component used to build distributed systems. ZooKeeper,
+ 1008  however, has high-performance requirements and is used
+ 1009  more extensively in client applications. ZooKeeper exposes lower-level primitives that applications use to implement higher-level primitives.
+ 1010  ZooKeeper resembles a small file system, but it only
+ 1011  provides a small subset of the file system operations
+ 1012  and adds functionality not present in most file systems
+ 1013  such as ordering guarantees and conditional writes. Zoo-
+ 1014  Keeper watches, however, are similar in spirit to the
+ 1015  cache callbacks of AFS [16].
+ 1016  Sinfonia [2] introduces mini-transactions, a new
+ 1017  paradigm for building scalable distributed systems. Sinfonia has been designed to store application data,
+ 1018  whereas ZooKeeper stores application metadata. Zoo-
+ 1019  Keeper keeps its state fully replicated and in memory for
+ 1020  high performance and consistent latency. Our use of file
+ 1021  system like operations and ordering enables functionality
+ 1022  similar to mini-transactions. The znode is a convenient
+ 1023  abstraction upon which we add watches, a functionality
+ 1024  missing in Sinfonia. Dynamo [11] allows clients to get
+ 1025  and put relatively small (less than 1M) amounts of data in
+ 1026  a distributed key-value store. Unlike ZooKeeper, the key
+ 1027  space in Dynamo is not hierarchal. Dynamo also does
+ 1028  not provide strong durability and consistency guarantees
+ 1029  for writes, but instead resolves conflicts on reads.
+ 1030  DepSpace [4] uses a tuple space to provide a Byzantine fault-tolerant service. Like ZooKeeper DepSpace
+ 1031  uses a simple server interface to implement strong synchronization primitives at the client. While DepSpace's
+ 1032  performance is much lower than ZooKeeper, it provides
+ 1033  stronger fault tolerance and confidentiality guarantees.
+
+ 1034  7 Conclusions
+
+ 1035  ZooKeeper takes a wait-free approach to the problem of
+ 1036  coordinating processes in distributed systems, by exposing wait-free objects to clients. We have found Zoo-
+ 1037  Keeper to be useful for several applications inside and
+ 1038  outside Yahoo!. ZooKeeper achieves throughput values of hundreds of thousands of operations per second
+ 1039  for read-dominant workloads by using fast reads with
+ 1040  watches, both of which served by local replicas. Although our consistency guarantees for reads and watches
+ 1041  appear to be weak, we have shown with our use cases that
+ 1042  this combination allows us to implement efficient and
+ 1043  sophisticated coordination protocols at the client even
+ 1044  though reads are not precedence-ordered and the implementation of data objects is wait-free. The wait-free
+ 1045  property has proved to be essential for high performance.
+=== PAGE 14 ===
+
+ 1046  Although we have described only a few applications,
+ 1047  there are many others using ZooKeeper. We believe such
+ 1048  a success is due to its simple interface and the powerful
+ 1049  abstractions that one can implement through this interface. Further, because of the high-throughput of Zoo-
+ 1050  Keeper, applications can make extensive use of it, not
+ 1051  only course-grained locking.
+
+ 1052  Acknowledgements
+
+ 1053  We would like to thank Andrew Kornev and Runping Qi
+ 1054  for their contributions to ZooKeeper; Zeke Huang and
+ 1055  Mark Marchukov for valuable feedback; Brian Cooper
+ 1056  and Laurence Ramontianu for their early contributions
+ 1057  to ZooKeeper; Brian Bershad and Geoff Voelker made
+ 1058  important comments on the presentation.
+
+ 1059  References
+
+ 1060  [1] M. Abd-El-Malek, G. R. Ganger, G. R. Goodson, M. K. Reiter,
+ 1061  and J. J. Wylie. Fault-scalable byzantine fault-tolerant services.
+ 1062  In SOSP '05: Proceedings of the twentieth ACM symposium on
+ 1063  Operating systems principles, pages 59–74, New York, NY, USA,
+ 1064  2005. ACM.
+ 1065  [2] M. Aguilera, A. Merchant, M. Shah, A. Veitch, and C. Karamanolis. Sinfonia: A new paradigm for building scalable distributed
+ 1066  systems. In SOSP '07: Proceedings of the 21st ACM symposium
+ 1067  on Operating systems principles, New York, NY, 2007.
+ 1068  [3] Amazon. Amazon simple queue service. http://aws.
+ 1069  amazon.com/sqs/, 2008.
+ 1070  [4] A. N. Bessani, E. P. Alchieri, M. Correia, and J. da Silva Fraga.
+ 1071  Depspace: A byzantine fault-tolerant coordination service. In
+ 1072  Proceedings of the 3rd ACM SIGOPS/EuroSys European Systems
+ 1073  Conference - EuroSys 2008, Apr. 2008.
+ 1074  [5] K. P. Birman. Replication and fault-tolerance in the ISIS system.
+ 1075  In SOSP '85: Proceedings of the 10th ACM symposium on Operating systems principles, New York, USA, 1985. ACM Press.
+ 1076  [6] M. Burrows. The Chubby lock service for loosely-coupled distributed systems. In Proceedings of the 7th ACM/USENIX Symposium on Operating Systems Design and Implementation (OSDI),
+ 1077  2006.
+ 1078  [7] M. Castro and B. Liskov. Practical byzantine fault tolerance and
+ 1079  proactive recovery. ACM Transactions on Computer Systems,
+ 1080  20(4), 2002.
+ 1081  [8] T. Chandra, R. Griesemer, and J. Redstone. Paxos made live: An
+ 1082  engineering perspective. In Proceedings of the 26th annual ACM
+ 1083  symposium on Principles of distributed computing (PODC), Aug.
+ 1084  2007.
+ 1085  [9] A. Clement, M. Kapritsos, S. Lee, Y. Wang, L. Alvisi, M. Dahlin,
+ 1086  and T. Riche. UpRight cluster services. In Proceedings of the 22
+ 1087  nd ACM Symposium on Operating Systems Principles (SOSP),
+ 1088  Oct. 2009.
+ 1089  [10] J. Cowling, D. Myers, B. Liskov, R. Rodrigues, and L. Shira. Hq
+ 1090  replication: A hybrid quorum protocol for byzantine fault tolerance. In SOSP '07: Proceedings of the 21st ACM symposium on
+ 1091  Operating systems principles, New York, NY, USA, 2007.
+ 1092  [11] G. DeCandia, D. Hastorun, M. Jampani, G. Kakulapati, A. Lakshman, A. Pilchin, S. Sivasubramanian, P. Vosshall, and W. Vogels. Dynamo: Amazons highly available key-value store. In
+
+ 1093  SOSP '07: Proceedings of the 21st ACM symposium on Operating systems principles, New York, NY, USA, 2007. ACM Press.
+ 1094  [12] J. Gray, P. Helland, P. O'Neil, and D. Shasha. The dangers of
+ 1095  replication and a solution. In Proceedings of SIGMOD '96, pages
+ 1096  173–182, New York, NY, USA, 1996. ACM.
+ 1097  [13] A. Hastings. Distributed lock management in a transaction processing environment. In Proceedings of IEEE 9th Symposium on
+ 1098  Reliable Distributed Systems, Oct. 1990.
+ 1099  [14] M. Herlihy. Wait-free synchronization. ACM Transactions on
+ 1100  Programming Languages and Systems, 13(1), 1991.
+ 1101  [15] M. Herlihy and J. Wing. Linearizability: A correctness condition for concurrent objects. ACM Transactions on Programming
+ 1102  Languages and Systems, 12(3), July 1990.
+ 1103  [16] J. H. Howard, M. L. Kazar, S. G. Menees, D. A. Nichols,
+ 1104  M. Satyanarayanan, R. N. Sidebotham, and M. J. West. Scale
+ 1105  and performance in a distributed file system. ACM Trans. Comput. Syst., 6(1), 1988.
+ 1106  [17] Katta. Katta - distribute lucene indexes in a grid. http://
+ 1107  katta.wiki.sourceforge.net/, 2008.
+ 1108  [18] R. Kotla, L. Alvisi, M. Dahlin, A. Clement, and E. Wong.
+ 1109  Zyzzyva: speculative byzantine fault tolerance. SIGOPS Oper.
+ 1110  Syst. Rev., 41(6):45–58, 2007.
+ 1111  [19] N. P. Kronenberg, H. M. Levy, and W. D. Strecker. Vaxclusters (extended abstract): a closely-coupled distributed system.
+ 1112  SIGOPS Oper. Syst. Rev., 19(5), 1985.
+ 1113  [20] L. Lamport. The part-time parliament. ACM Transactions on
+ 1114  Computer Systems, 16(2), May 1998.
+ 1115  [21] J. MacCormick, N. Murphy, M. Najork, C. A. Thekkath, and
+ 1116  L. Zhou. Boxwood: Abstractions as the foundation for storage
+ 1117  infrastructure. In Proceedings of the 6th ACM/USENIX Symposium on Operating Systems Design and Implementation (OSDI),
+ 1118  2004.
+ 1119  [22] L. Moser, P. Melliar-Smith, D. Agarwal, R. Budhia, C. Lingley-
+ 1120  Papadopoulos, and T. Archambault. The totem system. In Proceedings of the 25th International Symposium on Fault-Tolerant
+ 1121  Computing, June 1995.
+ 1122  [23] S. Mullender, editor. Distributed Systems, 2nd edition. ACM
+ 1123  Press, New York, NY, USA, 1993.
+ 1124  [24] B. Reed and F. P. Junqueira. A simple totally ordered broadcast protocol. In LADIS '08: Proceedings of the 2nd Workshop
+ 1125  on Large-Scale Distributed Systems and Middleware, pages 1–6,
+ 1126  New York, NY, USA, 2008. ACM.
+ 1127  [25] N. Schiper and S. Toueg. A robust and lightweight stable leader
+ 1128  election service for dynamic systems. In DSN, 2008.
+ 1129  [26] F. B. Schneider. Implementing fault-tolerant services using the
+ 1130  state machine approach: A tutorial. ACM Computing Surveys,
+ 1131  22(4), 1990.
+ 1132  [27] A. Sherman, P. A. Lisiecki, A. Berkheimer, and J. Wein. ACMS:
+ 1133  The Akamai configuration management system. In NSDI, 2005.
+ 1134  [28] A. Singh, P. Fonseca, P. Kuznetsov, R. Rodrigues, and P. Maniatis. Zeno: eventually consistent byzantine-fault tolerance.
+ 1135  In NSDI'09: Proceedings of the 6th USENIX symposium on
+ 1136  Networked systems design and implementation, pages 169–184,
+ 1137  Berkeley, CA, USA, 2009. USENIX Association.
+ 1138  [29] Y. J. Song, F. Junqueira, and B. Reed. BFT for the
+ 1139  skeptics. http://www.net.t-labs.tu-berlin.de/
+ 1140  ˜petr/BFTW3/abstracts/talk-abstract.pdf.
+ 1141  [30] R. van Renesse and K. Birman. Horus, a flexible group communication systems. Communications of the ACM, 39(16), Apr.
+ 1142  1996.
+ 1143  [31] R. van Renesse, K. Birman, M. Hayden, A. Vaysburd, and
+ 1144  D. Karr. Building adaptive systems using ensemble. Software
+ 1145  - Practice and Experience, 28(5), July 1998.

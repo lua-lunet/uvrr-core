@@ -1,0 +1,1239 @@
+---
+title: "Dynamic Reconfiguration of Primary/Backup Clusters"
+authors:
+  - "Alexander Shraer"
+  - "Benjamin C Reed"
+  - "Dahlia Malkhi"
+  - "Flavio P Junqueira"
+year: "2012"
+publication: "2012 USENIX Annual Technical Conference"
+handle_url: "https://www.usenix.org/conference/atc12/technical-sessions/presentation/shraer"
+source_pdf: "research/agent366/papers/shraer2012-atc12-dynamic-reconfig.pdf"
+source_pdf_sha256: "576a6dcd86811ec745dc1631e5ba7bad1109599ce16ace9e433016fa0a90e780"
+page_count: 13
+extracted_text_runs: 3246
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Dynamically changing (reconfiguring) the membership of a replicated distributed system while preserving data consistency and system availability is a challenging problem. In this paper, we show that reconfiguration can be simplified by taking advantage of certain properties commonly provided by Primary/Backup systems. We describe a new reconfiguration protocol, recently implemented in Apache Zookeeper. It fully automates configuration changes and minimizes any interruption in service to clients while maintaining data consistency. By leveraging the properties already provided by Zookeeper our protocol is considerably simpler than state of the art.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Dynamic Reconfiguration of Primary/Backup Clusters
+
+    2  Alexander Shraer Benjamin Reed
+
+    3  Yahoo! Research
+
+    4  {shralex, breed}@yahoo-inc.com
+
+    5  Abstract
+    6  Dynamically changing (reconfiguring) the membership of a replicated distributed system while preserving
+    7  data consistency and system availability is a challenging
+    8  problem. In this paper, we show that reconfiguration can
+    9  be simplified by taking advantage of certain properties
+   10  commonly provided by Primary/Backup systems. We
+   11  describe a new reconfiguration protocol, recently implemented in Apache Zookeeper. It fully automates configuration changes and minimizes any interruption in service
+   12  to clients while maintaining data consistency. By leveraging the properties already provided by Zookeeper our
+   13  protocol is considerably simpler than state of the art.
+
+   14  1 Introduction
+
+   15  The ability to reconfigure systems is critical to cope with
+   16  the dynamics of deployed applications. Servers permanently crash or become obsolete, user load fluctuates over time, new features impose different constraints;
+   17  these are all reasons to reconfigure an application to use
+   18  a different group of servers, and to shift roles and balance within a service. We refer to this ability of a system
+   19  to dynamically adapt to a changing set of machines or
+   20  processes as elasticity.
+   21  Cloud computing has intensified the need for elastic
+   22  long lived distributed systems. For example, some applications such as sports and shopping are seasonal with
+   23  heavy workload bursts during championship games or
+   24  peak shopping days. Such workloads mean that elasticity is not a matter of slowly growing a cluster; it may
+   25  mean that a cluster grows by an order of magnitude only
+   26  to shrink by the same order of magnitude shortly after.
+   27  Unfortunately, at the back-end of today's cloud services, one frequently finds a coordination service which
+   28  itself is not elastic, such as ZooKeeper [12]. Companies
+   29  such as Facebook, LinkedIn, Netflix, Twitter, Yahoo!,
+   30  and many others, use Zookeeper to track failures and
+   31  configuration changes of distributed applications; application developers just need to react to events sent to
+   32  them by the coordination service. However, Zookeeper
+   33  users have been asking repeatedly since 2008 to facilitate reconfiguration of the service itself, and thus far,
+
+   34  Dahlia Malkhi Flavio Junqueira
+
+   35  Microsoft Research Yahoo! Research
+
+   36  dalia@microsoft.com fpj@yahoo-inc.com
+
+   37  the road to elasticity has been error prone and hazardous:
+   38  Presently, servers cannot be added to or removed from
+   39  a running ZooKeeper cluster and similarly no other configuration parameter (such as server roles, network addresses and ports, or the quorum system) can be changed
+   40  dynamically. A cluster can be taken down, reconfigured,
+   41  and restarted, but (as we explain further in Section 2) this
+   42  process is manually intensive, error prone and hard to execute correctly even for expert ZooKeeper users. Data
+   43  corruption and split-brain1 caused by misconfiguration
+   44  of Zookeeper has happened in production2. In fact, configuration errors are a primary cause of failures in production systems [22]. Furthermore, service interruptions
+   45  are currently inevitable during reconfigurations. These
+   46  negative side-effects cause operators to avoid reconfigurations as much as possible. In fact, operators often prefer to over-provision a Zookeeper cluster than to reconfigure it with changing load. Over-provisioning (such as
+   47  adding many more replicas) wastes resources and adds
+   48  to the management overhead.
+   49  Our work provides a reconfiguration capability using
+   50  ZooKeeper as our primary case-study. Our experience
+   51  with ZooKeeper in production over the past years has
+   52  lead us to the following requirements: first, ZooKeeper
+   53  is a mature product that we do not want to destabilize; a
+   54  solution to the dynamic reconfiguration problem should
+   55  not require major changes, such as limiting concurrency
+   56  or introducing additional system components. Second, as
+   57  many Zookeeper-based systems are online, service disruptions during a reconfiguration should be minimized
+   58  and happen only in rare circumstances. Third, even if
+   59  there are failures during reconfiguration, data integrity,
+   60  consistency or service availability must not be compromised, for instance, split-brain or loss of service due to
+   61  partial configuration propagation should never be possible. Finally, we must support a vast number of clients
+   62  who seamlessly migrate between configurations.
+   63  We use the Zookeeper service itself for reconfiguration, but we ruled out several straw-man approaches.
+   64  First, we could have used an external coordination ser-
+   65  1In a split-brain scenario, servers form multiple groups, each independently processing client requests, hence causing contradictory state
+   66  changes to occur.
+   67  2http://search-hadoop.com/m/ek5ej2dOQsB
+=== PAGE 2 ===
+
+   68  vice, such as another ZooKeeper cluster, to coordinate
+   69  the reconfiguration, but this would simply push the reconfiguration problems to another system and add extra
+   70  management complexity. Another na¨ıve solution would
+   71  be to store configuration information as a replicated object in Zookeeper. When a ZooKeeper server instance
+   72  comes up, it looks at its replica of the state to obtain the
+   73  configuration from the designated object. While this solution is simple and elegant, it is prone to inconsistencies. Some replicas may be behind others, which means
+   74  they could have different configuration states. In a fixed
+   75  configuration, a consistent view of the system can be obtained by contacting a quorum of the servers. A reconfiguration, however, changes the set of servers and therefore
+   76  guaranteeing a consistent view requires additional care.
+   77  Consequently, reading the configuration from an object
+   78  in Zookeeper may lead to unavailability or, even worse,
+   79  corrupt data and split-brain.
+   80  Indeed, dynamically reconfiguring a replicated distributed system while preserving data consistency and
+   81  system availability is a challenging problem. We
+   82  found, however, that high-level properties provided by
+   83  Zookeeper simplify this task. Specifically, ZooKeeper
+   84  employs a primary/backup replication scheme where a
+   85  single dynamically elected primary executes all operations that change the state of the service and broadcasts
+   86  state-updates to backups. This method of operation requires that replicas apply state changes according to the
+   87  order of primaries over time, guaranteeing a property
+   88  called primary order [13]. Interestingly, this property is
+   89  preserved by many other primary/backup systems, such
+   90  as Chubby [5], GFS [8], Boxwood [19], PacificA [21]
+   91  and Chain-Replication [20] (see Section 6). These systems, however, resort to an external service for reconfiguration. In this work we show that leveraging primary
+   92  order simplifies reconfiguration. By exploiting primary
+   93  order we are able to implement reconfiguration without
+   94  using an external service and with minimal changes to
+   95  ZooKeeper (in fact, reconfigurations are pipelined with
+   96  other operations and treated similarly) while guaranteeing minimal disruption to the operation of a running system. We believe that our methods may be applied to efficiently reconfigure any Primary/Backup system satisfying primary order.
+   97  Previous reconfiguration approaches, such as the one
+   98  proposed by Lamport [15], may violate primary order,
+   99  cause service disruption during reconfiguration, as well
+  100  as impose a bound on the concurrent processing of all
+  101  operations due to uncertainty created by the ability to
+  102  reconfigure (see Section 2). Similar to our approach,
+  103  FRAPPE [4] imposes no such bounds, but requires rollback support and complex management of speculative
+  104  execution paths, not needed in our solution.
+  105  Our reconfiguration protocol also encompasses the
+
+  106  clients. As the service configuration changes, clients
+  107  should stay connected to the service. Literature rarely
+  108  mentions the client side of reconfiguration, usually stating the need for a name-service (such as DNS), which
+  109  is of course necessary. However, its also crucial to
+  110  re-balance client connections across new configuration
+  111  servers and at the same time prevent unnecessary client
+  112  migration which may overload servers, severely degrading performance. We propose a probabilistic loadbalancing scheme to move as few clients as possible
+  113  and still maintain an even distribution of clients across
+  114  servers. When clients detect a change, they each apply a migration policy in a distributed fashion to decide
+  115  whether to move to a new server, and if so, which server
+  116  they should move to.
+  117  In summary, this paper makes the following contributions:
+  118  • An observation that primary order allows for simple
+  119  and efficient dynamic reconfiguration.
+  120  • A new reconfiguration protocol for Primary/Backup
+  121  replication systems preserving primary order. Unlike all previous reconfiguration protocols, our new
+  122  algorithm does not limit concurrency, does not require client operations to be stopped during reconfigurations, and does not incur a complicated management overhead or any added complexity to normal client operation.
+  123  • A decentralized, client-driven protocol that rebalances client connections across servers in the
+  124  presence of service reconfiguration. The protocol
+  125  achieves a proven uniform distribution of clients
+  126  across servers while minimizing client migration.
+  127  • Implementation of our reconfiguration and loadbalancing protocols in Zookeeper (being contributed to Zookeeper codebase) and analysis of
+  128  their performance.
+
+  129  2 Background
+
+  130  This section provides the necessary background on
+  131  ZooKeeper, its way of implementing the primary/backup
+  132  approach, and the challenges of reconfiguration.
+  133  Zookeeper. Zookeeper totally orders all writes to its
+  134  database. In addition, to enable some of the most common use-cases, it executes requests of every client in
+  135  FIFO order. Zookeeper uses a primary/backup scheme
+  136  in which the primary executes all write operations and
+  137  broadcasts state changes to the backups using an atomic
+  138  broadcast protocol called Zab [13]. ZooKeeper replicas
+  139  process read requests locally. Figure 1 shows a write operation received by a primary. The primary executes the
+  140  write and broadcasts a state change that corresponds to
+  141  the result of the execution to the backups. Zab uses quo-
+=== PAGE 3 ===
+
+  142  Backup Primary Backup
+  143  3 c c 3
+
+  144  w
+  145  2 w 1
+
+  146  Figure 1: The processing of a write request by a primary. 1.
+  147  a backup receives the request, w; 2. the backup forwards w to
+  148  the primary; 3. the primary broadcasts the new state change, c,
+  149  that resulted from the execution of w.
+
+  150  rums to commit state changes. As long as a quorum of
+  151  servers are available, Zab can broadcast messages and
+  152  ZooKeeper remains available.
+  153  Primary/Backup replication a la Zab. Zab is very similar to Paxos [15], with one crucial difference – the agreement is reached on full history prefixes rather than on individual operations. This difference allows Zab to preserve primary order, which may be violated by Paxos
+  154  (as shown in [13]). We now present an overview of the
+  155  protocol executed by the primary. Note that the protocol in this section is abstract and excludes many details irrelevant to this paper. The protocol has two parts,
+  156  each involving an interaction with a quorum: A startup
+  157  procedure, which is performed only once, and through
+  158  which a new leader3 determines the latest state of the
+  159  system4; and a steady-state procedure for committing updates, which is executed in a loop.
+  160  Zab refers to the period of time that a leader is active as an epoch. Because there is only one leader active
+  161  at a time, these epochs form a sequence, and each new
+  162  epoch can be assigned a monotonically increasing integer called the epoch number. Specifically, each backup
+  163  maintains two epoch identifiers: the highest epoch that it
+  164  received from any primary in a startup phase, eprepare, and
+  165  the highest epoch of a primary whose history it adopted
+  166  in steady-state, eaccept.
+  167  Startup: A candidate leader b chooses a unique epoch
+  168  e and sends a PREPARE message to the backups. A
+  169  backup receiving a PREPARE message acts as follows:
+  170  • If e ≥ e , it records the newly seen epoch by
+  171  prepare
+  172  setting eprepare to e and then responds with an ACK
+  173  message back to the candidate.
+  174  • The ACK includes a history prefix H consisting
+  175  3 For the sake of readers familiar with Zookeeper and its terminology, in the context of Zookeeper and Zab we use the term "leader" for
+  176  "primary" and "follower" for "backup" (with no difference in meaning).
+  177  4 Zab contains a preparatory step that optimistically chooses a
+  178  candidate-leader that already has the up-to-date history, eliminating the
+  179  need to copy the latest history from one of the backups during startup.
+
+  180  of state-updates previously acknowledged by the
+  181  backup, as well as the epoch eaccept.
+  182  When b collects a quorum of ACK messages, it adopts a
+  183  history H received with the highest eaccept value, breaking ties by preferring a longer H.
+  184  Steady-state: For every client request op, the primary
+  185  b applies opto its update history H and sends an ACCEPT
+  186  message to the backups containing e and the adopted history H; in practice, only a delta-increment of H is sent
+  187  each time. When a backup receives an ACCEPT message,
+  188  if e ≥ eprepare, it adopts H and sets both eprepare and
+  189  eaccept to e. It then sends an acknowledgment back to b.
+  190  Once a quorum of followers have acknowledged the ACCEPT message, and hence the history prefix, b commits
+  191  it by sending a COMMIT message to the backups.
+  192  Primary order. Because the primary server broadcasts
+  193  state changes, Zab must ensure that they are received
+  194  in order. Specifically, if state change c is received by
+  195  a backup from a primary, all changes that precede c from
+  196  that primary must also have been received by the backup.
+  197  Zab refers to this ordering guarantee as local primary order. The local primary order property, however, is not
+  198  sufficient to guarantee order when primaries can crash.
+  199  It is also necessary that a new primary replacing a previous primary guarantees that once it broadcasts new updates, it has received all changes of previous primaries
+  200  that have been delivered or that will be delivered. The
+  201  new primary must guarantee that no state changes from
+  202  previous primaries succeed its own state changes in the
+  203  order of delivered state changes. Zab refers to this ordering guarantee as global primary order.
+  204  The term primary order refers to an ordering that satisfies both local and global primary orders. While the discussion above has been in the context of ZooKeeper and
+  205  Zab, any primary/backup system in which a primary executes operations and broadcasts state changes to backups
+  206  will need primary order. The importance of this property
+  207  has already been highlighted in [13, 3]. Here, we further
+  208  exploit this property to simplify system reconfiguration.
+  209  Configurations in Zookeeper. A ZooKeeper deployment currently uses a static configuration S for both
+  210  clients and servers, which comprises a set of servers,
+  211  with network address information, and a quorum system.
+  212  Each server can be defined as a participant, in which case
+  213  it participates in Zab as a primary or as backup, or an observer, which means that it does not participate in Zab
+  214  and only learns of state updates once they are committed. For consistent operation each server needs to have
+  215  the same configuration S, and clients need to have a configuration that includes some subset of S.
+  216  Performing changes to a ZooKeeper configuration is
+  217  currently a tricky task. Suppose, for example, that we are
+  218  to add three new servers to a cluster of two servers. The
+=== PAGE 4 ===
+
+  219  two original members of the cluster hold the latest state,
+  220  so we want one of them to be elected leader of the new
+  221  cluster. If one of the three new servers is elected leader,
+  222  the data stored by the two original members will be lost.
+  223  (This could happen if the three new servers start up, form
+  224  a quorum, and elect a leader before the two older servers
+  225  start up.) Currently, membership changes are done using
+  226  a "rolling restart" – a procedure whereby servers are shut
+  227  down and restarted in a particular order so that any quorum of the currently running servers includes at least one
+  228  server with the latest state. To preserve this invariant,
+  229  some reconfigurations (in particular, the ones in which
+  230  quorums from the old and the new configurations do not
+  231  intersect) require restarting servers multiple times. Service interruptions are unavoidable, as all servers must be
+  232  restarted at least once. Rolling restart is manually intensive, error prone, and hard to execute correctly even
+  233  for expert ZooKeeper users (especially if failures happen during reconfiguration). Furthermore, this procedure
+  234  gives no insight on how clients can discover or react to
+  235  membership changes.
+  236  The protocol we propose in this paper overcomes such
+  237  problems and enables dynamic changes to the configuration without restarting servers or interrupting the service.
+  238  Reconfiguring a state-machine. Primary/backup replication is a special instance of a more general problem,
+  239  state-machine replication (SMR). With SMR, all replicas start from the same state and process the same sequence of operations. Agreement on each operation in
+  240  the sequence is reached using a consensus protocol such
+  241  as Paxos [15]. Similarly to our algorithm, most existing
+  242  SMR approaches use the state-machine itself to change
+  243  system configuration, that is, the reconfiguration is interjected as any other operation in the sequence of statemachine commands [16]. The details of implementing
+  244  this in a real system are complex, as pointed out in a
+  245  keynote describing the implementation of Paxos developed at Google [6]. One of the core difficulties is that
+  246  a reconfiguration is very different from other SMR commands, in that it changes the consensus algorithm used
+  247  to agree on the subsequent operations in the sequence.
+  248  To better understand the issue, notice that in SMR
+  249  there is no dependency among operations and thus separate consensus decisions are made for the different
+  250  "slots" in the history sequence. Thus, if operations 1
+  251  through 100 are proposed by some server, it is possible that first operation 1 is committed, then 80, then 20,
+  252  and so on. It is also possible that an operation proposed
+  253  by a different server is chosen for slot number 2. Suppose now that a server proposes reconfiguration for slot
+  254  50. If the proposal achieves a consensus decision, it is
+  255  most natural to expect that it changes the set of servers
+  256  that need to execute the consensus algorithm on subsequent slots (51 and onward). Unfortunately, above we
+
+  257  stated that we already committed slot number 80 using
+  258  the current configuration; this could lead to inconsistency
+  259  (a split brain scenario). We must therefore delay the consensus decisions on a slot until we know the configuration in which it should be executed, i.e., after all previous
+  260  slots have been decided. As a remedy, Lamport proposed
+  261  to execute the configuration change α slots in the future,
+  262  which then allows the consensus algorithms on slots n
+  263  through n + α − 1 to execute simultaneously with slot
+  264  n. In this manner, we can maintain a 'pipeline' of operations, albeit bounded by α.
+  265  Thus, standard SMR reconfiguration approaches limit
+  266  the concurrent processing of all operations, because of
+  267  the uncertainty introduced by the ability to reconfigure.
+  268  We use a different approach that overcomes this limitation by exploiting primary order. Our reconfiguration algorithm speculatively executes any number of operations
+  269  concurrently.
+
+  270  3 Primary/Backup Reconfiguration
+
+  271  We start with a high level description of our reconfiguration protocol. In general, in order for the system to
+  272  correctly move from a configuration S to a configuration
+  273  S0 we must take the following steps [3], illustrated in
+  274  Figure 2:
+
+  275  1. persist information about S0 on stable storage at a
+  276  quorum of S (more precisely, a consensus decision
+  277  must be reached in S regarding the "move" to S0);
+  278  2. deactivate S, that is, make sure that no further operations can be committed in S;
+  279  3. identify and transfer all committed (and potentially
+  280  committed) state from S to S0, persisting it on stable
+  281  storage at a quorum of S0 (a consensus decision in
+  282  S0 regarding its initial state).
+  283  4. activate S0, so that it can independently operate and
+  284  process client operations.
+
+  285  Step 2: Deactivate
+  286  current configuration
+
+  287  ABCDE
+  288  Step 1: Write new
+  289  configuration
+  290  to stable storage
+  291  Step 3: Transfer
+  292  state
+
+  293  ABCDE
+  294  Step 4: Activate new
+  295  configuration including
+  296  D and E
+
+  297  Figure 2: The generic approach to reconfiguration: adding
+  298  servers D and E to a cluster of three servers A, B and C.
+=== PAGE 5 ===
+
+  299  Note that steps 1 and 2 are necessary to avoid split
+  300  brain. Steps 3 and 4 make sure that no state is lost when
+  301  moving to S0. The division into four steps is logical and
+  302  somewhat arbitrary – some of these steps are often executed together.
+  303  In a primary/backup system many of the steps above
+  304  can be simplified by taking advantage of properties already provided by the system. In such systems, the primary is the only one executing operations, producing
+  305  state-updates which are relative to its current state. Thus,
+  306  each state-update only makes sense in the context of all
+  307  previous updates. For this reason, such systems reach
+  308  agreement on the prefix of updates and not on individual
+  309  operations. In other words, a new update can be committed only after all previous updates commit. This does
+  310  not, however, limit concurrency: a primary can execute
+  311  and send out any number of state-updates speculatively
+  312  to the backups, however updates are always committed in
+  313  order and an uncommitted suffix of updates may later be
+  314  revoked from a backup's log if the primary fails without
+  315  persisting the update to a sufficient number of replicas
+  316  (a quorum). Reconfiguration fits this framework well –
+  317  we interject a configuration update operation, cop, in the
+  318  stream of normal state-updates, which causes a reconfiguration after previously scheduled updates are committed
+  319  (in state-machine terminology, α = 1). Thus, a reconfiguration is persisted to stable storage in the old configuration S just like any other operation inS (this corresponds
+  320  to step 1 above). At the same time, there is no need to
+  321  explicitly deactivate S – step 2 follows from the speculative nature of the execution. Just like with any other
+  322  state-update, the primary may execute any number of
+  323  subsequent operations, speculatively assuming that cop
+  324  commits. Primary order then makes sure that such operations are committed only after the entire prefix up to
+  325  the operation (including the configuration change cop) is
+  326  committed, i.e., they can only be committed in the new
+  327  configuration as required by step 2.
+  328  Since the primary is the only one executing operations,
+  329  its local log includes all state changes that may have been
+  330  committed; hence, in step 3 there is no need to copy
+  331  state from other servers. Moreover, we start state transfer
+  332  ahead of time, to avoid delaying the primary's pipeline.
+  333  When processing the reconfiguration operation cop, the
+  334  primary only makes sure that state transfer is complete,
+  335  namely that a quorum of S0 has persisted all operations
+  336  scheduled up to and including cop. Finally, in step 4, the
+  337  primary activates S0 .
+  338  If the primary of S fails during reconfiguration, a candidate primary in S must discover possible decisions
+  339  made in step 1. If a new configuration S0 is discovered
+  340  at this stage, the candidate primary must first take steps
+  341  to commit the stream of commands up to (and including) the operation proposing S0, and then it must repeat
+
+  342  steps 2–4 in order to transition to S0. Unlike the original primary, the new candidate primary needs to perform
+  343  a startup-phase in S0 and discover the potential actions
+  344  of a previous primary in S0 as well. This presented an
+  345  interesting challenge in the Zab realm, since a primary
+  346  in Zab usually has the most up-to-date prefix of commands, and enforces it on the backups. However, a new
+  347  primary elected from S might have a staler state compared to servers in S0. We must therefore make sure that
+  348  no committed updates are lost without introducing significant changes to Zab. Below (in Section 3.1), we describe the solution we chose for this pragmatic issue and
+  349  the Activation Property it induces.
+  350  We now dive into the details of our protocol. Due to
+  351  space limitations, we omit the formal proofs here and
+  352  focus on the intuition behind our algorithm.
+
+  353  3.1 Stable primary
+
+  354  We start by discussing the simpler case, where the primary P of the current configuration S does not fail and
+  355  continues to lead the next configuration. Figure 3 depicts
+  356  the flow of the protocol.
+  357  pre-step: In order to overlap state-transfer with normal
+  358  activity, backups in S0 connect to the current primary,
+  359  who initializes their state by transferring its currently
+  360  committed prefix of updates H. With Zab, such statetransfer happens automatically once backups connect to
+  361  the primary, and they continue receiving from P all subsequent commands (e.g., op1 and op2 in Figure 3), making the transition to S0 smooth.
+  362  step 1: The primary p schedules cop, the reconfiguration command, at the tail of the normal stream of updates. It sends an ACCEPT message containing cop to all
+  363  the backups connected to it (a backup may belong to S
+  364  and/or toS0 ) and waits for acknowledgments. Consensus
+  365  on the next configuration is reached once a quorum of S
+  366  acknowledges cop.
+  367  step 2: The primary does not stall operations it receives
+  368  after cop. Instead, they are executed immediately and
+  369  scheduled after cop. In principle, all updates following
+  370  cop are the responsibility of S0.
+  371  step 3: Transfer of commands has already been initiated
+  372  in the pre-step; now, p waits for acknowledgement for
+  373  cop and the history of commands which precede it from
+  374  a quorum of S0.
+  375  step 4: Once cop is acknowledged by both S and S0,
+  376  the primary commits cop and activates S0 by sending an
+  377  ACTIVATE message to backups. Similarly to an ACCEPT,
+  378  ACTIVATE includes the primary's epoch e and processed
+  379  by a backup only if e is greater or equal to this backup's
+  380  eprepare .
+=== PAGE 6 ===
+
+  381  Figure 3: Reconfiguration with a stable primary
+
+  382  New configuration Primary sends
+  383  obtains history new configuration
+  384  P
+  385  Op1 Op2 COP ACK Op
+  386  H
+  387  B
+  388  1
+  389  H Op1 Op2 COP ACK Op
+  390  B
+  391  2
+  392  H? ACKCOP
+  393  Op1 Op2
+  394  B
+  395  3
+  396  H? ACK Op1 Op2 COP
+  397  B
+  398  4
+
+  399  Current configS= {P, B1, B2}
+  400  New configuration S'= {P, B3, B4}
+
+  401  As mentioned earlier, in order to be compatible with
+  402  Zookeeper's existing mechanism for recovery from
+  403  leader failure, we guarantee an additional property:
+
+  404  Activation Property. before ACTIVATE is received by a
+  405  quorum of S0, all updates that may have been committed are persisted to stable storage by a quorum
+  406  of S.
+
+  407  To guarantee it, we make a change in step 2:
+  408  step 2': an update scheduled after cop and before the
+  409  activation message for S0 is sent can be committed by
+  410  a primary in S0 only once a quorum of both S and S0
+  411  acknowledge the update (of course, we also require all
+  412  preceding updates to be committed). Updates scheduled
+  413  after the ACTIVATE message for S0 is sent, need only be
+  414  persisted to stable storage by a quorum of S0 in order to
+  415  be committed.
+  416  Since the current primary is stable, it becomes the primary of S0, and it may skip the startup-phase of a new
+  417  primary (described in Section 2), since in this case it
+  418  knows that no updates were committed in S0 .
+  419  Cascading reconfigurations. Even before ACTIVATE is
+  420  sent for a configuration S0, another reconfiguration operation cop0 proposing a configuration S00 may be scheduled by the primary (see Figure 4 below). For example, if we reconfigure to remove a faulty member, and
+  421  meanwhile detect another failure, we can evict the additional member without ever going through the intermediate step. We streamline cascading reconfigurations by
+  422  skipping the activation of S0.
+
+  423  Quorums from previous and new
+  424  Primary activates
+  425  configurations acknowledge Op1,
+  426  new configuration
+  427  Op2, and COP
+  428  COMMITCOMMIT COP
+  429  1,2 Op1,2 ACK COPACTIVATE
+  430  COMMITCOMMIT COP
+  431  1,2 Op1,2 ACK COPACTIVATE
+
+  432  COMMITCOMMIT COP
+  433  Op ACK Op1,2 ACK COPACTIVATE
+  434  1,2
+
+  435  COMMITCOMMIT COP
+  436  Op ACK Op1,2 ACK COPACTIVATE
+  437  1,2
+
+  438  P.
+
+  439  In the following example, updates u1 through u4 are
+  440  sent by the primary speculatively, before any of them
+  441  commits, while u5 is scheduled after all previous updates are committed and the activation message for the
+  442  last proposed configuration (S00) is sent out.
+  443  ACTIVATE(S'') is sent
+  444  last active S S''
+  445  configuration:
+
+  446  u cop(S') u cop'(S'') u u
+  447  1 3 4 5
+  448  updates:
+  449  1 3 4 5 6 7
+  450  required S' S, S'' S, S''
+
+  451  S S, S' S, S''
+  452  quorums:
+  453  Figure 4: Cascading reconfigurations
+  454  Notice that for a given update, only the last active and
+  455  the last proposed configuration (at the time this update is
+  456  scheduled) are involved in the protocol steps for that update. Once there is a sufficient window of time between
+  457  reconfigurations that allows state-transfer to the last proposed configuration to complete, the primary activates
+  458  that configuration. We note that currently the described
+  459  extension of the protocol to support multiple concurrent
+  460  reconfigurations is not being integrated into Zookeeper;
+  461  for simplicity, a reconfiguration request is rejected if another reconfiguration is currently in progress. (The issuing client may resubmit the reconfiguration request after
+  462  the current reconfiguration operation completes.)
+
+  463  3.2 Primary failure or replacement
+  464  Until now, we assumed that the primary does not fail during the transition to S0 and continues as the primary of
+  465  S0. It remains to ensure that when it is removed or fails,
+  466  safety is still guaranteed. First, consider the case that
+=== PAGE 7 ===
+
+  467  the current primary in S needs to be replaced. There are
+  468  many reasons why we may want to replace a primary,
+  469  e.g., the current primary may not be in S0, its new role
+  470  in S0 might not allow it to continue leading, or even if
+  471  the IP address or port it uses for communication with the
+  472  backups needs to change as part of the reconfiguration.
+  473  Our framework easily accommodates this variation:
+  474  The old primary can still execute operations scheduled
+  475  after cop and send them out to connected backups but
+  476  it does not commit these operations, as these logically
+  477  belong in S0. It is the responsibility of a new primary
+  478  elected in S0 to commit these operations. As an optimization, we explicitly include in an ACTIVATE message
+  479  the identity of a designated, initial primary for S0 (this is
+  480  one of the backups in S0, which has acknowledged the
+  481  longest prefix of operations, including at least cop). As
+  482  before, this primary does not need to execute the startupphase in S0 since we know that no primary previously
+  483  existed in S0. Obviously, if that default primary fails to
+  484  form a quorum, we fall-back to the normal primary election in S0 .
+  485  Likewise, the case of a primary failure after S0 has
+  486  been activated is handled as a normal Zab leader reelection.
+  487  An attempted reconfiguration might not even reach a
+  488  quorum of backups in S, in which case it may disappear
+  489  from the system like any other failed command.
+  490  We are left with the interesting case when a primarycandidate b in S discovers a pending attempt for a consensus on cop(S0) by the previous primary. This can
+  491  mean either that cop was already decided, or simply that
+  492  some backup in the quorum of b heard cop from p. As
+  493  for any other command in the prefix b learns, it must first
+  494  commit cop in S (achieving the consensus decision required in step 1). However, executing cop requires additional work, and b must follow the reconfiguration steps
+  495  to implement it.
+  496  The only deviation from the original primary's protocol is that b must follow the startup-phase of a new primary (Section 2) in both S and S0. In order to do so,
+  497  b connects to the servers in S0 . When connecting to a
+  498  server b0 in S0 , b finds out whether b0 knows of the activation of S0 (or a later configuration). If S0 has been activated, servers in S0 may know of newer updates unknown
+  499  to b, hence b should not attempt to perform state transfer
+  500  (otherwise it may cause newer updates to be truncated).
+  501  Instead, b restarts primary re-election in S0 (and in particular connects to an already elected primary in S0 if such
+  502  primary exists). Otherwise, b implicitly initiates statetransfer to b0 (much like its predecessor did). This includes at least all updates up to cop but may also include
+  503  updates scheduled by the previous primary after cop.
+  504  This leads us to a subtle issue resulting from our desire to introduce as few changes as possible to the existing implementation of leader recovery in Zookeeper.
+  505  Recall that the stream of updates by the previous primary
+  506  may continue past cop, and so backups in S0 may have a
+  507  longer history of commands than b. In Zookeeper, connecting to b would cause them to truncate their history.
+  508  This is exactly why we chose to preserve the Activation
+  509  Property. If b succeeds to connect to a quorum of S0
+  510  without learning of the activation of S0, we know that
+  511  all updates that may have been committed are stored at
+  512  a quorum of S. Thus, b will find all such updates once
+  513  completing the startup-phase in S; in fact, in Zookeeper
+  514  the candidate b is chosen (by preliminary selection) as
+  515  the most up-to-date backup in S (that can communicate
+  516  with a quorum of S), so it will already have the full prefix and no actual transfer of updates is needed during the
+  517  startup-phase.
+  518  Finally, note that b might discover more than a single
+  519  future reconfiguration while performing its startup-phase
+  520  in S. For example, it may see that both S0 and S00 were
+  521  proposed. b may in this case skip S0 and run the startupphase in S and S00, after which it activates S00.
+
+  522  3.3 Progress guarantees
+  523  As in [2], the fault model represents a dynamic interplay between the execution of reconfiguration operations
+  524  and the "adversary": The triggering of a reconfiguration
+  525  event from S to S0 marks a first transition. Until this
+  526  event, a quorum of S is required to remain alive in order
+  527  for progress to be guaranteed. After it, both a quorum of
+  528  S and of S0 are required to remain alive. The completion
+  529  of a reconfiguration is generally not known to the participants in the system. In our protocol, it occurs when the
+  530  following conditions are met: (a) a quorum of S0 receives
+  531  and processes the ACTIVATE message for S0 , and (b) all
+  532  operations scheduled before S0 is activated by a primary
+  533  are committed. The former condition indicates that S0
+  534  can independently process new operations, while the latter indicates that all previous operations, including those
+  535  scheduled while the reconfiguration was in progress, are
+  536  committed (it is required due to the Activation Property
+  537  and step 2'). Neither conditions are externally visible to
+  538  a client or operator submitting the reconfiguration command. However, there is an easy way to make sure that
+  539  both condition are met: after the reconfiguration completes at the client, it can submit a no-op update operation; once it commits, we know that both conditions (a)
+  540  and (b) are satisfied (the no-op update can be automatically submitted by the client-side library). An alternative
+  541  way to achieve this is to introduce another round to the
+  542  reconfiguration protocol (which, for simplicity and compatibility with Zab, we decided to avoid). Either way,
+  543  once (a) and (b) are satisfied, the fault model transitions
+  544  for the second time: only a quorum of S0 is required to
+  545  survive from now on.
+=== PAGE 8 ===
+
+  546  SS'
+
+  547  10 10 10
+
+  548  Figure 5: A balanced service (10 clients are connected to each
+  549  server) about to move to a new configuration S0.
+
+  550  4 Reconfiguring the Clients
+
+  551  Once servers are able to reconfigure themselves we are
+  552  left with two problems at the client. First, clients need
+  553  to learn about new servers to be able to connect to
+  554  them. This is especially important if servers that a client
+  555  was using have been removed from the configuration or
+  556  failed. Second, we need to rebalance the load on the
+  557  servers. ZooKeeper clients use long-lived connections
+  558  and only change the server they are connected to if it has
+  559  failed. This means that new servers added to a configuration will not take on new load until new clients start
+  560  or other servers fail. We can solve the first problem using DNS and by having clients subscribe to configuration
+  561  changes (see Section 5) in Zookeeper. For lack of space
+  562  here we concentrate on the second problem.
+  563  Figure 5 shows a balanced service with configuration
+  564  S that is about to move to S0. There are 30 clients in
+  565  the system and each of the three servers in S serves 10
+  566  of the clients. When we change to S0 we would like
+  567  to make sure the new system is also load-balanced. In
+  568  this example this means that each server should service 6
+  569  clients. We would also like to move as few clients as possible since session reestablishment puts load on both the
+  570  clients and the servers and increases latency for client requests issued while the reestablishment is in process. A
+  571  final goal is to accomplish the load balance using only
+  572  logic at the clients so as not to burden the servers.
+  573  We denote by M the set of servers that are in both configurations, S ∩S0 . Machines that are in the old configuration S but not in the new configuration we will label O,
+  574  that is, O = S \ M. Machines that are in the new configuration S0 but not in the old configuration are labeled N,
+  575  that is, N = S0 \ M. Denote the total number of clients
+  576  by C. The number of clients connected to server ⟩ in S
+  577  is denoted by l(i, S).
+  578  In general, for a server ⟩ ∈ S0, the expected number
+  579  of clients that connect to ⟩ in S0, E(l(i, S')) is the number
+  580  of clients connected to it in S plus the number of clients
+  581  migrating from other servers in S to ⟩ (we denote a move
+  582  from server j to server ⟩ by j → ⟩ and a move to any of
+  583  the servers in a set G by j → G) minus the number of
+  584  clients migrating from ⟩ to other servers in S0:
+
+  585  E(l(i, S0)) = l(i, S) + X l(j, S) ∗ P r(j → ⟩)
+  586  j∈S∧j6=⟩
+  587  − l(i, S) X P r(⟩ → j)
+  588  j∈S0∧j6=⟩
+  589  We solve for the probabilities assuming that the load
+  590  was uniform across all servers in S and requiring that the
+  591  expected load remains uniform in S0 (in the example of
+  592  Figure 5, we require that E(l(i, S0 )) = 6). Intuitively,
+  593  the probability of a client switching to a different server
+  594  depends on whether the cluster size increases or shrinks,
+  595  and by how much. We have two cases to consider:
+  596  Case 1: |S| < |S0| Since the number of servers is increasing, load must move off from all servers. For a
+  597  server ⟩ ∈ M we get: E(l(i, S0)) = l(i, S) − l(i, S) ∗
+  598  P r(⟩ → N). We can substitute l(i, S) = C/|S| since
+  599  load was balanced in S, and E(l(i, S0)) = C/|S0| since
+  600  this is what we would like to achieve. This gives:
+  601  Rule 1. If |S| < |S0| and a client is connected to M,
+  602  then with probability 1 − |S|/|S0| the client disconnects
+  603  from its server and then connects to a random server in
+  604  N. That is, the choice among the servers in N is made
+  605  uniformly at random.
+  606  Notice that clients connected to servers in O should
+  607  move only to N as servers in M have too many clients to
+  608  begin with.
+  609  Rule 2. If |S| < |S0| and a client is connected to O, then
+  610  the client moves to a random server in N.
+  611  Case 2: |S| ≥ |S0| Since the number of servers decreases
+  612  or stays the same, the load on each server in S0 will be
+  613  greater or equal to the load on each server in S. Thus, a
+  614  server in M will not need to decrease load:
+  615  Rule 3. If |S| ≥ |S0 | and a client is connected to a server
+  616  in M, it should remain connected.
+  617  The total collective load in S0 on all servers in M is
+  618  the load on M in S plus the expected number of clients
+  619  that move to M from O:
+  620  |M |C |M|C |O|C
+  621  = + ∗ P r(⟩ → M|⟩ ∈ O)
+  622  |S0| |S| |S|
+  623  We thus get our last rule:
+  624  Rule 4. If |S| ≥ |S0 | and a client is connected to a server
+  625  in O, it moves to a random server in M with probability
+  626  |M|(|S|−|S0|)
+  627  ; otherwise, moves to a random server in N.
+  628  |S0||O|
+  629  By having each client independently apply these rules,
+  630  we achieve uniform load in a distributed fashion.
+
+  631  5 Implementation and Evaluation
+
+  632  We implemented our server and client-side protocols in
+  633  Apache Zookeeper. To this end we updated the serverside library of ZooKeeper (written in Java) as well as
+  634  the two client libraries (written in Java and in C). We
+=== PAGE 9 ===
+
+  635  added a reconfig command to the API that changes the
+  636  configuration, a config command that retrieves the current configuration and additionally allows users to subscribe for configuration changes and finally the updateserver-list command that triggers the client migration algorithm described in Section 4. We support two reconfiguration modes. The first is incremental – it allows
+  637  adding and removing servers to the current configuration.
+  638  The second type of reconfiguration is non-incremental,
+  639  which means that the user specifies the new configuration. This method allows changing the quorum system
+  640  dynamically. We allow adding and removing servers as
+  641  well as changing server roles. We also support dynamically changing the different network addresses and ports
+  642  used by the system.
+  643  In the remainder of this section we evaluate the impact
+  644  of reconfigurations on Zookeeper clients. We focus on
+  645  the effect on throughput and latency of normal operations
+  646  as well as on load balancing.
+  647  We performed our evaluation on a cluster of 50
+  648  servers. Each server has one Xeon dual-core 2.13GHz
+  649  processor, 4GB of RAM, gigabit ethernet, and two SATA
+  650  hard drives. The servers run RHEL 5.3 using the ext3 file
+  651  system. We use the 1.6 version of Sun's JVM.
+  652  We used the Java server configured to log to one dedicated disk and take snapshots on another. Our benchmark
+  653  client uses the asynchronous Java client API, and each
+  654  client is allowed up to 100 outstanding requests. Each
+  655  request consists of a read or write of 1K of data (typical operation size). We focus on read and write operations as the performance of all the operations that modify
+  656  the state is approximately the same, and the performance
+  657  of non state modifying operations is approximately the
+  658  same. When measuring throughput, clients send counts
+  659  of the number of completed operations every 300ms and
+  660  we sample every 3s. Finally, note that state-transfer is
+  661  always performed ahead of time and a reconfig operation simply completes it, thus our measurements do not
+  662  depend on the size of the Zookeeper database.
+
+  663  Throughput. We first measure the effect of dynamic
+  664  reconfigurations on throughput of normal operations. To
+  665  this end, we used 250 simultaneous clients executing on
+  666  35 machines, up to 11 of which are dedicated to run
+  667  Zookeeper servers (typical installations have 3-7 servers,
+  668  so 11 is larger than a typical setting). Figure 6 shows the
+  669  throughput in a saturated state as it changes over time.
+  670  We show measurements for workloads with 100%, 50%,
+  671  30% and 15% write operations. The ensemble is initially
+  672  composed of 7 servers. The following reconfiguration
+  673  events are marked on the figure: (1) a randomly chosen
+  674  follower is removed; (2) the follower is added back to the
+  675  ensemble; (3) the leader is removed; (4) former leader is
+  676  added back to the ensemble as a follower; (5) a randomly
+
+  677  chosen follower is removed, and (6) the follower is added
+  678  back to the ensemble.
+  679  70000
+  680  1 2 3 4 5 6
+  681  60000
+  682  sec) 50000
+  683  s/
+  684  (op 40000 15% writes
+  685  30% writes
+  686  30000
+  687  ughputoo 20000 50% writes
+  688  Thr 10000
+  689  0 100% writes
+  690  00 09 18 27 36 45 54 03 12 21 30 39 48 57 06 15 24 33 45 54 03
+  691  00: 00: 00: 00: 00: 00: 00: 01: 01: 01: 01: 01: 01: 01: 02: 02: 02: 02: 02: 02: 03:
+  692  Time (mm:ss)
+  693  Figure 6: Throughput during configuration changes.
+  694  Unsurprisingly, removing the leader has the most significant effect on throughput. In Zookeeper, any leader
+  695  change (e.g., due to the failure of the previous leader)
+  696  always renders the system temporarily unavailable, and
+  697  a reconfiguration removing the leader is no different in
+  698  that respect. Note that in Zookeeper, each follower is
+  699  connected only to one leader. Thus, when the leader
+  700  changes, followers disconnect from the old leader and
+  701  only after a new leader is established can submit further operations. While this explains why write operations cannot be executed in the transition period (and the
+  702  throughput drop for a 100% write workload), the reasons for disabling any read activity during leader election (which causes the throughput drop for read intensive
+  703  workloads) are more subtle. One of the reasons is that
+  704  Zookeeper guarantees that all operations complete in the
+  705  order they were invoked. Thus, even asynchronous invocations by the same thread have a well defined order
+  706  known in advance to the programmer. Keeping this in
+  707  mind, consider a read operation that follows a write by
+  708  the same client (not necessarily to the same data item).
+  709  The read will only be able to complete after the write,
+  710  whereas writes await the establishment of a new leader5.
+  711  The throughput quickly returns to normal after a leader
+  712  crash or removal. Notice that read intensive workloads
+  713  are more sensitive to removal and addition of followers. This is due to the effect of client migration to other
+  714  followers for load balancing (we explore load-balancing
+  715  further in Section 5.1). Still, the change in throughput with such reconfigurations is insignificant compared
+  716  to normal fluctuations of system throughput. The reason is the in-order completion property of Zookeeper
+  717  mentioned above; writes, which are broadcasted by the
+  718  leader to followers, determine the throughput of the system. More precisely, the network interface of the leader
+  719  is the bottleneck. Zookeeper uses a single IP address
+  720  for leader-follower communication. The throughput of
+  721  5In Zookeeper 3.4, each operation is blocked until every operation
+  722  (not necessarily by the same client) previously submitted to the same
+  723  follower completes; this is not necessary to guarantee the in-order completion semantics and may therefore change in the future.
+=== PAGE 10 ===
+
+  724  the system therefore depends on the number of servers
+  725  connected to the leader, not the number of followers in
+  726  the ensemble. Note, however, that removing or adding
+  727  a server from the cluster using the reconfig command
+  728  does not necessarily change the number of connections.
+  729  Although a removal excludes a server from participating in Zab voting it does not necessarily disconnect the
+  730  follower from the leader; an administrator might want
+  731  to first allow clients to gracefully migrate to other followers and only then disconnect a removed follower or
+  732  shut it down. In addition, removing a follower is sometimes necessary as an intermediate step when changing
+  733  its role in the protocol (for example, in some situations
+  734  when converting an observer to a follower). Figure 7 illustrates this point. It shows two executions, with 30%
+  735  writes, 250 clients and 11 servers initially in the cluster. There are two reconfiguration events, each removes
+  736  multiple servers from the cluster. In one execution, the
+  737  removed servers are turned off while in the other (similarly to Figure 6) removed followers maintain their connections to the leader. The graph shows that disconnecting the servers indeed increases system throughput.
+  738  This shows, that over-provisioning a cluster by adding
+  739  more replicas (even if those replicas are observers) can
+  740  be detrimental to Zookeeper throughput. A better strategy is to reconfigure the system dynamically with changing load.
+  741  (a) removeand shut‐down
+  742  34000 running avg.of (a) since last reconfiguration
+  743  (b) remove w/o shut‐down
+  744  32000 running avg.of (b) sincelast reconfiguration
+  745  sec) 30000 1 2
+  746  s/
+  747  (op 28000
+  748  put 26000
+  749  gh
+  750  rour 2400024000
+  751  Th
+  752  22000
+  753  20000
+  754  00 12 24 36 48 00 12 24 36 48 00 12 24 36 48 00 12 24 36 48 00 12 24 36 48 00 12 24 36 48 00 12 24 36 48 00
+  755  00: 00: 00: 00: 00: 01: 01: 01: 01: 01: 02: 02: 02: 02: 02: 03: 03: 03: 03: 03: 04: 04: 04: 04: 04: 05: 05: 05: 05: 05: 06: 06: 06: 06: 06: 07:
+  756  Time (mm:ss)
+  757  Figure 7: Throughput during configuration changes. Initially
+  758  there are 11 servers in the cluster. The workload includes 30%
+  759  writes. Configuration changes: (1) four followers are removed,
+  760  (2) two additional followers are removed.
+  761  Latency. Next, we focus on the effect of reconfiguration on the latency of other requests. We measured the
+  762  average latency of write operations performed by a single
+  763  client connected to Zookeeper; the writes are submitted
+  764  in batches of 100 operations, after all previously submitted writes complete. Initially, the cluster contains seven
+  765  replicas and writes have an average latency of 10.8ms6.
+  766  We then measured the impact of removing replicas on
+  767  latency. A client submits a reconfiguration request to re-
+  768  6 the average latencies presented here are taken over 150 executions
+  769  or the described experiment and lie within 0.3ms of the real average
+  770  with 95% confidence
+
+  771  move four randomly chosen followers which is immediately followed by a second write batch. If we use the
+  772  reconfiguration procedure described in Section 3, we get
+  773  an average latency again of 10.8ms. However, if we stall
+  774  the request pipeline during the reconfiguration, the average latency increases to 15.2ms.
+  775  With three replicas, our average write latency is
+  776  10.5ms. The client then requests to add back four replicas, followed by another write batch. Using our approach
+  777  write latency is at 11.4ms and jumps to 18.1ms if we stall
+  778  the pipeline.
+
+  779  Leader removal. Finally, we investigate the effect of
+  780  reconfigurations removing the leader. Note that a server
+  781  can never be added to a cluster as leader as we always
+  782  prioritize the current leader. Figure 8 shows the advantage of designating a new leader when removing the current one, and thus avoiding leader election. It depicts
+  783  the average time to recover from a leader crash versus
+  784  the average time to regain system availability following
+  785  the removal of the leader. The average is taken on 10
+  786  executions. We can see that designating a default leader
+  787  saves up to 1sec, depending on the cluster size. As cluster
+  788  size increases, leader election takes longer while using a
+  789  default leader takes constant time regardless of the cluster size. Nevertheless, as the figure shows, cluster size
+  790  always affects total leader recovery time, as it includes
+  791  synchronizing state with a quorum of followers.
+  792  2500
+  793  ated
+  794  stat 2000
+  795  in‐
+  796  ree
+  797  vic 1500
+  798  seril
+  799  1000 leadercrashes
+  800  unt)
+  801  s) leaderremoved
+  802  (m 500
+  803  meti
+  804  0
+  805  3 5 7 9
+  806  Numberof replicas
+  807  Figure 8: Unavailability following leader removal or crash.
+
+  808  5.1 Load Balancing
+  809  In this section, we would like to evaluate our approach for load balancing clients as part of configuration changes. To this end, we experiment with a cluster of nine servers and 1000 clients. Clients subscribe
+  810  to configuration changes using the config command and
+  811  update their list of servers using the update-server-list
+  812  command when notified of a change. In order to avoid
+  813  mass migration of clients at the same time, each client
+  814  waits for a random period of time between 0 and 5sec.
+  815  The graphs presented below include four reconfiguration
+  816  events: (1) remove one random server; (2) remove two
+  817  random servers; (3) remove one random server and add
+  818  the three previously removed servers, and (4) add the
+  819  server removed in step 3.
+=== PAGE 11 ===
+
+  820  We evaluate load balancing by measuring the minimum and maximum number of clients connected to any
+  821  of the servers and compare it to the average (number of
+  822  clients divided by the current number of servers). When
+  823  the client connections are balanced across the servers, the
+  824  minimum and maximum are close to the average, i.e.,
+  825  there are no overloaded or under-utilized servers.
+
+  826  Baseline. Our first baseline is the current implementation of load balancing in Zookeeper. The only measure
+  827  of load is currently the number of clients connected to
+  828  each server, and Zookeeper is trying to keep the number of connections the same for all servers. To this end,
+  829  each client creates a random permutation of the list of
+  830  servers and connects to the first server on its list. If that
+  831  server fails, it moves on to the next server on the list and
+  832  so on (in round robin). This approach works reasonably
+  833  well when system membership is fixed, and can easily
+  834  accommodate server removals. It does not, however, provide means for incorporating a new server added to the
+  835  cluster. In order to account for additions in this scheme,
+  836  we replace the client's list with a new list of servers. The
+  837  client maintains its connection unless its current server
+  838  is not in the new list. Figure 9 shows that load is balanced well as long as we perform removals (steps 1 and
+  839  2), however when servers are added in steps 3 and 4 the
+  840  newly added servers are under-utilized. In the beginning
+  841  of step 3 there are six servers in the system, thus approximately 166 clients are connected to every server. When
+  842  we remove a server and add three new ones in step 3,
+  843  the clients connected to the removed server migrate to
+  844  a random server in the new configuration. Thus, every
+  845  server out of the eight servers in the new configuration
+  846  gets an expected 21 additional clients (the newly added
+  847  servers will only have these clients, as no other clients
+  848  disconnect from their servers). In step 4 we add back the
+  849  last server, however no clients migrate to this server. Although all clients find out about the change and update
+  850  their lists, no client disconnects from its server as it is
+  851  still part of the system.
+  852  250 average
+  853  r minimum
+  854  e 200 maximum
+  855  rv
+  856  se
+  857  150
+  858  per
+  859  ts
+  860  100
+  861  clienff 3
+  862  o 50
+  863  1 2 4
+  864  number 0
+  865  Time (mm:ss)
+  866  Figure 9: Baseline load balancing.
+  867  To mitigate the problem illustrated in Figure 9 we
+  868  could of course disconnect all clients and re-connect
+
+  869  them to randomly chosen servers in the new configuration. This, however, creates excessive migration and
+  870  unnecessary loss of throughput. Ideally, we would like
+  871  the number of migrating clients to be proportional to the
+  872  change in membership. If only a single server is removed
+  873  (or added), only clients that were (or should be) connected to that server should need to migrate.
+
+  874  Consistent Hashing. A natural way to achieve such
+  875  limited migration, which we use as a second baseline,
+  876  is to associate each client with a server using consistent hashing [14]. Client and server identifiers are randomly mapped to points in an m-bit space, which can
+  877  be seen as circular (i.e., 0 follows 2m − 1). Each client
+  878  is then associated with the server that immediately follows it in the circle. If a server is removed, only the
+  879  clients that are associated with it will need to migrate by
+  880  connecting to the next server on the circle. Similarly,
+  881  if a new server is added a client migrates to it only if
+  882  the new server was inserted between the client and the
+  883  server to which it is currently connected. In order to improve load balancing, each server is sometimes hashed k
+  884  times (usually k is chosen to be in the order of log(N),
+  885  where N is the number of servers). To evaluated the
+  886  approach, we implemented it in Zookeeper. Figure 10
+  887  shows measurements for k = 1, k = 5 and k = 20.
+  888  We used MD5 hashing to create random identifiers for
+  889  clients and servers (m = 128). We can see that higher
+  890  values of k achieve better load balancing. Note, however,
+  891  that load-balancing in consistent hashing is uniform only
+  892  with "high probability", which depends on N and k. In
+  893  the case of Zookeeper, where 3-7 servers (N) are usually used, the values of N and k are not high enough to
+  894  achieve reasonable load balancing.
+
+  895  Probabilistic Load Balancing. Finally, Figure 11
+  896  shows measurements of load-balancing with the approach we have implemented in Zookeeper as outlined
+  897  in Section 4. Unlike consistent hashing, in this approach
+  898  every client makes a probabilistic decision whether and
+  899  where to migrate, such that the expected number of
+  900  clients per server is the same for every server. As we can
+  901  see from the figure the difference in number of clients
+  902  between the server with the most clients and the least
+  903  clients is very small. Using our simple case-based probabilistic load balancing we are able to achieve very close
+  904  to optimal load-balance using logic entirely at the client.
+
+  905  6 Related Work
+  906  Primary order is commonly guaranteed by Primary/Backup replication systems, e.g., Chubby [5],
+  907  GFS [8], Boxwood [19], PacificA [21], chain replication [20], Harp [17] and Echo [11]. Although Paxos
+  908  does not guarantee primary order [13], some systems
+=== PAGE 12 ===
+
+  909  Load balancing using consistent hashing, with
+
+  910  450 average 250 average
+  911  400 minimum minimum
+  912  ver 350 maximum ver 200 maximum
+  913  ser 300 serr
+  914  per 250 pe 150
+  915  ts ts
+  916  n 200 1 3 ien 100
+  917  iecl 150 clf
+  918  of oo
+  919  100 2 50
+  920  50 4 mber 1 2
+  921  mber 0 nu
+  922  nu 00 05 09 13 17 22 26 30 34 39 43 47 51 55 00 04 08 12 17 21 25 29 33 38 0
+  923  00: 00: 00: 00: 00: 00: 00: 00: 00: 00: 00: 00: 00: 00: 01: 01: 01: 01: 01: 01: 01: 01: 01: 01: 00:00 00:05 00:11 00:18 00:24 00:28 00:33 00:38 00:43 00:48
+  924  Time(mm:ss) Time
+  925  Figure 10:
+
+  926  250 average
+  927  minimum
+  928  re 200
+  929  rv maximum
+  930  se 150
+  931  per
+  932  ts
+  933  100
+  934  clienff
+  935  o 50
+  936  erb 1 2 3 4
+  937  m
+  938  nu 0
+  939  00:00 00:04 00:09 00:13 00:18 00:22 00:26 00:30 00:35 00:39 00:43 00:48 00:52 00:56 01:01 01:05 01:09 01:13 01:18 01:22 01:27 01:31 01:35 01:40 01:44
+  940  Time (mm:ss)
+
+  941  Figure 11: Load balancing using our method (Section 4).
+
+  942  implementing Paxos (such as Chubby and Boxwood)
+  943  have one outstanding decree at-a-time, which in fact
+  944  achieves primary-order. This is done primarily to
+  945  simplify implementation and recovery [19]. Unlike
+  946  such approaches, we do not limit the the concurrent
+  947  processing of operations.
+  948  Unlike systems such as RAMBO [9], Boxwood [19],
+  949  GFS [8], Chubby [5], chain replication [20] and PacificA [21] that use an external reconfiguration service,
+  950  we use the system itself as the reconfiguration engine,
+  951  exploiting the primary order property to streamline reconfigurations with other operations. Zookeeper is often used by other systems for the exact same purpose,
+  952  and thus relying on another system for reconfiguring
+  953  Zookeeper would simply push the problem further as
+  954  well as introduce additional management overhead. An
+  955  additional difference from RAMBO is that in our design,
+  956  every backup has a single "active" configuration in which
+  957  it operates, unlike in RAMBO where servers maintain a
+  958  set of possible configurations, and operate in all of them
+  959  simultaneously. Finally, RAMBO and several other reconfigurable systems (see [1] for a survey), are designed
+  960  for reconfiguring read/write storage, whereas Zookeeper
+  961  provides developers with arbitrary functionality, i.e., a
+  962  universal object via consensus [10]; the read/write reconfiguration problem is conceptually different [2] than the
+  963  one we address in this paper.
+  964  SMART [18] is perhaps the most practical implementation of Paxos [15] SMR published in detail. SMART
+  965  uses Lamport's α parameter to bound the number of
+  966  operations that may be executed concurrently (see Sec-
+
+  967  250 average
+  968  r minimum
+  969  ve 200 maximum
+  970  ser 150
+  971  per
+  972  tsn
+  973  clie 100
+  974  ffo
+  975  3 50 1 2 3 4
+  976  4
+  977  number 0 0 5 9 3 8 2 6 1 5 9 4 8 2 7 1 5 0 4 8 3 7 1 6
+  978  00:52 00:57 01:02 01:07 01:12 01:17 01:22 01:27 01:32 01:37 01:42 01:47 01:51 :000 :000 :000 :100 :100 :200 :200 :300 :300 :300 :400 :400 :500 :500 :001 :001 :101 :101 :101 :201 :201 :301 :301
+  979  (mm:ss) Time(mm:ss)
+  980  k = 1 (left), k = 5 (middle), and k = 20 (right).
+
+  981  tion 2). In addition, SMART uses configuration-specific
+  982  replicas: if the cluster consists of replicas A, B, and C
+  983  and we are replacing C with D, SMART runs two replicas of A and two of B, one in the new configuration
+  984  and one in the old, each running its own instance of the
+  985  replication protocol. An important design consideration
+  986  in our work has been to introduce minimal changes to
+  987  Zookeeper, as it is used in production by many commercial companies. Dynamically creating additional
+  988  Zookeeper replicas just for the purpose of reconfiguration adds an implementation and management overhead
+  989  that would not be acceptable to Zookeeper users. Unlike SMART, we do not limit concurrency or require any
+  990  additional resources to reconfigure.
+  991  FRAPPE [4] proposes a different solution. Each server
+  992  in FRAPPE works with a set of possible configurations,
+  993  similarly to RAMBO. If a reconfiguration is proposed for
+  994  history slot n, any number of operations can be proposed
+  995  after n, however their completion is speculative – users
+  996  are aware that even though these operations commit they
+  997  may later be rolled back if a different operation is chosen
+  998  for slot n. This requires servers to maintain a speculative
+  999  execution tree, each branch corresponding to an assumption on the decision on some reconfiguration for a particular history slot. In case the reconfiguration is chosen
+ 1000  for slot n and once state transfer is complete, the speculative operations become permanently committed and
+ 1001  the corresponding tree-branch is merged into the "trunk".
+ 1002  Otherwise, the branch is simply abandoned. Similarly to
+ 1003  SMART and FRAPPE, we do not require any intersection between the memberships of consecutive configurations. The algorithm presented in this paper processes
+ 1004  updates speculatively, similar to FRAPPE. However, our
+ 1005  algorithm does not require servers to work with or explicitly manage multiple configurations and it does not
+ 1006  expose speculative operation completions to the clients.
+ 1007  Group communication systems that provide virtual
+ 1008  synchrony [7, 3] are perhaps closer to Zookeeper than
+ 1009  Paxos-style replicated state machines. In such systems, a
+ 1010  group of processes may exchange messages with others
+ 1011  in the group, and the membership of the group (called a
+ 1012  view) may change. Virtual synchrony guarantees that all
+ 1013  processes transferring from one view to the next agree on
+ 1014  the set of messages received in the previous view. Note
+=== PAGE 13 ===
+
+ 1015  that they do not necessarily agree on the order of messages, and processes that did not participate in the previous view do not have to deliver these messages. Still,
+ 1016  virtual synchrony is similar to primary order in the sense
+ 1017  that it does not allow messages sent in different configurations to interleave just as primary order does not
+ 1018  allow messages sent by different leaders to interleave.
+ 1019  Unlike state-machine replication systems, which remain
+ 1020  available as long as a quorum of the processes are alive,
+ 1021  group communication systems must react to every failure by removing the faulty process from the view. While
+ 1022  this reconfiguration is in progress, client operations are
+ 1023  not processed. Other systems, such as Harp [17] and
+ 1024  Echo [11] follow similar methodology, stopping all client
+ 1025  operations during reconfigurations. Conversely, our design (similarly to state-machine replication systems) tolerates failures as long as a quorum of the replicas remains
+ 1026  available, and allows executing client operations while
+ 1027  reconfiguration and state-transfer are in progress.
+
+ 1028  7 Conclusions
+
+ 1029  Reconfiguration is hard in general. It becomes especially hard when reconfiguring the configuration service.
+ 1030  While intuitively it seems simple, care must be taken to
+ 1031  address all failure cases and execution orderings.
+ 1032  Our reconfiguration protocol builds on properties of
+ 1033  Primary/Backup systems to achieve high performance
+ 1034  reconfigurations without imposing a bound on concurrent processing of operations or stalling them, and without the high management price of previous proposals.
+ 1035  The load balancing algorithm for distributing clients
+ 1036  across servers in a new configuration involves decisions
+ 1037  made locally at the client in a completely distributed
+ 1038  fashion. We guarantee uniform expected load while
+ 1039  moving a minimum number of clients between servers.
+ 1040  We implemented our protocols in an existing opensource primary/backup system, and are currently working on integrating it into production. This involved simple changes, mostly to the commit and recovery operations of Zookeeper. Our evaluation shows that there are
+ 1041  minimal disruptions in both throughput and latency using
+ 1042  our approach.
+ 1043  While the methods described in this paper were implemented in the context of ZooKeeper, the primary order property we have taken advantage of is commonly
+ 1044  provided by Primary/Backup systems.
+
+ 1045  Acknowledgments
+
+ 1046  We would like to thank Marshall McMullen for his
+ 1047  valuable contributions to this project. We thank the
+ 1048  Zookeeper open source community and in particular to
+ 1049  Vishal Kher, Mahadev Konar, Rakesh Radhakrishnan
+ 1050  and Raghu Shastry for their support, helpful discussions,
+
+ 1051  comments and thorough reviews of this work. Finally,
+ 1052  we would like to thank the anonymous reviewers and our
+ 1053  shepherd, Christopher Small, for their comments.
+
+ 1054  References
+ 1055  [1] AGUILERA, M. K., KEIDAR, I., MALKHI, D., MARTIN, J.-P.,
+ 1056  ANDSHRAER, A. Reconfiguring replicated atomic storage: A
+ 1057  tutorial. Bulletin of the EATCS 102 (2010), 84–108.
+ 1058  [2] AGUILERA, M. K., KEIDAR, I., MALKHI, D., ANDSHRAER,
+ 1059  A. Dynamic atomic storage without consensus. J. ACM 58, 2
+ 1060  (2011), 7.
+ 1061  [3] BIRMAN, K., MALKHI, D., AND VANRENESSE, R. Virtually
+ 1062  synchronous methodology for dynamic service replication. Tech.
+ 1063  Rep. 151, MSR, Nov. 2010.
+ 1064  [4] BORTNIKOV, V., CHOCKLER, G., PERELMAN, D., ROYTMAN,
+ 1065  A., SHACHOR, S., ANDSHNAYDERMAN, I. Frapp´e : Fast replication platform for elastic services. In ACM LADIS (2011).
+ 1066  [5] BURROWS, M. The chubby lock service for loosely-coupled distributed systems. In OSDI (2006), pp. 335–350.
+ 1067  [6] CHANDRA, T. D., GRIESEMER, R., ANDREDSTONE, J. Paxos
+ 1068  made live: an engineering perspective. In PODC (2007), pp. 398–
+ 1069  407.
+ 1070  [7] CHOCKLER, G., KEIDAR, I., ANDVITENBERG, R. Group communication specifications: a comprehensive study. ACM Comput.
+ 1071  Surv. 33, 4 (2001), 427–469.
+ 1072  [8] GHEMAWAT, S., GOBIOFF, H., ANDLEUNG, S.-T. The google
+ 1073  file system. In SOSP (2003), pp. 29–43.
+ 1074  [9] GILBERT, S., LYNCH, N. A., ANDSHVARTSMAN, A. A.
+ 1075  Rambo: a robust, reconfigurable atomic memory service for dynamic networks. Distributed Computing 23, 4 (2010), 225–272.
+ 1076  [10] HERLIHY, M. Wait-free synchronization. ACM Trans. Program.
+ 1077  Lang. Syst. 13, 1 (1991), 124–149.
+ 1078  [11] HISGEN, A., BIRRELL, A., JERIAN, C., MANN, T.,
+ 1079  SCHROEDER, M., ANDSWART, G. Granularity and semantic
+ 1080  level of replication in the echo distributed file system. In Proceedings of the IEEE Workshop on the Management of Replicated
+ 1081  Data (November 1990).
+ 1082  [12] HUNT, P., KONAR, M., JUNQUEIRA, F. P., ANDREED, B.
+ 1083  Zookeeper: Wait-free coordination for internet-scale systems. In
+ 1084  USENIX Annual Technology Conference (2010) (2010).
+ 1085  [13] JUNQUEIRA, F. P., REED, B. C., ANDSERAFINI, M. Zab:
+ 1086  High-performance broadcast for primary-backup systems. In
+ 1087  DSN (2011), pp. 245–256.
+ 1088  [14] KARGER, D. R., LEHMAN, E., LEIGHTON, F. T., PANIGRAHY,
+ 1089  R., LEVINE, M. S., ANDLEWIN, D. Consistent hashing and
+ 1090  random trees: Distributed caching protocols for relieving hot
+ 1091  spots on the world wide web. In STOC (1997), pp. 654–663.
+ 1092  [15] LAMPORT, L. The part-time parliament. ACM Trans. Comput.
+ 1093  Syst. 16, 2 (1998), 133–169.
+ 1094  [16] LAMPORT, L., MALKHI, D., ANDZHOU, L. Reconfiguring a
+ 1095  state machine. SIGACT News 41, 1 (2010), 63–73.
+ 1096  [17] LISKOV, B., GHEMAWAT, S., GRUBER, R., JOHNSON, P.,
+ 1097  SHRIRA, L., ANDWILLIAMS, M. Replication in the harp file
+ 1098  system. In SOSP (1991), pp. 226–238.
+ 1099  [18] LORCH, J. R., ADYA, A., BOLOSKY, W. J., CHAIKEN, R.,
+ 1100  DOUCEUR, J. R., ANDHOWELL, J. The smart way to migrate
+ 1101  replicated stateful services. In EuroSys (2006), pp. 103–115.
+ 1102  [19] MACCORMICK, J., MURPHY, N., NAJORK, M., THEKKATH,
+ 1103  C. A., ANDZHOU, L. Boxwood: Abstractions as the foundation
+ 1104  for storage infrastructure. In OSDI (2004), pp. 105–120.
+ 1105  [20] VANRENESSE, R., ANDSCHNEIDER, F. B. Chain replication
+ 1106  for supporting high throughput and availability. In OSDI (2004),
+ 1107  pp. 91–104.
+ 1108  [21] WEILIN, MAOYANG, L. Z., ANDZHOU, L. Pacifica: Replication in log-based distributed storage systems. Tech. Rep. MSR-
+ 1109  TR-2008-25, MSR, Feb. 2008.
+ 1110  [22] YIN, Z., MA, X., ZHENG, J., ZHOU, Y., BAIRAVASUNDARAM,
+ 1111  L. N., ANDPASUPATHY, S. An empirical study on configuration
+ 1112  errors in commercial and open source systems. In SOSP (2011),
+ 1113  pp. 159–172.

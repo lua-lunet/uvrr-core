@@ -1,0 +1,1506 @@
+---
+title: "Stoppable Paxos"
+authors:
+  - "Leslie Lamport"
+  - "Dahlia Malkhi"
+  - "Lidong Zhou"
+year: "2008"
+publication: ""
+handle_url: "https://consensus.app/papers/stoppable-paxos-lamport-malki/23368ae220f95170b9e9271aeb542213/"
+source_pdf: "research/agent366/papers/lamport2008-stoppable-paxos.pdf"
+source_pdf_sha256: "f9cee8041fd65163083f4fe640237bfdb0dbcffca281f14a1ea6d2d54c15cb13"
+page_count: 24
+extracted_text_runs: 8860
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  A stoppable state machine is one whose execution can be terminated by a special stopping command. Stoppable state machines can be used to implement reconfiguration in a replicated state machine; a reconfigurable state machine is implemented by a sequence of stoppable state machines, each running in a fixed configuration. Stoppable Paxos, a variant of the ordinary Paxos algorithm, implements a replicated stoppable state machine.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Stoppable Paxos
+
+    2  Leslie Lamport Dahlia Malkhi Lidong Zhou
+
+    3  Microsoft Research
+
+    4  April 28, 2008
+
+    5  Contact Author: Dahlia Malkhi
+
+    6  Microsoft Research
+
+    7  1065 La Avenida
+
+    8  Mountain View, CA 94043
+
+    9  U.S.A.
+
+   10  +1 650 693-1362
+
+   11  dalia@microsoft.com
+
+   12  regular submission
+
+   13  not a student paper
+
+   14  Abstract
+   15  A stoppable state machine is one whose execution can be terminated by a
+   16  special stopping command. Stoppable state machines can be used to implement reconfiguration in a replicated state machine; a reconfigurable state
+   17  machine is implemented by a sequence of stoppable state machines, each
+   18  running in a fixed configuration. Stoppable Paxos, a variant of the ordinary
+   19  Paxos algorithm, implements a replicated stoppable state machine.
+=== PAGE 2 ===
+
+   20  Contents
+
+   21  1 Introduction 1
+
+   22  2 Paxos Revisited 3
+
+   23  2.1 The Paxos Consensus Protocol . . . . . . . . . . . . . . . . . . . 4
+
+   24  2.2 The Paxos State Machine Implementation . . . . . . . . . . . . . 6
+
+   25  3 The Stoppable Paxos Algorithm 7
+
+   26  4 Correctness 9
+
+   27  References 10
+
+   28  Clearly Marked Appendix: The Proof of Correctness 13
+
+   29  A.1 The Proof of Safety . . . . . . . . . . . . . . . . . . . . . . . . . 13
+
+   30  A.2 The Proof of Progress . . . . . . . . . . . . . . . . . . . . . . . . 19
+=== PAGE 3 ===
+
+   31  1 Introduction
+
+   32  State machine replication is a well-known method of implementing a fault-
+
+   33  tolerant service [11, 14]. The service is described as a deterministic state ma-
+
+   34  chine that accepts client commands and produces outputs, and multiple replicas
+
+   35  of the state machine are implemented. The different replicas operate indepen-
+
+   36  dently and asynchronously. However, they all have the same initial state and
+
+   37  execute the same sequence of commands, so they all produce the same sequence
+
+   38  of outputs. Since each replica can respond to any client request, using f + 1
+
+   39  replicas allows the system to tolerate the failure of f processes.
+
+   40  Implementing a replicated state machine requires a fault-tolerant algorithm
+
+   41  for choosing the sequence of state machine commands executed by the replicas.
+
+   42  Such an algorithm must guarantee that, for each i, if a replica executes c as
+   43  the ith command in the command sequence, then (i) c was issued by a client,
+   44  and (ii) no replica executes a different command as the ith command in the
+
+   45  sequence.
+
+   46  Different replicas operate asynchronously, so they may execute the same
+
+   47  command at different times. Moreover, if the output produced by executing
+
+   48  command number i does not depend on what commands are executed as num-
+
+   49  bers 1 through i − 1, then a replica may generate the output for command i
+
+   50  before it generates the output for command i − 1. Hence, although the replicas
+
+   51  all produce the same sequence of outputs, the outputs in that sequence could
+
+   52  be generated in different orders.
+
+   53  An asynchronous algorithm for choosing the sequence of state machine com-
+
+   54  mands requires at least 2f + 1 processes to tolerate the (non-malicious) failure
+
+   55  of f of them [4]. Hence, we need more processes to choose the commands than
+
+   56  to execute the replicas. The processes that choose the sequence of commands
+
+   57  are called acceptors, and the ones that execute the replicas are called learners.
+
+   58  We can choose a sequence of commands by using a separate consensus protocol to choose each one, where the ith consensus protocol chooses the ith
+   59  command. The protocol used to choose the ith command will be called the
+   60  ith consensus instance. Separate consensus instances need not have disjoint
+
+   61  implementations—for example, messages belonging to separate instances may
+
+   62  be batched in a single physical message. However, the separate instances are
+
+   63  logically independent, which makes reasoning about their correctness easier.
+
+   64  Different commands in the command sequence can be chosen concurrently.
+   65  Processes can begin the ith consensus instance without waiting for instances
+
+   66  1 to i − 1 to terminate. This concurrent processing is vital to the efficiency
+
+   67  of an asynchronous distributed system. For example, in a typical leader-based
+
+   68  protocol, the current leader can send proposals for commands one after another,
+
+   69  without waiting for acknowledgements of previous proposals.
+
+   70  In a static system, all consensus instances are instances of the same algo-
+
+   71  rithm. In particular, they all use the same sets of acceptors and learners—sets
+
+   72  we call the configuration. However, achieving long-term resilience requires a
+
+   73  reconfigurable system, in which the configuration can change. A reconfigurable
+
+   74  1
+=== PAGE 4 ===
+
+   75  system requires that, for each i, there be agreement on the configuration that
+
+   76  is to execute consensus instance i.
+
+   77  In state machine replication, reconfiguration has traditionally been done
+
+   78  by using the state machine itself to perform special reconfiguration com-
+
+   79  mands [10, 14, 15]. The obvious method is to have a reconfiguration command
+
+   80  change the configuration for all subsequent instances until the next reconfigu-
+
+   81  ration command. However, since a consensus instance cannot be executed until
+
+   82  the configuration executing it is known, this prevents concurrent execution of
+
+   83  different instances. We can permit concurrent execution of up to α consensus
+
+   84  instances by instead letting a reconfiguration command executed as command
+
+   85  number i determine the configuration starting from instance i + α, where α is
+
+   86  a system parameter [10]. Instances i + 1 through i + α can begin execution
+
+   87  once commands 1 through i have been chosen. In practice, α can be made large
+
+   88  enough so the system never has to wait to learn the current configuration, if
+
+   89  no reconfiguration command has been issued. However, this approach has two
+
+   90  somewhat awkward properties:
+
+   91  • To force a reconfiguration to happen quickly, a reconfiguration command
+
+   92  must be followed by α − 1 no-op commands that have no effect.
+
+   93  • If α > 1, then several reconfiguration command could appear among com-
+
+   94  mands i through i +α−1, meaning that one configuration is choosing the
+
+   95  next several configurations. This can happen when using a leader-based
+
+   96  consensus algorithm if a failure causes multiple processes to each think it
+
+   97  is the leader.
+
+   98  In this paper, we propose an alternative reconfiguration procedure based on
+
+   99  stoppable state machines. A stoppable state machine has a special class of stop-
+
+  100  ping commands that terminate the state machine. If a stopping command is
+  101  chosen as the ith command, then the complete sequence of chosen state ma-
+
+  102  chine commands has length i. That is, if a stopping command is chosen as
+
+  103  command i, then no command can ever be chosen as command j for j > i.
+
+  104  We implement the system state machine by executing a sequence of stopping
+
+  105  state machines. Each consensus instance of a single stopping state machine is
+
+  106  executed by the same configuration. Reconfiguration is performed by stopping
+
+  107  the current state machine and starting a new one with a new configuration. The
+
+  108  stopping command specifies the configuration used to execute the new stopping
+
+  109  state machine. The system's complete sequence of state machine commands is
+
+  110  the concatenation of the command sequences of the individual stopping state
+
+  111  machines. If one stopping state machine is terminated by executing a stopping
+
+  112  command as command number i, then we can number the commands of the next
+
+  113  stopping state machine starting with i + 1. This provides consecutive numbers
+
+  114  for the commands in the system state machine.
+
+  115  This method of reconfiguring with stoppable state machines seems to corre-
+
+  116  spond more closely to the way engineers have traditionally approached recon-
+
+  117  figuration. It is similar to view changing in group communication [1, 2, 3, 5,
+
+  118  2
+=== PAGE 5 ===
+
+  119  6, 7, 8, 12]. However, the purpose of this paper is to present Stoppable Paxos,
+
+  120  an algorithm for implementing a stoppable state machine. We have discussed
+
+  121  reconfiguration only to indicate why stoppable state machines may be useful.
+
+  122  A detailed description of how stoppable state machines are used for reconfigu-
+
+  123  ration and how they relate to group communication is beyond the scope of this
+
+  124  paper.
+
+  125  Stoppable Paxos is a variant of Paxos [10]. Our goal was to devise an
+
+  126  algorithm that is as efficient as Paxos in the absence of a stopping command.
+  127  This is not easy to do because Paxos allows the choosing of the ith command to
+
+  128  be performed concurrently for different values of i. We must avoid the possibility
+  129  that the ith command is chosen and a stopping command is concurrently chosen
+  130  as the jth command for j < i. The obvious method is to delay the choice
+  131  of the ith command until all previous commands are chosen, but this would
+
+  132  considerably degrade the performance. Stoppable Paxos adds no messages or
+  133  delays to ordinary Paxos, except that a leader cannot propose an ith command
+
+  134  if, in the normal course of execution, it learns that a stopping command has
+  135  been chosen or was proposed and may have been chosen as the j th command
+
+  136  for some j < i. Although the basic idea of the algorithm is not complicated,
+
+  137  getting the details right was not easy.
+
+  138  The following section reviews ordinary Paxos. The Stoppable Paxos algo-
+
+  139  rithm is described in Section 3, and its correctness properties are stated in
+
+  140  Section 4. A proof of correctness appears in the appendix for reading at the
+
+  141  program committee's discretion.
+
+  142  2 Paxos Revisited
+
+  143  Ordinary Paxos assumes a distributed system of processes communicating by
+
+  144  messages. Processes can fail only by stopping, and messages can be lost or
+
+  145  duplicated but not corrupted. Timely actions by non-failed processes and timely
+
+  146  delivery of messages among them is required for progress; safety is maintained
+
+  147  despite arbitrary delays and any number of failures.
+
+  148  The core of Paxos is a consensus algorithm (originally called the Synod
+
+  149  algorithm). In a consensus algorithm, client processes can propose values, and
+
+  150  learner processes each learn a value. We use the term command for a value that
+
+  151  may be proposed. A consensus algorithm must satisfy two safety properties:
+
+  152  Consistency No two learners can learn different commands.
+
+  153  Nontriviality Any command learned must have been proposed.
+
+  154  For almost all consensus algorithms, including Paxos, nontriviality is easily seen
+
+  155  to hold. We therefore ignore it and consider only consistency. A consensus
+
+  156  algorithm must also ensure that, under some suitable hypothesis, a command is
+
+  157  learned.
+
+  158  A replicated state machine is implemented with a sequence of instances of a
+  159  consensus algorithm, the ith instance choosing the ith state-machine command.
+
+  160  3
+=== PAGE 6 ===
+
+  161  We briefly review the Paxos consensus algorithm and how it is used to implement
+
+  162  a state machine. We consider the static case, in which the same processes
+
+  163  implement all consensus instances.
+
+  164  2.1 The Paxos Consensus Protocol
+
+  165  The Paxos consensus algorithm assumes three sets of processes: leaders that
+
+  166  propose commands, acceptors that choose a command, and learners that learn
+
+  167  the chosen command. These sets are not necessarily disjoint—in particular,
+
+  168  leaders are usually learners. We ignore the clients, which provide commands
+
+  169  for the leaders to propose. Leaders propose commands in numbered ballots.
+
+  170  For simplicity, we take ballot numbers to be natural numbers. A configuration
+
+  171  assigns to each ballot a unique leader that performs actions of that ballot. For
+
+  172  example, the leader of ballot number b may be determined by the low-order bits
+
+  173  of b. We also assume certain sets of acceptors to be quorums, subject only to
+
+  174  the requirement that the intersection of any pair of quorums is non-empty.
+
+  175  Acceptors accept and store proposed commands and their ballot numbers.
+
+  176  In particular, each acceptor a maintains the value bal[a] that records the highest
+
+  177  ballot number that a has received, "voted for", and acknowledged, and the value
+
+  178  vote[a][b] that records the command proposed with ballot number b that a has
+
+  179  voted for. Initially, bal[a] equals −∞ and vote[a][b] equals >, a special value
+
+  180  that is not a command.
+
+  181  For any acceptor a, let maxbal(a) be the largest ballot number b for which
+
+  182  vote[a][b] 6= >, and to equal −∞ if vote[a][b] = > for all b. Define maxvote(a)
+
+  183  to equal vote[a][maxbal(a)], or > if maxbal(a) = −∞. Instead of maintaining
+
+  184  the entire array vote[a], acceptor a need only record the values maxbal(a) and
+
+  185  maxvote(a). For simplicity, we ignore this optimization.
+
+  186  At any point during the execution of the consensus algorithm, the state
+
+  187  consists of the values of the arrays bal and vote and the sets of messages that
+
+  188  have been sent and received by the processes. A state function is an expression
+
+  189  whose value depends on the state.
+
+  190  A ballot consists of two phases, each with two sub-phases. In the first phase,
+
+  191  the leader determines whether a command may have been chosen in a lower-
+
+  192  numbered ballot. In the second phase, it proposes a command and the acceptors
+
+  193  vote for that command. The command is chosen if a quorum of acceptors vote
+
+  194  for it.
+
+  195  The heart of the algorithm is the state function val2a(b,Q), which the ballot
+
+  196  b leader computes on the basis of messages it receives in phase 1 from acceptors
+
+  197  in the quorum Q. If val2a(b,Q) equals a command v, then v might have been
+
+  198  chosen in a lower-numbered ballot and the leader must propose it in phase 2.
+
+  199  If val2a(b,Q) equals >, then no command has been or ever will be chosen in a
+
+  200  lower-numbered ballot, and the leader can propose any value. We define val2a
+
+  201  below. First, we describe the following actions that the algorithm can perform.
+
+  202  Phase1a(b) The leader of ballot number b sends the message ⟨"1a",b⟩ to all
+
+  203  acceptors. (This action is always enabled.)
+
+  204  4
+=== PAGE 7 ===
+
+  205  Phase1b(a,b) When acceptor a receives a ⟨"1a",b⟩ message with b > bal[a], it
+
+  206  sets bal[a] to b and sends the message
+
+  207  ⟨"1b", a, b, ⟨maxbal(a), maxvote(a)ii
+
+  208  to the ballot b leader. (The acceptor ignores a ⟨"1a",b⟩ message if bal[a] ≥
+
+  209  b.)
+
+  210  Phase2a(b,v,Q) This action is performed by the ballot b leader, for a command
+
+  211  v and quorum Q. It is enabled iff the following three conditions are
+
+  212  satisfied:
+
+  213  E1(b, Q) The leader has received a message of the form ⟨"1b",a,b,r ⟩
+
+  214  from every acceptor a in Q.
+
+  215  E2(b) The leader has not executed a Phase2a(b, w, U) action for any w
+
+  216  and any quorum U .
+
+  217  E3(b, Q,v) If val2a(b,Q) 6= > then v = val2a(b, Q).
+
+  218  The action sends the message ⟨"2a",b,v ⟩ to all acceptors.
+
+  219  Phase2b(a,b,v) When acceptor a receives a ⟨"2a",b,v ⟩ message from the bal-
+
+  220  lot b leader and bal[a] ≤ b, it sets bal[a] to b and vote[a][b] to v and it
+
+  221  sends a ⟨"2b",b, v⟩ message to the learners. (The ⟨"2a", b,v ⟩ message is
+
+  222  ignored if bal[a] > b.)
+
+  223  We omit the action by which a learner learns a command. It is enabled by the
+
+  224  receipt of a ⟨"2b", a,b,v ⟩ message from every acceptor a in a quorum. Instead,
+
+  225  we say that a command v is chosen if there exists a ballot number b and a
+
+  226  quorum Q such that vote[a][b] = v for all a in Q. Consistency is obviously
+
+  227  satisfied by ensuring that, if any commands v and w are chosen, then v = w.
+
+  228  The state function val2a(b, Q) is defined as follows. Let R be the set of all r
+
+  229  such that the ballot b leader has received from some acceptor a in Q the message
+
+  230  ⟨"1b",a,b,r ⟩. (The elements of R are pairs ⟨c,v ⟩ with either c a ballot number
+
+  231  and v a command, or c = −∞ and v = >.) Let ⟨c,v ⟩ be an element of R such
+
+  232  that c ≥ d for all ⟨d,w i ∈ R, and define val2a(b,Q) to equal v. (For any state
+
+  233  reachable during execution of the algorithm, ⟨c,vi ∈ R and ⟨c, wi ∈ R imply
+
+  234  v = w, so this uniquely defines val2a(b,Q).) For later reference, we also define
+
+  235  mbal2a(b, Q) to equal c.
+
+  236  Although the algorithm executes a sequence of ballots, those ballots need not
+
+  237  be executed sequentially. It is possible for two or more leaders to be executing
+
+  238  Phase1a and/or Phase2a actions concurrently, and for the resulting messages to
+
+  239  be received by different acceptors in different orders. This can impede progress
+
+  240  but cannot cause inconsistency.
+
+  241  To achieve progress, Paxos uses some algorithm to select a unique active
+
+  242  leader. The active leader starts a new ballot with a number higher than that
+
+  243  of any other ballot it knows to have been started. An acceptor a informs the
+
+  244  5
+=== PAGE 8 ===
+
+  245  leader it has chosen too low a ballot number if it receives a ballot b message
+
+  246  with b < bal[a], causing the leader to choose a higher-numbered ballot. This
+
+  247  achieves progress if there is a unique active leader and a quorum of acceptors
+
+  248  that are nonfaulty and can communicate in a timely fashion. For most systems,
+
+  249  it is easy to devise a leader-selection algorithm that works properly when the
+
+  250  system is behaving normally.
+
+  251  2.2 The Paxos State Machine Implementation
+
+  252  Paxos executes a sequence of instances of the Paxos consensus algorithm. For
+  253  each instance i, it maintains an array votei , where votei[a][b] is the value of
+
+  254  vote[a][b] for instance i of the consensus algorithm. Paxos achieves its efficiency
+
+  255  by executing Phase 1 simultaneously for all instances of the consensus algorithm
+
+  256  as follows, using the same value of bal[a] for all of them. More precisely:
+
+  257  1. The ballot b leader simultaneously executes Phase1a(b) for all instances,
+
+  258  sending a single Phase1a message to each acceptor.
+
+  259  2. Upon receipt of a Phase1a message, an acceptor simultaneously executes
+
+  260  Phase1b actions for all instances, bundling the infinite set of Phase1b
+
+  261  messages in a single physical message. (That physical message contains
+
+  262  only a finite amount of information because, for any acceptor a and ballot
+  263  number b, the value of votei[a][b] is > for all but a finite number of
+
+  264  instances i.)
+
+  265  We add an extra instance parameter to the Phase2a and Phase2b actions and
+
+  266  to the val2a and mbal2a state functions. For example, Phase2a(i, b,v,Q) is
+
+  267  the Phase2a(b,v,Q) action of instance i and val2a(i,b,Q) is the state function
+
+  268  val2a(b,Q) of instance i. We subscript messages with instance numbers, so
+  269  ⟨"1b", . . .⟩i is a Phase1b message sent for instance i (and bundled with Phase1b
+
+  270  messages sent for other instances).
+
+  271  In normal operation, there is a single active leader that receives client com-
+
+  272  mands and performs Phase2a actions for them. When the active leader fails, a
+
+  273  new active leader is selected that performs a Phase1a(b) action for a new ballot
+
+  274  number b higher than any that has been used so far. When the active leader
+
+  275  receives Phase1b messages from a quorum Q, for each i it finds either:
+
+  276  1. val2a(i,b,Q) is a command v, meaning that v may have been chosen in
+
+  277  instance i at some ballot less than b.
+
+  278  2. val2a(i,b,Q) = >, meaning that no command can have been (or can ever
+
+  279  be) chosen in instance i at any ballot less than b.
+
+  280  In case 1, it performs a Phase2a(i,b,v, Q) action to try to get v chosen. Let
+
+  281  k be the largest instance for which this case holds, so it is the highest instance
+
+  282  in which any acceptor in Q has voted. For all instances i with i < k such that
+
+  283  val2a(i,b,Q) = >, the leader performs a Phase2a(i,b,noop,Q) action to try
+
+  284  6
+=== PAGE 9 ===
+
+  285  to choose a noop command that does nothing. Without waiting for responses
+
+  286  to its Phase2a messages, the leader can begin performing Phase2a actions in
+
+  287  instances higher than k for client commands.
+
+  288  It is possible for a leader to learn a set of commands that have already been
+
+  289  chosen and to optimize this procedure to avoid unnecessary actions for those
+
+  290  chosen commands. This optimization is straightforward and we will not discuss
+
+  291  it.
+
+  292  Remember that what we have just described is how Paxos works in the
+
+  293  normal case when there is a single active leader. Consistency is maintained
+
+  294  even if multiple processes believe themselves to be the active leader. A single
+
+  295  active leader is required only to ensure progress.
+
+  296  3 The Stoppable Paxos Algorithm
+
+  297  Stoppable Paxos uses the same variables and sends the same messages as Paxos.
+
+  298  Before describing the actual algorithm, we sketch how the Stoppable Paxos
+
+  299  algorithm works in the normal case when a (single) new active leader is selected.
+
+  300  As in ordinary Paxos, the new active leader performs a Phase1a(b) action
+
+  301  for a suitable ballot number b. The algorithm differs from Paxos if the leader
+
+  302  finds that a stopping command stp might have been chosen in some instance i.
+
+  303  In that case, the leader performs Phase2a actions for lower-numbered instances
+
+  304  as before. However, to ensure that the state machine stops when it should, we
+
+  305  must ensure that the leader does not perform a Phase2a action for any instance
+
+  306  greater than i if the stopping command actually was chosen in instance i.
+
+  307  The problem is to decide what the leader should do if it finds val2a(i,b, Q)
+
+  308  equal to a stopping command stp and val2a(j,b,Q) equal to any command, for
+
+  309  some i and j with j > i. The answer depends on the values of mbal2a(i,b, Q)
+
+  310  and mbal2a(j,b,Q). Remember that, for any k, the value of mbal2a(k,b, Q)
+
+  311  is the highest ballot number less than b for which some acceptor a in Q set
+  312  votedk [a]. If mbal2a(j, b,Q) > mbal2a(i,b,Q), then the stopping command c
+
+  313  could not have been chosen in (a lower ballot of) instance i, so stp is voided—
+
+  314  meaning that the leader acts as if val2a(i,b,Q) equals >. Otherwise, the leader
+
+  315  performs a Phase2a(i,b,stp, Q) action to try to get stp chosen and does nothing
+
+  316  in any higher-numbered instance, including instance j.
+
+  317  If the leader performs a Phase2a action for a stopping command in instance
+
+  318  i, then it performs no Phase2a actions for instances greater than i. Otherwise, it
+
+  319  begins processing new client commands as in ordinary Paxos. It continues until
+
+  320  it performs a Phase2a action for a stopping command, whereupon it performs
+
+  321  no further Phase2a actions for any higher-numbered instance. Except when
+
+  322  the leader is prevented from performing Phase2a actions because of a stopping
+
+  323  command, Stoppable Paxos allows all the concurrent execution that ordinary
+
+  324  Paxos does.
+
+  325  We now begin our description of the actual Stoppable Paxos algorithm. As
+
+  326  in ordinary Paxos, the algorithm can be optimized to take advantage of knowl-
+
+  327  7
+=== PAGE 10 ===
+
+  328  edge of already-chosen commands. For simplicity, we ignore this optimization.
+
+  329  Stoppable Paxos then differs from Paxos only in the enabling conditions of the
+
+  330  Phase2a action. We begin with an intuitive description of these enabling con-
+
+  331  ditions, which are labeled E1–E6.
+
+  332  Conditions E1–E3 are the same as for ordinary Paxos except that, in E3,
+
+  333  we replace val2a by a new state function sval2a. Recall that E 3 requires
+
+  334  val2a(i,b,Q) to be the proposed command if it does not equal >, because
+
+  335  in that case it might have been chosen in a lower-numbered ballot. We will
+
+  336  define sval2a(i,b, Q) to be the same as val2a(i,b,Q) except that it equals >
+
+  337  if val2a(i,b,Q) is a stopping command that is voided. As indicated above, a
+
+  338  stopping command is voided if information about higher-numbered instances
+
+  339  implies that the command could not have been chosen in this instance in a
+
+  340  lower-numbered ballot.
+
+  341  Enabling condition E4 applies iff v is a stopping command, in which case it
+
+  342  requires the two conditions:
+
+  343  E4a A Phase2a action must not have been performed for ballot b of a higher-
+
+  344  numbered instance.
+
+  345  E4b If the leader was not forced (by the value of sval2a) to propose the stopping
+
+  346  command, then it must not be forced to propose any command in a higher-
+
+  347  numbered instance.
+
+  348  Condition E5 asserts that the leader has not performed a Phase2a action for
+
+  349  a stopping command in ballot b of a lower-numbered instance, and condition
+
+  350  E6 asserts that the value of sval2a does not force the leader to propose such a
+
+  351  value.
+
+  352  It appears that progress is impossible if the ballot b leader is forced (by E3)
+
+  353  to propose a stopping command in an instance i and to propose some command
+
+  354  in another instance j > i. If it executes the Phase2a action for instance i, then
+
+  355  E5 prevents it from executing the Phase2a action for instance j . If it executes
+
+  356  the action for instance j first, then E4a prevents it from executing the action
+
+  357  for instance i. This situation is prevented by voiding. The definition of sval2a
+
+  358  ensures that the Phase1b messages for instance j void the stopping command
+
+  359  in instance i.
+
+  360  Unlike in ordinary Paxos, in Stoppable Paxos the separate consensus in-
+
+  361  stances are not logically separate. Enabling conditions E4–E6 and the definition
+
+  362  of sval2a for a ballot in one instance depend on Phase2a actions performed and
+
+  363  Phase1b messages received for that ballot in other instances. However, this im-
+
+  364  plies no extra messages or delays. As in ordinary Paxos, the Phase1b messages
+
+  365  for all instances are bundled together; and no enabling condition requires that
+
+  366  a Phase2a action for another instance be done first. The enabling conditions
+
+  367  require only that certain actions not have been done.
+
+  368  We now precisely define sval2a and E1–E6. For clarity, we write mathe-
+
+  369  matical formulas in mathematics, using English only where necessary to avoid
+
+  370  8
+=== PAGE 11 ===
+
+  371  distracting formalization. We let the range over which a variable is quantified,
+
+  372  if not stated explicitly, depend on the variable name as follows:
+
+  373  i, j, k : instance numbers b, c : ballot numbers Q : quorums
+
+  374  u, v, w : commands a, q : acceptors
+
+  375  We use customary abbreviations such as ∃i < j : P for ∃ i : (i < j) ∧ P. The
+
+  376  definition of sval2a is:
+  377  sval2a(i,b, Q) =∆ if (val2a(i,b,Q) ∈ StopCmd)
+
+  378  ∧ (∃ j > i : mbal2a(j,b,Q) ≥ mbal2a(i,b, Q))
+
+  379  then >
+
+  380  else val2a(i,b, Q)
+
+  381  Define Done2a(i,b, v) to be the state function that is true iff a
+
+  382  Phase2a(i, b,v,Q) action has been executed for some quorum Q. (More precisely, it is true iff there is a ⟨"2a",b,v⟩i message in the set of sent messages.)
+
+  383  The enabling conditions of the Phase2a(i,b, v,Q) action are:
+  384  E1(b, Q) =∆ ∀ a ∈ Q, i : the ballot b leader has received a message of the
+  385  form ⟨"1b", a, b, r⟩⟩ from a
+  386  E2(i,b) =∆ ∀ w : ¬Done2a(i,b,w)
+  387  E3(i,b, Q,v) = (∆ sval2a(i, b,Q) 6= >) ⇒ (v = val2a(i, b,Q))
+  388  E4(i,b, Q,v) = (∆ v ∈ StopCmd) ⇒ E4a(i,b,v) ∧ E4b(i,b, Q,v)
+
+  389  where
+  390  E4a(i,b, v) =∆ ∀ j > i, w : ¬Done2a(j ,b,w)
+  391  E4b(i,b, Q,v) =∆ ∀ j > i : (sval2a(i,b,Q) = >) ⇒ (sval2a(j, b, Q) = >)
+  392  E5(i,b) =∆ ∀ j < i, w ∈ StopCmd : ¬Done2a(j, b, w)
+  393  E6(i,b, Q) =∆ ∀ j < i : (sval2a(j,b,Q) 6= >) ⇒ (sval2a(j ,b, Q) ∈/ StopCmd)
+
+  394  The ballot b leader can propose commands in different instances in any or-
+
+  395  der. This applies to a stopping command as well. In particular, the leader can
+
+  396  propose a stopping command as command number i and then propose lower-
+
+  397  numbered commands. Since stopping commands are used for reconfiguration,
+
+  398  this allows the leader to let i be the next available command number for recon-
+
+  399  figurations that must occur quickly and to be larger for reconfigurations that
+
+  400  may occur lazily.
+
+  401  4 Correctness
+
+  402  We now state the correctness properties satisfied by Stoppable Paxos. A rigor-
+
+  403  ous informal proof of these properties appears in the appendix. We have also
+
+  404  9
+=== PAGE 12 ===
+
+  405  written a formal hand proof that gives us greater confidence in the algorithm's
+
+  406  correctness than such an informal proof can provide.
+
+  407  First, we define Chosen(i,b,v) to assert that command v is chosen in ballot
+
+  408  b of instance i. As in ordinary Paxos, Chosen(i,b,v) is defined to be true iff
+  409  there is a quorum Q such that votei[a][b] = v holds for all a in Q.
+
+  410  Chosen(i, b,v) =∆ ∃ Q : ∀ a ∈ Q : vote [a][b] = v
+  411  i
+
+  412  Our algorithm satisfies the same consistency property as ordinary Paxos plus the
+
+  413  property that a stopping command stops the state machine. These properties
+
+  414  are expressed by the invariance of the following state predicates.
+  415  Consistency =∆ ∀ i, b, c,v,w : Chosen(i,b,v) ∧ Chosen(i,c,w) ⇒ (b = c)
+  416  Stopping =∆ ∀ i, j < i, v ∈ StopCmd, w :
+
+  417  Chosen(j ,b,v) ⇒ ¬Chosen(i, c,w)
+
+  418  Like ordinary Paxos, our Stoppable Paxos assures progress if eventually there
+
+  419  is a unique leader for a high enough ballot number that is nonfaulty and can
+
+  420  communicate with a nonfaulty quorum. The precise property we prove is that
+
+  421  the following condition holds, for all b and Q.
+  422  Progress(b,Q) =∆
+
+  423  P1(b, Q) ∧ P2(b,Q) ∧ P3(b) ⇒
+
+  424  eventually (∃ v : Chosen(i, b, v))
+
+  425  ∨ (∃ j < i, v ∈ StopCmd : Chosen(j,b,v))
+
+  426  where
+  427  P1(b,Q) = No ballot∆ b action of the ballot b leader or of an acceptor
+
+  428  in Q can become forever enabled and never executed.
+  429  P2(b,Q) = Every ballot∆ b message sent between the ballot b leader and
+
+  430  the acceptors in Q is eventually received.
+  431  P3(b) =∆ ∀ c > b : No P hase1a(c) action is ever executed.
+
+  432  Condition P1(b,Q) means that the ballot b leader eventually executes the
+
+  433  Phase1a(b) action, and that it and the acceptors in Q perform ballot b actions
+
+  434  that are enabled by the receipt of messages. Condition P2(b,Q) is satisfied if
+
+  435  eventually the leader and the acceptors in Q are nonfaulty and communicate
+
+  436  reliably with one another, using a retransmission protocol to recover from lost
+
+  437  messages. Condition P3(b) asserts that no ballot numbered greater than b is
+
+  438  ever started.
+
+  439  Conditions P1–P3 are the same ones under which ordinary Paxos achieves
+
+  440  progress. As with ordinary Paxos, they are satisfied in practice by using a
+
+  441  leader-selection algorithm. However, because of the extra enabling conditions
+
+  442  in the Phase2a action, the proof that they ensure progress is more difficult.
+
+  443  10
+=== PAGE 13 ===
+
+  444  References
+
+  445  [1]
+
+  446  [2]
+
+  447  [3]
+
+  448  [4]
+
+  449  [5]
+
+  450  [6]
+
+  451  [7]
+
+  452  [8]
+
+  453  [9]
+
+  454  [10]
+
+  455  [11]
+
+  456  [12]
+
+  457  Y. Amir, L. E. Moser, P. M. Melliar-Smith, D. A. Agarwal, and P. Ciarfella.
+
+  458  The Totem single-ring ordering and membership protocol. tocs, 13(4):311–
+
+  459  342, November 1995.
+
+  460  Ozalp Babaoglu, Renzo Davoli, and Alberto Montresor. Group communi-¨
+
+  461  cation in partitionable systems: Specification and algorithms. IEEE Trans-
+
+  462  actions on Software Engineering, 27(4):308–336, 2001.
+
+  463  Kenneth P. Birman and Thomas A. Joseph. Reliable communication in the
+
+  464  presence of failures. ACM Transactions on Computer Systems, 5(1):47–76,
+
+  465  February 1987.
+
+  466  Bernadette Charron-Bost and Andr´e Schiper. Uniform consensus is harder
+
+  467  than consensus (extended abstract). Technical Report DSC/2000/028,
+
+  468  Ecole Polytechnique F´ed´erale de Lausanne, Switzerland, May 2000.´
+
+  469  Gregory V. Chockler, Idit Keidar, and Roman Vitenberg. Group commu-
+
+  470  nication specifications: A comprehensive study. ACM Computing Surveys,
+
+  471  33(4):427–469, December 2001.
+
+  472  Danny Dolev and Dalia Malki. The Transis approach to high availability
+
+  473  cluster communication. Communications of the ACM, 39(4):64–70, April
+
+  474  1996.
+
+  475  Alan Fekete, Nancy Lynch, and Alex Shvartsman. Specifying and using a
+
+  476  partitionable group communication service. ACM Transactions on Com-
+
+  477  puter Systems, 19(2):171–216, May 2001.
+
+  478  Idit Keidar and Danny Dolev. Efficient message ordering in dynamic net-
+
+  479  works. In Proceedings of the Fifteenth Annual ACM Symposium on Prin-
+
+  480  ciples of Distributed Computing, New York, NY, May 1996. ACM.
+
+  481  Leslie Lamport. How to write a proof. American Mathematical Monthly,
+
+  482  102(7):600–608, August-September 1995.
+
+  483  Leslie Lamport. The part-time parliament. ACM Transactions on Com-
+
+  484  puter Systems, 16(2):133–169, May 1998.
+
+  485  Butler W. Lampson. How to build a highly available system using con-
+
+  486  sensus. In Ozalp Babaoglu and Keith Marzullo, editors, Distributed Al-
+
+  487  gorithms, volume 1151 of Lecture Notes in Computer Science, pages 1–17,
+
+  488  Berlin, 1996. Springer-Verlag.
+
+  489  L. E. Moser, Y. Amir, P. M. Melliar-Smith, and D. A. Agarwal. Extended
+
+  490  virtual synchrony. In The 14th IEEE International Conference on Distrib-
+
+  491  uted Computing Systems (ICDCS), pages 56–65, 1994.
+
+  492  11
+=== PAGE 14 ===
+
+  493  [13]
+
+  494  [14]
+
+  495  [15]
+
+  496  Amir Pnueli. The temporal logic of programs. In Proceedings of the 18th
+
+  497  Annual Symposium on the Foundations of Computer Science, pages 46–57.
+
+  498  IEEE, November 1977.
+
+  499  Fred B. Schneider. Implementing fault-tolerant services using the state
+
+  500  machine approach: A tutorial. ACM Computing Surveys, 22(4):299–319,
+
+  501  December 1990.
+
+  502  J. Wensley et al. SIFT: Design and analysis of a fault-tolerant computer
+
+  503  for aircraft control. Proceedings of the IEEE, 66(10):1240–1254, October
+
+  504  1978.
+
+  505  12
+=== PAGE 15 ===
+
+  506  Appendix: The Proof of Correctness
+
+  507  We now prove that Stoppable Paxos satisfies its safety and liveness properties.
+
+  508  For clarity and conciseness, we write simple temporal logic formulas with two
+
+  509  temporal operators: 2 meaning always, and 3 meaning eventually [13]. We use
+  510  a linear-time logic, so 3 can be defined by 3F =∆ ¬2¬F, for any formula F.
+
+  511  For a state predicate P, the formula 2P asserts that P is an invariant, meaning
+
+  512  that it is true for every reachable state. The temporal formula 32P asserts
+
+  513  that at some point in the execution, P holds from that point onward.
+
+  514  We define a predicate P to be stable iff it satisfies the following condition:
+
+  515  if P is true in any reachable state s, then P is true in any state reachable from
+
+  516  s by any action of the algorithm. We let stable P be the assertion that state
+
+  517  predicate P is stable. It is clear that a stable predicate is invariant if it is true
+
+  518  in the initial state. Because stability is an assertion only about reachable states
+
+  519  s, we can assume that all invariants of the algorithm are true in state s when
+
+  520  proving stability.
+
+  521  Our proofs are informal, but careful. The two complicated, multi-page proofs
+
+  522  are written with a hierarchical numbering scheme in which ⟨x ⟩y is the number
+  523  of the yth step of the current level-x proof [9]. Although it may appear intimi-
+
+  524  dating, this kind of proof is easy to check and helps to avoid errors.
+
+  525  A.1 The Proof of Safety
+
+  526  We now prove that Consistency and Stopping are invariants of Stoppable Paxos.
+
+  527  First, we define:
+  528  NotChoosable(i,b,v) =∆
+  529  ( ∃ Q : ∀ a ∈ Q : (bal[a] > b) ∧ (votei [a][b] 6= v) )
+
+  530  ∨ ( ∃ j < i, w ∈ StopCmd : Done2a(j ,b,w) )
+
+  531  ∨ ( (v ∈ StopCmd) ∧ (∃ j > i, w : Done2a(j, b,w)) )
+
+  532  We next prove a number of simple invariance and stability properties of the
+
+  533  algorithm.
+
+  534  Lemma 1
+
+  535  1. ∀ i, b,v : 2 (Chosen(i,b,v) ⇒ Done2a(i,b,v)).
+
+  536  2. ∀ i, b,v,w : 2 ((Done2a(i,b,v) ∧ Done2a(i, b,w) ⇒ (v = w))
+  537  3. ∀i,b, a, v : 2 ((votei[a][b] = v) ⇒ Done2a(i, b,v))
+  538  4. ∀i,b, v,a,q : 2 ((votei [a][b] = v) ⇒ (votei [q][b] ∈ {v, >}))
+  539  5. (a) ∀i,a,b,v : stable((bal[a] > b) ∧ (votei [a][b] = v))
+  540  (b) ∀i,a,b : stable((bal[a] > b) ∧ (votei [a][b] = >))
+
+  541  6. ∀ i, j < i, b, w ∈ StopCmd, v :
+
+  542  2 (Done2a(j,b,w) ⇒ ¬Done2a(i,b,v))
+
+  543  7. ∀ i, b, v : stableNotChoosable(i,b,v)
+
+  544  13
+=== PAGE 16 ===
+
+  545  8. ∀ i, b,Q : 2(E1(b,Q) ⇒ (mbal2a(i,b,Q) < b))
+  546  Proof:
+  547  1. Chosen(i, b,v) implies that votei[a][b] = v for some acceptor a, which implies a
+  548  received a ⟨"2a", b,v ⟩i message, which implies Done2a(i,b, v).
+  549  2. This follows from enabling condition E2 for the Phase2a action.
+  550  3. votei [a][b] = v implies that acceptor a must have received the Phase2a message
+  551  sent by executing Phase2a(i, b,v,Q) for some quorum Q.
+  552  4. This follows from Lemmas 1.2 and 1.3.
+  553  5. No action decreases bal[a], and votei[a][b] is changed to (a command) u only by
+  554  a Phase2b(i,a, b,u) action, which is enabled only if bal[a] ≤ b.
+  555  6. Done2a(j,b, w) ⇒ ¬Done2a(i, b,v) is obviously true initially. It is stable because enabling condition E4a(j, b,w) of Phase2a(j, b,w,Q) implies that
+  556  Done2a(j,b, w) can become true only when ¬Done2a(i,b, v) is true, and enabling
+  557  condition E5(i,b) of Phase2a(i, b, v, Q) implies that ¬Done2a(i, b, v) can become
+  558  false only when Done2a(j, b,w) is false.
+  559  7. It suffices to show that each of the disjuncts in the definition of
+  560  NotChoosable(i,b, v) is stable. The first disjunct is the conjunction of formulas
+  561  (bal[a] > b) ∧(votei [a][b] 6= v), each of which can be written as the conjunction of
+  562  formulas (bal[a] > b)∧(votei[a][b] = w) (for w a command or >) which are stable
+  563  by part 5 of this lemma. The stability of the second and third conjuncts follows
+  564  easily from the obvious stability of Done2a(j, b,w) for all j and w.
+  565  8. An acceptor a changes votei[a][b] only by performing a Phase2b action that sets
+  566  bal[a] to b. Because bal[a] is never decreased, (votei [a][b] 6= >) ⇒ (bal[a] ≥ b)
+  567  is an invariant. A ⟨"1b",a, b, ⟨c, viii message is sent by a Phase1b(a, b) action
+  568  that is enabled only if b > bal[a], so c < b for any such message. The definition
+  569  of mbal2a then implies that mbal2a(i, b,Q) < b if some acceptor in Q has sent a
+  570  Phase1b message for ballot b of instance i, which is the case if E1(b,Q) is true.
+
+  571  We now prove some less obvious invariants.
+
+  572  Lemma 2 ∀i,b,v : 2(NotChoosable(i, b,v) ⇒ ¬Chosen(i,b, v))
+  573  Proof: We assume NotChoosable(i, b,v) is true in a reachable state (so all invariants
+  574  are true) and prove ¬Chosen(i, b, v). By definition of NotChoosable, there are three
+  575  cases to consider.
+  576  1. Case: ∃ Q : ∀a ∈ Q : (bal[a] > b) ∧ (votei[a][b] 6= v)
+  577  Proof: Since any two quorums have non-empty intersection, any quorum contains
+  578  an acceptor a in Q, for which the case assumption implies votei [a][b] 6= v. By
+  579  definition of Chosen, this implies ¬Chosen(i, b,v).
+  580  2. Case: ∃ j < i, w ∈ StopCmd : Done2a(j,b, w)
+  581  Proof: Lemma 1.6 implies ¬Done2a(i, b,v), and Lemma 1.1 then implies
+  582  ¬Chosen(i, b,v).
+  583  3. Case: ∃ j > i, w : Done2a(j, b, w).
+  584  Proof: Lemma 1.6 (with i ↔ j and v ↔ w) implies ¬Done2a(i, b,v), and
+  585  Lemma 1.1 then implies ¬Chosen(i,b, v).
+
+  586  14
+=== PAGE 17 ===
+
+  587  Lemma 3 ∀i, b, c < b, w, Q :
+
+  588  2 ( Hyp(i,b,c, Q) ∧ E1(b, Q) ⇒ NotChoosable(i,c,w) )
+  589  where Hyp(i,b,c, Q) =∆
+
+  590  (mbal2a(i,b,Q) < c)
+
+  591  ∨ ( (mbal2a(i,b,Q) = c) ∧ (w 6= val2a(i, b, Q)) )
+  592  Proof: We assume c < b, Hyp(i, b,c, Q), and E1(b,Q) and prove
+  593  NotChoosable(i, c, w). Assumption E1(b, Q) implies that every acceptor a in Q
+  594  has sent a "1b" message for ballot b of instance i. Since Phase1b(a, b) is enabled
+  595  only if b > bal[a] and sets bal[a] to b, acceptor a can have sent only one such "1b"
+  596  message. Let ⟨"1b", a, b,⟨ba , va iii be that message. We consider the two disjuncts of
+  597  the assumption Hyp(i,b, c,Q) separately.
+  598  1. Case: mbal2a(i, b, Q) < c
+  599  Proof: Let a be any acceptor in Q. The case assumption implies ba < c, so
+  600  vali[a][c] equaled > when a executed its Phase1b(a, b) action. That action made
+  601  bal[a] = b true, so c < b and Lemma 1.5 imply vali [a][c] = > is still true. Every
+  602  quorum contains an acceptor a in Q, for which we have shown that vali [a][c] = >,
+  603  so NotChoosable(i, c,w) is true.
+  604  2. Case: mbal2a(i, b, Q) = c and w 6= val2a(i, b, Q)
+  605  Proof: Let a be any acceptor in Q. The assumption mbal2a(i, b, Q) = c implies
+  606  ba ≤ c. The definitions of ba and va imply that, when a executed its Phase1b(a, b)
+  607  action, the value of votei[a][c] was va if ba = c and was > if ba < c. Since the action
+  608  set bal[a] to b and c < b, Lemma 1.5 implies that votei [a][c] still has that value.
+  609  If ba = c, then Lemma 1.4 and the definition of val2a imply va = val2a(i, b,Q).
+  610  The case assumption w 6= val2a(i,b, Q) therefore implies that votei [a][c] 6= w for
+  611  all acceptors a in Q. Since every quorum contains an acceptor in a, this implies
+  612  NotChoosable(i, c, w).
+
+  613  We now make some more definitions, culminating in the key invariant
+
+  614  PropInv(i,b,v).
+  615  SafeAt(i,b,v) =∆ ∀ c < b, w 6= v : NotChoosable(i,c, w)
+  616  NoReconfigBefore(i,b) =∆
+
+  617  ∀ j < i, c ≤ b, w ∈ StopCmd : NotChoosable(j, c,w)
+  618  NoneChoosableAfter(i,b, v) =∆
+
+  619  (v ∈ StopCmd) ⇒ ∀ j > i, c < b, w : NotChoosable(j ,c,w)
+  620  PropInv(i,b,v) =∆ Done2a(i,b,v) ⇒ SafeAt(i, b,v)
+
+  621  ∧ NoReconfigBefore(i,b)
+
+  622  ∧ NoneChoosableAfter(i,b,v)
+
+  623  The heart of the safety proof is the following proof that PropInv is invariant.
+
+  624  Lemma 4 2(∀ i, b,v : PropInv(i,b, v))
+  625  Proof: ∀, i, b,v : PropInv(i, b, v) is true in the initial state because Done2a(. . .) is
+  626  initially false. We therefore need only show that it is stable. We do this by assuming
+  627  that it is true in a state s and proving it is true in state t. For any state function f we
+  628  let f be its value in state s and f0 be its value in state t.
+
+  629  15
+=== PAGE 18 ===
+
+  630  ⟨
+
+  631  ⟨
+
+  632  ⟨
+
+  633  ⟨
+
+  634  ⟨
+
+  635  1⟩1. It suffices to
+  636  Assume: 1. ∀ j,c, w : PropInv(j,c, w)
+  637  2. i is an instance number, b a ballot number, v a command, and Q a
+  638  quorum.
+  639  3. s → t is a Phase2a(i, b,v,Q) step.
+  640  4. E1(b, Q)
+  641  Prove: SafeAt(i,b, v)0
+  642  ∧ NoReconfigBefore(i,b)0
+  643  ∧ NoneChoosableAfter(i,b, v)0
+  644  Proof: To prove (∀, i, b, v : PropInv(i,b, v))0, it suffices to prove it for a particular
+  645  i, b, and v. It follows from Lemma 1.7 (the stability of NotChoosable(. . .)) that
+  646  SafeAt(i, b, v) ∧ NoReconfigBefore(i, b) ∧ NoneChoosableAfter(i, b, v)
+  647  is stable. Hence, the first step that can possibly make PropInv(i,b, v) false is one that
+  648  makes Done2a(i, b,v) true. We can therefore assume s → t is a Phase2a(i, b,v, Q)
+  649  step for some quorum Q. Formula E1(b, Q) holds because it is an enabling condition
+  650  of the Phase2a(i, b, v,Q) action.
+  651  The three primed formulas of the "Prove" clause of ⟨1⟩1 are proved as steps ⟨1⟩5,
+  652  1⟩6, and ⟨1⟩7 below. The next three steps are used in their proofs.
+
+  653  1⟩2. ∀ j : (mbal2a(j, b, Q) 6= −∞) ⇒ Done2a(j, mbal2a(j,b, Q), val2a(j, b,Q))
+  654  Proof: Assume mbal2a(j, b,Q) 6= −∞. By definition of mbal2a, this implies
+  655  val2a(j, b,Q) is a command (and not >). Since E1(b, Q) holds by assumption ⟨1⟩1.4, the definitions of mbal2a and val2a imply that some acceptor a in
+  656  Q has sent a ⟨"1b", a,b, ⟨mbal2a(j,b, Q),val2a(j, b, Q)iij message, which implies
+  657  votej [a][mbal2a(j,b, Q)] = val2a(j, b,Q) when the message was sent. Lemma 1.3
+  658  then implies Done2a(j, mbal2a(j, b, Q),val2a(j, b,Q)) was true when the message
+  659  was sent, and is still true because Done2a(. . .) is stable.
+  660  1⟩3. ∀ j, c < b, w : (c ≤ mbal2a(j, b,Q)) ∧ (w 6= val2a(j, b, Q)) ⇒
+  661  NotChoosable(j, c, w)
+  662  Proof: We assume c ≤ mbal2a(j, b, Q) and w 6= val2a(j, b,Q) and
+  663  we prove NotChoosable(j, c, w). Since −∞ < c ≤ mbal2a(j,b, Q), step
+  664  ⟨1⟩2 implies Done2a(j, mbal2a(j, b, Q),val2a(j, b, Q)). By assumption ⟨1⟩1.1,
+  665  this implies SafeAt(j, mbal2a(j, b,Q), val2a(j, b,Q)). The assumption c ≤
+  666  mbal2a(j,b, Q), together with assumption ⟨1⟩1.4 and Lemma 1.8 (which imply
+  667  mbal2a(j,b, Q) < b), implies c < b. The assumption w 6= val2a(j,b, Q) and
+  668  SafeAt(j,mbal2a(j,b, Q), val2a(j,b, Q)) then imply NotChoosable(j,c, w).
+  669  1⟩4. ∀ j, c < b, w : (sval2a(j, b,Q) = >) ⇒ NotChoosable(j, c,w)
+  670  Proof: We assume c < b and sval2a(j, b, Q) = > and prove NotChoosable(j,c, w).
+  671  We split the proof into two cases.
+  672  ⟨2⟩1. Case: mbal2a(j, b, Q) = −∞
+  673  Proof: The case assumption implies mbal2a(j, b,Q) < c, so assumption ⟨1⟩1.4
+  674  and Lemma 3 imply NotChoosable(j, c,w).
+  675  ⟨2⟩2. Case: mbal2a(j, b, Q) 6= −∞
+  676  Proof: Since c < b, we can split the proof into the following three cases.
+  677  ⟨3⟩1. Case: mbal2a(j, b, Q) < c < b
+  678  Proof: By assumption ⟨1⟩1.4, the case assumption and Lemma 3 imply
+  679  NotChoosable(j,c, w).
+
+  680  16
+=== PAGE 19 ===
+
+  681  ⟨3⟩2. Case: c ≤ mbal2a(j, b, Q) and w 6= val2a(j, b, Q)
+  682  Proof: By ⟨1⟩3.
+  683  ⟨3⟩3. Case: c ≤ mbal2a(j, b, Q) and w = val2a(j, b, Q)
+  684  ⟨4⟩1. val2a(j, b, Q) ∈ StopCmd and we can choose k > j such that
+  685  mbal2a(k, b,Q) ≥ mbal2a(j, b, Q).
+  686  Proof: We deduce that val2a(j,b, Q) ∈ StopCmd and such a k exists by the
+  687  ⟨2⟩2 case assumption, the assumption sval2a(j,b, Q) = >, and the definition
+  688  of sval2a.
+  689  ⟨4⟩2. Done2a(k, mbal2a(k,b, Q), val2a(k, b, Q))
+  690  Proof: The ⟨3⟩3 case assumption and ⟨4⟩1 imply mbal2a(k, b,Q) 6= −∞.
+  691  Step ⟨1⟩2 then proves ⟨4⟩2.
+  692  ⟨4⟩3. NotChoosable(j,c, w)
+  693  Proof: Assumption ⟨1⟩1.1 (with j ← k, c ← mbal2a(k, b, Q), and w ←
+  694  val2a(k, b,Q)) and ⟨4⟩2 imply NoReconfigBefore(k, mbal2a(k,b, Q)). Step
+  695  ⟨4⟩1 asserts j < k; case assumption ⟨3⟩3 and ⟨4⟩1 imply c ≤ mbal2a(k, b,Q);
+  696  and ⟨4⟩1 and case assumption ⟨3⟩3 imply w ∈ StopCmd. Therefore,
+  697  NoReconfigBefore(k,mbal2a(k, b,Q)) implies NotChoosable(j, c, w).
+  698  ⟨1⟩5. SafeAt(i,b, v)0
+  699  Proof: We assume c < b and w 6= v and prove NotChoosable(i, c,w)0. By Lemma 1.7,
+  700  it suffices to prove NotChoosable(i, c,w). We split the proof into two cases.
+  701  ⟨2⟩1. Case: sval2a(i, b, Q) = >
+  702  Proof: ⟨1⟩4 (substituting j ← i) implies NotChoosable(i, c, w).
+  703  ⟨2⟩2. Case: sval2a(i, b, Q) 6= >
+  704  Proof: Since c < b, we can break the proof into two sub-cases.
+  705  ⟨3⟩1. Case: mbal2a(i,b, Q) < c < b
+  706  Proof: Assumption ⟨1⟩1.4 and Lemma 3 imply NotChoosable(i,c, w)
+  707  ⟨3⟩2. Case: c ≤ mbal2a(i, b,Q)
+  708  Proof: Assumption ⟨1⟩1.3 implies E3(i,b, Q, v). Case assumption ⟨2⟩2 and
+  709  E3(i,b, Q,v) imply v = sval2a(i, b,Q). Case assumption ⟨2⟩2 and the definition of sval2a then imply v = val2a(i, b,Q). Case assumption ⟨3⟩2, the assumption w 6= v, and step ⟨1⟩3 (substituting j ← i) then imply NotChoosable(i,c, w).
+  710  ⟨1⟩6. NoReconfigBefore(i,b)0
+  711  Proof: We assume j < i, w ∈ StopCmd, and c ≤ b and we prove
+  712  NotChoosable(j,c, w)0. By Lemma 1.7, it suffices to prove NotChoosable(j, c,w). Since
+  713  c ≤ b, we need consider only the following two cases.
+  714  ⟨2⟩1. Case: b = c
+  715  Proof: Assumption ⟨1⟩1.3 implies Done2a(i,b, v)0. Since i > j and
+  716  w ∈ StopCmd, this implies the third disjunct of NotChoosable(j, b, w)0 (substituting i and v for the existentially quantified variables), which by the case assumption
+  717  proves NotChoosable(j,c, w)0.
+  718  ⟨2⟩2. Case: c < b
+  719  Proof: We consider two sub-cases.
+  720  ⟨3⟩1. Case: sval2a(j, b,Q) = >
+  721  Proof: ⟨1⟩4 and case assumption ⟨2⟩2 imply NotChoosable(j, c,w).
+  722  ⟨3⟩2. Case: sval2a(j, b,Q) 6= >
+  723  Proof: By case assumption ⟨2⟩2, we have the following two sub-cases.
+  724  ⟨4⟩1. Case: mval2a(j,b, Q) < c < b
+
+  725  17
+=== PAGE 20 ===
+
+  726  Proof: Assumption ⟨1⟩1.4, the case assumption, and Lemma 3 imply
+  727  NotChoosable(j, c,w).
+  728  ⟨4⟩2. Case: c ≤ mval2a(j, b,Q)
+  729  Proof: Assumption ⟨1⟩1.3 implies E6(i,b, Q). The ⟨3⟩2 case assumption,
+  730  the assumption j < i, and E6(i, b, Q) imply sval2a(j,b, Q) ∈/ StopCmd. The
+  731  assumption w ∈ StopCmd then implies w 6= sval2a(j,b, Q). By the ⟨3⟩2 case
+  732  assumption and the definition of sval2a, we then have w 6= val2a(j, b,Q).
+  733  The ⟨4⟩2 case assumption (which implies mval2a(j, b,Q) 6= −∞) and ⟨1⟩3
+  734  then imply NotChoosable(j, c,w).
+  735  ⟨1⟩7. NoneChoosableAfter(i,b, v)0
+  736  Proof: We assume v ∈ StopCmd, j > i, c < b, and w any command and we prove
+  737  NotChoosable(j,c, w)0. By Lemma 1.7, it suffices to prove NotChoosable(j, c,w). We
+  738  split the proof into two cases.
+  739  ⟨2⟩1. Case: sval2a(i, b, Q) = >
+  740  Proof: Assumption ⟨1⟩1.3 implies E4(i,b, Q,v), so the assumption v ∈ StopCmd
+  741  implies E4b(i, b,Q, v). The case assumption, the assumption j > i, and
+  742  E4b(i, b,Q, v) imply sval2a(j,b, Q) = >. The assumption c < b and step ⟨1⟩4
+  743  then imply NotChoosable(j, c,w).
+  744  ⟨2⟩2. Case: sval2a(i, b, Q) 6= >
+  745  ⟨3⟩1. sval2a(i, b, Q) = val2a(i,b, Q) = v
+  746  Proof: Assumption ⟨1⟩1.3 implies E3(i,b, Q,v), which implies
+  747  sval2a(i, b, Q) = v. The case assumption and the definition of sval2a
+  748  then implies val2a(i, b,Q) = v.
+  749  ⟨3⟩2. Done2a(i, mbal2a(i, b, Q), v)
+  750  Proof: ⟨3⟩1, assumption ⟨1⟩1.4, and the definition of val2a imply
+  751  votei[a][mbal2a(i, b, Q)] = v for some acceptor a in Q, which by Lemma 1.3
+  752  implies Done2a(i,mbal2a(i,b, Q), v).
+  753  By the assumption c < b, it suffices to consider the following two cases.
+  754  ⟨3⟩3. Case: c < mbal2a(i, b,Q)
+  755  Proof: Step ⟨3⟩2 and assumption ⟨1⟩1.1 imply
+  756  NoneChoosableAfter(i,mbal2a(i, b, Q),v). By the case assumption and
+  757  the assumptions v ∈ StopCmd and j > i, this implies NotChoosable(j, c,w).
+  758  ⟨3⟩4. Case: mbal2a(i,b, Q) ≤ c < b
+  759  ⟨4⟩1. mbal2a(j, b,Q) < mbal2a(i,b, Q)
+  760  Proof: The assumption v ∈ StopCmd and ⟨3⟩1 imply
+  761  sval2a(i,b, Q) ∈ StopCmd. Case assumption ⟨2⟩2 and the definition
+  762  of sval2a then imply mbal2a(k,b, Q) < mbal2a(i, b, Q) for all k > i.
+  763  ⟨4⟩2. NotChoosable(j,c, w)
+  764  Proof: ⟨4⟩1 and case assumption ⟨3⟩4 imply mbal2a(j, b, Q) < c < b. By
+  765  assumption ⟨1⟩1.4, Lemma 3 implies NotChoosable(j, c, w).
+
+  766  Theorem 1 2 Consistency
+  767  Proof: By definition of Consistency, it suffices to assume Chosen(i,b, v) and
+  768  Chosen(i,c, w) and to prove v = w. Without loss of generality, we can assume b ≤ c.
+  769  We then have two cases.
+  770  1. Case: b < c
+  771  Proof: We assume v 6= w and obtain a contradiction. Lemma 1.1 and
+  772  Chosen(i, c,w) imply Done2a(i, c, w). By Lemma 4, this implies SafeAt(i,c, w).
+
+  773  18
+=== PAGE 21 ===
+
+  774  The assumptions b < c, an v 6= w then imply NotChoosable(i,b, v). By Lemma 2,
+  775  this contradicts the assumption Chosen(i, b,v).
+  776  2. Case: b = c
+  777  Proof: Lemma 1.1 implies Done2a(i, b,v) ∧ Done2a(i, c,w), which by Lemma 1.2
+  778  implies b = c.
+
+  779  Theorem 2 2 Stopping
+  780  Proof: By definition of Stopping, it suffices to assume Chosen(i,b, v), Chosen(j,c, w),
+  781  v ∈ StopCmd, and j > i and to obtain a contradiction. We split the proof into two
+  782  cases.
+  783  1. Case: c < b
+  784  Proof: Chosen(i,b, v) and Lemma 1.1 imply Done2a(i,b, v). This and Lemma 4
+  785  imply NoneChoosableAfter(i, b, v), which by the case assumption and the assumptions v ∈ StopCmd and j > i implies NotChoosable(j,c, w). The assumption
+  786  Chosen(j, c, w) and Lemma 2 then provide the required contradiction.
+  787  2. Case: c ≥ b
+  788  Proof: Chosen(j, c, w) and Lemma 1.1 imply Done2a(j,c, w). Lemma 4 then implies NoReconfigBefore(j, c). The case assumption, the assumptions v ∈ StopCmd
+  789  and j > i, and NoReconfigBefore(j, c) imply NotChoosable(i,b, v). The assumption
+  790  Chosen(i, b, v) and Lemma 2 then provide the required contradiction.
+
+  791  A.2 The Proof of Progress.
+
+  792  Theorem 3 ∀ b,Q : Progress(b,Q)
+  793  Proof: We assume P1(b,Q), P2(b,Q) and P3(b) and we must prove that there exists
+  794  a v such that either 3Chosen(i, b, v) or (v ∈ StopCmd) ∧ 3Chosen(j, b,v), for some
+  795  j < i.
+  796  ⟨1⟩1. 32E1(b, Q)
+  797  Proof: P1(b,Q) implies that the ballot b leader eventually executes a Phase1a(b)
+  798  action. By P2(b, Q), every acceptor a in Q eventually receives the Phase1a messages.
+  799  Because bal[a] is set to a value c only by receiving a ballot c message, assumption
+  800  P3(b) implies bal[a] ≤ b. Hence, a must eventually receive the Phase1a message
+  801  and execute Phase1b(a,b). By P2(b, Q), the Phase1b message it sends is eventually
+  802  received by the leader.
+  803  ⟨1⟩2. ∀ i, w : 2(Done2a(i, b,w) ⇒ 3Chosen(i, b, w))
+  804  Proof: Done2a(i, b,w) means that a Phase2a(i, b, w) action has been executed
+  805  sending a ⟨"2a", b, w⟩i message to every acceptor a. If a is in Q, then assumption P2(b, Q) implies that it eventually receives that message. Assumption P3(b)
+  806  implies bal[a] ≤ b, so P1(b, Q) implies that every a in Q eventually executes
+  807  Phase2b(i, a,b, w), setting votei[a][b] to w. Hence, eventually Chosen(i, b,w) becomes true.
+  808  Since ¬3F is equivalent to 2¬F, for any formula F, we can split the proof into the
+  809  following two cases.
+  810  ⟨1⟩3. Case: ∃k > i, w : 3Done2a(k, b,w)
+  811  ⟨2⟩1. 2 E5(i, b)
+  812  Proof: By definition of E5(i, b), it suffices to assume j < i, v ∈ StopCmd, and
+  813  3Done2a(j, b, v) and obtain a contradiction. By the ⟨1⟩3 case assumption, we
+
+  814  19
+=== PAGE 22 ===
+
+  815  ⟨1
+
+  816  ⟨2
+
+  817  ⟨2
+
+  818  ⟨2
+
+  819  ⟩4.
+  820  ⟨2
+
+  821  have 3Done2a(k, b,w) for k > i > j. Since k 6= j, the following two cases are
+  822  exhaustive.
+  823  ⟨3⟩1. Case: Phase2a(k, b,w) is executed after Phase2a(j, b,v)
+  824  Proof: This is impossible because the enabling condition E5(k, b) of
+  825  Phase2a(k, b,w) implies ¬Done2a(j,b, v).
+  826  ⟨3⟩2. Case: Phase2a(j,b, v) is executed after Phase2a(k, b,w)
+  827  Proof: This is impossible because E4a(j, b, v), which by the assumption v ∈ StopCmd is an enabling condition of Phase2a(j,b, v), implies
+  828  ¬Done2a(k, b,w).
+  829  ⟩2. Pick a quorum U such that 32(E1(b, U) ∧ E6(i, b, U ))
+  830  Proof: Case assumption ⟨1⟩3 implies that we can choose U such that
+  831  3(E1(b,U ) ∧ E6(k,b, U)). By definition of sval2a, we have E1(b, U ) implies
+  832  E6(k,b, U) is stable. Since E1(b, U ) is obviously stable, 3(E1(b, U)∧E6(k, b, U ))
+  833  implies 32(E1(b, U) ∧ E6(k,b, U)). The assumption k > i and the definition of
+  834  E6 imply 2 (E6(k, b, U) ⇒ E6(i, b, U)).
+  835  ⟩3. Pick w ∈/ StopCmd such that 32E3(i, b, U, w)
+  836  Proof: By ⟨2⟩2, we can choose a point in the execution at which 2(E1(b, U ) ∧
+  837  E6(k,b, U)) holds. By 2E1(b,U ), the value of sval2a(i, b,U ) remains constant
+  838  from that point on. If sval2a(i, b, U ) = >, let w be any command not in StopCmd.
+  839  Otherwise, let w = val2a(i, b, U ), which by E6(k, b,U ) and the assumption k > i
+  840  is not in StopCmd.
+  841  ⟩4. 3Chosen(i,b, w)
+  842  Proof: The theorem is proved if 3Chosen(i, b,u, V ) for any u and V . Hence,
+  843  by ⟨1⟩2 it suffices to assume 2∀u : ¬Done2a(i, b, u), which is 2E2(i,b).
+  844  We have proved 2 E5(i, b) (⟨2⟩1), 32E3(i,b, U, w) (⟨2⟩3), and 32(E1(b, U ) ∧
+  845  E6(i, b,U )) (⟨2⟩2). By ⟨2⟩3 (w ∈/ StopCmd), E4(i, b, U ,w) holds trivially. Hence,
+  846  the Phase2a(i, b, w,U ) action is eventually always enabled, so by assumption
+  847  P1(b,Q) it is eventually executed by the ballot b leader. Step ⟨1⟩2 then implies
+  848  3Chosen(i, b,w).
+  849  Case: ∀k > i, w : 2¬Done2a(k, b, w)
+  850  ⟩1. ∃ j, v : 3Done2a(j,b, v)
+  851  Proof: We assume ∀ j, v : 2¬Done2a(j, b,v) and prove that eventually a
+  852  Phase2a(1, b, v) step occurs for some v. (Recall that 1 is the lowest instance
+  853  number.)
+  854  ⟨3⟩1. 2E2(1, b)
+  855  Proof: By the assumption ∀ j, v : 2¬Done2a(j,b, v).
+  856  ⟨3⟩2. 2(E5(1, b) ∧ E6(1,b, Q))
+  857  Proof: Conditions E5 and E6 are vacuously true for instance 1.
+  858  ⟨3⟩3. ∃ v : 32(E3(1,b, Q, v) ∧ E4(1,b, Q,v))
+  859  Proof: ⟨1⟩1 implies either (a) 32(sval2a(1,b, Q) = >) or
+  860  (b) 32(sval2a(1, b, Q) = v) for some command v. In case (a), E3(1, b,Q, v)
+  861  and E4(1, b, Q, v) are trivially satisfied for any command v not in StopCmd. In
+  862  case (b), let v = sval2a(1, b, Q), so E3(1, b, Q, v) is satisfied. If v ∈/ StopCmd,
+  863  then E4(1,b, Q, v) is trivially satisfied. If v ∈ StopCmd, then E4a(i, b,v) is
+  864  satisfied by the assumption ∀j, v : 2¬Done2a(j, b,v) and E4b(i, b, v, Q) is
+  865  trivially satisfied.
+  866  ⟨3⟩4. ∃ v : 3Done2a(1, b,v)
+
+  867  20
+=== PAGE 23 ===
+
+  868  Proof: ⟨1⟩1, ⟨3⟩1, ⟨3⟩2, and ⟨3⟩3 imply that the Phase2a(1, b, v,Q) action is
+  869  eventually always enabled. By P1(b, Q), this action must eventually be executed.
+  870  ⟨2⟩2. It suffices to:
+  871  Assume: 1. h an instance number, vh a command not in StopCmd, and
+  872  3Done2a(h, b, vh )
+  873  2. ∀ j > h, v : 2¬Done2a(j,b, v)
+  874  Prove: ∃v : 3Done2a(h + 1, b,v)
+  875  Proof: ⟨2⟩1 and case assumption ⟨1⟩4 implies that there is a largest instance
+  876  number h and a command vh such that 3Done2a(h, b,vh ), and that h ≤ i. If
+  877  vh ∈ StopCmd, then ⟨1⟩2 implies 3Chosen(h, b,vh ), and h ≤ i then implies we are
+  878  done. Therefore, it suffices to assume vh ∈/ StopCmd and obtain a contradiction,
+  879  which we do by proving that the assumptions imply the Prove clause.
+  880  ⟨2⟩3. 32 E5(h + 1,b)
+  881  Proof: Assumption ⟨2⟩2.1 asserts 3Done2a(h, b, vh ), which implies 3E5(h,b).
+  882  Since Done2a(h, b,vh ) implies ∀j < h, w ∈ StopCmd : ¬E4a(j,b, w), it implies
+  883  that Phase2a(j, b, w, U) is not enabled for any j < i, w ∈ StopCmd, and quorum
+  884  U, which implies that E5(h, b) is stable, proving 32 E5(h,b). Assumption ⟨2⟩2.1
+  885  and Lemma 1.2 imply ∀v ∈ StopCmd : 2¬Done2a(h, b, v), which together with
+  886  32E5(h, b) implies 32 E5(h + 1,b).
+  887  ⟨2⟩4. Choose a quorum U such that Phase2a(h, b,vh ,U ) is eventually executed.
+  888  Proof: U exists by assumption ⟨2⟩2.1.
+  889  ⟨2⟩5. 32 E1(b, U)
+  890  Proof: By ⟨2⟩4 and the stability of E1(b, U).
+  891  ⟨2⟩6. 32 E6(h + 1,b, U)
+  892  Proof: ⟨2⟩4, ⟨2⟩5, and the enabling condition E6(h, b,U ) imply
+  893  (∗) ∀ j < h : 32((sval2a(j, b,U ) 6= >) ⇒ (sval2a(j,b, U) ∈/ StopCmd))
+  894  Step ⟨2⟩4, assumption ⟨2⟩2.1 (which implies vh ∈/ StopCmd), and enabling condition E3(h,b, U, vh ) imply 32(sval2a(h, b, U ) ∈/ StopCmd). This and (∗) imply
+  895  32E6(h + 1, b,U ).
+  896  ⟨2⟩7. ∃ v : 32(E3(h + 1,b, U, v) ∧ E4(h + 1,b, U, v))
+  897  Proof: ⟨2⟩5 implies that it suffices to consider the following two cases.
+  898  ⟨3⟩1. Case: 32(sval2a(h + 1,b, U) = v) for some command v.
+  899  Proof: The case assumption implies 32 E3(h + 1,b, U, v). Assumption ⟨2⟩2.2 implies 2 E4a(h,b, v), and the case assumption trivially implies
+  900  32 E4b(h,b, U, v).
+  901  ⟨3⟩2. Case: 32 (sval2a(h + 1, b,U ) = >)
+  902  Proof: The case assumption implies 32(E3(h + 1, b, U, v)∧E4(h+ 1,b, U, v))
+  903  for any command v not in StopCmd.
+  904  ⟨2⟩8. 2 E2(h + 1,b)
+  905  Proof: Assumption ⟨2⟩2.2.
+  906  ⟨2⟩9. ∃ v : 3Done2a(h + 1, b, v)
+  907  Proof: ⟨2⟩3, ⟨2⟩5, ⟨2⟩6, ⟨2⟩7, and ⟨2⟩8 show that the Phase2a(h+1, b,v,U ) action
+  908  is eventually always enabled for some v. Assumption P1(b,Q) implies that the
+  909  ballot b leader eventually executes this action. By ⟨2⟩2, this completes the proof
+
+  910  21
+=== PAGE 24 ===
+
+  911  of ⟨1⟩4.
+
+  912  22

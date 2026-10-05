@@ -1,0 +1,2684 @@
+---
+title: "There Is More Consensus in Egalitarian Parliaments"
+authors:
+  - "Iulian Moraru"
+  - "David G Andersen"
+  - "Michael Kaminsky"
+year: "2013"
+publication: "Proceedings of the Twenty-Fourth ACM Symposium on Operating Systems Principles"
+handle_url: "https://dl.acm.org/doi/10.1145/2517349.2517350"
+source_pdf: "research/literature/corpus/pdf/2013-sosp-moraru-epaxos.pdf"
+source_pdf_sha256: "4c8a6c44e32ebcca5ed0b182af5ecb8e8b5a7f83d8a732d47869f7314847d0aa"
+page_count: 15
+extracted_text_runs: 6835
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  This paper describes the design and implementation of Egalitarian Paxos (EPaxos), a new distributed consensus algorithm based on Paxos. EPaxos achieves three goals: (1) optimal commit latency in the wide-area when tolerating one and two failures, under realistic conditions; (2) uniform load balancing across all replicas (thus achieving high throughput); and (3) graceful performance degradation when replicas are slow or crash. Egalitarian Paxos is to our knowledge the first protocol to achieve the previously stated goals efficiently---that is, requiring only a simple majority of replicas to be non-faulty, using a number of messages linear in the number of replicas to choose a command, and committing commands after just one communication round (one round trip) in the common case or after at most two rounds in any case. We prove Egalitarian Paxos's properties theoretically and demonstrate its advantages empirically through an implementation running on Amazon EC2.
+tags: []
+---
+
+=== PAGE 1 ===
+
+    1  There Is More Consensus in Egalitarian Parliaments
+
+    2  Iulian Moraru, David G. Andersen, Michael Kaminsky
+
+    3  Carnegie Mellon University and Intel Labs
+
+    4  Abstract
+
+    5  This paper describes the design and implementation of
+
+    6  Egalitarian Paxos (EPaxos), a new distributed consensus
+
+    7  algorithm based on Paxos. EPaxos achieves three goals:
+
+    8  (1) optimal commit latency in the wide-area when toler-
+
+    9  ating one and two failures, under realistic conditions; (2)
+
+   10  uniform load balancing across all replicas (thus achieving
+
+   11  high throughput); and (3) graceful performance degrada-
+
+   12  tion when replicas are slow or crash.
+
+   13  Egalitarian Paxos is to our knowledge the first protocol
+
+   14  to achieve the previously stated goals efficiently—that
+
+   15  is, requiring only a simple majority of replicas to be non-
+
+   16  faulty, using a number of messages linear in the number
+
+   17  of replicas to choose a command, and committing com-
+
+   18  mands after just one communication round (one round
+
+   19  trip) in the common case or after at most two rounds
+
+   20  in any case. We prove Egalitarian Paxos's properties
+
+   21  theoretically and demonstrate its advantages empirically
+
+   22  through an implementation running on Amazon EC2.
+
+   23  1 Introduction
+
+   24  Distributed computing places two main demands on repli-
+
+   25  cation protocols: (1) high throughput for replication in-
+
+   26  side a computing cluster; and (2) low latency for repli-
+
+   27  cation across data centers. Today's clusters use fault-
+
+   28  tolerant coordination engines such as Chubby [4], Box-
+
+   29  wood [22], or ZooKeeper [12] for activities including
+
+   30  operation sequencing, coordination, leader election, and
+
+   31  resource discovery. Many databases are accessed si-
+
+   32  multaneously from different continents, requiring geo-
+
+   33  replication [2, 8].
+
+   34  An important limitation on these systems is that dur-
+
+   35  ing efficient, failure-free operation, all clients communi-
+
+   36  cate with a single master (or leader) server at all times.
+
+   37  Permission to make digital or hard copies of part or all of this work for
+   38  personal or classroom use is granted without fee provided that copies
+   39  are not made or distributed for profit or commercial advantage and that
+   40  copies bear this notice and the full citation on the first page. Copyrights
+   41  for third-party components of this work must be honored. For all other
+   42  uses, contact the Owner/Author.
+   43  Copyright is held by the Owner/Author(s).
+   44  SOSP'13, Nov. 3–6, 2013, Farmington, Pennsylvania, USA.
+   45  ACM 978-1-4503-2388-8/13/11.
+   46  http://dx.doi.org/10.1145/2517349.2517350
+
+   47  This optimization—termed "Multi-Paxos" for systems
+
+   48  based on the Paxos protocol [16]—is important to achiev-
+
+   49  ing high throughput in practical systems [7]. Changing
+
+   50  the leader requires invoking additional consensus mecha-
+
+   51  nisms that substantially reduce performance.
+
+   52  This algorithmic limitation has several important con-
+
+   53  sequences. First, it impairs scalability by placing a dis-
+
+   54  proportionately high load on the master, which must pro-
+
+   55  cess more messages than the other replicas [23]. Second,
+
+   56  when performing geo-replication, clients incur additional
+
+   57  latency for communicating with a remote master. Third,
+
+   58  as we show in this paper, traditional Paxos variants are
+
+   59  sensitive to both long-term and transient load spikes and
+
+   60  network delays that increase latency at the master. Fi-
+
+   61  nally, this single-master optimization can harm availabil-
+
+   62  ity: if the master fails, the system cannot service requests
+
+   63  until a new master is elected. Previously proposed so-
+
+   64  lutions such as partitioning or using proxy servers are
+
+   65  undesirable because they restrict the type of operations
+
+   66  the cluster can perform. For example, a partitioned clus-
+
+   67  ter cannot perform atomic operations across partitions
+
+   68  without using additional techniques.
+
+   69  Egalitarian Paxos (EPaxos) has no designated leader
+
+   70  process. Instead, clients can choose at every step which
+
+   71  replica to submit a command to, and in most cases the
+
+   72  command is committed without interfering with other
+
+   73  concurrent commands. This allows the system to evenly
+
+   74  distribute the load to all replicas, eliminating the first bot-
+
+   75  tleneck identified above (i.e., having one server that must
+
+   76  be on the critical path for all communication). EPaxos's
+
+   77  flexible load distribution better handles permanently or
+
+   78  transiently slow nodes, as well as the latency heterogene-
+
+   79  ity caused by geographical distribution of replicas; this
+
+   80  substantially reduces both the median and tail commit la-
+
+   81  tency. Finally, the system can provide higher availability
+
+   82  and higher performance under failures because there is
+
+   83  no transient interruption caused by leader election: there
+
+   84  is no leader, and hence, no need for leader election, as
+
+   85  long as more than half of the replicas are available.
+
+   86  We begin by reviewing the core Paxos algorithm and
+
+   87  the intuition behind Egalitarian Paxos in Section 2. We
+
+   88  then describe several Paxos variants that reduce overhead
+
+   89  or commit latency in Section 3. Throughout the paper
+
+   90  we compare extensively against Multi-Paxos and two re-
+=== PAGE 2 ===
+
+   91  cent Paxos derivatives: Mencius [23] and Generalized
+
+   92  Paxos [17]. Mencius successfully shares the master load
+
+   93  by distributing the master responsibilities round-robin
+
+   94  among the replicas. Generalized Paxos introduces the
+
+   95  idea that non-conflicting writes can be committed inde-
+
+   96  pendently in state machine replication to improve commit
+
+   97  latency. Our results in Section 7 confirm that Mencius
+
+   98  is effective, but only when the nodes are homogeneous:
+
+   99  EPaxos achieves higher throughput and better perfor-
+
+  100  mance stability under a variety of realistic conditions,
+
+  101  such as wide-area replication, failures, and nodes that
+
+  102  experience performance variability. Generalized Paxos
+
+  103  relies on a single master node, and thus suffers from the
+
+  104  associated problems.
+
+  105  2 Overview
+
+  106  We begin by briefly describing the classic Paxos algo-
+
+  107  rithm, followed by an overview of Egalitarian Paxos.
+
+  108  2.1 Paxos Background
+
+  109  State machine replication aims to make a set of possibly
+
+  110  faulty distributed processors (the replicas) execute the
+
+  111  same commands in the same order. Because each proces-
+
+  112  sor is a state machine with no other inputs, all non-faulty
+
+  113  processors will transition through the same sequence of
+
+  114  states. Given a particular position in the command se-
+
+  115  quence, running the Paxos algorithm guarantees that, if
+
+  116  and when termination is reached, all non-faulty replicas
+
+  117  agree on a single command to be assigned that position.
+
+  118  To be able to make progress, at most a minority of the
+
+  119  replicas can be faulty—if N is the total number of repli-
+
+  120  cas, at least bN/2c+ 1 must be non-faulty for Paxos to
+
+  121  make progress. Paxos, EPaxos, and other common Paxos
+
+  122  variants handle only non-Byzantine failures: a replica
+
+  123  may crash, or it may fail to respond to messages from
+
+  124  other replicas indefinitely; it cannot, however, respond in
+
+  125  a way that does not conform to the protocol.
+
+  126  The execution of a replicated state machine that uses
+
+  127  Paxos proceeds as a series of pre-ordered instances,
+
+  128  where the outcome of each instance is the agreement
+
+  129  on a single command. The voting process for one in-
+
+  130  stance may happen concurrently with voting processes
+
+  131  for other instances, but does not interfere with them.
+
+  132  Upon receiving a command request from a client, a
+
+  133  replica will try to become the leader of a not-yet-used
+
+  134  instance by sending Prepare messages to at least a ma-
+
+  135  jority of replicas (possibly including itself). A reply to a
+
+  136  Prepare contains the command that the replying replica
+
+  137  believes may have already been chosen in this instance
+
+  138  (in which case the new leader will have to use that com-
+
+  139  mand instead of the newly proposed one), and also con-
+
+  140  stitutes a promise not to acknowledge older messages
+
+  141  from previous leaders. If the aspiring leader receives at
+
+  142  least bN/2c+1 acknowledgements in this prepare phase,
+
+  143  it will proceed to propose its command by sending it to a
+
+  144  majority of peers in the form of Accept messages; if these
+
+  145  messages are also acknowledged by a majority, the leader
+
+  146  commits the command locally, and then asynchronously
+
+  147  notifies all its peers and the client.
+
+  148  Because this canonical mode of operation requires at
+
+  149  least two rounds of communication (two round trips)
+
+  150  to commit a command—and more rounds in the case
+
+  151  of dueling leaders—the widely used "Multi-Paxos" op-
+
+  152  timization designates a replica to be the stable leader
+
+  153  (or distinguished proposer). A replica becomes a stable
+
+  154  leader by running the prepare phase for a large (possibly
+
+  155  infinite) number of instances at the same time, thus taking
+
+  156  ownership of all of them. In steady state, clients send
+
+  157  commands only to the stable leader, which directly pro-
+
+  158  poses them in the instances it already owns (i.e., without
+
+  159  running the prepare phase). When a non-leader replica
+
+  160  suspects the leader has failed, it tries to become the new
+
+  161  leader by taking ownership of the instances for which it
+
+  162  believes commands have not yet been chosen.
+
+  163  Section 3 discusses several Paxos variants that improve
+
+  164  upon this basic protocol.
+
+  165  2.2 Egalitarian Paxos: Contributions and
+
+  166  Intuition
+
+  167  The main goals when designing EPaxos were: (1) optimal
+
+  168  commit latency in the wide area, (2) optimal load balanc-
+
+  169  ing across all replicas, to achieve high throughput, and
+
+  170  (3) graceful performance degradation when some replicas
+
+  171  become slow or crash. To achieve these goals, EPaxos
+
+  172  must allow all replicas to act as proposers (or command
+
+  173  leaders) simultaneously, for clients not to waste round
+
+  174  trips to remote sites, and functionality to be well bal-
+
+  175  anced across replicas. Furthermore, each proposer must
+
+  176  be able to commit a command after communicating with
+
+  177  the smallest possible number of remote replicas (i.e., quo-
+
+  178  rums must be as small as possible). Finally, the quorum
+
+  179  composition must be flexible, so that command leaders
+
+  180  can easily avoid slow or unresponsive replicas.
+
+  181  EPaxos achieves all this due to the novel way in which
+
+  182  it orders commands. Previous algorithms ordered com-
+
+  183  mands either by having a single stable leader choose the
+
+  184  order (as in Multi-Paxos and Generalized Paxos), or by
+
+  185  assigning them to instances (i.e., command slots) in a
+
+  186  pre-ordered instance space (as in canonical Paxos and
+
+  187  Mencius) whereby the order of the commands is the pre-
+
+  188  established order of their respective slots. In contrast,
+
+  189  EPaxos orders the instances dynamically and in a decen-
+
+  190  tralized fashion: in the process of choosing (i.e., voting) a
+
+  191  command in an instance, each participant attaches order-
+
+  192  ing constraints to that command. EPaxos guarantees that
+
+  193  all non-faulty replicas will commit the same command
+
+  194  with the same constraints, so every replica can use these
+
+  195  constraints to independently reach the same ordering.
+=== PAGE 3 ===
+
+  196  PreAccept C4
+
+  197  Figure 1: EPaxos message flow. R1, R2, ... R5 are the five replicas. Commands C1 and C2 (left) do not interfere,
+
+  198  so both can commit on the fast path. C3 and C4 (right) interfere, so one (C3) will be committed on the slow
+
+  199  C4 signifies that C3 acquired a dependency on C4. For clarity, we omit the async commit messages.
+
+  200  C1: updateobj_AACK C1 C3: update
+  201  R1 R1
+  202  PreAccept C1 OK C1 Commit C1
+  203  R2 R2
+  204  R3 R3
+  205  R4 R4
+  206  PreAccept C2 OK C2 Commit C2
+  207  R5 R5
+  208  C2: updateobj_BACK C2 C4: update
+
+  209  path. C3 →
+
+  210  This ordering approach is the source of the benefits
+
+  211  EPaxos has over previous algorithms. First, committing
+
+  212  a command is contingent upon the input of any majority
+
+  213  of replicas (unlike in Multi-Paxos where the stable leader
+
+  214  must be part of every decision, or in Mencius, where
+
+  215  information from all replicas is required)—this benefits
+
+  216  wide-area commit latency, availability, and also improves
+
+  217  performance robustness, because it decouples the perfor-
+
+  218  mance of the fastest replicas from that of the slowest.
+
+  219  Second, any replica can propose a command, not just a
+
+  220  distinguished proposer, or leader—this allows for load
+
+  221  balancing, which increases throughput.
+
+  222  In taking this ordering approach, EPaxos must main-
+
+  223  tain safety and provide a linearizable ordering of com-
+
+  224  mands, while minimizing both the number of replicas
+
+  225  that must participate in voting for each command and
+
+  226  the number of messages exchanged between them. One
+
+  227  observation that makes this task easier—by substantially
+
+  228  reducing the number of ordering constraints in the com-
+
+  229  mon case—was made by generic broadcast algorithms
+
+  230  and Generalized Paxos before us: it is not necessary to
+
+  231  enforce a consistent ordering for the common case of
+
+  232  commands that do not interfere with each other.
+
+  233  Figure 1 presents a simplified example of how Egal-
+
+  234  itarian Paxos works. Commands can be sent by clients
+
+  235  to any replica—we call this replica the command leader
+
+  236  for that command, not to be confused with the stable
+
+  237  leader in Multi-Paxos. In practical workloads, concur-
+
+  238  rent proposals interfere only rarely (for now, think of
+
+  239  this common case as concurrent commands that update
+
+  240  different objects). EPaxos can commit these commands
+
+  241  after only one round of communication between the command leader and a fast-path quorum of peers—F + F+1
+  242  2
+
+  243  replicas in total, including the command leader, where F
+
+  244  is the number of tolerated failures (F = 2 in the example
+
+  245  from Figure 1).
+
+  246  When commands interfere, they acquire dependencies
+
+  247  on each other—attributes that commands are committed
+
+  248  with, used to determine the correct order in which to
+
+  249  execute the commands (the commit and the execution
+
+  250  obj_AACK C3
+  251  PreAccept C3 OK C3 Accept C3(→C4) Commit C3
+  252  OK C3
+  253  C3→C4
+
+  254  OK C4 Commit C4
+
+  255  obj_AACK C4
+
+  256  orders are not necessarily the same, but this does not
+
+  257  affect correctness). To ensure that every replica commits
+
+  258  the same attributes even if there are failures, a second
+
+  259  round of communication between the command leader
+
+  260  and a classic quorum of peers—F +1 replicas including
+
+  261  the command leader—may be required (as in Figure 1
+
+  262  for command C3). We call this the slow path.
+
+  263  3 Comparison with Related Work
+
+  264  Multi-Paxos [15, 16] makes efficient forward progress by
+
+  265  relying on a stable leader replica that brokers communica-
+
+  266  tion with clients and other replicas. With N replicas, for
+
+  267  each command, the leader handles Θ(N) messages, and
+
+  268  non-leader replicas handle only O(1). Thus, the leader
+
+  269  can become a bottleneck, as practical implementations
+
+  270  of Paxos have observed [4]. When the leader fails, the
+
+  271  state machine becomes temporarily unavailable until a
+
+  272  new leader is elected. This problem is not easily solved:
+
+  273  aggressive leader re-election can cause stalls if multiple
+
+  274  replicas believe they are the leader. Chubby [4] and Box-
+
+  275  wood [22] use Multi-Paxos, while ZooKeeper [12] relies
+
+  276  on a stable leader protocol similar to Multi-Paxos.
+
+  277  Mencius [23] distributes load evenly across replicas
+
+  278  by rotating the Paxos leader for every command. The in-
+
+  279  stance space is pre-partitioned among all replicas: replica
+  280  Rid owns every instance i where (i mod N) = Rid. The
+
+  281  drawback of this approach is that every replica must hear
+
+  282  from all other replicas before committing a command A,
+
+  283  because otherwise another command B that depends on
+
+  284  A may be committed in an instance ordered before the
+
+  285  current instance (the other replicas reply either that they
+
+  286  are also committing commands for their instances, or that
+
+  287  they are skipping their turn). This has two consequences:
+
+  288  (1) the replicated state machine runs at the speed of the
+
+  289  slowest replica, and (2) Mencius can exhibit worse avail-
+
+  290  ability than Multi-Paxos, because if any replica fails to
+
+  291  respond, no other replica can make progress until a fail-
+
+  292  ure is suspected and another replica commits no-ops on
+
+  293  behalf of the possibly failed replica.
+
+  294  Fast Paxos [18] reduces the number of message delays
+=== PAGE 4 ===
+
+  295  until commands are committed by having clients send
+
+  296  commands directly to all replicas. However, some repli-
+
+  297  cas must still act as coordinator and learner nodes, and
+
+  298  handle Θ(N) messages for every command. Like Multi-
+
+  299  Paxos, Fast Paxos relies on a stable leader to start voting
+
+  300  rounds and arbitrate conflicts (i.e., situations when accep-
+
+  301  tors order client commands differently, as a consequence
+
+  302  of receiving those commands in different orders).
+
+  303  Generalized Paxos [17] commits commands faster by
+
+  304  committing them out of order when they do not inter-
+
+  305  fere. Replicas learn commands after just two message
+
+  306  delays—which is optimal—as long as they do not in-
+
+  307  terfere. Generalized Paxos requires a stable leader to
+
+  308  order commands that interfere, and learners handle Θ(N)
+  309  messages for every command.1 Furthermore, messages
+
+  310  become larger as new commands are proposed, so the
+
+  311  leader must frequently stop the voting process until it
+
+  312  can commit a checkpoint. Multicoordinated Paxos [5] ex-
+
+  313  tends Generalized Paxos by using multiple coordinators
+
+  314  to increase availability when commands do not conflict,
+
+  315  at the expense of using more messages for each com-
+
+  316  mand: each client sends its commands to a quorum of
+
+  317  coordinators instead of just one. It too relies on a stable
+
+  318  leader to ensure consistent ordering if interfering client
+
+  319  commands arrive at coordinators in different orders.
+
+  320  In the wide-area, EPaxos has three important advan-
+
+  321  tages over Generalized Paxos: (1) First and foremost, the
+
+  322  EPaxos fast-path quorum size is smaller than the fast-
+
+  323  path quorum size for Generalized Paxos by exactly one
+
+  324  replica, for any total number of replicas—this reduces
+
+  325  latency and the overall number of messages exchanged,
+
+  326  because a replica must contact fewer of its closest peers
+
+  327  to commit a command. (2) Resolving a conflict (two
+
+  328  interfering commands arriving at different acceptors in
+
+  329  different orders) requires only one additional round trip
+
+  330  in EPaxos, but will take at least two additional round
+
+  331  trips in Generalized Paxos. (3) For three-site replication,
+
+  332  EPaxos can commit commands after one round trip to the
+
+  333  replica closest to the proposer's site even if all commands
+
+  334  conflict. We present the empirical results of this compar-
+
+  335  ison in Section 7.2. These advantages make EPaxos a
+
+  336  good fit for MDCC [14], which uses Generalized Paxos
+
+  337  for wide-area commits.
+
+  338  An important distinction between the fast path in
+
+  339  EPaxos and that of Fast and Generalized Paxos is that
+
+  340  EPaxos incurs three message delays to commit, whereas
+
+  341  Fast and Generalized Paxos require only two. However,
+
+  342  in the wide area, the first message delay in EPaxos is
+
+  343  usually negligibly short because the client and its closest
+
+  344  replica are co-located within the same datacenter. This
+
+  345  1 Based on our experience with EPaxos, we believe it may be possible to modify Generalized Paxos to rotate learners between commands,
+  346  in the same ballot, to balance load if there are no conflicts. Even so,
+  347  Generalized Paxos would still depend on the leader for availability.
+
+  348  distinction allows EPaxos to have smaller fast-path quo-
+
+  349  rums and has the added benefit of not requiring clients to
+
+  350  broadcast their proposals to a supermajority of nodes.
+
+  351  In S-Paxos [3], the client-server communication load
+
+  352  is shared by all replicas, which batch commands and
+
+  353  send them to the leader. The stable leader still handles
+
+  354  ordering, so S-Paxos suffers Multi-Paxos's problems in
+
+  355  wide-area replication and with slow or faulty leaders.
+
+  356  Consistently ordering broadcast messages is equiva-
+
+  357  lent to state machine replication. EPaxos has similarities
+
+  358  to generic broadcast algorithms [1, 26, 29], that require
+
+  359  a consistent message delivery order only for conflicting
+
+  360  messages. Thrifty generic broadcast [1] has the same
+  361  liveness condition as (E)Paxos, but requires Θ(N2) mes-
+
+  362  sages for every broadcast message. It relies on atomic
+
+  363  broadcast [27] to deliver conflicting messages, which has
+
+  364  a latency of four message delays. GB, GB+ [26], and op-
+
+  365  timistic generic broadcast [29] handle fewer machine fail-
+
+  366  ures than (E)Paxos, requiring that more than two thirds
+
+  367  of the nodes remain live. They also handle conflicts less
+
+  368  efficiently: GB and GB+ may see conflicts even if mes-
+
+  369  sages arrive in the same order at every replica and they
+
+  370  use Consensus [6] to solve conflicts; optimistic generic
+
+  371  broadcast uses both atomic broadcast and one Consen-
+
+  372  sus instance for every pair of conflicting messages. In
+
+  373  contrast, EPaxos requires only at most two additional
+
+  374  one-way message delays to commit commands that in-
+
+  375  terfere; the communication is performed in parallel for
+
+  376  all interfering commands; and EPaxos does not need a
+
+  377  stable leader to decide the ordering.
+
+  378  Eve [13] takes the orthogonal approach of parallelizing
+
+  379  command execution on multi-core systems.
+
+  380  4 Design
+
+  381  In this section we describe Egalitarian Paxos in detail,
+
+  382  state its properties and sketch informal proofs of those
+
+  383  properties. Formal proofs and a TLA+ specification of the
+
+  384  protocol can be found in a technical report accompanying
+
+  385  this paper [25]. We begin by stating assumptions and
+
+  386  definitions, and by introducing our notation.
+
+  387  4.1 Preliminaries
+
+  388  Messages exchanged by processes (clients and replicas)
+
+  389  are asynchronous. Failures are non-Byzantine (a ma-
+
+  390  chine can fail by stopping to respond for an indefinite
+
+  391  amount of time). The replicated state machine comprises
+
+  392  N = 2F +1 replicas, where F is the maximum number
+
+  393  of tolerated failures. For every replica R there is an un-
+
+  394  bounded sequence of numbered instances R.1, R.2, R.3, ...
+
+  395  that replica R is said to own. The complete state of each
+
+  396  replica comprises all the instances owned by every replica
+
+  397  in the system (i.e., for N replicas, the state of each replica
+
+  398  can be regarded as a two-dimensional array with N rows
+
+  399  and an unbounded number of columns). At most one
+=== PAGE 5 ===
+
+  400  command will be chosen in an instance. The ordering
+
+  401  of the instances is not pre-determined—it is determined
+
+  402  dynamically by the protocol, as commands are chosen.
+
+  403  It is important to understand that committing and exe-
+
+  404  cuting commands are different actions, and that the com-
+
+  405  mit and execution orders are not necessarily the same.
+
+  406  To modify the replicated state, a client sends Re-
+
+  407  quest(command) to a replica of its choice. A RequestRe-
+
+  408  ply from that replica will notify the client that the com-
+
+  409  mand has been committed. However, the client has no
+
+  410  information about whether the command has been exe-
+
+  411  cuted or not. Only when the client reads the replicated
+
+  412  state updated by its previously committed commands is
+
+  413  it necessary for the system to execute those commands.
+
+  414  To read (part of) the state, clients send Read(objectIDs)
+
+  415  messages and wait for ReadReplies. Read is a no-op com-
+
+  416  mand that interferes with updates to the objects it is read-
+
+  417  ing. Clients can also use RequestAndRead(γ, objectIDs)
+
+  418  to propose command γ and atomically read the machine
+
+  419  state immediately after γ is executed—Read(objectIDs)
+
+  420  is equivalent to RequestAndRead(no-op, objectIDs).
+
+  421  Before describing EPaxos in detail, we must define
+
+  422  command interference: Two commands γ and δ inter-
+
+  423  fere if there exists a sequence of commands Σ such that
+
+  424  the serial execution Σ, γ, δ is not equivalent to Σ, δ, γ
+
+  425  (i.e., they result in different machine states and/or differ-
+
+  426  ent values returned by the reads within these sequences).
+
+  427  4.2 Protocol Guarantees
+
+  428  The formal guarantees that EPaxos offers clients are sim-
+
+  429  ilar to those provided by other Paxos variants:
+
+  430  Nontriviality: Any command committed by any
+
+  431  replica must have been proposed by a client.
+
+  432  Stability: For any replica, the set of committed com-
+
+  433  mands at any time is a subset of the committed commands
+  434  at any later time. Furthermore, if at time t1 a replica R
+
+  435  has command γ committed at some instance Q.i, then R
+  436  will have γ committed in Q.i at any later time t2 > t1.
+
+  437  Consistency: Two replicas can never have different
+
+  438  commands committed for the same instance.
+
+  439  Execution consistency: If two interfering commands
+
+  440  γ and δ are successfully committed (by any replicas) they
+
+  441  will be executed in the same order by every replica.
+
+  442  Execution linearizability: If two interfering com-
+
+  443  mands γ and δ are serialized by clients (i.e., δ is pro-
+
+  444  posed only after γ is committed by any replica), then
+
+  445  every replica will execute γ before δ.
+
+  446  Liveness (w/ high probability): Commands will even-
+
+  447  tually be committed by every non-faulty replica, as long
+
+  448  as fewer than half the replicas are faulty and messages
+  449  eventually go through before recipients time out.2
+
+  450  2 Paxos provides the same liveness guarantees. By FLP [9], it is
+  451  impossible to provide stronger guarantees for distributed consensus.
+
+  452  4.3 The Basic Protocol
+
+  453  For clarity, we first describe the basic Egalitarian Paxos,
+
+  454  and improve on it in the next section. This basic EPaxos
+
+  455  uses a simplified procedure to recover from failures, and
+  456  as a consequence, its fast-path quorum3 is 2F (out of
+
+  457  the total of N = 2F + 1 replicas). The fully optimized
+  458  EPaxos reduces this quorum to only F + F +1 replicas.
+  459  The slow-path quorum size is always F + 1. 2
+
+  460  4.3.1 The Commit Protocol
+
+  461  As mentioned earlier, committing and executing com-
+
+  462  mands are separate. Accordingly, EPaxos comprises (1)
+
+  463  the protocol for choosing (committing) commands and
+
+  464  determining their ordering attributes; and (2) the algo-
+
+  465  rithm for executing commands based on these attributes.
+
+  466  Figure 2 shows the pseudocode of the basic protocol
+
+  467  for choosing commands. Each replica's state is repre-
+
+  468  sented by its private cmds log that records all commands
+
+  469  seen (but not necessarily committed) by the replica.
+
+  470  We split the description of the commit protocol into
+
+  471  multiple phases. Not all phases are executed for every
+
+  472  command: a command committed after Phase 1 and Com-
+
+  473  mit was committed on the fast path. The slow path in-
+
+  474  volves the additional Phase 2 (the Paxos-Accept phase).
+
+  475  Explicit Prepare (Figure 3) is run only on failure recovery.
+
+  476  Phase 1 starts when a replica L receives a request for a
+
+  477  command γ from a client and becomes a command leader.
+
+  478  L begins the process of choosing γ in the next available
+
+  479  instance of its instance sub-space. It also attaches what it
+
+  480  believes are the correct attributes for that command:
+
+  481  deps is the list of all instances that contain commands
+
+  482  (not necessarily committed) that interfere with γ;
+
+  483  we say that γ depends on those instances and their
+
+  484  corresponding commands;
+
+  485  seq is a sequence number used to break dependency cy-
+
+  486  cles during the execution algorithm; seq is updated
+
+  487  to be larger than the seq of all interfering commands
+
+  488  in deps.
+
+  489  The command leader forwards the command and the
+
+  490  initial attributes to at least a fast-path quorum of replicas
+
+  491  as a PreAccept message. Each replica, upon receiving the
+
+  492  PreAccept, updates γ's deps and seq attributes according
+
+  493  to the contents of its cmds log, records γ and the new
+
+  494  attributes in the log, and replies to the command leader.
+
+  495  If the command leader receives replies from enough
+
+  496  replicas to constitute a fast-path quorum, and all the up-
+
+  497  dated attributes are the same, it commits the command.
+
+  498  If it does not receive enough replies, or the attributes in
+
+  499  some replies have been updated differently than in others,
+
+  500  then the command leader updates the attributes based
+  501  3 We use quorum to denote both a set of replicas with a particular
+  502  cardinality, and the cardinality of that set.
+=== PAGE 6 ===
+
+  503  Phase 1 Multi-Paxos
+  504  Phase 1: Establish ordering constraintsPhase 1 Paxos-AcceptPhase 2: Paxos-Accept
+  505  Replica L on receiving Request( ) from a client
+  506  Replica L on receivingbecomes the designated leader for command (stepsPhase 1Request( ) from a clientPhase 1 Paxos-AcceptMulti-Paxos
+  507  becomes the designated leader for command (steps Command leader L, for ( ,seq ,deps ) at instance
+  508  Replica L on receivingReplica2, 3 and 4 executed atomically):L on receivingRequest( ) from a clientRequest( ) from a clientCommand leaderL.i: L, for ( ,seq ,deps ) at instance
+  509  2, 3 and 4 executed atomically):becomes the designated leader for command (steps1: increment instance numberPhase 1 i i + 1 L i: Command leaderPaxos-AcceptL, for ( seq deps ) at instance
+  510  becomes the designated leader for command (stepsPhase 1 LL Command leader. 16: cmdsL, forL[L][( i,]seq(,deps,Multi-Paxosseq ,,)depsat instance, ,accepted)
+  511  2, 3 and 4 executed atomically):1: increment instance number2, 3 and 4 executed atomically):2: seq 1+ max (iL {cmdsiL +L1[Q][ j].seq | 9 instancecmdsQ. j [LL][ii]: send( Acceptseq deps( seqaccepteddeps )L i) to at least N 2
+  512  Replica{InterfL on receivingReplicais the set of instances QL on receivingRequest( ) from a clientRequestj such that the( ) from a clientL16:.i: L 17:. , , , , , , . b / c
+  513  increment instance numberL, 1: increment instance numbers.t. cmdsL[Q][ ji].cmdi. ⇠ } [ {+ 1 iL 0}i)L + 1 17: send Accept(cmdsother replicas,seq[L,deps][i] ,(L.i) to at leastseq deps bNaccepted/2c )
+  514  becomes the designated leader for command (steps1: command recorded in cmdsbecomes the designated leader for command (stepsseqdeps 1+ (max (Q jL[)Q][cmdsjinstanceL] interferes w/[Q][jQ] seqj s.t. } instanceCommand leader16: cmdsQ j [L][16:Command leaderi] L(, for,Lseq( ,depsseq Ldeps, for,, accepted(,) at instanceseq) ,deps ) at instance
+
+  515  2, 3 and 4 executed atomically):{Interf is the set of instances Q2:3: { ,L {| 9Phase 1.j such that theL .. | 9 other replicas. L 17: send Accept, ( ,seq,Multi-Paxos,deps, ,L.,i) to at least bN/2c
+  516  2: seq L, 2, 3 and 4 executed atomically):1+ max (s.t. cmdscmds{cmds[Q][[Qj][][.Qcmd][j].jcmd].⇠ }seq⇠ } [ {| 0}) L17:.i: send AcceptAny replicaL.i:( ,seq , depsR, on receiving,L.i) to at least bN/2c
+  517  command recorded in cmdsReplica LLon receivingLL [Q][Phase 1Requestj]+interferes w/( ) from a client} Any replica R, on receivingother replicas Multi-Paxos
+  518  1: increment instance numberQ.j 2 Interf1:3:4: Lincrement instance numberdepscmds, } [ {L[0{L}][) i(LQ] ,iLjL)(| 9,seqiinstanceL 1,depsiLQ.,jpre-acceptedis.t.L + 1 16: cmdsother replicas) [L][Accepti] log(( ,[,seqLseq][i],,depsdeps( seq,,acceptedL.i):deps) accepted)
+  519  2: {Interfseqdeps Replicabecomes the designated leader for command (steps1is the set of instances Q+Interfmax (seq L{cmdson receiving1+Lmax ([Q][ j].logseqRequestj such that the[|Q][( )j] seqfrom a clientAccept( L,seqAny replica16:, depsL,L.iR):, on receiving, , ,
+  520  3: Q j LInterf, 2:5: cmdssendL, PreAcceptL[0Q][) j].cmd( {⇠ },seq. L ,deps. ,L.|iL) to all otherAny replica17: send AcceptCommand leaderR18:17:, on receiving(cmdssend,seqRAccept[,Ldeps][i] ( ,LL,(, forseq.i) to at least,seq(,deps,,seqdeps,,Ldepsb.N,iaccepted) to at least/2c) at instance) bN/2c
+
+  521  4: command recorded in cmdscmds. 2 [Lbecomes the designated leader for command (steps2, 3 and 4 executed atomically):][i L]logcmds,replicas in} [ {([Q,[][seqL}][j]i.cmd,]deps, where[⇠ } [ {Q( ][,pre-acceptedseqj] interferes w/is a fast quorum that0deps}) pre-accepted) } cmds) [LCommand leaderLAccept][ii:] reply(( ,AcceptOKseqseq ,depsdepsL, for(, LacceptedL.(i)i:) toseqL) deps ) at instance
+  522  3: deps L 2, 3 and 4 executed atomically):4:InterfLLLLFL , F , , Accept18: other replicas( ,Rseq19:. ,depsother replicas,,L.i):, , , . , ,
+  523  2:5: seqsend PreAccept1+1:3:5:max (increment instance numberdepssendincludesL(,{PreAcceptcmds,seq{LL(,[QdepsQ,][j)(j]|.,,logseqLseq.iL|[) to all otherQ,deps][ijL].cmd, Li.Li+⇠ }) to all other1 19: reply AcceptOKL18:.i: cmdscmds( [,[LLL][.][i) toii]] L(( ,seqseq ,depsdeps ,acceptedaccepted))
+  524  4: Qcmdsreplicas inj LInterf[L][iL]increment instance numberseq, where( ,0seq1+) max (is a fast quorum that,depscmds,pre-acceptedL [Q][i j] seqi )L+ 1 instanceAny replica18: cmdsQ j R[L16:R][Command leaderAny replica, on receivingi] ( LR,seqR,, on receivingdepsL, on receiving at least,,accepted, ) , bN/2c
+  525  send. 2PreAcceptAny replica2:1:4:FLlogreplicas in, } [ {L([L][seq}iFLR], on receivingFdeps, where( {,seqL Fi ,) to all otherLdepsis a fast quorum thatL ,pre-accepted. L | 9 Command leader) . 16:17:19: sendcmdsreplyL, on receiving at leastAcceptAcceptOK[L][i] ( ,(seq(,seq,L,deps.i) to,depsL,LN.i,) to at leastaccepted2 ) bN/2c
+  526  3:5: depsincludes L2:Interfs.t. cmdsseqsendincludesPreAccept, 1+L[Qmax (, ][ j].(cmd{cmds,seq.⇠ } [ {L [depsQ][j]0.seq}L) i| 9) to everyinstanceAccept19: replyQ(.j,seqAcceptOKAcceptOKAccept,deps((L,,L,'s:seqL.i.)i:) to,depsL ,L.i): b / c
+  527  replicas inPreAccept5:F , whereL, ( LF,seqis a fast quorum that,deps, ,LL,.i) (steps 6, 7 and 8, . L AcceptOK's:17:Command leaderother replicassend Accept ( ,Lseq, on receiving at least,deps ,L.i) to at leastNbN2 /2c
+  528  Any replica4: cmdsL[L][3:i, on receivingL]depss.t. cmdsreplica in( ,{seqL[F \ {Q(Q,][deps, jj])L.cmd| 9}, where, pre-acceptedinstance⇠ } [ {F is a fast quorum thatQ0.}j)s.t.) Command leader18: cmdsR[L][20:18:i] other replicasrun Commit phase for (logL( , on receiving at least,[seqL][i], deps( ,,seqaccepted,deps,seqb)N,/accepted),2depsc ) atb L/.ic
+  529  sendincludesPreAcceptAny replicaRexecuted atomically):L deps( seqR, on receiving(Qdepsj) Linstancei ) to all otherQ j s.t. 20: run Commit phase for (Any replicaAcceptOKR 's:R, on receiving,seq ,deps ) at L.i
+  530  PreAccept5: ( PreAccept3:seqcmdsincludesdepsL,[{(Q][LLseqj,]i.)cmd,(steps 6, 7 and 8deps| 9⇠ }, . LL i) (steps 6, 7 and 8. 19:AcceptOKreply AcceptOK's: 19: reply( ,AcceptOKL.i) to L ( ,L.i) to L
+  531  Any replicareplicas in,R6:, on receivingFcmdscmds, whereupdate, [[QLseq][F][,,ijis a fast quorum that.]] cmd, max(( ⇠ }seq{,seq. deps} [ {1pre-accepted+ cmdsR[Q][)j].seq Any replicaAccept20: run Commit phase for (( ,seqR, on receiving, deps ,L.Commiti): ,seq ,deps ) at L.i
+  532  executed atomically):Any replicaexecuted atomically):4: instanceLLR, on receivingL .Q j s.t. cmds, , [Q][,j] cmd Command leader20:) run Commit phase for (L, on receiving at leastCommit, seq ,deps ) atbNL/.2ic
+  533  PreAcceptincludes( L,5:4:seqcmdssend| 9, depsPreAccept[L][,iL.]i) .(steps 6, 7 and 8(( ,,seqseq ,,depsdepsR ,,Lpre-accepted..i ) to all other⇠ } ) Accept18:Command leadercmds( ,seq[L][i,]deps(L, on receiving at least,,Lseq.i):,deps ,accepted)bN/2c
+  534  6: update seqPreAccept6:7: updateupdatemax(L (seqdeps{,seqseqL } [ {,depsmax(deps1+{,cmdsseqL[ {.i) } [ {(steps 6, 7 and 8(Q[Q, j][1) +| 9j]Lcmds.seqinstance[AcceptOKQ][Qj]..jseqs.t.'s:Command leaderAcceptOKR 's: L, forCommit( ,seq ,deps ) at instance
+  535  Any replicaexecuted atomically):R5:, on receivingreplicas insend PreAcceptF , where( , seqF is a fast quorum that,depsR , L.iL) to all otherR Command leader18:19: replycmdsL, forRAcceptOK[LCommit][( i] seq( ( ,depsseq,L.i) to,)depsat instanceL , accepted)
+  536  | Q.j 2 Interfexecuted atomically):includesreplicas in| 9cmdsR instance}) [QL][ j]Q, where.cmd. j s.t. cmds⇠ }is a fast quorum that[Q][j].cmd ⇠ }20:) run Commit phase for (L.i:replyrun Commit phase for (AcceptOK, ,seq(,,depsL i) to) atLseqL.i deps ) at L i
+  537  PreAccept6: updateupdate( seqdeps,seq ,,depsmax(depsR {,seqLF.i)Interf(steps 6, 7 and 8} [ {1+FcmdsRR[Q][ j].seq L.i: Command leader19:Command leader20: LL, on receiving at least, for, .( seq, deps, ) at instanceN 2.
+  538  7: Q j Interf6:7:8: includesupdateupdatecmds)R[seqdepsLL][i[] max(( deps,Rseq, {seq,[ {deps(} [ {Q, j,)pre-accepted1| 9+ loginstance[QCommand leader][ jQ]).seq.j s.t.| 21: cmdsL, forL[L][( i,]seq(,deps,seq ,,)depsat instance, ,committedb /) c
+  539  executed atomically):8: |cmds. 2[LAny replica][i] logcmdsreplyR, (}[Q,PreAcceptOKseq[][QRj][, on receiving],cmdjdeps] cmd,pre-accepted( seq deps) LRi) to21:L cmds [LCommand leaderAcceptOKL][.ii]: send commit notification for to client( ,'s:seqCommit,depsL, on receiving at least,committed) bN/2c
+
+  540  7: updateR depsAny replica9: RdepsR , on receiving.[.Interf⇠ }⇠ }, , , . L.i: L 22: Commit
+  541  6:9: updatereply PreAcceptOKseqPreAccept8: updatecmdsmax(([deps(L{R,][seqseq,iseq] } [ {,deps,(depsdeps,R1seq,+,cmdsL,.L,[ {ideps).i(steps 6, 7 and 8) to(RQ[QL,][jpre-accepted)j|].seq 22: )send commit notification for to clientAcceptOK21:23: run Commit phase for (cmdssend Commit's:[L][i] ( (,seq,seq,deps,depsseq,L,.depsicommitted) to all other) at L )i
+  542  8: cmds [LPreAcceptexecuted atomically):][Replica7:i] ( L,R(seq(command leader for ), on receiving atseq,depsdeps,pre-acceptedL i) (steps 6, 7 and 8, ) Command leader21: cmds [L20:][i] L(, for,Lseq( ,,depsseq ,deps, committed),at instance,) .
+  543  | Q. j 2R Interf9: logreplyR, }[)QPreAcceptOK][,j].cmd, ⇠ }(, ,.seq ,deps ,L.i) to23:L send CommitL 20:Command leader22: run Commit phase for (send commit notification for to clientreplicas( ,seq ,deps ,LL, for.i) to all other( ,,seqseq ,,depsdeps ) at) at instanceL.i
+  544  Replica9: updatereplyLPreAcceptOK(command leader for ), on receiving atdepsexecuted atomically):leastupdatebNRdeps/2cseq( PreAcceptOK,seqInterfmax(,deps seq,Lresponses:.i) to L1+ cmds [LQ22:.][i:jsend commit notification for to client]replicasseq
+
+  545  least7: N 2 PreAcceptOK6:8: logR[L][i] [responses:( ,seqR, {,deps} [ {,pre-acceptedR ) send. CommitAny replicaL23:.i send( seqCommitCommitRdeps, on receiving( ,seqL iCommit) to all other,deps ,L.i) to all other
+  546  Replica8: cmdsb /L [(command leader for ), on receiving atcL][Replica10:6:i] update| 9if received(instanceL,seq(command leader for ), on receiving atseq, PreAcceptOKdepsQ.jmax(s.t. cmds,pre-accepted{seq 's from all replicas in[} [ {Q][ 1j]).+cmdcmds⇠ }[Q21:23:)][ jcmds].seq [L][i] replicas(, ,seq, ,deps, ,.committedCommit )
+  547  if receivedR least9:PreAcceptOKreplyN 2PreAcceptOKPreAcceptOK's from all replicas in( ,seqresponses:R ,deps ,L.i) toR Any replicaL replicasL CommitR21:, on receivinglog(L[L, ][seqi] ,deps( ,seq, L.i,)deps: ,committed)
+  548  least10:9: replybN/PreAcceptOK2c PreAcceptOK7: update| 9F \ {binstance/Lcdeps}( , with,seqresponses:Q. jseq,depss.t. cmdsdepsand,L[ {.depsRi) to[(QQ][,Ljj)the same in all].| 9cmdinstance⇠ }22:) Qsend commit notification for to client. j s.t. Command leadersend commit notification for to clientL, for ( ,seq ,deps ) at instance
+  549  F \ {L},ReplicawithifrepliesseqreceivedL (command leader for ), on receiving atand(for some fast quorumPreAcceptOKdeps the same in all's from all replicas in) then Commit( ,seqCommand leaderLAny replica24:22:i:,depscmds ,[LL.R][i), on receiving:i] L(, for,seq( ,seqdepsdeps,committed) at instance)
+  550  Replica10: if receivedL (command leader for ), on receiving at10:7: PreAcceptOKcmdsupdateR[depsQ][ j].'s from all replicas incmddeps⇠ }[ {(Q, jF) | 9 instanceAny replica23:Qsend. j s.t.CommitR.23:, on receiving(send,seqRCommit,deps( ,L, seq.i) to all other,deps, ,,L.i) to all other
+  551  replies (for some fast quorumleast11: cmdscmdsF \ {bNrun Commit phase for (/2L[[c}QL,][PreAcceptOK][withi]j] cmdseq( Fseqand) thenresponses:depsdeps,seqpre-acceptedthe same in all,deps ) atCommit24:L).replicascmdsi ( R[seqLLCommit][.ii:] cmdsdeps(( ,,[seqLseqL][ii)],:,depsdeps( ,seq,committedL.i):deps )committed)
+  552  leastF \ {bN 2Lc},PreAcceptOKwith8: seqRR andresponses:deps. ,⇠ }the same in all, , then , 21: , replicasL , . , , ,
+  553  11: run Commit phase for (/ 10:12:9:8: cmdsreplyifreplieselsereceivedPreAcceptOK[L(for some fast quorum][i]PreAcceptOK,(seq, seq(,deps,seq,deps's from all replicas in,) atdeps,Fpre-acceptedL).ithen,L.i) to L ) cmds [L21:22:][24:i]cmdssend commit notification for to clientcmds( R[seq[LL][][ii]]deps(( ,,seqseqcommitted,,depsdeps ,),committedcommitted))
+  554  10: ifreplieselsereceived(for some fast quorumPreAcceptOKR 's from all replicas inF ) then Any replica24: RRAny replica, on receivingL, R,, on receiving,
+  555  12: run Commit phase for (11:13:9: replyF \ {run Commit phase for (updatePreAcceptOKL}, withdepsseqseq(Union(anddeps,seqdepsdeps,,) atseqdepsthe same in allL ,ifrom all replies)deps, L.i) to) atFastCommitL L.i ( seq22:23: sendsend commit notification for to clientdepsCommitL i): ( ,seq ,deps , L.i) to all other
+  556  11:13: F \ {updateL},ReplicawithdepselsesequpdateL (command leader for ), on receiving atandUnion(seqdepsdeps, the same in allmax(,from all replies)seq of all replies. ) , Commit, ( ,,seq. ,deps ,L.i):
+
+  557  12: else Replicaleast12:14: repliesL (command leader for ), on receiving at(for some fast quorumresponses:{ F) then } cmds [L23:][i] replicassend( Commitseq deps( ,seqcommitted, deps ,L).i) to all other
+  558  14: repliesupdate(for some fast quorum13:15:seqbNrun Commit phase for (updaterun Multi-Paxos phase for (/2max(c PreAcceptOKdeps{seq of all repliesF )Union(then depsseq}),seqfrom all replies)deps, depsPath) at24:) atL i L.iR 24:replicaslog ,[L][i], ( ,,seq ,deps ,committed)
+  559  13: run Commit phase for (updateleast11:depsifbreceivedN/2cUnion(PreAcceptOKPreAcceptOKdepsseq from all replies)depsresponses:'s from all replicas in) at, L i, . Any replicaRR, on receiving
+  560  11:15: run Paxos-Accept phase for (update10:12:14:seqelseupdatemax(seqseqFigure 4: The basic Egalitarian Paxos protocol for choosing commands., of all repliesmax(,,seq{seq,depsof all replies) ) at. L.i }) Any replica , on receiving
+
+  561  12:14: else 10: ifF \ {receivedrun Multi-Paxos phase for (L}, with{PreAcceptOKseq and deps's from all replicas in}the same in allseq deps ) at L i Commit( ,seqR ,deps ,L.i):
+  562  15: run Paxos-Accept phase for (13:15: Figure 2: The basic Egalitarian Paxos protocol for choosing commands.update deps Union(,seq ,depsdeps,) atfrom all replies)L,.i else . Commit( seq deps L i):
+  563  13: update depsrepliesF \ {L}Union((for some fast quorum, with depsseq andfrom all replies)deps Fthe same in all) then 24: cmdsR,[L][i], ( ,,seq. ,deps ,committed)
+  564  update14:seqrepliesFigure 2: The basic Egalitarian Paxos protocol for choosing commands.updatemax(EPaxos 100%seqseqFigure 4: The basic Egalitarian Paxos protocol for choosing commands.of all repliesmax({seq of all replies) then Slow}) EPaxos 0%cmds [L][i] ( , seq ,deps , committed)
+  565  14: 11:500 run Commit phase for (run Multi-Paxos phase for (Mencius balanced(for some fast quorum{ , seq}F),seqdepsdeps) at L) at.i500L i EPaxos 100%24: R 99%ilelatency
+  566  replica can be regarded as a two-dimensional array withrun Paxos-Accept phase for (15: elseMencius imbalancedrun Commit phase for (seq depsseq ,) atdepsL,i ) atPathmessages and wait forL i . Mencius worstMencius best ReadReplies. Read is a no-op com-
+  567  15: 11:12: Multi-Paxos , , , , . . EPaxos 0%Multi-Paxos
+  568  N rows and an unbounded number of columns). At most13:12:400elseupdateGen. Paxos 100%Gen. Paxos 0%EPaxos 100%depsFigure 4: The basic Egalitarian Paxos protocol for choosing commands.Union(deps from all replies)mand that400 Gen. Paxos 0%interferesEPaxos 100% with updates to the objects it is read-99%ile
+  569  replica can be regarded as a two-dimensional array with500 Figure 2: The basic Egalitarian Paxos protocol for choosing commands.Mencius imbalancedMencius balanced messages and wait for500 Gen. Paxos 100%Mencius best ReadReplieslatency. Read is a no-op comone command will be chosen in an instance. The ordering14:13:300 updateupdateMulti-Paxosdepsseq max(Union({seqdepsof all repliesfrom all replies)}ing. Clients can also use) 300 Mencius worst RequestAndRead( , objectIDs)
+  570  Nof the instancesrows and an unbounded number of columns). At most400is not pre-determined99%ilelatencyupdaterun Multi-Paxos phase for (Figure 2: The basic Egalitarian Paxos protocol for choosing commands.Gen. Paxos 0%seq max(—it is determinedseq of all repliesseq depsmand thatto propose command and atomically read the machine)) at400L i Gen. Paxos 0%interferesMulti-PaxosEPaxos 0%with updates to the objects it is readone command will be chosen in an instance. The ordering14:15:200 Mencius balancedGen. Paxos 100%EPaxos 100% { , , }ing. Clients can also use200500. Gen. Paxos 100%EPaxos 100% RequestAndRead( , objectIDs)99%ile
+  571  replica can be regarded as a two-dimensional array withdynamically by the protocol, as commands are chosen.15:500300 Mencius imbalancedrun Multi-Paxos phase for ( ,seq ,depsmessages and wait forstate immediately after is executed—) at300L.i Mencius best ReadReplieslatency. ReadRead(objectIDs)is a no-op comof the instances is not pre-determined99%ile Multi-PaxosFigure 4: The basic Egalitarian Paxos protocol for choosing commands.—it is determined to propose command and atomically read the machine100 Mencius worstMulti-Paxos
+  572  N rows and an unbounded number of columns). At mostIt is important to understand that400100 latencyGen. Paxos 0%Figure 4: The basic Egalitarian Paxos protocol for choosing commands.+committing+ and exe- mand thatis equivalent to400 interferesGen. Paxos 0%RequestAndRead(no-op, objectIDs)with updates to the objects it is read-.
+  573  upon a simple majority (one command will be chosen in an instance. The orderingdynamically by the protocol, as commands are chosen.Latency (median / 99%) [ms] 200 Gen. Paxos 100%bN/2c 1 = F 1) of replies (tak-ing. Clients can also usestate immediately after is executed—200 ID. Furthermore, a newer configuration of the replicaGen. Paxos 100% RequestAndRead( , objectIDs)Read(objectIDs)
+  574  cuting commands are different actions, and that the com-3000 is equivalent toBefore describing Egalitarian Paxos in detail, we must3000 EPaxos 0%RequestAndRead(no-op, objectIDs).
+  575  ing the union of allof the instancesmit and execution orders are not necessarily the same.It is important to understand that100is not pre-determined99%iledepsEPaxos 100%, and the highestCA committing—it is determinedVA seqand), and tells atexe-EU to propose command and atomically read the machinedefine500100 command interferenceset must have strict precedence over an older one, soEPaxos 100%VACA : Two commands and99%ile ORJPEU
+
+  576  cuting commands are different actions, and that the com-500 Mencius imbalancedlatencyMencius balancedEPaxos 100%85ms 90ms Before describing Egalitarian Paxos in detail, we mustMencius bestEPaxos 0% 21mslatency 127ms 278ms
+  577  least a majority of replicas to accept these attributes. Thisdynamically by the protocol, as commands are chosen.To modify the replicated state, a client sendsLatency (median / 99%) [ms] 200 Mencius balancedMulti-Paxos 156ms Re- state immediately after is executed—interfere5002000 we also prepend anMencius worstEPaxos 100%if there exists a sequence of commandsepoch99%ile118msnumber (epochs are explainedRead(objectIDs)⌃
+  578  mit and execution orders are not necessarily the same.Figure 5: Median commit latency (99%ile indicated by lines atop the bars) at each of 3 (left graph) and 5 (right5004000 Mencius imbalancedGen. Paxos 0%CAVAEU define400 command interferenceGen. Paxos 0%Mencius worstMencius bestMulti-PaxosVACA : Two commands andlatency ORJPEU
+  579  can be seen as running classic Paxos to choose the tripletquest(command)It is important to understand thatgraph) wide-area replicas. The Multi- and Generalized Paxos leader is in CA. In100to a replica of its choice. AGen. Paxos 100%Multi-Paxos85mscommitting90msRequestRe-and exe- is equivalent tosuch that the serial execution100 in Section 4.7). The resulting ballot number format isGen. Paxos 100%Multi-PaxosRequestAndRead(no-op, objectIDs)21ms⌃, , is not equivalentMencius imbalanced127ms . 278ms , EU
+
+  580  cutingTo modify the replicated state, a client sendscommands are different actions, and that the com-400 Gen. Paxos 100%Gen. Paxos 0% 156ms Re- interfereBefore describing Egalitarian Paxos in detail, we must400300 Gen. Paxos 0%if there exists a sequence of commands118ms ⌃
+  581  (plyγ,depsfrom that replica will notify the client that the com-,seqFigure 5: Median commit latency (99%ile indicated by lines atop the bars) at each of 3 (left graph) and 5 (rightgenerates commands at half the rate of the other sites (no other protocol is affected by imbalance). InLatency (median / 99%) [ms] 300) in 99%ileγ's instance. At the end of this extrato ⌃, ,Gen. Paxos 100%epoch(i.e., they result in different machine states.b.R, where a replica R increments only the naturalMencius
+  582  mit and execution orders are not necessarily the same.quest(command)mand has been committed. However, the client has noγ γ3000to a replica of its choice. Alatency RequestRe- definesuch that the serial executionand/or different values returned by the reads within these3000command interferenceVACA : Two commands and⌃, , ORis not equivalentJPEU
+  583  round, after replies from a majority (including itself), theply from that replica will notify the client that the com-graph) wide-area replicas. The Multi- and Generalized Paxos leader is in CA. Inworst200 , only one site generates commands at a given time. The bottom of the graph shows inter-site RTTs.99%ile CA 85ms VA 90ms EU to 200 number(i.e., they result in different machine statesb when trying to initiate a new ballot in Explicit21ms Mencius imbalanced127ms 278ms , EU
+  584  information about whether the command has been exe-To modify the replicated state, a client sendslatency 156ms Re- sequences).interfere⌃, , if there exists a sequence of commands118ms ⌃
+  585  command leader will reply to the client and sendmand has been committed. However, the client has noFigure 5: Median commit latency (99%ile indicated by lines atop the bars) at each of 3 (left graph) and 5 (rightgenerates commands at half the rate of the other sites (no other protocol is affected by imbalance). In200100 Commitand/or different values returned by the reads within these200100 Prepare. Each replica is the default (i.e., initial) leaderMencius
+
+  586  messages asynchronously to the other replicas.quest(command)cuted or not: Only when the client reads the replicatedworstand measure the commit and execute latency for each re-to a replica of its choice. A, only one site generates commands at a given time. The bottom of the graph shows inter-site RTTs.RequestRe- such that the serial execution4.2 Protocol Guaranteesof its own instances, so the ballotWith three replicas, an EPaxos replica can always com-⌃, , is not equivalentepoch 0 R is implicit at
+  587  plyinformation about whether the command has been exe-state updated by its previously committed commands isfrom that replica will notify the client that the com-graph) wide-area replicas. The Multi- and Generalized Paxos leader is in CA. Inquest. Figure 5 shows the median and 99%ile latencies forLatency (median / 99%) [ms] 1000 tosequences).⌃100, ,0 (i.e., they result in different machine statesmit after one round trip to its nearest peer even if thatMencius imbalanced. . , EU
+
+  588  mand has been committed. However, the client has nocuted or not: Only when the client reads the replicatedit necessary for those commands to be executed.generates commands at half the rate of the other sites (no other protocol is affected by imbalance). Inand measure the commit and execute latency for each re-EPaxos, Multi-Paxos, Mencius and Generalized Paxos.Latency (median / 99%) [ms] CA 85ms VA 90ms EU and/or different values returned by the reads within these4.2 Protocol Guarantees0 the beginning of every instancecommand interferes with other concurrent commands.VAWith three replicas, an EPaxos replica can always com-CA 21ms OR 127msR.i.JP 278ms EUMencius
+  589  state updated by its previously committed commands isAs in classic Paxos, every message contains a ballot0 CA 156msVAEU The formal guarantees that Egalitarian Paxos offersVACA 118msORJPEU
+  590  information about whether the command has been exe-To read (part of) the state, clients sendFigure 5: Median commit latency (99%ile indicated by lines atop the bars) at each of 3 (left graph) and 5 (rightworstquest. Figure 5 shows the median and 99%ile latencies for, only one site generates commands at a given time. The bottom of the graph shows inter-site RTTs.85ms Read(objectIDs)90ms sequences).clients are similar to those provided by other Paxos vari-4.3.2 The Execution Algorithmmit after one round trip to its nearest peer even if that21ms 127ms 278ms
+  591  number (for simplicity, we represent it explicitly in ourit necessary for those commands to be executed.EPaxos, Multi-Paxos, Mencius and Generalized Paxos.156ms The formal guarantees that Egalitarian Paxos offerscommand interferes with other concurrent commands.118ms
+  592  cuted or not: Only when the client reads the replicatedFigure 5: Median commit latency (99%ile indicated by lines atop the bars) at each of 3 (left graph) and 5 (rightgraph) wide-area replicas. The Multi- and Generalized Paxos leader is in CA. InIn contrast, Generalized Paxos's fast quorum size when4.2 Protocol Guaranteescheckpoint commits. Furthermore, conflicts cause twoMencius imbalanced, EU
+  593  pseudocode only when describing the Explicit Preparestate updated by its previously committed commands isTo read (part of) the state, clients send Read(objectIDs) clients are similar to those provided by other Paxos vari-To execute command γ committed in instance R.i, a
+
+  594  phase in Figure 3). The ballot number ensures messagegraph) wide-area replicas. The Multi- and Generalized Paxos leader is in CA. Ingenerates commands at half the rate of the other sites (no other protocol is affected by imbalance). InN = 3 is three. Its latency is therefore determined by a 11 additional round trips in Generalized Paxos (for any num-Mencius imbalancedMencius, EU
+  595  it necessary for those commands to be executed.worstgenerates commands at half the rate of the other sites (no other protocol is affected by imbalance). In, only one site generates commands at a given time. The bottom of the graph shows inter-site RTTs.The formal guarantees that Egalitarian Paxos offersreplica will follow these steps: Mencius
+  596  freshness: replicas disregard messages with a ballot thatround-trip to the farthest replica. The high 99%ile la- ber of replicas). Thus, in this experiment, EPaxos is not
+  597  To read (part of) the state, clients sendworsttency experienced by Generalized Paxos is caused by, only one site generates commands at a given time. The bottom of the graph shows inter-site RTTs.Read(objectIDs) clients are similar to those provided by other Paxos vari-11 affected by conflicts, but Generalized Paxos experiences
+  598  is smaller than the largest they have seen for a certainand measure the commit and execute latency for each re-1. Wait forWith three replicas, an EPaxos replica can always com-R.i to be committed (or run Explicit Prepare
+
+  599  instance. For correctness, ballot numbers used by differ-and measure the commit and execute latency for each re-quest. Figure 5 shows the median and 99%ile latencies for to force it);mit after one round trip to its nearest peer even if thatWith three replicas, an EPaxos replica can always coment replicas must be distinct, so they include a replicaquest. Figure 5 shows the median and 99%ile latencies forEPaxos, Multi-Paxos, Mencius and Generalized Paxos. 2. Buildmit after one round trip to its nearest peer even if thatcommand interferes with other concurrent commands.'s dependency graph by adding and all com-
+  600  EPaxos, Multi-Paxos, Mencius and Generalized Paxos. 11command interferes with other concurrent commands.γ γ
+
+  601  11
+  602  11
+=== PAGE 7 ===
+
+  603  Explicit Prepare
+  604  Replica Q for instance L.i of potentially failed replica L
+  605  25: increment ballot number to epoch.(b + 1).Q, (where
+  606  epoch.b.R is the highest ballot number Q is aware of in
+  607  instance L.i)
+  608  26: send Prepare(epoch.(b + 1).Q,L.i) to all replicas
+  609  (including self) and wait for at least bN/2c + 1 replies
+  610  27: let R be the set of replies w/ the highest ballot number
+  611  28: if R contains a (γ,seqγ,depsγ,committed) then
+  612  29: run Commit phase for (γ,seqγ, depsγ) at L.i
+  613  30: else if R contains an (γ,seqγ,depsγ,accepted) then
+  614  31: run Paxos-Accept phase for (γ, seqγ,depsγ ) at L.i
+  615  32: else if R contains at least bN/2c identical replies
+  616  (γ,seqγ,depsγ,pre-accepted) for the default ballot
+  617  epoch.0.L of instance L.i, and none of those replies is
+  618  from L then
+  619  33: run Paxos-Accept phase for (γ, seqγ,depsγ ) at L.i
+  620  34: else if R contains at least one
+  621  (γ,seqγ,depsγ,pre-accepted) then
+  622  35: start Phase 1 (at line 2) for γ at L.i, avoid fast path
+  623  36: else
+  624  37: start Phase 1 (at line 2) for no-op at L.i, avoid fast
+  625  path
+  626  Replica R, on receiving Prepare(epoch.b.Q,L.i) from Q
+  627  38: if epoch.b.Q is larger than the most recent ballot
+  628  number epoch.x.Y accepted for instance L.i then
+  629  39: reply PrepareOK(cmdsR[L][i], epoch.x.Y,L.i)
+  630  40: else
+  631  41: reply NACK
+
+  632  Figure 3: The EPaxos simplified recovery procedure.
+
+  633  mands in instances from γ's dependency list as nodes,
+
+  634  with directed edges from γ to these nodes, repeating
+
+  635  this process recursively for all of γ's dependencies
+
+  636  (starting with step 1);
+
+  637  3. Find the strongly connected components, sort them
+
+  638  topologically;
+
+  639  4. In inverse topological order, for each strongly con-
+
+  640  nected component, do:
+
+  641  4.1 Sort all commands in the strongly connected com-
+
+  642  ponent by their sequence number;
+
+  643  4.2 Execute every un-executed command in increasing
+
+  644  sequence number order, marking them executed.
+
+  645  4.3.3 Informal Proof of Properties
+
+  646  Together, the commit protocol and execution algorithm
+
+  647  guarantee the properties stated in Section 4.2. We prove
+
+  648  this formally in a technical report [25], but give informal
+
+  649  proofs here to convey the intuition of our design choices.
+
+  650  Nontriviality is straightforward: Phase 1 is only exe-
+
+  651  cuted for commands proposed by clients.
+
+  652  To prove stability and consistency, we first prove:
+
+  653  Proposition 1. If replica R commits command γ at in-
+
+  654  stance Q.i (with R and Q not necessarily distinct), then
+  655  for any replica R0 that commits command γ0 at Q.i it must
+  656  hold that γ and γ0 are the same command.
+
+  657  Proof sketch. Command γ is committed at instance Q.i
+
+  658  only if replica Q has started Phase 1 for γ at instance Q.i.
+
+  659  Q cannot start Phase 1 for different commands at the same
+
+  660  instance, because (1) Q increments its instance number
+
+  661  for every new command, and (2) if Q fails and restarts, it
+
+  662  will be given a new, unused identifier (Section 4.7).
+
+  663  Proposition 1 implies consistency. Furthermore, be-
+
+  664  cause commands can be forgotten only if a replica
+
+  665  crashes, this also implies stability if the cmds log is
+
+  666  maintained on persistent storage. Execution consistency
+
+  667  also requires stability and consistency for the command
+
+  668  attributes.
+
+  669  Definition. If γ is a command with attributes seq and
+  670  deps , we say that the tuple ( seq deps ) is safeγ at
+  671  γ γ, γ , γ
+
+  672  instance Q.i if (γ,seq ,deps ) is the only tuple that is or
+  673  will be committed at γQ i by any replica.γ
+
+  674  .
+
+  675  Proposition 2. Replicas commit only safe tuples.
+
+  676  Proof sketch. A tuple (γ,seq ,deps ) can only be
+  677  committed at a certain instance Qγ i (1) after the Paxos-γ
+
+  678  .
+
+  679  Accept phase, or (2) directly after Phase 1.
+
+  680  Case 1: A tuple is committed after the Paxos-Accept
+
+  681  phase if more than half of the replicas have logged the
+
+  682  tuple as accepted (line 20 in Figure 2). The tuple is safe
+
+  683  via the classic Paxos algorithm guarantees.
+
+  684  Case 2: A tuple is committed directly after Phase 1
+
+  685  only if its command leader receives identical responses
+
+  686  from N − 2 other replicas (line 11). The tuple is now safe:
+
+  687  If another replica tries to take over the instance (because
+
+  688  it suspects the initial leader has failed), it must execute
+
+  689  the Prepare phase and it will see at least bN/2c identical
+
+  690  replies containing (γ,seq ,deps ), so the new leader will
+  691  identify this tuple as potentially committed and will useγ γ
+
+  692  it in the Paxos-Accept phase.
+
+  693  So far, we have shown that tuples, including their at-
+
+  694  tributes, are committed consistently across replicas. They
+
+  695  are also stable, if recorded on persistent storage.
+
+  696  We next show that these consistent, stable committed
+
+  697  attributes guarantee that all interfering commands are
+
+  698  executed in the same order on every replica:
+
+  699  Lemma 1 (Execution consistency). If interfering com-
+
+  700  mands γ and δ are successfully committed (not necessar-
+
+  701  ily by the same replica), they will be executed in the same
+
+  702  order by every replica.
+
+  703  Proof sketch. If two commands interfere, at least one
+
+  704  will have the other in its dependency set by the time they
+=== PAGE 8 ===
+
+  705  are committed: Phase 1 ends after the command has been
+
+  706  pre-accepted by at least a simple majority of the replicas,
+
+  707  and its final set of dependencies is the union of at least
+
+  708  the set of dependencies updated at a majority of replicas.
+
+  709  This also holds for recovery (line 32 in the pseudocode)
+
+  710  because all dependencies are based on those set initially
+
+  711  by the possibly failed leader. Thus, at least one replica
+
+  712  pre-accepts both γ and δ, and its PreAcceptReplies are
+
+  713  taken into account when establishing the final dependen-
+
+  714  cies sets for both commands.
+
+  715  By the execution algorithm, a command is executed
+
+  716  only after all the commands in its dependency graph have
+
+  717  been committed. There are three possible scenarios:
+
+  718  Case 1: Both commands are in each other's depen-
+
+  719  dency graph. By the way the graphs are constructed, this
+
+  720  implies: (1) the dependency graphs are identical; and
+
+  721  (2) γ and δ are in the same strongly connected compo-
+
+  722  nent. Therefore, when executing one command, the other
+
+  723  is also executed, and they are executed in the order of
+
+  724  their sequence numbers (with arbitrary criteria to break
+
+  725  ties). By Proposition 2 the attributes of all committed
+
+  726  commands are stable and consistent across replicas, so
+
+  727  all replicas build the same dependency graph and execute
+
+  728  γ and δ in the same order.
+
+  729  Case 2: γ is in δ's dependency graph but δ is not in
+
+  730  γ's. There is a path from δ to γ in δ's dependency graph,
+
+  731  but there is no path from γ to δ. Therefore, γ and δ
+
+  732  are in different strongly connected components, and γ's
+
+  733  component will come before δ's in inverse topological
+
+  734  order. By the execution algorithm, γ will be executed
+
+  735  before δ. This is consistent with the situation when γ had
+
+  736  been executed on some replicas before δ was committed
+
+  737  (which is possible, because γ does not depend on δ).
+
+  738  Case 3: Just like case 2, with γ and δ reversed.
+
+  739  Lemma 2 (Execution linearizability). If two interfering
+
+  740  commands γ and δ are serialized by clients (i.e., δ is
+
+  741  proposed only after γ is committed by any replica), then
+
+  742  every replica will execute γ before δ.
+
+  743  Proof sketch. Because δ is proposed after γ was com-
+
+  744  mitted, γ's sequence number is stable and consistent by
+
+  745  the time any replica receives PreAccept messages for
+
+  746  δ. Because a tuple containing γ and its final sequence
+
+  747  number is logged by at least a majority of replicas, δ's
+
+  748  sequence number will be updated to be larger than γ's,
+
+  749  and δ will contain γ in its dependencies. Therefore, when
+
+  750  executing δ, δ's graph must contain γ either in the same
+
+  751  strongly connected component as δ (but δ's sequence
+
+  752  number will be higher), or in a component ordered be-
+
+  753  fore δ's in inverse topological order. Regardless, by the
+
+  754  execution algorithm, γ will be executed before δ.
+
+  755  Finally, liveness is ensured as long as a majority of
+
+  756  replicas are non-faulty. A client keeps retrying a com-
+
+  757  mand until a replica gets a majority to accept it.
+
+  758  4.4 Optimized Egalitarian Paxos
+
+  759  We have described the core concepts of our protocol in
+
+  760  the previous section. We now describe modifications that
+
+  761  allow EPaxos to use a smaller fast-path quorum—only
+  762  F + F+1 replicas, including the command leader. This
+  763  is an important optimization because, by decreasing the2
+
+  764  number of replicas that must be contacted, EPaxos has
+
+  765  lower latency (especially in the wide area) and higher
+
+  766  throughput, because replicas process fewer messages for
+
+  767  each command. For three and five replicas, this fast path
+
+  768  quorum is optimal (two and three replicas respectively).
+
+  769  The recovery procedure (i.e., the Explicit Prepare
+
+  770  Phase) changes substantially, starting with line 32 in our
+
+  771  pseudocode description. The new command leader Q
+  772  looks for only F+1 replicas that have pre-accepted a
+  773  2
+
+  774  tuple (γ,deps ,seq ) in the current instance with idenγ γ
+
+  775  tical attributes. Upon discovering them, it tries to con-
+
+  776  vince other replicas to pre-accept this tuple by sending
+
+  777  TryPreAccept messages. A replica receiving a TryPreAc-
+
+  778  cept will pre-accept the tuple only if it does not conflict
+
+  779  with other commands in the replica's log—i.e., an inter-
+
+  780  fering command that is not in deps and does not have
+  781  in its deps either, or one that is inγdeps but has a seq
+  782  γ γ
+
+  783  attribute at least as large as seq . If the tuple does conflict
+  784  with such a command, and that command is committed,γ
+
+  785  Q will know γ could not have been committed on the
+
+  786  fast path. If a un-committed conflict exists, Q defers re-
+
+  787  covery until that command is committed. Finally, if Q
+
+  788  convinces F + 1 replicas (counting the failed command
+
+  789  leader and the remainders of the fast-path quorum) to pre-
+
+  790  accept (γ,deps ,seq ), it commits this tuple by running
+  791  γ γ
+
+  792  the Paxos-Accept phase for it.
+
+  793  One corner case of recovery is the situation where
+
+  794  a dependency has changed its seq attribute to a value
+
+  795  higher than that of the command being recovered. We
+
+  796  can preclude this situation by allowing command leaders
+
+  797  to commit command γ on the fast path only if for each
+
+  798  command in deps at least one acceptor has recorded it
+  799  as committed. ForγN 7, a more efficient solution is to
+
+  800  ≤
+
+  801  attach updated deps attributes to Accept and AcceptReply
+
+  802  messages, and ensure that the recipients of these mes-
+
+  803  sages record them. This information will be used only to
+
+  804  aid recovery.
+
+  805  The associated technical report [25] contains detailed
+
+  806  proofs that recovery can always make progress if a ma-
+
+  807  jority of replicas are alive—the new size of the fast-path
+
+  808  quorum is necessary and sufficient for this to hold—and
+
+  809  that optimized EPaxos provides the guarantees enumer-
+
+  810  ated in Section 4.2.
+
+  811  Before concluding this subsection, it is important to
+
+  812  point out another implication of the new fast-path quorums size. After F failures, there may be as few as F+1
+  813  surviving members of a fast quorum, which will not con-2
+
+  814  stitute a majority among the remaining replicas. There-
+=== PAGE 9 ===
+
+  815  fore, if the command leader sends PreAccept messages to
+
+  816  every replica (instead of sending PreAccepts to only the
+
+  817  replicas in a fast quorum), the recovery procedure may
+
+  818  not be able to correctly identify which replicas' replies the
+
+  819  failed command leader took into consideration if it com-
+
+  820  mitted the instance. Still, such redundancy is sometimes
+
+  821  desirable because the command leader may not know in
+
+  822  advance which replicas are still live or which replicas will
+
+  823  reply faster. When this is the case, we change the fast-
+
+  824  path condition as follows: a command leader will commit
+  825  on the fast path only if it receives F + F+1 −1 PreAcceptReplies that match its initial ordering attributes2 —and
+
+  826  every replica that replies without updating these attributes
+
+  827  marks this in its log so the recovery procedure can take
+
+  828  only these replicas into consideration.
+
+  829  When not sending redundant PreAccepts, a three-
+
+  830  replica system will always be able to commit on the fast
+
+  831  path—there can be no disagreement in a set with only
+
+  832  one acceptor.
+
+  833  4.5 Keeping the Dependency List Small
+
+  834  Instead of including all interfering instances, we include
+
+  835  only N dependencies in each list: the instance number R.i
+
+  836  with the highest i for which the current replica has seen
+
+  837  an interfering command (not necessarily committed). If
+
+  838  interference is transitive (usually the case in practice) the
+
+  839  most recent interfering command suffices, because its
+
+  840  dependency graph will contain all interfering instances
+
+  841  R. j, with j < i. Otherwise, every replica must assume
+
+  842  that any unexecuted commands in previous instances
+
+  843  R. j (j < i) are possible dependencies and independently
+
+  844  check them at execute time. This is a fast operation when
+
+  845  commands are executed soon after commit.
+
+  846  4.6 Recovering from Failures
+
+  847  A replica may need to learn the decision for an instance
+
+  848  because it has to execute commands that depend on that
+
+  849  instance. If a replica times out waiting for the commit
+
+  850  for an instance, the replica will try to take ownership of
+
+  851  that instance by running Explicit Prepare, at the end of
+
+  852  which it will either learn what command was proposed
+
+  853  in this problem instance (and then finalize committing it),
+
+  854  or, if no other replica has seen a command, will commit
+
+  855  a no-op to finalize the instance.
+
+  856  If clients are allowed to time-out and re-issue com-
+
+  857  mands to a different replica, the replicas must be able to
+
+  858  recognize duplicates and execute the command only once.
+
+  859  This situation affects any replication protocol, and stan-
+
+  860  dard solutions are applicable, such as unique command
+
+  861  IDs or ensuring that commands are idempotent.
+
+  862  4.7 Reconfiguring the Replica Set
+
+  863  Reconfiguring a replicated state machine is an extensive
+
+  864  topic [19, 20, 21]. In EPaxos, ordering ballots by their
+
+  865  epoch prefix enables a solution that resembles Vertical
+
+  866  Paxos [19] with majority read quorums: A new replica, or
+
+  867  one that recovers without its memory, must receive a new
+
+  868  ID and a new (higher) epoch number, e.g., from a config-
+
+  869  uration service or a human. It then sends Join messages
+
+  870  to at least F +1 live replicas that are not themselves in the
+
+  871  process of joining. Upon receiving a Join, a live replica
+
+  872  updates its membership information and the epoch part of
+
+  873  each ballot number it uses or expects to receive for new
+
+  874  instances. It will thus no longer acknowledge messages
+
+  875  for instances initiated in older epochs (instances that it
+
+  876  was not already aware of). The live replica will then
+
+  877  send the joining replica the list of committed or ongoing
+
+  878  instances that the live replica is aware of. The joining
+
+  879  replica becomes live (i.e., it proposes commands and par-
+
+  880  ticipates in voting the proposals of other replicas) only
+
+  881  after receiving commits for all instances included in the
+
+  882  replies to at least F +1 Join messages. Production imple-
+
+  883  mentations optimize this process using snapshots [7].
+
+  884  4.8 Read Leases
+
+  885  As in any other state machine replication protocol, a Read
+
+  886  must be committed as a command that interferes with
+
+  887  updates to the objects it is reading to avoid reading stale
+
+  888  data. However, Paxos-based systems are often optimized
+
+  889  for read-heavy scenarios in one of two ways: assume the
+
+  890  clients can handle stale data and perform reads locally
+
+  891  at any replica, as in ZooKeeper [12]; or grant a read
+
+  892  lease to the stable leader so that it can respond without
+
+  893  committing an operation [7]. EPaxos can use read leases
+
+  894  just as easily, with the understanding that a (infrequent)
+
+  895  write to the leased object must be channeled through
+
+  896  the node holding the lease. In wide-area replication, the
+
+  897  leaderless design of EPaxos and Mencius allows different
+
+  898  sites to hold leases for different objects simultaneously
+
+  899  (e.g., based on the observed demand for each object).
+
+  900  4.9 Avoiding Execution Livelock
+
+  901  With a fast stream of interfering proposals, command
+
+  902  execution could livelock: command γ will acquire depen-
+
+  903  dencies on newer commands proposed between sending
+
+  904  and receiving the PreAccept(γ). These new commands
+
+  905  in turn gain dependencies on even newer commands. To
+
+  906  prevent this, we prioritize completing old commands
+
+  907  over proposing new commands. Even without this op-
+
+  908  timization, however, long dependency chains increase
+
+  909  only execution latency, not commit latency. They also
+
+  910  negligibly affect throughput, because executing a batch
+
+  911  of n inter-dependent commands at once adds only modest
+
+  912  computational overhead: finding the strongly connected
+
+  913  components has linear time complexity (the number of
+
+  914  dependencies for each command is usually constant—
+
+  915  Section 4.5), and sorting the commands by their sequence
+
+  916  attribute adds only an O(logn) factor.
+=== PAGE 10 ===
+
+  917  5 Practical Considerations
+
+  918  Command interference. For EPaxos to function ef-
+
+  919  ficiently, the implementation must be able to decide
+
+  920  whether two commands interfere before executing them
+
+  921  (it can, however, conservatively assume interference if un-
+
+  922  certain). Although there are many approaches that could
+
+  923  work, one that seems likely is to use explicitly-specified
+
+  924  dependency keys as in Google's High Replication Datas-
+
+  925  tore [10] and Megastore [2]. Interference can easily be
+
+  926  inferred for NoSQL key-value stores where all (or most)
+
+  927  operations identify the keys they are targeting. Even for
+
+  928  relational databases, the transactions that usually con-
+
+  929  stitute the bulk of the workload are simple and can be
+
+  930  examined before execution to determine which rows they
+
+  931  will update (e.g. the New-Order transaction in the TPC-C
+
+  932  benchmark [28]). For other transactions it will be diffi-
+
+  933  cult to predict what exact state they will modify, but it is
+
+  934  safe to assume they interfere with any other transaction.
+
+  935  Consistency guarantees. EPaxos guarantees per-object
+
+  936  linearizability. As shown by Herlihy and Wing [11], lin-
+
+  937  earizability is a local property, meaning that "a system
+
+  938  is linearizable if each individual object is linearizable".
+
+  939  This only applies to operations that target single objects,
+
+  940  or more generally, to operations for which interference
+
+  941  is transitive. The equivalent property for multi-object
+
+  942  operations is strict serializability. If interference is not
+
+  943  transitive, EPaxos maintains per-object linearizability,
+
+  944  but does not guarantee strict serializability without a sim-
+
+  945  ple modification: the commit notification for a command
+
+  946  is sent to clients only after every instance in the com-
+
+  947  mand's graph of dependencies has been committed (the
+
+  948  proof is in the associated tech report [25]). This has the
+
+  949  added benefit that it simplifies the protocol: approximate
+
+  950  sequence numbers are no longer necessary (commands
+
+  951  within the same strongly connected component are sorted
+
+  952  by an arbitrary criterion), which makes for a simplified
+
+  953  recovery procedure. The drawback of this version of
+
+  954  EPaxos is increased perceived latency at the client for
+
+  955  operations that conflict with other concurrent operations—
+
+  956  for the common case of non-interfering operations the
+
+  957  latency remains the same as in canonical EPaxos.
+
+  958  6 Implementation
+
+  959  We implemented EPaxos, Multi-Paxos, Mencius, and
+
+  960  Generalized Paxos in Go, version 1.0.2.
+
+  961  6.1 Language-specific details
+
+  962  Behind our choice of Go was the goal of comparing the
+
+  963  performance of the four Paxos variants within a common
+
+  964  framework in which the protocols share as much code
+
+  965  as possible to reduce implementation-related differences.
+
+  966  While subjective, we believe we achieved this, applying
+
+  967  roughly equal implementation optimization to each; we
+
+  968  are releasing our implementations for others to perform
+
+  969  comparisons or further optimization [24].
+
+  970  Go presented two challenges: First, the garbage collec-
+
+  971  tion that eased implementation of four complete Paxos
+
+  972  variants adds performance variability; and second, its
+
+  973  RPC implementation is slow. We solved the latter by
+
+  974  implementing our own RPC stub generator. We have
+
+  975  not fully mitigated the GC penalty, but EPaxos is more
+
+  976  affected than the other protocols because its attribute-
+
+  977  containing messages are larger, so our results are fair to
+
+  978  the other protocols.
+
+  979  6.2 Thrifty Operation
+
+  980  For all protocols except Mencius, we used an optimiza-
+
+  981  tion that we call thrifty. In thrifty, a replica in charge of a
+
+  982  command (the command leader in EPaxos, or the stable
+
+  983  leader in Multi-Paxos) sends Accept and PreAccept mes-
+
+  984  sages to only a quorum of replicas, including itself, not
+
+  985  the full set. This reduces message traffic and improves
+
+  986  throughput. The drawback is that if an acceptor fails
+
+  987  to reply quickly, there is no quick fall-back to another
+
+  988  reply. However, thrifty can aggressively send messages
+
+  989  to additional acceptors when a reply is not received after
+
+  990  a short wait time; doing so does not affect safety and only
+
+  991  slightly reduces throughput. Mencius cannot be thrifty be-
+
+  992  cause the replies to Accept messages contain information
+
+  993  necessary to commit the current instance (i.e., whether
+  994  previous instances were skipped or not).4
+
+  995  7 Evaluation
+
+  996  We evaluated Egalitarian Paxos on Amazon EC2, using large instances5 for both state machine replicas and
+
+  997  clients, running Ubuntu Linux 11.10.
+
+  998  7.1 Typical Workloads
+
+  999  We evaluate these protocols using a replicated key-value
+
+ 1000  store where client requests are updates (puts). This is
+
+ 1001  sufficient to capture a wide range of practical workloads:
+
+ 1002  From the point of view of replication protocols, reads
+
+ 1003  and writes are typically handled the same way (reads
+
+ 1004  might be serviced locally in certain situations, as dis-
+
+ 1005  cussed in Section 4.8). Nevertheless, writes are the more
+
+ 1006  difficult case because reads do not interfere with other
+
+ 1007  reads. Our tests also capture conflicts, an important work-
+
+ 1008  load characteristic—a conflict is a situation when po-
+
+ 1009  tentially interfering commands reach replicas in differ-
+
+ 1010  ent orders. Conflicts affect EPaxos, Generalized Paxos,
+ 1011  4 A Mencius replica must receive Accept replies from the owners of
+ 1012  all instances it has not received messages for. We tried Mencius-thrifty,
+ 1013  in which the current leader sends Accepts first to the replicas it must
+ 1014  hear from, and to others only if quorum has not yet been reached. It did
+ 1015  not improve throughput, however: under medium and high load, only
+ 1016  rarely are all previous instances "filled" when a command is proposed.
+ 1017  5 Two 64-bit virtual cores with 2 EC2 Compute Units each and
+ 1018  7.5 GB of memory. The typical RTT in an EC2 cluster is 0.4 ms
+=== PAGE 11 ===
+
+ 1019  and, to a lesser extent, Mencius. One example of con-
+
+ 1020  flicts are those experienced by a lock service, where con-
+
+ 1021  flicts are equivalent to write-write conflicts from multiple
+
+ 1022  clients updating the same key. A read-heavy workload
+
+ 1023  is where concurrent updates rarely target the same key,
+
+ 1024  corresponding to low conflict rates. Importantly, lease
+
+ 1025  renewal traffic—constituting over 90% of the requests
+
+ 1026  handled by Chubby [4]—generates no conflicts, because
+
+ 1027  only one client can renew a particular lease.
+
+ 1028  From the available evidence, we believe that 0% and
+
+ 1029  2% command interference rates are the most realistic. For
+
+ 1030  completeness, we also evaluate 25% and 100% command
+ 1031  interference (for 25%, 1 of commands target the same
+ 1032  3 4
+
+ 1033  key while target different keys). In Chubby, fewer than
+ 1034  4
+
+ 1035  1% of all commands (observed in a ten-minute period [4])
+
+ 1036  could possibly generate conflicts. In Google's advertising
+
+ 1037  back-end, F1, which uses the geo-replicated table store
+
+ 1038  Spanner (which, in turn, uses Paxos) fewer than 0.3% of
+
+ 1039  all operations may generate conflicts, since more than
+
+ 1040  99.7% of operations are reads [8].
+
+ 1041  We indicate the percentage of interfering commands as
+
+ 1042  a number following the experiment (e.g., "EPaxos 0%"').
+
+ 1043  7.2 Latency In Wide Area Replication
+
+ 1044  We validate empirically that EPaxos has optimal median
+
+ 1045  commit latency in the wide area with three replicas (tol-
+
+ 1046  erating one failure) and five replicas (tolerating two fail-
+
+ 1047  ures). The replicas are located in Amazon EC2 datacen-
+
+ 1048  ters in California (CA), Virginia (VA) and Ireland (EU),
+
+ 1049  plus Oregon (OR) and Japan (JP) for the five-replica
+
+ 1050  experiment. At each location there are also ten clients
+
+ 1051  co-located with each replica (fifty in total). They gen-
+
+ 1052  erate requests simultaneously, and measure the commit
+
+ 1053  and execute latency for each request. Figure 4 shows
+
+ 1054  the median and 99%ile latency for EPaxos, Multi-Paxos,
+
+ 1055  Mencius and Generalized Paxos.
+
+ 1056  With three replicas, an EPaxos replica can always com-
+
+ 1057  mit after one round trip to its nearest peer even if that
+
+ 1058  command interferes with other concurrent commands.
+
+ 1059  In contrast, Generalized Paxos's fast quorum size when
+
+ 1060  N = 3 is three. Its latency is therefore determined by a
+
+ 1061  round-trip to the farthest replica. The high 99%ile la-
+
+ 1062  tency experienced by Generalized Paxos is caused by
+
+ 1063  checkpoint commits. Furthermore, conflicts cause two
+
+ 1064  additional round trips in Generalized Paxos (for any num-
+
+ 1065  ber of replicas). Thus, in this experiment, EPaxos is
+
+ 1066  not affected by conflicts, but Generalized Paxos experi-
+
+ 1067  ences median latencies of 341 ms with 100% command
+
+ 1068  interference.
+
+ 1069  With five replicas, EPaxos avoids the two most distant
+
+ 1070  replicas, while Generalized Paxos avoids only the most
+
+ 1071  distant one. Thus, EPaxos has optimal commit latency
+
+ 1072  for the common case of non-interfering concurrent com-
+
+ 1073  mands, with both three and five replicas. For five replicas,
+
+ 1074  interfering commands cause one extra round trip to the
+
+ 1075  closest two replicas for EPaxos, but up to two additional
+
+ 1076  round trips for Generalized Paxos.
+
+ 1077  Mencius performs relatively well with multiple clients
+
+ 1078  at every location and all locations generating commands
+
+ 1079  at the same aggregate rate. Imbalances force Mencius to
+
+ 1080  wait for more replies to Accept messages. In the worst
+
+ 1081  case, with active clients at only one location at a time,
+
+ 1082  Mencius experiences latency corresponding to the round
+
+ 1083  trip time to the replica that is farthest away from the
+
+ 1084  client, for any number of replicas.
+
+ 1085  Multi-Paxos has high latency because the local replica
+
+ 1086  must forward all commands to the stable leader.
+
+ 1087  The results in Figure 4 refer to commit latency. For
+
+ 1088  EPaxos, execution latency differs from commit latency
+
+ 1089  only for high conflict rates because a replica must delay
+
+ 1090  executing a command until it receives commit confir-
+
+ 1091  mations for the command's dependencies. With 100%
+
+ 1092  interference rate (i.e., worst case), three-replicas EPaxos
+
+ 1093  experiences median execution latencies of 125 ms to
+
+ 1094  139 ms (depending on the site), whereas for five repli-
+
+ 1095  cas, median execution latencies range from 304 ms to
+
+ 1096  319 ms (compared to 274 ms to 296 ms for Mencius, and
+
+ 1097  unchanged latencies for Multi-Paxos and Generalized
+
+ 1098  Paxos 100%). As explained in the previous section, this
+
+ 1099  worst case scenario is highly unlikely to occur in prac-
+
+ 1100  tice. Furthermore, commit latency is the only one that
+ 1101  matters for writes6, while for reads, which have a lower
+
+ 1102  chance of generating conflicts, there is a high likelihood
+
+ 1103  that commit and execution latency are the same. Fur-
+
+ 1104  thermore, reads will also benefit from read leases, which
+
+ 1105  allow reads to be serviced locally.
+
+ 1106  However, if high command interference is common,
+
+ 1107  there is a wide range of techniques that we can use to
+
+ 1108  reduce latency, but we leave for future work: e.g., for-
+
+ 1109  warding PreAccepts among fast quorum members to re-
+
+ 1110  duce slow-path commit latency by one message delay,
+
+ 1111  or reverting to a partitioned Multi-Paxos mode, where
+
+ 1112  the same site acts as command leader for all commands
+
+ 1113  in a certain group (thus eliminating conflicts among the
+
+ 1114  commands within that group).
+
+ 1115  7.3 Throughput in a Cluster
+
+ 1116  We compare the throughput achieved by EPaxos, Multi-
+
+ 1117  Paxos, and Mencius, within a single EC2 cluster. We
+
+ 1118  omit Generalized Paxos from these experiments because
+
+ 1119  it was not designed for high throughput: It runs at less
+ 1120  than 1 the speed of EPaxos, and its availability is tied to
+ 1121  4 7
+
+ 1122  that of the leader, as for Multi-Paxos.
+ 1123  6 From the client's perspective, there is no difference between a committed but not-yet-executed write, and a write that has been executed
+ 1124  (it is, however, guaranteed that execution will occur before subsequent
+ 1125  interfering reads).
+ 1126  7 Learners handle Θ(N) messages per command and the leader must
+ 1127  frequently commit checkpoints—see Section 3.
+=== PAGE 12 ===
+
+ 1128  EPaxos 100% EPaxos 0% 99%ile
+ 1129  500 Mencius balanced 500 EPaxos 100%EPaxos 2% latency
+ 1130  Mencius imbalanced Mencius best
+ 1131  Gen. Paxos 0%Multi-Paxos 400 Mencius worst
+ 1132  400 Gen. Paxos 100% Multi-Paxos
+ 1133  Gen. Paxos 100%Gen. Paxos 0%
+ 1134  300 99%ile 300
+ 1135  latency
+ 1136  200 200
+ 1137  100 100
+ 1138  Latency (median / 99%) [ms] 0 0
+ 1139  CA 85ms VA 90ms EUVACA 21ms OR 127ms JP 278ms EU
+ 1140  156ms 118ms
+
+ 1141  Figure 4: Median commit latency (99%ile indicated by lines atop the bars) at each of 3 (left graph) and 5 (right
+
+ 1142  graph) wide-area replicas. The Multi- and Generalized Paxos leader is in CA. In Mencius imbalanced, EU
+
+ 1143  generates commands at half the rate of the other sites (no other protocol is affected by imbalance). In Mencius
+
+ 1144  worst, only one site generates commands at a given time. The bottom of the graph shows inter-site RTTs.
+
+ 1145  3 Replicas 5 Replicas
+ 1146  EPaxos,0%
+ 1147  EPaxos,2%
+ 1148  EPaxos,25%
+ 1149  EPaxos,100%
+ 1150  Mencius
+ 1151  Multi−Paxos
+ 1152  EPaxos,slow−acc,0%
+ 1153  EPaxos,slow−acc,100%
+ 1154  Mencius,slow−acc
+ 1155  Multi−Paxos,slow−leader
+ 1156  0 10000 20000 30000 40000 50000 0 10000 20000 30000 40000 50000
+ 1157  Throughput [reqs / sec] Throughput [reqs / sec]
+
+ 1158  Figure 5: Throughput for small (16 B) commands (error bars show 95% CI).
+
+ 1159  3 Replicas 5 Replicas
+ 1160  EPaxos,0% 1800
+ 1161  EPaxos,2% 1600
+ 1162  EPaxos,25% 1400
+ 1163  EPaxos,100% 1200
+ 1164  Mencius 1000
+ 1165  Multi−Paxos 800
+ 1166  EPaxos,slow−acc,0% 600
+ 1167  Mencius,slow−acc,0% 400
+ 1168  200
+ 1169  0 5000 10000 15000 20000 25000 0 5000 10000 15000 20000 25000 Throughput [reqs / sec] 0
+ 1170  Throughput [reqs / sec] Throughput [reqs / sec] PaxosMulti- Mencius Menciusmin-log EPaxos,100%
+
+ 1171  Figure 6: Throughput for large (1 KB) commands (with 95% CI). Figure 7: Tput for 3 replicas, 16 B com-
+
+ 1172  mands, sync. log to Flash (w/ 95% CI).
+
+ 1173  A client on a separate EC2 instance sends batched re- thrifty (Section 6.2), EPaxos processes fewer messages
+ 1174  quests in an open loop8 (only client requests are batched; per command than Mencius, so its throughput is gener-
+
+ 1175  messages between replicas are not), and measures the rate ally higher—with the notable exception of many conflicts
+
+ 1176  at which it receives replies. For EPaxos and Mencius, the for more than three replicas, when EPaxos executes an
+
+ 1177  client sends each request to a replica chosen uniformly at extra round per command (Mencius is not significantly
+
+ 1178  random. Replicas reply to the client only after executing influenced by command interference—there was no in-
+
+ 1179  the request. Although it is often sufficient to acknowl- terference in the Mencius tests). EPaxos messages are
+
+ 1180  edge after commit, we wished to also assess the effects slightly larger because they carry attributes, hence our
+
+ 1181  of EPaxos's more complex execution component. EPaxos implementation incurs more GC overhead.
+
+ 1182  Figure 5 shows the throughput achieved by 3 and 5 Processing large commands narrows the gap between
+
+ 1183  replicas when the commands are small (16 B). Figure 6 protocols: All replicas spend more time sending and
+
+ 1184  shows the throughput achieved with 1 KB requests. receiving commands (either from the client or from the
+
+ 1185  EPaxos outperforms Multi-Paxos because the Multi- leader), but Mencius and EPaxos exhibit significantly
+
+ 1186  Paxos leader becomes bottlenecked by its CPU. By being higher throughput than leader-bottlenecked Multi-Paxos.
+
+ 1187  Figures 5 and 6 also show throughput when one node is
+ 1188  8 In practice, a client needing linearizability must wait for commit
+ 1189  notifications before issuing more commands; the open loop mimics an slow (for Multi-Paxos that node is the leader—otherwise
+ 1190  unbounded number of clients to measure maximum throughput. its throughout is mostly unaffected). In these experi-
+=== PAGE 13 ===
+
+ 1191  ments, two infinite loop programs contend for the two
+
+ 1192  virtual cores on the slow node. EPaxos handles a slow
+
+ 1193  replica better than Mencius or Multi-Paxos because the
+
+ 1194  other replicas can avoid it: Each replica monitors the
+
+ 1195  speed with which its peers process pings over time, and
+
+ 1196  excludes the slowest from its quorums. Mencius, by
+
+ 1197  contrast, fundamentally runs at the speed of the slow-
+
+ 1198  est replica because its instances are pre-ordered and a
+
+ 1199  replica cannot commit an instance before learning about
+
+ 1200  instances ordered before it—and 1/N of those instances
+
+ 1201  belong to the slow replica.
+
+ 1202  7.4 Logging Messages Persistently
+
+ 1203  To resume immediately after a crash, a replica must pre-
+
+ 1204  serve the contents of its memory intact, otherwise it may
+
+ 1205  break safety (for all of the protocols we evaluate). This
+
+ 1206  implies persistently logging every state change before
+
+ 1207  acting upon or replying to any message. The preceding
+
+ 1208  experiments did not include this overhead, because it is
+
+ 1209  avoidable in some circumstances: if power failure of all
+
+ 1210  replicas is not a threat, replicas can recover from failures
+
+ 1211  as presented in Section 4.7; in addition, persistent mem-
+
+ 1212  ory technologies keep improving, and battery-backed
+
+ 1213  memory is sometimes feasible. We nevertheless wanted
+
+ 1214  to evaluate whether EPaxos is fundamentally more I/O
+
+ 1215  intensive than Multi-Paxos or Mencius.
+
+ 1216  For the experiments in this section we used Amazon
+
+ 1217  EC2 High-I/O instances equipped with high-performance
+
+ 1218  solid state drives. Every replica logs its state changes
+
+ 1219  synchronously to an SSD-backed file, for all protocols.
+
+ 1220  Here (Figure 7), all protocols are I/O bound, but Multi-
+
+ 1221  Paxos places a higher I/O load on the stable leader than
+
+ 1222  on non-leader replicas, making it slower. EPaxos outper-
+
+ 1223  forms Mencius due to the thrifty optimization: in EPaxos,
+
+ 1224  unlike in Mencius, it is sufficient to send (pre-)accept
+
+ 1225  messages to only a quorum of replicas, and therefore
+
+ 1226  EPaxos requires fewer logging operations per command
+
+ 1227  than Mencius. However, we make the (novel, to our
+
+ 1228  knowledge) observation that while every Mencius accep-
+
+ 1229  tor must reply to accept messages, not all acceptors must
+
+ 1230  log their replies synchronously—it is sufficient that a quo-
+
+ 1231  rum of acceptors log synchronously before responding,
+
+ 1232  and the command leader commits only after receiving
+
+ 1233  their replies. "Mencius min-log" (in Figure 7), needs only
+
+ 1234  slightly more synchronous logging than EPaxos (every
+
+ 1235  min-log replica must still log its own skipped instances
+
+ 1236  synchronously).
+
+ 1237  7.5 Execution Latency in a Cluster
+
+ 1238  This section examines client-perceived execution latency
+
+ 1239  using three replicas. Despite its more complex execution
+
+ 1240  algorithm, EPaxos has lower execution latency than either
+
+ 1241  Multi-Paxos or Mencius, regardless of interfering com-
+
+ 1242  mands. In addition, our strategy for avoiding livelock in
+
+ 1243  22
+ 1244  20 Multi-Paxos
+ 1245  18 Mencius 100%
+ 1246  16 Mencius 0%
+ 1247  14 EPaxos 100%
+ 1248  12 EPaxos 25%
+ 1249  10 EPaxos 0%
+ 1250  8
+ 1251  6
+ 1252  Median Latency [ms] 4
+ 1253  2
+ 1254  0
+ 1255  2000 4000 6000 8000 10000 12000 14000 16000 18000
+ 1256  Throughput [requests/second]
+ 1257  90 Multi-Paxos
+ 1258  80 Mencius 100%
+ 1259  70 Mencius 0%
+ 1260  60 EPaxos 100%
+ 1261  50 EPaxos 25%
+ 1262  40 EPaxos 0%
+ 1263  30
+ 1264  99%ile Latency [ms] 20
+ 1265  10
+ 1266  2000 4000 6000 8000 10000 12000 14000 16000 18000
+ 1267  Throughput [requests/second]
+
+ 1268  Figure 8: Latency vs. throughput for 3 replicas.
+
+ 1269  10000
+ 1270  Multi-Paxos
+ 1271  EPaxos 100%
+ 1272  1000 EPaxos 0%
+
+ 1273  100
+
+ 1274  10
+ 1275  Median Latency [ms]
+ 1276  1
+ 1277  0 100000 200000 300000 400000 500000
+ 1278  Throughput [requests/second]
+
+ 1279  Figure 9: Latency vs. throughput for 5 replicas when
+
+ 1280  batching small (16 B) commands every 5 ms.
+
+ 1281  EPaxos's execution algorithm (Section 4.9) is effective.
+
+ 1282  Figure 8 shows median (top graph) and 99%ile latency
+
+ 1283  under increasing load in EPaxos, Mencius and Multi-
+
+ 1284  Paxos. We increase throughput by increasing the number
+
+ 1285  of concurrent clients sending commands in a closed loop
+
+ 1286  (each client sends a command and waits until it has been
+
+ 1287  executed before sending the next) from 8 to 300. The
+
+ 1288  maximum throughput is lower than in the throughput
+
+ 1289  experiments because here, replicas bear the additional
+
+ 1290  overhead of hundreds of simultaneous TCP connections.
+
+ 1291  7.6 Batching
+
+ 1292  Batching increases the maximum throughput of Multi-
+
+ 1293  Paxos by 5x and of EPaxos by 9x (Figure 9). Commands
+
+ 1294  are generated open loop from a separate machine in the
+
+ 1295  cluster. Every 5 ms, each proposer batches all requests in
+
+ 1296  its queue, up to a preset maximum batch size: 1000 for
+
+ 1297  EPaxos, 5000 for Multi-Paxos. Command leaders issue
+
+ 1298  notifications to clients only after execution. Each point is
+
+ 1299  the average over ten runs.
+
+ 1300  EPaxos's advantage here still arises from sharing the
+=== PAGE 14 ===
+
+ 1301  10000 EPaxos
+ 1302  0
+ 1303  10000 Multi-Paxos
+ 1304  0
+ 1305  30000 replica failure delayed commits
+ 1306  20000 Mencius
+ 1307  10000
+ 1308  Throughput [reqs / sec] 0
+ 1309  0 5 10 15 20 25 30 35
+ 1310  Time [seconds]
+
+ 1311  Figure 10: Commit throughput when one of three
+
+ 1312  replicas fails. For Multi-Paxos, the leader fails.
+
+ 1313  load more evenly across replicas, whereas Multi-Paxos
+
+ 1314  places it all on the stable leader. Under the same client
+
+ 1315  throughput, Mencius and EPaxos will send up to 5x more
+
+ 1316  messages: each leader will send batches, instead of hav-
+
+ 1317  ing one leader aggregate the commands into a single
+
+ 1318  larger batch. However, the cost of these extra messages
+
+ 1319  is amortized rapidly across large batches, becoming neg-
+
+ 1320  ligible versus processing and executing the commands.
+
+ 1321  Importantly, and perhaps counter-intuitively, batching
+
+ 1322  diminishes the negative effects of command interference
+
+ 1323  in EPaxos. This is because (1) the cost of the extra round
+
+ 1324  of communication for handling a conflict is amortized
+
+ 1325  across multiple commands, and becomes insignificant
+
+ 1326  for large batch sizes (second phase messages are short,
+
+ 1327  because command leaders send only the new attributes to
+
+ 1328  replicas that have already received the batch in the first
+
+ 1329  phase); and (2) at low throughputs, even if all commands
+
+ 1330  interfere, conflicts are less frequent because the possibil-
+
+ 1331  ity of there being multiple batches in flight at the same
+
+ 1332  time (and arriving at different replicas in different orders)
+
+ 1333  diminishes. As a result, EPaxos with 100% interference
+
+ 1334  is effectively as fast as EPaxos with no interference.
+
+ 1335  Although we have not tested Mencius with batching,
+
+ 1336  as long as replicas do not experience performance vari-
+
+ 1337  ability, we expect it to be as fast as EPaxos, since the
+
+ 1338  difference in messaging patterns has a diminished effect
+
+ 1339  with batching.
+
+ 1340  7.7 Service Availability under Failures
+
+ 1341  Figure 10 shows the evolution of the commit throughput
+
+ 1342  in a three-replica setup that experiences the failure of
+
+ 1343  one replica. A client sends requests in an open loop, at
+
+ 1344  the same rate for every system—approximately 10,000
+
+ 1345  requests per second (a rate at which none of the systems
+
+ 1346  is close to saturation, hence the steady throughput).
+
+ 1347  With Multi-Paxos, or any variant that relies on a stable
+
+ 1348  leader, a leader failure prevents the system from process-
+
+ 1349  ing client requests until a new leader is elected. Although
+
+ 1350  clients could direct their requests to another replica (after
+
+ 1351  they time out), a replica will usually not try to become the
+
+ 1352  new leader immediately. False suspicions can degrade
+
+ 1353  performance by causing stalls, so the fail-over time will
+
+ 1354  usually be on the order of seconds [4, 22]. The failure of
+
+ 1355  a non-leader replica (a situation not depicted in Figure 10)
+
+ 1356  does not affect the availability of the system.
+
+ 1357  In contrast, any replica failure disrupts Mencius: a
+
+ 1358  replica cannot finalize an instance before knowing the
+
+ 1359  outcome of (or at least which commands are being pro-
+
+ 1360  posed in) all instances that precede it, and instances are
+
+ 1361  pre-assigned to replicas round-robin. Unlike in Multi-
+
+ 1362  Paxos, clients can continue to send requests to the remain-
+
+ 1363  ing replicas; they will be processed up to the point where
+
+ 1364  they are ready to be committed. Eventually, a live replica
+
+ 1365  will time out and commit no-ops on behalf of the failed
+
+ 1366  replica, thus freeing the instances waiting on them. At
+
+ 1367  this point, the delayed commands are committed and ac-
+
+ 1368  knowledged, which causes the throughput spike depicted
+
+ 1369  in Figure 10. Live replicas commit no-ops periodically
+
+ 1370  until the failed replica recovers, or until a reconfiguration.
+
+ 1371  Both in Multi-Paxos and Mencius, the timeout duration
+
+ 1372  is a trade-off between the availability of the service and
+
+ 1373  the impact that acting too frequently on false positives has
+
+ 1374  on throughput and latency. EPaxos avoids this dilemma
+
+ 1375  because it can operate uninterrupted by the crash of a
+
+ 1376  minority of replicas. Clients with commands outstanding
+
+ 1377  at a failed replica will time out and retry those requests
+
+ 1378  at another replica. Although live replicas will commit
+
+ 1379  commands unhindered, some of these commands may
+
+ 1380  have acquired dependencies on commands proposed by
+
+ 1381  the failed replica. Executing the former (as opposed to
+
+ 1382  committing them) will therefore be delayed until another
+
+ 1383  replica finalizes committing the latter. Unlike in Mencius,
+
+ 1384  this occurs only once: an inactive replica cannot continue
+
+ 1385  to generate dependencies. Moreover, it occurs rarely for
+
+ 1386  workloads with low conflict rates.
+
+ 1387  8 Conclusion
+
+ 1388  We have presented the design and implementation of
+
+ 1389  Egalitarian Paxos, a new state machine replication proto-
+
+ 1390  col based on Paxos. We have shown that its decentralized
+
+ 1391  and uncoordinated design has important theoretical and
+
+ 1392  practical benefits for the availability, performance and
+
+ 1393  performance stability of both local and wide area replica-
+
+ 1394  tion.
+
+ 1395  Acknowledgements: We thank our shepherd Nickolai
+
+ 1396  Zeldovich, the anonymous SOSP and OSDI reviewers;
+
+ 1397  Miguel Castro for his insightful feedback; John Wilkes,
+
+ 1398  Michael Abd-El-Malek and Garth Gibson for helping us
+
+ 1399  understand real-world applications of Paxos; Bin Fan,
+
+ 1400  Hyeontaek Lim, Andy Pavlo, Greg Ganger and Jon How-
+
+ 1401  ell for their useful comments. This research was funded
+
+ 1402  in part by Intel via the Intel Science and Technology Cen-
+
+ 1403  ter for Cloud Computing (ISTC-CC), by the National
+
+ 1404  Science Foundation under award CCF-0964474, and by
+
+ 1405  a gift from Google. We thank Amazon for donating part
+
+ 1406  of the EC2 time used for the experiments reported in this
+
+ 1407  paper.
+=== PAGE 15 ===
+
+ 1408  References
+
+ 1409  [1] M. K. Aguilera, C. Delporte-Gallet, H. Fauconnier, and
+ 1410  S. Toueg. Thrifty generic broadcast. In Proc. 14th International Conference on Distributed Computing, DISC '00,
+ 1411  pages 268–282, London, UK, UK, 2000. Springer-Verlag.
+ 1412  [2] J. Baker, C. Bond, J. C. Corbett, J. Furman, A. Khorlin,
+ 1413  J. Larson, J.-M. Leon, Y. Li, A. Lloyd, and V. Yushprakh.
+ 1414  Megastore: Providing scalable, highly available storage
+ 1415  for interactive services. In Proc. of the Conference on
+ 1416  Innovative Data system Research (CIDR), pages 223–234,
+ 1417  2011.
+ 1418  [3] M. Biely, Z. Milosevic, N. Santos, and A. Schiper. Spaxos: Offloading the leader for high throughput state machine replication. In Reliable Distributed Systems (SRDS),
+ 1419  2012 IEEE 31st Symposium on, 2012.
+ 1420  [4] M. Burrows. The Chubby lock service for loosely-coupled
+ 1421  distributed systems. In Proc. 7th USENIX OSDI, Seattle,
+ 1422  WA, Nov. 2006.
+ 1423  [5] L. J. Camargos, R. M. Schmidt, and F. Pedone. Multicoordinated paxos. In Proc. 26th annual ACM symposium
+ 1424  on Principles of distributed computing, PODC '07, pages
+ 1425  316–317, New York, NY, USA, 2007. ACM.
+ 1426  [6] T. D. Chandra and S. Toueg. Unreliable failure detectors
+ 1427  for reliable distributed systems. Journal of the ACM, 43:
+ 1428  225–267, Mar. 1996.
+ 1429  [7] T. D. Chandra, R. Griesemer, and J. Redstone. Paxos
+ 1430  made live: an engineering perspective. In Proc. 26th ACM
+ 1431  SOSP, PODC '07, pages 398–407, New York, NY, USA,
+ 1432  2007. ACM.
+ 1433  [8] J. C. Corbett, J. Dean, M. Epstein, A. Fikes, C. Frost,
+ 1434  J. Furman, S. Ghemawat, A. Gubarev, C. Heiser,
+ 1435  P. Hochschild, W. Hsieh, S. Kanthak, E. Kogan, H. Li,
+ 1436  A. Lloyd, S. Melnik, D. Mwaura, D. Nagle, S. Quinlan, R. Rao, L. Rolig, Y. Saito, M. Szymaniak, C. Taylor, R. Wang, and D. Woodford. Spanner: Google's
+ 1437  globally-distributed database. In Proc. 10th USENIX
+ 1438  OSDI. USENIX, 2012.
+ 1439  [9] M. J. Fischer, N. A. Lynch, and M. S. Paterson. Impossibility of distributed consensus with one faulty process. J.
+ 1440  ACM, 32(2):374–382, Apr. 1985. ISSN 0004-5411.
+ 1441  [10] Google AppEngine. High replication datastore, 2012. https://developers.google.
+ 1442  com/appengine/docs/java/datastore/
+ 1443  overview.
+ 1444  [11] M. P. Herlihy and J. M. Wing. Linearizability: a correctness condition for concurrent objects. ACM Trans.
+ 1445  Program. Lang. Syst., 12(3), July 1990.
+ 1446  [12] P. Hunt, M. Konar, F. P. Junqueira, and B. Reed.
+ 1447  ZooKeeper: wait-free coordination for internet-scale systems. In Proc. USENIX ATC, USENIXATC'10, Berkeley,
+ 1448  CA, USA, 2010. USENIX Association.
+ 1449  [13] M. Kaptritsos, Y. Wang, V. Quema, A. Clement, L. Alvisi,
+ 1450  and M. Dahlin. Eve: Execute-verify replication for multicore servers. In Proc. 10th USENIX OSDI, Hollywood,
+ 1451  CA, Oct. 2012.
+ 1452  [14] T. Kraska, G. Pang, M. J. Franklin, S. Madden, and
+
+ 1453  A. Fekete. MDCC: Multi-data center consistency. In
+ 1454  Proc. 8th ACM European Conference on Computer Systems (EuroSys), Apr. 2013.
+ 1455  [15] L. Lamport. The part-time parliament. ACM Transactions
+ 1456  on Computer Systems, 16(2):133–169, 1998. ISSN 0734-
+ 1457  2071.
+ 1458  [16] L. Lamport. Paxos made simple. ACM SIGACT News, 32
+ 1459  (4), Dec. 2001.
+ 1460  [17] L. Lamport. Generalized consensus and Paxos.
+ 1461  http://research.microsoft.com/apps/
+ 1462  pubs/default.aspx?id=64631, 2005.
+ 1463  [18] L. Lamport. Fast Paxos. http://research.
+ 1464  microsoft.com/apps/pubs/default.aspx?
+ 1465  id=64624, 2006.
+ 1466  [19] L. Lamport, D. Malkhi, and L. Zhou. Vertical Paxos and
+ 1467  primary-backup replication. Technical report, Microsoft
+ 1468  Research, 2009.
+ 1469  [20] L. Lamport, D. Malkhi, and L. Zhou. Reconfiguring a
+ 1470  state machine. SIGACT News, 41(1), Mar. 2010.
+ 1471  [21] B. Liskov and J. Cowling. Viewstamped replication revisited. Technical Report MIT-CSAIL-TR-2012-021, MIT
+ 1472  Computer Science and Artificial Intelligence Laboratory,
+ 1473  2012.
+ 1474  [22] J. MacCormick, N. Murphy, M. Najork, C. A. Thekkath,
+ 1475  and L. Zhou. Boxwood: abstractions as the foundation for
+ 1476  storage infrastructure. In Proc. 6th USENIX OSDI, San
+ 1477  Francisco, CA, Dec. 2004.
+ 1478  [23] Y. Mao, F. P. Junqueira, and K. Marzullo. Mencius: building efficient replicated state machines for WANs. In Proc.
+ 1479  8th USENIX OSDI, pages 369–384, San Diego, CA, Dec.
+ 1480  2008.
+ 1481  [24] I. Moraru, D. G. Andersen, and M. Kaminsky. Epaxos
+ 1482  code base. https://github.com/efficient/
+ 1483  epaxos, Aug. 2013.
+ 1484  [25] I. Moraru, D. G. Andersen, and M. Kaminsky. A proof of
+ 1485  correctness for Egalitarian Paxos. Technical report, Parallel Data Laboratory, Carnegie Mellon University, Aug.
+ 1486  2013. http://www.pdl.cmu.edu/PDL-FTP/
+ 1487  associated/CMU-PDL-13-111.pdf.
+ 1488  [26] F. Pedone and A. Schiper. Handling message semantics
+ 1489  with generic broadcast protocols. Distributed Computing,
+ 1490  15:97–107, Apr. 2002.
+ 1491  [27] F. Pedone and A. Schiper. Optimistic atomic broadcast: a
+ 1492  pragmatic viewpoint. Theoretical Computer Science, 291:
+ 1493  79–101, Jan. 2003.
+ 1494  [28] tpc-c. TPC benchmark C. http://www.tpc.org/
+ 1495  tpcc/spec/tpcc_current.pdf, 2010.
+ 1496  [29] P. Zieli´nski. Optimistic generic broadcast. In Proc.
+ 1497  19th International Symposium on Distributed Computing
+ 1498  (DISC), pages 369–383, Kraków, Poland, Sept. 2005.

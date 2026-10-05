@@ -1,0 +1,1461 @@
+---
+title: "Come Hell or Still Water: Alleviating Tail Latency in Cloud Block Store"
+authors:
+  - "Chaolei Hu"
+  - "Kun Qian"
+  - "Erci Xu"
+  - "Yifan Shen"
+  - "Haoran Zhang"
+  - "Xue Li"
+  - "Yuesheng Gu"
+  - "Shu Ma"
+  - "Lingjun Zhu"
+  - "Fengyuan Ren"
+  - "Ennan Zhai"
+year: "2026"
+publication: "23rd USENIX Symposium on Networked Systems Design and Implementation"
+handle_url: "https://www.usenix.org/conference/nsdi26/presentation/hu-chaolei"
+source_pdf: "research/agent366/papers/hu2026-cloud-block-tail.pdf"
+source_pdf_sha256: "721ad2860fb85711764b3a92a0eef6178e66a5b0e7951299b62ccddb23ee78ce"
+page_count: 17
+extracted_text_runs: 2513
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Maintaining low tail latency is crucial for cloud storage services. In ALIBABA CLOUD, our Elastic Block Storage (EBS), like many others, adopts layers of load balancing to avoid hot-spot I/Os, a dominant contributor to tail latency. However, in the field, EBS has still been suffering from tail latency spikes. Through extensive analysis of production workloads, we have identified the root cause: the workload bursts caused by a small group of Virtual Disks (VDs), which fundamentally influence the tail latency of the entire cluster. We hence propose a lightweight dual-bucket throttling mechanism to effectively mitigate the issue while maintaining fairness. In addition, we discover that, even under underloaded scenarios, the tail latency remains suboptimal due to the event-loop thread model. We propose a prioritybased scheduling mechanism to separate I/O-related tasks from I/O-unrelated ones. Our evaluation shows that the proposed mechanisms can reduce the tail latency by up to 97% in burst and 43% in underloaded scenarios. Our mechanisms have been deployed across dozens of clusters for more than three months, and have served hundreds of trillions of I/O requests. They reduce the P99999 tail latency of steady segments by 59.7% under burst scenarios and of all I/Os by 22% in underloaded scenarios.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Come Hell or Still Water:
+
+    2  Alleviating Tail Latency in Cloud Block Store
+
+    3  Chaolei Hu,Tsinghua University and Alibaba Cloud;Kun Qian, Erci Xu, Yifan Shen,
+
+    4  Haoran Zhang, Xue Li, Yuesheng Gu, and Lingjun Zhu,Alibaba Cloud;
+
+    5  Fengyuan Ren,Tsinghua University;Ennan Zhai,Alibaba Cloud
+
+    6  https://www.usenix.org/conference/nsdi26/presentation/hu-chaolei
+
+    7  This paper is included in the Proceedings of the 23rd USENIX Symposium
+
+    8  on Networked Systems Design and Implementation.
+
+    9  May 4–6, 2026 • Renton, WA, USA
+
+   10  ISBN 978-1-939133-54-0
+
+   11  Open access to the Proceedings of the 23rd USENIX Symposium
+
+   12  on Networked Systems Design and Implementation is sponsored by
+=== PAGE 2 ===
+
+   13  Come Hell or Still Water: Alleviating Tail Latency in Cloud Block Store
+
+   14  , Lingjun Zhu
+
+   15  23rd USENIX Symposium on Networked Systems Design and Implementation 1259
+
+   16  Chaolei Hu1,2, Kun Qian2, Erci Xu
+   17  Xue Li2, Yuesheng Gu2, Shu Ma2
+   18  1Tsinghua University
+
+   19  Abstract
+   20  Maintaining low tail latency is crucial for cloud storage
+   21  services. In ALIBABACLOUD, our Elastic Block Storage
+   22  (EBS), like many others, adopts layers of load balancing to
+   23  avoid hot-spot I/Os, a dominant contributor to tail latency.
+   24  However, in the field, EBS has still been suffering from
+   25  tail latency spikes. Through extensive analysis of production workloads, we have identified the root cause: the workload bursts caused by a small group of Virtual Disks (VDs),
+   26  which fundamentally influence the tail latency of the entire
+   27  cluster. We hence propose a lightweight dual-bucket throttling mechanism to effectively mitigate the issue while maintaining fairness. In addition, we discover that, even under
+   28  underloaded scenarios, the tail latency remains suboptimal
+   29  due to the event-loop thread model. We propose a prioritybased scheduling mechanism to separate I/O-related tasks
+   30  from I/O-unrelated ones. Our evaluation shows that the proposed mechanisms can reduce the tail latency by up to 97%
+   31  in burst and 43% in underloaded scenarios. Our mechanisms
+   32  have been deployed across dozens of clusters for more than
+   33  three months, and have served hundreds of trillions of I/O
+   34  requests. They reduce the P99999 tail latency of steady segments by 59.7% under burst scenarios and of all I/Os by 22%
+   35  in underloaded scenarios.
+
+   36  1 Introduction
+   37  Elastic Block Storage (EBS) plays an essential role in today's
+   38  cloud ecosystem. Formatted as Virtual Disks (VDs) to Virtual Machines (VMs), EBS has been supporting workloads
+   39  from single-server databases to large-scale data analytics.
+   40  The high-performance nature of these applications has
+   41  placed demanding requirements on EBS. Hence, many cloud
+   42  vendors, including Azure [5], AWS [2], and us at ALIBABA
+   43  CLOUD, choose the compute-to-storage disaggregation architecture for building EBS. Under this setup, the compute cluster—which accommodates the nodes for hosting the
+   44  VMs—does not store data. Rather, it interconnects through
+   45  the datacenter network to a backend storage cluster which
+   46  typically includes two sets of servers, proxy servers (for address translation) and storage servers (for data persistence).
+   47  This architecture allows a VD to be served across nodes in
+   48  the storage backend, providing a highly scalable throughput.
+   49  Moreover, this disaggregated setup also allows the compute
+   50  † Corresponding authors
+
+   51  USENIX Association
+
+   52  2†, Yifan Shen2, Haoran Zhang2,
+   53  2, Fengyuan Ren1†, Ennan Zhai2
+   54  2Alibaba Cloud
+
+   55  Read P99 Read P999 Read P99999
+   56  Write P99 Write P999 Write P99999
+   57  15
+   58  100 non-burst
+   59  10 burst
+   60  5
+   61  00 5 10
+   62  10
+   63  Latency (ms)
+   64  1
+   65  0 10 20 30 40
+   66  Time (min)
+   67  Figure 1: Tail latency in a Cluster.
+   68  and storage clusters to evolve independently, enabling quick
+   69  adoption of new technologies (e.g., RDMA [16]).
+   70  Still, a performance challenge remains: the tail latency.
+   71  Figure 1 shows that in a representative cluster, the tail latency can reach up to 109ms at the P99999 level. One major and common contributor to tail latency is the queued-up
+   72  I/O requests caused by hot-spot accessing. In the field, we
+   73  have constantly observed similar patterns in EBS where only
+   74  a small proportion (0.1% to 11.6%) of the VDs in an EBS
+   75  cluster are frequently accessed. To mitigate this issue, we
+   76  equip EBS with multiple layers of load balancing strategies
+   77  at VD, compute node and storage node levels.
+   78  Unfortunately, simply balancing the load is not enough.
+   79  In the field, we have been witnessing tail latency spikes (defined as I/O latency exceeding 10ms, and multiple spikes
+   80  occurring during a 10-minute window are treated as one).
+   81  For example, over one week of monitoring on around 100
+   82  randomly selected EBS clusters has reported a total of 649
+   83  tail latency spikes, and the most severely hit EBS cluster has
+   84  experienced 289 spikes. The situation will further deteriorate during representative online events like shopping festivals where nearly all clusters used by the promoters endure
+   85  constant tail latency spikes during peak hours.
+   86  Interestingly, detailed profiling reveals that the culprit is
+   87  not the ineffective load balancing. Instead, it is the sheer
+   88  volume of I/O requests from a few VDs within a short period
+   89  that overwhelms the entire cluster. Due to the load balancing,
+   90  such a burst ironically floods almost all storage nodes within
+   91  the cluster and subsequently causes tail latency spikes. This
+   92  overly concentrated I/O access pattern driven by VDs owned
+   93  by a small group of users (a.k.a., major clients) is fairly com-
+=== PAGE 3 ===
+
+   94  1260 23rd USENIX Symposium on Networked Systems Design and Implementation
+
+   95  mon. For example, more than 51% of VDs are possessed by
+   96  the top 3 major clients in each cluster. More importantly,
+   97  while it is acceptable for the major clients to experience a
+   98  longer latency since they initiated the burst, the minor clients
+   99  that are co-located with the major ones, should not be but in
+  100  fact are severely impacted by worsening tail latency.
+  101  Initially, we intended to address this issue by strictly capping the throughput on VDs owned by the major clients.
+  102  However, this approach, while effective for reducing bursts,
+  103  backfires as it severely impacts the bandwidth utilization during underloaded periods (i.e., the majority of the time). Statistically, by throttling the throughput of each major client to
+  104  60 MBps, the EBS would suffer 27% utilization deterioration.
+  105  By revisiting the EBS stack and burst traces, we discover
+  106  that the underlying storage layer can tolerate temporary I/O
+  107  spikes. Moreover, the bursts driven by major clients are usually short-lived (i.e., mostly tens of milliseconds) and only
+  108  target a small portion of the Logical Block Address (LBA).
+  109  Therefore, we should, instead of capping all major clients'
+  110  traffic, identify and throttle hot segments (i.e., partitions of
+  111  the VDs) in a burst. The remaining "steady" segments can
+  112  proceed as usual or even preempt bandwidth resources from
+  113  the hot ones to offset impacts from the burst.
+  114  Based on this key idea, we use a theoretical model to accurately characterize the available bandwidth for "steady"
+  115  segments under various load conditions. Based on this estimation, we propose a dual-bucket throttling mechanism,
+  116  to reduce the tail latency of steady segments during bursts.
+  117  At a high level, the mechanism works by setting up two token buckets in each proxy server and refilling the buckets at
+  118  a fixed rate on an interval basis (every 10ms in our case).
+  119  The segment can issue an I/O after obtaining a token from
+  120  the buckets. The main bucket is up for grabs for all segments, while the cheque bucket is only accessible to steady
+  121  ones. The goal of the cheque bucket is to allow temporary
+  122  I/O bursts (i.e., at most one interval) and preserve the bandwidth for steady segments.
+  123  Although the overall latency in Figure 1 remains relatively
+  124  low under underloaded scenarios, our breakdown analysis revealed that the proxy layer still dominates the tail latency,
+  125  contributing over 49.2% to the end-to-end latency — far
+  126  exceeding the expected lightweight role of a proxy server.
+  127  We found that the event-based scheduling framework (i.e.,
+  128  libevent, a common library for event-driven programming)
+  129  can significantly postpone the processing of I/O requests
+  130  due to delayed reception of new I/O requests and inefficient
+  131  scheduling of tasks on the critical path.
+  132  We hence develop a priority-based task scheduler to further categorize the tasks into I/O-related and I/O-unrelated
+  133  tasks, and allocate them to corresponding queues. The I/Orelated tasks are always processed first. In contrast, the processing of I/O-unrelated tasks is delayed until all I/O-related
+  134  ones are processed, and will be interrupted if the overall execution time exceeds a timeout (10us by default).
+  135  We extensively evaluate our proposed solutions by combining comprehensive microbenchmarks, real-world traces,
+  136  and large-scale deployments across diverse setups. In production, dual-bucket throttling and the priority-based task
+  137  scheduler reduce P99999 tail latency by 59.7% in burst scenarios and 22% in underloaded scenarios.
+  138  Our contributions are as follows:
+  139  • We have identified the simultaneous overload by major
+  140  clients as the main contributor to the tail latency spikes
+  141  in EBS. We have proposed a dual-bucket throttling mechanism to alleviate the tail latency spikes for minor clients.
+  142  • We have revealed that the existing event-based scheduling
+  143  framework, even with thread splitting, can still suffer from
+  144  suboptimal tail latency under underloaded scenarios. We
+  145  further developed a priority-based task scheduler to schedule I/O-related and I/O-unrelated tasks separately.
+  146  • We have deployed both mechanisms at scale across dozens
+  147  of clusters, serving hundreds of trillions of I/O requests,
+  148  where they cut steady-segment P99999 tail latency by
+  149  59.7% in bursts and of all I/Os by 22% in underloaded
+  150  scenarios.
+  151  • We have released production I/O traces of typical burst
+  152  scenarios collected from ALIBABACLOUD EBS at
+  153  https://tianchi.aliyun.com/dataset/219284 to
+  154  benefit future research and optimizations on related topics.
+  155  The rest of the paper is organized as follows. We introduce
+  156  the background of EBS in §2. Then, we move on to analyze
+  157  the symptoms, root causes and the (unsuccessful) simple
+  158  fixes of latency spikes under both burst and underloaded scenarios in §3. We present the design and implementation of
+  159  our proposed dual-bucket throttling and priority-based task
+  160  scheduler in §4 and extensively evaluate both strategies in
+  161  §5. We end this paper with a discussion on related work and
+  162  a short conclusion.
+
+  163  2 Background
+
+  164  2.1 Elastic Block Storage (EBS) Architecture
+  165  Overview. Similar to block store services by other vendors
+  166  (e.g., Azure and AWS [11, 2]), our EBS service at ALIBABA
+  167  CLOUD also follows the compute-storage disaggregation, to
+  168  allow flexible and scalable deployment and management.
+  169  Figure 2 highlights the three-layer architecture of EBS, including the compute, proxy, and storage layer.
+  170  Compute Layer. In EBS, the compute side consists of multiple compute clusters. Each cluster can have tens to hundreds of compute nodes*. Each compute node hosts one or
+  171  more virtual machines (VMs) and each VM can be attached
+  172  to one or more virtual disks (VDs). Inside a VD, its Logical
+
+  173  *To avoid ambiguity, throughout this paper, we use the term node (e.g.,
+  174  compute and storage node) to refer to the physical machine, and server to
+  175  the software process (e.g., proxy server) running on the node.
+
+  176  USENIX Association
+=== PAGE 4 ===
+
+  177  23rd USENIX Symposium on Networked Systems Design and Implementation 1261
+
+  178  Compute Layer Storage Layer
+
+  179  Compute Node 𝑉𝑀 𝑉𝑀
+  180  ! "
+  181  1 … … … 2 … 1 … 4
+  182  Storage 𝑉𝐷𝑉𝐷𝑉𝐷DFS
+  183  " ! !
+  184  Client
+
+  185  1%& 𝐻𝑜𝑝 𝑁𝑒𝑡𝑤𝑜𝑟𝑘 Proxy Layer 2#$ 𝐻𝑜𝑝 𝑁𝑒𝑡𝑤𝑜𝑟𝑘
+  186  r
+  187  I/O Processing ve
+  188  er
+  189  Enqueue S
+  190  Fetch Furthur y
+  191  IOs Processing ox
+  192  Pr
+  193  §4.2 Flow Control §4.3
+  194  Event
+  195  1 1 2 4 Loop
+  196  Task
+  197  Loaded Segments Queue Dequeue
+
+  198  Figure 2: EBS Architecture Overview.
+  199  Block Address (LBA) space is split into a series of fixed-size
+  200  (32 GiB by default) segments, namely the numbered blocks
+  201  in Figure 2.
+  202  Under the disaggregation setup, when a VM issues I/Os
+  203  to a VD, all requests will be first processed by the storage
+  204  client running inside the hypervisor. The storage client adds
+  205  the packet headers to the requests and further forwards them
+  206  to the backend via the network (a.k.a., the 1st hop).
+  207  Proxy Layer. The storage backend includes two layers, the
+  208  proxy and storage. In our EBS, the storage layer is essentially an append-only distributed file system. The key functionality of the proxy layer is to translate the block-based
+  209  semantics of VD's requests to the file semantics of the underlying storage layer. Additionally, the proxy servers in this
+  210  layer also perform garbage collection, indexing for reads,
+  211  data scrubbing, and many other necessary tasks.
+  212  To efficiently orchestrate the various tasks listed above,
+  213  the proxy servers adopt an event-driven thread model to reduce context switching and scheduling overhead. Under this
+  214  model, each proxy server runs an infinite event loop, and
+  215  adds the pending tasks (e.g., incoming I/Os and scheduled
+  216  garbage collection) to a single queue. The tasks are then executed in a FIFO fashion, a common practice in large-scale
+  217  systems, such as Demikernel [30], IX [8] and mTCP [19].
+  218  Storage Layer. At a high level, the underlying distributed
+  219  file system (DFS) is similar to HDFS. It provides data persistence and retrieval service with the append-only file abstraction. In addition, it offers reliability support via data
+  220  redundancy including either three-way replication or erasure
+  221  coding. Note that, our distributed file system also has a set
+  222  of metadata servers (like namenode in HDFS) and multiple
+  223  data servers (i.e., datanode in HDFS). While each (physical) storage node hosts one proxy server and one data server,
+
+  224  USENIX Association
+
+  225  Storage Client Proxy Layer Storage Layer
+  226  1st Hop 2nd Hop
+  227  Burst 73.8% 109.6 ms
+  228  Write
+  229  Burst 72.0% 114.5 ms
+  230  Read
+  231  Underload 51.5% 3.8 ms
+  232  Write
+  233  Underload 49.2% 5.4 ms
+  234  Read
+  235  0% 20% 40% 60% 80% 100%
+  236  Latency Percentage (%)
+  237  Figure 3: Breakdown of the 99.999th percentile tail latency
+  238  under burst and underloaded workloads.
+  239  we do not enforce the strong locality in transferring data between the two processes. Instead, a proxy server only communicates with the data server via an intra-cluster network
+  240  (named as the 2nd hop, see Figure 2).
+
+  241  2.2 Load Balancing in EBS
+  242  Achieving a balanced load distribution is crucial for improving the overall performance and, especially, the tail latency.
+  243  To reach this goal, first, the Storage Client (on the compute
+  244  node) is equipped with multiple hyper threads (e.g., 4-8) to
+  245  handle VDs' requests in a round-robin fashion, avoiding the
+  246  storage client being drained by a single VD. Furthermore,
+  247  along the stack, it is obvious that the requests from VDs are
+  248  shuffled among the proxy servers, thereby making the proxy
+  249  server an ideal place for performing load balancing. Currently, at the proxy layer, EBS mainly employs three strategies including segmentation, allocation and migration. In
+  250  particular, VDs of each client are evenly distributed across
+  251  clusters within an availability zone during allocation, preventing over-concentration on any single cluster.
+  252  Segmentation. Recall that a VD's LBA is divided into a series of fixed-size segments, and the proxy server operates at
+  253  the segment level. Thus, a VD is handled by different proxy
+  254  servers. However, such granularity is not enough for balancing the load. One major shortcoming is that the burst I/Os often tend to concentrate on a short range of LBA (i.e., several
+  255  MiBs) which is much smaller than the default segment size
+  256  (i.e., 32 GiB). If we adjust the segment size to more closely
+  257  align with the MiB-level of typical hot spots, the overhead of
+  258  metadata can increase by three orders of magnitude or more,
+  259  severely stressing the metadata servers.
+  260  Therefore, we choose to first divide the entire LBA space
+  261  into 2-MiB data blocks and then place them into the 32-GiB
+  262  segments in a round-robin manner. For example, if a VD's
+  263  capacity is 320 GiB (i.e., 10 segments), then the first segment
+  264  will contain the 2-MiB data blocks from LBA 0-2 MiB, 20-
+  265  22 MiB, and so on. This way, the hot spots are much more
+  266  likely to be distributed across different proxy servers, thus
+  267  improving the load balancing.
+  268  Allocation. EBS further integrates a series of strategies to
+=== PAGE 5 ===
+
+  269  1262 23rd USENIX Symposium on Networked Systems Design and Implementation
+
+  270  0.3 Read Write All
+
+  271  CV 0.2
+
+  272  0.1
+  273  0 4 8 12 16 20 24
+  274  Time (h)
+  275  Figure 4: Intra-cluster request arrival CV for read, write,
+  276  and total traffic.
+  277  optimize the resource allocation. First, a user can subscribe
+  278  multiple VDs (for different VMs) and they may tend to have
+  279  similar access patterns. Therefore, we will scatter such VDs
+  280  across different EBS clusters to alleviate the potential load
+  281  imbalance. Second, similarly, on the storage end, EBS enforces the segments from a VD to be distributed across at
+  282  least 4 different proxy servers.
+  283  Migration. Besides static measures like segmentation and
+  284  allocation, EBS also supports dynamic load balancing via
+  285  intra-/inter-cluster segment migrations. While both types of
+  286  migrations follow similar procedures (i.e., stop I/Os on the
+  287  source server, copy the metadata, and resume I/Os on the
+  288  destination one), the inter-cluster migration incurs additional
+  289  overheads due to the cross-cluster traffic and longer transferring time (e.g., 20 minutes for inter-cluster migration).
+  290  Therefore, we only migrate segments to a different cluster
+  291  when the load imbalance persists on the existing one for a
+  292  certain period of time (i.e., 10 minutes at the moment).
+
+  293  3 Motivation
+
+  294  3.1 What Went Wrong?
+  295  Due to the consequential impacts on Service Level Objectives (i.e., user experiences), handling high tail latency has
+  296  always been a priority of maintaining cloud services [6]. Previous work has shown a major cause of high tail latency
+  297  to be I/O bursts [7]. With different levels of load balancing mechanisms in EBS enabled (see §2), one question inevitably arises: do the layered load balancing mechanisms
+  298  successfully defend against the long tail latency in EBS?
+  299  The short answer, unfortunately, is no. In production, we
+  300  have still been experiencing frequent occurrences of tail latency spikes. In Figure 1, we demonstrate various levels of
+  301  tail (from P99 to P99999)† I/O latency in an EBS cluster for
+  302  nearly an hour. We can see that both read and write have suffered multiple tail latency spikes where P99999 metrics can
+  303  reach up to 109 milliseconds. Our monitoring further shows
+  304  that such spikes not only frequently occur but also can be
+  305  widely spread across EBS clusters. We collected the latency
+  306  statistics of I/O requests from around 100 clusters in a recent week, and we recorded 649 tail latency spikes. 289 of
+  307  them even occurred in the same cluster. Furthermore, during
+  308  † P99999 tail latency is a standard metric closely monitored by major
+  309  cloud services [3, 31].
+
+  310  160160 #1#1 #2#2 #3#3
+  311  140
+  312  120120
+  313  100 #4#4 #5#5 #6#6
+  314  8080
+  315  60
+  316  4040 #7#7 #8#8 #9#9
+  317  Utilization (%)
+  318  20
+  319  Normalized Load (%) 00
+  320  900 100120 110240 120360 130480
+  321  Time (s)Time (s)
+  322  Figure 5: Cluster- and node-level views of a workload burst.
+  323  shopping festivals and other special events, nearly all clusters serving these events constantly endure I/O bursts during
+  324  peak hours.
+  325  To pinpoint the culprit, we start by profiling the distribution of the latency spikes by EBS components. In EBS,
+  326  an I/O has to go through the storage client, the 1st hop network, the proxy server, the 2nd hop network, and finally the
+  327  storage server (see Figure 2). In Figure 3, we present the
+  328  breakdown under P99999 tail latency, where the network latency encompasses both the wire transmission delay and the
+  329  time the packet waits in the NIC receive buffer before being consumed by the application. We discover that, for both
+  330  read and write, the proxy server is the dominant contributor. To understand the root cause, we further cross check the
+  331  software/hardware logs and the traffic monitoring data. The
+  332  reason, instead of malfunctioning software/hardware components, remains to be the workload bursts.
+  333  Initially, we hypothesize that the load balancing mechanisms in EBS are suboptimal. To verify this, we examine
+  334  the distribution of workload across proxy servers in EBS
+  335  clusters. The results, however, do not support this hypothesis. We use the coefficient of variation (CV) – defined as
+  336  the standard deviation divided by the mean of the request arrival rate among proxy servers in a cluster – as our metric for
+  337  evaluating load balance. As shown in Figure 4, the CV averages 0.12 and oscillates between 0.08 and 0.18 over time,
+  338  with similar results observed across other clusters. These
+  339  results indicate that the load is well balanced, and are also
+  340  comparable to prior reports from large-scale production systems [14, 12]. This very effectiveness rules out imbalance
+  341  as the main culprit of the latency spikes; instead, the more
+  342  plausible explanation is that the workload bursts are so severe that they overwhelm the layers of load balancing, causing requests to accumulate and spikes in latency.
+  343  Symptom. Figure 5 gives both a macroscopic and microscopic view of a burst scenario in an EBS cluster. On the left,
+  344  we can see the cluster-wide normalized load during the burst,
+  345  and on the right, we present the load patterns on 9 randomly
+  346  selected servers (out of nearly 100) within the same cluster.
+  347  Figure 6 shows, without imposing a bandwidth cap on proxy
+  348  servers, the end-to-end latency increases dramatically. The
+  349  root cause is that the storage layer has limited serving capacity. Issuing excessive requests can introduce super-linear
+  350  waiting time. Based on evaluations and field experiences,
+
+  351  USENIX Association
+=== PAGE 6 ===
+
+  352  23rd USENIX Symposium on Networked Systems Design and Implementation 1263
+
+  353  Measured Latency Modeled Latency
+  354  80 80
+  355  60 60
+  356  40 40
+  357  Headroom Max
+  358  20 20 Limit
+  359  P95 Latency (ms) 0 P95 Latency (ms) 0
+  360  1100 1300 1500 1700 800 1000 1200 1400
+  361  Bandwidth (MBps) Bandwidth (MBps)
+  362  (a) GC Rate = 300 MBps (b) GC Rate = 600 MBps
+  363  Figure 6: With the gradual increase of load in a proxy
+  364  server, the end-to-end latency increases super-linearly, making throttling necessary.
+  365  we set the maximum limit to 1.2GBps (100% load in Figure 5.) The figures clearly show that all servers follow the
+  366  very pattern the cluster experiences, indicating that the load
+  367  balancing mechanisms are functioning as intended. It is simply that the burst workload has driven servers in the cluster
+  368  to be overloaded (i.e., across the 100% load line), rendering
+  369  long queueing delays (i.e., tail latency spikes).
+  370  Root causes. Surprisingly, this phenomenon is not caused
+  371  by many users collectively, but by just a few major clients—
+  372  sometimes even one. Field statistics show that, among the
+  373  randomly sampled 20 EBS clusters, the top user can contribute up to 95% of the total traffic in a cluster and the
+  374  top three, on average, account for 63%. This is inherent to
+  375  multi-tenant clouds, where a small number of major clients
+  376  inevitably account for the majority of resources.
+  377  Such dominance prevails not just in the burst scenario but
+  378  widely in the production environment. Major clients (i.e.,
+  379  top three) own 51% of the total VDs in the cluster. This situation easily allows the traffic patterns of major clients to
+  380  impact those of the cluster. And, with the load balancing
+  381  mechanisms in place, the overwhelming traffic from the major clients' VDs can lead to an all-server overload, causing
+  382  the simultaneous spikes shown in Figure 5.
+  383  Note that, even within major clients' VDs, the skewness
+  384  is considerable. We compute the CV of all segments' load
+  385  from the top 3 major clients in different clusters. The CV
+  386  could be up to 553 and the average value is 47.7, showing
+  387  great load variance of segments in different VDs.
+  388  Impact and Simple Fixes. Now, with a series of research
+  389  questions (RQs), we intend to explore the rationale, the consequences, and the potential solutions.
+  390  RQ1: Why is this phenomenon bound to happen? To avoid
+  391  over-concentration of traffic, we have already distributed
+  392  VDs from major clients across different servers and clusters.
+  393  Yet, the sheer volume of requests nevertheless drives all related servers (and the cluster) to be overloaded. Note that,
+  394  enforcing a more stringent distribution policy, say setting the
+  395  maximum number of VDs a client can own in a cluster, can
+  396  be challenging due to the limited number of clusters in an
+  397  availability zone. In addition, while certain "bursty" traf-
+
+  398  USENIX Association
+
+  399  fic is foreseeable before events like shopping festivals, the
+  400  individual suddenness remains. Therefore, it is difficult to
+  401  predict and (re)allocate resources in advance. RQ2: Do the
+  402  impacts only affect the major clients? A na¨ıve opinion is that
+  403  the latency spikes are acceptable since it is the major clients
+  404  who flooded the clusters in the first place. Unfortunately, the
+  405  reality is that the latency spikes are not limited to the major
+  406  clients. In fact, while the major clients are certain to take
+  407  severe hits, the latency spikes also exist among the minors,
+  408  with a 20× tail latency increase for I/Os of the "innocent"
+  409  users.
+  410  RQ3: Why not limit the traffic from compute ends? One
+  411  straightforward solution is to directly limit the traffic inside
+  412  the storage client. Obviously, placing a limit on the bandwidth of major clients can alleviate the latency spikes. However, setting an appropriate threshold is challenging. On the
+  413  one hand, a fixed limit can lead to either resource underutilization (for being too strict) or ineffectiveness (for being
+  414  too generous). For example, if we set the bandwidth limit
+  415  of a major client to 60 MBps, the proxy server, on average, leaves 27% headroom left unused. On the other hand,
+  416  if we dynamically adjust the threshold, it would require a
+  417  near real-time monitoring and feedback mechanism given
+  418  that bursts are short-lived (typically last ten to hundreds of
+  419  milliseconds, though some extend to tens of seconds). This
+  420  is undesirable in practice as accurately adjusting dynamic
+  421  thresholds requires frequent interactions among all (tens of
+  422  thousands) VMs employing the same proxy server cluster.
+  423  Similarly, imposing stricter per-client VD caps would directly reduce the amount of sellable storage capacity, negatively impacting revenue—an unacceptable trade-off for a
+  424  commercial cloud service.
+  425  RQ4: Why not migrating the hot traffic on storage ends? Alternatively, one might suggest adopting a reactive approach
+  426  by migrating the hot traffic to other clusters. The rationale
+  427  is that, while a burst may easily flood the current cluster, it
+  428  is unlikely such a workload would push all the clusters in
+  429  an availability zone to their limits. Therefore, migrating the
+  430  hot traffic to cold clusters seems promising. Yet, in practice,
+  431  the bursts are both short-lived and unpredictable, thereby
+  432  making the migration—which usually takes 20 minutes—
+  433  infeasible.
+  434  Key Takeaways. In shared storage systems, load balancing spreads localized bursts cluster-wide, amplifying
+  435  rather than mitigating tail-latency degradation. Static
+  436  rate caps can curb bursts but waste capacity under normal load. This calls for a mechanism that protects minor
+  437  clients' tail latency during overload without sacrificing
+  438  cluster utilization in the common case.
+
+  439  3.2 Underloaded Scenario
+  440  Symptom. Now, with the burst scenario exposed, a followup question ensues: do I/Os during normal (i.e., under-
+=== PAGE 7 ===
+
+  441  1264 23rd USENIX Symposium on Networked Systems Design and Implementation
+
+  442  Frontend
+  443  Statistic Monitor
+  444  Thread Snapshot GC
+  445  Index Compact
+  446  ∅
+  447  a A b c B d C e
+  448  If empty RX/TX
+  449  Uncompress Journal Cache
+  450  Backend … RX Buffer
+  451  Thread D
+  452  Append Task
+  453  IO Processing
+  454  TX Buffer
+
+  455  Figure 7: Event-based thread model and a thread-splitting
+  456  solution.
+  457  loaded) periods also suffer abnormal tail latency? This question motivates a closer look at Figure 1. At first glance, the
+  458  real-world statistics suggest not. Indeed, in stark contrast to
+  459  the bursts, the tail latency metrics under normal I/O pressures
+  460  are relatively low, only 1.34ms and 3.7ms on average for P99
+  461  and P99999, respectively.
+  462  However, a closer look at the breakdown of the tail latency
+  463  indicates otherwise. The breakdown of the P99999 latency
+  464  for read and write under normal I/O pressures in Figure 3
+  465  shows that the proxy server processing contributes significantly to the tail latency. In other words, simply because
+  466  having an overall latency lower than that under the burst does
+  467  not mean that the tail latency is well tamed.
+  468  Root Causes. The per-I/O tracing leads us to conclude that
+  469  the fundamental event-based thread model is the culprit for
+  470  the high tail latency. As shown in Figure 7, in the proxy
+  471  server, each thread runs in the run-to-completion mode, and
+  472  each processing is enveloped in an individual task and assigned into a task queue for FIFO scheduling. Although the
+  473  proxy server is designed to serve I/O requests from clients,
+  474  it also needs a large number of assistant tasks to keep the entire proxy server running healthily. For example, monitoring
+  475  and statistic tasks are necessary for the operation and troubleshooting; the index compact task is necessary for keeping
+  476  the block offset table concise, optimizing memory usage and
+  477  processing performance. Therefore, even if there is no excessive amount of requests, such a model will postpone the
+  478  processing of I/O requests owing to the execution of other
+  479  I/O-unrelated tasks at the front of the task queue.
+  480  Limitations of intuitive and existing solutions. One "bandaid" solution is to assign additional computing resources,
+  481  dedicating separate cores for task processing. This allocation initially showed promise by improving task processing
+  482  efficiency. By diverting unrelated tasks (i.e., the tasks enclosed by the dashed box in Figure 7) from the I/O thread to
+  483  other processing units, the I/O thread could complete its current loop processing more swiftly, facilitating quicker transitions to the next loop for efficient I/O handling. However,
+  484  this approach has its limitations. While the majority of tasks
+  485  could be offloaded successfully, some tasks remained inherently tied to the I/O processing logic, sharing critical data
+  486  structures. Attempting to separate these tasks led to data contention issues, resulting in performance degradation rather
+  487  than improvement.
+  488  Additionally, existing work primarily focuses on optimizing the user-level thread model [20, 26, 25], which requires
+  489  significant architectural changes to the code, making it difficult to quickly address our issues. On the other hand, userlevel thread scheduling introduces additional overhead compared to event-based thread models, and may also require
+  490  specialized hardware support [25], making them hard to deploy at scale.
+  491  Key Takeaways. Even in the underloaded scenario, tail
+  492  latency remains problematic. In event-loop architectures,
+  493  I/O-related and I/O-unrelated tasks inevitably share the
+  494  same thread and are processed in batches. This batched
+  495  execution delays newly arrived I/O requests even when
+  496  overall utilization is low. This calls for a scheduling
+  497  mechanism that minimizes the latency impact on I/Orelated tasks while ensuring I/O-unrelated tasks still execute reliably.
+
+  498  4 Design
+
+  499  4.1 Design Goals
+
+  500  Goal-1: practical and lightweight. The previous analysis shows that the tail latency is not well optimized under
+  501  both burst and underloaded scenarios. Our earlier latency
+  502  breakdowns have suggested that the hardware has also contributed significantly to the tail latency. While we notice that
+  503  recent advancements in hardware (e.g., 2×200Gbps RDMA
+  504  and ZNS NVMe) have offered better guarantees on tail latency, we, as a cloud vendor, can hardly depend on hardware
+  505  upgrades to alleviate the tail latency. Apart from being unfavorable to the CapEx due to the large number of deployed
+  506  servers, this can also incur huge engineering effort since
+  507  a complete overhaul of certain parts or the entire software
+  508  stack is often needed for fully utilizing the new hardware.
+  509  Therefore, we aim to propose solutions that do not require
+  510  extensive restructuring of the system architecture and only
+  511  touch the necessary parts of the data path.
+  512  Goal-2: effective and fair. Obviously, our solutions need
+  513  to be effective in reducing the tail latency in both burst and
+  514  underloaded scenarios. Our discussion on the simple fixes
+  515  has shown that certain methods can indeed reduce the tail
+  516  latency but at the cost of introducing side effects. Again, as a
+  517  cloud vendor, we emphasize the fairness and thus expect that
+  518  our approaches, if not beneficial to all clients, would at least
+  519  not worsen the experiences (i.e., Service Level Objectives,
+  520  SLOs).
+
+  521  USENIX Association
+=== PAGE 8 ===
+
+  522  23rd USENIX Symposium on Networked Systems Design and Implementation 1265
+
+  523  Tag for steady IO Token Update
+
+  524  Segment 1 Main Bucket Cheque Bucket
+
+  525  Segment 2 Rate Monitor
+  526  if
+  527  Segment 3
+  528  Figure 8: Burst-aware rate limiter overview.
+
+  529  4.2 Handling Burst Scenario
+
+  530  Observation. In § 3, we have shown that limiting I/O rates
+  531  on major clients is suboptimal in that it would backfire on
+  532  the utilization of the proxy server on average. This motivates
+  533  us to revisit the field traces and leads to the following observations.
+  534  • I/O carries different service guarantees in EBS. When a
+  535  virtual disk is created, users are provisioned with a baseline level of throughput/IOPS, which defines the SLAbound base I/O that must be satisfied in terms of available bandwidth. Demand beyond this baseline is treated
+  536  as burst I/O and is served on a best-effort basis without explicit guarantees. Under high load, our goal is to
+  537  sustain throughput while protecting SLA-bound base I/O
+  538  from burst interference.
+  539  • Not all segments of the major clients under bursts are hot.
+  540  In fact, most of them are not. As aforementioned, the average CV of segments in the same VD is 47.7, revealing
+  541  a weak correlation among those segments. Therefore, instead of throttling the entire client, we should operate at a
+  542  finer granularity, i.e., segment-level.
+  543  • The underlying DFS can tolerate I/O bursts, at least for
+  544  a short period of time. Recall that the bandwidth of a
+  545  proxy server is limited to 1.2 GBps to avoid overloading the DFS. This strict limit is set to reserve enough
+  546  resources for handling extremely high background loads
+  547  (e.g., GC). However, temporarily exceeding this limit during low background loads would not cause a severe performance penalty.
+  548  • The bursts are short-lived. We have profiled the burst durations and found that the majority of the bursts last less
+  549  than 100ms with a few exceptional cases persisting over a
+  550  few seconds.
+  551  Key idea. The observations above motivate a key idea: instead of throttling hot segments from major clients during
+  552  bursts, we let steady segments overdraw tokens, which simultaneously preserves overall resource utilization and ensures that minor clients' I/O demands are not disrupted.
+  553  Moreover, by estimating the actual available resources, we
+  554  can compensate the steady segments with dedicated tokens
+
+  555  USENIX Association
+
+  556  to issue more requests. Furthermore, we only perform overdrawing during the first time window of the burst. Now, our
+  557  challenges boil down to three parts, as illustrated in Figure 8.
+  558  First, build a segment-level monitor to identify hot segments.
+  559  Second, estimate the available bandwidth to determine how
+  560  much can be overdrawn. Finally, use the available bandwidth to allow steady segments to overdraw tokens, while
+  561  maintaining sufficient resources for the DFS and the hot segments.
+  562  Segment-level I/O rate monitoring. To achieve a finer
+  563  granularity of rate limiting, we first need to accurately monitor the I/O rate on a segment level. To achieve this, we calculate the I/O request rate of each segment under a fixed interval T (10ms in production). If the volume of requests served
+  564  by a segment in the current interval exceeds the predefined
+  565  threshold R, this segment is labeled as a "hot segment". Otherwise, this segment is categorized as a "steady segment". To
+  566  mitigate the impact of network jitter and ensure the stability
+  567  of segment categorization, the system tracks the last time a
+  568  segment was marked as a "hot segment". A segment is designated as steady only if its request rate remains below R for
+  569  at least N intervals (N × T).
+  570  Available bandwidth estimation. Since the background
+  571  workload is dynamic, we estimate the available bandwidth
+  572  by modeling a proxy server as an M/M/1 queue [21], where
+  573  requests arrive at rate λ and the server processes them at rate
+  574  µ. The expected I/O latency at percentile p is (full derivation
+  575  in Appendix A):
+  576  ln(1 − p)
+  577  wp = α (1)
+  578  µ − λ
+  579  where α is a correction factor (α=8000 in production)
+  580  to account for the deviation from ideal exponential distributions. In practice, directly measuring P99999 latency requires minutes of samples, so we instead monitor P95 latency over short intervals. Since Equation (1) establishes a
+  581  deterministic mapping between any percentile latency and
+  582  the system load (µ − λ), observing wP 95 over a short window suffices to infer the current load and predict the P99999
+  583  tail latency. As shown in Figure 6, with µ=2130Mbps
+  584  and different background loads (GC=300/600Mbps), Equation (1) precisely matches actual measurements. By rearranging Equation (1), the residual serving capacity can be
+  585  obtained from the monitored wp. Subtracting a safety headroom ⟨p yields the estimated available bandwidth:
+  586  ln(1 − p)
+  587  δp = α − ⟨p (2)
+  588  wp
+
+  589  where ⟨p=330Mbps is a headroom that absorbs both model
+  590  error and prevents unacceptably high latency.
+  591  During runtime, by monitoring the P95 latency of recent
+  592  I/Os, we can directly calculate the available bandwidth δp for
+  593  overdrawing with Equation (2).
+=== PAGE 9 ===
+
+  594  1266 23rd USENIX Symposium on Networked Systems Design and Implementation
+
+  595  Dual-bucket throttling. To enable the steady segments to
+  596  overdraw tokens, we introduce a dual-bucket mechanism.
+  597  The first bucket, called the main bucket, functions as usual
+  598  and is shared by all segments. The size of the main bucket
+  599  is equal to the total tokens issued in an interval. The second
+  600  bucket, called the cheque bucket, is only accessible to the
+  601  steady segments. The size of the cheque token bucket is dynamically set based on the detected bandwidth over a recent
+  602  period.
+  603  In practice, the initialization process fills both buckets
+  604  with tokens to full capacity. Under normal pressure, all
+  605  segments are "steady" and consume tokens from the main
+  606  bucket. Every interval, the proxy server first refills the main
+  607  bucket. Then, if the cheque bucket is not full, the main
+  608  bucket will give enough tokens to fulfill the cheque bucket
+  609  before serving the real I/O requests.
+  610  When a burst occurs, the monitor would identify and mark
+  611  the hot segments. And, the main bucket would be (presumably) quickly drained by the hot segments. Now, the steady
+  612  segments can consume tokens from the cheque bucket and
+  613  hot ones are thereby throttled. After the periodic interval T,
+  614  the proxy server would refill the cheque bucket with δpT,
+  615  and fill the main bucket with the remaining tokens.
+  616  Now, if the burst diminishes, the hot segments would be
+  617  marked as steady in the next interval. And, all things go
+  618  back to normal as the steady segments can grab 100% of
+  619  the tokens. Both buckets would be full again in the next interval(s). If the burst persists, the remaining hot segments
+  620  would continue to consume tokens from the main bucket
+  621  while the steady can draw tokens from both.
+  622  The key of dual-bucket throttling is to reduce the impact of
+  623  bursts on the steady segments. Therefore, the cheque bucket
+  624  allows the steady segments to get tokens even when the main
+  625  bucket is depleted. Yet, such an overdraw mechanism does
+  626  not last as the underlying DFS would eventually be oversaturated. Therefore, we only allow overdrawing for an interval. This mechanism helps to throttle the hot segments'
+  627  I/O rate by forcing them to only consume tokens from the
+  628  main bucket.
+  629  Configuration parameters. The success of dual-bucket
+  630  throttling depends on two key parameters: the span of the
+  631  interval and the size of the cheque bucket. First, the span
+  632  of the interval should be long enough to endure most burst
+  633  scenarios while short enough to avoid over-saturation of the
+  634  DFS. Based on the fact that the average duration of bursts is
+  635  hundreds of milliseconds, we set the interval T to be 10ms
+  636  to timely react to the occurrence of bursts.
+  637  Second, the size of the cheque bucket should be set to a
+  638  value that can allow the steady segments to overdraw enough
+  639  tokens to avoid most tail latency spikes. Meanwhile, having
+  640  an overly large cheque bucket would backfire by worsening
+  641  the tail latency for the hot segments. Based on field statistics,
+  642  we set the size as 20% which can also be adjusted on-the-fly.
+
+  643  Frontend IO-related Queue
+  644  Thread Loop 2 Loop 3
+  645  Loop 1
+  646  A B C E F If empty RX/TX
+  647  ∅
+  648  D
+  649  IO-aware b d f h j IO Processing
+  650  Task Scheduler
+  651  Backend Loop 1 Loop 3 RX Buffer
+  652  Thread IO-unrelated Queue
+  653  Loop 2
+  654  TX Buffer
+  655  a c e g i
+
+  656  Figure 9: Priority-based task scheduling.
+
+  657  4.3 Handling Underloaded Scenario
+
+  658  Root causes. The latency breakdown indicates that simply
+  659  shifting some tasks (e.g., GC, snapshot and index compact)
+  660  has limited effectiveness. The reasons are two-fold. First,
+  661  the proxy server runs the event-loop model, similar to common practices [30], in the idle mode and thus the pending
+  662  requests in the rx buffer are not handled in a timely fashion.
+  663  Second, while all client I/Os are processed in the frontend as
+  664  tasks, not all tasks are directly related to I/O processing. In
+  665  fact, the I/O-unrelated tasks (including monitoring, statistics
+  666  and dump) can delay I/O processing. Hence, our target is
+  667  to prioritize the I/O-related tasks and minimize the rx buffer
+  668  waiting time.
+  669  Priority-based task scheduling. Figure 9 shows that, for the
+  670  frontend event loop, we further enforce the following three
+  671  policies in the task scheduling:
+  672  • High priority first. We have set up two queues for I/Orelated and I/O-unrelated tasks. The I/O-related task queue
+  673  includes journal cache lookup, compressing the write requests and decompressing messages in processing read requests. The I/O-unrelated task queue includes I/O thread
+  674  monitoring, resource statistics, dump operations and others. During each loop, the proxy server now always starts
+  675  with the execution of I/O-related tasks and will not process
+  676  the I/O-unrelated tasks until all enqueued I/O-related tasks
+  677  are done.
+  678  • Fixed span for I/O-unrelated tasks. To prevent new I/Orelated tasks (pending in the rx buffer) from waiting too
+  679  long, we introduce a loop timeout LT. This timeout caps
+  680  only the execution of I/O-unrelated tasks: if I/O-related
+  681  tasks exceed LT, their execution is not interrupted; the
+  682  timeout only prevents subsequent I/O-unrelated tasks from
+  683  running in the current loop.
+  684  • Frequent rx buffer check. To promptly receive and enqueue
+  685  the I/O-related tasks for timely execution, we check the rx
+  686  buffer at the beginning of every loop as long as the I/Orelated queue is empty.
+  687  Preventing I/O-unrelated tasks from starving. Directly
+  688  serving I/O-related tasks in a strict priority way may persistently delay the execution of I/O-unrelated tasks, caus-
+
+  689  USENIX Association
+=== PAGE 10 ===
+
+  690  Baseline Dual-bucket Throttling
+
+  691  20000 40000
+  692  20000
+  693  20000 30000
+  694  15000 15000
+  695  10000 10000 20000
+  696  10000
+  697  Latency (us) Latency (us) 5000 Latency (us) Latency (us) 10000
+  698  5000
+  699  0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999
+
+  700  (a) 100% write, 0% read. (b) 75% write, 25% read. (c) 50% write, 50% read. (d) 25% write, 75% read.
+  701  Figure 10: Tail latency of innocent I/O requests under burst background workload with various 4KB read/write requests.
+  702  Baseline (Proxy Layer) Thread Split (Proxy Layer) Priority-based Task Scheduler (Proxy Layer)
+  703  Baseline (2nd Hop) Thread Split (2nd Hop) Priority-based Task Scheduler (2nd Hop)
+  704  Baseline (Storage Layer) Thread Split (Storage Layer) Priority-based Task Scheduler (Storage Layer)
+  705  2000 3000
+  706  1500 1500
+  707  1500
+  708  1000 2000
+  709  1000 1000
+  710  Latency (us) 500 Latency (us) 500 Latency (us) Latency (us) 1000
+  711  500
+  712  0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999
+
+  713  (a) 100% write, 0% read. (b) 75% write, 25% read. (c) 50% write, 50% read. (d) 25% write, 75% read.
+  714  Figure 11: Tail latency of write requests under 200MBps background workload with various 4KB read/write requests.
+  715  ing starvation in high workload scenarios. Although this the I/O-related queue (A3, B3 and C3) and the I/Ostarvation does not interfere with I/O processing, it would unrelated queue (a3, b2 and c2). In the first loop, the
+  716  lead to critical system crash risks (e.g., eternal delay of proxy server would not poll the rx buffer as the I/O-related
+  717  the health check would trigger the proxy service master to queue is not empty. Instead, the proxy server directly
+  718  force this proxy server to shut down). To solve this prob- processes A3, B3 and C3 (total 9us). As 9us <
+  719  lem, we further optimize the static LT to a dynamic value. DLT=max{1.2×9, 10}=10.8us, the server continues to
+  720  DLT = max{αTIO, LT}, where TIO is the processing process a3 before timing out at 12us. b2 and c2 are deferred
+  721  time consumed by all I/O-related tasks in the current loop, to subsequent loops.
+  722  and α is a parameter (α > 1). In the second loop, the I/O-related queue is empty, so
+  723  Configuration parameters. The setting of LT is a trade-off the server first polls the rx buffer (D5, taking 5us), generbetween the performance and cost. Lower LT allows I/O- ating new I/O-related tasks E3, F3 and I/O-unrelated tasks
+  724  related tasks to be executed more promptly, but introduces d3, e3. After processing E3 and F3, the total execution
+  725  higher looping overhead at the same time. We set LT = time reaches 11us (5+3+3), exceeding the static LT. If
+  726  10us in practice to achieve a sweet spot. directly employing this static LT, all I/O-unrelated tasks
+  727  would miss this loop. However, with starvation prevention,
+  728  Through comprehensive experiments, we set α = 1.2
+  729  DLT=max{1.2×11, 10}=13.2us, so b2 is still executed in
+  730  in practice, which provides about 20% CPU cycles for
+  731  this loop. c2, d3 and e3 are deferred.
+  732  I/O-unrelated tasks in each loop. This mechanism makes
+  733  In the third loop, with no pending I/O tasks or buffered
+  734  sure there are enough time slots for the processing of I/Orequests, the server processes the remaining c2, d3 and e3.
+  735  unrelated tasks, eliminating starvation risks. Through longterm observation in the testing cluster, no starvation of I/O-
+
+  736  5 Evaluation
+  737  unrelated tasks is observed.
+  738  An example. Figure 9 illustrates the task processing in 5.1 Setup
+  739  the frontend event loop, where upper case letters denote We use the same setup of our production environment. In to-
+  740  I/O-related tasks and lower case letters denote I/O-unrelated tal, we use 8 compute nodes and 16 storage nodes (running
+  741  tasks. The trailing number indicates the processing time in 12 proxy servers, 3 proxy metadata servers and 1 adminismicroseconds. (e.g., A3 means an I/O-related task A takes trator node). They all are of the same hardware configura-
+  742  3us to finish). tion including a 32-core Intel Xeon 2.30 GHz CPU, 192 GB
+  743  At initialization, assume there are three tasks in both memory and 2×25 Gbps NIC, except each storage node has
+
+  744  USENIX Association 23rd USENIX Symposium on Networked Systems Design and Implementation 1267
+=== PAGE 11 ===
+
+  745  Tail latency of write requests under 200MBps background workload with various 4KB read/write requests.
+
+  746  Tail latency of innocent I/O requests under burst background workload with various 4KB read/write requests.
+
+  747  1268 23rd USENIX Symposium on Networked Systems Design and Implementation
+
+  748  Baseline Thread Split
+
+  749  800 1000
+  750  600 750
+  751  400 500
+  752  Latency (us) Latency (us)
+  753  200 250
+  754  0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999
+
+  755  (a) 100% write, 0% read. (b) 75% write, 25% read.
+
+  756  Figure 12:
+
+  757  Baseline (Proxy Layer)
+  758  Baseline (2nd Hop)
+  759  Baseline (Storage Layer)
+
+  760  20000 20000
+  761  15000 15000
+  762  10000 10000
+  763  Latency (us) Latency (us)
+  764  5000 5000
+  765  0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999
+
+  766  (a) 100% write, 0% read. (b) 75% write, 25% read.
+
+  767  Figure 13:
+  768  12 PCI-e Gen3 8TB enterprise-level NVMe SSDs. Moreover, each storage node runs a proxy server process. Both the
+  769  1st and 2nd hop network are 2×25 Gbps Ethernet. We use
+  770  FIO to generate I/Os in the microbenchmarks and replay the
+  771  traces from the production environment in the macrobenchmarks.
+
+  772  5.2 Microbenchmark
+
+  773  Burst scenario. We first generate a set of continuous burst
+  774  scenarios. All compute nodes would generate I/O requests
+  775  saturating the entire proxy layer. The I/O size and read/write
+  776  component ratio differ in different experiments. Additionally, we set 20% of segments as "hot" and they contribute
+  777  80% of the overall load, simulating the typical patterns of
+  778  major clients. The remaining 80% of segments are always
+  779  steady and they contribute 20% of the load.
+  780  We first fix the I/O size to 4KB (the dominant I/O size in
+  781  production) and vary the percentage of write/read requests
+  782  (100%/0%, 75%/25%, 50%/50% and 25%/75%) to construct
+  783  synthetic workloads. As shown in Figure 10, for steady segments, the P99 tail latency of the proxy server decreases by
+  784  up to 96% compared with the baseline. P99999 tail latency
+  785  decreases by up to 83%, indicating that dual-bucket throttling overcomes the key issue in the burst scenario. Besides,
+  786  our measurements on hot segments demonstrate the tail latency of hot segments does not endure a significant increase.
+  787  Figures are not included in this paper owing to the space
+  788  limit.
+
+  789  Priority-based Task Scheduler
+
+  790  2000
+  791  1000
+
+  792  500 1000
+  793  Latency (us) Latency (us)
+  794  0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999
+
+  795  (c) 50% write, 50% read. (d) 25% write, 75% read.
+
+  796  Dual-bucket Throttling (Proxy Layer)
+  797  Dual-bucket Throttling (2nd Hop)
+  798  Dual-bucket Throttling (Storage Layer)
+  799  40000
+  800  20000 30000
+  801  20000
+  802  10000
+  803  Latency (us) Latency (us) 10000
+  804  0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999
+
+  805  (c) 50% write, 50% read. (d) 25% write, 75% read.
+
+  806  We further test its performance under larger I/O sizes
+  807  (varying from 8KB to 64KB) with mixed read/write ratio (50%/50%). Results are shown in Figure 18 in Appendix B. With dual-bucket throttling, the P99999 tail latency decreases by 92% to 97% under different I/O sizes.
+  808  Notice that, with the increase in I/O request size, the performance of dual-bucket throttling is better. The reason is
+  809  that larger I/O requests are prone to introduce severe bursts.
+  810  With the increase in I/O size, the performance improvements
+  811  introduced by the dual-bucket throttling become much more
+  812  significant. This is because the impacts grow larger with increasing I/O sizes. Dual-bucket throttling can significantly
+  813  prevent hot segments from influencing steady segments, resulting in better tail latency reduction.
+  814  Underloaded scenario. In this microbenchmark, all compute nodes generate steady traffic keeping the load of each
+  815  proxy server at 200MBps, a typical underloaded scenario
+  816  (i.e., 16.7% of traffic threshold). The workloads are composed of 4KB I/O requests with various read/write ratios. As
+  817  aforementioned, a non-negligible proportion of the read I/O
+  818  requests tail latency in the underloaded scenario is inevitable
+  819  due to intrinsic hardware processing delay. Therefore, we focus on demonstrating the performance of write I/O requests.
+  820  Figure 12 illustrates the results. In various read/write ratios,
+  821  the tail latency of write requests is reduced by up to 63% and
+  822  37%, compared with the baseline and the thread split mechanism, respectively.
+  823  Similarly, we further conduct this microbenchmark with
+
+  824  USENIX Association
+=== PAGE 12 ===
+
+  825  23rd USENIX Symposium on Networked Systems Design and Implementation 1269
+
+  826  Read Hot P99999 Write Hot P99999
+  827  Read Steady P99999 Write Steady P9999
+  828  60
+  829  80
+  830  60 40
+  831  40
+  832  20
+  833  Latency (ms) 20 Latency (ms)
+  834  0 0
+  835  0 100 200 300 0 100 200 300
+  836  Time (s) Time (s)
+  837  (a) Baseline. (b) Dual-bucket throttling.
+  838  Figure 14: Tail latency of requests under burst scenarios in
+  839  production.
+  840  various I/O sizes (8KB-64KB) with 50% to 50% read/write
+  841  ratio. With priority-based task scheduling, the tail latency
+  842  is reduced by up to 55% compared with only employing the
+  843  thread split design, as shown in Figure 19 in Appendix B.
+
+  844  5.3 Storage Cluster Performance
+  845  We further evaluate the improvements under both mechanisms from the storage cluster perspective. The experiment
+  846  settings in this subsection are the same as in §5.2.
+  847  Burst scenario. The performance of 4KB I/O requests is
+  848  shown in Figure 13. The tail latency introduced by the entire
+  849  storage cluster is split into three parts: (1) the proxy layer
+  850  processing latency, (2) the second hop network latency and
+  851  (3) the storage layer latency. In baseline, the proxy layer
+  852  latency contributes 98% to the entire P99999 latency. The
+  853  dual-bucket throttling decreases the overall P99999 latency
+  854  by 85% compared with baseline.
+  855  Similarly, we conduct further experiments to evaluate the
+  856  performance of different I/O sizes (varying from 8KB to
+  857  64KB) with mixed read/write ratio (50%/50%). Figure 20
+  858  in Appendix B represents tail latency results under various
+  859  I/O request sizes. Tail latency is reduced by 77% to 86%
+  860  compared with baseline.
+  861  Underloaded scenario. The tail latency of write requests
+  862  under 4KB underloaded scenario is shown in Figure 11.
+  863  Priority-based task scheduler decreases the overall P99999
+  864  latency by 43% and 22% compared with baseline and the
+  865  thread split mechanism, respectively. Under various I/O request sizes (varying from 8KB to 64KB), as shown in Figure 21 in Appendix B, tail latency is reduced by up to 66%
+  866  and 37% compared with different alternatives, respectively.
+
+  867  5.4 Production Trace Performance
+  868  We record traces from in-production storage clusters, including both burst and underloaded scenarios. By replaying these
+  869  traces at the per-I/O granularity, we can precisely evaluate
+  870  the performance of our solution under real scenarios.
+  871  Burst scenario. We select one typical trace representing
+  872  typical burst scenarios we encountered in production. The
+
+  873  USENIX Association
+
+  874  Baseline Priority-based Task Scheduler
+  875  15000
+  876  8000
+  877  6000 10000
+  878  4000
+  879  Latency (us) Latency (us) 5000
+  880  2000
+  881  0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999
+
+  882  (a) 200MBps workload trace. (b) 300MBps workload trace.
+  883  Figure 15: Tail latency of write requests under different underloaded scenarios in production.
+  884  trace is recorded in the cluster where major clients possess
+  885  I/O-intensive tasks, introducing frequent traffic bursts in the
+  886  entire cluster (called the I/O-intensive trace). As shown in
+  887  Figure 14a and Figure 14b, dual-bucket throttling decreases
+  888  the P99999 tail latency of innocent I/O requests by 71%.
+  889  Underloaded scenario. To validate the generality of our
+  890  mechanism's effectiveness, we select two traces representing
+  891  various levels of underloaded scenarios from real production.
+  892  Specifically, two traces cover the average load of 200MBps
+  893  and 300MBps, respectively. The results are shown in Figure 15. With priority-based task scheduling, the tail latency
+  894  of write requests decreases by up to 14% and 13% compared
+  895  with baseline, respectively.
+
+  896  5.5 Benefit of Deployment
+  897  Both mechanisms in this paper have been deployed in
+  898  our production, covering dozens of clusters across multiple
+  899  availability zones, spanning hundreds of proxy servers with
+  900  diverse hardware configurations, and have served hundreds
+  901  of trillions of I/O requests. We are rolling out the full deployment of both mechanisms.
+  902  Burst scenario. Figure 16a shows a representative burst traffic pattern around 14:00 on the same weekday, where a sudden burst consistently appeared across multiple weeks. Figure 16b represents steady segment latency at this time point,
+  903  showing that enabling our mechanism reduces tail latency by
+  904  59.7% for innocent I/O requests.
+  905  Underloaded scenario. We conducted an A/B test within a
+  906  single cluster. Specifically, we randomly selected two proxy
+  907  nodes and monitored tail latency. Figure 17 shows a weeklong time series of P99999 latency. At the beginning of
+  908  Thursday, we enabled our priority-based task scheduler on
+  909  one node while leaving the other unchanged. Prior to activation, both nodes exhibited nearly identical latency trends;
+  910  once the scheduler was enabled, a 22% reduction in P99999
+  911  latency was observed, confirming the effectiveness of the
+  912  mechanism in underloaded conditions.
+
+  913  6 Related Work
+  914  Building cloud block store. As a cornerstone for cloud
+  915  computing, there is a spate of work discussing the design
+=== PAGE 13 ===
+
+  916  1270 23rd USENIX Symposium on Networked Systems Design and Implementation
+
+  917  120
+  918  before
+  919  12
+  920  100 after
+  921  80
+  922  8
+  923  60
+  924  Latency (ms)
+  925  Normalized Load (%) 40 4
+  926  13:56 13:58 14:00 14:02 14:04 13:56 13:58 14:00 14:02 14:04
+  927  (a) Traffic pattern. (b) Latency.
+  928  Figure 16: Representative traffic pattern and the corresponding P99999 latency differences.
+  929  and implementation of cloud block store from both industry, such as Microsoft Azure [5], Amazon EBS [2], Google
+  930  Persistent Disk [4], Alibaba Elastic Block Storage [1] and
+  931  academia, including Salus [29], Ursa [22], and LSVD [17].
+  932  Our paper differs from the above as we emphasize improving the tail latency of EBS, instead of designing a full-stack
+  933  cloud block store. Therefore, we focus on analyzing the root
+  934  causes behind the tail latency (especially under layers of load
+  935  balancing), and propose corresponding solutions to alleviate
+  936  the issue in a lightweight, effective and fair manner.
+  937  Improving tail latency. Tail latency under underloaded scenarios has been extensively studied across clusters [10, 13,
+  938  34] and datacenter networks [32] to cloud services [28].
+  939  Among these, the most relevant body of work lies in singlenode designs [33, 18, 20, 26, 15, 25, 27, 9]. Shenango [25]
+  940  addresses tail latency across applications through load balancing and dynamic core reallocation. Shinjuku [20] leverages Dune virtualization to realize fine-grained preemptive
+  941  CPU scheduling at microsecond timescales. Zygos [26] reduces short-task tail latency by approximating a centralized
+  942  queue, albeit at the cost of higher overhead. However, these
+  943  systems rely on intrusive runtimes, virtualization, or heavy
+  944  synchronization, which limit deployability. Our work in the
+  945  underload scenario focuses on mitigating tail latency induced
+  946  by intra-application task interleaving, while remaining simple and deployable.
+  947  In contrast, little prior work has systematically addressed
+  948  tail latency under workload bursts from major clients. Our
+  949  work fills this gap by analyzing burst-induced tail latency
+  950  and proposing a lightweight mechanism specifically tailored
+  951  for this scenario.
+
+  952  7 Potential Limitations
+  953  Unique workload patterns. Our work is based on the analysis of the production workloads of ALIBABACLOUD. Unfortunately, while there is a small set of block store datasets
+  954  available publicly [24, 23], we are unable to verify the existence of major clients' bursts because we are unable to correlate the workload pressure with the client's identity. However, we believe this phenomenon is not unique. First, based
+  955  on the large number of users (i.e., millions of VDs deployed)
+  956  and widespread major clients' bursts, we are convinced that
+  957  this phenomenon is indeed representative. In addition, the
+
+  958  8 w/o scheduler
+  959  w/ scheduler
+  960  6
+  961  4
+  962  Date of Task
+  963  Latency p99999 (ms) 2 Scheduler Enabled
+  964  Sun Mon Tue Wed Thu Fri Sat Sun
+  965  Figure 17: Week-long A/B test in an underloaded cluster.
+  966  Two nodes from the same cluster were monitored for endto-end latency; at the dashed line, the priority-based scheduler was enabled on one node, while the other remained unchanged.
+  967  root causes of such bursts are often correlated with certain
+  968  events such as shopping festivals (e.g., Black Friday shopping) or new product releases where both are common in
+  969  various cloud environments. As mentioned in § 1, we have
+  970  released production I/O traces of classic burst scenarios to
+  971  motivate future work in this direction.
+
+  972  Solutions are only applicable to ALIBABACLOUD stack.
+  973  In this paper, for high practicality, we intentionally build our
+  974  solutions based on our EBS stack and refrain from fundamentally refactoring our stack. A possible outcome is that
+  975  both the dual-bucket throttling and priority-based scheduling mechanism may not be directly applicable to other opensource or proprietary systems. However, we argue that our
+  976  solutions reflect the general principles in overcoming the tail
+  977  latency caused by workload bursts and inefficient handling
+  978  of I/O tasks. In addition, due to the lightweight nature of our
+  979  solutions, we believe that they can be easily adapted to other
+  980  systems with minor engineering efforts.
+
+  981  8 Conclusion
+
+  982  In this paper, we systematically revisited a pressing issue in
+  983  our cloud block store system, high tail latency. We first identify the root causes of suboptimal tail latency in production—
+  984  despite the presence of multiple layers of load balancing—to
+  985  be workload bursts caused by major clients and the inefficient event-loop thread model. We then propose dual-bucket
+  986  throttling and priority-based scheduling, to mitigate the issue. Results in production show that the proposed mechanisms, while simple and lightweight, can significantly reduce
+  987  the tail latency in varying scenarios.
+
+  988  Acknowledgments
+  989  We thank our shepherd, Murat Demirbas, and the anonymous reviewers for their valuable feedback. We also thank
+  990  our colleagues at ALIBABACLOUD for their helpful discussions and support. This work was supported in part by the
+  991  National Natural Science Foundation of China (NSFC) under Grant Nos. 62132007 and 62221003 and the Alibaba
+  992  Research Intern Program. Erci Xu and Fengyuan Ren are
+  993  the co-corresponding authors.
+
+  994  USENIX Association
+=== PAGE 14 ===
+
+  995  23rd USENIX Symposium on Networked Systems Design and Implementation 1271
+
+  996  References
+
+  997  [1] Alibaba cloud elastic block storage devices.
+  998  http://www.alibabacloud.com/help/en/ecs/userguide/elastic-block-storage-devices.
+  999  [2] Amazon elastic block store.
+ 1000  http://docs.aws.amazon.com/AWSEC2
+ 1001  /latest/UserGuide/AmazonEBS.html.
+ 1002  [3] Aws re:invent 2022 - keynote with peter desantis.
+ 1003  https://www.youtube.com/watch?v=R11YgBEZzqE.
+ 1004  [4] Google persistent disk.
+ 1005  https://cloud.google.com/persistent-disk.
+ 1006  [5] Introduction to azure managed disks.
+ 1007  http://learn.microsoft.com/en-us/azure/virtualmachines/managed-disks-overview.
+ 1008  [6] Amazon found every 100ms of latency cost them
+ 1009  1 https://www.gigaspaces.com/blog/amazon-foundevery-100ms-of-latency-cost-them-1-in-sales, 2023.
+ 1010  [7] Oana Balmau, Florin Dinu, Willy Zwaenepoel, Karan
+ 1011  Gupta, Ravishankar Chandhiramoorthi, and Diego Didona. SILK: Preventing latency spikes in Log-
+ 1012  Structured merge Key-Value stores. In 2019 USENIX
+ 1013  Annual Technical Conference (USENIX ATC 19),
+ 1014  pages 753–766, Renton, WA, July 2019. USENIX Association.
+ 1015  [8] Adam Belay, George Prekas, Ana Klimovic, Samuel
+ 1016  Grossman, Christos Kozyrakis, and Edouard Bugnion.
+ 1017  IX: A protected dataplane operating system for
+ 1018  high throughput and low latency. In 11th USENIX
+ 1019  Symposium on Operating Systems Design and
+ 1020  Implementation (OSDI 14), pages 49–65, Broomfield,
+ 1021  CO, October 2014. USENIX Association.
+ 1022  [9] Adam Belay, George Prekas, Ana Klimovic, Samuel
+ 1023  Grossman, Christos Kozyrakis, and Edouard Bugnion.
+ 1024  IX: A protected dataplane operating system for
+ 1025  high throughput and low latency. In 11th USENIX
+ 1026  Symposium on Operating Systems Design and
+ 1027  Implementation (OSDI 14), pages 49–65, Broomfield,
+ 1028  CO, October 2014. USENIX Association.
+ 1029  [10] Daniel S. Berger, Benjamin Berg, Timothy Zhu,
+ 1030  Siddhartha Sen, and Mor Harchol-Balter. Robin-
+ 1031  Hood: Tail latency aware caching – dynamic reallocation from Cache-Rich to Cache-Poor. In 13th
+ 1032  USENIX Symposium on Operating Systems Design
+ 1033  and Implementation (OSDI 18), pages 195–212, Carlsbad, CA, October 2018. USENIX Association.
+ 1034  [11] Brad Calder, Ju Wang, Aaron Ogus, Niranjan Nilakantan, Arild Skjolsvold, Sam McKelvie, Yikang
+ 1035  Xu, Shashwat Srivastav, Jiesheng Wu, Huseyin Simitci,
+ 1036  et al. Windows azure storage: a highly available cloud
+ 1037  storage service with strong consistency. In Proceedings
+ 1038  of the Twenty-Third ACM Symposium on Operating
+
+ 1039  USENIX Association
+
+ 1040  Systems Principles, pages 143–157, 2011.
+ 1041  [12] Li-Der Chou, Yao-Tsung Yang, Yuan-Mao Hong,
+ 1042  Jhih-Kai Hu, and Bill Jean. A genetic-based
+ 1043  load balancing algorithm in openflow network.
+ 1044  In Yueh-Min Huang, Han-Chieh Chao, Der-Jiunn
+ 1045  Deng, and James J. (Jong Hyuk) Park, editors,
+ 1046  Advanced Technologies, Embedded and Multimedia
+ 1047  for Human-centric Computing, pages 411–417, Dordrecht, 2014. Springer Netherlands.
+ 1048  [13] Diego Didona and Willy Zwaenepoel. Size-aware
+ 1049  sharding for improving tail latencies in in-memory
+ 1050  key-value stores. In 16th USENIX Symposium
+ 1051  on Networked Systems Design and Implementation
+ 1052  (NSDI 19), pages 79–94, Boston, MA, February 2019.
+ 1053  USENIX Association.
+ 1054  [14] Daniel E Eisenbud, Cheng Yi, Carlo Contavalli, Cody
+ 1055  Smith, Roman Kononov, Eric Mann-Hielscher, Ardas
+ 1056  Cilingiroglu, Bin Cheyney, Wentao Shang, and Jinnah Dylan Hosein. Maglev: A fast and reliable software network load balancer. In Nsdi, volume 16, pages
+ 1057  523–535, 2016.
+ 1058  [15] Joshua Fried, Zhenyuan Ruan, Amy Ousterhout, and
+ 1059  Adam Belay. Caladan: Mitigating interference at microsecond timescales. In 14th USENIX Symposium on
+ 1060  Operating Systems Design and Implementation (OSDI
+ 1061  20), pages 281–297. USENIX Association, November
+ 1062  2020.
+ 1063  [16] Yixiao Gao, Qiang Li, Lingbo Tang, Yongqing Xi,
+ 1064  Pengcheng Zhang, Wenwen Peng, Bo Li, Yaohui Wu,
+ 1065  Shaozong Liu, Lei Yan, Fei Feng, Yan Zhuang, Fan
+ 1066  Liu, Pan Liu, Xingkui Liu, Zhongjie Wu, Junping Wu,
+ 1067  Zheng Cao, Chen Tian, Jinbo Wu, Jiaji Zhu, Haiyong
+ 1068  Wang, Dennis Cai, and Jiesheng Wu. When cloud
+ 1069  storage meets RDMA. In 18th USENIX Symposium
+ 1070  on Networked Systems Design and Implementation
+ 1071  (NSDI 21), pages 519–533. USENIX Association,
+ 1072  April 2021.
+ 1073  [17] Mohammad Hossein Hajkazemi, Vojtech Aschenbrenner, Mania Abdi, Emine Ugur Kaynar, Amin
+ 1074  Mossayebzadeh, Orran Krieger, and Peter Desnoyers.
+ 1075  Beating the i/o bottleneck: a case for log-structured virtual disks. In Proceedings of the Seventeenth European
+ 1076  Conference on Computer Systems, EuroSys '22, page
+ 1077  628–643, New York, NY, USA, 2022. Association for
+ 1078  Computing Machinery.
+ 1079  [18] Jun He, Duy Nguyen, Andrea Arpaci-Dusseau, and
+ 1080  Remzi Arpaci-Dusseau. Reducing file system tail latencies with chopper. In 13th USENIX Conference on
+ 1081  File and Storage Technologies (FAST 15), pages 119–
+ 1082  133, Santa Clara, CA, February 2015. USENIX Association.
+ 1083  [19] EunYoung Jeong, Shinae Wood, Muhammad Jamshed,
+=== PAGE 15 ===
+
+ 1084  1272 23rd USENIX Symposium on Networked Systems Design and Implementation
+
+ 1085  Haewon Jeong, Sunghwan Ihm, Dongsu Han, and
+ 1086  KyoungSoo Park. mTCP: a highly scalable userlevel TCP stack for multicore systems. In 11th
+ 1087  USENIX Symposium on Networked Systems Design
+ 1088  and Implementation (NSDI 14), pages 489–502, Seattle, WA, April 2014. USENIX Association.
+ 1089  [20] Kostis Kaffes, Timothy Chong, Jack Tigar Humphries,
+ 1090  Adam Belay, David Mazieres, and Christos Kozyrakis.
+ 1091  Shinjuku: Preemptive scheduling for usecond-scale tail
+ 1092  latency. In 16th USENIX Symposium on Networked
+ 1093  Systems Design and Implementation (NSDI 19), pages
+ 1094  345–360, Boston, MA, February 2019. USENIX Association.
+ 1095  [21] Leonard Kleinrock. Queueing Systems, Volume 1:
+ 1096  Theory. John Wiley & Sons, 1975.
+ 1097  [22] Huiba Li, Yiming Zhang, Dongsheng Li, Zhiming
+ 1098  Zhang, Shengyun Liu, Peng Huang, Zheng Qin, Kai
+ 1099  Chen, and Yongqiang Xiong. Ursa: Hybrid block storage for cloud-scale virtual disks. In Proceedings of
+ 1100  the Fourteenth EuroSys Conference 2019, EuroSys '19,
+ 1101  New York, NY, USA, 2019. Association for Computing
+ 1102  Machinery.
+ 1103  [23] Jinhong Li, Qiuping Wang, Patrick P. C. Lee, and
+ 1104  Chao Shi. An in-depth analysis of cloud block
+ 1105  storage workloads in large-scale production. In
+ 1106  2020 IEEE International Symposium on Workload
+ 1107  Characterization (IISWC), pages 37–47, 2020.
+ 1108  [24] Dushyanth Narayanan, Austin Donnelly, and Antony
+ 1109  Rowstron. Write Off-Loading: Practical power management for enterprise storage. In 6th USENIX
+ 1110  Conference on File and Storage Technologies (FAST
+ 1111  08), San Jose, CA, February 2008. USENIX Association.
+ 1112  [25] Amy Ousterhout, Joshua Fried, Jonathan Behrens,
+ 1113  Adam Belay, and Hari Balakrishnan. Shenango:
+ 1114  Achieving high CPU efficiency for latency-sensitive
+ 1115  datacenter workloads. In 16th USENIX Symposium
+ 1116  on Networked Systems Design and Implementation
+ 1117  (NSDI 19), pages 361–378, Boston, MA, February
+ 1118  2019. USENIX Association.
+ 1119  [26] George Prekas, Marios Kogias, and Edouard Bugnion.
+ 1120  Zygos: Achieving low tail latency for microsecondscale networked tasks. In Proceedings of the 26th
+ 1121  Symposium on Operating Systems Principles, SOSP
+ 1122  '17, page 325–341, New York, NY, USA, 2017. Association for Computing Machinery.
+ 1123  [27] Henry Qin, Qian Li, Jacqueline Speiser, Peter Kraft,
+ 1124  and John Ousterhout. Arachne: Core-Aware thread
+ 1125  management. In 13th USENIX Symposium on
+ 1126  Operating Systems Design and Implementation (OSDI
+ 1127  18), pages 145–160, Carlsbad, CA, October 2018.
+ 1128  USENIX Association.
+
+ 1129  [28] Lalith Suresh, Marco Canini, Stefan Schmid, and
+ 1130  Anja Feldmann. C3: Cutting tail latency in cloud
+ 1131  data stores via adaptive replica selection. In 12th
+ 1132  USENIX Symposium on Networked Systems Design
+ 1133  and Implementation (NSDI 15), pages 513–527, Oakland, CA, May 2015. USENIX Association.
+ 1134  [29] Yang Wang, Manos Kapritsos, Zuocheng Ren, Prince
+ 1135  Mahajan, Jeevitha Kirubanandam, Lorenzo Alvisi, and
+ 1136  Mike Dahlin. Robustness in the salus scalable block
+ 1137  store. In 10th USENIX Symposium on Networked
+ 1138  Systems Design and Implementation (NSDI 13), pages
+ 1139  357–370, Lombard, IL, April 2013. USENIX Association.
+ 1140  [30] Irene Zhang, Amanda Raybuck, Pratyush Patel, Kirk
+ 1141  Olynyk, Jacob Nelson, Omar S. Navarro Leija, Ashlie Martinez, Jing Liu, Anna Kornfeld Simpson, Sujay
+ 1142  Jayakar, Pedro Henrique Penna, Max Demoulin, Piali
+ 1143  Choudhury, and Anirudh Badam. The demikernel datapath os architecture for microsecond-scale datacenter
+ 1144  systems. In Proceedings of the ACM SIGOPS 28th
+ 1145  Symposium on Operating Systems Principles, SOSP
+ 1146  '21, page 195–211, New York, NY, USA, 2021. Association for Computing Machinery.
+ 1147  [31] Weidong Zhang, Erci Xu, Qiuping Wang, Xiaolu
+ 1148  Zhang, Yuesheng Gu, Zhenwei Lu, Tao Ouyang, Guanqun Dai, Wenwen Peng, Zhe Xu, Shuo Zhang, Dong
+ 1149  Wu, Yilei Peng, Tianyun Wang, Haoran Zhang, Jiasheng Wang, Wenyuan Yan, Yuanyuan Dong, Wenhui Yao, Zhongjie Wu, Lingjun Zhu, Chao Shi, Yinhu
+ 1150  Wang, Rong Liu, Junping Wu, Jiaji Zhu, and Jiesheng
+ 1151  Wu. What's the story in EBS glory: Evolutions and
+ 1152  lessons in building cloud block store. In 22nd USENIX
+ 1153  Conference on File and Storage Technologies (FAST
+ 1154  24), pages 277–291, Santa Clara, CA, February 2024.
+ 1155  USENIX Association.
+ 1156  [32] Kevin Zhao, Prateesh Goyal, Mohammad Alizadeh,
+ 1157  and Thomas E. Anderson. Scalable tail latency estimation for data center networks. In 20th USENIX
+ 1158  Symposium on Networked Systems Design and
+ 1159  Implementation (NSDI 23), pages 685–702, Boston,
+ 1160  MA, April 2023. USENIX Association.
+ 1161  [33] Siyao Zhao, Haoyu Gu, and Ali Jos´e Mashtizadeh.
+ 1162  SKQ: Event scheduling for optimizing tail latency in
+ 1163  a traditional OS kernel. In 2021 USENIX Annual
+ 1164  Technical Conference (USENIX ATC 21), pages 759–
+ 1165  772. USENIX Association, July 2021.
+ 1166  [34] Hang Zhu, Kostis Kaffes, Zixu Chen, Zhenming
+ 1167  Liu, Christos Kozyrakis, Ion Stoica, and Xin Jin.
+ 1168  RackSched: A Microsecond-Scale scheduler for Rack-
+ 1169  Scale computers. In 14th USENIX Symposium on
+ 1170  Operating Systems Design and Implementation (OSDI
+ 1171  20), pages 1225–1240. USENIX Association, November 2020.
+
+ 1172  USENIX Association
+=== PAGE 16 ===
+
+ 1173  APPENDIX B Supplementary evaluations
+
+ 1174  Appendices are supporting material that has not been peerreviewed.
+
+ 1175  A M/M/1 Model Derivation
+ 1176  The process of a proxy server can be abstracted as a singleserver queueing model [21]. In the M/M/1 model, requests
+ 1177  arrive at rate λ (following a Poisson process) and the server
+ 1178  processes them at rate µ (exponentially distributed). The total I/O latency W (including both queuing time and service
+ 1179  time) follows an Exponential distribution. The M/M/1 queue
+ 1180  has the following characteristics:
+
+ 1181  • The probability density function (PDF) of service time
+ 1182  (i.e., the processing latency of a single I/O in Proxy Layer
+ 1183  and Storage Layer) is:
+
+ 1184  f (t) = µe−µt, t ≥ 0 (3)
+ 1185  s
+
+ 1186  • The PDF of inter-arrival time of two adjacent I/Os is:
+
+ 1187  f (t) = λe−λt, t ≥ 0 (4)
+ 1188  a
+
+ 1189  The overall waiting time (i.e., I/O latency) w in the system
+ 1190  is the time from I/O arrival to completion, including both
+ 1191  waiting in the queue and service time. The PDF for the I/O
+ 1192  latency fW (w) can be calculated as:
+
+ 1193  λ
+ 1194  f (w) = λe−λw 1 − e−(µ−λ)w, w ≥ 0 (5)
+ 1195  W µ
+
+ 1196  The cumulative distribution function (CDF) FW (w) of the
+ 1197  I/O latency is:
+
+ 1198  F (w) = 1 − e−(µ−λ)w (6)
+ 1199  W
+ 1200  As a result, the expected I/O latency for any percentile (p)
+ 1201  can be calculated as:
+ 1202  ln(1 − p)
+ 1203  wp = α (7)
+ 1204  µ − λ
+ 1205  where α is a correction factor to account for the deviation
+ 1206  from ideal exponential distributions in practice.
+
+ 1207  USENIX Association 23rd USENIX Symposium on Networked Systems Design and Implementation 1273
+=== PAGE 17 ===
+
+ 1208  Baseline Dual-bucket Throttling
+
+ 1209  30000
+ 1210  20000 20000
+ 1211  15000
+ 1212  15000 15000 20000
+ 1213  10000
+ 1214  10000 10000
+ 1215  Latency (us) Latency (us) 5000 Latency (us) Latency (us) 10000
+ 1216  5000 5000
+ 1217  0 0 0 0
+ 1218  P99 P999 P9999 P99999 P99 P999 P9999 P99999 P99 P999 P9999 P99999 P99 P999 P9999 P99999
+ 1219  (a) 8KB 50% write, 50% read. (b) 16KB 50% write, 50% read. (c) 32KB 50% write, 50% read. (d) 64KB 50% write, 50% read.
+ 1220  Figure 18: Tail latency of innocent I/O requests under burst background workload with various 8-64KB read/write requests.
+
+ 1221  Baseline Thread Split Priority-based Task Scheduler
+
+ 1222  1000 1500
+ 1223  1000 1000
+ 1224  750
+ 1225  750 750 1000
+ 1226  500 500
+ 1227  500
+ 1228  Latency (us) Latency (us) Latency (us) Latency (us) 500
+ 1229  250 250 250
+ 1230  0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999
+
+ 1231  (a) 8KB 50% write, 50% read. (b) 16KB 50% write, 50% read. (c) 32KB 50% write, 50% read. (d) 64KB 50% write, 50% read.
+ 1232  Figure 19: Tail latency of write requests under 200MBps background workload with various 8-64KB read/write requests.
+
+ 1233  Baseline (Proxy Layer) Dual-bucket Throttling (Proxy Layer)
+ 1234  Baseline (2nd Hop) Dual-bucket Throttling (2nd Hop)
+ 1235  Baseline (Storage Layer) Dual-bucket Throttling (Storage Layer)
+
+ 1236  20000
+ 1237  20000 30000
+ 1238  15000 20000
+ 1239  15000 20000
+ 1240  10000 10000
+ 1241  10000
+ 1242  Latency (us) Latency (us) 5000 Latency (us) Latency (us) 10000
+ 1243  5000
+ 1244  0 0 0 0
+ 1245  P99 P999 P9999 P99999 P99 P999 P9999 P99999 P99 P999 P9999 P99999 P99 P999 P9999 P99999
+ 1246  (a) 8KB 50% write, 50% read. (b) 16KB 50% write, 50% read. (c) 32KB 50% write, 50% read. (d) 64KB 50% write, 50% read.
+ 1247  Figure 20: Tail latency of innocent I/O requests under burst background workload with various 8-64KB read/write requests.
+
+ 1248  Baseline (Proxy Layer) Thread Split (Proxy Layer) Priority-based Task Scheduler (Proxy Layer)
+ 1249  Baseline (2nd Hop) Thread Split (2nd Hop) Priority-based Task Scheduler (2nd Hop)
+ 1250  Baseline (Storage Layer) Thread Split (Storage Layer) Priority-based Task Scheduler (Storage Layer)
+
+ 1251  1500 1500 1500 2000
+ 1252  1500
+ 1253  1000 1000 1000
+ 1254  1000
+ 1255  Latency (us) 500 Latency (us) 500 Latency (us) 500 Latency (us)
+ 1256  500
+ 1257  0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999 0 P99 P999 P9999 P99999
+
+ 1258  (a) 8KB 50% write, 50% read. (b) 16KB 50% write, 50% read. (c) 32KB 50% write, 50% read. (d) 64KB 50% write, 50% read.
+ 1259  Figure 21: Tail latency of write requests under 200MBps background workload with various 8-64KB read/write requests.
+
+ 1260  1274 23rd USENIX Symposium on Networked Systems Design and Implementation USENIX Association

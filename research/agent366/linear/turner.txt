@@ -1,0 +1,1278 @@
+---
+title: "Unbounded Pipelining in Dynamically Reconfigurable Paxos Clusters"
+authors:
+  - "D Turner"
+year: "2017"
+publication: ""
+handle_url: "https://github.com/DaveCTurner/paxos-membership"
+source_pdf: "research/literature/turner/paxos-reconf-latest.pdf"
+source_pdf_sha256: "3f5ffd4ecdf89f4dd8887a74b9f91d52914fcbe27183857cf68c6ff7cfd7f8ff"
+page_count: 10
+extracted_text_runs: 5369
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Consensus is an essential ingredient of a fault-tolerant distributed system systems. When equipped with a consensus algorithm a distributed system can act as a replicated state machine (RSM), duplicating its state across a cluster of redundant components to avoid the failure of any single component leading to a system-wide failure. Paxos and Raft are examples of algorithms for achieving distributed consensus. Practical implementations of this kind of system must support dynamic reconfiguration in order to be able to replace failed components and perform other administrative tasks without downtime. Paxos can achieve high performance by pipelining (starting work on new requests before existing requests have completed) but typically bounds the length of the pipeline to ensure consistency during reconfiguration. Raft also supports pipelining and imposes no such bound on concurrent requests, preserving consistency instead by restricting which reconfigurations may be performed. This article shows how to extend Paxos to support a more general form of reconfiguration which subsumes the original bounded-pipeline approach as well as Raft-like fully-concurrent reconfigurations and more besides.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Unbounded Pipelining in Dynamically
+
+    2  Reconfigurable Paxos Clusters
+
+    3  David C. Turner
+
+    4  Abstract—Consensus is an essential ingredient of a fault-
+
+    5  tolerant distributed system systems. When equipped with a
+
+    6  consensus algorithm a distributed system can act as a replicated
+
+    7  state machine (RSM), duplicating its state across a cluster
+
+    8  of redundant components to avoid the failure of any single
+
+    9  component leading to a system-wide failure. Paxos and Raft
+
+   10  are examples of algorithms for achieving distributed consensus.
+
+   11  Practical implementations of this kind of system must support
+
+   12  dynamic reconfiguration in order to be able to replace failed
+
+   13  components and perform other administrative tasks without
+
+   14  downtime. Paxos can achieve high performance by pipelining
+
+   15  (starting work on new requests before existing requests have com-
+
+   16  pleted) but typically bounds the length of the pipeline to ensure
+
+   17  consistency during reconfiguration. Raft also supports pipelining
+
+   18  and imposes no such bound on concurrent requests, preserving
+
+   19  consistency instead by restricting which reconfigurations may be
+
+   20  performed. This article shows how to extend Paxos to support
+
+   21  a more general form of reconfiguration which subsumes the
+
+   22  original bounded-pipeline approach as well as Raft-like fully-
+
+   23  concurrent reconfigurations and more besides.
+
+   24  Index Terms—Distributed algorithms, fault tolerance.
+
+   25  I. INTRODUCTION
+   26  RELIABLE distributed systems must be able to tolerate
+   27  a fault in any individual component without suffering
+   28  a system-wide failure, and typically achieve this by ensuring
+   29  that there is redundancy between the components. A replicated
+   30  state machine (RSM) is a style of fault-tolerant distributed
+   31  system in which a deterministic state machine is replicated
+   32  across a set of distinct nodes [1]. Being deterministic, the
+   33  nodes' states remain synchronised if they all start in the same
+   34  state and perform the same sequence of transitions.
+   35  In order to arrange for each node to perform the same
+   36  transitions the system may achieve consensus on (or choose)
+   37  a sequence of values which describe the transitions. The
+   38  sequence must be consistent across the whole system even in
+   39  the presence of failures, and as long as there are not too many
+   40  failures it must remain possible to continue to make progress.
+   41  This is known as the distributed consensus problem, for which
+   42  a number of solutions are known to exist, including Paxos [2]
+   43  and Raft [3]. They typically run on a cluster of 2f + 1 nodes,
+   44  where f is the number of faulty nodes that should be tolerated,
+   45  and consensus is achieved when a nonempty quorum of nodes
+   46  (e.g. at least f + 1 of them) agree. The collection of quorums
+   47  in use is known as the configuration of the cluster.
+   48  Manuscript received 14 August 2017.
+   49  The author is with the Operations and Planning Systems division of
+   50  Tracsis plc, Leeds LS2 9DF, United Kingdom (email: dct25-a1vwi@mythicbeasts.com)
+   51  c 2016-7 Tracsis plc. This work is licensed under the Creative Commons
+   52  Attribution-ShareAlike 4.0 International License. To view a copy of this
+   53  license, visit http://creativecommons.org/licenses/by-sa/4.0/ or send a letter
+   54  to Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+
+   55  1
+
+   56  It is normally necessary to be able to dynamically reconfigure a cluster by adding or removing nodes while it is
+   57  running, in order that parts of the system can be repaired
+   58  or replaced without needing to take the whole system offline. It is crucial that all participating nodes agree on the
+   59  cluster configuration, and this can be achieved by holding the
+   60  configuration within the RSM itself and using the consensus
+   61  algorithm to choose special reconfiguration commands when
+   62  a configuration change is desired.
+   63  In Paxos, each value is chosen using a conceptually-separate
+   64  instance of a two-phase consensus protocol known as Synod.
+   65  The full Paxos algorithm essentially runs an infinite sequence
+   66  of Synod instances in parallel, using uniformity of the instances to do so without requiring infinite time or resources. It
+   67  starts by running phase I of all instances at once and then runs
+   68  phase II of each instance in turn to yield the desired sequence
+   69  of chosen values. It normally continues to run phase II for
+   70  extended periods of time, but will return to phase I if certain
+   71  nodes become faulty, or if messages between certain pairs of
+   72  nodes cease to be delivered reliably for a period, or if the
+   73  configuration changes. Raft's pattern of execution is similar.
+   74  Both algorithms can achieve high throughput by allowing
+   75  for pipelining [4] whereby work may begin on an instance
+   76  even before all previous instances have fully completed. It is
+   77  a little tricky to ensure that this preserves consistency when
+   78  the configuration is held in the RSM itself because a value
+   79  may only be proposed once a quorum of nodes are ready for
+   80  it, but there may be a configuration change in the pipeline
+   81  which would change the quorums so as to make a proposal
+   82  invalid. If this case is not handled carefully then it may lead
+   83  to inconsistency. Paxos implementations typically solve this
+   84  problem by limiting the length of the pipeline to some α > 0
+   85  and requiring that a configuration change chosen at instance ⟩
+   86  does not take effect until at least instance ⟩ +α, which means
+   87  that when a proposal is made there can be no as-yet-undecided
+   88  configuration change in the pipeline that could affect it. In
+   89  contrast, Raft imposes no limit on the number of concurrentlyrunning instances and instead restricts the reconfigurations
+   90  that may occur to only allow ones that cannot result in
+   91  inconsistency. An operator may then perform a sequence of
+   92  these restricted reconfigurations in order to achieve an arbitrary
+   93  reconfiguration.
+   94  In Paxos, the choice of the pipeline length parameter α
+   95  must be made carefully. If it is too small then the system may
+   96  suffer from poor performance due to lack of parallelism, but if
+   97  it is too large then configuration changes can be unreasonably
+   98  expensive to complete. It is more elegant [5] to limit the
+   99  pipeline length only during reconfiguration and to allow the
+  100  limit to vary while the system is running, but it would be
+=== PAGE 2 ===
+
+  101  better still if there were no need for a limit at all, even during
+  102  reconfiguration.
+  103  Here it is shown that the pipeline may indeed safely remain
+  104  unbounded even during a configuration change as long as the
+  105  reconfiguration satisfies certain conditions described in section
+  106  IV-A below. It is also shown that if these conditions are not
+  107  satisfied then a reconfiguration can still take place as long as
+  108  the pipeline length is temporarily limited.
+  109  The algorithm is presented here in its entirety for the sake
+  110  of consistency of notation and because it modifies the original
+  111  algorithm in ways that invalidate its consistency and liveness
+  112  proofs. We begin with a recap of the Synod algorithm in
+  113  section III and follow this by covering the full Paxos algorithm
+  114  in section IV, then in section V it is shown how this work
+  115  generalises and unifies the previously-known reconfiguration
+  116  processes supported in Paxos and Raft. Reworked proofs of
+  117  liveness and consistency are included in section IV-C and
+  118  appendices B and C and differences from the original are
+  119  highlighted throughout. The appendices are informal versions
+  120  of formal proofs performed using the Isabelle/HOL proof
+  121  assistant [6].
+
+  122  II. RELATEDWORK
+  123  Lamport's original presentation of Paxos [2] introduced the
+  124  bounded-pipeline technique for supporting reconfiguration in
+  125  which the pipeline length was defined to be 3. He later clarified
+  126  that the value '3' was intended to stand for an arbitrary α > 0
+  127  in [7]. Later still Lamport and Massa [8] drew a distinction
+  128  between Static Paxos in which the configuration may not
+  129  change and Dynamic Paxos which supports reconfiguration
+  130  but requires a bounded pipeline. Dynamic Paxos was used as
+  131  a basis for Cheap Paxos in which the system automatically
+  132  reconfigures itself to achieve higher resilience to failures that
+  133  do not occur simultaneously, and which uses a heterogeneous
+  134  set of nodes to reduce the costs of operating a cluster.
+  135  Malkhi, Lamport and Zhou [9] proposed Stoppable Paxos,
+  136  an alternative method for reconfiguring clusters in which an
+  137  RSM may be stopped, reconfigured, and then restarted with
+  138  the new configuration. Stoppable Paxos improves on Dynamic
+  139  Paxos by removing the need for a pipeline limit when the
+  140  configuration is static and by allowing a different limit to be
+  141  selected for different reconfigurations.
+  142  Malkhi, Lamport and Zhou [10] then proposed Vertical
+  143  Paxos which keeps the RSM running throughout a reconfiguration, but requires a separate oracle to manage the configuration. The Egalitarian Paxos of Moraru, Andersen and
+  144  Kaminsky [11] uses a similar reconfiguration scheme. The
+  145  problem with needing an external oracle is that for full
+  146  resilience it must be possible to reconfigure the oracle itself,
+  147  which requires another oracle and so on ad infinitum.
+  148  Chandra, Griesemer and Redstone [12] noted that the details
+  149  of reconfiguration are "relatively minor" but "subtle" and do
+  150  not give any details on the reconfiguration scheme used in
+  151  their Chubby system. It seems likely that they also used the
+  152  bounded-pipeline approach. In contrast, Birman, Malkhi and
+  153  van Renesse [13] noted that allowing for α > 1 may require
+  154  an unacceptably complex implementation, leading many real-
+
+  155  2
+
+  156  world systems to disable pipelining by setting α = 1, or even
+  157  to disable reconfiguration entirely.
+  158  Bortnikov et al. [14] implemented a reconfigurable RSM
+  159  using static RSMs which may pass responsibility to each
+  160  other in a manner that is similar to that of Stoppable Paxos.
+  161  They improve the performance of their system compared with
+  162  Stoppable Paxos by allowing each RSM to speculatively start
+  163  executing commands before the transfer of responsibility has
+  164  been fully agreed.
+  165  Ongaro and Ousterhout [3] developed the Raft protocol
+  166  which supports an unbounded pipeline throughout the reconfiguration process without inconsistency by instead limiting
+  167  the reconfigurations that can be performed. They performed a
+  168  formal proof of the correctness of Raft without reconfiguration,
+  169  and an informal argument that consistency is preserved when
+  170  a single node is added or removed from the cluster. Raft uses
+  171  simple majorities of the set of nodes as its quorums.
+  172  Viewstamped Replication and Zab are two other well-known
+  173  consensus protocols. Viewstamped Replication supports reconfiguration as described by Liskov and Cowling [15] in a similar
+  174  fashion to Vertical Paxos. Reed and Junqueira [16] initially
+  175  presented Zab without reconfiguration and this feature was
+  176  subsequently added by Shraer, Reed, Malkhi and Junqueira
+  177  [17], using a limited-pipeline approach much as in Dynamic
+  178  Paxos.
+  179  An interesting alternative approach to reconfiguration was
+  180  proposed by Jahl and Meling [18] which uses eventual consistency rather than consensus to determine the configuration
+  181  of the system, and therefore supports reconfiguration as long
+  182  as it is still possible to communicate with a quorum of nodes
+  183  even if consensus cannot be achieved due to an inability to
+  184  elect a distinguished leader. In such a situation consensusbased approaches such as the one presented here would fail
+  185  to make any further progress, whereas one based on eventual
+  186  consistency could be reconfigured into one in which a leader
+  187  may be elected and thus in which further progress can be
+  188  made.
+
+  189  III. THESYNODALGORITHM
+  190  Synod [2] is an algorithm for achieving consensus on a
+  191  single value in a distributed system comprising a set of nodes
+  192  which can communicate by sending messages to each other.
+  193  The system is asynchronous but not Byzantine, in the sense
+  194  that messages may be delayed, reordered, duplicated and
+  195  dropped but not corrupted, and processes may run arbitrarily
+  196  slowly or even stop but may not deviate from their specifications.
+  197  Let B be a set of ballot identifiers with a wellfounded total
+  198  order ≺. Let A be a set of node identifiers and let V be the
+  199  set of values that may be chosen.
+  200  The Synod algorithm involves five kinds of message, in
+  201  two phases, as described below. Throughout, a ∈ A and
+  202  b, b′ ∈ B. Phase I starts with the broadcast of a prepare
+  203  message prepare(b) to which each node may respond with a
+  204  promise, either a free promise, written promised(a, b), or a
+  205  forced promise, written promised(a, b;b′), where a identifies
+  206  the responding node. Phase II starts with the broadcast of a
+=== PAGE 3 ===
+
+  207  and
+
+  208  such that for every node
+
+  209  such that
+
+  210  Fig. 1. Invariants preserved by the Synod algorithm
+  211  S1) For all b1 ≻ b2 ∈ B there are sets of quorums QI(b1)
+  212  then QI(b1) ⌢ QII(b2).
+  213  S2) If promised(a, b) then ¬accepted(a, b′) for all b′ ≺ b
+  214  S3) If promised(a, b;b′) then b′ ≺ b, accepted(a, b′), and
+  215  for all b′′ having b′ ≺ b′′ ≺ b.
+  216  S4) If proposed(b) then there is a quorum qI ∈ QI(b)
+  217  exists a b′ such that promised(a, b;b′); if also P , {b′
+  218  S5) If accepted(a, b) then proposed(b).
+  219  S6) If chosen(b) then there is a quorum qII ∈ QII(b)
+
+  220  proposal, written proposed(b), to which each node a may
+  221  respond with an acceptance, written accepted(a, b). Once
+  222  phase II is complete a success message, written chosen(b),
+  223  is broadcast. It is convenient also to use these symbols
+  224  as predicates indicating whether the corresponding messages
+  225  have been sent.
+  226  There is a function v : B → V assigning a value to each
+  227  ballot, discussed in more detail in section III-A below.
+  228  The system satisfies a set of invariants listed in fig. 1, from
+  229  which it follows that consistency is guaranteed in the sense that
+  230  if chosen(b) and chosen(b′) then v(b) = v(b′) as shown by
+  231  theorem 8 in appendix B.
+  232  Each node operates as a state machine whose transitions are
+  233  caused by the receipts of messages. Each phase is considered
+  234  to be complete for a particular ballot when appropriate messages have been received from sufficiently many nodes, where
+  235  "sufficiently many" is defined in terms of sets of quorums of
+  236  nodes in the system's configuration.
+  237  In more detail, a node may emit proposed(b) when it
+  238  considers phase I to be complete at ballot b, which is when
+  239  promises for b have been received from a quorum of nodes,
+  240  and similarly may emit chosen(b) when it considers phase
+  241  II to be complete at b, which is when acceptances of b have
+  242  been received from a quorum of nodes.
+  243  The phase-I and phase-II quorums are defined so as to
+  244  always contain at least one node in common, but may vary
+  245  depending on the ballot b and the phase as discussed in section
+  246  III-B below. In particular, the quorums need not all mutually
+  247  intersect, as discovered independently by Howard, Malkhi and
+  248  Spiegelman [19].
+
+  249  A. Implementing the value function
+  250  In an implementation of a RSM, the values chosen represent
+  251  the transitions that the state machines must perform. It is possible that these values may be expensive to transfer between
+  252  nodes because they could carry a large quantity of data.
+  253  In the original presentation of the Synod algorithm, the
+  254  values of ballots are carried along with their identifiers in the
+  255  messages promised(a, b; b′, v(b′ )), proposed(b, v(b)) and
+  256  chosen(b, v(b)). This means that, in a unicast network of
+  257  2f +1 nodes, each value is included in 2f messages (at least f
+  258  proposals and at least f success messages) even in the absence
+  259  of faults, which is twice as many as necessary. Furthermore, a
+  260  simple method for detecting faults is to insist that each node
+
+  261  3
+
+  262  QII(b2) ⊆ PA such that if proposed(b1) and chosen(b2)
+
+  263  .
+  264  b′ is the greatest such ballot in the sense that ¬accepted(a, b′′)
+
+  265  a ∈ qI either promised(a, b) or else there
+  266  | ∃a ∈ qI.promised(a, b; b′)} 6= ∅ then v(b) = v max(P) .
+
+  267  accepted(a, b) for every a ∈ qII.
+
+  268  sends at least one complete message within a certain period
+  269  of time, but this method is unsatisfactory if messages can be
+  270  unboundedly large.
+  271  Observation O4 in [8] notes that these values can be
+  272  replaced in some cases by hashes, but this idea can be taken
+  273  a step further and the values can be completely elided from
+  274  the messages that take part in the Synod protocol, allowing
+  275  considerably more freedom in the implementation of the
+  276  function v without sacrificing consistency.
+  277  By allowing the values to be communicated using a separate
+  278  mechanism from the consensus messages themselves it is
+  279  possible to seek optimisations that rely on the fact that the
+  280  values may be large but need not move quickly whereas the
+  281  consensus messages are small but must be transported with
+  282  low latency to ensure the system has good performance.
+  283  Although it appears that the function v is fixed, in practice
+  284  it is allowed to change as the system runs. Treating it as
+  285  fixed simplifies the consistency proof and highlights that its
+  286  values need not be included in all messages, but means that
+  287  the system cannot be shown to satisfy any useful liveness
+  288  properties. To recover liveness, note that if the invariants of
+  289  fig. 1 are satisfied with a value function v then they continue to
+  290  be satisfied if v is replaced by another value function v′ that
+  291  agrees with v on proposed ballots, i.e. where v(b) = v′ (b)
+  292  if proposed(b) but not necessarily otherwise. Since only
+  293  owner(b) may propose b, if it has not yet itself proposed a
+  294  value for b it can deduce that ¬proposed(b) and therefore
+  295  freely modify v(b).
+  296  It is also important for liveness that the implementation
+  297  of v is resilient to the same failure modes as the rest of
+  298  the system. Since owner(b) is, in a sense, responsible for
+  299  the value of the ballot b, it is possible to think of v as an
+  300  insert-only set of pairs {hb, v(b)i | proposed(b)} which is
+  301  an example of a convergent replicated data type [20] and can
+  302  therefore be implemented simply and robustly in a distributed
+  303  system without needing to rely on a consensus algorithm.
+  304  Indeed the original presentation can be seen as containing
+  305  such an implementation, where the inclusion of values in all
+  306  messages ensures convergence occurs as quickly as possible,
+  307  and replicating this set across all 2f + 1 nodes ensures v itself
+  308  may be resilient to as many as 2f failures. Cheap Paxos [8]
+  309  is cheaper partly because it replicates v across just the f + 1
+  310  primary processors, with the f auxiliary processors storing just
+  311  the hashes of values to ensure integrity.
+  312  It is also worth comparing this approach to that of Vertical
+=== PAGE 4 ===
+
+  313  Paxos [10] which takes great care to ensure that the system
+  314  state is completely transferred between nodes before they start
+  315  to participate fully in the cluster, with certain optimisations
+  316  in recognition of the fact that this state transfer could be
+  317  an expensive and time-consuming operation involving a very
+  318  large quantity of data. However if the implementation of v is
+  319  separated out then the quantity of data that must be transferred
+  320  as part of the consensus algorithm becomes small enough that
+  321  it needs no special treatment and a consensus-free technique
+  322  may be used to implement v more efficiently.
+
+  323  B. Per-phase quorums
+  324  The consistency property of the Synod algorithm relies on
+  325  the fact that the set of nodes involved in completing phase I
+  326  must always intersect the set of nodes involved in completing
+  327  phase II so that there is at least one node involved in both
+  328  phases. Write Q1 ⌢ Q2 iff every q1 ∈ Q1 and q2 ∈ Q2 have
+  329  q1 ∩ q2 6= ∅, and write QI(b) and QII(b) for the sets of phase-I
+  330  and phase-II quorums for ballot b respectively.
+  331  In the original presentation of the Synod algorithm any
+  332  (weighted) majority of the nodes could be used as a quorum,
+  333  so that QI(b1) = QII(b2) and hence QI(b1) ⌢ QII(b2) for all
+  334  b1 and b2 since all majorities intersect.
+  335  Theorem 8 shows that consistency can still be guaranteed
+  336  even if sometimes QI(b1) 6= QII(b2), as long as QI(b1) ⌢
+  337  QII(b2) when proposed(b1), chosen(b2) and b1 ≻ b2, as
+  338  described in invariant S1. This weaker invariant is the key to
+  339  allowing more general reconfigurations to take place safely as
+  340  described in section IV-A below.
+
+  341  IV. THEPAXOS ALGORITHM
+  342  Conceptually, Paxos is a sequence of distinct instances of
+  343  the Synod algorithm all running simultaneously. To achieve
+  344  this, the messages of the Synod algorithm above are indexed with the instance number ⟩ ∈ N: promised (a, b),
+  345  ⟩
+  346  promised (a, b;b′), proposed (b), accepted (a, b) and
+  347  ⟩ ⟩ ⟩
+  348  chosen⟩(b). There is another kind of message known as
+  349  a multi-promise, written promised ⟩(a, b), which can be
+  350  ≥
+  351  thought of as standing for the infinite set of free promises
+  352  {promisedj (a, b) | j ≥ ⟩}. Prepare messages prepare(b)
+  353  apply to all instances so are not indexed.
+  354  As in the Synod algorithm, phase I starts with a broadcast
+  355  of prepare(b) for some b to which each node a may respond
+  356  with a set of promises promised (a, b), promised (a, b; b′)
+  357  ⟩ ⟩
+  358  and promised (a, b) according to its past behaviour. Each
+  359  ≥⟩
+  360  phase II instance ⟩ operates just as in the Synod algorithm,
+  361  starting with a broadcast of proposed (b) to which each node
+  362  ⟩
+  363  a may respond with an acceptance accepted (a, b) and once
+  364  ⟩
+  365  acceptances have been received from a quorum of nodes it
+  366  follows that chosen⟩(b) may be broadcast.
+  367  There is a function v⟩ : B → V for each instance ⟩ giving
+  368  a value to each ballot, and theorem 10 shows that whenever
+  369  chosen (b) and chosen (b′) it follows that v (b) = v (b′ ).
+  370  ⟩ ⟩ ⟩ ⟩
+  371  The invariants listed in fig. 2 are roughly the same as
+  372  for many other presentations of Paxos with the addition of
+  373  constraints on the configurations associated with instances and
+  374  ballots as discussed below. Note that invariants P2, P3 and P4
+
+  375  4
+
+  376  limit the acceptances that can be sent as well as the promises,
+  377  so there is no need to define separate invariants concerning
+  378  the sending of acceptances.
+
+  379  A. Configuration changes
+  380  A fixed cluster configuration is a pair ⟨QI, QII⟩ of sets of
+  381  quorums satisfying QI⌢ QII, where QI and QII are the sets
+  382  of quorums to use in phase I and phase II respectively.
+  383  Changes to the cluster configuration are modelled by a
+  384  sequence of configurations ⟨QI, QII⟩, ⟨QI, QII⟩, . . . that also
+  385  0 0 1 1
+  386  satisfy QI⌢ QII for all e. The integer subscript is called
+  387  e e+1
+  388  the era of a configuration. Intuitively the cluster is "in era
+  389  e" while instances are being chosen using ⟨QI, QII⟩. While a
+  390  e e
+  391  change from era e to e + 1 is in progress some instances may
+  392  use the interim configuration ⟨QI, QII ⟩, and once the change
+  393  e e+1
+  394  to era e+ 1 is complete instances will use ⟨QI, QII ⟩. This
+  395  e+1 e+1
+  396  intuition is captured more precisely in section IV-D below, and
+  397  since QII⌢ QI⌢ QII⌢ QI it follows that consistency
+  398  e e e+1 e+1
+  399  is preserved throughout by the observation of III-B above.
+  400  To achieve this there are also two nondecreasing integervalued functions, both written e(·), which respectively assign
+  401  an era e(⟩) to each instance ⟩, and an era e(b) to each ballot
+  402  b. Intuitively e(b) records which quorums may be used in
+  403  phase I to decide that proposed (b) can be sent, and e(⟩)
+  404  ⟩
+  405  records which quorums may be used in phase II to decide
+  406  that chosen⟩(b) can be sent. More precisely a node may emit
+  407  proposed (b) only if it has received promises for ballot b in
+  408  ⟩
+  409  instance ⟩ from a quorum of nodes in QI , which implies that
+  410  e(b)
+  411  e(b) ≤ e(⟩), and similarly a node may emit chosen⟩(b) only
+  412  if e(⟩) ≤ e(b) + 1 and it has received accepted⟩(a, b) from a
+  413  quorum of nodes in QII . These extra conditions on the eras
+  414  e(⟩)
+  415  of ballots and instances in messages ensure that if chosen⟩(b)
+  416  then e(b) ≤ e(⟩) ≤ e(b) + 1 and hence QI⌢ QII as
+  417  e(b) e(⟩)
+  418  required to ensure consistency, as shown in lemma 9.
+
+  419  B. Dynamic configuration changes
+  420  As in Dynamic Paxos, the configurations
+  421  ⟨QI, QII⟩, ⟨QI, QII⟩, . . . and era numbers e(⟩) are themselves
+  422  0 0 1 1
+  423  chosen by consensus. In contrast, era numbers e(b) for ballots
+  424  b are fixed in advance and not chosen by consensus.
+  425  In more detail, configurations are held within the RSM as
+  426  a finite sequence ⟨QI, QII⟩, ⟨QI, QII⟩, . . . ,⟨QI, QII ⟩ and
+  427  0 0 1 1 emax emax
+  428  the era numbers of instances are held similarly as a nondecreasing sequence e(0), e(1), . . . , e(⟩max). The transitions that
+  429  affect these sequences may append one or more elements, but
+  430  may not change any existing elements.
+  431  The sequences are always long enough to make progress,
+  432  in the sense that emax ≥ e(⟩max) and if chosenj(b) for all
+  433  j < i then ⟩max ≥ ⟩.
+  434  Note that a node may emit a promise for b at instance ⟩
+  435  only if e(b) ≤ e(min(i, imax)). This allows nodes to make
+  436  promises for an instance ⟩ even if e(⟩) is not yet known, i.e. if
+  437  i > imax. Invariant P7 requires that ⟩ ≤ ⟩max, and hence e(⟩)
+  438  is known, before chosen⟩(b).
+=== PAGE 5 ===
+
+  439  ¬
+  440  accepted
+
+  441  such that for every
+
+  442  =
+
+  443  , and there is a quorum
+
+  444  Fig. 2. Invariants preserved by the Paxos algorithm
+  445  P1) There are configurations ⟨QI, QII⟩, ⟨QI, QII⟩, . . . where
+  446  0 0 1 1
+  447  P2) If promised≥⟩(a, b) then e(b) ≤ e(min(i, imax)) and
+  448  P3) If promised⟩(a, b) then e(b) ≤ e(min(i, imax)) and ¬
+  449  P4) If promised (a, b;b′) then e(b) ≤ e(min(i, imax)), b′
+  450  ⟩
+  451  sense that ¬accepted (a, b′′) for all b′′ having b′ ≺ b′′
+  452  ⟩
+  453  P5) If proposed (b) then there is a quorum q ∈ QI
+  454  ⟩ e(b)
+  455  • promised (a, b) for some j ≤ ⟩, or
+  456  ≥j
+  457  • promised (a, b), or
+  458  ⟩
+  459  • promised (a, b; b′ ) for some b′ .
+  460  ⟩
+  461  Furthermore if P , {b′ | ∃a ∈ q.promised (a, b; b′ )} 6
+  462  ⟩
+  463  P6) If accepted⟩(a, b) then proposed⟩(b).
+  464  P7) If chosen⟩(b) then ⟩ ≤ ⟩max, e(⟩) ≤ e(b) + 1
+
+  465  C. Liveness
+  466  To be useful, a consensus algorithm must not only guarantee
+  467  consistency but also ensure that it cannot "get stuck", i.e. it
+  468  is always possible to make progress by eventually choosing
+  469  a value for each instance. It is known to be impossible to
+  470  guarantee liveness in a deterministic asynchronous system [21]
+  471  but as with earlier presentations of Paxos [7] here liveness can
+  472  be shown under the assumption that a distinguished node ℓ is
+  473  eventually selected as the only one that may emit prepare(b)
+  474  messages.
+  475  The original liveness proof then proceeded by having ℓ emit
+  476  prepare(b) for some b that is chosen to be large enough that a
+  477  quorum of nodes may respond with promises. In contrast, here
+  478  there is an upper bound on suitable ballots since a proposed
+  479  ballot must not belong to an era which is too large, because
+  480  if e(b) > e(⟩) then no promise for ballot b at instance ⟩ may
+  481  be made. Therefore here ℓ must be able to choose a ballot
+  482  that is large enough to be accepted but which still belongs to
+  483  the correct era, or, more precisely, for each ballot b, each era
+  484  e ≥ e(b) and each node a there must be a ballot b′ ≻ b having
+  485  e(b′) = e and owner(b′ ) = a.
+  486  This means that ballot numbers cannot be simple integers
+  487  because this would imply that there exist eras containing
+  488  only finitely many ballots. Instead an implementation could,
+  489  for example, let B = N × N × A ordered lexicographically,
+  490  where e(⟨e, n, a⟩) , e and owner(⟨e, n, a⟩) , a. This is
+  491  the approach used in Egalitarian Paxos [11] in which eras
+  492  are known as epochs but this terminology is avoided here
+  493  to prevent confusion with the epochs (views, terms, . . . ) of
+  494  leader-election protocols (e.g. [22]) which track the current
+  495  leader rather than the current configuration.
+  496  With this in mind the proof of liveness runs much as in the
+  497  original presentation:
+  498  Theorem 1 (Liveness). Given that there is eventually a
+  499  nonfaulty distinguished node ℓ which is the only node that may
+  500  emit prepare messages, and sufficiently many other nonfaulty
+  501  nodes, and given that for every instance there is eventually at
+  502  least one value to propose, then eventually a value is chosen
+  503  for every instance.
+  504  Proof. The proof proceeds by induction over the instances,
+
+  505  5
+
+  506  QII⌢ QI⌢ QII for each e.
+  507  e e e+1
+  508  accepted (a, b′) for all j ≥ ⟩ and all b′ ≺ b.
+  509  j
+  510  (a, b′) for all b′ ≺ b.
+  511  ⟩
+  512  ≺ b, accepted (a, b′), and b′ is the greatest such ballot in the
+  513  ⟩
+  514  ≺ b.
+  515  a ∈ q one of the following holds:
+
+  516  ∅ then v⟩(b) = v⟩ max(P) .
+
+  517  q ∈ QII with accepted (a, b) for every a ∈ q.
+  518  e(⟩) ⟩
+
+  519  so suppose that chosenj(bj) for all j < i and show that
+  520  eventually chosen⟩(b⟩) as follows.
+  521  Firstly recall that the sequences of eras and configurations
+  522  are long enough, in the sense that ⟩ ≤ ⟩max and e(⟩max) ≤
+  523  emax, so that the values of e(⟩), QI , QI and QII are
+  524  e(⟩)−1 e(⟩) e(⟩)
+  525  known to ℓ.
+  526  The distinguished node ℓ first chooses a ballot b⟩ having
+  527  e(b⟩) ∈ {e(⟩) − 1, e(⟩)} and owner(b⟩) = ℓ and such that
+  528  enough nodes can emit accepted (a, b⟩) without breaking
+  529  ⟩
+  530  any of their previously-made promises. By invariants P2, P3
+  531  and P4, all promises for such a ballot b′ at instance ⟩ must
+  532  have e(b′) ≤ e(⟩) so that such a b does exist.
+  533  ⟩
+  534  If ℓ has not yet received enough promises for b⟩ at instance ⟩
+  535  then it broadcasts prepare(b⟩) and waits to receive promises
+  536  from a quorum of nodes in QI .
+  537  e(b⟩)
+  538  Then, if ℓ has not yet emitted proposed (b⟩) it selects
+  539  ⟩
+  540  one of the values for instance ⟩ (which eventually exists), sets
+  541  v⟩(b⟩) as appropriate, broadcasts proposed⟩(b⟩), and waits
+  542  to receive acceptances in response. When acceptances have
+  543  been received from a quorum of nodes in QII it follows that
+  544  e(⟩)
+  545  chosen⟩(b⟩) as required.
+
+  546  D. Fully concurrent configuration changes
+  547  The discussion so far shows that, like other Paxos variants,
+  548  this algorithm satisfies consistency and liveness properties.
+  549  The benefit of this scheme compared with other variants
+  550  is that, under normal running conditions, it is possible to
+  551  perform a reconfiguration without needing to impose a limit
+  552  on the number of concurrently-running instances. This section
+  553  describes the details of this procedure.
+  554  In normal running there is an instance ⟩0 and a ballot
+  555  b with e(b) = e(⟩0) = e(⟩max) = emax and the distinguished
+  556  node ℓ = owner(b) has received a quorum of promises
+  557  qI ∈ QI for ballot b for all instances ⟩ ≥ ⟩0. In this state,
+  558  e(b)
+  559  ℓ may emit proposed (b) for any ⟩ ≥ ⟩0 as long as v⟩(b) is
+  560  ⟩
+  561  set appropriately. The node ℓ is known as the leader and its
+  562  proposals are normally accepted without undue delay by all
+  563  other nodes.
+  564  Suppose that, in normal running, an operator wishes
+  565  to change the cluster configuration to ⟨QI, QII ⟩ where
+  566  new new
+  567  QI⌢ QII⌢ QI . First she appends ⟨QI, QII ⟩ to
+  568  e(b) new new new new
+=== PAGE 6 ===
+
+  569  the sequence of configurations, setting ⟨QI, QII ⟩ =
+  570  e(b)+1 e(b)+1
+  571  ⟨QI, QII ⟩ and emax = e(b) + 1, then she picks a future
+  572  new new
+  573  instance ⟩c > imax at which the change should take effect and
+  574  appends values to the sequence of eras to set e(⟩) = e(⟩0) for
+  575  ⟩0 ≤ i < ic and e(⟩c) = e(⟩0) + 1. Since e(⟩c) = e(⟩0) + 1 ≤
+  576  e(b)+1, values for instance ⟩c and any future instances with the
+  577  same era may be proposed and chosen even though phase I has
+  578  not yet run for a ballot in this era, so this does not prevent any
+  579  further instances from running concurrently. There is therefore
+  580  no drawback to choosing as small a value for ⟩c as possible,
+  581  so it makes sense to choose ⟩c = ⟩max + 1.
+  582  At this point, the system is no longer in normal running as
+  583  defined above because e(b) = e(⟩max)−1. If the operator were
+  584  to increase e(⟩max) any further then there would be an instance
+  585  ⟩ with e(⟩) > e(b) + 1 and hence ¬chosen⟩(b). A value can
+  586  still eventually be chosen for instance ⟩ due to theorem 1,
+  587  but not before the leader has selected a new ballot b′ in an
+  588  appropriate era, completed phase I for b′, and then broadcast
+  589  new proposals for b′. These steps may cause the pipeline to
+  590  stall if not completed quickly enough.
+  591  The system must therefore be returned to normal running
+  592  before any further reconfiguration can occur. To do this, the
+  593  leader chooses a new ballot b′ having e(b′) = e(b) + 1
+  594  and owner(b′) = ℓ and runs phase I for b′ in a way that
+  595  does not prevent any progress in era e(b) while it has not
+  596  completed. This is possible if ℓ has a casting vote in the
+  597  sense that there are quorums of nonfailed nodes q ∈ QII
+  598  e(b)
+  599  and q′ ∈ QI having q ∩ q′ = {ℓ}. With a casting vote,
+  600  e(b)+1
+  601  ℓ may broadcast prepare(b′) just to the nodes in q′ \ {ℓ}
+  602  without preventing further progress in era e(b) since the nodes
+  603  in q can continue to accept proposals in this era throughout.
+  604  When it has received promises from all the other nodes in q′ it
+  605  can send itself promised (ℓ, b′) for some sufficiently large
+  606  ≥⟩′
+  607  ⟩′, which completes phase I at b′ and restores the system to
+  608  normal running in era e(b′) = e(b) + 1. A message from a
+  609  node to itself does not incur any network delays so the last
+  610  step occurs essentially instantaneously.
+  611  If ℓ does not have a casting vote, but there is some other
+  612  node ℓ′ which does, then ℓ should first abdicate its leadership
+  613  to ℓ′ and then the new leader should perform the new phase I
+  614  as described above. If there is no node with a casting vote at
+  615  all then the broadcast of prepare(b′) may prevent progress
+  616  until phase I is complete at b′.
+  617  If any node fails during this process then it may be necessary
+  618  to retry some of the steps or possibly even elect a new leader.
+  619  Liveness and consistency continue to hold if nodes fail but
+  620  performance may be affected, for instance by meaning that ℓ
+  621  no longer has a casting vote. In general it is not possible to
+  622  prevent node failures from having a performance impact.
+  623  To give a concrete example of this process, fig. 3 shows the
+  624  flow of messages during a reconfiguration involving the nodes
+  625  a1 and a2 and the leader ℓ. The system starts in era e where
+  626  {ℓ, a1} ∈ QI and {ℓ, a2} ∈ QII, and moves to era e+ 1 where
+  627  e e
+  628  {ℓ, a1} ∈ QI and {ℓ, a2} ∈ QII too. Because of these
+  629  e+1 e+1
+  630  quorums, the leader only needs a response from node a1 to
+  631  complete phase I, and similarly only needs a response from
+  632  node a2 to complete phase II and choose a value. Notice that
+
+  633  6
+
+  634  a1 ℓ a2
+
+  635  prepare(b)
+
+  636  proposed⟩(b)
+  637  proposed (b)
+  638  ⟩+1
+  639  proposed (b)
+  640  ⟩+2
+  641  proposed⟩+3(b)
+  642  e proposed⟩+4(b)
+  643  era proposed (b)
+  644  e + 1 ⟩+5
+  645  era proposed (b)
+  646  ⟩+6
+  647  proposed⟩+7(b)
+  648  prepare(b′)
+  649  proposed⟩+8(b)
+  650  proposed (b)
+  651  ⟩+9
+  652  proposed⟩+10(b)
+  653  proposed⟩+11(b)
+  654  proposed (b′)
+  655  ⟩+12
+  656  proposed (b′)
+  657  ⟩+13
+
+  658  Fig. 3. Message flow during a reconfiguration.
+
+  659  this means the leader has a casting vote. The messages sent
+  660  from ℓ to the other nodes are labelled on the diagram, but the
+  661  successful responses (promises and acceptances from a1 and
+  662  a2 respectively) are left unlabelled for clarity. Initially, ⟩max =
+  663  ⟩ + 3 and e(⟩) = e(⟩ + 1) = e(⟩ + 2) = e(⟩ + 3) = e = emax,
+  664  and all instances before ⟩ have already been chosen.
+  665  The leader starts by completing phase I at a sufficiently
+  666  large ballot b, where e(b) = e, which starts a period of normal
+  667  running in era e and means that ℓ may emit proposed (b)
+  668  j
+  669  for any j ≥ ⟩. It receives three client requests, causing it to
+  670  propose values for instances ⟩, ⟩ + 1 and ⟩ + 2 in turn. On
+  671  the receipt of each proposal the node a2 responds with an
+  672  acceptance, which when ultimately received by ℓ allows it to
+  673  decide that each value is chosen because {ℓ, a2} ∈ QII.
+  674  e
+  675  A configuration change is proposed at instance ⟩+ 3 which,
+  676  when chosen, appends the next configuration ⟨QI, QII ⟩ to
+  677  e+1 e+1
+  678  the configuration sequence, sets e(⟩ + 4) = e(⟩ + 5) = . . . =
+  679  e+ 1, and increases emax and ⟩max accordingly. This takes the
+  680  system out of normal running because now e(⟩max) = e+ 1 6=
+  681  e(b). In order to bring the system back into normal running,
+  682  the leader must choose a ballot b′ having e(b′) = emax and
+  683  complete a phase I at b′, so it sends prepare(b′) to a1.
+  684  While instance ⟩+3 was being chosen, the leader continued
+  685  to service client requests by sending out proposed⟩+4(b),
+  686  proposed⟩+5(b) and proposed⟩+6(b), which a2 accepts in
+=== PAGE 7 ===
+
+  687  due course. Although these instances come after the configuration change at instance ⟩ + 3, when the leader receives
+  688  accepted +4(a2, b) it may still safely deduce chosen⟩+4(b)
+  689  ⟩
+  690  since e(⟩ + 4) = e + 1 ≤ e(b) + 1 and {ℓ, a2} ∈ QII , and
+  691  e+1
+  692  similarly for instances ⟩+ 5 and ⟩+ 6. It is important to notice
+  693  that the leader is now using QII and not QII to determine
+  694  e+1 e
+  695  when ballots are chosen. The horizontal dashed line shows the
+  696  point in time at which the leader moves from era e to era e+1.
+  697  While the leader is waiting for the response from a1, client
+  698  requests continue to arrive, yielding proposals for subsequent
+  699  instances ⟩ + 7, ⟩ + 8, . . . . Notice that the leader is still
+  700  using ballot b for these requests as it has not yet completed
+  701  phase I at b′, but that it is still safe to deduce chosen +7(b),
+  702  ⟩
+  703  chosen⟩+8(b), . . . because e(⟩ + 7) = e(⟩ + 8) = e(b) + 1.
+  704  Importantly, there is no limit to how many requests the leader
+  705  can handle in this way, so the system will continue to be able
+  706  to process client requests even if the phase I messages are
+  707  arbitrarily delayed.
+  708  At last the response from a1 is received just after the sending
+  709  of proposed +11(b) and before a proposal has been made for
+  710  ⟩
+  711  instance ⟩ + 12. The leader can then send itself the message
+  712  promised (ℓ, b′ ) which completes phase I at ballot b′
+  713  ≥⟩+12
+  714  since {ℓ, a1} ∈ QI . This restores the system to normal
+  715  e+1
+  716  running, and allows ℓ to make proposals proposed (b′) for
+  717  j
+  718  all j ≥ ⟩ + 12. It is imporant to notice that the leader did
+  719  not need to predict how long it would take to complete phase
+  720  I at b′ in advance, nor how many requests it might have to
+  721  handle during this time, in order to ensure that it can continue
+  722  to process these requests without delay.
+  723  Fig. 4 shows an equivalent reconfiguration performed in a
+  724  Dynamic Paxos cluster with the pipeline length α = 2. As
+  725  there are frequently two proposals being processed concurrently it seems likely that better performance could be achieved
+  726  by selecting a higher value. A higher value still could have
+  727  avoided the pause between instances ⟩+ 5 and ⟩+ 6 caused by
+  728  the extra delay in completing phase I at ballot b′. On the other
+  729  hand if the pipeline is too long then configuration changes can
+  730  be expensive to complete. It is, in general, difficult to select
+  731  an appropriate value for α up-front as the best choice may
+  732  depend on changeable system conditions, and no matter what
+  733  value is selected it is possible that a configuration change may
+  734  cause a pause if a phase-I message is unexpectedly delayed or
+  735  a burst of client requests are received.
+  736  In contrast, fig. 5 shows an equivalent reconfiguration
+  737  performed in Stoppable Paxos. This variant of Paxos allows
+  738  for an unlimited number of proposals to run in parallel
+  739  within each configuration, and permits out-of-order execution,
+  740  so in this illustration the stopping command is proposed at
+  741  instance ⟩+3 before proposals are made for the two preceding
+  742  instances. By selecting instance ⟩ + 3 for the reconfiguration,
+  743  the operator is limiting the system to service at most two more
+  744  client requests before the reconfiguration completes. As in the
+  745  illustration of Dynamic Paxos above, the operator's choice is
+  746  too conservative so the remaining two free instances are used
+  747  up before phase I is completed at ballot b′, which causes the
+  748  system to temporarily suspend its processing of client requests.
+
+  749  7
+
+  750  a1 ℓ a2
+
+  751  prepare(b)
+
+  752  proposed⟩(b)
+  753  proposed (b)
+  754  ⟩+1
+
+  755  proposed (b)
+  756  ⟩+2
+  757  proposed⟩+3(b)
+
+  758  proposed⟩+4(b)
+  759  prepare(b′) proposed⟩+5(b)
+  760  e
+  761  era
+  762  e + 1
+  763  era
+
+  764  proposed (b′)
+  765  ⟩+6
+  766  proposed (b′)
+  767  ⟩+7
+
+  768  Fig. 4. Message flow for Dynamic Paxos with α = 2.
+
+  769  V. EXAMPLES
+  770  This section contains some examples of configuration
+  771  changes that satisfy the conditions described above. All the
+  772  configurations described here have equal sets of quorums in
+  773  phase I and phase II of each era, so for the sake of simplicity
+  774  throughout this section define Q , QI = QII. Implementae e e
+  775  tions can ensure Qe ⌢ Qe for each e by, for instance,
+  776  arranging for each quorum in Qe to comprise a majority subset
+  777  of some finite set of nodes. Slightly more generally, let a
+  778  weight function be a function w : A → N that only takes
+  779  finitely many nonzero values. This can be used to define a
+  780  configuration ⟨M(w), M(w)⟩ by weighted majority:
+  781  ( )
+  782  M(w) , q X2w(a) > X w(a) .
+  783  a∈q a∈A
+  784  Corollary 5 in appendix A demonstrates the well-known result
+  785  that M(w) ⌢ M(w) for any weight function w. Indeed, if w
+  786  and w′ are weight functions that differ by a constant factor
+  787  in the sense that that there are positive integers k and k′ with
+  788  kw(a) = k′w′ (a) for all a, then clearly M(w) = M(w′) and
+  789  hence M(w) ⌢ M(w′).
+  790  Raft's quorums are simple unweighted majorities of a finite
+  791  set of nodes, which can be emulated with weight functions
+  792  that only take values in {0, 1}. It only supports adding or
+=== PAGE 8 ===
+
+  793  a1 ℓ a2
+
+  794  prepare(b)
+
+  795  proposed⟩(b)
+  796  proposed (b)
+  797  ⟩+3
+  798  proposed (b)
+  799  ⟩+1
+  800  proposed⟩+2(b)
+  801  e
+  802  era
+  803  e + 1
+  804  era
+  805  prepare(b′)
+
+  806  proposed (b′)
+  807  ⟩+4
+  808  proposed (b′)
+  809  ⟩+5
+  810  proposed (b′)
+  811  ⟩+6
+
+  812  Fig. 5. Message flow for Stoppable Paxos.
+
+  813  removing a single node from this set which amounts to
+  814  changing the weight of a single node by ±1. For instance,
+  815  if A = {a1, a2, . . .} then define weight functions
+  816  (1 ifa ∈ {a , . . . , a }
+  817  w1...n(a) , 1 n
+  818  0 otherwise
+
+  819  and observe that M(w1...3) ⌢ M(w1...4) and
+  820  M (w1...4) ⌢ M(w1...5) but M(w1...3) 6⌢ M(w1...5) because
+  821  {a , a } ∈ M(w1...3) and {a , a , a } ∈ M(w1...5) do
+  822  1 2 3 4 5
+  823  not intersect. This justifies the restriction against adding or
+  824  removing more than one node at once.
+  825  In fact there is no need to restrict attention just to weight
+  826  functions taking values in {0,1} as shown by lemma 3 which
+  827  is reminiscent of the amoeba analogy in [8]: any two integervalued weight functions whose total absolute difference is at
+  828  most one can be used to define consecutive configurations.
+  829  This extra generality is important for deployments where nodes
+  830  may share infrastructure (e.g. power distribution or network
+  831  connectivity) because such nodes may suffer correlated failures, and reducing this correlation by adding more independent
+  832  infrastructure may be costly. In more detail, a na¨ıve approach
+  833  to swapping a node aold for a replacement anew in a threenode cluster using unweighted majorities would be to perform
+  834  the configuration changes given by this sequence of weight
+
+  835  8
+
+  836  functions starting at era e:
+  837  node aold anew a1 a2
+  838  we 1 0 1 1
+  839  we+1 1 1 1 1
+  840  we+2 0 1 1 1
+  841  However to be resilient to infrastructure failures this requires
+  842  all four nodes and their underlying infrastructures to be
+  843  completely independent since a correlated failure of any two
+  844  nodes would prevent further progress. It also has no node with
+  845  a casting vote in era e + 1. On the other hand the following
+  846  sequence achieves the same overall change but allows aold and
+  847  anew to share infrastructure without extra risk, and both a1 and
+  848  a2 have casting votes throughout:
+  849  node aold anew a1 a2
+  850  we 1 0 1 1
+  851  we+1 2 0 2 2
+  852  we+2 2 1 2 2
+  853  we+3 1 1 2 2
+  854  we+4 0 1 2 2
+  855  we+5 0 2 2 2
+  856  we+6 0 1 1 1
+  857  This is important as in many operating environments it may be
+  858  too expensive or complicated to arrange for four independent
+  859  infrastructures particularly if the fourth is only required to
+  860  ensure consistency in relatively rare periods of maintenance.
+  861  For instance at time of writing only one Amazon Web Services
+  862  region (us-east-1) has four independent zones, whereas
+  863  four of them have three: ap-southeast-2, eu-west-1,
+  864  sa-east-1 and us-west-2. Similarly, only one Google
+  865  Cloud Platform region (us-central1) has four zones and
+  866  all the others have three zones.
+  867  Early versions of Raft supported more general reconfigurations using a technique known as joint configurations. To
+  868  change from configuration Qe to an unrelated configuration
+  869  Q′ (i.e. Qe 6⌢ Q′ ⌢ Q′) it is possible to set Qe+2 = Q′ and
+  870  set Qe+1 to be the joint configuration of Qe and Q′:
+  871  Q = {q ∪ q′ | q ∈ Q , q′ ∈ Q′}
+  872  e+1 e
+  873  as this satisfies that Q ⌢ Q +1 ⌢ Q +1 ⌢ Q′.
+  874  e e e
+  875  If w(a) = 0 for all a then w is said to be weightless
+  876  and M(w) = ∅. Clearly if there is an instance ⟩ such that
+  877  Qe(⟩) = ∅ then no value can ever be chosen for ⟩. On the other
+  878  hand Q ⌢ ∅ for all Q so changing to or from a weightless
+  879  configuration is always permitted.
+  880  There is no requirement for the eras of consecutive instances
+  881  to differ by at most one so an era may be skipped at instance
+  882  ⟩ + 1 by setting e(⟩ + 1) = e(⟩) + 2. This recovers the ability
+  883  to perform arbitrary configuration changes in a single step as
+  884  in Stoppable Paxos. In more detail, if the system is currently
+  885  using configuration Qe and an operator wishes to change to
+  886  an unrelated configuration Q′ then she can set Qe+2 = Q′
+  887  and pick an appropriate Qe+1 (such as ∅) which satisfies that
+  888  Q ⌢ Q +1 ⌢ Q +1 ⌢ Q′ . However, re-running phase I can
+  889  e e e
+  890  only be delayed as described in section IV-D above if the era
+  891  increases by 1 and in this situation the era increases by 2, so
+  892  a new phase I must be completed before phase II of any new
+=== PAGE 9 ===
+
+  893  instances can be started. To prevent this causing the pipeline
+  894  to stall, the operator chooses a sufficiently large α > 0 and
+  895  sets e(⟩ + α) = e(⟩) + 2 and e(j) = e(⟩) for i < j ≤ ⟩ + α,
+  896  effectively delaying the configuration change for α instances
+  897  in the hope that this is long enough to have completed the
+  898  new phase I. The pattern of communication in this situation
+  899  is very similar to that shown in fig. 5 where α was chosen to
+  900  be 3.
+
+  901  VI. CONCLUSION
+  902  The approach described here improves on Dynamic Paxos
+  903  [8] by supporting changing the pipeline length parameter
+  904  α and running with an unlimited-length pipeline while a
+  905  configuration change is not in progress. In that sense, it can
+  906  be compared to that of Stoppable Paxos [9] which allows for
+  907  an unlimited number of proposals to run in parallel within
+  908  each configuration, but requires a temporary arbitrary limit on
+  909  concurrency while a reconfiguration takes place.
+  910  In both Dynamic and Stoppable Paxos, if the selected
+  911  limit is either too small or too large then it may affect the
+  912  system's performance, and the best choice of limit depends
+  913  on a prediction of the system's future performance. The
+  914  approach described here avoids the need to make any such
+  915  prediction or select any such limit and responds to changing
+  916  system conditions without needing further tuning. Once a
+  917  reconfiguration is chosen, it can complete after a single roundtrip to a quorum of nodes and the system can continue to serve
+  918  all clients while this round-trip is in progress, no matter how
+  919  long it takes.
+  920  This is achieved by using Raft-style reconfigurations [3]
+  921  which can be performed with an unlimited pipeline throughout.
+  922  Unlike in Raft, here a configuration change only takes effect
+  923  once it is chosen, which avoids the need to back-track to
+  924  an earlier state if a leader fails during reconfiguration. It
+  925  generalises the simple majorities used in Raft to integerweighted majorities which can reduce the costs of dealing with
+  926  correlated failures during maintenance.
+  927  It achieves equivalent goals to those of Vertical Paxos [10]
+  928  except that here there is no requirement for a separate oracle
+  929  to manage the configuration of the system.
+  930  It is also noted that there is no need for every message to
+  931  include the corresponding value, or even a hash of the value,
+  932  which may allow for even cheaper implementations of Cheap
+  933  Paxos [8] and can simplify the transfer of state [10] required
+  934  when new nodes are commissioned.
+
+  935  APPENDIXA
+  936  Lemma 2. If w, w′ : A → N are weight functions and k, k′
+  937  are positive integers such that P |k′ w′(a) − kw(a)| ≤ 1
+  938  a∈A
+  939  then M (w) ⌢ M(w′).
+  940  Proof. Since kw(a) and k′w′(a) are integers for all a, there
+  941  must be a node a0 such that kw(a) = k′w′(a) for all a 6= a0.
+  942  Let q ∈ M(w) and q′ ∈ M(w′). By the definition of M,
+  943  and since w and w′ take only integer values, P 2w(a) ≥
+  944  a∈q
+  945  P w(a) + 1 and P 2w′ (a) ≥ P w′(a) + 1.
+  946  a∈A a∈q′ a∈A
+
+  947  9
+
+  948  Let d , k′ w′(a0) − kw(a0) so that P k′w′(a) =
+  949  A a∈A
+  950  P kw(a) + dA and |dA| ≤ 1. Also let
+  951  a∈A
+  952  (d a ∈ q′
+  953  d , A 0
+  954  q′ 0 otherwise,
+
+  955  so that P k′w′(a) = P kw(a) + dq′ . Then
+  956  a∈q′ a∈q′
+  957  X 2kw(a) + d + k + k′
+  958  A
+  959  a∈A
+  960  ! !
+  961  = k Xw(a) + 1 + k′ Xw′(a) + 1
+  962  a∈A a∈A
+  963  ≤ X2kw(a) + X 2k′ w′(a)
+  964  a∈q a∈q′
+  965  = X2kw(a) + X 2kw(a) + 2d
+  966  q′
+  967  a∈q a∈q′
+  968  = X 2kw(a) + X 2kw(a) + 2d
+  969  q′
+  970  a∈q∪q′ a∈q∩q′
+  971  ≤ X 2kw(a) + X 2kw(a) + 2d
+  972  q′
+  973  a∈A a∈q∩q′
+  974  so that P 2kw(a) ≥ dA+k+k′−2dq′ = k+k′ ±dA ≥ 1
+  975  a∈q∩q′
+  976  and hence q ∩ q′ 6= ∅ as desired.
+  977  Lemma 3. If w, w′ : A → N are weight functions such that
+  978  P |w′ (a) − w(a)| ≤ 1 then M(w) ⌢ M(w′).
+  979  a∈A
+  980  Proof. By lemma 2 with k = k′ = 1.
+  981  Lemma 4. If w, w′ : A → N are weight functions and k, k′
+  982  are positive integers such that k′w′ (a) = kw(a) for all a then
+  983  M(w) ⌢ M(w′).
+  984  Proof. By lemma 2, since P |k′w′(a) − kw(a)| = 0.
+  985  a∈A
+  986  Corollary 5. If w : A → N is a weight function then
+  987  M(w) ⌢ M(w).
+  988  Proof. By lemma 4 with w′ = w and k′ = k.
+
+  989  APPENDIXB
+  990  CONSISTENCY OF THESYNOD ALGORITHM
+  991  Lemma 6. If accepted(a, b2), promised(a, b1; b3) and
+  992  b2 ≺ b1 then b2 b3.
+  993  Proof. From invariant S3 it follows that b3 is the largest ballot
+  994  such that b3 ≺ b1 and accepted(a, b3), but b2 is also such a
+  995  ballot and therefore b2 b3 as required.
+  996  Lemma 7. If chosen(b2), proposed(b1) and b2 ≺ b1 then
+  997  v(b1) = v(b2).
+  998  Proof. Suppose for a contradiction that v(b1) 6= v(b2) and
+  999  since ≺ is wellfounded suppose without loss of generality that
+ 1000  b1 is the minimal such ballot. Since chosen(b2) by invariant
+ 1001  S6 there is a quorum qII ∈ QII(b2) such that accepted(a, b2)
+ 1002  for every a ∈ qII. By invariant S2 it cannot be that
+ 1003  promised(a, b1) for any a ∈ qII. Also since proposed(b1)
+ 1004  by invariant S4 there is a quorum qI ∈ QI(b1) such that either
+ 1005  promised(a, b1) or ∃b′.promised(a, b1;b′) for all a ∈ qI.
+ 1006  Let P , {b′ | ∃a ∈ qI .promised(a, b1; b′ )}. By invariant S1,
+=== PAGE 10 ===
+
+ 1007  QI(b1) ⌢ QII(b2) and hence qI∩qII 6= ∅ so it follows that P 6=
+ 1008  ∅, which means that v(b1) = v(max(P)) by invariant S4.
+ 1009  Let amax ∈ qI be such that promised(amax, b1; max(P)).
+ 1010  By invariant S3 it follows that max(P) ≺ b1 and also that
+ 1011  accepted(amax,max(P)) and hence proposed(max(P))
+ 1012  by invariant S5. Furthermore by lemma 6 it follows that
+ 1013  b2 max(P) and since b1 was assumed to be the smallest
+ 1014  counterexample it must be that v(max(P)) = v(b2). Hence
+ 1015  v(b1) = v(b2) which is a contradiction as required.
+
+ 1016  Theorem 8. If chosen(b1) and chosen(b2) then v(b1) =
+ 1017  v(b2).
+
+ 1018  Proof. Without loss of generality assume that b2 ≺ b1. By
+ 1019  invariant S6 there is a quorum q ∈ QII(b1) such that
+ 1020  accepted(a, b1) for every node a ∈ q and therefore
+ 1021  proposed(b1) by invariant S5. Therefore by lemma 7 it
+ 1022  follows that v(b1) = v(b2) as required.
+
+ 1023  APPENDIXC
+ 1024  CONSISTENCY OF THEPAXOS ALGORITHM
+
+ 1025  Lemma 9. For b1 ≻ b2 ∈ B, if proposed⟩(b1) and
+ 1026  chosen (b2) then QI⌢ QII .
+ 1027  ⟩ e(b1) e(⟩)
+ 1028  Proof. proposed (b1) implies that promised (a, b1) or
+ 1029  ⟩ ≥⟩′
+ 1030  promised (a, b1) or promised (a, b1;b′) for some node
+ 1031  ⟩′ ⟩′
+ 1032  a and some ⟩′ ≤ ⟩ with e(b1) ≤ e(min(⟩′, imax)). Therefore e(b1) ≤ e(⟩) since e is nondecreasing. It follows that
+ 1033  e(⟩) ≤ e(b2) + 1 ≤ e(b1) + 1 ≤ e(⟩) + 1 since chosen⟩(b2)
+ 1034  so that e(⟩) ∈ {e(b1), e(b1) + 1} and hence QI⌢ QII by
+ 1035  e(b1) e(⟩)
+ 1036  invariant P1.
+
+ 1037  Theorem 10. If chosen⟩(b1) and chosen⟩(b2) then
+ 1038  v⟩(b1) = v⟩(b2).
+
+ 1039  Proof. If chosen⟩(b1) then the Paxos invariants imply the
+ 1040  Synod invariants for instance ⟩. In more detail, let
+
+ 1041  QI (b) , QI
+ 1042  e(b)
+ 1043  QII(b) , QII
+ 1044  e(⟩)
+ 1045  promised(a, b) , promised (a, b)
+ 1046  ⟩
+ 1047  ∨ ∃⟩′ ≤ i.promised (a, b)
+ 1048  ≥⟩′
+ 1049  promised(a, b;b′) , promised (a, b;b′)
+ 1050  ⟩
+ 1051  proposed(b) , proposed (b)
+ 1052  ⟩
+ 1053  accepted(a, b) , accepted (a, b)
+ 1054  ⟩
+ 1055  chosen(b) , chosen (b) and
+ 1056  ⟩
+ 1057  v(b) , v (b).
+ 1058  ⟩
+
+ 1059  Synod's invariant S1 follows from lemma 9 and the remaining
+ 1060  invariants are simple to show so by theorem 8 it follows that
+ 1061  v⟩(b1) = v⟩(b2) as required.
+
+ 1062  ACKNOWLEDGMENT
+
+ 1063  The author would like to thank Leslie Lamport, Dahlia
+ 1064  Malkhi and Leander Nikolaus Jehl for their encouragement
+ 1065  and comments on earlier drafts of this paper. The author is
+ 1066  also very grateful to Tracsis plc for supporting this work.
+
+ 1067  10
+
+ 1068  REFERENCES
+
+ 1069  [1] B. W. Lampson, "How to build a highly available system using consensus," in Proceedings of the 10th International Workshop on Distributed
+ 1070  Algorithms, ser. WDAG '96. London, UK, UK: Springer-Verlag, 1996,
+ 1071  pp. 1–17.
+ 1072  [2] L. Lamport, "The part-time parliament," ACM TRANSACTIONS ON
+ 1073  COMPUTER SYSTEMS, vol. 16, no. 2, pp. 133–169, 1998.
+ 1074  [3] D. Ongaro and J. Ousterhout, "In search of an understandable consensus
+ 1075  algorithm," in Proceedings of the 2014 USENIX Conference on USENIX
+ 1076  Annual Technical Conference, ser. USENIX ATC'14. Berkeley, CA,
+ 1077  USA: USENIX Association, 2014, pp. 305–320.
+ 1078  [4] J. R. Lorch, A. Adya, W. J. Bolosky, R. Chaiken, J. R. Douceur, and
+ 1079  J. Howell, "The smart way to migrate replicated stateful services,"
+ 1080  in Proceedings of the 2006 EuroSys Conference. Leuven, Belgium:
+ 1081  Association for Computing Machinery, Inc., April 2006, p. 103115.
+ 1082  [5] L. Lamport, D. Malkhi, and L. Zhou, "Reconfiguring a state machine,"
+ 1083  Microsoft Research, Tech. Rep. MSR-TR-2008-198, February 2008.
+ 1084  [6] T. Nipkow, M. Wenzel, and L. C. Paulson, Isabelle/HOL: A Proof
+ 1085  Assistant for Higher-order Logic. Berlin, Heidelberg: Springer-Verlag,
+ 1086  2002.
+ 1087  [7] L. Lamport, "Paxos made simple," ACM SIGACT News, vol. 32, no. 4,
+ 1088  pp. 18–25, 2001.
+ 1089  [8] L. Lamport and M. Massa, "Cheap paxos," 2004.
+ 1090  [9] L. Lamport, D. Malkhi, and L. Zhou, "Stoppable paxos," Microsoft
+ 1091  Research, Tech. Rep. MSR-TR-2008-197, April 2008.
+ 1092  [10] ——, "Vertical paxos and primary-backup replication," in Proceedings
+ 1093  of the 28th ACM Symposium on Principles of Distributed Computing,
+ 1094  ser. PODC '09. New York, NY, USA: ACM, 2009, pp. 312–313.
+ 1095  [11] I. Moraru, D. G. Andersen, and M. Kaminsky, "There is more consensus
+ 1096  in egalitarian parliaments," in Proceedings of the Twenty-Fourth ACM
+ 1097  Symposium on Operating Systems Principles, ser. SOSP '13. New York,
+ 1098  NY, USA: ACM, 2013, pp. 358–372.
+ 1099  [12] T. D. Chandra, R. Griesemer, and J. Redstone, "Paxos made live: An
+ 1100  engineering perspective," in Proceedings of the Twenty-sixth Annual
+ 1101  ACM Symposium on Principles of Distributed Computing, ser. PODC
+ 1102  '07. New York, NY, USA: ACM, 2007, pp. 398–407.
+ 1103  [13] K. Birman, D. Malkhi, and R. van Renesse, "Virtually synchronous
+ 1104  methodology for dynamic service replication," Tech. Rep., 2010.
+ 1105  [14] V. Bortnikov, G. Chockler, A. Roytman, S. Shachor, I. Shnayderman,
+ 1106  and D. Perelman, Reconfigurable state machine replication from nonreconfigurable building blocks. ACM, 2012, pp. 93–94.
+ 1107  [15] B. Liskov and J. Cowling, "Viewstamped replication revisited," MIT,
+ 1108  Tech. Rep. MIT-CSAIL-TR-2012-021, Jul. 2012.
+ 1109  [16] B. Reed and F. P. Junqueira, "A simple totally ordered broadcast protocol," in Proceedings of the 2Nd Workshop on Large-Scale Distributed
+ 1110  Systems and Middleware, ser. LADIS '08. New York, NY, USA: ACM,
+ 1111  2008, pp. 2:1–2:6.
+ 1112  [17] A. Shraer, B. Reed, D. Malkhi, and F. P. Junqueira, "Dynamic reconfiguration of primary/backup clusters," in Presented as part of the 2012
+ 1113  USENIX Annual Technical Conference (USENIX ATC 12). Boston,
+ 1114  MA: USENIX, 2012, pp. 425–437.
+ 1115  [18] L. Jehl and H. Meling, Distributed Computing and Networking: 15th
+ 1116  International Conference, ICDCN 2014, Coimbatore, India, January 4-
+ 1117  7, 2014. Proceedings. Berlin, Heidelberg: Springer Berlin Heidelberg,
+ 1118  2014, ch. Asynchronous Reconfiguration for Paxos State Machines, pp.
+ 1119  119–133.
+ 1120  [19] H. Howard, D. Malkhi, and A. Spiegelman, "Flexible Paxos: Quorum
+ 1121  intersection revisited," ArXiv e-prints, Aug. 2016.
+ 1122  [20] M. Shapiro, N. Preguic¸a, C. Baquero, and M. Zawirski, Stabilization,
+ 1123  Safety, and Security of Distributed Systems: 13th International Symposium, SSS 2011, Grenoble, France, October 10-12, 2011. Proceedings.
+ 1124  Berlin, Heidelberg: Springer Berlin Heidelberg, 2011, ch. Conflict-Free
+ 1125  Replicated Data Types, pp. 386–400.
+ 1126  [21] M. J. Fischer, N. A. Lynch, and M. S. Paterson, "Impossibility of
+ 1127  distributed consensus with one faulty process," J. ACM, vol. 32, no. 2,
+ 1128  pp. 374–382, Apr. 1985.
+ 1129  [22] D. Malkhi, F. Oprea, and L. Zhou, "Omega meets paxos: Leader election
+ 1130  and stability without eventual timely links," in 19th Intl. Symposium
+ 1131  on Distributed Computing (DISC 05), no. MSR-TR-2005-93. Cracow, Poland: European Association for Theoretical Computer Science,
+ 1132  September 2005, p. 25.

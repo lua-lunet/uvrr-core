@@ -1,0 +1,706 @@
+---
+title: "Asynchronous Reconfiguration for Paxos State Machines"
+authors:
+  - "Leander Jehl"
+  - "Hein Meling"
+year: "2014"
+publication: "Distributed Computing and Networking"
+handle_url: "https://consensus.app/papers/asynchronous-reconfiguration-for-paxos-state-machines-jehl-meling/51c649ac67175082804ed158f504a0db/"
+source_pdf: "research/agent366/papers/jehl2014-async-reconfiguration.pdf"
+source_pdf_sha256: "19338439cb78082d252362da3e7735fa39bd8204ebf09f1af942fd84426b26fc"
+page_count: 15
+extracted_text_runs: 2552
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  This paper addresses reconfiguration of a Replicated State Machine RSM in an asynchronous system. It is well known that consensus cannot be solved in an asynchronous system. Therefore an RSM providing strong consistency, cannot guarantee progress in an asynchronous system. However, we show that reconfiguring the RSM is possible in a purely asynchronous system. This differs from all existing reconfiguration methods which rely on consensus to choose a new configuration. Since a reconfiguration to a new set of machines or even a different datacenter can serve to restore synchrony between replicas, asynchronous reconfiguration can also serve to increase the availability of an RSM.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Asynchronous Reconfiguration for Paxos State
+
+    2  Machines
+
+    3  Leander Jehl and Hein Meling
+
+    4  Department of Electrical Engineering and Computer Science
+    5  University of Stavanger, Norway
+
+    6  Abstract. This paper addresses reconfiguration of a Replicated State
+    7  Machine (RSM) in an asynchronous system. It is well known that consensus cannot be solved in an asynchronous system. Therefore an RSM providing strong consistency, cannot guarantee progress in an asynchronous
+    8  system. However, we show that reconfiguring the RSM is possible in a
+    9  purely asynchronous system. This differs from all existing reconfiguration
+   10  methods which rely on consensus to choose a new configuration. Since a
+   11  reconfiguration to a new set of machines or even a different datacenter
+   12  can serve to restore synchrony between replicas, asynchronous reconfiguration can also serve to increase the availability of an RSM.
+
+   13  1 Introduction
+
+   14  State machine replication [1] is a common approach for building fault-tolerant
+   15  services. In this approach, all service replicas of the state machine execute the
+   16  same requests. To ensure that replicas remain consistent after multiple updates,
+   17  the order of requests has to be synchronized across replicas. Typically this is accomplished using a consensus protocol, such as Paxos [2, 3], which is an essential
+   18  component in a Replicated State Machine (RSM). Paxos helps to prevent the
+   19  replicas from entering an inconsistent state, despite any number of replica failures. Moreover, the RSM can continue to process new requests, as long as more
+   20  than half of the replicas remain operational. If this bound is violated, however,
+   21  the current RSM is forced to stop making progress indefinitely. Therefore real
+   22  systems need to be able to react to failures and include new replicas, before this
+   23  bound is exceeded. Additionally, in todays cloud computing infrastructures, a
+   24  fault tolerant, replicated service should be able to add, or move replicas based on
+   25  the systems load and redistribute the replicas to new physical locations. Therefore real systems should include a reconfiguration method, ensuring a continuous
+   26  correct service while enabling the changes above.
+   27  The initial descriptions of the state machine approach [1] and Paxos [2, 3]
+   28  described a reconfiguration method. This method lets the RSM reconfigure itself
+   29  by executing a special command, which specifies the new configuration. It was
+   30  refined and implemented, e.g. for the Zookeeper service [4], enabling reconfiguration for a replicated system in production.
+=== PAGE 2 ===
+
+   31  To use this method however, the old configuration (being changed) must
+   32  be operational to complete the reconfiguration command. Thus the old configuration needs to have a single leader and a majority of correct servers, to use
+   33  reconfiguration. Vertical Paxos [5] developed a different reconfiguration method,
+   34  showing that reconfiguration is possible with only a minority of correct replicas,
+   35  if it is coordinated by an abstract, fault tolerant configuration manager. In Vertical Paxos, synchrony is needed to guarantee a working configuration manager.
+   36  In this paper we target the synchrony assumption of traditional reconfiguration. We present ARec, an asynchronous reconfiguration protocol, showing that
+   37  reconfiguration is possible in an asynchronous system. This means that, agreeing
+   38  on a single leader is not necessary to change to a new set of replicas. Reconfiguring an RSM can therefore take place during a period of asynchrony, e.g. when
+   39  clocks are not synchronized and the network introduces unpredictable delays.
+   40  This is an important result, because it means that replicas could be moved to a
+   41  set of machines or a datacenter where synchrony assumptions hold.
+
+   42  1.1 ARec: Reconfiguration without Consensus
+
+   43  A configuration is a set of replicas running on different machines. To change the
+   44  set of replicas, a reconfiguration simply proposes a new configuration. We assume
+   45  that any two configurations are disjoint. Thus every replica belongs to exactly
+   46  one configuration. However we do not require replicas of different configurations
+   47  to run on different machines. Thus reconfiguration also enables operations like
+   48  adding or removing one replica. For example, to add a replica to the configuration
+   49  {r1, r2, r3}, running on machines m1, m2, and m3, one simply proposes a new
+   50  configuration {r0 , r0 , r0 , r } on machines m , m , m , and m . Thus our recon-
+   51  1 2 3 4 1 2 3 4
+   52  figuration allows all possible changes both in number and placement of replicas.
+   53  The main challenges in reconfiguration are to ensure that when stopping
+   54  the old configuration, exactly one new configuration starts and that all requests
+   55  that have been committed by the old, stay committed in the new configuration.
+   56  Assume for example two new configurations C1 and C2 are proposed, while
+   57  an initial configuration C0 is running the RSM. Classical reconfiguration uses
+   58  consensus in one configuration to choose the next configuration. Thus replicas
+   59  in C0 would choose whether to change to C1 or C2. Thus, the new configuration
+   60  that is chosen can then simply copy the state from C0.
+   61  Since consensus is impossible in an asynchronous system [6], ARec uses eventual consistency to determine the next configuration. For this, we assume that
+   62  new configurations are issued together with a unique timestamp. If several configurations are proposed concurrently, we let the one with the highest timestamp
+   63  be the next configuration. Thus, if the replicas eventually become aware of all
+   64  configurations, they will agree on which configuration should take over.
+   65  However this complicates state transfer, since it is difficult to determine which
+   66  configuration can transfer a correct state to the new configuration. Assume for
+   67  example C1 and C2 have timestamps 1 and 2. In this case, we can ignore C1
+   68  and C2 can receive the state from C0. However if C2 is only proposed after C1
+=== PAGE 3 ===
+
+   69  received the state from C0 and started the RSM, C2 has to copy its state from
+   70  C1. This problem is solved in Section 4.
+   71  Another problem in asynchronous reconfiguration is to find a correct state for
+   72  the new configuration to start. In classical reconfiguration, the old configuration
+   73  again uses consensus to decide on the last request. Any replica can then tell
+   74  this decision to the new configuration, which can choose new requests. In an
+   75  asynchronous system, the old configuration cannot decide on a final request.
+   76  Thus, some requests might be committed in the old configuration but remain
+   77  unknown to some replicas. ARec therefore collects the state of a majority of
+   78  a configuration's replicas, to determine the new configuration's state. Luckily
+   79  leader change in Paxos already includes a mechanism to find any value, that
+   80  might be committed.We reuse this mechanism in ARec.
+
+   81  2 Paxos
+
+   82  In this section we briefly present Paxos [2, 3] and how replicas agree on a single
+   83  request. We then elaborate on how this is used to implement an RSM.
+
+   84  2.1 Paxos
+   85  Paxos is a consensus algorithm used by several participants (our replicas) to
+   86  decide on exactly one value (our request). To get chosen, a value has to be proposed by a leader and accepted by a majority of the replicas. Only one value
+   87  may be chosen and every correct replica should be able to learn what was decided on. Paxos assumes a partially synchronous network, tolerating asynchrony,
+   88  but relying on eventual synchrony to guarantee progress. That means that single
+   89  messages can be lost or arbitrarily delayed (asynchrony). However, eventually all
+   90  messages between correct processes arrive within some fixed delay (synchrony).
+   91  Since an initial leader might fail and a single leader cannot be chosen during
+   92  periods of asynchrony, multiple leaders can try concurrently to get their values decided. To coordinate concurrent proposals, leaders use preassigned round
+   93  numbers for their proposals. Replicas cooperate only with the leader using the
+   94  highest round. However, after leader failure it might be necessary for replicas
+   95  to cooperate with several leaders. Paxos solves this problem by enforcing that,
+   96  once a value has been decided, leaders of higher rounds will also propose this
+   97  locked-in value. Therefore in the first phase of a round, the leader determines if
+   98  it is safe to propose any value or if there is another value that was already voted
+   99  for. In the second phase, the leader then tries to get a safe value accepted. If not
+  100  interrupted a round proceeds as follows:
+
+  101  Prepare (1a) The leader sends a Prepare message to all replicas, starting a
+  102  new round.
+  103  Promise (1b) Replicas return a Promise not to vote in lower rounds, and
+  104  include their last vote.
+  105  Accept (2a) After receiving a quorum of Promise messages, the leader determines a safe value and proposes it to all replicas in an Accept message.
+=== PAGE 4 ===
+
+  106  Learn (2b) Replicas vote for the proposal, by sending the value and round
+  107  number in a Learn message to all other replicas, if no higher round was
+  108  started in the meantime.
+  109  Decide Receiving a quorum of Learns for one value and round, a replica
+  110  decides on that value.
+  111  A quorum is a majority of the replicas and a quorum of messages is a set of
+  112  messages of the same type, sent by a quorum in the same round. A value v is
+  113  chosen if a quorum of Learn messages with value v was sent. The Decide step
+  114  above ensures that only chosen values get learned.The above can be repeated in
+  115  new rounds, until all replicas have learned the value. From a quorum of Promise
+  116  messages, safe values can be determined following these rules:
+  117  – If no replica reports a vote, all values are safe.
+  118  – If some replica reports a vote in round r for value v and no replica reports
+  119  a vote in a round higher than r, then v is safe.
+
+  120  These rules ensure, that once a value is chosen, only this value is safe in higher
+  121  rounds. Thus all replicas learn the same value, even if they learn it in different
+  122  rounds. We call this property safety. Clearly to be able to report their votes in a
+  123  later Promise message, replicas have to store their last vote (round and value)
+  124  in variables vrnd and vval. For a replica to be able to promise not to vote in
+  125  lower rounds, it must also store the last round it participated in. We refer to this
+  126  as rnd. These variables are all that is needed to ensure safety. We call them the
+  127  Paxos State of a replica. We also write Φ for the tuple (rnd, vrnd, vval).
+  128  We say that an execution of Paxos is live if a value can get learned. For
+  129  Paxos to be live, a leader has to finish a round, communicating with a quorum
+  130  of correct replicas, while no other leader starts a higher round.
+
+  131  2.2 The Paxos State Machine
+  132  A state machine is an application that, given a state and a request, deterministically computes a new state and possibly a reply to the request. When this state
+  133  machine is replicated for fault tolerance, it is important that the replicas execute
+  134  the same requests to maintain a consistent state among themselves. Since several requests might interfere with each other, it is also important that replicas
+  135  execute requests in the same order.
+  136  The replicas in a Paxos State Machine achieve this by using Paxos to choose
+  137  requests. For every new request, a new Paxos instance is started. Its messages
+  138  are tagged with a request number ⟩, saying that this instance is choosing the
+  139  ⟩th request. A replica only executes the ⟩th request, if it has executed request
+  140  ⟩ − 1 and has learned the request chosen for the ⟩th instance via the Paxos
+  141  protocol. Thus, as long as Paxos is live, new request can be processed. These
+  142  will eventually be learned and executed by all correct replicas.
+  143  Though execution has to be done in correct order, the Paxos instances can
+  144  be performed concurrently. Thus it is possible to propose and choose a request
+  145  in instance ⟩ + 1, without waiting for the ⟩th request to be learned.
+=== PAGE 5 ===
+
+  146  Note that, if concurrent Paxos instance have the same leader, round change
+  147  can be common for all instances. Thus, Prepare and Promise messages for
+  148  concurrent Paxos instances can be sent in the same message. [3] explains how
+  149  this is done, even for all future instances.
+
+  150  3 Liveness for a Dynamic RSM
+
+  151  In this section, we define the problem of asynchronous reconfiguration. That
+  152  is, we both define the interface used to issue reconfigurations and specify the
+  153  liveness conditions for a Dynamic RSM and ARec.
+  154  A reconfiguration is initialized by sending ⟨Reconf, C , i, C ⟩ to the new
+  155  ⟩ l
+  156  configuration C⟩. Here, ⟩ is the unique timestamp of the new configuration and
+  157  Cl is some old configuration. The old configuration is needed, since the new
+  158  configuration needs to contact the service to take over. We require configurations
+  159  to be disjoint. Thus a replica only belongs to a single configuration. However
+  160  replicas from different configurations can easily be placed on the same machine.
+  161  Note that a Reconf request will typically be sent by a replica in configuration
+  162  Cl that wants to move the service, e.g. in response to asynchrony or crashes. It
+  163  can also be sent by an external configuration manager.
+  164  We say a configuration is available, if a majority of the configuration's replicas are correct. A static Paxos state machine is guaranteed to process incoming
+  165  requests, if the initial configuration is available and eventually a single leader is
+  166  elected. In a dynamic system, this condition becomes more complicated. While a
+  167  reconfiguration might require several old and new configurations to be available,
+  168  a dynamic system should not require an old configuration to remain available
+  169  after a new configuration has taken over and copied all relevant state. We say
+  170  that a replica in a new configuration is stateful, if it has copied a correct system
+  171  state from a previous configuration. Note that this system state might differ
+  172  from the individual states of single replicas in the old configuration. We define
+  173  a configuration to be stateful, when a majority of the replicas in this configuration are stateful. Thus, if a configuration is stateful and available, there exists
+  174  a correct and stateful replica that can disseminate a correct system state to the
+  175  other correct replicas. Clearly, a Dynamic RSM always needs at least one available stateful configuration. Also, new configurations must stay available during
+  176  reconfiguration. We therefore define that a Dynamic RSM, at any time in an
+  177  execution, depends on the stateful configuration with highest timestamp, Cmax,
+  178  and all configurations with higher timestamps. We can now define liveness of
+  179  reconfiguration as the following:
+
+  180  Definition 1 (ARec Liveness). For any execution, if
+  181  (a) at all times the configurations that the system depends on are available, and
+  182  (b) ⟨Reconf, C⟩, i, Cl⟩ is sent by a correct client for a stateful configuration Cl,
+  183  then the system will eventually no longer depend on Cl.
+
+  184  Note that ARec Liveness does not guarantee that the state machine actually
+  185  makes progress. That is because this always requires some synchrony assumption.
+=== PAGE 6 ===
+
+  186  Similar, ARec Liveness does not guarantee, that ⟨Reconf, C⟩, i, Cl⟩ actually results in C⟩ running Paxos. That makes sense, since in the case of concurrent
+  187  reconfigurations, we don't want several configurations to start. However it guarantees that Cl will stop running Paxos, and replicas in Cl need not stay available.
+  188  Clearly implementing ARec Liveness makes sense only if also the state machine
+  189  is live, under reasonable assumptions. We therefore define the following:
+  190  Definition 2 (Dynamic RSM Liveness). For any execution, if
+  191  (a) at all times the configurations that the system depends on are available,
+  192  (b) only finitely many configurations are initialized, and
+  193  (c) eventually a single leader is elected in Cmax,
+  194  then requests submitted to this leader will be processed.
+  195  Note that synchrony between processes in Cmax is needed to guarantee (c).
+  196  (b) says that eventually no more reconfigurations are issued. This guarantees
+  197  that eventually, one configuration will be Cmax forever. This configuration can
+  198  run Paxos without being interrupted by reconfigurations. Since it is impossible
+  199  to agree on group membership in an asynchronous system [7], it can be theoretically challenging to guarantee condition (b). For example, if reconfiguration
+  200  is used to replace faulty replicas with new ones, false detections might cause
+  201  infinitely many reconfigurations, even with only finitely many crashes. This is
+  202  because in an asynchronous system, a failure detector might falsely detect a
+  203  crash, causing a reconfiguration, in which a correct replica is replaced by a new
+  204  one. In practice however, the number of reconfigurations are typically bounded
+  205  because of their cost. That is, reconfiguration usually requires new machines,
+  206  possibly transferring large amounts of state between replicas, and may also disrupt service delivery.
+
+  207  4 Asynchronous Reconfiguration
+
+  208  We now explain our reconfiguration protocol ARec and argue for its correctness using examples. See Algorithm 1 on Page 7 for details. We assume reliable
+  209  communication but specify later how to reduce retransmissions. Proof of correctness is given in the following sections. We first assume that only a single
+  210  instance of Paxos is reconfigured and later explain how this can be extended to
+  211  an RSM. ARec maintains safety of Paxos by ensuring that at any time, at most
+  212  one configuration is running Paxos, and that this configuration copies the Paxos
+  213  State from a previous configuration, upon start-up. To achieve this, the Paxos
+  214  messages are tagged with the senders configuration, and a receiver only delivers
+  215  Paxos messages from its own configuration. We write C⟩ for the configuration
+  216  with timestamp ⟩. We define a quorum of messages from Cj as a set of messages
+  217  from a majority of the replicas in configuration Cj .
+
+  218  A Single Reconfiguration: As specified before, a new configuration C⟩ is initialized by sending ⟨Reconf, C⟩, i, Cl⟩, where Cl is some earlier configuration. The
+  219  new replicas broadcast this message to their configuration to make sure that
+=== PAGE 7 ===
+
+  220  Algorithm 1 Asynchronous Reconfiguration
+  221  1: State:
+  222  2: M yC {This replica's configuration}
+  223  3: M yC.ts {My configuration's timestamp}
+  224  4: Older {Older configurations}
+  225  5: Newer {Newer configurations}
+  226  6: P := ∅ {Promises}
+  227  7: Φ := ⊥ {Paxos State: (rnd, vrnd, vval)}
+  228  8: stateful := False {stateful = True ⇔ Φ 6= ⊥}
+  229  9: valid := True {valid = True ⇔ Newer = ∅}
+  230  10: upon ⟨Reconf, C⟩, i, Cl⟩ with l < i and Cl stateful {On all replicas in C⟩}
+  231  11: M yC := C⟩ {Start this replica in C⟩}
+  232  12: M yC.ts := ⟩
+  233  13: send ⟨Reconf, C⟩, i, Cl⟩ to M yC {Make sure all received Reconf }
+  234  14: Older := {Cl}
+  235  15: send ⟨NewConf, C⟩⟩ to Cl
+  236  16: upon ⟨NewConf, Cj⟩ with j > M yC.ts {A newer configuration exists}
+  237  17: if valid and stateful then
+  238  18: stop Paxos
+  239  19: Φ := (rnd, vrnd, vval) {Get state from Paxos}
+  240  20: valid := False
+  241  21: Newer := Newer ∪ {Cj}
+  242  22: send ⟨CPromise, Φ, Newer, M yC⟩ to Cj
+  243  23: upon ⟨CPromise, Φ0, Confs, ID, C⟩ when not stateful
+  244  24: P := P ∪ {Φ0, Confs, ID, C}
+  245  25: oldC := {Cj ∈ Confs|j < M yC.ts}
+  246  26: newC := {Cj ∈ Confs|j > M yC.ts}
+  247  27: if newC 6⊂ Newer then {newC already known?}
+  248  28: Newer := Newer ∪ newC
+  249  29: valid := False
+  250  30: if ∃Q ⊂ P ; Q is stateful valid Quorum then {See Definition 3}
+  251  31: Φ := findState(Q) {See Algorithm 3}
+  252  32: stateful := True
+  253  33: send ⟨Activation, Φ, Newer⟩ to M yC {Optimization: See Algorithm 2}
+  254  34: if valid then
+  255  35: start Paxos with Φ in M yC
+  256  36: else
+  257  37: send ⟨CPromise, Φ, Newer, M yC⟩ to Ct ∈ newC
+  258  38: else if Φ0 6= ⊥ and oldC 6⊂ Older then {CPromise stateful and not valid?}
+  259  39: Older := Older ∪ oldC
+  260  40: send ⟨NewConf, M yC⟩ to oldC {Ask other configurations}
+
+  261  all correct replicas in C⟩ receive it. (See Lines 10 and 13 in Algorithm 1.) A
+  262  replica from C⟩ then informs the replicas in Cl about the reconfiguration, sending ⟨NewConf, C⟩⟩ (Line 15). Upon receiving this message, replicas in Cl stop
+  263  running Paxos, retrieve their local Paxos State Φ and send it in a Configuration-
+=== PAGE 8 ===
+
+  264  Algorithm 2 Asynchronous Reconfiguration (Continued)
+  265  40: upon ⟨Activation, Φ0, Confs⟩ when not stateful {From replica in M yC}
+  266  41: Φ := Φ0
+  267  42: stateful := True
+  268  43: Newer := Newer ∪ Confs
+  269  44: send ⟨Activation, Φ, Newer⟩ to M yC {Activate other replicas in M yC}
+  270  45: if Newer = ∅ then {I'm the newest conf.}
+  271  46: start Paxos with Φ in M yC
+  272  47: else {There's a newer conf.}
+  273  48: valid := False
+  274  49: send ⟨CPromise, Φ, Newer, M yC⟩ to Newer
+
+  275  Promise ⟨CPromise, Φ,Confs, Cl⟩ to the replicas in C⟩, including all known
+  276  configurations with timestamp larger than l in Confs (Lines 18-22). The replicas
+  277  in Cl store the new configuration C⟩ in the set Newer and include it in all future
+  278  CPromises (Line 21).
+  279  Upon receiving a quorum Q of CPromises from Cl with empty Confs fields,
+  280  the replicas in C⟩ can determine a Paxos State as explained in Algorithm 3.
+  281  This corresponds to the processing of Promise messages in Paxos. rnd is set
+  282  to a higher value than any one reported in Q, vrnd is set to the highest value
+  283  reported in Q and vval to the value, reported in vrnd. Paxos is then started
+  284  with a new round, where the leader sends out Prepare messages. We say that
+  285  a replica is stateful, after it has determined a Paxos State (rnd, vrnd, vval) (See
+  286  Lines 31,32). This matches the notion of statefulness, introduced in Section 3.
+
+  287  Concurrent Reconfigurations: When several configurations are initialized concurrently, we have to ensure that exactly one of them starts running Paxos. To
+  288  do this, a replica keeps track of the new configurations it has seen, using the set
+  289  Newer, and includes it in CPromises (Lines 21, 22). Thus, for any two concurrent reconfigurations, at least one will know about the other. To prevent several
+  290  new configurations from starting Paxos simultaneously, a new replica remembers the configurations included in CPromises (Lines 28, 39). If a replica knows
+  291  about a configuration with higher timestamp, it will consider itself not valid
+  292  (Lines 9, 29), and therefore will not start running Paxos (Lines 34, 35). Further,
+  293  if a new replica receives a CPromise, informing it about another configuration
+  294  with lower timestamp, it will also ask this configuration for CPromises (Lines 25
+  295  and 38-40). To make sure a new replica receives its state from the latest stateful
+  296  configuration, we require a stateful valid quorum to determine a correct state
+  297  (Lines 30-31). A stateful valid quorum is defined as follows:
+  298  Definition 3. A set Q of CPromises sent from a majority of the replicas in
+  299  C⟩ to a replica in Cj, is a stateful valid quorum from C⟩, if
+  300  (1) all messages contain a Paxos State, that is Φ 6= ⊥,
+  301  (2) and if for any configuration Ct, included in the Confs field of a CPromise
+  302  in Q, t ≥ j holds.
+=== PAGE 9 ===
+
+  303  Algorithm 3 Procedure to find the highest Paxos state in Q
+  304  1: Input:
+  305  2: M yC.ts {This configurations timestamp}
+  306  3: Q = {(Φ, Confs, ID, C), . . .} {CPromises with Φ = (rnd, vrnd, vval)}
+  307  {and ∀C⟩ ∈ Confs : ⟩ ≥ M yC.ts}
+  308  4: procedure findState(Q)
+  309  5: rnd := maxrnd ∈ Q + 1 {Highest rnd from Paxos states, Φ, in Q}
+  310  6: vrnd := maxvrnd ∈ Q {Highest vrnd from Paxos states, Φ, in Q}
+  311  7: vval := vval(vrnd) {vval reported with vrnd}
+  312  8: return (rnd, vrnd, vval)
+
+  313  Note that a CPromise is stateful, if and only if it was sent by a stateful
+  314  replica. The following example shows how our algorithm ensures that only one
+  315  of two configurations starts running Paxos.
+
+  316  Example 1. Assume an initial stateful configuration C0 with replicas x, y, and
+  317  z. Assume two new configurations C1 and C2 are initialized. If C2 receives a
+  318  stateful valid quorum of CPromises from x and y, and starts Paxos, then x
+  319  and y received the NewConf message from C2 before the one from C1. They
+  320  will include C2 in their CPromises to C1. C1 will therefore never start running
+  321  Paxos.
+
+  322  This next example shows, how stateful valid quorums guarantee that a new
+  323  configuration gets its Paxos State from the last stateful configuration.
+
+  324  Example 2. Assume as above an initial configuration C0 and concurrently initialized configurations C1 and C2. Assume C1 received an stateful valid quorum
+  325  of CPromises from C0 and started running Paxos.
+  326  Thus, the replicas in C0 will inform C2 about C1 in there CPromises, and
+  327  because of condition (2), the CPromises from C0 to C2 will not make a stateful
+  328  valid quorum. Therefore C2 will ask C1 for CPromises. The replicas in C1
+  329  will either directly reply to C2 with a statefulCPromise, or send it, after they
+  330  determined a Paxos State (Lines 22, 37 and 49).
+
+  331  Optimizations: Algorithm 1 assumes that all replicas in a new configuration
+  332  are initialized with a Reconf message. And all send NewConf messages and
+  333  receive CPromises. However, if one replica has determined a Paxos State, the
+  334  others can simply copy it, instead of waiting for a quorum of CPromises. Thus,
+  335  after a replica has determined a correct Paxos State using Algorithm 3, it sends
+  336  this state to all replicas in its configuration, using an Activation message
+  337  (Line 33). Other replicas can just copy this state, instead of waiting for a quorum
+  338  of CPromises as explained in Algorithm 2. To reduce the message load, processes in the new configuration can further run a weak leader election algorithm
+  339  and only the leader would send NewConf messages and receive CPromises.
+=== PAGE 10 ===
+
+  340  The other replicas can then be started by an Activation message. Note that
+  341  we do not require a single leader to emerge. It is only needed that eventually one
+  342  or several correct leaders are elected. 1 Finally, since we assume reliable communication, messages have to be resent until an acknowledgement is received.
+  343  In an asynchronous system, this means that messages to faulty processes have
+  344  to be sent infinitely often. However, NewConf and CPromise messages must
+  345  only be resent until the new configuration is stateful. The rest can be done by
+  346  Activation messages.
+
+  347  4.1 The ARec State Machine.
+  348  Just as Prepare and Promise messages in Paxos, we can send NewConf
+  349  and CPromise messages for infinitely many instances of Paxos at the same
+  350  time, since the Paxos State will be the initial state (Φ = (0, 0,nil)), for all
+  351  except finitely many instances. However it is unpractical to replay all requests
+  352  of an execution history on the new configuration. A more practical solution is
+  353  to provide a snapshot of the replicated application to the new replicas when
+  354  invoking Reconf. If this snapshot incorporates all requests chosen in the first k
+  355  Paxos instances, it is enough to exchange NewConf and CPromise messages
+  356  for the Paxos instances starting with k + 1.
+  357  While in undecided instances a new configuration needs to receive a quorum
+  358  of Paxos States, in a decided instance, it would suffice to receive the decided
+  359  value from one replica. This can be used to further reduce the size of CPromise
+  360  messages in an implementation.
+
+  361  5 Safety of the RSM
+
+  362  We now prove that RSM safety cannot be compromised by ARec. That is, only
+  363  a single value can get chosen in a Paxos instance, even if the instance runs over
+  364  several configurations. Proving safety for Paxos usually relies on the condition
+  365  that any two quorums intersect [3]. However, this condition does not hold in a
+  366  dynamic system. We derive a substitute for this condition in Corollary 1.
+  367  Recall that a replica is stateful if it has Paxos State and valid if it does not
+  368  know of any configuration higher than its own (Lines 8 and 9). A message is
+  369  stateful or valid iff its sender is.
+  370  According to Algorithm 1, a replica only starts Paxos when it is stateful and
+  371  valid (Lines 32-35 and 42-46), and stops Paxos when it becomes invalid (Lines 16-
+  372  18). A stateful replica always stays stateful. Thus, the sender of a Paxos message
+  373  is always stateful and valid. We can therefore define all quorums of Promise or
+  374  Learn messages to be stateful valid quorums, analogue to Definition 3.
+  375  Since two quorums do not necessarily intersect, we define the following property to describe that one quorum knows about another quorum.
+  376  1 This leader election is strictly weaker than the one required for Paxos [8]. In this case,
+  377  a failure detector suspecting everybody forever, and therefore electing all replicas as
+  378  leaders gives an inefficient but correct solution.
+=== PAGE 11 ===
+
+  379  Definition 4. For two stateful valid quorums of messages, Q and Q0, we say
+  380  that Q0 knows Q, writing Q 7→ Q0, if
+
+  381  (1) Q is a quorum of Paxos messages, and some replica first sent a message in
+  382  Q and then a message in Q0, or
+  383  (2) Q is a stateful valid quorum of CPromises and the Paxos State of some
+  384  replica, sending a message in Q0 was derived using Algorithm 3 on Q.
+
+  385  We say that Q0 knows about Q, writing Q 99K Q0, if there exist k stateful valid
+  386  quorums Q , . . . , Q , such that Q 7→ Q 7→ . . . 7→ Q 7→ Q0.
+  387  1 k 1 k
+  388  Note that, condition (2) applies both, if a replica in Q0 called findState(Q),
+  389  or if it received a Activation message including Φ = findState(Q).
+  390  In Lemma 1 we show how this notion is related to Paxos variables rnd and
+  391  vrnd. We therefore first define the rnd and vrnd of a stateful valid quorum.
+  392  Note that a stateful valid quorum from C⟩, can either be a quorum of Learn or
+  393  Promise messages sent in the same round, or a quorum of stateful CPromises
+  394  from C⟩.
+
+  395  Definition 5. For a stateful valid quorum of messages Q we define:
+
+  396  (rnd msgs were send for s and s
+  397  Learn Promise
+  398  rnd(Q) =
+  399  maxrnd for CPromises
+  400  rnd msgs were send for s
+  401   Learn
+  402  
+  403  vrnd(Q) = maxvrnd for Promises
+  404  maxvrnd for CPromises
+
+  405  Where maxrnd and maxvrnd refer to the highest rnd and vrnd reported in the
+  406  messages.
+
+  407  Lemma 1. Let Q and Q0 be stateful valid quorums from C and C .
+  408  ⟩ j
+  409  (1) If Q 7→ Q0 and ⟩ = j, then rnd(Q) ≤ rnd(Q0).
+  410  (2) If Q 7→ Q0 and i < j, then rnd(Q) < rnd(Q0) and vrnd(Q) ≤ vrnd(Q0).
+  411  (3) If Q 7→ Q0, and Q are Learns, then vrnd(Q) ≤ vrnd(Q0) holds.
+
+  412  Proof. Using the following facts, all cases easily follow from the definitions. In
+  413  cases (1) and (3) of the Lemma, Q 7→ Q0 is caused by case (1) in Definition 4. The
+  414  claims easily follow, since Q and Q0 have a sender in common. In case (2) of the
+  415  Lemma, Q is a quorum of CPromises and case (2) of the Definition 4 holds. The
+  416  claim follows, since (rnd, vrnd, vval) = findState(Q) implies rnd = rnd(Q) + 1
+  417  and vrnd = vrnd(Q). (Compare Algorithm 3 and Definition 5.) ut
+
+  418  Lemma 2. For two quorums of Paxos messages Q in C and Q0 in C , if i < j
+  419  ⟩ j
+  420  then Q 99K Q0. Further, we can choose all quorums Q , . . . , Q to be quorums of
+  421  1 k
+  422  CPromises and Q 7→ Q 7→ . . . 7→ Q 7→ Q0 still holds.
+  423  1 k
+=== PAGE 12 ===
+
+  424  Proof. Clearly there exist sequences Q 7→ Q 7→ . . . 7→ Q and Q0 7→ Q0 7→
+  425  0 1 0 1
+  426  . . . 7→ Q0 with Q and Q0 in the initial configuration C . We want to show, that
+  427  0 0 0
+  428  there exists a Q0 in C . Choose maximal t and t0, s.t. Q and Q0 are in the same
+  429  ⟩ ⟩ t t0
+  430  configuration C . It follows that u ≤ ⟩, and Q and Q0 have at least one sender
+  431  u t t0
+  432  in common. For u < i maximality implies that both Q and Q0 are CPromises.
+  433  t t0
+  434  Assume first Q 7→ Q0 and u < i. Let messages in Q be sent to C . Thus
+  435  t t0 t v
+  436  C will be included in at least one CPromise from Q0 . Since Q0 is a stateful
+  437  v t0 t0
+  438  valid quorum it follows from Definition 3, that Q0 was sent to a configuration
+  439  t0
+  440  C with u < v0 ≤ v. Maximality of u implies that v0 < v. It follows similar, that
+  441  v0
+  442  all quorums Q0 for t00 > t0 are stateful valid quorums of CPromises send to
+  443  t00
+  444  configurations C with v00 < v. This contradicts that Q0 is a valid quorum of
+  445  v00
+  446  Paxos messages.
+  447  If we assume that Q0 7→ Q and u < i, we similarly reach a contradiction, to
+  448  t0 t
+  449  the fact that Q is a quorum of Paxos messages. It therefore follows, that u = ⟩
+  450  and Q0 is from C . Since Q0 is still a quorum of CPromises and no replica
+  451  t0 ⟩ t0
+  452  sends a Paxos message, after sending a CPromise, it follows that Q 7→ Q0 .
+  453  t0
+  454  This proofs the Lemma. ut
+
+  455  Corollary 1. For two quorums of Paxos messages, Q and P, either Q 99K P
+  456  or P 99K Q holds.
+
+  457  Proof. This follows from Lemma 2 if Q and P do not happen in the same configuration. Otherwise, it is clear since two quorums of messages in one configuration
+  458  have at least one sender in common. ut
+
+  459  The following corollary and theorem show that ARec preserves safety:
+
+  460  Corollary 2. Only a single value can be chosen in one round.
+
+  461  Proof. It is clear that only one value can be chosen in round r in configuration
+  462  C⟩. Assume another value was chosen in round s in configuration Cj, j 6= ⟩. Let
+  463  Qr be the quorum of Learns in round r in C⟩ and Qs the quorum of Learns in
+  464  round s in Cj. From Corollary 1 it follows that Qs 99K Qr or vice versa. Since
+  465  j 6= ⟩, Q 7→ Q 7→ . . . 7→ Q 7→ Q with k > 0 and at least one quorum of
+  466  s 1 k r
+  467  CPromises. From Lemma 1 part (1) and (2) it follows that rnd(Qs) < rnd(Qr)
+  468  or vice versa. Therefore s 6= r.
+
+  469  Theorem 1. If a value is safe in round r, no other value was chosen in a lower
+  470  round.
+
+  471  Proof. We prove this by induction over r. If r = 0, there is nothing to show.
+  472  Assume r > 0 and that the Theorem holds for all rounds smaller than r. If some
+  473  value v is safe in round r, then a quorum P of Promises showing this was send
+  474  in round r. Therefore v was also safe in round vrnd(P). Assume some value v0
+  475  was chosen in round s < r, then a quorum Q of Learns was send in round s.
+  476  From Corollary 1 and Lemma 1 part (1) it follows that Q 99K P. If we show
+  477  that vrnd(P) > s, we can apply the induction hypothesis on vrnd(P) < r, and
+  478  see that v0 = v. If vrnd(P) = s, we can apply Corollary 2 and get that v = v0 .
+=== PAGE 13 ===
+
+  479  Since Q 99K P there exist quorums Q1, . . . , Qk, such that Q 7→ Q1 7→
+  480  . . . 7→ Qk 7→ P. According to Lemma 2 we can choose all Q⟩ to be quorums
+  481  of CPromises. Now s = vrnd(Q) ≤ vrnd(Q1) follows from Lemma 1, part
+  482  (3). And vrnd(Q1) ≤ . . . ≤ vrnd(P) follows from Lemma 1, part (2). Thus
+  483  s = vrnd(Q) ≤ vrnd(P) ut
+
+  484  6 Liveness for Reconfiguration
+
+  485  We now proof that ARec is live, that is that ARec Liveness and Dynamic RSM
+  486  Liveness define in Section 3 hold. We assume throughout this section, that at
+  487  any point during an execution, all configurations our system depends on are
+  488  available. Proofs of both liveness properties rely on the following Lemma:
+  489  Lemma 3. If configuration C⟩ is stateful and some correct replica in C⟩ knows
+  490  about a configuration Cj, j > i, then the system will eventually no longer depend
+  491  on C⟩.
+  492  Proof. Assume the system depends on C⟩. According to the definition in of the
+  493  depends on relation, the system also depends on all configurations with higher
+  494  timestamp than ⟩. It is enough, to show that one of these configurations will
+  495  eventually become stateful. Assume therefore, that Cj is not stateful. Let c ∈ C⟩
+  496  be a replica that knows about configuration Cj. c learned about Cj, either by
+  497  receiving a NewConf message from Cj (See Line 16 in Algorithm 1), or by
+  498  receiving a CPromise or Activation message including Cj (Lines 23,40). In the
+  499  later cases, c will itself send a CPromise to Cj (Lines 37,49). Since the system
+  500  depends on Cj, it is available, and will send NewConf messages to C⟩ either
+  501  upon initialization (Line 15), or on receiving the CPromise from c (Line 40).
+  502  Thus eventually the majority of correct replicas in C⟩ will send CPromises to Cj .
+  503  If these build an stateful valid quorum, Cj will become stateful and the system
+  504  will no longer depend on C⟩. If the CPromises are no stateful valid quourum,
+  505  one of the senders knows about a configuration Ck with i < k < j. We can now
+  506  repeat the above arguement with Ck instead of Cj . Clearly we will eventually
+  507  arrive at a configuration Cl, such that no configuration with timestamp between
+  508  ⟩ and l exists. This configuration will become stateful and the system will no
+  509  longer depend on C . ut
+  510  ⟩
+  511  Theorem 2. ARec implements ARec Liveness.
+  512  Proof. Assume there is a stateful configuration Cl and some correct client initialized a reconfiguration ⟨Reconf, C , i, C ⟩. If the system does not depend on
+  513  ⟩ l
+  514  Cl, there is nothing to show. Otherwise, both Cl and C⟩ are available. Since the
+  515  client is correct, eventually a correct replica in C⟩ will receive the Reconf message and send a NewConf message. On recieving this message, some correct
+  516  replica in Cl will know about C⟩. Lemma 3 says, that the system will eventually
+  517  no longer depend on Cl. ut
+  518  Theorem 3. ARec, together with the Paxos implement Dynamic RSM Liveness.
+=== PAGE 14 ===
+
+  519  Proof. If, in an execution only finitely many configurations are initialized, eventually one configuration will forever be the stateful configuration with highest
+  520  timestamp Cmax and the system will depend on this configuration forever. Thus
+  521  Lemma 3 implies, that no correct replica in Cmax knows about a configuration
+  522  with higher timestamp. Thus all corret replicas in Cmax are valid (Line 9). Since
+  523  at least one correct replica in Cmax is stateful, it will send Activation messages, until all correct replicas in Cmax are stateful. Since Cmax is available by
+  524  assumption (a) from Dynamic RSM Liveness, it eventually holds a majority of
+  525  correct, stateful and valid replicas that will run Paxos. If additionally a single
+  526  replica is elected as a leader, Liveness of Paxos implies that submitted requests
+  527  can get learned and executed. ut
+
+  528  7 Related Work
+
+  529  As mentioned in the introduction, the classical method to reconfigure an RSM
+  530  was already explained in [1] and [2, 3]. Variations of this method where presented
+  531  in [9] and it was refined and implemented in works like [10] and [4]. All these
+  532  works use consensus to decide on the next configuration, resulting in a unique
+  533  sequence of configurations, where each reconfiguration only involves one old and
+  534  one new configuration. For this, a configuration must be available and have a
+  535  single correct leader before it can be changed by reconfiguration.
+  536  The work most closely related to ARec is Vertical Paxos [5]. Vertical Paxos
+  537  also changes configuration between rounds rather than between instances, and
+  538  uses Paxos' first phase to deduce a starting state for the new configuration, similar to ARec. Also similar to ARec, a new configuration C⟩ knows about one
+  539  past configuration Cl that is stateful and must receive a quorum from all configurations with sequence numbers between l and ⟩. Different from ARec however,
+  540  Vertical Paxos assumes that upon receiving a reconfiguration request, configuration C⟩ knows about all configurations Cj with l ≤ j < i. Finally, Vertical Paxos
+  541  relies on an abstract, fault tolerant configuration manager to order new configurations. Instead of relying on synchrony in the old configuration, Vertical Paxos
+  542  relies on synchrony in the configuration manager, which must be implemented
+  543  by another RSM to be fault tolerant. Note also that the configuration manager
+  544  RSM cannot use Vertical Paxos to reconfigure itself, but has to rely on classical
+  545  reconfiguration. ARec does not rely on a separate configuration manager.
+  546  That asynchronous reconfiguration is possible has previously only been proven
+  547  for atomic R/W registers [11]. In their protocol, DynaStore, a reconfiguration
+  548  does not specify a new configuration as a set of replicas, but as a set of operations, each adding or removing one replica. When several reconfigurations are
+  549  issued concurrently, DynaStore takes the union of these reconfigurations as the
+  550  configuration that the replicas eventually agree upon. If reconfigurations are issued by several parties, this interface has some disadvantages. For example, if
+  551  several parties try to reduce the number of replicas, but disagree on the replica
+  552  to be removed, they could by accident remove all replicas. Thus it is possible to
+=== PAGE 15 ===
+
+  553  violate DynaStore's Liveness property by issuing an "unlucky" reconfiguration.
+  554  This is not possible with ARec.
+  555  As described in [9], a Dynamic RSM has similarities to group communication
+  556  systems that provide totally ordered message delivery [12]. However, while view
+  557  synchronous communication requires that a message received by one process in
+  558  view v is received by all processes in view v, therefore consensus is required to
+  559  end a view. A Dynamic RSM ensures that requests learned by one replica in a
+  560  configuration, are learned by all replicas in some future configuration. Therefore
+  561  ARec only requires consensus in some future configuration.
+
+  562  8 Conclusion
+
+  563  We have presented ARec a reconfiguration protocol for a Paxos State Machine
+  564  that enables reconfiguration in a completely asynchronous system. To our knowledge this is the first protocol for asynchronous reconfiguration of an RSM. We
+  565  have precisely specified the liveness conditions for asynchronous reconfiguration,
+  566  improving on previous specifications, which allow unlucky reconfigurations to
+  567  break liveness. Using ARec, availability of RSM based systems can be improved,
+  568  since reconfiguration can be used to restore synchrony, and thus enable the
+  569  RSM to make progress. However, since our work mainly focused on proving
+  570  the possibility of asynchronous reconfiguration, we expect that ARec can be
+  571  significantly optimized when adjusting it to a specific system.
+
+  572  References
+
+  573  [1] Schneider, F.B.: Implementing fault-tolerant services using the state machine
+  574  approach: a tutorial. ACM Comput. Surv. 22(4) (December 1990) 299–319
+  575  [2] Lamport, L.: The part-time parliament. ACM Trans. Comput. Syst. 16(2) (May
+  576  1998) 133–169
+  577  [3] Lamport, L.: Paxos made simple. ACM SIGACT News (December 2001)
+  578  [4] Shraer, A., Reed, B., Malkhi, D., Junqueira, F.: Dynamic reconfiguration of
+  579  primary/backup clusters. USENIX ATC (2011)
+  580  [5] Lamport, L., Malkhi, D., Zhou, L.: Vertical paxos and primary-backup replication.
+  581  In: PODC. (2009)
+  582  [6] Fischer, M.J., Lynch, N.A., Paterson, M.S.: Impossibility of distributed consensus
+  583  with one faulty process. J. ACM 32(2) (April 1985) 374–382
+  584  [7] Chandra, T.D., Hadzilacos, V., Toueg, S., Charron-Bost, B.: On the impossibility
+  585  of group membership. PODC (1996)
+  586  [8] Chandra, T.D., Toueg, S.: Unreliable failure detectors for reliable distributed
+  587  systems. J. ACM 43 (1996) 225–267
+  588  [9] Lamport, L., Malkhi, D., Zhou, L.: Reconfiguring a state machine. SIGACT News
+  589  41(1) (March 2010) 63–73
+  590  [10] Lorch, J.R., Adya, A., Bolosky, W.J., Chaiken, R., Douceur, J.R., Howell, J.: The
+  591  smart way to migrate replicated stateful services. EuroSys (2006)
+  592  [11] Aguilera, M.K., Keidar, I., Malkhi, D., Shraer, A.: Dynamic atomic storage without consensus. J. ACM 58(2) (2011) 7
+  593  [12] Chockler, G.V., Keidar, I., Vitenberg, R.: Group communication specifications: a
+  594  comprehensive study. ACM Comput. Surv. 33(4) (December 2001) 427–469

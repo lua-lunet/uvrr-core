@@ -1,0 +1,466 @@
+---
+title: "Paxos Made Simple"
+authors:
+  - "L Lamport"
+year: "2001"
+publication: ""
+handle_url: "https://lamport.org/pubs/paxos-simple.pdf"
+source_pdf: "research/agent366/papers/paxos-made-simple-2001.pdf"
+source_pdf_sha256: "c83b5141257730d6fd20097ef17ebd02a02dfcb1809bad5873b7739659bb3f2b"
+page_count: 14
+extracted_text_runs: 750
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  The Paxos algorithm, when presented in plain English, is very simple.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Paxos Made Simple
+
+    2  Leslie Lamport
+
+    3  01 Nov 2001
+=== PAGE 2 ===
+
+    4  Abstract
+    5  The Paxos algorithm, when presented in plain English, is very simple.
+=== PAGE 3 ===
+
+    6  Contents
+
+    7  1 Introduction 1
+
+    8  2 The Consensus Algorithm 1
+    9  2.1 The Problem . . . . . . . . . . . . . . . . . . . . . . . . . . . 1
+   10  2.2 Choosing a Value . . . . . . . . . . . . . . . . . . . . . . . . . 2
+   11  2.3 Learning a Chosen Value . . . . . . . . . . . . . . . . . . . . . 6
+   12  2.4 Progress . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 7
+   13  2.5 The Implementation . . . . . . . . . . . . . . . . . . . . . . . 7
+
+   14  3 Implementing a State Machine 8
+
+   15  References 11
+=== PAGE 4 ===
+
+   16  1 Introduction
+
+   17  The Paxos algorithm for implementing a fault-tolerant distributed system
+   18  has been regarded as difficult to understand, perhaps because the original
+   19  presentation was Greek to many readers [5]. In fact, it is among the simplest and most obvious of distributed algorithms. At its heart is a consensus
+   20  algorithm—the "synod" algorithm of [5]. The next section shows that this
+   21  consensus algorithm follows almost unavoidably from the properties we want
+   22  it to satisfy. The last section explains the complete Paxos algorithm, which
+   23  is obtained by the straightforward application of consensus to the state machine approach for building a distributed system—an approach that should
+   24  be well-known, since it is the subject of what is probably the most often-cited
+   25  article on the theory of distributed systems [4].
+
+   26  2 The Consensus Algorithm
+
+   27  2.1 The Problem
+   28  Assume a collection of processes that can propose values. A consensus algorithm ensures that a single one among the proposed values is chosen. If
+   29  no value is proposed, then no value should be chosen. If a value has been
+   30  chosen, then processes should be able to learn the chosen value. The safety
+   31  requirements for consensus are:
+   32  • Only a value that has been proposed may be chosen,
+   33  • Only a single value is chosen, and
+   34  • A process never learns that a value has been chosen unless it actually
+   35  has been.
+   36  We won't try to specify precise liveness requirements. However, the goal is
+   37  to ensure that some proposed value is eventually chosen and, if a value has
+   38  been chosen, then a process can eventually learn the value.
+   39  We let the three roles in the consensus algorithm be performed by three
+   40  classes of agents: proposers, acceptors, and learners. In an implementation,
+   41  a single process may act as more than one agent, but the mapping from
+   42  agents to processes does not concern us here.
+   43  Assume that agents can communicate with one another by sending messages. We use the customary asynchronous, non-Byzantine model, in which:
+
+   44  1
+=== PAGE 5 ===
+
+   45  • Agents operate at arbitrary speed, may fail by stopping, and may
+   46  restart. Since all agents may fail after a value is chosen and then
+   47  restart, a solution is impossible unless some information can be remembered by an agent that has failed and restarted.
+   48  • Messages can take arbitrarily long to be delivered, can be duplicated,
+   49  and can be lost, but they are not corrupted.
+
+   50  2.2 Choosing a Value
+   51  The easiest way to choose a value is to have a single acceptor agent. A proposer sends a proposal to the acceptor, who chooses the first proposed value
+   52  that it receives. Although simple, this solution is unsatisfactory because the
+   53  failure of the acceptor makes any further progress impossible.
+   54  So, let's try another way of choosing a value. Instead of a single acceptor,
+   55  let's use multiple acceptor agents. A proposer sends a proposed value to a
+   56  set of acceptors. An acceptor may accept the proposed value. The value is
+   57  chosen when a large enough set of acceptors have accepted it. How large is
+   58  large enough? To ensure that only a single value is chosen, we can let a large
+   59  enough set consist of any majority of the agents. Because any two majorities
+   60  have at least one acceptor in common, this works if an acceptor can accept
+   61  at most one value. (There is an obvious generalization of a majority that
+   62  has been observed in numerous papers, apparently starting with [3].)
+   63  In the absence of failure or message loss, we want a value to be chosen
+   64  even if only one value is proposed by a single proposer. This suggests the
+   65  requirement:
+   66  P1. An acceptor must accept the first proposal that it receives.
+   67  But this requirement raises a problem. Several values could be proposed by
+   68  different proposers at about the same time, leading to a situation in which
+   69  every acceptor has accepted a value, but no single value is accepted by a
+   70  majority of them. Even with just two proposed values, if each is accepted by
+   71  about half the acceptors, failure of a single acceptor could make it impossible
+   72  to learn which of the values was chosen.
+   73  P1 and the requirement that a value is chosen only when it is accepted
+   74  by a majority of acceptors imply that an acceptor must be allowed to accept
+   75  more than one proposal. We keep track of the different proposals that an
+   76  acceptor may accept by assigning a (natural) number to each proposal, so a
+   77  proposal consists of a proposal number and a value. To prevent confusion,
+   78  we require that different proposals have different numbers. How this is
+
+   79  2
+=== PAGE 6 ===
+
+   80  achieved depends on the implementation, so for now we just assume it. A
+   81  value is chosen when a single proposal with that value has been accepted by
+   82  a majority of the acceptors. In that case, we say that the proposal (as well
+   83  as its value) has been chosen.
+   84  We can allow multiple proposals to be chosen, but we must guarantee
+   85  that all chosen proposals have the same value. By induction on the proposal
+   86  number, it suffices to guarantee:
+   87  P2. If a proposal with value v is chosen, then every higher-numbered proposal that is chosen has value v.
+   88  Since numbers are totally ordered, condition P2 guarantees the crucial safety
+   89  property that only a single value is chosen.
+   90  To be chosen, a proposal must be accepted by at least one acceptor. So,
+   91  we can satisfy P2 by satisfying:
+   92  P2a. If a proposal with value v is chosen, then every higher-numbered proposal accepted by any acceptor has value v.
+   93  We still maintain P1 to ensure that some proposal is chosen. Because communication is asynchronous, a proposal could be chosen with some particular acceptor c never having received any proposal. Suppose a new proposer
+   94  "wakes up" and issues a higher-numbered proposal with a different value.
+   95  P1 requires c to accept this proposal, violating P2a. Maintaining both P1
+   96  and P2a requires strengthening P2a to:
+   97  P2b. If a proposal with value v is chosen, then every higher-numbered proposal issued by any proposer has value v.
+   98  Since a proposal must be issued by a proposer before it can be accepted by
+   99  an acceptor, P2b implies P2a , which in turn implies P2.
+  100  To discover how to satisfy P2b , let's consider how we would prove that
+  101  it holds. We would assume that some proposal with number m and value
+  102  v is chosen and show that any proposal issued with number n > m also
+  103  has value v. We would make the proof easier by using induction on n,
+  104  so we can prove that proposal number n has value v under the additional
+  105  assumption that every proposal issued with a number in m . . (n − 1) has
+  106  value v, where i . . j denotes the set of numbers from i through j. For the
+  107  proposal numbered m to be chosen, there must be some set C consisting of a
+  108  majority of acceptors such that every acceptor in C accepted it. Combining
+  109  this with the induction assumption, the hypothesis that m is chosen implies:
+
+  110  3
+=== PAGE 7 ===
+
+  111  Every acceptor in C has accepted a proposal with number in
+  112  m . . (n − 1), and every proposal with number in m . .(n − 1)
+  113  accepted by any acceptor has value v.
+  114  Since any set S consisting of a majority of acceptors contains at least one
+  115  member of C, we can conclude that a proposal numbered n has value v by
+  116  ensuring that the following invariant is maintained:
+  117  P2c. For any v and n, if a proposal with value v and number n is issued,
+  118  then there is a set S consisting of a majority of acceptors such that
+  119  either (a) no acceptor in S has accepted any proposal numbered less
+  120  than n, or (b) v is the value of the highest-numbered proposal among
+  121  all proposals numbered less than n accepted by the acceptors in S.
+  122  We can therefore satisfy P2b by maintaining the invariance of P2c .
+  123  To maintain the invariance of P2c, a proposer that wants to issue a proposal numbered n must learn the highest-numbered proposal with number
+  124  less than n, if any, that has been or will be accepted by each acceptor in
+  125  some majority of acceptors. Learning about proposals already accepted is
+  126  easy enough; predicting future acceptances is hard. Instead of trying to predict the future, the proposer controls it by extracting a promise that there
+  127  won't be any such acceptances. In other words, the proposer requests that
+  128  the acceptors not accept any more proposals numbered less than n. This
+  129  leads to the following algorithm for issuing proposals.
+  130  1. A proposer chooses a new proposal number n and sends a request to
+  131  each member of some set of acceptors, asking it to respond with:
+  132  (a) A promise never again to accept a proposal numbered less than
+  133  n, and
+  134  (b) The proposal with the highest number less than n that it has
+  135  accepted, if any.
+  136  I will call such a request a prepare request with number n.
+  137  2. If the proposer receives the requested responses from a majority of
+  138  the acceptors, then it can issue a proposal with number n and value
+  139  v, where v is the value of the highest-numbered proposal among the
+  140  responses, or is any value selected by the proposer if the responders
+  141  reported no proposals.
+
+  142  4
+=== PAGE 8 ===
+
+  143  A proposer issues a proposal by sending, to some set of acceptors, a request
+  144  that the proposal be accepted. (This need not be the same set of acceptors
+  145  that responded to the initial requests.) Let's call this an accept request.
+  146  This describes a proposer's algorithm. What about an acceptor? It can
+  147  receive two kinds of requests from proposers: prepare requests and accept
+  148  requests. An acceptor can ignore any request without compromising safety.
+  149  So, we need to say only when it is allowed to respond to a request. It can
+  150  always respond to a prepare request. It can respond to an accept request,
+  151  accepting the proposal, iff it has not promised not to. In other words:
+  152  P1a. An acceptor can accept a proposal numbered n iff it has not responded
+  153  to a prepare request having a number greater than n.
+  154  Observe that P1a subsumes P1.
+  155  We now have a complete algorithm for choosing a value that satisfies the
+  156  required safety properties—assuming unique proposal numbers. The final
+  157  algorithm is obtained by making one small optimization.
+  158  Suppose an acceptor receives a prepare request numbered n, but it has
+  159  already responded to a prepare request numbered greater than n, thereby
+  160  promising not to accept any new proposal numbered n. There is then no
+  161  reason for the acceptor to respond to the new prepare request, since it will
+  162  not accept the proposal numbered n that the proposer wants to issue. So
+  163  we have the acceptor ignore such a prepare request. We also have it ignore
+  164  a prepare request for a proposal it has already accepted.
+  165  With this optimization, an acceptor needs to remember only the highestnumbered proposal that it has ever accepted and the number of the highestnumbered prepare request to which it has responded. Because P2c must
+  166  be kept invariant regardless of failures, an acceptor must remember this
+  167  information even if it fails and then restarts. Note that the proposer can
+  168  always abandon a proposal and forget all about it—as long as it never tries
+  169  to issue another proposal with the same number.
+  170  Putting the actions of the proposer and acceptor together, we see that
+  171  the algorithm operates in the following two phases.
+  172  Phase 1. (a) A proposer selects a proposal number n and sends a prepare
+  173  request with number n to a majority of acceptors.
+  174  (b) If an acceptor receives a prepare request with number n greater
+  175  than that of any prepare request to which it has already responded,
+  176  then it responds to the request with a promise not to accept any more
+  177  proposals numbered less than n and with the highest-numbered proposal (if any) that it has accepted.
+
+  178  5
+=== PAGE 9 ===
+
+  179  Phase 2. (a) If the proposer receives a response to its prepare requests
+  180  (numbered n) from a majority of acceptors, then it sends an accept
+  181  request to each of those acceptors for a proposal numbered n with a
+  182  value v, where v is the value of the highest-numbered proposal among
+  183  the responses, or is any value if the responses reported no proposals.
+  184  (b) If an acceptor receives an accept request for a proposal numbered
+  185  n, it accepts the proposal unless it has already responded to a prepare
+  186  request having a number greater than n.
+  187  A proposer can make multiple proposals, so long as it follows the algorithm
+  188  for each one. It can abandon a proposal in the middle of the protocol at any
+  189  time. (Correctness is maintained, even though requests and/or responses
+  190  for the proposal may arrive at their destinations long after the proposal
+  191  was abandoned.) It is probably a good idea to abandon a proposal if some
+  192  proposer has begun trying to issue a higher-numbered one. Therefore, if an
+  193  acceptor ignores a prepare or accept request because it has already received
+  194  a prepare request with a higher number, then it should probably inform
+  195  the proposer, who should then abandon its proposal. This is a performance
+  196  optimization that does not affect correctness.
+
+  197  2.3 Learning a Chosen Value
+  198  To learn that a value has been chosen, a learner must find out that a proposal has been accepted by a majority of acceptors. The obvious algorithm
+  199  is to have each acceptor, whenever it accepts a proposal, respond to all
+  200  learners, sending them the proposal. This allows learners to find out about
+  201  a chosen value as soon as possible, but it requires each acceptor to respond
+  202  to each learner—a number of responses equal to the product of the number
+  203  of acceptors and the number of learners.
+  204  The assumption of non-Byzantine failures makes it easy for one learner
+  205  to find out from another learner that a value has been accepted. We can
+  206  have the acceptors respond with their acceptances to a distinguished learner,
+  207  which in turn informs the other learners when a value has been chosen. This
+  208  approach requires an extra round for all the learners to discover the chosen
+  209  value. It is also less reliable, since the distinguished learner could fail. But
+  210  it requires a number of responses equal only to the sum of the number of
+  211  acceptors and the number of learners.
+  212  More generally, the acceptors could respond with their acceptances to
+  213  some set of distinguished learners, each of which can then inform all the
+  214  learners when a value has been chosen. Using a larger set of distinguished
+
+  215  6
+=== PAGE 10 ===
+
+  216  learners provides greater reliability at the cost of greater communication
+  217  complexity.
+  218  Because of message loss, a value could be chosen with no learner ever
+  219  finding out. The learner could ask the acceptors what proposals they have
+  220  accepted, but failure of an acceptor could make it impossible to know whether
+  221  or not a majority had accepted a particular proposal. In that case, learners
+  222  will find out what value is chosen only when a new proposal is chosen. If
+  223  a learner needs to know whether a value has been chosen, it can have a
+  224  proposer issue a proposal, using the algorithm described above.
+
+  225  2.4 Progress
+  226  It's easy to construct a scenario in which two proposers each keep issuing
+  227  a sequence of proposals with increasing numbers, none of which are ever
+  228  chosen. Proposer p completes phase 1 for a proposal number n1 . Another
+  229  proposer q then completes phase 1 for a proposal number n2 > n1. Proposer
+  230  p's phase 2 accept requests for a proposal numbered n1 are ignored because
+  231  the acceptors have all promised not to accept any new proposal numbered
+  232  less than n2. So, proposer p then begins and completes phase 1 for a new
+  233  proposal number n3 > n2, causing the second phase 2 accept requests of
+  234  proposer q to be ignored. And so on.
+  235  To guarantee progress, a distinguished proposer must be selected as the
+  236  only one to try issuing proposals. If the distinguished proposer can communicate successfully with a majority of acceptors, and if it uses a proposal
+  237  with number greater than any already used, then it will succeed in issuing a
+  238  proposal that is accepted. By abandoning a proposal and trying again if it
+  239  learns about some request with a higher proposal number, the distinguished
+  240  proposer will eventually choose a high enough proposal number.
+  241  If enough of the system (proposer, acceptors, and communication network) is working properly, liveness can therefore be achieved by electing a
+  242  single distinguished proposer. The famous result of Fischer, Lynch, and Patterson [1] implies that a reliable algorithm for electing a proposer must use
+  243  either randomness or real time—for example, by using timeouts. However,
+  244  safety is ensured regardless of the success or failure of the election.
+
+  245  2.5 The Implementation
+  246  The Paxos algorithm [5] assumes a network of processes. In its consensus
+  247  algorithm, each process plays the role of proposer, acceptor, and learner.
+  248  The algorithm chooses a leader, which plays the roles of the distinguished
+
+  249  7
+=== PAGE 11 ===
+
+  250  proposer and the distinguished learner. The Paxos consensus algorithm is
+  251  precisely the one described above, where requests and responses are sent as
+  252  ordinary messages. (Response messages are tagged with the corresponding
+  253  proposal number to prevent confusion.) Stable storage, preserved during
+  254  failures, is used to maintain the information that the acceptor must remember. An acceptor records its intended response in stable storage before
+  255  actually sending the response.
+  256  All that remains is to describe the mechanism for guaranteeing that no
+  257  two proposals are ever issued with the same number. Different proposers
+  258  choose their numbers from disjoint sets of numbers, so two different proposers never issue a proposal with the same number. Each proposer remembers (in stable storage) the highest-numbered proposal it has tried to issue,
+  259  and begins phase 1 with a higher proposal number than any it has already
+  260  used.
+
+  261  3 Implementing a State Machine
+
+  262  A simple way to implement a distributed system is as a collection of clients
+  263  that issue commands to a central server. The server can be described as
+  264  a deterministic state machine that performs client commands in some sequence. The state machine has a current state; it performs a step by taking
+  265  as input a command and producing an output and a new state. For example, the clients of a distributed banking system might be tellers, and
+  266  the state-machine state might consist of the account balances of all users.
+  267  A withdrawal would be performed by executing a state machine command
+  268  that decreases an account's balance if and only if the balance is greater than
+  269  the amount withdrawn, producing as output the old and new balances.
+  270  An implementation that uses a single central server fails if that server
+  271  fails. We therefore instead use a collection of servers, each one independently
+  272  implementing the state machine. Because the state machine is deterministic,
+  273  all the servers will produce the same sequences of states and outputs if they
+  274  all execute the same sequence of commands. A client issuing a command
+  275  can then use the output generated for it by any server.
+  276  To guarantee that all servers execute the same sequence of state machine
+  277  commands, we implement a sequence of separate instances of the Paxos
+  278  consensus algorithm, the value chosen by the ith instance being the ith state
+  279  machine command in the sequence. Each server plays all the roles (proposer,
+  280  acceptor, and learner) in each instance of the algorithm. For now, I assume
+  281  that the set of servers is fixed, so all instances of the consensus algorithm
+
+  282  8
+=== PAGE 12 ===
+
+  283  use the same sets of agents.
+  284  In normal operation, a single server is elected to be the leader, which
+  285  acts as the distinguished proposer (the only one that tries to issue proposals)
+  286  in all instances of the consensus algorithm. Clients send commands to the
+  287  leader, who decides where in the sequence each command should appear.
+  288  If the leader decides that a certain client command should be the 135th
+  289  command, it tries to have that command chosen as the value of the 135th
+  290  instance of the consensus algorithm. It will usually succeed. It might fail
+  291  because of failures, or because another server also believes itself to be the
+  292  leader and has a different idea of what the 135th command should be. But
+  293  the consensus algorithm ensures that at most one command can be chosen
+  294  as the 135th one.
+  295  Key to the efficiency of this approach is that, in the Paxos consensus
+  296  algorithm, the value to be proposed is not chosen until phase 2. Recall that,
+  297  after completing phase 1 of the proposer's algorithm, either the value to be
+  298  proposed is determined or else the proposer is free to propose any value.
+  299  I will now describe how the Paxos state machine implementation works
+  300  during normal operation. Later, I will discuss what can go wrong. I consider
+  301  what happens when the previous leader has just failed and a new leader has
+  302  been selected. (System startup is a special case in which no commands have
+  303  yet been proposed.)
+  304  The new leader, being a learner in all instances of the consensus algorithm, should know most of the commands that have already been chosen.
+  305  Suppose it knows commands 1–134, 138, and 139—that is, the values chosen in instances 1–134, 138, and 139 of the consensus algorithm. (We will
+  306  see later how such a gap in the command sequence could arise.) It then
+  307  executes phase 1 of instances 135–137 and of all instances greater than 139.
+  308  (I describe below how this is done.) Suppose that the outcome of these executions determine the value to be proposed in instances 135 and 140, but
+  309  leaves the proposed value unconstrained in all other instances. The leader
+  310  then executes phase 2 for instances 135 and 140, thereby choosing commands
+  311  135 and 140.
+  312  The leader, as well as any other server that learns all the commands
+  313  the leader knows, can now execute commands 1–135. However, it can't
+  314  execute commands 138–140, which it also knows, because commands 136
+  315  and 137 have yet to be chosen. The leader could take the next two commands
+  316  requested by clients to be commands 136 and 137. Instead, we let it fill the
+  317  gap immediately by proposing, as commands 136 and 137, a special "noop" command that leaves the state unchanged. (It does this by executing
+  318  phase 2 of instances 136 and 137 of the consensus algorithm.) Once these
+
+  319  9
+=== PAGE 13 ===
+
+  320  no-op commands have been chosen, commands 138–140 can be executed.
+  321  Commands 1–140 have now been chosen. The leader has also completed
+  322  phase 1 for all instances greater than 140 of the consensus algorithm, and it
+  323  is free to propose any value in phase 2 of those instances. It assigns command
+  324  number 141 to the next command requested by a client, proposing it as the
+  325  value in phase 2 of instance 141 of the consensus algorithm. It proposes the
+  326  next client command it receives as command 142, and so on.
+  327  The leader can propose command 142 before it learns that its proposed
+  328  command 141 has been chosen. It's possible for all the messages it sent
+  329  in proposing command 141 to be lost, and for command 142 to be chosen
+  330  before any other server has learned what the leader proposed as command
+  331  141. When the leader fails to receive the expected response to its phase 2
+  332  messages in instance 141, it will retransmit those messages. If all goes well,
+  333  its proposed command will be chosen. However, it could fail first, leaving a
+  334  gap in the sequence of chosen commands. In general, suppose a leader can
+  335  get α commands ahead—that is, it can propose commands i + 1 through
+  336  i+α after commands 1 through i are chosen. A gap of up to α−1 commands
+  337  could then arise.
+  338  A newly chosen leader executes phase 1 for infinitely many instances
+  339  of the consensus algorithm—in the scenario above, for instances 135–137
+  340  and all instances greater than 139. Using the same proposal number for
+  341  all instances, it can do this by sending a single reasonably short message
+  342  to the other servers. In phase 1, an acceptor responds with more than a
+  343  simple OK only if it has already received a phase 2 message from some
+  344  proposer. (In the scenario, this was the case only for instances 135 and
+  345  140.) Thus, a server (acting as acceptor) can respond for all instances with
+  346  a single reasonably short message. Executing these infinitely many instances
+  347  of phase 1 therefore poses no problem.
+  348  Since failure of the leader and election of a new one should be rare
+  349  events, the effective cost of executing a state machine command—that is, of
+  350  achieving consensus on the command/value—is the cost of executing only
+  351  phase 2 of the consensus algorithm. It can be shown that phase 2 of the
+  352  Paxos consensus algorithm has the minimum possible cost of any algorithm
+  353  for reaching agreement in the presence of faults [2]. Hence, the Paxos algorithm is essentially optimal.
+  354  This discussion of the normal operation of the system assumes that there
+  355  is always a single leader, except for a brief period between the failure of the
+  356  current leader and the election of a new one. In abnormal circumstances,
+  357  the leader election might fail. If no server is acting as leader, then no new
+  358  commands will be proposed. If multiple servers think they are leaders, then
+
+  359  10
+=== PAGE 14 ===
+
+  360  they can all propose values in the same instance of the consensus algorithm, which could prevent any value from being chosen. However, safety is
+  361  preserved—two different servers will never disagree on the value chosen as
+  362  the ith state machine command. Election of a single leader is needed only
+  363  to ensure progress.
+  364  If the set of servers can change, then there must be some way of determining what servers implement what instances of the consensus algorithm.
+  365  The easiest way to do this is through the state machine itself. The current
+  366  set of servers can be made part of the state and can be changed with ordinary state-machine commands. We can allow a leader to get α commands
+  367  ahead by letting the set of servers that execute instance i + α of the consensus algorithm be specified by the state after execution of the ith state
+  368  machine command. This permits a simple implementation of an arbitrarily
+  369  sophisticated reconfiguration algorithm.
+
+  370  References
+
+  371  [1] Michael J. Fischer, Nancy Lynch, and Michael S. Paterson. Impossibility
+  372  of distributed consensus with one faulty process. Journal of the ACM,
+  373  32(2):374–382, April 1985.
+  374  [2] Idit Keidar and Sergio Rajsbaum. On the cost of fault-tolerant consensus
+  375  when there are no faults—a tutorial. TechnicalReport MIT-LCS-TR-821,
+  376  Laboratory for Computer Science, Massachusetts Institute Technology,
+  377  Cambridge, MA, 02139, May 2001. also published in SIGACT News
+  378  32(2) (June 2001).
+  379  [3] Leslie Lamport. The implementation of reliable distributed multiprocess
+  380  systems. Computer Networks, 2:95–114, 1978.
+  381  [4] Leslie Lamport. Time, clocks, and the ordering of events in a distributed
+  382  system. Communications of the ACM, 21(7):558–565, July 1978.
+  383  [5] Leslie Lamport. The part-time parliament. ACM Transactions on Computer Systems, 16(2):133–169, May 1998.
+
+  384  11

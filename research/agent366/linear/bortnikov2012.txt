@@ -1,0 +1,730 @@
+---
+title: "Reconfigurable State Machine Replication from Non-Reconfigurable Building Blocks"
+authors:
+  - "V Bortnikov"
+  - "G Chockler"
+  - "A Roytman"
+  - "S Shachor"
+  - "I Shnayderman"
+  - "D Perelman"
+year: "2012"
+publication: "Proceedings of the 31st Annual ACM Symposium on Principles of Distributed Computing"
+handle_url: "https://doi.org/10.1145/2332432.2332449"
+source_pdf: "research/agent366/papers/bortnikov2012-reconfigurable-smr.pdf"
+source_pdf_sha256: "1043362556126ded3e78caffb249bb03b250f08c19af2edf36db2be2b04170cf"
+page_count: 16
+extracted_text_runs: 2908
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Reconfigurable state machine replication is an important enabler of elasticity for replicated cloud services, which must be able to dynamically adjust their size as a function of changing load and resource availability. We introduce a new generic framework to allow a reconfigurable state machine implementation to be derived from arbitrary non-reconfigurable state machines. It allows speculative command execution to ensure uninterrupted progress during reconfiguration, even when failures delay agreement. We apply the framework to non-reconfigurable Paxos and evaluate it on a distributed testbed.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Reconfigurable State Machine Replication from
+
+    2  Non-Reconfigurable Building Blocks
+
+    3  Vita Bortnikov1, Gregory Chockler1, Dmitri Perelman2, Alexey Roytman1, Shlomit Shachor1, and
+    4  Ilya Shnayderman1
+
+    5  1IBM Research
+    6  2Technion, Israel Institute of Technology
+
+    7  Abstract
+    8  Reconfigurable state machine replication is an important enabler of elasticity for replicated cloud
+    9  services, which must be able to dynamically adjust their size as a function of changing load and resource
+   10  availability. We introduce a new generic framework to allow the reconfigurable state machine implementation to be derived from a collection of arbitrary non-reconfigurable state machines. Our reduction
+   11  framework follows the black box approach, and does not make any assumptions with respect to its execution environment apart from reliable channels. It allows higher-level services to leverage speculative
+   12  command execution to ensure uninterrupted progress during the reconfiguration periods as well as in situations where failures prevent the reconfiguration agreement from being reached in a timely fashion. We
+   13  apply our framework to obtain a reconfigurable speculative state machine from the non-reconfigurable
+   14  Paxos implementation, and analyze its performance on a realistic distributed testbed. Our results show
+   15  that our framework incurs negligible overheads in the absence of reconfiguration, and allows steady
+   16  throughput to be maintained throughout the reconfiguration periods.
+
+   17  Eligible for the best student paper award: Dmitri Perelman is a full-time graduate student
+
+   18  arXiv:1512.08943v1 [cs.DC] 30 Dec 2015 The paper includes 12.5 pages out of which approximately 2 are occupied by the figures.
+=== PAGE 2 ===
+
+   19  1 Introduction
+
+   20  Replicated state machine, or RSM [11], is an important tool for maintaining integrity of distributed applications and services in failure-prone data center and cloud computing environments. In these settings, the
+   21  infrastructure needs to adapt to changing resource availability, load fluctuations, variable power consumption, and data locality constraints. In order to meet these requirements, RSM must support reconfiguration,
+   22  i.e., dynamic changes to replica set, or quorum system. It is essential to ensure that reconfiguration incurs
+   23  minimum disruption to availability and performance, in order to enable building truly elastic services. The
+   24  ability to perform reconfigurations in a non-disruptive fashion provides system designers with a powerful
+   25  paradigm that can enable many optimizations. This includes proactive replacement of suspected or slow
+   26  nodes at low cost, adapting to the changing environment characteristics (e.g. network delay, or diurnal load
+   27  fluctuations, and many others).
+   28  Reconfigurable RSM has been proposed in multiple contexts (e.g., [14, 15, 10]). Each solution implemented a slightly different set of requirements, and all proved nontrivial. Designing this functionality for a
+   29  realistic environment with minimal impact on performance is even more challenging. Na¨ıve constructions
+   30  follow the "brick-wall approach" in which the flow of user commands is stalled until the new configuration
+   31  is installed and the state is transferred to it. Ideally, systems should strive to avoid this, and favor implementations with near-seamless hand-on, that maintain steady throughput and latency during the transition
+   32  periods.
+   33  This paper introduces a framework for constructing reconfigurable state machines from collections of
+   34  non-reconfigurable ones. We follow the black box approach that assumes nothing about the execution environment except the existence of reliable communication channels. Our reduction is both simple and generic,
+   35  i.e., the underlying RSM implementation is completely opaque to the framework. Furthermore, it does
+   36  not compromise efficiency, incurring negligible overhead in the absence of reconfigurations and avoiding
+   37  system stalls upon reconfiguration.
+   38  The main ideas underlying our framework are as follows. Each newly proposed configuration is associated with its own instance of RSM, and all active RSM are executed concurrently to each other. The
+   39  globally consistent trunk of commands is created by gluing together the totally ordered command sequences
+   40  produced by each RSM. When switching from one RSM to another, the latter is chosen based on the outcome of the configuration agreement in the former. Our framework also relieves RSMs of state transfer
+   41  responsibilities by ensuring that the latest trunk is transferred to the new configuration concurrently with
+   42  the RSM execution. This way, each newly created RSM is completely independent from its predecessor,
+   43  and in particular, can start executing from its initial state. We leverage this capability in our Paxos-based
+   44  reconfigurable RSM implementation to supply each newly created Paxos instance with the identifier of a
+   45  deterministically chosen leader thus eschewing the first phase of Paxos if the configured leader does not fail.
+   46  Another important optimization made possible by the RSM independence is the ability to speculatively
+   47  overlap their execution with the reconfiguration protocol, thus considerably reducing the command latency
+   48  during reconfiguration periods. Specifically, each RSM is made available for accepting commands for the
+   49  new configuration as soon as it is proposed, and without waiting for it to be agreed upon by the parent RSM.
+   50  The proposals associated with the new configuration proceed to be ordered concurrently with the reconfiguration agreement, and are added to the trunk as soon as the configuration is agreed upon. This way, our
+   51  framework allows unbounded degree of parallelism in the command execution during the transition periods
+   52  avoiding the performance problems of the "brick-wall" solutions. In addition, the benefits of speculation become more substantial as the network delay grows thus making speculative solutions attractive in wide-area
+   53  network settings.
+
+   54  1
+=== PAGE 3 ===
+
+   55  The modularity of our framework enables a range of additional features useful in practical settings. One
+   56  such feature is supporting rolling software upgrades: i.e., the implementation of the deployed RSMs can
+   57  be replaced with the newer one without stopping the system. Likewise, misbehaving or buggy RSMs can
+   58  be restarted or replaced on-the-fly with the minimum impact on the system operation as per the recoveryoriented computing (ROC) [19] guidelines.
+   59  We used our framework to implement a full-fledged reconfigurable replication platform using nonreconfigurable Paxos [12, 13] as its underlying non-reconfigurable RSM, and experimentally studied its
+   60  performance. The results demonstrate that our system achieves high throughput and low latency in the absence of reconfigurations, which stay almost unchanged under highly dynamic reconfiguration scenarios.
+   61  Specifically, the throughput is unaffected in the runs with reconfiguration rate of 5 per second, and degrades
+   62  only by 20% when reconfiguration rate achieves that of 20 per second. In addition, our study indicates that
+   63  the command latency in the vicinity of reconfiguration stays the same as that in the absence thereof.
+   64  In summary, the contributions made by our work are as follows:
+   65  • new generic framework for constructing reconfigurable RSM from non-reconfigurable ones, which is
+   66  simple, modular, and efficient;
+   67  • new speculative approach to enable overlapping command ordering with the reconfiguration protocol
+   68  thus reducing the reconfiguration latencies;
+   69  • practical implementation that leverages our framework to transform Paxos-based RSM to a highly
+   70  efficient reconfigurable RSM;
+   71  • detailed experimental study of the implementation above demonstrating the benefits of our framework
+   72  in practical settings.
+   73  The rest of the paper is organized as follows. Related work is discussed in Section 2. System model
+   74  is presented in Section 3. Section 4 introduces non-reconfigurable and reconfigurable variants of RSM,
+   75  and rigorously specify their properties. In Section 5, we present our reduction algorithm, and argue its
+   76  correctness. The replication platform built on top of our framework, and its performance are discussed in
+   77  Section 6. Section 7 concludes the paper.
+
+   78  2 Related work
+
+   79  Modular approaches to specifying RSM and their constituent building blocks have been addressed in several
+   80  prior works. Boichat et al. [5] introduced modular decomposition of Paxos into weak leader election and
+   81  round-based consensus abstraction, and [7] studied the abstraction of ranked register capturing the essence of
+   82  the Paxos consensus algorithm. These papers however, do not address reconfiguration. Stoppable Paxos [10]
+   83  presents a framework for combining non-reconfigurable Paxos instances into a reconfigurable RSM, but does
+   84  not attempt to abstract away the internals of the underlying Paxos implementation. In addition, [10] does
+   85  not support concurrent execution of the individual Paxos instances.
+   86  Several approaches to alleviating reconfiguration bottleneck in reconfigurable state machines have been
+   87  proposed. The original idea by Lamport, described in [12, 13, 14], and implemented in SMART [16], was
+   88  to delay the effect of the configuration agreed in a specific consensus instance by a fixed number α of
+   89  successive consensus instances. If the configuration must take effect immediately, the remaining instances
+   90  can be skipped by passing a special "window closure" decree consisting of α consecutive noop instances.
+   91  Although this approach allows up to α consecutive commands to be executed concurrently, choosing the
+
+   92  2
+=== PAGE 4 ===
+
+   93  right value of α is nontrivial. On the one hand, choosing α to be too small may under-utilize the available
+   94  resources. On the other hand, large values of α may not match the actual service reconfiguration rate
+   95  resulting in too frequent invocations of the window closure decrees (which must complete synchronously).
+   96  Chubby [6] and ZooKeeper [9] expose high-level synchronization primitives (respectively, locks and
+   97  watches) that can be used to implement a reconfigurable state machine within the client groups. The solutions based on this approach are however, vulnerable to timing failures, and therefore, either restrict their
+   98  failure model [25], or rely on additional synchronization protocols within the replication groups themselves
+   99  to maintain consistency [15, 21].
+  100  Vertical Paxos [15] removes the configuration agreement overhead from the critical path by delegating it
+  101  to an auxiliary "configuration master". The reconfiguration involves an extra step of synchronizing with the
+  102  read quorums of all preceding configurations causing throughput degradation. In addition, the configuration
+  103  master itself is implemented using the α-based reconfigurable Paxos protocol, and therefore, suffers from
+  104  the limitations similar to those discussed above.
+  105  Dynamic reconfiguration has been extensively studied in the context of virtually synchronous group
+  106  communication [22, 4, 8, 20], and reconfigurable read/write registers [17, 1]. The reconfiguration protocols described in these papers do not aim to support consistency semantics as strong as those of state
+  107  machine replication, and therefore do not directly apply in our context. Birman et al. [3] present a replication framework unifying reconfigurable state machine and virtual synchrony in which the normal operation
+  108  is suspended during the reconfiguration periods.
+  109  Optimistic and speculative approaches to mask the coordination latency have been extensively studied
+  110  in the past in a variety of contexts (such as e.g., group communication [23], and database replication [2]).
+  111  However, to the best of our knowledge, speculative reconfigurable state machine replication studied in this
+  112  paper has not yet been addressed in the prior work.
+
+  113  3 System Model
+
+  114  We consider an asynchronous message-passing system consisting of the (possibly infinite) set of processes
+  115  P. Each pair of processes is connected by a point-to-point FIFO channel. For simplicity, we assume the
+  116  crash failure model: i.e., the process experiencing a crash failure stops executing any further instructions
+  117  forever. A process that never crashes throughout the system execution is called correct. The channels are
+  118  reliable in the sense that a message sent by a correct process p to another correct process q is eventually
+  119  received by q. Extending our techniques to support stronger benign failure models (such as crash/recovery,
+  120  message omission, and network partitions and merges) is straightforward, and our prototype implementation
+  121  described in Section 6 is capable of doing that.
+
+  122  4 State Machine Replication
+
+  123  In this section, we introduce the notions of non-reconfigurable and reconfigurable Replicated State Machines
+  124  (RSM), and specify their properties. Our specification style loosely follows the I/O automata formalism
+  125  of [18].
+  126  For the following we will fix Command to be the set of the user commands, and Config be the set of
+  127  the configuration identifiers. Each configuration C is associated with a finite set of processes in P, denoted
+  128  members(C).
+
+  129  3
+=== PAGE 5 ===
+
+  130  Inputs:
+  131  joinC,p
+  132  propose(cmd)C,p, cmd ∈ Command
+
+  133  Outputs:
+  134  learn(cmd)C,p, cmd ∈ Command
+
+  135  Figure 1: The NR-RSM(C)p, C ∈ Config, signature for process p ∈ members(C):
+
+  136  4.1 Non-Reconfigurable RSM (NR-RSM)
+  137  The Non-Reconfigurable Replicated State Machine (NR-RSM) is parametrized by a configuration C ∈
+  138  Config. The interface supported by NR-RSM(C) for each process p ∈ members(C) appears in Figure 4.1.
+  139  NR-RSM(C) accepts the commands cmd ∈ Command submitted by the C's members through the propose(cmd)C ,
+  140  requests and outputs a totally ordered sequence of learn(cmd)C notifications.
+  141  The process p's instance of NR-RSM(C), denoted NR-RSM(C)p, is activated by the joinC,p request.
+  142  NR-RSM(C) becomes operational once sufficiently many members p of C have executed the joinC,p request. The precise initial membership depends on the NR-RSM implementation being used, desired resiliency, failure model, and environment properties. For example, if NR-RSM is implemented using the
+  143  non-reconfigurable Paxos algorithm [13], NR-RSM(C) may become operational as soon as a majority of
+  144  members(C) have executed joinC,p. We do not explicitly model the process "leaves" since they are equivalent to the process crashes in the crash failure model.
+  145  We now specify the set of properties that must be satisfied by the correct implementations of NR-RSM.
+  146  The properties are defined in terms of the sequences of actions α of its external interface in Figure 4.1. We
+  147  start by specifying the environment assumptions that must hold in order for the NR-RSM implementation to
+  148  be correct:
+  149  Property 1. (Well-Formedness)
+  150  • If e = propose is an event in α, then there exists join that precedes e in α.
+  151  C,p C,p
+  152  • For each process p ∈ members(C), at most one join occurs in α.
+  153  C,p
+  154  • For each command cmd ∈ Command, at most one propose(cmd)∗,∗ occurs in α.
+
+  155  Next, we specify the NR-RSM(C) safety properties. The Integrity property below asserts the following
+  156  two facts: (1) a process cannot output any learn events before it has joined NR-RSM(C), and (2) each learnt
+  157  command must be previously proposed. Formally,
+  158  Property 2 (Integrity). Let e = learn(cmd)C,p be an event in α. Then, the following holds:
+  159  • There exists join event that precedes e in α.
+  160  C,p
+  161  • There exists propose(cmd)C,q event that precedes e in α.
+
+  162  The next property states that each command is learnt at most once by each process:
+  163  Property 3 (No Duplication). For each command cmd ∈ Command and process p, there exists at most one
+  164  learn(cmd)p event in α.
+
+  165  4
+=== PAGE 6 ===
+
+  166  The following property requires that the commands are learnt in the same order by all members of C.
+  167  Formally:
+  168  Property 4 (Linearizability). There exists a sequence of commands x¯ = x1, x2, . . . such that for each
+  169  process p ∈ members(C), if π¯ = π1, π2, . . . is the sequence of the learnp events output by p in α, then, for
+  170  all ⟩ ≥ 1, π⟩ = learn(x⟩)C,p.
+  171  We now turn to specifying the NR-RSM liveness. The property below asserts that after some time t
+  172  (which is the parameter of the property), each command proposed by a correct member of C is eventually
+  173  learnt by all correct members of C provided they have joined NR-RSM(C). Formally, NR-RSM is said to be
+  174  live after time t in α if the following holds:
+  175  Property 5 (Liveness). If propose(cmd)p is an event occurring at a correct process p after t, then for each
+  176  correct process q ∈ members(C) such that join is an event in α, there exists learn(cmd)C,q that occurs
+  177  C,q
+  178  at time t0 > t in α.
+
+  179  4.2 Reconfigurable RSM (R-RSM)
+
+  180  Inputs:
+  181  propose(C, cmd)p, C ∈ Config, cmd ∈ Command, p ∈ members(C)
+  182  recon(C, C0) , C, C0 ∈ Config, p ∈ members(C)
+  183  p
+
+  184  Outputs:
+  185  learn(cmd)p, cmd ∈ Command
+  186  new-conf(C)p, C ∈ Config
+  187  ready(C)p, C ∈ Config, p ∈ members(C)
+
+  188  Figure 2: The R-RSM Signature for Process p ∈ P:
+
+  189  The R-RSM external interface appears in Figure 4.2. In contrast to the non-reconfigurable RSM, the
+  190  configuration of Reconfigurable RSM (R-RSM) can be changed dynamically through the user inputs. Initially, the R-RSM's configuration is the distinguished configuration C0. Afterwards, new configurations are
+  191  proposed through the recon(C, C0) requests, which include two parameters: a known configuration C, and
+  192  the target configuration C0 to which C is requested to reconfigure.
+  193  The recon requests can only be initiated at one of the members of C. The members of C0 respond with
+  194  ready(C0) events once they are aware of C0, and ready to accept proposals associated with C0. If C0 is
+  195  eventually accepted as the configuration to follow C in the global order, the members q of both C and all of
+  196  the subsequent configurations (including C0) will be notified of that through the new-conf(C0) events.
+  197  q
+  198  Similarly to NR-RSM, R-RSM accepts commands submitted through the propose requests, and outputs
+  199  learn notifications for the commands whose slot in the total order has been finalized. In addition, each
+  200  propose request also includes the configuration parameter that indicates the desired configuration to be used
+  201  to order the provided command.
+  202  Note that the R-RSM interface allows the proposals (of both commands and configurations) to be issued
+  203  against configurations, which have been reported as ready, but whose ordering has not yet been completed
+  204  (and may subsequently fail). This provides implementations with flexibility in choosing how to deal with the
+  205  proposals that have been received by R-RSM while reconfiguration is still in progress. In our implementation
+  206  (see Section 5), these proposals are ordered speculatively using a separate instance of the non-reconfigurable
+
+  207  5
+=== PAGE 7 ===
+
+  208  C0
+
+  209  CCC
+  210  1 2 3
+
+  211  C4 C5 C6 C7 C8
+
+  212  CC10
+  213  9
+  214  Figure 3: The configuration tree formed by the recon events. The trunk configurations are highlighted.
+
+  215  state machine being executed concurrently with the reconfiguration protocol. As we show in Section 6, this
+  216  leads to substantial reductions in the reconfiguration delays provided the proposed configuration will be
+  217  eventually included into the total order (which is a common occurrence in practice). The implementation
+  218  can limit or completely eliminate speculative behavior by tweaking the timing of the ready reports.
+  219  All configurations submitted in the course of the R-RSM execution α form the tree with the root C0,
+  220  and C being the parent of C0 for all C, C0 ∈ Config iff recon(C, C0) has occurred in α (see Figure 3).
+  221  The configurations reported in the new-conf notifications form a continuous path, called the trunk, in the
+  222  configuration tree starting from C0.
+  223  As before, we specify the correctness properties for the R-RSM implementation in terms of the sequences
+  224  of actions α of its external interface in Figure 4.2. We start by defining the well-formedness conditions,
+  225  which capture the permissible interaction patterns between the R-RSM and its environment:
+  226  Property 6. (Well-Formedness)
+  227  • If e ∈ {propose(C, ∗)p,recon(C,∗)p} is an event in α, then there exists ready(C)p that precedes e in
+  228  α unless C = C0
+  229  • For each command cmd ∈ Command, there exists at most one propose(cmd)∗ in α.
+  230  • For each configuration C ∈ Config, there exists at most one recon(∗, C) in α1.
+  231  ∗
+
+  232  Next, we specify the R-RSM safety properties. The Integrity property below asserts that each learn (resp.,
+  233  new-conf) notification delivered at a process p must be preceded by both: (1) p's join, and (2) propose(C,∗)
+  234  (recon(C,∗)) where C is the latest configuration that has been delivered at p before the notification event.
+  235  Formally:
+  236  Property 7 (Integrity). Let e ∈ {learn(cmd) ,new-conf(C0) ,ready(C0) }, be an event in α, and C be the
+  237  p p p
+  238  configuration delivered by the latest new-conf event that precedes e at p. Then, all of the following holds:
+
+  239  • If e = learn(cmd) , then there exists q ∈ members(C) such that propose(C, cmd) (resp., recon(C, C0) )
+  240  p q q
+  241  is an event in α.
+  242  • If e ∈ {new-conf(C0 ) ,ready(C0) }, then there exists q ∈ members(C) such that recon(C, C0) ) is
+  243  p p q
+  244  an event in α.
+  245  1Note that only the proposed configuration identifiers are required to be unique, not the set of members associated with those
+  246  identifiers.
+
+  247  6
+=== PAGE 8 ===
+
+  248  The next property states that each command (resp., configuration) is learnt (resp., delivered) at most
+  249  once by each process:
+  250  Property 8 (No Duplication). For each cmd ∈ Command, there exists at most one learn(cmd)p, and for
+  251  each C ∈ Config, there is at most one ready(C)p, and at most one new-conf(C)p event that occurs at each
+  252  process p ∈ P in α.
+  253  The most important safety property supported by R-RSM is linearizability, which requires that all processes deliver the same sequence of learn and new-conf events. Formally,
+  254  Property 9 (Linearizability). There exists a sequence of commands and configurations x¯ = x1, x2, . . . such
+  255  that for each process p ∈ P, if π¯ = π1, π2, . . . is the sequence of the learnp and new-confp events output
+  256  by p in α, then for all ⟩ ≥ 1, if x⟩ ∈ Config, then π⟩ = new-conf(x⟩)p, and if x⟩ ∈ Command, then
+  257  π⟩ = learn(x⟩)p.
+  258  We now specify the R-RSM liveness. The following property says that if every proposed configuration
+  259  includes at least one correct member, then eventually, the system stabilizes in the sense that (1) each command proposed by a correct process is eventually learnt provided new reconfigurations attempts cease to
+  260  be initiated, and (2) each proposal to reconfigure a previously installed configuration eventually triggers a
+  261  new-conf event. Formally,
+  262  Property 10 (Liveness). Suppose that every configuration proposed in α includes at least one correct member. Then, there exists Global Stabilization Time (GST) such that for all times t > GST, if C0, C1, . . . , Ck
+  263  is the sequence of configurations induced by the longest sequence of new-conf events delivered by some
+  264  process before t, then, both of the following holds:
+  265  • If no recon(C, ∗) events with C = Ck occur after GST, then for each correct p ∈ members(Ck), if
+  266  propose(Ck, cmd)p is an event that occurs after t in α, then it is eventually followed by learn(cmd)q
+  267  at all correct q ∈ members(Ck).
+  268  • There exists configuration C such that if a correct p ∈ members(Ck) invokes recon(Ck,∗)p after t,
+  269  then it is eventually followed by new-conf(C)q at all correct q ∈ members(Ck) ∪ members(C).
+
+  270  In addition, we require that each recon(∗, C) invoked by a correct process is eventually followed by the
+  271  ready(C) notification delivered at each correct member of C.
+  272  Property 11. If recon(∗, C)p is an event that occurs at a correct process p in α, then it is followed by
+  273  ready(C)q for each correct q ∈ members(C).
+
+  274  5 Reduction Algorithm
+
+  275  In this section, we present the implementation of the algorithm to transform a collection of NR-RSM(C),
+  276  C ∈ Config to R-RSM, and argue its correctness. The implementation is the composition of the automata
+  277  R-RSMp for each process p ∈ P. The code executed by each R-RSMp appears in Algorithm 1.
+  278  The implementation of R-RSM can be viewed as consisting of the following three phases:
+  279  Configuration-specific ordering: Each proposed configuration C is associated with the non-reconfigurable
+  280  state machine NR-RSM(C), which is used to order the commands and configurations associated with
+  281  C. The local outputs of each NR-RSM(C)p are stored in the branchesp data structure (line 1.7), which
+  282  maps each C to the sequence of commands and configurations output by learnC,p events.
+
+  283  7
+=== PAGE 9 ===
+
+  284  Algorithm 1 R-RSM from {NR-RSM(C)}. The R-RSMp code.
+
+  285  1: Types 40: for all ⟩ = length(trunk) to length(tr) − 1 do
+  286  2: Config: the set of configuration identifiers with the initial identi- 41: learnNext(tr[⟩])
+  287  fier C0 42: end for
+  288  3: Command: the set of command indetifiers 43: view ← view ∪ v ∪ {q}
+  289  44: end upon
+  290  4: var
+  291  5: status ∈ {active, idle} 45: upon receiving ⟨JOIN, C, C0⟩ message from q ∈ members(C) do
+  292  6: view ⊆ P 46: if branches(C0) = ⊥ then
+  293  7: branches: mapping from Config to seqOf(Config∪ Command)∪ 47: joinConf(C0)
+  294  {⊥} 48: Output ready(C0)
+  295  8: trunk: seqOf(Config ∪ Command) 49: view ← view ∪ members(C) ∪ members(C0)
+  296  9: next ∈ N≥0 50: end if
+  297  10: curConf ∈ Config 51: end upon
+  298  11: Initialisation:
+  299  12: branches(C) ← ⊥ for all C ∈ Config 52: task State Transfer
+  300  13: trunk ← [] 53: if status = active then
+  301  14: next ← 0 54: Periodically:
+  302  15: curConf ← C 55: for all q ∈ view do
+  303  0 56: send(⟨STATE, trunk, view⟩)
+  304  16: view ← ∅ p,q
+  305  17: if p ∈ members(C ) then 57: end for
+  306  0 58: end if
+  307  18: joinConf(C0)
+  308  19: view ← members(C ) 59: end
+  309  0
+  310  20: end if 60: procedure learnNext(x), x ∈ Command ∪ Config
+  311  21: propose(C, cmd): 61: Append x to trunk
+  312  22: if branches(C) 6= ⊥ ∧ branches(C)[⟩] 6∈ Config for all 0 ≤ 62: if x ∈ Config then
+  313  ⟩ ≤ length(branches(C)) then 63: if branches(x) = ⊥ ∧ p ∈ members(x) then
+  314  23: propose(cmd)C 64: joinConf(x)
+  315  24: end if 65: Output ready(C)
+  316  66: view ← view ∪ members(x)
+  317  25: recon(C, C0): 67: end if
+  318  26: if branches(C) 6= ⊥ ∧ branches(C)[⟩] 6∈ Config for all 0 ≤ 68: Output new-conf(x)
+  319  ⟩ ≤ length(branches(C)) then 69: next ← 0
+  320  27: for all q ∈ members(C0) do 70: curConf ← x
+  321  28: send(⟨JOIN, C, C0⟩)p,q 71: else
+  322  29: end for 72: Output learn(x)
+  323  30: propose(C0)C 73: next ← next + 1
+  324  31: view ← view ∪ {C0} 74: end if
+  325  32: end if 75: end
+  326  33: upon learn(x)C: do
+  327  34: Append x to branches(C) 76: procedure joinConf(C), C ∈ Config
+  328  35: if C = curConf ∧ next < length(branches(curConf)) then 77: if status = idle then
+  329  36: learnNext(branches(curConf)[next]) 78: status ← active
+  330  37: end if 79: end if
+  331  38: end upon 80: branches(C) ← []
+  332  81: joinC
+  333  39: upon receiving ⟨STATE, tr, v⟩ message from q ∈ P do 82: end
+
+  334  Configuration tree pruning: The branches of the configuration tree in Figure 3 are pruned so that the
+  335  surviving configurations form a single consistent trunk. To ensure that all processes prune the branches
+  336  in a consistent fashion, the successor C0 of each configuration C is determined by the output of
+  337  NR-RSM(C).
+
+  338  Total order construction: Each process p concatenates the totally ordered fragments stored inbranchesp in
+  339  the order induced by the configuration trunk to produce a globally-consistent sequence of commands
+  340  and configurations, which is stored in the trunkp variable. trunkp is then iterated to produce a globally
+  341  consistent sequence of the learn and new-conf outputs.
+
+  342  8
+=== PAGE 10 ===
+
+  343  The above three phases are executed concurrently, with the configuration-specific ordering phase being
+  344  executed concurrently for each individual configuration. Below we describe the implementation of each of
+  345  the above phases in more detail.
+
+  346  Configuration-Specific Ordering: A process p joins NR-RSM(C) when it either receives the ⟨JOIN, C⟩
+  347  message (lines 1.46–1.50), or encounters C in the course of the total order construction phase (lines 1.63–
+  348  1.67). From that point on, all commands and configurations x submitted by process p through either
+  349  propose(C, x)p or recon(C, x)p are forwarded to the p's local instance of NR-RSM(C) through the propose(x)C,p
+  350  requests (see lines 1.23 and 1.23). Each ordered command or configuration delivered by the learnC,p event
+  351  is then appended to branches(C)p.
+  352  The state machines created upon the reception of the JOIN messages are used to speculatively order the
+  353  proposals corresponding to the configurations, which have not yet been incorporated into the global total
+  354  order, thus reducing the reconfiguration time. We discuss speculation in more detail in Section 5.3 below.
+
+  355  Configuration Tree Pruning: The configuration tree is pruned by selecting the first configuration appearing in branches(C)p to be the C's successor by all processes p ∈ members(C). Since all entries of
+  356  branches(C)p appear in the same order at all processes p ∈ members(C), they all will choose the same configuration C0s as the C's successor. All other processes will learn of C0 through state transfer (see below).
+  357  The successor chosen for each configuration C becomes explicit when it is incorporated into trunkp in the
+  358  course of the total order construction phase (lines 1.68–1.67).
+
+  359  Total Order Construction: The chain of the surviving branches currently known to each process p is
+  360  kept in the trunkp variable (see line 1.8). In addition, curConfp (see line 1.10) holds the configuration
+  361  corresponding to the last branch on trunkp. Initially, curConf = C0 (line 1.15) so that trunkp consists of
+  362  p
+  363  a single branch corresponding to the root of the configuration tree C0.
+  364  As the entries are added to branches(curConfp) (lines 1.34–1.37), they are copied to trunkp (line 1.61)
+  365  and learnt one-by-one (line 1.72–1.73) until a new configuration C is encountered. At this point, curConf
+  366  p
+  367  is reassigned to C thus choosing branches(curConfp) as the next branch to feed trunkp (lines 1.68–1.67).
+  368  Since as we argued above, C is the only configuration that can be chosen as the curConfp 's successor at
+  369  all processes q ∈ P, branches(C) can be the only one selected to follow branches(curConf ) in trunkq. We
+  370  q
+  371  therefore, proved the following:
+  372  Lemma 1. All well-formed executions of the R-RSM implementation in Algorithm 1 satisfy Property 9
+
+  373  5.1 State Propagation
+  374  Since for each configuration C, the commands and configurations ordered by NR-RSM(C) are only delivered
+  375  to the members of C, we need an additional mechanism to ensure they propagate down the configuration
+  376  trunk. This mechanism is implemented by the State Transfer task (lines 1.52– 1.59), which is executed in
+  377  the background at each process p that have joined at least one of the proposed configurations.
+  378  It proceeds by continuously gossipping its entire trunkp (line 1.56) to the set of processes being accumulated in the view variable2. By line 1.66, view is guaranteed to include the members of all configurations
+  379  p p
+  380  comprising the configuration trunk known to p. In particular, this includes the members of the configuration
+  381  2Note that in reality the state transfer can be made considerably more efficient through a variety of techniques, such as e.g.,
+  382  push-pull gossip[24], and log contraction [14]
+
+  383  9
+=== PAGE 11 ===
+
+  384  C0 that immediately follows C in trunk . If p is correct, all correct members of C0 will eventually receive
+  385  p
+  386  trunk that will include the entire sequence of commands ordered within C up to and inclusively of C0.
+  387  p
+  388  Moreover, once there is a correct q ∈ members(C0 ) that delivers new-conf(C0), all correct members of both
+  389  C0 and its immediate successor (if any) are guaranteed to receive the entire trunk known to the members of
+  390  C even if all members of C stop gossipping their trunks. We therefore, have the following:
+  391  Lemma 2 (State Propagation). Let C and C0 be two configurations such that C0 follows C in the configuration trunk. Then, if there exists a correct member p of C that continues to gossip trunk until new-conf(C0 )
+  392  p
+  393  is delivered by a correct member q of C0, then all correct members of C0 will eventually incorporate all
+  394  commands and configurations ordered within C into their trunks.
+  395  The result above establishes criteria that can be used in practice for determining when the members of
+  396  old configurations can be taken off line without compromising the system liveness. For example, suppose
+  397  that a majority of the members of each installed configuration do not crash, unless they are taken off line in
+  398  an orderly fashion. Then, for each configuration C, a minority of members(C) can be taken off line once
+  399  a majority of members(C) deliver new-conf(C0) notification for some configuration C0; and the remaining
+  400  members can be disconnected once a majority of C0 delivers new-conf(C0).
+
+  401  5.2 Liveness
+  402  The liveness of our implementation follows from the liveness of its constituent non-reconfigurable state
+  403  machines and the State Propagation property above.
+  404  Specifically, assume that all state machines instantiated in the course of the execution of the code in
+  405  Algorithm 1 become live (in the sense of Property 5) after some time t. Suppose that C is the last configuration of the system. Since all configurations include at least one correct process, by Lemma 2, there is a time
+  406  t0 > t such that all correct members of C will incorporate C into their trunks and join NR-RSM(C) before
+  407  t0.
+  408  If no new reconfiguration attempts are made from this point onwards, every command cmd proposed
+  409  by a correct member of C through propose(C, cmd) is guaranteed to appear in branches(C)q, followed by
+  410  trunk , until it eventually output through learn(cmd) . Otherwise, there will be C0 such that recon(C, C0 )
+  411  q q
+  412  will result in C0 to be included into trunk of all correct processes in C, from where by Lemma 2, it is
+  413  p
+  414  guaranteed to eventually propagate to all correct members of C0. Hence, we proved the following:
+  415  Lemma 3. Each well-formed execution α of the R-RSM implementation in Algorithm 1 satisfies Property 10
+  416  provided all NR-RSM implementations instantiated in α are live after some t.
+
+  417  5.3 Speculation
+  418  One important property of our R-RSM implementation is that the non-reconfigurable state machine for each
+  419  configuration C is completely independent from the state machines for other configurations, and could proceed ordering the commands and configurations submitted under C concurrently with them. In particular,
+  420  since the members of C are notified of the new configuration immediately upon receiving its corresponding reconfiguration request (line 1.27– 1.29), this also applies to the commands submitted under C while
+  421  the successor of its parent configuration is still being chosen. These commands will be available for incorporating into the trunk and subsequent learning as soon as C becomes the chosen successor of its parent
+  422  configuration, thus reducing (or eliminating altogether) reconfiguration delays.
+  423  The precise degree of the performance improvement depends on the choice of the underlying nonreconfigurable state machine implementation, and the network parameters (primarily, the communication
+
+  424  10
+=== PAGE 12 ===
+
+  425  delay). As we show in Section 6, for the Paxos-based R-RSM implementation, speculation helps to eliminate penalties associated with throughput and latency during reconfiguration times, making them almost
+  426  indistinguishable from those achieved during the normal operation.
+
+  427  6 Implementation and Evaluation
+
+  428  We applied our reduction framework to implement a full-fledged reconfigurable replication platform using
+  429  non-reconfigurable Paxos [12, 13] as its underlying NR-RSM implementation.
+  430  To shield the users from intricacies of selecting viable configurations, our replication platform augments
+  431  R-RSM with two additional modules: Configuration Manager (CM) and Command Queue (CQ). CM implements the logic to detect failures, and produce new configurations, which are then submitted to R-RSM
+  432  through the recon requests. The configuration membership is based on the failure suspicions and user policies. An example policy may ask for every configuration to include sufficiently many healthy nodes. CQ is
+  433  responsible for associating user commands with configurations and submitting them to the platform through
+  434  the propose requests. The configurations are chosen based on the ready notifications thus leveraging the
+  435  speculation capabilities of R-RSM to reduce reconfiguration delays.
+  436  Each Paxos instance created by R-RSM is supplied with the identifier of a deterministically chosen leader
+  437  thus avoiding the overheads of the first phase of Paxos if the configured leader does not fail. Thus, normally,
+  438  only the second phase of Paxos is needed to complete each individual agreement instance resulting in a
+  439  single round-trip delay to order a command.
+  440  We studied the performance of our implementation experimentally using the testbed comprised of 4
+  441  IBM HS22 blades equipped with Intel Xeon X5670 processor with 24 2.93GHz cores and 64GB RAM.
+  442  Each machine was equipped with 1GB network card, and ran Red Hat Linux. A single replica was hosted
+  443  on each machine.
+  444  The replicas were subjected to request streams generated in either synchronous or asynchronous fashion.
+  445  In the synchronous mode, the requests were issued from multiple threads each of which was waiting for the
+  446  response to the previously submitted request to arrive before submitting the new one. The synchronous mode
+  447  allowed us to exercise high degree of control over the offered system load by varying the number of simultaneously executed synchronous threads. In contrast, in the asynchronous mode, each thread was submitting
+  448  requests as they were generated without waiting for the prior requests completion. The asynchronous mode
+  449  was used to drive the system to its maximum utilization.
+  450  In the first experiment, we studied the throughput and latency as a function of the offered system load
+  451  in the absence of reconfiguration using a single configuration consisting of 3 replicas. The results (see
+  452  Figure 4) show that our system is capable of achieving the sustained throughput of 12K request/second
+  453  before the latency starts to rapidly grow.
+  454  In the next experiment, we studied the impact of our speculative reconfiguration mechanism on the
+  455  command throughput. For that, the system was subjected to a series of reconfiguration requests submitted at
+  456  varied frequency. The normal commands were submitted using 10 synchronous threads, which corresponds
+  457  to the maximum sustained system load of 12K requests/second (see Figure 4). The measurements are
+  458  depicted (see Figure 5) as absolute command throughput in the presence of reconfiguration, and percentage
+  459  of degradation relative to the maximum sustained throughput (12K). The results show that the throughput
+  460  in the presence of reconfigurations is almost identical to that achieved in the absence thereof, reaching
+  461  maximum 20% of degradation when the system is reconfigured 20 times/second.
+  462  In the last experiment, we studied the degree of improvement produced by speculation in terms of the
+  463  latencies of the commands submitted in close proximity of the reconfiguration requests. The results (see
+
+  464  11
+=== PAGE 13 ===
+
+  465  Average Throughput Average Command Latency
+  466  16000 5
+  467  14000 4.5
+  468  4
+  469  12000
+  470  3.5
+  471  )s 10000 3
+  472  q/re )s
+  473  ( m(y
+  474  8000 2.5 nc
+  475  oughput teLa
+  476  Thr 6000 2
+  477  1.5
+  478  4000
+  479  1
+  480  2000 0.5
+  481  0 0
+  482  1 2 3 4 5 6 7 8 9 10 12 14 16 18 20 25 30 35 40 45 50 55
+  483  Load (# of concurrent clients)
+
+  484  Figure 4: Throughput and Latency in the Absence of Reconfiguration.
+
+  485  Speculative Reconfiguration (throughput) Speculative Reconfiguration (%)
+  486  14000 120
+
+  487  12000 100
+
+  488  10000
+  489  80
+  490  )/s
+  491  1( 8000
+  492  60 %
+  493  oughput 6000
+  494  Thr
+  495  40
+  496  4000
+
+  497  2000 20
+
+  498  0 0
+  499  2 5 10 20
+  500  Reconfiguration Frequency (1/s)
+
+  501  Figure 5: Throughput With Varied Reconfiguration Frequency.
+
+  502  Figure 6) indicate that with speculation, the latency is unaffected by reconfiguration staying closely to that
+  503  of the normal mode (i.e., in the absence of reconfiguration) throughout the entire reconfiguration period. In
+  504  contrast, without speculation, the latency increases sharply for the first command, and then keeps decreasing
+  505  slowly until reaching the normal mode value in the proximity of the 100th command.
+
+  506  7 Conclusions
+
+  507  We have introduced a modular framework for transforming a collection of arbitrary non-reconfigurable
+  508  replicated state machines (RSM) into the reconfigurable RSM implementation. Our framework follows
+  509  the black box approach, and does not make any assumptions with respect to its execution environment
+  510  apart from reliable channels. The individual state machines instantiated by our implementation can be
+  511  executed concurrently to one another, in particular, overlap each other execution in a speculative fashion
+  512  to mask the reconfiguration delays. We have applied our framework to build a prototype of an end-to-end
+  513  dynamic replication platform using non-reconfigurable Paxos as its underlying building block, and studied
+
+  514  12
+=== PAGE 14 ===
+
+  515  Non-Speculative Reconfiguration Speculative Reconfiguration
+  516  450
+  517  400
+  518  350
+  519  300
+  520  )s
+  521  m( 250
+  522  y
+  523  ncte 200
+  524  La
+  525  150
+  526  100 reconfigurations
+  527  50
+  528  0
+  529  1 11 21 31 41 51 61 71 81 91 101 111
+  530  Commands
+
+  531  Figure 6: Command Latency in the Vicinity of Reconfiguration. The network delay was simulated to be
+  532  100ms on average.
+
+  533  its performance on a realistic distributed testbed. Our results demonstrated that our our platform achieves
+  534  high throughput and low latency in the absence of reconfigurations, which stay almost unchanged under
+  535  highly dynamic reconfiguration scenarios.
+  536  Our platform is being developed at IBM Research, and slated to be included into the future IBM's
+  537  platform-as-a-service offerings as a foundational tool. In the future, we intend to explore the ways to extend
+  538  our speculation-based approach to support optimistic replication in wide-area network settings, and augment
+  539  it with an on-line optimization framework to facilitate selection of configurations based on the changing
+  540  network parameters.
+
+  541  13
+=== PAGE 15 ===
+
+  542  References
+  543  [1] M. K. Aguilera, I. Keidar, D. Malkhi, and A. Shraer. Dynamic atomic storage without consensus. J.
+  544  ACM, 58(2):7, 2011.
+  545  [2] Y. Amir and C. Tutu. From total order to database replication. In ICDCS, pages 494–, 2002.
+  546  [3] K. Birman, D. Malkhi, and R. van Renesse. Virtually synchronous methodology for dynamic service
+  547  replication. Technical Report MSR-TR-2010-151, Microsoft Research, 2010.
+  548  [4] K. P. Birman and T. A. Joseph. Exploiting virtual synchrony in distributed systems. In SOSP, pages
+  549  123–138, 1987.
+  550  [5] R. Boichat, P. Dutta, S. Frølund, and R. Guerraoui. Deconstructing paxos. SIGACT News, 34(1):47–67,
+  551  2003.
+  552  [6] M. Burrows. The chubby lock service for loosely-coupled distributed systems. In Proceedings of the
+  553  7th symposium on Operating systems design and implementation, OSDI '06, pages 335–350, Berkeley,
+  554  CA, USA, 2006. USENIX Association.
+  555  [7] G. Chockler and D. Malkhi. Active disk paxos with infinitely many processes. Distributed Computing,
+  556  18(1):73–84, 2005.
+  557  [8] D. Dolev, I. Keidar, and E. Y. Lotem. Dynamic voting for consistent primary components. In Proceedings of the sixteenth annual ACM symposium on Principles of distributed computing, PODC '97,
+  558  pages 63–71, New York, NY, USA, 1997. ACM.
+  559  [9] P. Hunt, M. Konar, F. P. Junqueira, and B. Reed. Zookeeper: wait-free coordination for internet-scale
+  560  systems. In Proceedings of the 2010 USENIX conference on USENIX annual technical conference,
+  561  USENIXATC'10, pages 11–11, Berkeley, CA, USA, 2010. USENIX Association.
+  562  [10] L. Lampor, D. Malkhi, and L. Zhou. Stoppable paxos. [Online]. Available:
+  563  http://research.microsoft.com/apps/pubs/default.aspx?id=101826, 2008.
+  564  [11] L. Lamport. Time, clocks, and the ordering of events in a distributed system. Commun. ACM, 21:558–
+  565  565, July 1978.
+  566  [12] L. Lamport. The part-time parliament. ACM Trans. Comput. Syst., 16(2):133–169, 1998.
+  567  [13] L. Lamport. Paxos made simple. ACM SIGACT News, 32(4):18–25, December 2001.
+  568  [14] L. Lamport, D. Malkhi, and L. Zhou. Reconfiguring a state machine. Technical report, Microsoft
+  569  Research, 2008.
+  570  [15] L. Lamport, D. Malkhi, and L. Zhou. Vertical paxos and primary-backup replication. In PODC '09:
+  571  Proceedings of the 28th ACM symposium on Principles of distributed computing, pages 312–313, New
+  572  York, NY, USA, 2009. ACM.
+  573  [16] J. R. Lorch, A. Adya, W. J. Bolosky, R. Chaiken, J. R. Douceur, and J. Howell. The SMART way to
+  574  migrate replicated stateful services. In In Proc. EuroSys06, 2006.
+
+  575  14
+=== PAGE 16 ===
+
+  576  [17] N. Lynch and A. A. Shvartsman. Rambo: A reconfigurable atomic memory service for dynamic
+  577  networks. In In DISC, pages 173–190, 2002.
+  578  [18] N. Lynch and M. Tuttle. An introduction to input/output automata. CWI-Quarterly, 2(3):219–246,
+  579  1989.
+  580  [19] D. A. Patterson, A. Brown, P. Broadwell, G. Candea, M. Chen, J. Cutler, P. Enriquez, A. Fox,
+  581  E. Kiciman, M. Merzbacher, D. Oppenheimer, N. Sastry, W. Tetzlaff, J. Traupman, and N. Treuhaft.
+  582  Recovery-oriented computing (roc): Motivation, definition, techniques, and case studies. Technical
+  583  report, UC Berkeley Computer Science Technical Report UCB//CSD-02-1175, 2002.
+  584  [20] R. D. Prisco, A. Fekete, N. A. Lynch, and A. A. Shvartsman. A dynamic primary configuration group
+  585  communication service. In DISC, pages 64–78, 1999.
+  586  [21] J. Rao, E. J. Shekita, and S. Tata. Using paxos to build a scalable, consistent, and highly available
+  587  datastore. Proc. VLDB Endow., 4:243–254, January 2011.
+  588  [22] A. Ricciardi and K. Birman. Process Membership in Asynchronous Environments. Technical Report
+  589  TR93-1328, Cornell University, February 1993.
+  590  [23] J. Sussman and K. Marzullo. The bancomat problem: an example of resource allocation in a partitionable asynchronous system. Theor. Comput. Sci., 291:103–131, January 2003.
+  591  [24] R. van Renesse, D. Dumitriu, V. Gough, and C. Thomas. Efficient reconciliation and flow control for
+  592  anti-entropy protocols. In Large-Scale Distributed Systems and Middleware (LADIS 2008), September
+  593  2008.
+  594  [25] R. van Renesse and F. B. Schneider. Chain replication for supporting high throughput and availability.
+  595  In Proceedings of the 6th conference on Symposium on Opearting Systems Design & Implementation
+  596  - Volume 6, pages 7–7, Berkeley, CA, USA, 2004. USENIX Association.
+
+  597  15

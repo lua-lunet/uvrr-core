@@ -1,0 +1,1473 @@
+---
+title: "Optimistic Crash Consistency: Application-Aware Fully-Extensible Crash Consistency"
+authors:
+  - "Vijay Chidambaram"
+  - "Thanumalayan Sankaranarayana Pillai"
+  - "Andrea C {Arpaci-Dusseau}"
+  - "Remzi H {Arpaci-Dusseau}"
+year: "2013"
+publication: ""
+handle_url: "https://sigops.org/s/conferences/sosp/2013/papers/p228-chidambaram.pdf"
+source_pdf: "research/agent366/papers/sosp13-optimistic-crash.pdf"
+source_pdf_sha256: "0e4f93cd15702bf0ffd850372159ca6312288d0e061b61e37d55e5c3bd7b7071"
+page_count: 16
+extracted_text_runs: 3344
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Optimistic crash consistency uses file-system techniques that separate ordering from durability. The OptFS implementation adds osync and dsync primitives and improves performance while preserving crash recovery behaviour.
+tags: []
+---
+
+=== PAGE 1 ===
+
+    1  Optimistic Crash Consistency
+
+    2  Vijay Chidambaram, Thanumalayan Sankaranarayana Pillai,
+
+    3  Andrea C. Arpaci-Dusseau, Remzi H. Arpaci-Dusseau
+
+    4  Department of Computer Sciences
+
+    5  University of Wisconsin, Madison
+
+    6  vijayc, madthanu, dusseau, remzi
+
+    7  {
+
+    8  Abstract
+
+    9  We introduce optimistic crash consistency, a new approach to crash consistency in journaling file systems.
+   10  Using an array of novel techniques, we demonstrate how
+   11  to build an optimistic commit protocol that correctly
+   12  recovers from crashes and delivers high performance.
+   13  We implement this optimistic approach within a Linux
+   14  ext4 variant which we call OptFS. We introduce two
+   15  new file-system primitives, osync() and dsync(), that
+   16  decouple ordering of writes from their durability. We
+   17  show through experiments that OptFS improves performance for many workloads, sometimes by an order of
+   18  magnitude; we confirm its correctness through a series
+   19  of robustness tests, showing it recovers to a consistent
+   20  state after crashes. Finally, we show that osync() and
+   21  dsync() are useful in atomic file system and database
+   22  update scenarios, both improving performance and meeting application-level consistency demands.
+
+   23  1 Introduction
+
+   24  Modern storage devices present a seemingly innocuous
+   25  interface to clients. To read a block, one simply issues a
+   26  low-level read command and specifies the address of the
+   27  block (or set of blocks) to read; when the disk finishes
+   28  the read, it is transferred into memory and any awaiting
+   29  clients notified of the completion. A similar process is
+   30  followed for writes.
+   31  Unfortunately, the introduction of write buffering [28]
+   32  in modern disks greatly complicates this apparently simple process. With write buffering enabled, disk writes
+   33  may complete out of order, as a smart disk scheduler may
+   34  reorder requests for performance [13, 24, 38]; further, the
+   35  notification received after a write issue implies only that
+
+   36  Permission to make digital or hard copies of part or all of this work for
+   37  personal or classroom use is granted without fee provided that copies
+   38  are not made or distributed for profit or commercial advantage and that
+   39  copies bear this notice and the full citation on the first page. Copyrights
+   40  for third-party components of this work must be honored. For all other
+   41  uses, contact the Owner/Author.
+   42  Copyright is held by the Owner/Author(s).
+   43  SOSP'13, Nov. 3–6, 2013, Farmington, Pennsylvania, USA.
+   44  ACM 978-1-4503-2388-8/13/11.
+   45  http://dx.doi.org/10.1145/2517349.2522726
+
+   46  }@cs.wisc.edu
+
+   47  the disk has received the request, not that the data has
+   48  been written to the disk surface persistently.
+   49  Out-of-order write completion, in particular, greatly
+   50  complicates known techniques for recovering from system crashes. For example, modern journaling file systems such as Linux ext3, XFS, and NTFS all carefully
+   51  orchestrate a sequence of updates to ensure that writes to
+   52  main file-system structures and the journal reach disk in a
+   53  particular order [22]; copy-on-write file systems such as
+   54  LFS, btrfs, and ZFS also require ordering when updating
+   55  certain structures. Without ordering, most file systems
+   56  cannot ensure that state can be recovered after a crash [6].
+   57  Write ordering is achieved in modern drives via expensive cache flush operations [30]; such flushes cause
+   58  all buffered dirty data in the drive to be written to the
+   59  surface (i.e., persisted) immediately. To ensure A is written before B, a client issues the write to A, and then a
+   60  cache flush; when the flush returns, the client can safely
+   61  assume that A reached the disk; the write to B can then
+   62  be safely issued, knowing it will be persisted after A.
+   63  Unfortunately, cache flushing is expensive, sometimes
+   64  prohibitively so. Flushes make I/O scheduling less efficient, as the disk has fewer requests to choose from. A
+   65  flush also unnecessarily forcesall previous writes to disk,
+   66  whereas the requirements of the client may be less stringent. In addition, during a large cache flush, disk reads
+   67  may exhibit extremely long latencies as they wait for
+   68  pending writes to complete [26]. Finally, flushing conflates ordering and durability; if a client simply wishes
+   69  to order one write before another, forcing the first write
+   70  to disk is an expensive manner in which to achieve such
+   71  an end. In short, the classic approach of flushing is pessimistic; it assumes a crash will occur and goes to great
+   72  lengths to ensure that the disk is never in an inconsistent state via flush commands. The poor performance
+   73  that results from pessimism has led some systems to disable flushing, apparently sacrificing correctness for performance; for example, the Linux ext3 default configuration did not flush caches for many years [8].
+   74  Disabling flushes does not necessarily lead to file system inconsistency, but rather introduces it as a possibility. We refer to such an approach as probabilistic crash
+   75  consistency, in which a crash might lead to file system inconsistency, depending on many factors, including workload, system and disk parameters, and the exact timing of
+=== PAGE 2 ===
+
+   76  the crash or power loss. In this paper, one of our first contributions is the careful study of probabilistic crash consistency, wherein we show which exact factors affect the
+   77  odds that a crash will leave the file system inconsistent
+   78  (§3). We show that for some workloads, the probabilistic
+   79  approach rarely leaves the file system inconsistent.
+   80  Unfortunately, a probabilistic approach is insufficient
+   81  for many applications, where certainty in crash recovery is desired. Indeed, we also show, for some workloads, that the chances of inconsistency are high; to
+   82  realize higher-level application-level consistency (i.e.,
+   83  something a DBMS might desire), the file system must
+   84  provide something more than probability and chance.
+   85  Thus, in this paper, we introduce optimistic crash consistency, a new approach to building a crash-consistent
+   86  journaling file system (§4). This optimistic approach
+   87  takes advantage of the fact that in many cases, ordering
+   88  can be achieved through other means and that crashes
+   89  are rare events (similar to optimistic concurrency control [12, 16]). However, realizing consistency in an optimistic fashion is not without challenge; we thus develop
+   90  a range of novel techniques, including a new extension of
+   91  the transactional checksum [23] to detect data/metadata
+   92  inconsistency, delayed reuse of blocks to avoid incorrect
+   93  dangling pointers, and a selective data journaling technique to handle block overwrite correctly. The combination of these techniques leads to both high performance
+   94  and deterministic consistency; in the rare event that a
+   95  crash does occur, optimistic crash consistency either
+   96  avoids inconsistency by design or ensures that enough
+   97  information is present on the disk to detect and discard
+   98  improper updates during recovery.
+   99  We demonstrate the power of optimistic crash consistency through the design, implementation, and analysis
+  100  of the optimistic file system (OptFS). OptFS builds upon
+  101  the principles of optimistic crash consistency to implement optimistic journaling, which ensures that the file
+  102  system is kept consistent despite crashes. Optimistic
+  103  journaling is realized as a set of modifications to the
+  104  Linux ext4 file system, but also requires a slight change
+  105  in the disk interface to provide what we refer to as asynchronous durability notification, i.e., a notification when
+  106  a write is persisted in addition to when the write has simply been received by the disk. We describe the details of
+  107  our implementation (§5) and study its performance (§6),
+  108  showing that for a range of workloads, OptFS significantly outperforms classic Linux ext4 with pessimistic
+  109  journaling, and showing that OptFS performs almost
+  110  identically to Linux ext4 with probabilistic journaling
+  111  while ensuring crash consistency.
+  112  Central to the performance benefits of OptFS is
+  113  the separation of ordering and durability. By allowing applications to order writes without incurring a
+  114  disk flush, and request durability when needed, OptFS
+
+  115  enables application-level consistency at high performance. OptFS introduces two new file-system primitives: osync(), which ensures ordering between writes
+  116  but only eventual durability, and dsync(), which ensures immediate durability as well as ordering.
+  117  We show how these primitives provide a useful base
+  118  on which to build higher-level application consistency
+  119  semantics (§7). Specifically, we show how a document
+  120  editing application can use osync() to implement the
+  121  atomic update of a file (via a create and then atomic rename), and how the SQLite database management system can use file-system provided ordering to implement
+  122  ordered transactions with eventual durability. We show
+  123  that these primitives are sufficient for realizing useful
+  124  application-level consistency at high performance.
+  125  Of course, the optimistic approach, while useful in
+  126  many scenarios, is not a panacea. If an application
+  127  requires immediate, synchronous durability (instead of
+  128  eventual, asynchronous durability with consistent ordering), an expensive cache flush is still required. In this
+  129  case, applications can use dsync() to request durability (as well as ordering). However, by decoupling the
+  130  durability of writes from their ordering, OptFS provides
+  131  a useful middle ground, thus realizing high performance
+  132  and meaningful crash consistency for many applications.
+
+  133  2 Pessimistic Crash Consistency
+
+  134  To understand the optimistic approach to journaling, we
+  135  first describe standard pessimistic crash consistency in
+  136  journaling file systems. To do so, we describe the necessary disk support (i.e., cache-flushing commands) and
+  137  details on how such crash consistency operates. We then
+  138  demonstrate the negative performance impact of cache
+  139  flushing during pessimistic journaling.
+
+  140  2.1 Disk Interface
+  141  For the purposes of this discussion, we assume the presence of a disk-level cache flush command. In the ATA
+  142  family of drives, this is referred to as the "flush cache"
+  143  command; in SCSI drives, it is known as "synchronize
+  144  cache". Both operations have similar semantics, forcing
+  145  all pending dirty writes in the disk to be written to the
+  146  surface. Note that a flush can be issued as a separate request, or as part of a write to a given block D; in the latter
+  147  case, pending writes are flushed before the write to D.
+  148  Some finer-grained controls also exist. For example, "force unit access" (FUA) commands read or write
+  149  around the cache entirely. FUAs are often used in tandem with flush commands; for example, to write A before B, but to also ensure that both A and B are durable, a
+  150  client might write A, then write B with both cache flushing and FUA enabled; this ensures that when B reaches
+  151  the drive, A (and other dirty data) will be forced to disk;
+  152  subsequently, B will be forced to disk due to the FUA.
+=== PAGE 3 ===
+
+  153  2.2 Pessimistic Journaling
+  154  Given the disk interface described above, we now describe how a journaling file system safely commits data
+  155  to disk in order to maintain consistency in the event of a
+  156  system crash. We base our discussion on ordered-mode
+  157  Linux ext3 and ext4 [34, 35], though much of what we
+  158  say is applicable to other journaling file systems such as
+  159  SGI XFS [32], Windows NTFS [27], and IBM JFS [3].
+  160  In ordered mode, file-system metadata is journaled to
+  161  maintain its consistency; data is not journaled, as writing
+  162  each data block twice reduces performance substantially.
+  163  When an application updates file-system state, either
+  164  metadata, user data, or (often) both need to be updated in
+  165  a persistent manner. For example, when a user appends
+  166  a block to a file, a new data block (D) must be written to
+  167  disk (at some point); in addition, various pieces of metadata (M) must be updated as well, including the file's
+  168  inode and a bitmap marking the block as allocated.
+  169  We refer to the atomic update of metadata to the journal as a transaction. Before committing a transaction T x
+  170  to the journal, the file system first writes any data blocks
+  171  (D) associated with the transaction to their final destinations; writing data before transaction commit ensures
+  172  that committed metadata does not point to garbage. After these data writes complete, the file system uses the
+  173  journal to log metadata updates; we refer to these journal
+  174  writes as JM. After these writes are persisted, the file system issues a write to a commit block (JC ); when the disk
+  175  persists JC, the transaction T x is said to be committed.
+  176  Finally, after the commit, the file system is free to update
+  177  the metadata blocks in place (M); if a crash occurs during
+  178  this checkpointing process, the file system can recover
+  179  simply by scanning the journal and replaying committed
+  180  transactions. Details can be found elsewhere [22, 35].
+  181  We thus have the following set of ordered writes that
+  182  must take place: D before JM before JC before M, or
+  183  more simply: D → JM → JC → M. Note that D, JM ,
+  184  and M can represent more than a single block (in larger
+  185  transactions), whereas JC is always a single sector (for
+  186  the sake of write atomicity). To achieve this ordering,
+  187  the file system issues a cache flush wherever order is required (i.e., where there is a → symbol).
+  188  Optimizations to this protocol have been suggested in
+  189  the literature, some of which have been realized in Linux
+  190  ext4. For example, some have noted that the ordering
+  191  between data and journaled metadata (D → JM) is superfluous; removing that ordering can sometimes improve
+  192  performance (D|JM → JC → M) [22].
+  193  Others have suggested a "transactional checksum" [23] which can be used to remove the ordering between the journal metadata and journal commit (JM and
+  194  JC). In the normal case, the file system cannot issue JM
+  195  and JC together, because the drive might reorder them; in
+  196  that case, JC might hit the disk first, at which point a system crash (or power loss) would leave that transaction
+  197  in a seemingly committed state but with garbage contents. By computing a checksum over the entire transaction and placing its value in JC, the writes to JM and JC
+  198  can be issued together, improving performance; with the
+  199  checksum present, crash recovery can avoid replay of improperly committed transactions. With this optimization,
+  200  the ordering is D → JM|JC → M (where the bar over the
+  201  journal updates indicates their protection via checksum).
+  202  Interestingly, these two optimizations do not combine,
+  203  i.e., D|JM |JC → M is not correct; if the file system issues D, JM , and JC together, it is possible that JM and
+  204  JC reach the disk first. In this case, the metadata commits before the data; if a crash occurs before the data
+  205  is written, an inode (or indirect block) in the committed transaction could end up pointing to garbage data.
+  206  Oddly, ext4 allows this situation with the "right" set of
+  207  mount options.
+  208  We should note that one other important ordering exists among updates, specifically the order between transactions; journaling file systems assume transactions are
+  209  committed to disk in order (i.e., T xi → T xi+1) [35]. Not
+  210  following this ordering could lead to odd results during
+  211  crash recovery. For example, a block B could have been
+  212  freed in T xi, and then reused in T xi+1; in this case, a
+  213  crash after T xi+1 committed but before T xi did would
+  214  lead to a state where B is allocated to two files.
+  215  Finally, and most importantly, we draw attention to the
+  216  pessimistic nature of this approach. Whenever ordering
+  217  is required, an expensive cache flush is issued, thus forcing all pending writes to disk, when perhaps only a subset of them needed to be flushed. In addition, the flushes
+  218  are issued even though the writes may have gone to disk
+  219  in the correct order anyhow, depending on scheduling,
+  220  workload, and other details; flushes induce extra work
+  221  that may not be necessary. Finally, and perhaps most
+  222  harmful, is the fact that the burden of flushes is added despite the fact that crashes are rare, thus exacting a heavy
+  223  cost in anticipation of an extremely occasional event.
+
+  224  2.3 Flushing Performance Impact
+  225  To better understand the performance impact of cache
+  226  flushing during pessimistic journaling, we now perform
+  227  a simple experiment. Specifically, we run the Varmail
+  228  benchmark atop Linux ext4, both with and without cache
+  229  flushing; with cache flushing enabled, we also enable
+  230  transactional checksums to see their performance impact.
+  231  Varmail is a good choice here as it simulates an email
+  232  server and includes many small synchronous updates to
+  233  disk, thus stressing the journaling machinery described
+  234  above. The experimental setup for this benchmark and
+  235  configuration is described in more detail in Section 6.
+  236  From Figure 1, we can observe the following. First,
+  237  transactional checksums increase performance slightly,
+=== PAGE 4 ===
+
+  238  Ext4
+  239  5000 (No Flush)
+  240  4000
+  241  3000
+  242  2000 Ext4 Ext4
+  243  (Flush) (Flush+Checksum)
+  244  1000
+  245  Throughput (IO/s) 0
+  246  Figure 1: The Cost of Flushing. The figure shows the performance of Filebench Varmail on different ext4 configurations.
+  247  Performance increases 5X when flushes are disabled.
+  248  showing how removing a single ordering point (via a
+  249  checksum) can help. Second, and most importantly, there
+  250  is a vast performance improvement when cache flushing
+  251  is turned off, in this case nearly a factor of five. Given
+  252  this large performance difference, in some installations,
+  253  cache flushing is disabled, which leads to the following question: what kind of crash consistency is provided
+  254  when flushing is disabled? Surprisingly, the answer is
+  255  not "none", as we now describe.
+
+  256  3 Probabilistic Crash Consistency
+
+  257  Given the potential performance gains, practitioners
+  258  sometimes forgo the safety provided by correct implementations that issue flushes and choose to disable
+  259  flushes [8]. In this fast mode, a risk of file-system inconsistency is introduced; if a crash occurs at an untimely
+  260  point in the update sequence, and blocks have been reordered across ordering points, crash recovery as run by
+  261  the file system will result in an inconsistent file system.
+  262  In some cases, practitioners observed that skipping
+  263  flush commands sometimes did not lead to observable inconsistency, despite the presence of (occasional) crashes.
+  264  Such commentary led to a debate within the Linux community as to underlying causes. Long-time kernel developer Theodore Ts'o hypothesized why such consistency
+  265  was often achieved despite the lack of ordering enforcement by the file system [33]:
+  266  I suspect the real reason why we get away with
+  267  it so much with ext3 is that the journal is usually contiguous on disk, hence, when you write
+  268  to the journal, it's highly unlikely that commit
+  269  block will be written and the blocks before the
+  270  commit block have not. ... The most important
+  271  reason, though, is that the blocks which are
+  272  dirty don't get flushed out to disk right away!
+  273  What the Ts'o Hypothesis refers to specifically is two
+  274  orderings: JM → JC and JC → M. In the first case, Ts'o
+  275  notes that the disk is likely to commit JC to disk after
+  276  JM even without an intervening flush (note that this is
+  277  without the presence of transactional checksums) due to
+  278  layout and scheduling; disks are simply unlikely to reorder two writes that are contiguous. In the second case,
+  279  Ts'o notes that JC → M often holds without a flush due
+  280  to time; the checkpoint traffic that commits M to disk ofP = WW =t - t
+  281  inc t 2 1
+  282  workload
+  283  1 2 5 3 4 6
+  284  t t
+  285  1 2
+  286  tworkload
+  287  Figure 2: The Probability of Inconsistency (Pinc). An
+  288  example of a window of vulnerability is shown. Blocks 1
+  289  through 6 were meant to be written in strict order to disk. However, block 5 (dark gray) is written early. Once 5 is committed,
+  290  a window of vulnerability exists until blocks 3 and 4 (light gray)
+  291  are committed; a crash during this time will lead to observable
+  292  reordering. The probability of inconsistency is calculated by
+  293  dividing the time spent in such a window (i.e., W = t2 − t1) by
+  294  the total runtime of the workload (i.e., tworkload ).
+  295  ten occurs long after the transaction has been committed,
+  296  and thus ordering is preserved without a flush.
+  297  We refer to this arrangement as probabilistic consistency. In such a configuration, typical operation may or
+  298  may not result in much reordering, and thus the disk is
+  299  only sometimes in an inconsistent state. A crash may not
+  300  lead to inconsistency despite a lack of enforcement by
+  301  the file system via flush commands. Despite probabilistic
+  302  crash consistency offering no guarantees on consistency
+  303  after a crash, many practitioners are drawn to it due to
+  304  large performance gains from turning off flushing.
+
+  305  3.1 Quantifying Probabilistic Consistency
+  306  Unfortunately, probabilistic consistency is not well understood. To shed light on this issue, we quantify how
+  307  often inconsistency arises without flushing via simulation. To do so, we disable flushing in Linux ext4 and
+  308  extract block-level traces underneath ext4 across a range
+  309  of workloads. We analyze the traces carefully to determine the chances of an inconsistency occurring due to
+  310  a crash. Our analysis is done via a simulator built atop
+  311  DiskSim [4], which enables us to model complex disk
+  312  behaviors (e.g., scheduling, caching).
+  313  The main output of our simulations is a determination
+  314  of when a window of vulnerability (W ) arises, and for
+  315  how long such windows last. Such a window occurs due
+  316  to reordering. For example, if A should be written to
+  317  disk before B, but B is written at time t1 and A written at
+  318  t2, the state of the system is vulnerable to inconsistency
+  319  in the time period between, W = t2 −t1. If the system
+  320  crashes during this window, the file system will be left
+  321  in an inconsistent state; conversely, once the latter block
+  322  (A) is written, there is no longer any concern.
+  323  Given a workload and a disk model, it is thus possible
+  324  to quantify the probability of inconsistency (Pinc) by dividing the total time spent in windows of vulnerability by
+  325  the total run time of the workload (Pinc =∪Wi/tworkload);
+  326  Figure 2 shows an example. Note that when a workload
+  327  is run on a file system with cache-flushing enabled, Pinc
+  328  is always zero.
+=== PAGE 5 ===
+
+  329  60 Early Checkpoint
+  330  Transaction Misorder
+  331  50 Mixed
+  332  Early Commit
+  333  40
+  334  30
+  335  20
+  336  P (inconsistency) 10
+  337  0
+  338  Seq Rand Create Web File Varmail MySQL
+  339  Write Write Files Server Server
+  340  Figure 3: Workload Study of Pinc. The figure shows Pinc
+  341  for six workloads. The first two workloads are sequential and
+  342  random writes to a 1 GB file. Fileserver, Webserver, and Varmail are part of the Filebench benchmark suite [17]. Fileserver
+  343  performs a sequence of creates, deletes, appends, reads, and
+  344  writes. Webserver emulates a multi-threaded web host server,
+  345  performing sequences of open-read-close on multiple files plus
+  346  a log file append. Varmail emulates a multi-threaded mail
+  347  server, performing a sequence of create-append-sync, readappend-sync, reads, and deletes in a single directory. MySQL
+  348  represents the OLTP benchmark from Sysbench [1]. Each bar
+  349  is broken down into the percent contribution of the different
+  350  types of misordering. Standard deviations are shown as well.
+  351  3.2 Factors affecting Pinc
+  352  We now explore Pinc more systematically. Specifically,
+  353  we determine sensitivity to workload and disk parameters such as queue size and placement of the journal
+  354  relative to file-system structures. We use the validated
+  355  Seagate Cheetah 15k.5 disk model [4] provided with
+  356  DiskSim for our experiments.
+  357  3.2.1 Workload
+  358  We first show how the workload can impact Pinc. For this
+  359  experiment, we use 6 different workloads described in
+  360  the caption of Figure 3. From the figure, we make the
+  361  following observations. Most importantly, Pinc is workload dependent. For example, if a workload is mostly
+  362  read oriented, there is little chance of inconsistency, as
+  363  file-system state is not updated frequently (e.g., Webserver). Second, for write-heavy workloads, the nature
+  364  of the writes is important; workloads that write randomly
+  365  or force writes to disk via fsync() lead to a fairly high
+  366  chance of a crash leaving the file system inconsistent
+  367  (e.g., random writes, MySQL, Varmail). Third, there can
+  368  be high variance in Pinc; small events that change the order of persistence of writes can lead to large differences
+  369  in chances of inconsistency. Finally, even under extreme
+  370  circumstances, Pinc never reaches 100% (the graph is cut
+  371  off at 60%); there are many points in the lifetime of a
+  372  workload when a crash will not lead to inconsistency.
+  373  Beyond the overall Pinc shown in the graph, we also
+  374  break the probability further by the type of reordering
+  375  that leads to a window of vulnerability. Specifically, assuming the following commit ordering (D|JM → JC →
+  376  M), we determine when a particular reordering (e.g., JC
+
+  377  50%
+  378  P (inconsistency) 300
+  379  25% Time 200
+  380  100
+  381  P (inconsistency) 0% 0
+  382  1 2 4 8 16 Total I/O Time (s)
+  383  Queue Size
+  384  Figure 4: The Effect of Queue Size. The figure shows
+  385  Pinc (left y-axis) and total I/O completion time (right y-axis) as
+  386  the queue size of the simulated disk varies (x-axis). For this
+  387  experiment, we use the Varmail workload.
+  388  before D) has resulted. The graph breaks down Pinc into
+  389  these fine-grained reordering categories, grouped into
+  390  the following relevant cases: early commit (e.g., JC →
+  391  JM|D), early checkpoint (e.g., M → D|JM |JC), transaction misorder (e.g., T xi → T xi−1), andmixed (e.g., where
+  392  more than one category could be attributed).
+  393  Our experiments show that early commit before data,
+  394  (JC → D), is the largest contributor to Pinc, accounting
+  395  for over 90% of inconsistency across all workloads, and
+  396  100% in some cases (Fileserver, random writes). This
+  397  is not surprising, as in cases where transactions are being
+  398  forced to disk (e.g., due to calls to fsync()), data writes
+  399  (D) are issued just before transaction writes (JM and JC );
+  400  slight re-orderings by the disk will result in JC being
+  401  persisted first. Also, for some workloads (MySQL, Varmail), all categories might contribute; though rare, early
+  402  checkpoints and transaction misordering can arise. Thus,
+  403  any approach to provide reliable consistency mechanisms must consider all possible causes, not just one.
+  404  3.2.2 Queue Size
+  405  For the remaining studies, we focus on Varmail, as it exhibits the most interesting and varied probability of inconsistency. First, we show how disk scheduler queue
+  406  depth matters. Figure 4 plots the results of our experiment. The left y-axis plots Pinc as we vary the number
+  407  of outstanding requests to the disk; the right y-axis plots
+  408  performance (overall time for all I/Os to complete).
+  409  From the figure, we observe the following three results. First, when there is no reordering done by the disk
+  410  (i.e., queue size is 1), there is no chance of inconsistency,
+  411  as writes are committed in order; we would find the same
+  412  result if we used FIFO disk scheduling (instead of SPTF).
+  413  Second, even with small queues (e.g., 8), a great deal of
+  414  inconsistency can arise; one block committed too early
+  415  to disk can result in very large windows of vulnerability.
+  416  Finally, we observe that a modest amount of reordering
+  417  does indeed make a noticeable performance difference;
+  418  in-disk SPTF scheduling improves performance by about
+  419  30% with a queue size of 8 or more.
+  420  3.2.3 Journal Layout
+  421  We now study how distance between the main filesystem structures and the journal affects Pinc. Figure 5
+=== PAGE 6 ===
+
+  422  50%
+  423  300
+  424  Time
+  425  25% 200
+  426  100
+  427  P (inconsistency)
+  428  P (inconsistency) 0% 0 Total I/O Time (s)
+  429  0 20 40 60 80 100 120 140
+  430  Distance Between Data and Journal (GB)
+  431  Figure 5: The Effect of Distance. The figure shows Pinc
+  432  (left y-axis) and total I/O completion time (right y-axis) as the
+  433  distance (in GB) between the data region and the journal of the
+  434  simulated disk is increased (x-axis). For this experiment, we
+  435  use the Varmail workload, with queue size set to 8.
+
+  436  plots the results of varying the location of Varmail's data
+  437  and metadata structures (which are usually located in one
+  438  disk area) from close to the journal (left) to far away.
+  439  From the figure, we observe distance makes a significant difference in Pinc. Recall that one of the major
+  440  causes of reordering is early commit (i.e., JC written before D); by separating the location of data and the journal, it becomes increasingly unlikely for such reordering
+  441  to occur. Secondly, we also observe that increased distance is not a panacea; inconsistency (10%) still arises
+  442  for Varmail. Finally, increased distance from the journal can affect performance somewhat; there is a 14% decrease in performance when moving Varmail's data and
+  443  metadata from right next to the journal to 140 GB away.
+  444  We also studied a number of other factors that might
+  445  affect Pinc, including the placement of the journal as it relates to track boundaries on the disk, and other potential
+  446  factors. In general, these parameters did not significantly
+  447  affect Pinc and thus are not included.
+
+  448  3.3 Summary
+
+  449  The classic approach to journaling is overly pessimistic,
+  450  forcing writes to persistent storage often when only ordering is desired. As a result, users have sometimes
+  451  turned to probabilistic journaling, taking their chances
+  452  with consistency in order to gain more performance. We
+  453  have carefully studied which factors affect the consistency of the probabilistic approach, and shown that for
+  454  some workloads, it works fairly well; unfortunately, for
+  455  other workloads with a high number of random-write
+  456  I/Os, or where the application itself forces traffic to disk,
+  457  the probability of inconsistency becomes high. As devices become more sophisticated, and can handle a large
+  458  number of outstanding requests, the odds that a crash will
+  459  cause inconsistency increases. Thus, to advance beyond
+  460  the probabilistic approach, a system must include machinery to either avoid situations that lead to inconsistency, or be able to detect and recover when such occurrences arise. We now describe one such approach:
+  461  optimistic crash consistency.
+
+  462  4 Optimistic Crash Consistency
+
+  463  Given that journaling with probabilistic consistency often gives consistent results even in the presence of system crashes, we note a new opportunity. The goal of
+  464  optimistic crash consistency, as realized in an optimistic
+  465  journaling system, is to commit transactions to persistent storage in a manner that maintains consistency to the
+  466  same extent as pessimistic journaling, but with nearly the
+  467  same performance as with probabilistic consistency. Optimistic journaling requires minimal changes to current
+  468  disk interfaces and the journaling layer; in particular, our
+  469  approach does not require changes to file-system structures outside of the journal (e.g., backpointers [6]).
+  470  To describe optimistic crash consistency and journaling, we begin by describing the intuition behind optimistic techniques. Optimistic crash consistency is based
+  471  on two main ideas. First, checksums can remove the need
+  472  for ordering writes. Optimistic crash consistency eliminates the need for ordering during transaction commit
+  473  by generalizing metadata transactional checksums [23]
+  474  to include data blocks. During recovery, transactions are
+  475  discarded upon checksum mismatch.
+  476  Second, asynchronous durability notifications are used
+  477  to delay checkpointing a transaction until it has been
+  478  committed durably. Fortunately, this delay does not affect application performance, as applications block until
+  479  the transaction is committed, not until it is checkpointed.
+  480  Additional techniques are required for correctness in scenarios such as block reuse and overwrite.
+  481  We first propose an additional notification that disk
+  482  drives should expose. We then explain how optimistic
+  483  journaling provides different properties to preserve the
+  484  consistency semantics of ordered journaling. We show
+  485  that these properties can be achieved using a combination
+  486  of optimistic techniques. We also describe an additional
+  487  optimistic technique which enables optimistic journaling
+  488  to provide consistency equivalent to data journaling.
+
+  489  4.1 Asynchronous Durability Notification
+  490  The current interface to the disk for ensuring that write
+  491  operations are performed in a specified order is pessimistic: the upper-level file system tells the lower-level
+  492  disk when it must flush its cache (or certain blocks) and
+  493  the disk must then promptly do so. However, the actual
+  494  ordering and durability of writes to the platter does not
+  495  matter, unless there is a crash. Therefore, the current interface is overly constraining and limits I/O performance.
+  496  Rather than requiring the disk to obey ordering and
+  497  durability commands from the layer above, we propose
+  498  that the disk be freed to perform reads and writes in
+  499  the order that optimizes its scheduling and performance.
+  500  Thus, the performance of the disk is optimized for the
+  501  common case in which there is no crash.
+=== PAGE 7 ===
+
+  502  Given that the file system must still be able to guarantee consistency and durability in the event of a crash, we
+  503  propose a minimal extension to the disk interface. With
+  504  an asynchronous durability notification the disk informs
+  505  the upper-level client that a specific write request has
+  506  completed and is now guaranteed to be durable. Thus
+  507  there will be two notifications from the disk: first when
+  508  the disk has received the write and later when the write
+  509  has been persisted. Some interfaces, such as Forced Unit
+  510  Access (FUA), provide a single, synchronous durability
+  511  notification: the drive receives the request and indicates
+  512  completion when the request has been persisted [14, 37].
+  513  Tagged Queuing allows a limited number of requests to
+  514  be outstanding at a given point of time [15, 37]. Unfortunately, many drives do not implement tagged queuing
+  515  and FUA reliably [18]. Furthermore, a request tagged
+  516  with FUA also implies urgency, prompting some implementations to force the request to disk immediately.
+  517  While a correct implementation of tagged queuing and
+  518  FUA may suffice for optimistic crash consistency, we
+  519  feel that an interface that decouples request acknowledgement from persistence enables higher levels of I/O
+  520  concurrency and thus provides a better foundation on
+  521  which to build OptFS.
+
+  522  4.2 Optimistic Consistency Properties
+  523  As described in Section 2.2, ordered journaling mode
+  524  involves the following writes for each transaction: data
+  525  blocks, D, to in-place locations on disk; metadata blocks
+  526  to the journal, JM; a commit block to the journal, JC; and
+  527  finally, a checkpoint of the metadata to its in-place location, M. We refer to writes belonging to a particular
+  528  transaction i with the notation :i; for example, the journaled metadata of transaction i is denoted JM :i.
+  529  Ordered journaling mode ensures several properties.
+  530  First, metadata written in transaction T x:i+1 cannot be
+  531  observed unless metadata from transaction T x:i is also
+  532  observed. Second, it is not possible for metadata to point
+  533  to invalid data. These properties are maintained by the
+  534  recovery process and how writes are ordered. If a crash
+  535  occurs after the transaction is properly committed (i.e.,
+  536  D, JM , and JC are all durably written), but before M is
+  537  written, then the recovery process can replay the transaction so that M is written to its in-place location. If a crash
+  538  occurs before the transaction is completed, then ordered
+  539  journaling ensures that no in-place metadata related to
+  540  this transaction was updated.
+  541  Optimistic journaling allows the disk to perform writes
+  542  in any order it chooses, but ensures that in the case of a
+  543  crash, the necessary consistency properties are upheld for
+  544  ordered transactions. To give the reader some intuition
+  545  for why particular properties are sufficient for ordered
+  546  journaling semantics, we walk through the example in
+  547  Figure 6. For simplicity, we begin by assuming that data
+
+  548  In-Memory
+  549  M:1 M:2 M:3
+  550  On-Disk Journal
+  551  JM:0 Jc:0 JM:1 Jc:1 JM:2 Jc:2 JM:3 Jc:3
+  552  Ck(D:0,M:0) Ck(D:1,M:1) Ck(D:2,M:2) Ck(D:3,M:3)
+  553  In-Place Checkpoint
+  554  D:0 M:0 D:1 D:2 D:3
+  555  Figure 6: Optimistic Journaling. The figure shows four
+  556  transactions in progress, involving writes to main memory, the
+  557  on-disk journal, and to in-place checkpoints on disk. A rectangle block indicates that the file system has been notified that
+  558  the write has been durably completed. Cloud-shaped blocks indicate that the write has been initiated, but the file system has
+  559  not yet been notified of its completion and it may or may not
+  560  be durable. Circles indicate dirty blocks in main memory that
+  561  cannot be written until a previous write is durable; a dashed
+  562  line indicates the write it is dependent on. Finally, the solid
+  563  arrow indicates that the meta-data may refer to the data block.
+  564  blocks are not reused across transactions (i.e., they are
+  565  not freed and re-allocated to different files or overwritten); we will remove this assumption later (§4.3.5).
+  566  In Figure 6, four transactions are in progress: T x: 0,
+  567  T x: 1, and T x: 2, and T x: 3. At this point, the file system has received notification that T x: 0 is durable (i.e.,
+  568  D: 0, JM : 0, and JC: 0) and so it is in the process of checkpointing the metadata M: 0 to its in-place location on disk
+  569  (note that M: 0 may point to data D: 0). If there is a crash
+  570  at this point, the recovery mechanism will properly replay T x: 0 and re-initiate the checkpoint of M: 0. Since
+  571  T x: 0 is durable, the application that initiated these writes
+  572  can be notified that the writes have completed (e.g., if it
+  573  called fsync()). Note that the journal entries for T x: 0
+  574  can finally be freed once the file system has been notified
+  575  that the in-place checkpoint write of M: 0 is durable.
+  576  The file system has also started transactions T x: 1
+  577  through T x: 3; many of the corresponding disk writes
+  578  have been initiated, while others are being held in memory based on unresolved dependencies. Specifically, the
+  579  writes for D: 1, JM: 1, and JC: 1 have been initiated; however, D: 1 is not yet durable, and therefore the metadata
+  580  (M: 1), which may refer to it, cannot be checkpointed. If
+  581  M: 1 were checkpointed at this point and a crash occurred
+  582  (with M: 1 being persisted and D: 1 not), M: 1 could be
+  583  left pointing to garbage values for D: 1. If a crash occurs
+  584  now, before D: 1 is durable, checksums added to the commit block of T x: 1 will indicate a mismatch with D: 1; the
+  585  recovery process will not replay T x: 1, as desired.
+  586  T x: 2 is allowed to proceed in parallel with T x: 1; in
+  587  this case, the file system has not yet been notified that the
+  588  journal commit block JC : 2 has completed; again, since
+  589  the transaction is not yet durable, metadata M: 2 cannot
+  590  be checkpointed. If a crash occurs when JC: 2 is not yet
+  591  durable, then the recovery process will detect a mismatch
+  592  between the data blocks and the checksums and not re-
+=== PAGE 8 ===
+
+  593  play T x: 2. Note that D: 2 may be durable at this point
+  594  with no negative consequences because no metadata is
+  595  allowed to refer to it yet, and thus it is not reachable.
+  596  Finally, T x: 3 is also in progress. Even if the file system is notified that D: 3, JM: 3, and JC: 3 are all durable,
+  597  the checkpoint of M: 3 cannot yet be initiated because essential writes in T x: 1 and T x: 2 are not durable (namely,
+  598  D: 1 and JC: 2). T x: 3 cannot be made durable until all
+  599  previous transactions are guaranteed to be durable; therefore, its metadata M: 3 cannot be checkpointed.
+
+  600  4.3 Optimistic Techniques
+  601  The behavior of optimistic journaling described above
+  602  can be ensured with a set of optimistic techniques: inorder journal recovery and release, checksums, background writes after notification, reuse after notification,
+  603  and selective data journaling. We now describe each.
+  604  4.3.1 In-Order Journal Recovery
+  605  The most basic technique for preserving the correct ordering of writes after a crash occurs during the journal
+  606  recovery process itself. The recovery process reads the
+  607  journal to observe which transactions were made durable
+  608  and it simply discards or ignores any write operations
+  609  that occurred out of the desired ordering.
+  610  The correction that optimistic journaling applies is to
+  611  ensure that if any part of a transaction T x:i was not correctly or completely made durable, then neither transaction T x:i nor any following transaction T x: j where j >i
+  612  is left durable. Thus, journal recovery must proceed inorder, sequentially scanning the journal and performing
+  613  checkpoints in-order, stopping at the first transaction that
+  614  is not complete upon disk. The in-order recovery process
+  615  will use the checksums described below to determine if
+  616  a transaction is written correctly and completely.
+  617  4.3.2 In-Order Journal Release
+  618  Given that completed, durable journal transactions define
+  619  the write operations that are durable on disk, optimistic
+  620  journaling must ensure that journal transactions are not
+  621  freed (or overwritten) until all corresponding checkpoint
+  622  writes (of metadata) are confirmed as durable.
+  623  Thus, optimistic journaling must wait until it has been
+  624  notified by the disk that the checkpoint writes corresponding to this transaction are durable. At this point,
+  625  optimistic journaling knows that the transaction need not
+  626  be replayed if the system crashes; therefore, the transaction can be released. To preserve the property that
+  627  T x:i+1 is made durable only if T x:i is durable, transactions must be freed in order.
+  628  4.3.3 Checksums
+  629  Checksums are a well-known technique for detecting
+  630  data corruption and lost writes [20, 31]. A checksum can
+  631  also be used to detect whether or not a write related to
+
+  632  a specific transaction has occurred. Specifically, checksums can optimistically "enforce" two orderings: that
+  633  the journal commit block (JC ) persists only after metadata to the journal (JM ) and after data blocks to their inplace location (D). This technique for ensuring metadata
+  634  is durably written to the journal in its entirety has been
+  635  referred to as transactional checksumming [23]; in this
+  636  approach, a checksum is calculated over JM and placed
+  637  in JC. If a crash occurs during the commit process, the
+  638  recovery procedure can reliably detect the mismatch between JM and the checksum in JC and not replay that
+  639  transaction (or any transactions following). To identify
+  640  this particular instance of transactional checksumming
+  641  we refer to it as metadata transactional checksumming.
+  642  A similar, but more involved, version of data transactional checksumming can be used to ensure that data
+  643  blocks D are written in their entirety as part of the transaction. Collecting these data blocks and calculating their
+  644  checksums as they are dirtied in main memory is more
+  645  involved than performing the checksums over JM , but the
+  646  basic idea is the same. With the data checksums and their
+  647  on-disk block addresses stored in JC, the journal recovery process can abort transactions upon mismatch. Thus,
+  648  data transactional checksums enable optimistic journaling to ensure that metadata is not checkpointed if the
+  649  corresponding data was not durably written.
+  650  4.3.4 Background Write after Notification
+  651  An important optimistic technique ensures that the
+  652  checkpoint of the metadata (M) occurs after the preceding writes to the data and the journal (i.e., D, JM , and
+  653  JC ). While pessimistic journaling guaranteed this behavior with a flush after JC, optimistic journaling explicitly
+  654  postpones the checkpoint write of metadata M until it
+  655  has been notified that all previous transactions have been
+  656  durably completed. Note that it is not sufficient for M to
+  657  occur after only JC; D and JM must precede M as well
+  658  since optimistic journaling must ensure that the entire
+  659  transaction is valid and can be replayed if any of the inplace metadata M is written. Similarly, M:i+1 must be
+  660  postponed until all transactions T x:i have been durably
+  661  committed to ensure that M:i +1 is not durable if M:i
+  662  cannot be replayed. We note that M:i+1 does not need
+  663  to wait for M:i to complete, but must instead wait for the
+  664  responsible transaction T x:i to be durable.
+  665  Checkpointing is one of the few points in the optimistic journaling protocol where the file system must
+  666  wait to issue a particular write until a specific set of
+  667  writes have completed. However, this particular waiting is not likely to impact performance because checkpointing occurs in the background. Subsequent writes
+  668  by applications will be placed in later transactions and
+  669  these journal updates can be written independently of any
+  670  other outstanding writes; journal writes do not need to
+=== PAGE 9 ===
+
+  671  wait for previous checkpoints or transactions. Therefore,
+  672  even applications waiting for journal writes (e.g., by calling fsync()) will not observe the checkpoint latency.
+  673  For this reason, waiting for the asynchronous durability notification before a background checkpoint is fundamentally more powerful than the pessimistic approach of
+  674  sending an ordering command to the disk (i.e., a cache
+  675  flush). With a traditional ordering command, the disk
+  676  is not able to postpone checkpoint writes across multiple transactions. On the other hand, the asynchronous
+  677  durability notification command does not artificially constrain the ordering of writes and gives more flexibility to
+  678  the disk so that it can best cache and schedule writes; the
+  679  command also provides the needed information to the file
+  680  system so that it can allow independent writes to proceed
+  681  while appropriately holding back dependent writes.
+  682  4.3.5 Reuse after Notification
+  683  The preceding techniques were sufficient for handling
+  684  the cases where blocks were not reused across transactions. The difficulty occurs with ordered journaling because data writes are performed to their in-place locations, potentially overwriting data on disk that is still referenced by durable metadata from previous transactions.
+  685  Therefore, additional optimistic techniques are needed
+  686  to ensure that durable metadata from earlier transactions
+  687  never points to incorrect data blocks changed in later
+  688  transactions. This is a security issue: if user A deletes
+  689  their file, and then the deleted block becomes part of user
+  690  B's file, a crash should not lead to user A being able to
+  691  view user B's data. This is also one of the update dependency rules required for Soft Updates [25], but optimistic
+  692  journaling enforces this rule with a different technique:
+  693  reuse after notification.
+  694  To understand the motivation for this technique, consider the steps when a data block DA is freed from one
+  695  file MA and allocated to another file, MB and rewritten
+  696  with the contents DB. Depending on how writes are reordered to disk, a durable version of MA may point to the
+  697  erroneous content of DB.
+  698  This problem can be fixed with transactions as follows.
+  699  First, the freeing of DA and update to MA, denoted MA′ ,
+  700  is written as part of a transaction JM ′ :i; the allocation
+  701  A
+  702  of DB to MB is written in a later transaction as DB:i+1
+  703  and JM :i+1. Pessimistic journaling ensures that JM ′ :i
+  704  BA
+  705  occurs before DB:i +1 with a traditional flush between
+  706  every transaction. The optimistic techniques introduced
+  707  so far are not sufficient to provide this guarantee because
+  708  the writes to DB:i+1 in their in-place locations cannot
+  709  be recovered or rolled back if M′ is lost (even if there is
+  710  A
+  711  a checksum mismatch and transactions T x:i or T x:i+1
+  712  are found to be incomplete).
+  713  Optimistic journaling guarantees that JM ′ :i occurs beA
+  714  fore DB:i +1 by ensuring that data block DA is not reallocated to another file until the file system has been notified by the disk that JM ′ :i has been durably written; at
+  715  A
+  716  this point, the data block DA is "durably free." When the
+  717  file MB must be allocated a new data block, the optimistic
+  718  file system allocates a "durably-free" data block that is
+  719  known to not be referenced by any other files; finding a
+  720  durably-free data block is straight-forward given the proposed asynchronous durability notification from disks.
+  721  Performing reuse only after notification is unlikely to
+  722  cause the file system to wait or to harm performance.
+  723  Unless the file system is nearly 100% full, there should
+  724  always exist a list of data blocks that are known to be
+  725  durably free; under normal operating conditions, the file
+  726  system is unlikely to need to wait to be informed by the
+  727  disk that a particular data block is available.
+  728  4.3.6 Selective Data Journaling
+  729  Our final optimistic technique selectively journals data
+  730  blocks that have been overwritten. This technique allows
+  731  optimistic journaling to provide data journaling consistency semantics instead of ordered journaling semantics.
+  732  A special case of an update dependency occurs when
+  733  a data block is overwritten in a file and the metadata for
+  734  that file (e.g., size) must be updated consistently. Optimistic journaling could handle this using reuse after notification: a new durably-free data block is allocated to the
+  735  file and written to disk (DB: j), and then the new metadata is journaled (JM : j). The drawback of this approach
+  736  B
+  737  is that the file system takes on the behavior of a copy-onwrite file system and loses some of the locality benefits of
+  738  an update-in-place file system [21]; since optimistic journaling forces a durably-free data block to be allocated,
+  739  a file that was originally allocated contiguously and provided high sequential read and write throughput may lose
+  740  its locality for certain random-update workloads.
+  741  If update-in-place is desired for performance, a different technique can be used: selective data journaling.
+  742  Data journaling places both metadata and data in the
+  743  journal and both are then updated in-place at checkpoint
+  744  time. The attractive property of data journaling is that inplace data blocks are not overwritten until the transaction
+  745  is checkpointed; therefore, data blocks can be reused if
+  746  their metadata is also updated in the same transaction.
+  747  The disadvantage of data journaling is that every data
+  748  block is written twice (once in the journal, JD, and once
+  749  in its checkpointed in-place location, D) and therefore often has worse performance than ordered journaling [22].
+  750  Selective data journaling allows ordered journaling to
+  751  be used for the common case and data journaling only
+  752  when data blocks are repeatedly overwritten within the
+  753  same file and the file needs to maintain its original layout
+  754  on disk. In selective data journaling, the checkpoint of
+  755  both D and M simply waits for durable notification of all
+  756  the journal writes (JD, JM, and JC ).
+=== PAGE 10 ===
+
+  757  In-Memory D:3 M:3
+  758  On-Disk Journal
+  759  JD:1 JM:1 Jc:1 JD:2 JM:2 Jc:2 JD:3 JM:3 Jc:3
+  760  Ck(D:1,M:1) Ck(D:2,M:2) Ck(D:3,M:3)
+  761  In-Place Checkpoint
+  762  D:1 M:1 D:2 M:2
+
+  763  Figure 7: Optimistic Journaling: Selective Data Journaling. The figure shows that selective data journaling may
+  764  be used when transactions involve overwriting in-place data.
+  765  Data blocks are now placed in the journal and checkpointed
+  766  after the transaction is committed.
+  767  Figure 7 shows an example of how selective data journaling can be used to support overwrite, in particular the
+  768  case where blocks are reused from previous transactions
+  769  without clearing the original references to those blocks.
+  770  In this example, data blocks for three files have been
+  771  overwritten in three separate transactions.
+  772  The first transaction illustrates how optimistic ordering ensures that durable metadata does not point to
+  773  garbage data. After the file system has been notified of
+  774  the durability of T x: 1 (specifically, of JD: 1, JM: 1, and
+  775  JC: 1), it may checkpoint both D: 1 and M: 1 to their inplace locations. Because the file system can write M: 1
+  776  without waiting for a durable notification of D: 1, in the
+  777  case of crash it is possible for M: 1 to refer to garbage values in D: 1; however, the recovery process will identify
+  778  this situation due to the checksum mismatch and replay
+  779  T x: 1 with the correct values for D: 1.
+  780  The second and third transactions illustrate how optimistic ordering ensures that later writes are visible only
+  781  if all earlier writes are visible as well. Specifically, D: 2
+  782  and M: 2 have been checkpointed, but only because both
+  783  T x: 2 and T x: 1 are both durable; therefore, a client cannot see new contents for the second file without seeing
+  784  new contents for the first file. Furthermore, neither D: 3
+  785  nor M: 3 (or any later transactions) can be checkpointed
+  786  yet because not all blocks of its transaction are known to
+  787  be durable. Thus, selective data journaling provides the
+  788  desired consistency semantics while allowing overwrites.
+
+  789  4.4 Durability vs. Consistency
+  790  Optimistic journaling uses an array of novel techniques
+  791  to ensure that writes to disk are properly ordered, or that
+  792  enough information exists on disk to recover from an untimely crash when writes are issued out of order; the
+  793  result is file-system consistency and proper ordering of
+  794  writes, but without guarantees of durability. However,
+  795  some applications may wish to force writes to stable storage for the sake of durability, not ordering. In this case,
+  796  something more than optimistic ordering is needed; the
+  797  file system must either wait for such writes to be persisted (via an asynchronous durability notification) or issue flushes to force the issue. To separate these cases, we
+  798  believe two calls should be provided; an "ordering" sync,
+  799  osync(), guarantees ordering between writes, while a
+  800  "durability" sync, dsync(), ensures when it returns that
+  801  pending writes have been persisted.
+  802  We now define and compare the guarantees given by
+  803  osync() and dsync(). Assume the user makes a series of writes W1,W2, ...,Wn. If no osync() or dsync()
+  804  calls are made, there is no guarantee as to file-system
+  805  state after a crash: any or all of the updates may be lost,
+  806  and updates may be applied out of order, i.e., W2 may be
+  807  applied without W1.
+  808  Now consider when every write is followed by
+  809  dsync(), i.e., W1,d1,W2,d2, ...,Wn,dn. If a crash happens after di, the file system will recover to a state with
+  810  W1,W2, ...,Wi applied.
+  811  If every write was followed by osync(), i.e.,
+  812  W1,o1,W2,o2, ...,Wn,on, and a crash happens after oi, the
+  813  file system will recover to a state with W1,W2, ...,Wi−k
+  814  applied, where the last k writes had not been made
+  815  durable before the crash. We term this eventual durability. Thus osync() provides prefix semantics [36], ensuring that users always see a consistent version of the
+  816  file system, though the data may be stale. Prior research
+  817  indicates that this is useful in many domains [7].
+
+  818  5 Implementation of OptFS
+
+  819  We have implemented the Optimistic File System
+  820  (OptFS) inside Linux 3.2, based on the principles outlined before (§4), as a variant of the ext4 file system, with
+  821  additional changes to the JBD2 journaling layer and virtual memory subsystem.
+
+  822  5.1 Asynchronous Durability Notifications
+  823  Since current disks do not implement the proposed asynchronous durability notification interface, OptFS uses an
+  824  approximation: durability timeouts. Durability timeouts
+  825  represent the maximum time interval that the disk can
+  826  delay committing a write request to the non-volatile platter. When a write for block A is received at time T by
+  827  the disk, the block must be made durable by time T+
+  828  TD. The value of TD is specific to each disk, and must be
+  829  exported by the disk to higher levels in the storage stack.
+  830  Upon expiration of the time interval TD, OptFS considers the block to be durable; this is equivalent to the disk
+  831  notifying OptFS after TD seconds. Note that to account
+  832  for other delays in the I/O subsystem, TD is measured
+  833  from the time the write is acknowledged by the disk, and
+  834  not from the time the write is issued by the file system.
+  835  This approximation is limiting; TD might overestimate
+  836  the durability interval, leading to performance problems
+  837  and memory pressure; TD might underestimate the durability interval, comprising consistency. OptFS errs towards safety and sets TD to be 30 seconds.
+=== PAGE 11 ===
+
+  838  5.2 Handling Data Blocks
+  839  OptFS does not journal all data blocks: newly allocated
+  840  data blocks are only checksummed; their contents are not
+  841  stored in the journal. This complicates journal recovery as data-block contents may change after the checksum was recorded. Due to selective data journaling, a
+  842  data block that is not journaled (as it is newly allocated)
+  843  in one transaction might be overwritten in the following
+  844  transaction and therefore journaled. For example, consider data block D with content A belonging to T x1. The
+  845  checksum A will be recorded in T x1. D is overwritten by
+  846  T x2, with content B. Though this sequence is valid, the
+  847  checksum A in T x1 will not match the content B in D.
+  848  This necessitates individual block checksums, since
+  849  checksum mismatch of a single block is not a problem
+  850  if the block belongs to a later valid transaction. In contrast, since the frozen state of metadata blocks are stored
+  851  in the journal, checksumming over the entire set is sufficient for metadata transactional checksums. We explain
+  852  how OptFS handles this during recovery shortly.
+  853  OptFS does not immediately write out checksummed
+  854  data blocks; they are collected in memory and written in
+  855  large batches upon transaction commit. This increases
+  856  performance in some workloads.
+
+  857  5.3 Optimistic Techniques
+  858  We now describe the implementation of the optimistic
+  859  journaling techniques. We also describe how OptFS reverts to more traditional mechanisms in some circumstances (e.g., when the journal runs out of space).
+  860  In-Order Journal Recovery: OptFS recovers transactions in the order they were committed to the journal. A
+  861  transaction can be replayed only if all its data blocks belong to valid transactions, and the checksum computed
+  862  over metadata blocks matches that in the commit block.
+  863  OptFS performs recovery in two passes: the first pass
+  864  linearly scans the journal, compiling a list of data blocks
+  865  with checksum mismatches and the first journal transaction that contained each block. If a later valid transaction
+  866  matches the block checksum, the block is deleted from
+  867  the list. At the end of the scan, the earliest transaction in
+  868  the list is noted. The next pass performs journal recovery
+  869  until the faulting transaction, thus ensuring consistency.
+  870  OptFS journal recovery might take longer than ext4
+  871  recovery since OptFS might need to read data blocks off
+  872  non-contiguous disk locations while ext4 only needs to
+  873  read the contiguous journal to perform recovery.
+  874  In-Order Journal Release: When the virtual memory
+  875  (VM) subsystem informs OptFS that checkpoint blocks
+  876  have been acknowledged at time T, OptFS sets the transaction cleanup time as T +TD, after which it is freed from
+  877  the journal.
+  878  When the journal is running out of space, it may not
+  879  be optimal to wait for the durability timeout interval before freeing up journal blocks. Under memory pressure,
+  880  OptFS may need to free memory buffers of checkpoint
+  881  blocks that have been issued to the disk and are waiting
+  882  for durability timeouts. In such cases, OptFS issues a
+  883  disk flush, ensuring the durability of checkpoint blocks
+  884  that have been acknowledged by the disk. This allows
+  885  OptFS to clean journal blocks belonging to some checkpointed transactions and free associated memory buffers.
+  886  Checksums: OptFS checksums data blocks using the
+  887  same CRC32 algorithm used for metadata. A tag is created for each data block which stores the block number
+  888  and its checksum. Data tags are stored in the descriptor
+  889  blocks along with tags for metadata checksums.
+  890  Background Write after Notification: OptFS uses the
+  891  VM subsystem to perform background writes. Checkpoint metadata blocks are marked as dirty and the
+  892  expiry field of each block is set to be T+ TD (the disk
+  893  acknowledged the commit block at T). T will reflect the
+  894  time that the entire transaction has been acknowledged
+  895  because the commit is not issued until the disk acknowledges data and metadata writes. The blocks are then
+  896  handed off to the VM subsystem.
+  897  During periodic background writes, the VM subsystem checks if each dirty block has expired: if so,
+  898  the block is written out; otherwise the VM subsystem
+  899  rechecks the block on its next periodic write-out cycle.
+  900  Reuse after Notification: Upon transaction commit,
+  901  OptFS adds deleted data blocks to a global in-memory
+  902  list of blocks that will be freed after the durability timeout, TD. A background thread periodically frees blocks
+  903  with expired durability timeouts. Upon file-system unmount, all list blocks are freed.
+  904  When the file system runs out of space, if the reuse list
+  905  contains blocks, a disk flush is issued; this ensures the
+  906  durability of transactions which freed the blocks in the
+  907  list. These blocks are then set to be free. We expect that
+  908  these "safety" flushes will be used infrequently.
+  909  Selective Data Journaling: Upon a block write, the
+  910  block allocation information (which is reflected in New
+  911  state of the buffer head) is used to determine whether
+  912  the block was newly allocated. If the write is an overwrite, the block is journaled as if it was metadata.
+
+  913  6 Evaluation
+
+  914  We now evaluate our prototype implementation of OptFS
+  915  on two axes: reliability and performance. Experiments
+  916  were performed on an Intel Core i3-2100 CPU with 16
+  917  GB of memory, a Hitachi DeskStar 7K1000.B 1 TB
+  918  drive, and running Linux 3.2. The experiments were repeatable; numbers reported are the average over 10 runs.
+=== PAGE 12 ===
+
+  919  Crash points
+  920  Workload Delayed Blocks Total Consistent
+  921  Data 50 50
+  922  Append JM, JC 50 50
+  923  Multiple blocks 100 100
+  924  Data 50 50
+  925  Overwrite JM, JC 50 50
+  926  Multiple blocks 100 100
+  927  Table 1: Reliability Evaluation. The table shows the total number of simulated crashpoints, and the number of crashpoints resulting in a consistent state after remount.
+
+  928  6.1 Reliability
+  929  To verify OptFS's consistency guarantees, we build and
+  930  apply a crash-robustness framework to it under two synthetic workloads. The first appends blocks to the end of a
+  931  file; the second overwrites blocks of an existing file; both
+  932  issue osync() calls frequently to induce more ordering
+  933  points and thus stress OptFS machinery.
+  934  Crash simulation is performed by taking a workload
+  935  trace, reordering some requests (either by delaying the
+  936  write of a single data block, journal commit or metadata
+  937  blocks, or multiple blocks chosen at random), creating a
+  938  file-system image that contains a subset of those writes
+  939  up until a particular crash point, and then recovering the
+  940  file system from that image.
+  941  Table 1 shows the results of 400 different crash scenarios. OptFS recovers correctly in each case to a file
+  942  system with a consistent prefix of updates (§4.4).
+
+  943  6.2 Performance
+  944  We now analyze the performance of OptFS under a number of micro- and macro-benchmarks. Figure 8 illustrates
+  945  OptFS performance under these workloads; details of the
+  946  workloads are found in the caption.
+  947  Micro-benchmarks: OptFS sequential-write performance is similar to ordered mode; however, sequential
+  948  overwrites cause bandwidth to drop to half of that of ordered mode as OptFS writes every block twice. Random writes on OptFS are 3x faster than on ext4 ordered
+  949  mode, as OptFS converts random overwrites into sequential journal writes (due to selective data journaling).
+  950  On the Createfiles benchmark, OptFS performs 2x better than ext4 ordered mode, as ext4 writes dirty blocks
+  951  in the background for a number of reasons (e.g., hitting
+  952  the threshold for the amount of dirty in-memory data),
+  953  while OptFS consolidates the writes and issues them
+  954  upon commit. When we modified ext4 to stop the background writes, its performance was similar to OptFS.
+  955  Macro-benchmarks: We run the Filebench Fileserver, Webserver, and Varmail workloads [17]. OptFS
+  956  performs similarly to ext4 ordered mode without flushes
+  957  for Fileserver and Webserver. Varmail's frequent
+  958  fsync() calls cause a significant number of flushes,
+  959  leading to OptFS performing 7x better than ext4. ext4,
+
+  960  4 Ext4 (Flush) 301.68 Op/s
+  961  3 Ext4 (No Flush)
+  962  OptFS 2839.68
+  963  Op/s
+  964  2
+  965  106 MB/s 106 MB/s
+  966  1
+  967  0
+  968  Sequential Sequential Random Create
+  969  Write Overwrite Write Files
+  970  20
+  971  21.80 Tx/s
+  972  Normalized Performance 16
+  973  12 825.81
+  974  8 Op/s
+  975  1176.28 9671.90
+  976  4 Op/s Op/s
+  977  0
+  978  Fileserver Webserver Varmail MySQL
+  979  Figure 8: Performance Comparison. Performance is
+  980  shown normalized to ext4 ordered mode with flushes. The absolute performance of ordered mode with flushes is shown above
+  981  each workload. Sequential writes are to 80 GB files. 200K random writes are performed over a 10 GB file, with an fsync()
+  982  every 1K writes. The overwrite benchmark sequentially writes
+  983  over a 32 GB file. Createfiles uses 64 threads to create 1M
+  984  files. Fileserver emulates file-server activity, using 50 threads
+  985  to perform a sequence of creates, deletes, appends, reads, and
+  986  writes. Webserver emulates a multi-threaded web host server,
+  987  performing sequences of open-read-close on multiple files plus
+  988  a log file append, with 100 threads. Varmail emulates a multithreaded mail server, performing a sequence of create-appendsync, read-append-sync, reads, and deletes in a single directory. Each workload was run for 660 seconds. MySQL OLTP
+  989  benchmark performs 200K queries over a table with 1M rows.
+  990  even with flushes disabled, does not perform as well as
+  991  OptFS since OptFS delays writing dirty blocks, issuing
+  992  them in large batches periodically or on commit; in contrast, the background threads in ext4 issue writes in small
+  993  batches so as to not affect foreground activity.
+  994  Finally, we run the MySQL OLTP benchmark from
+  995  Sysbench [1] to investigate the performance on database
+  996  workloads. OptFS performs 10x better than ordered
+  997  mode with flushes, and 40% worse than ordered mode
+  998  without flushes (due to the many in-place overwrites of
+  999  MySQL, which result in selective data journaling).
+ 1000  Summary: OptFS significantly outperforms ordered
+ 1001  mode with flushes on most workloads, providing the
+ 1002  same level of consistency at considerably lower cost.
+ 1003  On many workloads, OptFS performs as well as ordered
+ 1004  mode without flushes, which offers no consistency guarantees. OptFS may not be suited for workloads which
+ 1005  consist mainly of sequential overwrites.
+
+ 1006  6.3 Resource consumption
+ 1007  Table 2 compares the resource consumption of OptFS
+ 1008  and ext4 for a 660 second run of Varmail. OptFS consumes 10% more CPU than ext4 ordered mode without
+ 1009  flushes. Some of this overhead in our prototype can be
+=== PAGE 13 ===
+
+ 1010  500
+ 1011  400 ext4 without flushes
+ 1012  300 OptFS
+ 1013  Tx/s 200
+ 1014  100 ext4 with flushes
+ 1015  0
+ 1016  32 64 128 512
+ 1017  Journal Size (MB)
+ 1018  Figure 9: Performance with Small Journals. The figure shows the variation in OptFS performance on the MySQL
+ 1019  OLTP benchmark as the journal size is varied. When OptFS
+ 1020  runs out of journal space, it issues flushes to safely checkpoint
+ 1021  transactions. Note that even in this stress scenario, OptFS performance is 5x better than ext4 ordered mode with flushes.
+ 1022  attributed to CRC32 data checksumming and the background thread which frees data blocks with expired durability timeouts, though further investigation is required.
+ 1023  OptFS delays checkpointing and holds metadata in
+ 1024  memory longer, thereby increasing memory consumption. Moreover, OptFS delays data writes until transaction commit time, increasing performance for some
+ 1025  workloads (e.g., Filebench Createfiles), but at the cost
+ 1026  of additional memory load.
+
+ 1027  6.4 Journal size
+ 1028  When OptFS runs out of journal space, it issues flushes in
+ 1029  order to checkpoint transactions and free journal blocks.
+ 1030  To investigate the performance of OptFS in such a situation, we reduce the journal size and run the MySQL
+ 1031  OLTP benchmark. The results are shown in Figure 9.
+ 1032  Note that due to selective journaling, OptFS performance
+ 1033  will be lower than that of ext4 without flushes, even
+ 1034  with large journals. We find that OptFS performs well
+ 1035  with reasonably sized journals of 512 MB and greater;
+ 1036  only with smaller journal sizes does performance degrade near the level of ext4 with flushes.
+
+ 1037  7 Case Studies
+
+ 1038  We now show how to use OptFS ordering guarantees to
+ 1039  provide meaningful application-level crash consistency.
+ 1040  Specifically, we study atomic updates in a text editor
+ 1041  (gedit) and logging within a database (SQLite).
+
+ 1042  7.1 Atomic Update within Gedit
+ 1043  Many applications atomically update a file with the following sequence: first, create a new version of the file
+ 1044  under a temporary name; second, call fsync() on the
+ 1045  file to force it to disk; third, rename the file to the desired
+ 1046  file name, replacing the original atomically with the new
+ 1047  contents (some applications issue another fsync() to
+ 1048  the parent directory, to persist the name change). The
+ 1049  gedit text editor, which we study here, performs this sequence to update a file, ensuring that either the old or new
+ 1050  contents are in place in their entirety, but never a mix.
+
+ 1051  File system CPU % Memory (MB)
+ 1052  ext4 ordered mode with flushes 3.39 486.75
+ 1053  ext4 ordered mode without flushes 14.86 516.03
+ 1054  OptFS 25.32 749.4
+ 1055  Table 2: Resource Consumption. The table shows the average resource consumption by OptFS and ext4 ordered mode
+ 1056  for a 660 second run of Filebench Varmail. OptFS incurs additional overhead due to techniques like delayed checkpointing.
+
+ 1057  gedit SQLite
+ 1058  ext4 w/o ext4 w/ OptFS ext4 w/o ext4 w/ OptFS
+ 1059  flush flush flush flush
+ 1060  Total crashpoints 50 50 50 100 100 100
+ 1061  Inconsistent 7 0 0 73 0 0
+ 1062  Old state 26 21 36 8 50 76
+ 1063  New state 17 29 14 19 50 24
+ 1064  Time per op (ms) 1.12 39.4 0.84 23.38 152 15.3
+ 1065  Table 3: Case Study: Gedit and SQLite. The table
+ 1066  shows the number of simulated crashpoints that resulted in a
+ 1067  consistent or inconsistent application state after remounting. It
+ 1068  also shows the time required for an application operation.
+
+ 1069  To study the effectiveness of OptFS for this usage, we
+ 1070  modified gedit to useosync() instead offsync(), thus
+ 1071  ensuring order is preserved. We then take a block-level
+ 1072  I/O trace when running under both ext4 (with and without flushes) and OptFS, and simulate a large number of
+ 1073  crash points and I/O re-orderings in order to determine
+ 1074  what happens during a crash. Specifically, we create
+ 1075  a disk image that corresponds to a particular subset of
+ 1076  writes taking place before a crash; we then mount the
+ 1077  image, run recovery, and test for correctness.
+ 1078  Table 3 shows our results. With OptFS, the saved filename always points to either the old or new versions of
+ 1079  the data in their entirety; atomic update is achieved. In
+ 1080  a fair number of crashes, old contents are recovered, as
+ 1081  OptFS delays writing updates; this is the basic trade-off
+ 1082  OptFS makes, increasing performance but delaying durability. With ext4 (without flush), a significant number
+ 1083  of crashpoints resulted in inconsistencies, including unmountable file systems and corrupt data. As expected,
+ 1084  ext4 (with flush) did better, resulting in new or old contents exactly as dictated by the fsync() boundary.
+ 1085  The last row of Table 3 compares the performance of
+ 1086  atomic updates in OptFS and ext4. OptFS delivers performance similar to ext4 without flushes, roughly 40x
+ 1087  faster per operation than ext4 with flushes.
+
+ 1088  7.2 Temporary Logging in SQLite
+ 1089  We now investigate the use of osync() in a database
+ 1090  management system, SQLite. To implement ACID transactions, SQLite first creates a temporary log file, writes
+ 1091  some information to it, and calls fsync(). SQLite then
+ 1092  updates the database file in place, calls fsync() on the
+ 1093  database file, and finally deletes the log file. After a
+=== PAGE 14 ===
+
+ 1094  crash, if a log file is present, SQLite uses the log file
+ 1095  for recovery (if necessary); the database is guaranteed to
+ 1096  be recovered to either the pre- or post-transaction state.
+ 1097  Although SQLite transactions provide durability by
+ 1098  default, its developers assert that many situations do not
+ 1099  require it, and that "sync" can be replaced with pure ordering points in such cases. The following is an excerpt
+ 1100  from the SQLite documentation [29]:
+ 1101  As long as all writes that occur before the sync
+ 1102  are completed before any write that happens
+ 1103  after the sync, no database corruption will occur. [...] the database will at least continue
+ 1104  to be consistent, and that is what most people
+ 1105  care about (emphasis ours).
+ 1106  We now conduct the same consistency and performance tests for SQLite. With a small set of tables
+ 1107  (≈30KB in size), we create a transaction to move records
+ 1108  from one half the tables to the other half. After a simulated disk image that corresponds to a particular crashpoint is mounted, if consistent, SQLite should convert
+ 1109  the database to either the pre-transaction (old) or posttransaction (new) state. The results in Table 3 are similar
+ 1110  to the gedit case-study: OptFS always results in a consistent state, while ext4, without flushes, does not. OptFS
+ 1111  performs 10x better than ext4 with flushes.
+
+ 1112  8 Related Work
+ 1113  A number of approaches to building higher performing
+ 1114  file systems relate to our work on OptFS and optimistic
+ 1115  crash consistency. For example, Soft Updates [11] shows
+ 1116  how to carefully order disk updates so as to never leave
+ 1117  an on-disk structure in an inconsistent form. In contrast
+ 1118  with OptFS, FreeBSD Soft Updates issues flushes to implement fsync() and ordering (although the original
+ 1119  work modified the SCSI driver to avoid issuing flushes).
+ 1120  Given the presence of asynchronous durability notifications, Soft Updates could be modified to take advantage of such signals. We believe doing so would
+ 1121  be more challenging than modifying journaling file systems; while journaling works at the abstraction level of
+ 1122  metadata and data, Soft Updates works directly with filesystem structures, significantly increasing its complexity.
+ 1123  Our work is similar to that of Frost et al.'s work on
+ 1124  Featherstitch [10], which provides a generalized framework to order file-system updates, in either a softupdating or journal-based approach. Our work instead
+ 1125  focuses on delayed ordering for journal commits; some
+ 1126  of our techniques could increase the journal performance
+ 1127  observed in their work.
+ 1128  Featherstitch provides similar primitives for ordering
+ 1129  and durability: pg depend() is similar to osync(),
+ 1130  while pg sync() is similar to dsync(). The main difference lies in the amount of work required from application developers: Featherstitch requires developers
+ 1131  to explicitly encapsulate sets of file-system operations
+ 1132  into units called patchgroups and define dependencies
+ 1133  between them. Since osync() builds upon the familiar semantics of fsync(), we believe it will be easier
+ 1134  for application developers to use.
+ 1135  Other work on "rethinking the sync" [19] has a similar flavor to our work. In that work, the authors cleverly note that disk writes only need to become durable
+ 1136  when some external entity can observe said durability;
+ 1137  thus, by delaying persistence until such externalization
+ 1138  occurs, huge gains in performance can be realized. Our
+ 1139  work is complimentary, in that it reduces the number of
+ 1140  such durability events, instead enforcing a weaker (and
+ 1141  higher performance) ordering among writes, but avoiding the complexity of implementing dependency tracking
+ 1142  within the OS. In cases where durability is required (i.e.,
+ 1143  applications use dsync() and not osync()), optimistic
+ 1144  journaling does not provide much gain; thus, Nightingale
+ 1145  et al.'s work still can be of benefit therein.
+ 1146  More recently, Chidambaram et al. implement
+ 1147  NoFS [6], which removes the need for any ordering to
+ 1148  disk at all, thus providing excellent performance. However, a lack of ordered writes means certain kinds of
+ 1149  crashes can lead to a recovered file system that is consistent, but that contains data from partially completed
+ 1150  operations. As a result, NoFS cannot implement atomic
+ 1151  actions, such as rename(). Atomic rename is critical
+ 1152  in the following update sequence: create temporary file;
+ 1153  write temporary file with the entire contents of the old
+ 1154  file, plus updates; persist temporary file via fsync();
+ 1155  atomically rename temporary file over old file. At the
+ 1156  end of this sequence, the file should exist in either the old
+ 1157  state or the new state with all the updates. If rename()
+ 1158  is not atomic, or operations can be re-ordered, the entire file could be lost due to an inopportune crash (something that has been observed in deployment [9]). OptFS,
+ 1159  in contrast, realizes many of the benefits of the NoFS
+ 1160  approach but still delivers meaningful semantics upon
+ 1161  which higher-level application semantics can be built.
+ 1162  Some real systems provide different flavors of
+ 1163  fsync() to applications. For example, on Mac OS X,
+ 1164  fsync() only ensures that writes have been issued to
+ 1165  the disk from main memory; as the man page states, if
+ 1166  an application desires durability, it should call fcntl()
+ 1167  with the F FULLSYNC flag. While the latter is identical
+ 1168  to dsync(), the former is not equivalent to osync();
+ 1169  importantly, simply flushing a write to the disk cache
+ 1170  does not provide any higher-level ordering guarantees
+ 1171  and thus does not serve as a suitable primitive atop which
+ 1172  to build application consistency; in contrast, as we have
+ 1173  shown, osync() is quite apt for this usage scenario.
+ 1174  Prior work in distributed systems aims to measure
+ 1175  eventual consistency (among replicas) and understand
+=== PAGE 15 ===
+
+ 1176  cy ce y rt
+ 1177  n it y o e c
+ 1178  en a il it p re ti
+ 1179  st rm b il p -f is
+ 1180  si a b m
+ 1181  n fo ila ra su sh ti
+ 1182  o er v u X lu p
+ 1183  Technique C P A D T F O
+ 1184  √ √
+ 1185  File-system check L H L L ×
+ 1186  √
+ 1187  Metadata journaling M M H H × ×
+ 1188  √
+ 1189  Data journaling H M H H √ × ×√
+ 1190  Soft Updates M M H H √ ×
+ 1191  Copy-on-write H M H H √ √× ×
+ 1192  Backpointer-Based Consistency M H H L ×√ √ √
+ 1193  Optimistic Crash Consistency H H H H∗
+ 1194  Table 4: Consistency Techniques. The table compares
+ 1195  various approaches to providing consistency in file systems.
+ 1196  Legend: L – Low, M – Medium, H – High. H∗ indicates that optimistic crash consistency can provide immediate durability, if
+ 1197  required, using dsync(). Note that only optimistic crash consistency provides support for transactions, immediate durability on demand, and high performance while eliminating flushes
+ 1198  in the common case.
+ 1199  why it works in practice, similar to how probabilistic
+ 1200  crash consistency seeks to understand how file systems
+ 1201  maintain crash consistency without flushes. Yu et al. provide metrics to measure consistency among replicas and
+ 1202  show that such quantification allows replicated services
+ 1203  to make useful trade-offs [39]. Bailis et al. bound data
+ 1204  staleness in eventually consistent distributed systems and
+ 1205  explain why eventual consistency works in practice [2].
+ 1206  Finally, we compare optimistic crash consistency with
+ 1207  other approaches to providing crash consistency in file
+ 1208  systems. We have discussed some of them, such as
+ 1209  Soft Updates and Backpointer-Based Consistency, in detail. Table 4 broadly compares various consistency techniques on aspects such as durability, availability, and
+ 1210  performance. Transactional support indicates support
+ 1211  for multi-block atomic operations such as rename().
+ 1212  Flush-free indicates that the technique does not issue
+ 1213  flushes in the common case.
+ 1214  We observe that there are four approaches which
+ 1215  are optimistic: the file-system check [5], Soft Updates,
+ 1216  Backpointer-Based Consistency, and Optimistic Crash
+ 1217  Consistency. Soft Updates issues flushes to ensure ordering, and hence is not flush-free. While the file-system
+ 1218  check and backpointer-based consistency are completely
+ 1219  flush-free, they cannot force writes to disk, and hence
+ 1220  have eventual durability. Pessimistic approaches like
+ 1221  journaling and copy-on-write employ flushes to provide
+ 1222  transactional support and high levels of consistency and
+ 1223  durability; however, they cannot implement ordering
+ 1224  without flushes, and hence offer reduced performance on
+ 1225  workloads with many ordering points. Due to osync()
+ 1226  and dsync(), optimistic crash consistency can persist
+ 1227  writes on demand (leading to immediate durability), and
+ 1228  yet remain flush-free when only ordering is required.
+
+ 1229  9 Conclusion
+
+ 1230  We present optimistic crash consistency, a new approach
+ 1231  to crash consistency in journaling file systems that uses
+ 1232  a range of novel techniques to obtain both a high level
+ 1233  of consistency and excellent performance in the common case. We introduce two new file-system primitives,
+ 1234  osync() and dsync(), which decouple ordering from
+ 1235  durability, and show that they can provide both high performance and meaningful semantics for application developers. We believe that such decoupling holds the key
+ 1236  to resolving the constant tension between consistency
+ 1237  and performance in file systems.
+ 1238  The source code for OptFS can be obtained at:
+ 1239  http://www.cs.wisc.edu/adsl/Software/optfs.
+ 1240  We hope that this will encourage adoption of the
+ 1241  optimistic approach to consistency.
+
+ 1242  Acknowledgments
+
+ 1243  We thank James Mickens (our shepherd), the anonymous reviewers, and Eddie Kohler for their insightful
+ 1244  comments. We thank Mark Hill, Michael Swift, Ric
+ 1245  Wheeler, Joo-young Hwang, Sankaralingam Panneerselvam, Mohit Saxena, Asim Kadav, Arun Kumar, and the
+ 1246  members of the ADSL lab for their feedback. We thank
+ 1247  Sivasubramanian Ramasubramanian for helping us run
+ 1248  the probabilistic crash consistency experiments. This
+ 1249  material is based upon work supported by the NSF under CNS-1319405 and CNS-1218405 as well as donations from EMC, Facebook, Fusion-io, Google, Huawei,
+ 1250  Microsoft, NetApp, Sony, and VMware. Any opinions, findings, and conclusions, or recommendations expressed herein are those of the authors and do not necessarily reflect the views of the NSF or other institutions.
+=== PAGE 16 ===
+
+ 1251  References
+
+ 1252  [1] Alexey Kopytov. SysBench: a system performance benchmark. http://sysbench.sourceforge.net/index.
+ 1253  html, 2004.
+ 1254  [2] Peter Bailis, Shivaram Venkataraman, Michael J. Franklin,
+ 1255  Joseph M. Hellerstein, and Ion Stoica. Probabilistically Bounded
+ 1256  Staleness for Practical Partial Quorums. PVLDB, 5(8):776–787,
+ 1257  2012.
+ 1258  [3] Steve Best. JFS Overview. http://jfs.sourceforge.
+ 1259  net/project/pub/jfs.pdf, 2000.
+ 1260  [4] John S. Bucy, Jiri Schindler, Steven W. Schlosser, and Gregory R.
+ 1261  Ganger. The DiskSim Simulation Environment Version 4.0 Reference Manual. Technical Report CMU-PDL-08-101, Carnegie
+ 1262  Mellon University, May 2008.
+ 1263  [5] Remy Card, Theodore Ts'o, and Stephen Tweedie. Design and
+ 1264  Implementation of the Second Extended Filesystem. In First
+ 1265  Dutch International Symposium on Linux, Amsterdam, Netherlands, December 1994.
+ 1266  [6] Vijay Chidambaram, Tushar Sharma, Andrea C. Arpaci-Dusseau,
+ 1267  and Remzi H. Arpaci-Dusseau. Consistency Without Ordering.
+ 1268  In FAST '12, pages 101–116, San Jose, CA, February 2012.
+ 1269  [7] James Cipar, Greg Ganger, Kimberly Keeton, Charles B Morrey III, Craig AN Soules, and Alistair Veitch. LazyBase: trading
+ 1270  freshness for performance in a scalable database. In EuroSys '12,
+ 1271  pages 169–182, Bern, Switzerland, April 2012.
+ 1272  [8] Jonathan Corbet. Barriers and Journaling Filesystems. http://
+ 1273  lwn.net/Articles/283161, May 2008.
+ 1274  [9] Jonathan Corbet. That massive filesystem thread. http://
+ 1275  lwn.net/Articles/326471/, March 2009.
+ 1276  [10] Christopher Frost, Mike Mammarella, Eddie Kohler, Andrew
+ 1277  de los Reyes, Shant Hovsepian, Andrew Matsuoka, and Lei
+ 1278  Zhang. Generalized File System Dependencies. In SOSP '07,
+ 1279  pages 307–320, Stevenson, WA, October 2007.
+ 1280  [11] Gregory R. Ganger and Yale N. Patt. Metadata Update Performance in File Systems. In OSDI '94, pages 49–60, Monterey,
+ 1281  CA, November 1994.
+ 1282  [12] Maurice Herlihy. Apologizing Versus Asking Permission: Optimistic Concurrency Control for Abstract Data Types. ACM
+ 1283  Transactions on Database Systems (TODS), 15(1):96–124, 1990.
+ 1284  [13] D. M. Jacobson and J. Wilkes. Disk Scheduling Algorithms
+ 1285  Based on Rotational Position. Technical Report HPL-CSP-91-7,
+ 1286  Hewlett Packard Laboratories, 1991.
+ 1287  [14] KnowledgeTek. Serial ATA Specification Rev. 3.0 Gold.
+ 1288  http://www.knowledgetek.com/datastorage/
+ 1289  courses/SATA_3.0-8.14.09(CD).pdf, 2009.
+ 1290  [15] Charles M. Kozierok. Overview and History of the SCSI Interface. http://www.pcguide.com/ref/hdd/if/scsi/
+ 1291  over-c.html, 2001.
+ 1292  [16] Hsiang-Tsung Kung and John T Robinson. On Optimistic Methods for Concurrency Control. ACM Transactions on Database
+ 1293  Systems (TODS), 6(2):213–226, 1981.
+ 1294  [17] Richard McDougall and Jim Mauro. Filebench. http://
+ 1295  sourceforge.net/apps/mediawiki/filebench/
+ 1296  index.php?title=Filebench, 2005.
+ 1297  [18] Marshall Kirk McKusick. Disks from the Perspective of a File
+ 1298  System. Communications of the ACM, 55(11), 2012.
+ 1299  [19] Edmund B. Nightingale, Kaushik Veeraraghavan, Peter M Chen,
+ 1300  and Jason Flinn. Rethink the Sync. In OSDI '06, pages 1–16,
+ 1301  Seattle, WA, November 2006.
+
+ 1302  [20] Swapnil Patil, Anand Kashyap, Gopalan Sivathanu, and Erez
+ 1303  Zadok. I3FS: An In-kernel Integrity Checker and Intrusion detection File System. In LISA '04, pages 69–79, Atlanta, GA,
+ 1304  November 2004.
+ 1305  [21] Zachary N. J. Peterson. Data Placement for Copy-on-write Using
+ 1306  Virtual Contiguity. Master's thesis, U.C. Santa Cruz, 2002.
+ 1307  [22] Vijayan Prabhakaran, Andrea C. Arpaci-Dusseau, and Remzi H.
+ 1308  Arpaci-Dusseau. Analysis and Evolution of Journaling File Systems. In USENIX '05, pages 105–120, Anaheim, CA, April 2005.
+ 1309  [23] Vijayan Prabhakaran, Lakshmi N. Bairavasundaram, Nitin
+ 1310  Agrawal, Haryadi S. Gunawi, Andrea C. Arpaci-Dusseau, and
+ 1311  Remzi H. Arpaci-Dusseau. IRON File Systems. In SOSP '05,
+ 1312  pages 206–220, Brighton, UK, October 2005.
+ 1313  [24] Margo Seltzer, Peter Chen, and John Ousterhout. Disk Scheduling Revisited. In USENIX Winter '90, pages 313–324, Washington, DC, January 1990.
+ 1314  [25] Margo I. Seltzer, Gregory R. Ganger, M. Kirk McKusick,
+ 1315  Keith A. Smith, Craig A. N. Soules, and Christopher A. Stein.
+ 1316  Journaling Versus Soft Updates: Asynchronous Meta-data Protection in File Systems. In USENIX '00, pages 71–84, San Diego,
+ 1317  CA, June 2000.
+ 1318  [26] Dick Sites. How Fast Is My Disk? Systems Seminar at the University of Wisconsin-Madison, January 2013. http://www.
+ 1319  cs.wisc.edu/event/how-fast-my-disk.
+ 1320  [27] David A. Solomon. Inside Windows NT. Microsoft Programming
+ 1321  Series. Microsoft Press, 2nd edition, May 1998.
+ 1322  [28] Jon A. Solworth and Cyril U. Orji. Write-Only Disk Caches. In
+ 1323  SIGMOD '90, pages 123–132, Atlantic City, NJ, May 1990.
+ 1324  [29] SQLite Team. How To Corrupt An SQLite Database
+ 1325  File. http://www.sqlite.org/howtocorrupt.html,
+ 1326  2011.
+ 1327  [30] Marting Steigerwald. Imposing Order. Linux Magazine, May
+ 1328  2007.
+ 1329  [31] Christopher A. Stein, John H. Howard, and Margo I. Seltzer.
+ 1330  Unifying File System Protection. In USENIX '01, pages 79–90,
+ 1331  Boston, MA, June 2001.
+ 1332  [32] Adan Sweeney, Doug Doucette, Wei Hu, Curtis Anderson, Mike
+ 1333  Nishimoto, and Geoff Peck. Scalability in the XFS File System.
+ 1334  In USENIX 1996, San Diego, CA, January 1996.
+ 1335  [33] Theodore Tso. Re: [PATCH 0/4] (RESEND) ext3[34] barrier
+ 1336  changes. Linux Kernel Mailing List. http://article.
+ 1337  gmane.org/gmane.comp.file-systems.ext4/
+ 1338  6662, May 2008.
+ 1339  [34] Theodore Ts'o and Stephen Tweedie. Future Directions for the
+ 1340  Ext2/3 Filesystem. In FREENIX '02, Monterey, CA, June 2002.
+ 1341  [35] Stephen C. Tweedie. Journaling the Linux ext2fs File System. In
+ 1342  The Fourth Annual Linux Expo, Durham, North Carolina, May
+ 1343  1998.
+ 1344  [36] Yang Wang, Manos Kapritsos, Zuocheng Ren, Prince Mahajan,
+ 1345  Jeevitha Kirubanandam, Lorenzo Alvisi, and Mike Dahlin. Robustness in the Salus Scalable Block Store. In NSDI '13, pages
+ 1346  357–370, Lombard, IL, April 2013.
+ 1347  [37] Ralph O. Weber. SCSI Architecture Model - 3 (SAM-
+ 1348  3). http://www.t10.org/ftp/t10/drafts/sam3/
+ 1349  sam3r14.pdf, September 2004.
+ 1350  [38] B. L. Worthington, G. R. Ganger, and Y. N. Patt. Scheduling
+ 1351  Algorithms for Modern Disk Drives. In SIGMETRICS '94, pages
+ 1352  241–251, Nashville, TN, May 1994.
+ 1353  [39] Haifeng Yu and Amin Vahdat. Design and Evaluation of a Continuous Consistency Model for Replicated Services. In OSDI '00,
+ 1354  San Diego, CA, October 2000.

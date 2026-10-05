@@ -1,0 +1,683 @@
+---
+title: "Vertical Paxos and Primary-Backup Replication"
+authors:
+  - "Leslie Lamport"
+  - "Dahlia Malkhi"
+  - "Lidong Zhou"
+year: "2009"
+publication: ""
+handle_url: "https://lamport.org/pubs/vertical-paxos.pdf"
+source_pdf: "research/agent366/papers/vertical-paxos-2009.pdf"
+source_pdf_sha256: "a5cffdd19873356596c5c4d8fe9004d39e878780fdc7907bebf66f970f55d666"
+page_count: 17
+extracted_text_runs: 2132
+tool: "research/agent366/tools/linearlatex.py"
+tool_version: "linearlatex 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Vertical Paxos is a family of Paxos algorithms that permits reconfiguration while agreement on a state-machine command is still in progress. An auxiliary configuration master coordinates the change. The authors show how familiar primary-backup systems fit within this family and can be reasoned about using its safety conditions.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Contents
+
+    2  References
+
+    3  1
+    4  2
+    5  3
+    6  4
+
+    7  5
+
+    8  Vertical Paxos and Primary-Backup
+
+    9  Replication
+
+   10  Leslie Lamport, Dahlia Malkhi, Lidong Zhou
+
+   11  Microsoft Research
+
+   12  9 February 2009
+
+   13  corrected 26 August 2009, 10 March 2019
+   14  Abstract
+   15  We introduce a class of Paxos algorithms called Vertical Paxos, in
+   16  which reconfiguration can occur in the middle of reaching agreement
+   17  on an individual state-machine command. Vertical Paxos algorithms
+   18  use an auxiliary configuration master that facilitates agreement on
+   19  reconfiguration. A special case of these algorithms leads to traditional
+   20  primary-backup protocols. We show how primary-backup systems in
+   21  current use can be viewed, and shown to be correct, as instances of
+   22  Vertical Paxos algorithms.
+
+   23  Introduction 1
+   24  Overview of Vertical Paxos 2
+   25  The Primary Backup Case 4
+   26  Vertical Paxos 5
+   27  4.1 Paxos Preliminaries . . . . . . . . . . . . . . . . . . . . . . . 6
+   28  4.2 Vertical Paxos I . . . . . . . . . . . . . . . . . . . . . . . . . . 8
+   29  4.3 Vertical Paxos II . . . . . . . . . . . . . . . . . . . . . . . . . 10
+   30  Vertical Paxos and Other Primary-Backup Protocols 14
+   31  15
+   32  1
+=== PAGE 2 ===
+
+   33  1 Introduction
+
+   34  Large-scale distributed storage systems built over failure-prone commodity
+   35  components are increasingly popular. Failures are the norm in those systems, and replication is often the solution to data reliability. We might
+   36  expect these systems to adopt well-studied consensus algorithms and the
+   37  replicated state-machine approach that they enable. While some consensus algorithms, such as Paxos [5], have started to find their way into those
+   38  systems, their uses are limited mostly to the maintenance of the global configuration information in the system, not for the actual data replication.
+   39  A clear gap remains between the well-known consensus algorithms and the
+   40  practical replication protocols in real systems.
+   41  The gap is not accidental; the abstract models for defining the classic
+   42  consensus algorithms do not fully capture the requirements from those distributed systems. The classic consensus problem is defined on a single fixed
+   43  set of n processes as a replica group with each process as a replica, where
+   44  at most f of the n processes can fail. In practice, a distributed system
+   45  consists of a large number of overlapping replica groups, each responsible
+   46  for maintaining a subset of the system's data. When replicas fail, the system must replace the failed replicas with new ones through reconfiguration,
+   47  before more replica failures lead to permanent data loss. For practical replication protocols, the global resilience, the system throughput, and the cost
+   48  of reconfiguration tend to be more important than the fault-tolerance of a
+   49  single replica group or the number of message rounds.
+   50  The gap between consensus algorithms and practical replication protocols is not fundamental. Here, we bridge it by viewing Paxos not as a
+   51  particular algorithm, but as a family of algorithms based on a particular
+   52  way of achieving consensus. We focus on primary-backup replication, a class
+   53  of replication protocols that has been widely used in practical distributed
+   54  systems. We develop two new algorithms, in a family of Paxos algorithms
+   55  called Vertical Paxos, that capture the essence of primary-backup replication. (The only previous algorithm in this family that we know of is an
+   56  unpublished version of Cheap Paxos [6].) A primary-backup replication
+   57  protocol becomes a simple instance of our second algorithm, which we call
+   58  Vertical Paxos II.
+   59  Vertical Paxos not only provides a solid theoretical foundation for existing primary-backup replication protocols, but also offers a new way to look
+   60  at primary-backup replication, leading to further improvements that address
+   61  issues arising in practical systems. For example, when new processes are to
+   62  replace failed replicas to restore the desirable level of fault tolerance, state
+
+   63  1
+=== PAGE 3 ===
+
+   64  transfer to the new processes is necessary before the reconfiguration can take
+   65  place. In a distributed storage system, state transfer usually involves copying data across machines—an often costly operation. The system therefore
+   66  faces the difficult decision of either allowing the replica group to continue
+   67  with a reduced level of resilience or disrupting the service during state transfer. Our first algorithm, Vertical Paxos I addresses this issue by allowing
+   68  a replica group to operate with the restored resilience, while enabling state
+   69  transfer concurrently.
+   70  Vertical Paxos is also significant from a theoretical perspective. Its value
+   71  goes beyond the special case of primary-backup replication, offering a different way of reconfiguring state machines from the one described in the original
+   72  Paxos paper. In Vertical Paxos, reconfiguration relies on an external master, itself implemented as a replicated state machine. This corresponds to
+   73  an attractive system architecture in which the external master manages the
+   74  global system state, participates in the reconfiguration of any replica group
+   75  in the system, and helps achieve the global optimal resilience.
+
+   76  2 Overview of Vertical Paxos
+
+   77  Paxos implements a state machine by executing a sequence of logically separate instances of the Paxos consensus algorithm, instance i choosing the
+   78  ith state machine command. The consensus algorithm is executed by four
+   79  conceptually separate but not necessarily disjoint sets of processes: clients,
+   80  leaders, acceptors, and learners. Leaders propose commands that have been
+   81  requested by clients, acceptors choose a single proposed command, and
+   82  learners learn what command has been chosen.
+   83  Vertical Paxos is very much like traditional Paxos, except for two key
+   84  differences that stem from experiences with real systems that implement
+   85  state-machine replication.
+
+   86  Read/Write quorums: Practical protocols use primary-backup structure for
+   87  better system-wide resilience. Vertical Paxos achieves this structure by
+   88  distinguishing between read and write quorums. It has been observed
+   89  before that Paxos can be generalized by utilizing these two kinds of
+   90  quorums [7], but this offered little practical benefit in earlier versions
+   91  of Paxos.
+   92  Auxiliary configuration master: Although it is possible to let the state machine reconfigure itself, in practical settings, a separate configuration
+   93  master often makes reconfigurations decisions. Vertical Paxos makes
+
+   94  2
+=== PAGE 4 ===
+
+   95  use of an auxiliary master to allow the set of acceptors to change within
+   96  each individual consensus instance. The master determines the set of
+   97  acceptors and the leader for every configuration. The use of a configuration master allows a more efficient implementation of the individual
+   98  state machines. In particular, a master allows a state-machine implementation to tolerate k failures using only k + 1 processors instead of
+   99  the 2k + 1 processors required without it [2].
+  100  The configuration master need be called upon by the processors executing an individual state machine only for reconfiguration—that is,
+  101  for changing the set of processors that are executing the state machine.
+  102  Since reconfiguration is infrequent—usually in response to a processor failure—executing the master requires little processing power. It
+  103  is therefore practical to implement a very reliable master by using a
+  104  sufficient number of different processors that spend most of their time
+  105  doing other things.
+
+  106  Vertical Paxos integrates these two key ingredients by changing the configuration of acceptors within individual consensus instances. A Paxos consensus algorithm performs a sequence of numbered ballots, each with a unique
+  107  leader. (In normal operation, only a single ballot is performed in each consensus instance until that ballot's leader fails and a new leader is chosen.)
+  108  Think of the ballots as arranged in a two-dimensional array, each vertical
+  109  column consisting of all the ballots within a single instance arranged according to their number. In standard "horizontal" Paxos algorithms, configurations can change only as we move horizontally; they are unchanged when we
+  110  move vertically (within a single instance). In Vertical Paxos, configurations
+  111  change when we move vertically, but remain the same as we move horizontally from a ballot in one instance to the ballot with the same number in
+  112  any other instance.
+  113  When a new ballot and its leader is chosen in Paxos, the leader must
+  114  communicate with acceptors from lower-numbered ballots. Since different
+  115  ballot numbers have different configurations, a leader in Vertical Paxos must
+  116  communicate with acceptors from past configurations. The two variants of
+  117  Vertical Paxos address this differently.
+
+  118  • Algorithm Vertical Paxos I uses the following procedure to eliminate
+  119  the dependence on acceptors from lower-numbered ballots. When a
+  120  configuration changes in Vertical Paxos, the new configuration becomes active right away. The previous configuration remains active
+
+  121  3
+=== PAGE 5 ===
+
+  122  only for storing old information, the new one also accepts new commands. When the state of the previous configuration has been transferred to the new configuration, the new leader informs the master
+  123  that this has happened. The master will then tell all future leaders
+  124  that they need not access that old configuration.
+  125  • Suppose a new ballot b + 1 is begun, but its leader fails before the
+  126  state transfer from the ballot b configuration is complete. A new ballot
+  127  b+2 then begins, but its leader could also fail before any state transfer
+  128  occurs. This could continue happening until ballot b + 42 begins, and
+  129  its leader must communicate with acceptors from ballots b through
+  130  b + 42. Algorithm Vertical Paxos II avoids the dependence on so
+  131  many configurations by having a new configuration initially inactive.
+  132  The new leader notifies the master when the state transfer from the
+  133  previous configuration is complete, and the master then activates the
+  134  new configuration. The leader communicates only with acceptors from
+  135  the new configuration and the previous active configuration. However,
+  136  a number of new ballots could be started, but remain forever inactive
+  137  because their leaders failed, before a new configuration becomes active
+  138  and starts accepting new commands. Vertical Paxos II is especially
+  139  useful for primary-backup replication.
+
+  140  3 The Primary Backup Case
+
+  141  In a Vertical Paxos consensus algorithm, a ballot leader must access a write
+  142  quorum of its own ballot and read quorums of one or more lower-numbered
+  143  ballots. Because a reconfiguration is usually performed in response to a
+  144  failure, processes participating in lower-numbered ballots are more likely to
+  145  have failed. We therefore want to keep read quorums small. Read and write
+  146  quorums must intersect, so there is a tradeoff: making read quorums smaller
+  147  requires making write quorums larger.
+  148  We obtain what is probably the most interesting case of Vertical Paxos
+  149  by letting read quorums be as small as possible—namely, making any single
+  150  acceptor a read quorum, so the only write quorum is the set of all acceptors.
+  151  These are the quorums that allow k-fault tolerance with only k +1 acceptors.
+  152  Suppose that in Vertical Paxos II we also always make the leader one of the
+  153  acceptors and, upon reconfiguration, always choose the new leader from
+  154  among the current acceptors. The new leader by itself is a read quorum for
+  155  the previous ballot. Hence, it can perform the state transfer all by itself,
+  156  with no messages. (It will still have to interact with the master and may
+
+  157  4
+=== PAGE 6 ===
+
+  158  have to exchange messages with acceptors in the new configuration.) If we
+  159  call the leader the primary and all other acceptors backups, then we have a
+  160  traditional primary-backup system.
+  161  The optimizations that are possible with traditional primary-backup systems all seem to have corresponding optimizations in Vertical Paxos. One
+  162  example is the way efficient local reads can be done from the primary while
+  163  maintaining linearizability. The primary obtains a lease that gives it permission to reply directly to reads from its local state. A new primary cannot
+  164  be chosen until the lease expires. In a similar way, a Vertical Paxos leader
+  165  can use a lease to reply immediately to commands that do not change the
+  166  state. A new leader cannot be chosen until the previous leader's lease has
+  167  expired.
+  168  Boxwood employs this local reading protocol for Replicated Logical Devices [8]. Boxwood also uses another optimization that applies as well to
+  169  Vertical Paxos. A Boxwood configuration consists of a primary and a single
+  170  backup. When either of them fails, the other takes over and continues in a
+  171  solo configuration. It may start processing new client requests immediately
+  172  upon the reconfiguration decree by the configuration master. This applies
+  173  to Vertical Paxos because the solo process is both the leader and a write
+  174  quorum of the new configuration, as well as a read quorum of the previous
+  175  (two-acceptor) configuration.
+  176  Most primary-backup protocols maintain a single active configuration,
+  177  as captured by Vertical Paxos II. While having a single active configuration
+  178  might seem like a simple and natural choice, the master activates a new
+  179  configuration only after the state transfer from the previous configuration is
+  180  complete. In practical systems, the state transfer tends to involve copying
+  181  a large amount of data and is therefore costly. By allowing multiple active
+  182  configurations, Vertical Paxos I decouples state transfer from reconfiguration: a new configuration can be activated to accept new requests, while the
+  183  state is transferred from the old configuration. This simple variation of the
+  184  existing primary-backup protocols is practically significant.
+
+  185  4 Vertical Paxos
+
+  186  Paxos is an instance of the state-machine approach, in which a sequence of
+  187  commands is chosen by executing a separate instance of a consensus algorithm to choose the ith command, for each i. What makes Paxos efficient is
+  188  that part of the consensus algorithm is performed simultaneously for all the
+  189  different instances. However, correctness depends only on correctness of the
+
+  190  5
+=== PAGE 7 ===
+
+  191  consensus algorithm. We therefore concentrate on the consensus algorithm.
+
+  192  4.1 Paxos Preliminaries
+  193  A consensus algorithm must solve the following problem. There is a set of
+  194  client processes, each of which can propose a value from some set PValues
+  195  of proposable values. The algorithm must choose a unique value that was
+  196  proposed by some client.
+  197  A Paxos consensus algorithm uses a sequence of ballots, with numbers
+  198  belonging to an infinite set Ballots sequentially ordered by < and having
+  199  minimal element 0. In Vertical Paxos I, Ballots is the set Nat of natural
+  200  numbers. In Vertical Paxos II, the numbers of ballots that are started but
+  201  never activated are not considered to be in Ballots, so Ballots is a subset of
+  202  Nat. For any non-zero b in Ballots, let Prev(b) be the next lower element of
+  203  Ballots, and let Prev(0) be a value less than 0 that is not a ballot number.
+  204  For each ballot number b, there are two sets of processes: the sets
+  205  RQuorums(b) and WQuorums(b) of read and write b-quorums. They satisfy
+  206  the property that every write b-quorum has a non-empty intersection with
+  207  every read b-quorum and every write b-quorum. An acceptor is a process
+  208  that is in a read or write b-quorum, for some ballot number b.
+  209  In the original (horizontal) Paxos consensus algorithm, Ballots is the
+  210  set of natural numbers, the sets of read and write b-quorums are the same,
+  211  and the sets of b-acceptors and b-quorums are independent of b. In Vertical
+  212  Paxos, the master computes the read and write b-quorums in reaction to
+  213  changes in the system; and in Vertical Paxos II it dynamically adds elements
+  214  to Ballots. The master may wait to choose if b is in Ballots and what the
+  215  b-quorums are until it needs to know, but once made its choice is fixed.
+  216  For simplicity, we assume that Ballots and the read and write quorums are
+  217  constant, fixed in advance by an oracle that predicts what the master will
+  218  do. (Formally, the oracle is a prophecy variable [1].)
+  219  Each acceptor a maintains a value vote[a][b] for each ballot number b.
+  220  Its value is initially equal to a non-proposable value None and can be set by
+  221  the acceptor to a proposable value v in an action that we call a voting for
+  222  v in ballot b. An acceptor cannot change its vote. In an implementation,
+  223  acceptor a does not need to remember the value vote[a][b] for all ballot
+  224  numbers b, but it is easiest to explain the algorithm in terms of the complete
+  225  array vote[a].
+  226  A proposable value v is chosen in ballot b iff all acceptors in a write bquorum have voted for v in ballot b; and v is chosen iff it is chosen in some
+  227  ballot. We now explain how Paxos ensures that at most one proposable
+
+  228  6
+=== PAGE 8 ===
+
+  229  value is chosen.
+  230  Acceptor a also maintains a ballot number maxBallot[a], initially 0,
+  231  that never decreases. The acceptor will not vote in a ballot whose number
+  232  is less than maxBallot[a]. We say that a value v is choosable in ballot b
+  233  iff v is chosen in b or could become chosen in b by some acceptors (with
+  234  maxBallot[a] ≤ b) voting for v in ballot b. We define a proposable value v to
+  235  be safe at ballot number b iff no proposable value other than v is choosable
+  236  in any ballot numbered less than b. (Thus, all values are safe at 0.) The
+  237  fundamental invariant maintained by a Paxos consensus algorithm is that
+  238  an acceptor votes in any ballot b only for a proposable value safe at b. It
+  239  can be shown that this implies that two different values cannot be chosen.
+  240  To get a value v chosen, we just have to choose a ballot number b and
+  241  get a write b-quorum Q of acceptors to vote for v in ballot b. We can do this
+  242  by choosing Q so that vote[a][b] = None and b ≥ MaxBallot[a] for every
+  243  a in Q. However, we must choose v so it is safe at b. We now show how
+  244  such a v is chosen. First we observe that because read and write b-quorums
+  245  have non-empty intersection, no value is choosable in a ballot b if there is
+  246  a read b-quorum Q such that maxBallot[a] > b and vote[a][b] = None for
+  247  every acceptor a in Q. Vertical Paxos maintains the invariant that different
+  248  acceptors cannot vote for different values in the same ballot. We can then use
+  249  algorithm FindSafe of Figure 1 to compute a value safe at ballot number b.
+  250  Algorithm FindSafe is written in the PlusCal algorithm language [4],
+  251  except that the grain of atomicity is not shown. The algorithm is designed to
+  252  be as general as possible, rather than to be efficient, so it can be implemented
+  253  in situations where complete information about the values of variables may
+  254  not be known. The PlusCal statement with (x ∈ S){ body} is executed
+  255  by waiting until the set S is not empty and executing the body with x a
+  256  nondeterministically chosen element of S. The statement await P waits
+  257  until P is true. The either/or statement nondeterministically chooses to
+  258  execute one of its two clauses; however, the choice is deferred until it is
+  259  determined which of the clauses are executable, so deadlock cannot be caused
+  260  by making the wrong choice.
+  261  The result is computed in the variable safeVal, which upon termination is left equal either to a proposable value safe at b or the special (nonproposable) value AllSafe indicating that all proposable values are safe at b.
+  262  It is not hard to show that algorithm FindSafe is correct if the entire computation is performed atomically, while the variables vote and maxBallot
+  263  do not change. Because acceptors vote at most once in any ballot and
+  264  maxBallot[a] does not decrease, the algorithm remains correct even if executed nonatomically, with the waiting conditions evaluated repeatedly, as
+
+  265  7
+=== PAGE 9 ===
+
+  266  safeVal : = AllSafe ;
+  267  c : = Prev(b) ;
+  268  while ( (safeVal = AllSafe) ∧ (c ≥ 0) ) {
+  269  either with (acc ∈ {a ∈ Acceptors : vote[a][c] 6= None}) {
+  270  safeVal : = vote[acc][c] }
+  271  or await ∃ Q ∈ RQuorums(c) : ∀ a ∈ Q :
+  272  (maxBallot[a] > c) ∧ (vote[a][c] = None) ;
+  273  c : = Prev(c) }
+  274  Figure 1: Algorithm FindSafe for computing a value safe at ballot b.
+
+  275  long as: (i) the read of vote[acc][c] in the with body is atomic, and (ii) for
+  276  each individual acceptor a and ballot number c, the values of maxBallot[a]
+  277  and vote[a][c] are both read in a single atomic step when evaluating the
+  278  await condition.
+  279  Algorithm FindSafe is used in ordinary (horizontal) Paxos. However, it
+  280  may require knowing the votes of acceptors in c-quorums for every c ≤ b.
+  281  This is unacceptable in Vertical Paxos, where acceptors that participated in
+  282  lower-numbered ballots may have been reconfigured out of the system. To
+  283  solve this problem, we first define ballot b to be complete if a value has been
+  284  chosen in b or all values are safe at b. We can modify algorithm FindSafe
+  285  so it stops at a complete ballot rather than at ballot 0. That is, if ballot
+  286  number d is complete, we can replace the condition c ≥ 0 by c ≥ d in the
+  287  while test. We call the modified algorithm VFindSafe.
+
+  288  4.2 Vertical Paxos I
+  289  We describe our algorithms using PlusCal. The PlusCal code describes what
+  290  actions processes are allowed to perform. It says nothing about when they
+  291  should or should not perform those actions, which affects only liveness. The
+  292  liveness property satisfied by a Vertical Paxos algorithm is similar to that
+  293  of ordinary Paxos algorithms, except with the added complication caused
+  294  by reconfiguration—a complication that arises in any algorithm employing
+  295  reconfiguration. A discussion of liveness is beyond the scope of this paper.
+  296  In Paxos, the invariant that two different acceptors do not vote for different values in the same ballot is maintained by letting each ballot have a
+  297  unique leader process that tells acceptors what value they can vote for in
+  298  that ballot. The same physical processor can execute the leader process for
+
+  299  8
+=== PAGE 10 ===
+
+  300  infinitely many ballots.
+  301  In ordinary Paxos, the leader of a ballot decides for itself when to begin
+  302  execution. Our Vertical Paxos algorithms assume a reliable service that
+  303  does this. We represent the service as a single Master process. The master
+  304  will actually be implemented by a network of processors running a reliable
+  305  state-machine implementation, such as (horizontal) Paxos.
+  306  The ballot b leader process first waits until it receives a newBallot
+  307  message msg (one with msg.type equal to the string "newBallot") with
+  308  msg.bal = b, which is sent by the master. (The master will send this message in response to some request that does not concern us.) The value of
+  309  msg.completeBal is the largest ballot number that the master knows to be
+  310  complete.
+  311  As in ordinary Paxos, a ballot proceeds in two phases. In phase 1, the
+  312  leader executes algorithm VFindSafe by sending a 1a message to acceptors
+  313  and receiving 1b messages in reply. In phase 2, it directs acceptors to choose
+  314  a value by sending a 2a message; it learns that the value has been chosen
+  315  from the 2b messages with which they reply. Recall that VFindSafe either
+  316  returns a single proposable value v safe at b or else returns AllSafe indicating that all values are safe at b. In the first case, the leader executes
+  317  phase 2 and waits until v has been chosen. In either case, the leader then
+  318  sends a complete message informing the master that ballot b is complete. If
+  319  VFindSafe returned AllSafe, the leader waits to receive a client proposal in
+  320  a clientReq message and then begins phase 2 to get that value chosen. In
+  321  this case, it terminates without waiting to receive the 2b messages.
+  322  The code that the leader and acceptors execute in the two phases is
+  323  derived from the following meanings of a message m of each type:
+  324  1a Request each acceptor a to set maxBallot[a] to m.bal and report the
+  325  value of vote[a][m.prevBal]. (Acceptor a ignores the message if m.bal <
+  326  maxBallot[a].)
+  327  1b Asserts that maxBallot[m.acc] ≥ m.bal and vote[m.acc][m.voteBal] =
+  328  m.val.
+  329  2a Requests each acceptor a to set vote[a][m.bal] to m.val. (Acceptor a
+  330  ignores the message if m.bal < maxBallot[a].)
+  331  2b Reports that acceptor m.acc has voted for m.val in ballot m.bal.
+  332  The code of the leader processes is in Figure 2 and that of the other processes
+  333  is in Figure 3. In PlusCal, an atomic step is an execution from one label
+  334  to the next, and the identifier self is the name of the current process. The
+
+  335  9
+=== PAGE 11 ===
+
+  336  leader of ballot number b has process name b. The elements of Acceptors
+  337  are the names of the acceptors, and we assume a set Clients of client process
+  338  names.
+  339  In PlusCal, [f 1 7→ v1, . . . ,f n 7→ vn ] is a record r whose f i field r.f i
+  340  equals vi . We represent message passing by a Send operation that simply
+  341  broadcasts a message, which can be received by any process interested in
+  342  receiving it. For any record r, we let MsgsRcvdWith(r) be the set of messages received by a process that have their corresponding fields equal to the
+  343  fields of the record r.
+
+  344  4.3 Vertical Paxos II
+  345  By having the master keep track of the largest complete ballot number,
+  346  Vertical Paxos I limits the number of different ballots whose acceptors a
+  347  leader must query to choose a safe value. In Vertical Paxos II, a leader
+  348  has to query only acceptors from a single previous ballot. It does this by
+  349  letting Ballots be a subset of the set of natural numbers. The master adds
+  350  a number b to the set of ballot numbers, a procedure we call activating
+  351  ballot b, when doing so makes b a complete ballot. (Remember that we are
+  352  assuming that the oracle predicted that the master would add b to the set
+  353  of ballot numbers, so b is already an element of the constant set Ballots.)
+  354  Ballot numbers are activated in increasing order.
+  355  In this algorithm, the master's newBallot message m for ballot b has
+  356  m.prevBal equal to the largest currently activated ballot number (which is
+  357  less than b). As in Vertical Paxos I, the ballot b leader performs phase 1
+  358  and, if VFindSafe returns a single value, it performs phase 2; and it then
+  359  sends its complete message. It does all this assuming that b is the next ballot
+  360  to be activated. If the master has not activated any ballot since sending its
+  361  newBallot message to b, then it activates b and sends an activated message
+  362  to the leader. Upon receipt of this message, the leader performs phase 2
+  363  if it has not already done so. If ballot b is not activated, then the actions
+  364  performed have no effect because b is not a ballot number (so it doesn't
+  365  matter what the value vote[a][b] is for a process a). The leaders' code is
+  366  in Figure 4 and the master's code is in Figure 5. For coding convenience,
+  367  ballot 0 is not performed. Note that the leader's while loop in Vertical
+  368  Paxos I has been eliminated, since the leader assumes that prevBal is the
+  369  next lower ballot number.
+
+  370  10
+=== PAGE 12 ===
+
+  371  b1:
+
+  372  b2:
+  373  b3:
+
+  374  b4:
+
+  375  b5:
+
+  376  b6:
+  377  b7:
+
+  378  process (BallotLeader ∈ Nat)
+  379  variables completeBal, prevBal, safeVal = AllSafe ; {
+  380  with (msg ∈ MsgsRcvdWith( [type 7→ "newBallot", bal 7→ self ] )) {
+  381  completeBal : = msg.completeBal ; }
+  382  prevBal : = self − 1;
+  383  while ((safeVal = AllSafe) ∧ (prevBal ≥ completeBal)) {
+  384  Send( [type 7→ "1a", bal 7→ self , prevBal 7→ prevBal]) ;
+  385  either with (msg ∈ {m ∈ MsgsRcvdWith([type 7→ "1b",
+  386  voteBal 7→ prevBal]) :
+  387  m.val 6= None}){
+  388  safeVal : = msg.val }
+  389  or await ∃ Q ∈ RQuorums(prevBal) : ∀ a ∈ Q :
+  390  MsgsRcvdWith([type 7→ "1b",
+  391  bal 7→ self ,
+  392  voteBal 7→ prevBal,
+  393  val 7→ None,
+  394  acc 7→ a]) 6= {};
+  395  prevBal : = prevBal − 1; };
+  396  if (safeVal 6= AllSafe) {
+  397  Send( [type 7→ "2a", bal 7→ self , val 7→ safeVal] ) ;
+  398  await ∃ Q ∈ WQuorums(self ) :
+  399  ∀ a ∈ Q :
+  400  MsgsRcvdWith([type 7→ "2b", acc 7→ a, bal 7→ self ])
+  401  6= {} ; };
+  402  Send( [type 7→ "complete", bal 7→ self ] ) ;
+  403  if (safeVal = AllSafe) {
+  404  with (msg ∈ MsgsRcvdWith( [type 7→ "clientReq"] )) {
+  405  Send( [type 7→ "2a", bal 7→ self , val 7→ msg.val] ) ; } } }
+
+  406  Figure 2: The leader processes of Vertical Paxos I.
+
+  407  11
+=== PAGE 13 ===
+
+  408  Figure 3: The master process and the acceptor and client processes of Vertical Paxos I.
+
+  409  m1:
+
+  410  a1:
+
+  411  c1:
+
+  412  process (MasterProc = Master)
+  413  variable completeBallot = 0, nextBallot = 0 ; {
+  414  while (true) {
+  415  either {Send( [type 7→ "newBallot", bal 7→ nextBallot,
+  416  completeBal 7→ completeBallot] ) ;
+  417  nextBallot : = nextBallot + 1; }
+  418  or with (msg ∈ MsgsRcvdWith( [type 7→ "complete"] )) {
+  419  if (msg.bal > completeBallot) {
+  420  completeBallot : = msg.bal; } } } }
+
+  421  process (Acceptor ∈ Acceptors)
+  422  variables vote = [b ∈ Ballots 7→ None] ; maxBallot = 0 ; {
+  423  while (true) {
+  424  either with (msg ∈ MsgsRcvdWith([type 7→ "1a"])) {
+  425  if (msg.bal ≥ maxBallot) {
+  426  maxBallot : = msg.bal ;
+  427  Send( [type 7→ "1b", acc 7→ self ,
+  428  bal 7→ msg.bal, val 7→ vote[msg.prevBal],
+  429  voteBal 7→ msg.prevBal] ) } }
+  430  or with (msg ∈ MsgsRcvdWith( [type 7→ "2a"] )) {
+  431  if (msg.bal ≥ maxBallot) {
+  432  maxBallot : = msg.bal ;
+  433  vote[msg.bal] : = msg.val ;
+  434  Send( [type 7→ "2b", acc 7→ self ,
+  435  bal 7→ maxBallot, val 7→ msg.val] ) } } } }
+
+  436  process (Client ∈ Clients) {
+  437  with (v ∈ PValues) {
+  438  Send( [type 7→ "clientReq", val 7→ v] ) } } }
+
+  439  12
+=== PAGE 14 ===
+
+  440  b1:
+
+  441  b2:
+
+  442  b3:
+
+  443  b4:
+
+  444  b5:
+  445  b6:
+  446  b7:
+
+  447  process (BallotLeader ∈ Nat \ {0})
+  448  variables prevBal, safeVal ; {
+  449  with (msg ∈ MsgsRcvdWith( [type 7→ "newBallot", bal 7→ self ] )) {
+  450  prevBal : = msg.prevBal ;
+  451  Send( [type 7→ "1a", bal 7→ self , prevBal 7→ prevBal] ) ; }
+  452  either with (msg ∈ {m ∈ MsgsRcvdWith([type 7→ "1b",
+  453  voteBal 7→ prevBal]) :
+  454  m.val 6= None}){
+  455  safeVal : = msg.val }
+  456  or await ∃ Q ∈ RQuorums(prevBal) : ∀ a ∈ Q :
+  457  MsgsRcvdWith([type 7→ "1b",
+  458  bal 7→ self ,
+  459  voteBal 7→ prevBal,
+  460  val 7→ None,
+  461  acc 7→ a]) 6= {};
+  462  if (safeVal 6= AllSafe) {
+  463  Send( [type 7→ "2a", bal 7→ self , val 7→ safeVal] ) ;
+  464  await ∃ Q ∈ WQuorums(self ) :
+  465  ∀ a ∈ Q :
+  466  MsgsRcvdWith([type 7→ "2b", acc 7→ a, bal 7→ self ])
+  467  6= {}; };
+  468  Send( [type 7→ "complete", bal 7→ self , prevBal 7→ prevBal] ) ;
+  469  await HasRcvd( [type 7→ "activated", bal 7→ self ] ) ;
+  470  if (safeVal = AllSafe) {
+  471  with (msg ∈ MsgsRcvdWith( [type 7→ "clientReq"] )) {
+  472  Send( [type 7→ "2a", bal 7→ self , val 7→ msg.val] ) ; } } }
+
+  473  Figure 4: The leader processes of Vertical Paxos II.
+
+  474  13
+=== PAGE 15 ===
+
+  475  process (MasterProc = Master)
+  476  variable curBallot = 0, nextBallot = 1 ; {
+  477  m1: while (true) {
+  478  either {Send( [type 7→ "newBallot", bal 7→ nextBallot,
+  479  prevBal 7→ curBallot] ) ;
+  480  nextBallot : = nextBallot + 1; }
+  481  or with (msg ∈ MsgsRcvdWith( [type 7→ "complete"] )) {
+  482  if (msg.prevBal = curBallot) {
+  483  Send( [type 7→ "activated", bal 7→ msg.bal] );
+  484  curBallot : = msg.bal ; } } } }
+
+  485  Figure 5: The master process of Vertical Paxos II.
+
+  486  5 Vertical Paxos and Other Primary-Backup Pro-
+
+  487  tocols
+
+  488  Primary-backup replication protocols are common in practical distributed
+  489  systems. Niobe [9], Chain Replication [10], and the Google File System [3]
+  490  are three examples of such protocols that have been deployed in systems with
+  491  hundreds or thousands of machines. While these protocols are seemingly
+  492  unrelated, the first two can be viewed as Vertical Paxos algorithms. The
+  493  Google File System does not provide consistency, so it is not an instance of
+  494  Vertical Paxos; but it could be made consistent by using Vertical Paxos.
+  495  Niobe follows the Vertical Paxos II protocol closely. Each replica forms
+  496  a read quorum, while the entire replica set constitutes a write quorum. Reconfiguration uses a global-state manager, with the configuration numbers
+  497  corresponding to the ballot numbers in Vertical Paxos II. Niobe incorporates certain simple optimizations of Vertical Paxos. For example, when
+  498  the primary removes a faulty backup from the configuration, no change of
+  499  configuration number or state transfer is needed. This is because in Vertical
+  500  Paxos with a single write b-quorum, the master can at any time remove acceptors from that b-quorum. Niobe also allows the primary to handle query
+  501  operations locally, as described in Section 3.
+  502  Chain Replication imposes an additional chain structure on a replica
+  503  group. An update arrives at the head of the chain and propagates down the
+  504  chain to the tail. An update message carries both the phase 2a message and
+
+  505  14
+=== PAGE 16 ===
+
+  506  phase 2b messages along the chain. When it arrives at the tail, it contains
+  507  the phase 2b messages telling the tail that its vote makes the update chosen.
+  508  This allows Chain Replication to use the tail, instead of just the head, to
+  509  process queries locally. The chain structure also makes it easy to perform
+  510  reconfigurations that add a replica to the tail or remove the head or tail. Like
+  511  Niobe, Chain Replication uses an external master for reconfiguration and
+  512  follows the Vertical Paxos II protocol, maintaining one active configuration.
+  513  The Google File System (GFS) implements the abstraction of reliable
+  514  distributed files and is optimized for append operations. A file consists of a
+  515  sequence of chunks, each replicated on a (possibly different) set of servers.
+  516  A master tracks the composition of each file and the locations of its chunks.
+  517  GFS superficially resembles Vertical Paxos I in having multiple configurations active concurrently, each operating on a different chunk. However, GFS
+  518  does not guarantee state-machine consistency—even for operations that involve only a single chunk. GFS can be made consistent, mainly by changing
+  519  how operations to an individual chunk are implemented. This can be done
+  520  by making each chunk a separate state machine implemented with Vertical
+  521  Paxos. While we do not know the precise algorithm used by GFS, we expect
+  522  that this change would not seriously degrade its performance.
+  523  There are quite a few different primary-backup protocols. We believe
+  524  that each one that guarantees state-machine consistency can be described,
+  525  and its correctness demonstrated, by viewing it as an instance of Vertical
+  526  Paxos. Vertical Paxos may also lead to interesting new algorithms, including
+  527  ones that do not use a single write quorum for each ballot and are thus not
+  528  traditional primary-backup protocols.
+
+  529  References
+
+  530  [1] Mart´ın Abadi and Leslie Lamport. The existence of refinement mappings. Theoretical Computer Science, 82(2):253–284, May 1991.
+  531  [2] Bernadette Charron-Bost and Andr´e Schiper. Uniform consensus
+  532  is harder than consensus (extended abstract). Technical Report
+  533  DSC/2000/028, ´Ecole Polytechnique F´ed´erale de Lausanne, Switzerland, May 2000.
+  534  [3] Sanjay Ghemawat, Howard Gobioff, and Shun-Tak Leung. The Google
+  535  file system. In Michael L. Scott and Larry L. Peterson, editors, SOSP
+  536  '03: Proceedings of the nineteenth ACM symposium on Operating Systems Principles, pages 29–43, New York, NY, USA, 2003. ACM.
+
+  537  15
+=== PAGE 17 ===
+
+  538  [4] Leslie Lamport. The PlusCal algorithm language. URL http://
+  539  research.microsoft.com/users/lamport/tla/pluscal.html. The
+  540  page can also be found by searching the Web for the 25-letter string
+  541  obtained by removing the "-" from uid-lamportpluscalhomepage.
+  542  [5] Leslie Lamport. The part-time parliament. ACM Transactions on Computer Systems, 16(2):133–169, May 1998.
+  543  [6] Leslie B. Lamport and Michael T. Massa. Cheap Paxos. United States
+  544  Patent 7249280, filed June 18, 2004, issued July 24, 2007.
+  545  [7] Butler W. Lampson. The ABCDs of Paxos. http://research.
+  546  microsoft.com/lampson/65-ABCDPaxos/Abstract.html.
+  547  [8] John MacCormick, Nick Murphy, Marc Najork, Chandramohan A.
+  548  Thekkath, and Lidong Zhou. Boxwood: abstractions as the foundation
+  549  for storage infrastructure. In OSDI'04: Proceedings of the 6th Conference on Symposium on Opearting Systems Design and Implementation,
+  550  pages 105–120, Berkeley, CA, USA, 2004. USENIX Association.
+  551  [9] John MacCormick, Chandramohan A. Thekkath, Marcus Jager, Kristof
+  552  Roomp, Lidong Zhou, and Ryan Peterson. Niobe: A practical replication protocol. ACM Transactions on Storage (TOS), 3(4), 2008.
+  553  [10] Robbert van Renesse and Fred B. Schneider. Chain replication for
+  554  supporting high throughput and availability. In Proceedings of the 6th
+  555  Symposium on Operating System Design and Implementation (OSDI
+  556  2004), pages 91–104, Berkeley, CA, USA, 2004. USENIX Association.
+
+  557  16
