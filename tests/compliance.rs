@@ -15,8 +15,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use compliance::{
-    Case, Executor, Op, SystemOp, assert_expectation, fuse, gossip_request, identity, op_entry,
-    pair_of, prepare, prepare_ok, view, wire_hex,
+    Case, Executor, Op, SystemOp, assert_expectation, commit, fuse, gossip_request, identity,
+    op_entry, pair_of, prepare, prepare_ok, view, wire_hex,
 };
 use uvrr::configuration::SystemOperation;
 use uvrr::ids::{Ballot, Era, Slot, View};
@@ -864,6 +864,29 @@ fn boot_gate_family() -> Vec<Case> {
         node: "3:1".into(),
         kind: "crashed".into(),
     });
+    // The Commit path's fence post, and its complement, both read from
+    // one announcement: the settled view's own primary, at that view's
+    // committed frontier, delivered at that view's ballot. The pair is
+    // what discriminates the rule, because the two receivers differ in
+    // one thing only, the weight they hold in the view's era's
+    // configuration: the fenced member is the cleanly restarted one,
+    // reopened at the retained ballot, and the outsider is the bumped
+    // life, which no configuration it can name counts.
+    let mut reopened = settled_setup();
+    reopened.push(Op::Halt { node: "3:1".into() });
+    reopened.push(Op::Restart {
+        node: "3:1".into(),
+        kind: "clean".into(),
+    });
+    let (fenced_view, fenced_primary) = probe_primary(&reopened, "1:1");
+    let (_, _, fenced_committed) = probe_state(&reopened, "1:1");
+    let announcement = wire_hex(&commit(fenced_view, Slot(fenced_committed)));
+    let mut outside = settled_setup();
+    outside.push(Op::Crash { node: "3:1".into() });
+    outside.push(Op::Restart {
+        node: "3:1".into(),
+        kind: "crashed".into(),
+    });
     vec![
         case(
             "boot-gate-the-controlled-halt-is-two-rounds-with-the-drain-between",
@@ -939,6 +962,37 @@ fn boot_gate_family() -> Vec<Case> {
                 .into(),
             settled_setup(),
             Op::Boot { node: "4:1".into() },
+        ),
+        case(
+            "boot-gate-a-fenced-member-adopts-the-commit-bootstrap",
+            "boot-gate",
+            "Acceptor.accept_preserves",
+            "A fenced member of the view's own configuration MUST leave \
+             the fence on a Commit announcement from that view's \
+             primary: the receiver reopens Normal and no frontier of \
+             commitment moves"
+                .into(),
+            reopened,
+            Op::Deliver {
+                to: "3:1".into(),
+                from: fenced_primary.clone(),
+                wire: announcement.clone(),
+            },
+        ),
+        case(
+            "boot-gate-an-outside-identity-stays-fenced-on-the-commit",
+            "boot-gate",
+            "ReincarnationGeneral.evicted_never_voting",
+            "A fenced identity holding no weight in the view's era MUST \
+             stay fenced on the same announcement: it adopts no view, no \
+             frontier of commitment moves, and it answers nothing"
+                .into(),
+            outside,
+            Op::Deliver {
+                to: "3:2".into(),
+                from: fenced_primary,
+                wire: announcement,
+            },
         ),
     ]
 }
