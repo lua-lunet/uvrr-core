@@ -1,9 +1,16 @@
-@misc{allfs,
-  title = {All File Systems Are Not Created Equal: {{On}} the Complexity of Crafting Crash Consistent Applications},
+@inproceedings{allfs,
+  title = {All {{File Systems Are Not Created Equal}}: {{On}} the {{Complexity}} of {{Crafting Crash-Consistent Applications}}},
+  booktitle = {Proceedings of the 11th {{USENIX Symposium}} on {{Operating Systems Design}} and {{Implementation}}},
   author = {Pillai, Thanumalayan Sankaranarayana and Chidambaram, Vijay and Alagappan, Ramnatthan and {Al-Kiswany}, Samer and {Arpaci-Dusseau}, Andrea C. and {Arpaci-Dusseau}, Remzi H.},
   year = 2014,
-  url = {https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-pillai.pdf},
-  abstract = {This paper studies how file systems differ in the guarantees they provide after a crash. It examines application techniques for crash consistency and shows why assumptions about write ordering and persistence can fail across file systems.}
+  month = oct,
+  pages = {433--448},
+  publisher = {USENIX Association},
+  address = {Broomfield, CO},
+  url = {https://www.usenix.org/conference/osdi14/technical-sessions/presentation/pillai},
+  abstract = {We present the first comprehensive study of application-level crash-consistency protocols built atop modern file systems. We find that applications use complex update protocols to persist state, and that the correctness of these protocols is highly dependent on subtle behaviors of the underlying file system, which we term persistence properties. We develop a tool named BOB that empirically tests persistence properties, and use it to demonstrate that these properties vary widely among six popular Linux file systems. We build a framework named ALICE that analyzes application update protocols and finds crash vulnerabilities, i.e., update protocol code that requires specific persistence properties to hold for correctness. Using ALICE, we analyze eleven widely-used systems (including databases, key-value stores, version control systems, distributed systems, and virtualization software) and find a total of 60 vulnerabilities, many of which lead to severe consequences. We also show that ALICE can be used to evaluate the effect of new file-system designs on application-level consistency.},
+  langid = {english},
+  file = {/Users/consensussolutions/Zotero/storage/8RXVYBV4/allfs.pdf;/Users/consensussolutions/Zotero/storage/XNGNN5QU/osdi14-pillai-allfs.pdf}
 }
 
 @misc{artifact,
@@ -21,7 +28,8 @@
   year = 2010,
   url = {https://consensus.app/papers/virtually-synchronous-methodology-for-dynamic-service-malki/1caefbe3ba4e5928bb31f842ef4fb696/},
   abstract = {In designing and building distributed systems, it is common engineering practice to separate steady-state operation from abnormal events such as recovery from failure. This paper explores this topic in a dynamic reconfiguration model that unifies virtual synchrony for reliable group communication and state machine replication, including Paxos.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/K9DZFR8E/birman2010-virtually-synchronous.pdf}
 }
 
 @inproceedings{bortnikov2012,
@@ -33,7 +41,8 @@
   doi = {10.1145/2332432.2332449},
   url = {https://doi.org/10.1145/2332432.2332449},
   abstract = {Reconfigurable state machine replication is an important enabler of elasticity for replicated cloud services, which must be able to dynamically adjust their size as a function of changing load and resource availability. We introduce a new generic framework to allow a reconfigurable state machine implementation to be derived from arbitrary non-reconfigurable state machines. It allows speculative command execution to ensure uninterrupted progress during reconfiguration, even when failures delay agreement. We apply the framework to non-reconfigurable Paxos and evaluate it on a distributed testbed.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/ZUEJE677/Bortnikov et al. - 2015 - Reconfigurable State Machine Replication from Non-Reconfigurable Building Blocks.pdf}
 }
 
 @inproceedings{burrows2006,
@@ -43,7 +52,8 @@
   year = 2006,
   pages = {335--350},
   url = {https://research.google/pubs/pub27897/},
-  abstract = {Chubby is a distributed lock service used within Google to coordinate loosely coupled systems. The paper describes its design, intended uses, fault tolerance, and operational experience.}
+  abstract = {Chubby is a distributed lock service used within Google to coordinate loosely coupled systems. The paper describes its design, intended uses, fault tolerance, and operational experience.},
+  file = {/Users/consensussolutions/Zotero/storage/G7SEPPER/burrows2006-chubby-osdi06.pdf}
 }
 
 @inproceedings{chandra2007,
@@ -55,7 +65,8 @@
   publisher = {ACM},
   doi = {10.1145/1281100.1281103},
   url = {https://research.google.com/archive/paxos_made_live.pdf},
-  abstract = {We describe our experience building a fault-tolerant database using the Paxos consensus algorithm. Despite the existing literature, building such a database proved non-trivial. We describe selected algorithmic and engineering problems encountered, and the solutions we found. Our measurements indicate that we built a competitive system.}
+  abstract = {We describe our experience building a fault-tolerant database using the Paxos consensus algorithm. Despite the existing literature, building such a database proved non-trivial. We describe selected algorithmic and engineering problems encountered, and the solutions we found. Our measurements indicate that we built a competitive system.},
+  file = {/Users/consensussolutions/Zotero/storage/KAZQ294W/chandra2007-paxos-made-live.pdf}
 }
 
 @misc{corfu,
@@ -63,7 +74,8 @@
   author = {Balakrishnan, Mahesh and Malkhi, Dahlia and Davis, John D. and Prabhakaran, Vijayan and Wei, Michael and Wobber, Ted},
   year = 2013,
   url = {https://github.com/CorfuDB/CorfuDB/wiki/White-papers},
-  abstract = {CORFU presents a fault-tolerant distributed shared log with networked append and read operations. It spreads log storage across flash-equipped servers to avoid a single I/O bottleneck while replicating data for fault tolerance.}
+  abstract = {CORFU presents a fault-tolerant distributed shared log with networked append and read operations. It spreads log storage across flash-equipped servers to avoid a single I/O bottleneck while replicating data for fault tolerance.},
+  file = {/Users/consensussolutions/Zotero/storage/KR47YU8M/corfu-tocs2013.pdf}
 }
 
 @misc{curp,
@@ -71,7 +83,8 @@
   author = {Park, Seo Jin and Ousterhout, John},
   year = 2019,
   url = {https://www.usenix.org/system/files/nsdi19-park.pdf},
-  abstract = {We show that ordering and durability need not be coupled for strong consistency. CURP lets clients replicate unordered requests when they commute, allowing most operations to complete in one round trip. An implementation in RAMCloud reduces write latency.}
+  abstract = {We show that ordering and durability need not be coupled for strong consistency. CURP lets clients replicate unordered requests when they commute, allowing most operations to complete in one round trip. An implementation in RAMCloud reduces write latency.},
+  file = {/Users/consensussolutions/Zotero/storage/G86TUEGD/curp-nsdi19-park.pdf}
 }
 
 @misc{diskless,
@@ -79,7 +92,8 @@
   author = {Michael, Ellis and Ports, Dan R. K. and Sharma, Naveen Kr. and Szekeres, Adriana},
   year = 2016,
   url = {https://syslab.cs.washington.edu/papers/diskless-tr16.pdf},
-  abstract = {This report studies how to provide stable storage when crashed processes lose volatile memory and have no persistent local disk. It examines recovery requirements for consensus protocols, including a failure in a published Viewstamped Replication recovery procedure.}
+  abstract = {This report studies how to provide stable storage when crashed processes lose volatile memory and have no persistent local disk. It examines recovery requirements for consensus protocols, including a failure in a published Viewstamped Replication recovery procedure.},
+  file = {/Users/consensussolutions/Zotero/storage/RLSBEIZQ/diskless-tr16.pdf}
 }
 
 @misc{diskpaxos,
@@ -88,7 +102,8 @@
   year = 2003,
   url = {https://lamport.azurewebsites.net/pubs/disk-paxos-disc.pdf},
   abstract = {Disk Paxos implements a reliable distributed system using networked processors and disks. It preserves consistency despite arbitrary non-Byzantine faults and can make progress when a majority of disks remain available, even if only one processor survives.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/PD85AAEF/disk-paxos-2003.pdf}
 }
 
 @inproceedings{duan2025,
@@ -137,7 +152,8 @@
   publisher = {University of Texas at Austin},
   address = {Austin, Texas},
   url = {https://www.cs.utexas.edu/~EWD/transcriptions/EWD12xx/EWD1215.html},
-  abstract = {Summary (archive text has no labelled abstract): Dijkstra presents an affine-geometric termination proof for repeatedly replacing two crossing red--blue matching segments with uncrossed segments. The note credits Birgit Schieder's counting argument: each flip decreases the number of intersections between the fixed set of red--blue lines and the current matching segments.}
+  abstract = {Summary (archive text has no labelled abstract): Dijkstra presents an affine-geometric termination proof for repeatedly replacing two crossing red--blue matching segments with uncrossed segments. The note credits Birgit Schieder's counting argument: each flip decreases the number of intersections between the fixed set of red--blue lines and the current matching segments.},
+  file = {/Users/consensussolutions/Zotero/storage/EFNRLQMC/ewd1215-courtesy-birgit-schieder.pdf}
 }
 
 @misc{ewd720,
@@ -148,7 +164,8 @@
   month = nov,
   address = {Universit\'e de Li\`ege, Belgium},
   url = {https://www.cs.utexas.edu/~EWD/transcriptions/EWD07xx/EWD720.html},
-  abstract = {Summary (archive text has no labelled abstract): This inaugural lecture argues that reliable programming is a mathematical activity. Dijkstra uses a nondeterministic urn game to show how an invariant proves a result for all possible executions, then discusses the scale of program texts and the need to reason about them directly rather than by tracing computations.}
+  abstract = {Summary (archive text has no labelled abstract): This inaugural lecture argues that reliable programming is a mathematical activity. Dijkstra uses a nondeterministic urn game to show how an invariant proves a result for all possible executions, then discusses the scale of program texts and the need to reason about them directly rather than by tracing computations.},
+  file = {/Users/consensussolutions/Zotero/storage/FPMSVI6L/ewd720-why-correctness.pdf}
 }
 
 @article{fischer1985,
@@ -160,7 +177,8 @@
   number = {2},
   pages = {374--382},
   doi = {10.1145/3149.214121},
-  abstract = {The consensus problem involves an asynchronous system of processes, some of which may be unreliable. The problem is for the reliable processes to agree on a binary value. In this paper, it is shown that every protocol for this problem has the possibility of nontermination, even with only one faulty process. By way of contrast, solutions are known for the synchronous case, the ``Byzantine Generals'' problem.}
+  abstract = {The consensus problem involves an asynchronous system of processes, some of which may be unreliable. The problem is for the reliable processes to agree on a binary value. In this paper, it is shown that every protocol for this problem has the possibility of nontermination, even with only one faulty process. By way of contrast, solutions are known for the synchronous case, the ``Byzantine Generals'' problem.},
+  file = {/Users/consensussolutions/Zotero/storage/PBYKZBCU/fischer1985-flp-impossibility.pdf}
 }
 
 @article{hoare1969,
@@ -175,7 +193,8 @@
   publisher = {Association for Computing Machinery},
   doi = {10.1145/363235.363259},
   url = {https://doi.org/10.1145/363235.363259},
-  abstract = {In this paper an attempt is made to explore the logical foundations of computer programming by use of techniques which were first applied in the study of geometry and have later been extended to other branches of mathematics. This involves the elucidation of sets of axioms and rules of inference which can be used in proofs of the properties of computer programs. Examples are given of such axioms and rules, and a formal proof of a simple theorem is displayed. Finally, it is argued that important advantage, both theoretical and practical, may follow from a pursuance of these topics.}
+  abstract = {In this paper an attempt is made to explore the logical foundations of computer programming by use of techniques which were first applied in the study of geometry and have later been extended to other branches of mathematics. This involves the elucidation of sets of axioms and rules of inference which can be used in proofs of the properties of computer programs. Examples are given of such axioms and rules, and a formal proof of a simple theorem is displayed. Finally, it is argued that important advantage, both theoretical and practical, may follow from a pursuance of these topics.},
+  file = {/Users/consensussolutions/Zotero/storage/WZLDJN3Z/hoare1969-axiomatic-basis.pdf}
 }
 
 @misc{howard2016,
@@ -187,13 +206,14 @@
   publisher = {arXiv},
   url = {https://arxiv.org/abs/1608.06696},
   abstract = {Distributed consensus is integral to modern distributed systems. The widely adopted Paxos algorithm uses two phases, each requiring majority agreement, to reliably reach consensus. In this paper, we demonstrate that Paxos, which lies at the foundation of many production systems, is conservative. Specifically, we observe that each of the phases of Paxos may use non-intersecting quorums. Majority quorums are not necessary as intersection is required only across phases. Using this weakening of the requirements made in the original formulation, we propose Flexible Paxos, which generalizes over the Paxos algorithm to provide flexible quorums. We show that Flexible Paxos is safe, efficient and easy to utilize in existing distributed systems. We conclude by discussing the wide reaching implications of this result. Examples include improved availability from reducing the size of second phase quorums by one when the number of acceptors is even and utilizing small disjoint phase-2 quorums to speed up the steady-state.},
-  archiveprefix = {arXiv}
+  archiveprefix = {arXiv},
+  file = {/Users/consensussolutions/Zotero/storage/USENTVHH/fqi-2016-howard.pdf}
 }
 
 @inproceedings{hu2026,
   title = {Come {{Hell}} or {{Still Water}}: {{Alleviating Tail Latency}} in {{Cloud Block Store}}},
   booktitle = {23rd {{USENIX Symposium}} on {{Networked Systems Design}} and {{Implementation}}},
-  author = {Hu, Chaolei and Qian, Kun and Xu, Erci and Shen, Yifan and Zhang, Haoran and Li, Xue and Gu, Yuesheng and Ma, Shu and Zhu, Lingjun and Ren, Fengyuan and Zhai, Ennan},
+  author = {Hu, Chaolei and Qian, Kun and Xu, Erci and Shen, Yifan and Zhang, Haoran and Li, Xue and Gu, Yuesheng and Zhu, Lingjun and Ren, Fengyuan and Zhai, Ennan},
   year = 2026,
   pages = {1259--1274},
   url = {https://www.usenix.org/conference/nsdi26/presentation/hu-chaolei},
@@ -214,7 +234,8 @@
   doi = {10.1007/978-3-642-45249-9_8},
   url = {https://consensus.app/papers/asynchronous-reconfiguration-for-paxos-state-machines-jehl-meling/51c649ac67175082804ed158f504a0db/},
   abstract = {This paper addresses reconfiguration of a Replicated State Machine RSM in an asynchronous system. It is well known that consensus cannot be solved in an asynchronous system. Therefore an RSM providing strong consistency, cannot guarantee progress in an asynchronous system. However, we show that reconfiguring the RSM is possible in a purely asynchronous system. This differs from all existing reconfiguration methods which rely on consensus to choose a new configuration. Since a reconfiguration to a new set of machines or even a different datacenter can serve to restore synchrony between replicas, asynchronous reconfiguration can also serve to increase the availability of an RSM.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/6SIWAENV/jehl2014-async-reconfiguration.pdf}
 }
 
 @article{kuschewski2026,
@@ -239,7 +260,8 @@
   number = {2},
   pages = {133--169},
   url = {https://doi.org/10.1145/279227.279229},
-  abstract = {Recent archaeological discoveries on the island of Paxos reveal that the parliament functioned despite the peripatetic propensity of its part-time legislators. The legislators maintained consistent copies of the parliamentary record, despite their frequent forays from the chamber and the forgetfulness of their messengers. The Paxon parliament's protocol provides a new way of implementing the state machine approach to the design of distributed systems.}
+  abstract = {Recent archaeological discoveries on the island of Paxos reveal that the parliament functioned despite the peripatetic propensity of its part-time legislators. The legislators maintained consistent copies of the parliamentary record, despite their frequent forays from the chamber and the forgetfulness of their messengers. The Paxon parliament's protocol provides a new way of implementing the state machine approach to the design of distributed systems.},
+  file = {/Users/consensussolutions/Zotero/storage/96JWF2UD/lamport1998-part-time-parliament.pdf}
 }
 
 @inproceedings{lamport2004,
@@ -250,7 +272,8 @@
   pages = {307--314},
   url = {https://consensus.app/papers/cheap-paxos-lamport-massa/355660d6b49b5d68868edec255a0bad7/},
   abstract = {Asynchronous algorithms for implementing a fault-tolerant distributed system, which can make progress despite the failure of any F processors, require 2F + 1 processors. Cheap Paxos, a variant of the Paxos algorithm, guarantees liveness under the additional assumption that the set of nonfaulty processors does not "jump around" too fast, but uses only F + 1 main processors that actually execute the system and F auxiliary processors that are used only to handle the failure of a main processor. The auxiliary processors take part in reconfiguring the system to remove the failed processor, after which they can remain idle until another main processor fails.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/AE73JCFJ/lamport2004-cheap-paxos.pdf}
 }
 
 @techreport{lamport2008,
@@ -261,7 +284,8 @@
   institution = {Microsoft Research},
   url = {https://consensus.app/papers/stoppable-paxos-lamport-malki/23368ae220f95170b9e9271aeb542213/},
   abstract = {A stoppable state machine is one whose execution can be terminated by a special stopping command. Stoppable state machines can be used to implement reconfiguration in a replicated state machine; a reconfigurable state machine is implemented by a sequence of stoppable state machines, each running in a fixed configuration. Stoppable Paxos, a variant of the ordinary Paxos algorithm, implements a replicated stoppable state machine.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/JWVMNCXC/lamport2008-stoppable-paxos.pdf}
 }
 
 @incollection{lampson1996,
@@ -274,7 +298,8 @@
   publisher = {Springer-Verlag},
   url = {https://consensus.app/papers/how-to-build-a-highly-available-system-using-consensus-lampson/c460c7c1b4dc5de4b2b73884a5ea87be/},
   abstract = {Lamport showed that a replicated deterministic state machine is a general way to implement a highly available system, given a consensus algorithm that the replicas can use to agree on each input. His Paxos algorithm is the most fault-tolerant way to get consensus without real-time guarantees. Because general consensus is expensive, practical systems reserve it for emergencies and use leases (locks that time out) for most of the computing. This paper explains the general scheme for efficient highly available computing, gives a general method for understanding concurrent and fault-tolerant programs, and derives the Paxos algorithm as an example of the method.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/J5DK5E72/lampson1996-highly-available-consensus.pdf}
 }
 
 @misc{lean4,
@@ -282,7 +307,8 @@
   author = {{de Moura}, Leonardo and Ullrich, Sebastian},
   year = 2021,
   url = {https://doi.org/10.1007/978-3-030-79876-5_37},
-  abstract = {Lean 4 is a reimplementation of the Lean interactive theorem prover in Lean itself. It provides an extensible parser, elaborator, tactics, decision procedures, pretty printer, and code generator, along with a hygienic macro system and improved typeclass resolution.}
+  abstract = {Lean 4 is a reimplementation of the Lean interactive theorem prover in Lean itself. It provides an extensible parser, elaborator, tactics, decision procedures, pretty printer, and code generator, along with a hygienic macro system and improved typeclass resolution.},
+  file = {/Users/consensussolutions/Zotero/storage/75M3HWTC/lean4-cade28.pdf}
 }
 
 @inproceedings{lorch2006,
@@ -295,7 +321,8 @@
   address = {Leuven, Belgium},
   url = {https://consensus.app/papers/the-smart-way-to-migrate-replicated-stateful-services-lorch-adya/5e2486b0952f5155911f1bb5c896250f/},
   abstract = {Many stateful services use the replicated state machine approach for high availability. In this approach, a service runs on multiple machines to survive machine failures. This paper describes SMART, a new technique for changing the set of machines where such a service runs, i.e., migrating the service. SMART improves upon existing techniques in three important ways. First, SMART allows migrations that replace non-failed machines. Thus, SMART enables load balancing and lets an automated system replace failed machines. Such autonomic migration is an important step toward full autonomic operation, in which administrators play a minor role and need not be available twenty-four hours a day, seven days a week. Second, SMART can pipeline concurrent requests, a useful performance optimization. Third, prior published migration techniques are described in insufficient detail to admit implementation, whereas our description of SMART is complete. In addition to describing SMART, we also demonstrate its practicality by implementing it, evaluating our implementation's performance, and using it to build a consistent, replicated, migratable file system. Our experiments demonstrate the performance advantage of pipelining concurrent requests, and show that migration has only a minor and temporary effect on performance.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/4VFWEYHU/lorch2006-smart.pdf}
 }
 
 @inproceedings{malkhi2005,
@@ -306,7 +333,8 @@
   pages = {199--213},
   url = {https://consensus.app/papers/omega-meets-paxos-leader-election-and-stability-without-malki-oprea/c3fc39faf51a57ee856c8e4dd7f0404f/},
   abstract = {This paper provides a realization of distributed leader election without having any eventual timely links. Progress is guaranteed in the following weak setting: Eventually one process can send messages such that every message obtains f timely responses, where f is a resilience bound. A crucial facet of this property is that the f responders need not be fixed, and may change from one message to another. In particular, this means that no specific link needs to remain timely. In the common case where f=1, this implies that the FLP impossibility result on consensus is circumvented if one process can at any time communicate in a timely manner with one other process in the system. The protocol also bears significant practical importance to well-known coordination schemes such as Paxos, because our setting more precisely captures the conditions on the elected leader for reaching timely consensus. Additionally, an extension of our protocol provides leader stability, which guarantees against arbitrary demotion of a qualified leader and avoids performance penalties associated with leader changes in schemes such as Paxos.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/RIWD63FQ/malkhi2005-omega-meets-paxos.pdf}
 }
 
 @inproceedings{moraru2013,
@@ -323,7 +351,8 @@
   urldate = {2026-10-01},
   abstract = {This paper describes the design and implementation of Egalitarian Paxos (EPaxos), a new distributed consensus algorithm based on Paxos. EPaxos achieves three goals: (1) optimal commit latency in the wide-area when tolerating one and two failures, under realistic conditions; (2) uniform load balancing across all replicas (thus achieving high throughput); and (3) graceful performance degradation when replicas are slow or crash. Egalitarian Paxos is to our knowledge the first protocol to achieve the previously stated goals efficiently---that is, requiring only a simple majority of replicas to be non-faulty, using a number of messages linear in the number of replicas to choose a command, and committing commands after just one communication round (one round trip) in the common case or after at most two rounds in any case. We prove Egalitarian Paxos's properties theoretically and demonstrate its advantages empirically through an implementation running on Amazon EC2.},
   isbn = {978-1-4503-2388-8},
-  langid = {english}
+  langid = {english},
+  file = {/Users/consensussolutions/Zotero/storage/ZG68V56B/2013-sosp-moraru-epaxos.pdf}
 }
 
 @misc{motivation,
@@ -352,7 +381,8 @@
   doi = {10.1007/3-540-45949-9},
   url = {https://link.springer.com/book/10.1007/3-540-45949-9},
   abstract = {This volume is a self-contained introduction to interactive proof in higher-order logic (HOL), using the proof assistant Isabelle 2002. It provides a direct route into higher-order logic and presents techniques for modelling functional programs, reasoning about sets and relations, and verifying a security protocol.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/TLIZMVNP/nipkow2002-isabelle-hol-book.pdf}
 }
 
 @misc{nopaxos,
@@ -361,7 +391,8 @@
   year = 2016,
   url = {https://www.usenix.org/system/files/conference/osdi16/osdi16-li.pdf},
   abstract = {NOPaxos uses network ordering to reduce consensus overhead in replicated services. It replaces part of the ordering work normally performed by replicas with an ordered network path while retaining fault tolerance.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/EQ7FSP5E/nopaxos-osdi16.pdf}
 }
 
 @inproceedings{norris2024,
@@ -383,7 +414,8 @@
   pages = {305--320},
   publisher = {USENIX Association},
   url = {https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro},
-  abstract = {Raft is a consensus algorithm for managing a replicated log. It produces a result equivalent to (multi-)Paxos, and it is as efficient as Paxos, but its structure is different from Paxos; this makes Raft more understandable than Paxos and also provides a better foundation for building practical systems. In order to enhance understandability, Raft separates the key elements of consensus, such as leader election, log replication, and safety, and it enforces a stronger degree of coherency to reduce the number of states that must be considered. Results from a user study demonstrate that Raft is easier for students to learn than Paxos. Raft also includes a new mechanism for changing the cluster membership, which uses overlapping majorities to guarantee safety.}
+  abstract = {Raft is a consensus algorithm for managing a replicated log. It produces a result equivalent to (multi-)Paxos, and it is as efficient as Paxos, but its structure is different from Paxos; this makes Raft more understandable than Paxos and also provides a better foundation for building practical systems. In order to enhance understandability, Raft separates the key elements of consensus, such as leader election, log replication, and safety, and it enforces a stronger degree of coherency to reduce the number of states that must be considered. Results from a user study demonstrate that Raft is easier for students to learn than Paxos. Raft also includes a new mechanism for changing the cluster membership, which uses overlapping majorities to guarantee safety.},
+  file = {/Users/consensussolutions/Zotero/storage/TPNW27VD/raft-atc14-ongaro.pdf}
 }
 
 @misc{optimistic-crash,
@@ -391,7 +423,8 @@
   author = {Chidambaram, Vijay and Pillai, Thanumalayan Sankaranarayana and {Arpaci-Dusseau}, Andrea C. and {Arpaci-Dusseau}, Remzi H.},
   year = 2013,
   url = {https://sigops.org/s/conferences/sosp/2013/papers/p228-chidambaram.pdf},
-  abstract = {Optimistic crash consistency uses file-system techniques that separate ordering from durability. The OptFS implementation adds osync and dsync primitives and improves performance while preserving crash recovery behaviour.}
+  abstract = {Optimistic crash consistency uses file-system techniques that separate ordering from durability. The OptFS implementation adds osync and dsync primitives and improves performance while preserving crash recovery behaviour.},
+  file = {/Users/consensussolutions/Zotero/storage/ANP7GFE9/sosp13-optimistic-crash.pdf}
 }
 
 @misc{par,
@@ -400,16 +433,24 @@
   year = 2018,
   url = {https://www.usenix.org/system/files/conference/fast18/fast18-alagappan.pdf},
   abstract = {This paper studies recovery from storage faults in consensus-based systems. It shows that local log corruption can propagate through a replicated protocol and proposes recovery procedures that account for the protocol state.},
-  keywords = {consensus,consensus-protocols}
+  keywords = {consensus,consensus-protocols},
+  file = {/Users/consensussolutions/Zotero/storage/TVX8WHWY/fast18-alagappan-par.pdf}
 }
 
-@misc{pms,
-  title = {Paxos Made Simple},
-  author = {Lamport, L.},
+@article{pms,
+  title = {Paxos {{Made Simple}}},
+  author = {Lamport, Leslie},
   year = 2001,
-  url = {https://lamport.org/pubs/paxos-simple.pdf},
+  month = dec,
+  journal = {ACM SIGACT News (Distributed Computing Column)},
+  volume = {32},
+  number = {4},
+  pages = {51--58},
+  doi = {10.1145/568425.568433},
+  url = {https://www.microsoft.com/en-us/research/publication/paxos-made-simple/},
   abstract = {The Paxos algorithm, when presented in plain English, is very simple.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/JVPHJGEP/paxos-made-simple-2001.pdf}
 }
 
 @misc{reconfig-sm,
@@ -418,7 +459,8 @@
   year = 2010,
   url = {https://lamport.org/pubs/reconfiguration-tutorial.pdf},
   abstract = {This paper explains several ways to change the membership of a replicated state machine while it continues to serve clients. It treats the configuration as state agreed by the machine itself and examines how commands and configuration changes can be ordered without violating safety.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/R438IGZK/reconfiguring-a-state-machine-2010.pdf}
 }
 
 @inproceedings{reed2008,
@@ -431,7 +473,8 @@
   doi = {10.1145/1529974.1529978},
   url = {https://consensus.app/papers/a-simple-totally-ordered-broadcast-protocol-reed-junqueira/1df52a2e713a5d4db5f3655a631e9233/},
   abstract = {This is a short overview of a totally ordered broadcast protocol used by ZooKeeper, called Zab. It is conceptually easy to understand, is easy to implement, and gives high performance. In this paper we present the requirements ZooKeeper makes on Zab, we show how the protocol is used, and we give an overview of how the protocol works.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/PCFV2N4Q/reed2008-zab-ladis08.pdf}
 }
 
 @misc{rfc9000,
@@ -462,7 +505,8 @@
   doi = {10.1007/978-3-642-24550-3_29},
   url = {https://consensus.app/papers/conflictfree-replicated-data-types-shapiro-preguiça/7f88eff91e1a5133844c2229ab446cd8/},
   abstract = {Replicating data under Eventual Consistency (EC) allows any replica to accept updates without remote synchronisation. This ensures performance and scalability in large-scale distributed systems (e.g., clouds). However, published EC approaches are ad-hoc and error-prone. Under a formal Strong Eventual Consistency (SEC) model, we study sufficient conditions for convergence. A data type that satisfies these conditions is called a Conflict-free Replicated Data Type (CRDT). Replicas of any CRDT are guaranteed to converge in a self-stabilising manner, despite any number of failures. This paper formalises two popular approaches (state- and operation-based) and their relevant sufficient conditions. We study a number of useful CRDTs, such as sets with clean semantics, supporting both add and remove operations, and consider in depth the more complex Graph data type. CRDT types can be composed to develop large-scale distributed applications, and have interesting theoretical properties.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/XVLACX87/shapiro2011-crdt.pdf}
 }
 
 @inproceedings{shraer2012,
@@ -474,7 +518,8 @@
   publisher = {USENIX Association},
   url = {https://www.usenix.org/conference/atc12/technical-sessions/presentation/shraer},
   abstract = {Dynamically changing (reconfiguring) the membership of a replicated distributed system while preserving data consistency and system availability is a challenging problem. In this paper, we show that reconfiguration can be simplified by taking advantage of certain properties commonly provided by Primary/Backup systems. We describe a new reconfiguration protocol, recently implemented in Apache Zookeeper. It fully automates configuration changes and minimizes any interruption in service to clients while maintaining data consistency. By leveraging the properties already provided by Zookeeper our protocol is considerably simpler than state of the art.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/4C5TFD6L/shraer2012-atc12-dynamic-reconfig.pdf}
 }
 
 @misc{turner,
@@ -483,7 +528,8 @@
   year = 2017,
   url = {https://github.com/DaveCTurner/paxos-membership},
   abstract = {Consensus is an essential ingredient of a fault-tolerant distributed system systems. When equipped with a consensus algorithm a distributed system can act as a replicated state machine (RSM), duplicating its state across a cluster of redundant components to avoid the failure of any single component leading to a system-wide failure. Paxos and Raft are examples of algorithms for achieving distributed consensus. Practical implementations of this kind of system must support dynamic reconfiguration in order to be able to replace failed components and perform other administrative tasks without downtime. Paxos can achieve high performance by pipelining (starting work on new requests before existing requests have completed) but typically bounds the length of the pipeline to ensure consistency during reconfiguration. Raft also supports pipelining and imposes no such bound on concurrent requests, preserving consistency instead by restricting which reconfigurations may be performed. This article shows how to extend Paxos to support a more general form of reconfiguration which subsumes the original bounded-pipeline approach as well as Raft-like fully-concurrent reconfigurations and more besides.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/3FU5H9GF/paxos-reconf-latest.pdf}
 }
 
 @misc{vertical-paxos,
@@ -492,7 +538,8 @@
   year = 2009,
   url = {https://lamport.org/pubs/vertical-paxos.pdf},
   abstract = {Vertical Paxos is a family of Paxos algorithms that permits reconfiguration while agreement on a state-machine command is still in progress. An auxiliary configuration master coordinates the change. The authors show how familiar primary-backup systems fit within this family and can be reasoned about using its safety conditions.},
-  keywords = {consensus}
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/ABAHB22N/vertical-paxos-2009.pdf}
 }
 
 @misc{votingweights,
@@ -510,7 +557,8 @@
   year = 1988,
   url = {https://www.cs.princeton.edu/courses/archive/fall11/cos518/papers/viewstamped.pdf},
   abstract = {This paper introduces Viewstamped Replication, a primary-copy method for highly available replicated services. It explains how replicas maintain consistent state and continue service when a primary fails through view changes.},
-  keywords = {consensus,viewstamped-replication}
+  keywords = {consensus,viewstamped-replication},
+  file = {/Users/consensussolutions/Zotero/storage/8FA7LKG4/vsr-1988-oki-liskov.pdf}
 }
 
 @misc{vrr,
@@ -521,7 +569,8 @@
   eprinttype = {hdl},
   url = {https://hdl.handle.net/1721.1/71763},
   abstract = {This paper presents an updated version of Viewstamped Replication, a replication technique that handles failures in which nodes crash. It describes how client requests are handled, how the group reorganizes when a replica fails, and how a failed replica is able to rejoin the group. The paper also describes a number of important optimizations and presents a protocol for handling reconfigurations that can change both the group membership and the number of failures the group is able to handle.},
-  keywords = {consensus,viewstamped-replication}
+  keywords = {consensus,viewstamped-replication},
+  file = {/Users/consensussolutions/Zotero/storage/NYQIZM6L/vrr-2012-liskov-cowling.pdf}
 }
 
 @inproceedings{zhang2024,
@@ -541,5 +590,6 @@
   author = {Hunt, Patrick and Konar, Mahadev and Junqueira, Flavio P. and Reed, Benjamin},
   year = 2010,
   url = {https://www.usenix.org/events/usenix10/tech/full_papers/Hunt.pdf},
-  abstract = {ZooKeeper is a coordination service for distributed applications. The paper describes its wait-free interface, replicated architecture, implementation, and evaluation.}
+  abstract = {ZooKeeper is a coordination service for distributed applications. The paper describes its wait-free interface, replicated architecture, implementation, and evaluation.},
+  file = {/Users/consensussolutions/Zotero/storage/2Z57LAX2/zookeeper-atc10-hunt.pdf}
 }
