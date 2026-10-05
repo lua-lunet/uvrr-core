@@ -19,6 +19,14 @@ on:
 permissions:
   contents: write # publish-release creates GitHub releases on v* tags
 
+# A proof that passes with a compile warning is no proof. Every lane in
+# every job compiles with warnings denied: rustc and rustdoc treat any
+# warning as an error, so a pushed tree that emits one fails the gate
+# exactly as the pre-push hook fails it, in any feature combination.
+env:
+  RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
+
 # Cancel previous runs when a new commit is pushed to the same PR/branch.
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

@@ -105,6 +105,13 @@ You MUST use the skill gh-actions-poll if it is installed. You are FOBRIDDEN fro
   remote: activate once with `git config core.hooksPath .githooks`, and a push
   that has not passed fmt, clippy, both test lanes, the doc tests and the
   record checks aborts. `--no-verify` bypasses it and is a deliberate act.
+- Warnings are errors everywhere: a proof that passes with a compile warning
+  is no proof. The hook and the CI lanes export
+  `RUSTFLAGS="-D warnings"` and `RUSTDOCFLAGS="-D warnings"`, so every lane
+  (fmt, clippy, both test lanes, the doc tests) treats any compile warning as
+  an error in any feature combination, and a pushed tree that emits one fails
+  both. Local lanes run with the same exports; a warning that passes locally
+  and fails the hook is a lane run without them.
 - The Rust and Cargo arbitrate rule: Rust is not used as a fashion statement; it is
   used so the build system and the compiler are a proof of correctness, exactly as
   Lean 4 and exhaustive property testing and Maelstrom are. LLMs have a nasty habit
