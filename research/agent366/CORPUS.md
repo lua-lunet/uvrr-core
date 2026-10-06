@@ -131,3 +131,13 @@ reading surface, and reach the reading folder as `<key>-text.md`.
 
 The `.txt` files are a locator and a quoting surface, not a reading copy:
 quote the `.txt` for the line number and the paper for authority.
+
+The four papers without a geometry render each gained a `*.mistral-ocr.md`
+surface in `md/` (mistral-ocr-latest over the PDF, provenance and source
+sha256 in a header comment): the two EWD manuscripts are page images in a
+Distiller wrapper with a placeholder text stub, Hoare 1969 is a pure
+Photoshop scan, and Lampson 1996 has a clean text layer that poppler's
+`-xml` path alone chokes on (it emits misnested `<b>/<i>` markup for this
+Distiller 2.1 file, which an XML parser must reject). These OCR surfaces
+are unverified against the rendered pages and are ticketed for a vision
+pass before they are quoted.
