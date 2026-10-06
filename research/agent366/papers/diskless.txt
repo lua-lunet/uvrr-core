@@ -1,0 +1,1192 @@
+---
+title: "Providing Stable Storage for the Diskless Crash-Recovery Failure Model"
+authors:
+  - "Ellis Michael"
+  - "Dan R. K Ports"
+  - "Naveen Kr Sharma"
+  - "Adriana Szekeres"
+year: "2016"
+publication: ""
+handle_url: "https://syslab.cs.washington.edu/papers/diskless-tr16.pdf"
+source_pdf: "research/agent366/papers/diskless-tr16.pdf"
+source_pdf_sha256: "c4aa47e8f2927c82a42c2279e5b1fe7ef66ffda9c221c4c37be48d3aadf0ef28"
+page_count: 15
+extracted_text_runs: 3093
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  This report studies how to provide stable storage when crashed processes lose volatile memory and have no persistent local disk. It examines recovery requirements for consensus protocols, including a failure in a published Viewstamped Replication recovery procedure.
+tags: []
+---
+
+=== PAGE 1 ===
+
+    1  Providing Stable Storage for the Diskless Crash-Recovery
+
+    2  Failure Model
+
+    3  Ellis Michael Dan R. K. Ports Naveen Kr. Sharma Adriana Szekeres
+
+    4  {emichael, drkp, naveenks, aaasz}@cs.washington.edu
+
+    5  University of Washington
+
+    6  Technical Report UW-CSE-16-08-02
+
+    7  August 25, 2016
+
+    8  Abstract model with stable storage, e.g., a disk attached to each
+    9  process whose contents are never lost. In practice, this
+   10  Many classic protocols in the fault tolerant distributed
+   11  assumption does not always hold. Because writing data
+   12  computing literature assume a Crash-Fail model in
+   13  synchronously to disk incurs a high performance cost,
+   14  which processes either are up, or have crashed and
+   15  many systems now eschew persistent disk writes in
+   16  are permanently down. While this model is useful, it
+   17  favor of replicated in-memory storage. Furthermore,
+   18  does not fully capture the difficulties many real systems
+   19  disks can become corrupted or totally fail, and realmust contend with. In particular, real-world systems
+   20  world systems must cope with these challenges.
+   21  are long-lived and must have a recovery mechanism
+   22  so that crashed processes can rejoin the system and re- To address this need, we introduce a Diskless Crashstore its fault-tolerance. When processes are assumed Recovery model: processes lose their state on failures
+   23  to have access to stable storage that is persistent across but can use a recovery protocol to regenerate their state
+   24  failures, the Crash-Recovery model is trivial. However, upon recovery. We formally define this model and combecause disk failures are common and because having pare it to traditional Crash-Stop and Crash-Recovery
+   25  a disk on a protocol's critical path is often performance models.
+   26  concern, diskless recovery protocols are needed. While The central question this paper answers is: How and
+   27  such protocols do exist in the state machine replication when should an algorithm for Crash-Stop or Crashliterature, several well-known protocols have flawed Recovery models be transformed into one for Diskless
+   28  recovery mechanisms. We examine these errors to elu- Crash-Recovery? It is well known that a correct alcidate the problem of diskless recovery and present our gorithm for the asynchronous Crash-Stop model can
+   29  own protocol for providing virtual stable storage, trans- be converted to an algorithm for the Crash-Recovery
+   30  forming any protocol in the Crash-Recovery with stable model simply by recording each state transition to stastorage model into a protocol in the Diskless Crash- ble storage. Is a similar transformation possible to a
+   31  Recovery model. Diskless Crash-Recovery model? Intuitively, we should
+   32  be able to construct a diskless algorithm by replacing
+   33  1 Introduction writes to stable storage with writes to a quorum of pro-
+   34  Distributed algorithms are needed to build reliable ser- cesses so that data remains available upon recovery.
+   35  vices out of unreliable processes. To effectively support Several algorithms have attempted to provide ad-hoc
+   36  long-lived systems, these algorithms must be both ro- solutions to this problem in the context of specific probust to process and communication failures and able tocols; none has been general purpose. In particular,
+   37  to help processes recover from crashes. That is, algo- diskless recovery is of great interest for state machine
+   38  rithms must provide provable guarantees in both the replication, which demands a reliable system that must
+   39  Crash-Stop and Crash-Recovery models. be both long-lived and tolerant of node and disk fail-
+   40  Prior algorithms generally assume a Crash-Recovery ures. To our knowledge, no current algorithm correctly
+=== PAGE 2 ===
+
+   41  handles recovery in the diskless model. We examine
+   42  three prior algorithms and demonstrate how they violate the safety conditions of state machine replication
+   43  under certain failure conditions.
+   44  This paper introduces the first general purpose algorithm for transforming Crash-Stop or Crash-Recovery
+   45  algorithms to the Diskless Crash-Recovery model. It
+   46  provides a virtual stable storage abstraction with the
+   47  same interface as a disk but constructed using distributed volatile storage. This algorithm provides durability (i.e., any data written to the virtual stable storage
+   48  is readable later) and liveness (i.e., reads and writes
+   49  eventually complete). We prove that our algorithm guarantees safety in the Diskless Crash-Recovery model in
+   50  all cases and guarantees termination given reasonable
+   51  assumptions about failure patterns.
+   52  The most closely related work to ours is Aguilera
+   53  et al.'s study of fault tolerance in an earlier Crash-
+   54  Recovery model without stable storage [1]. That work
+   55  concludes that consensus is solvable in their model only
+   56  when at least one process never crashes – an unrealistic
+   57  assumption for long-lived systems, as the authors themselves admit. Our work provides a solution even when
+   58  no process remains always up. The key differentiator is
+   59  that our work permits nodes to run a recovery protocol
+   60  after crashes rather than being forced to immediately
+   61  resume the normal-case protocol.
+
+   62  2 Models and Definitions
+   63  This section formally defines three models: the classic
+   64  Crash-Stop model, a Crash-Recovery model that uses
+   65  stable storage, and the Diskless Crash-Recovery model
+   66  without stable storage.
+   67  In each case, we consider a distributed system of a
+   68  fixed set of n processes, with IDs 1, . . . , n. Each process
+   69  is modeled as an I/O automaton [11] that takes input
+   70  or an internal action, produces output, and transitions
+   71  between states. A distributed execution happens in discrete timesteps, during each of which, one (or more)
+   72  process(es) takes a step. Processes communicate with
+   73  each other by sending messages through a complete,
+   74  asynchronous network. This means that messages can
+   75  be lost, duplicated, or reordered arbitrarily – but not
+   76  modified – by the network. However, we assume the
+   77  network cannot duplicate or drop messages an infinite
+   78  number of times (i.e., the network is fair-lossy).
+
+   79  2.1 Crash-Stop Model
+   80  The Crash-Stop (CS) model assumes that processes can
+   81  fail by crashing and that crashes are permanent; a failed
+
+   82  node stops executing the algorithm forever and stops
+   83  communicating with other nodes. We say a process
+   84  is UP if it is executing protocol steps and performing
+   85  actions. If it crashes, it transitions to the DOWN state.
+   86  Once DOWN, a process no longer accepts messages that
+   87  are sent to it and forever remains in the DOWN state.
+
+   88  2.2 Crash-Recovery Model with Local
+
+   89  Stable Storage
+   90  In the Crash-Recovery model (CR), a process can recover after crashing and resume executing the algorithm. As in the CS model, a process in this model is
+   91  assumed to be either UP or DOWN, but it can also transition between the two states an infinite number of times.
+   92  A process that is DOWN can recover and transition back
+   93  to the UP state.
+   94  We want this model to capture the distinction between the volatile state of the system and stable storage.
+   95  As a result, the automaton does not recover in the same
+   96  state it was in before the crash. Rather, it can access stable storage that it must manage explicitly. We abstract
+   97  access to stable storage using an additional internal automaton action, WRITE(X), that persists X on stable
+   98  storage. If the action completes successfully, X will always be seen by the automaton irrespective of the number of crashes. If the process crashes while WRITE(X)
+   99  is pending, X may or may not be persisted.
+  100  When a process restarts in this model, it can recover
+  101  state by using another internal action, READ, that returns the set of all values X that were persisted using
+  102  the WRITE(X) action in the past. Our choice of a set of
+  103  values as the interface to READ is somewhat arbitrary.
+  104  We could instead provide a log interface or a single
+  105  atomically-updated value; these options are equivalent
+  106  to one another, in that each can trivially be constructed
+  107  from the others.
+
+  108  2.3 Diskless Crash-Recovery:
+
+  109  Crash-Recovery without Local Stable
+
+  110  Storage
+  111  We focus on the Diskless Crash-Recovery (DCR)
+  112  model, where nodes have no access to stable storage.
+  113  As in the CR model, a process can recover after crashing and resume execution. However, unlike CR, DCR
+  114  has no READ or WRITE actions.
+  115  Upon recovery, a process loses all state except its
+  116  unique process ID in t1,2, ...,nu. However, processes
+  117  can read from a local clock to get a number guaranteed
+  118  to be larger than any previous number read by any previous incarnation of that process. Importantly, this makes
+=== PAGE 3 ===
+
+  119  it possible to distinguish between different incarnations
+  120  of the same processes.1
+  121  A recovering process must bring itself to a state that
+  122  lets it resume its computation without violating any
+  123  guarantee of the algorithm. To do so, a process that recovers runs a distinct recovery protocol. This protocol
+  124  can communicate with other processes to recover previous state. Once the recovery protocol terminates, the
+  125  automaton changes its internal status to operational and
+  126  resumes execution of its normal protocol.
+  127  We describe a process that is UP as RECOVERING if
+  128  it is running its recovery protocol and OPERATIONAL
+  129  otherwise. This distinction makes it possible to state
+  130  failure bounds in terms of the number of operational
+  131  processes, e.g., that no more than half of the processes
+  132  can be either down or recovering at any moment. Our
+  133  definition matches the design of existing protocols (e.g.,
+  134  Viewstamped Replication [10]).
+  135  One important property that protocols in the DCR
+  136  model should satisfy is recovery termination, which
+  137  requires a recovering process to eventually complete
+  138  recovery and become OPERATIONAL, as long as it does
+  139  not crash again. We are thus not interested in trivial
+  140  solutions, i.e., those where recovering processes declare
+  141  themselves to be permanently DOWN and never again
+  142  participate in the normal protocol.
+
+  143  3 Model Transformations
+  144  Many algorithms solve problems in the CS failure
+  145  model. When can these algorithms be applied to solving the same problems in the CR or DCR models?
+
+  146  Crash-Stop to Crash-Recovery with Stable Storage.
+  147  Transforming CS protocols to the CR model is trivial when local stable storage is available. This can be
+  148  done by recording every state transition to disk before
+  149  performing output actions. Equivalently, the automaton can log every message and input action received to
+  150  stable storage and replay these in order on recovery.
+  151  Any asynchronous CS algorithm transformed in this
+  152  way provides the same guarantees in the CR model.
+  153  Because the automaton recovers in the same state it
+  154  was in before crashing, the only difference is that it
+  155  does not process any messages that it received while
+  156  it was down. Asynchronous algorithms are inherently
+  157  robust to these omission failures [3] because they can
+  158  1 The algorithm we present in Section 5 could be easily adapted
+  159  to work when processes can only generate a unique number instead
+  160  of a monotonically increasing one. We assume a monotonic clock
+  161  only for simplicity of exposition.
+
+  162  handle messages that the network drops or delays.
+  163  Towards Diskless Crash Recovery. This paper
+  164  poses the question, How can a protocol from the
+  165  Crash-Stop or Crash-Recovery model be correctly
+  166  transformed to one that works in the Diskless Crash-
+  167  Recovery model? Specifically, can we implement a virtual stable storage abstraction in the DCR model that
+  168  provides the same READ/WRITE() interface defined
+  169  in CR? In the DCR model, a process can persist state
+  170  only by replicating on other processes in the system.
+  171  Hence, any READ/WRITE(X) action must communicate with other processes in the system to provide the
+  172  same guarantees even in the presence of concurrent failures. We begin by defining the notion of virtual stable
+  173  storage:
+  174  Virtual Stable Storage. We say that an algorithm
+  175  correctly implements virtual stable storage in the DCR
+  176  model if it provides READ and WRITE(X) primitives
+  177  with the following properties:
+
+  178  • Persistence: A successful READ outputs the set of
+  179  all objects the process successfully persisted through
+  180  a prior invocation of WRITE(X).
+  181  • Termination: Every READ and WRITE(X) at a process eventually succeeds unless the process crashes.
+
+  182  4 State Machine Replication in
+
+  183  Diskless Crash-Recovery
+  184  Providing stable storage in the DCR model seems superficially straightforward – simply replace each write
+  185  to disk with a write to a majority of replicas. However, there are surprisingly subtle challenges; if handled
+  186  na¨ıvely, delayed messages from prior incarnations of a
+  187  process can lead to the illusion that a write has been
+  188  persisted when, in fact, it could still be lost.
+  189  As evidence of its subtlety, several protocols have
+  190  attempted, and failed, to provide diskless crash recovery in the context of a specific problem, state machine
+  191  replication. State machine replication (SMR) – a classic
+  192  problem that lies at the core of many critical deployed
+  193  distributed systems [2, 7, 9, 10, 13, 15] – highlights the
+  194  relevance of diskless recovery: SMR deployments are
+  195  long-lived and must be able to handle node crashes and
+  196  recoveries, including ones where stable storage is lost.
+  197  We analyze 3 state machine replication protocols for
+  198  the DCR model: Viewstamped Replication [10], Paxos
+  199  Made Live [2], and JPaxos [6]. In each case, we show
+  200  that these protocols do not completely recover the state
+=== PAGE 4 ===
+
+  201  of a failed node under certain scenarios, a situation that
+  202  can lead to user-visible violations of protocol correctness. To our knowledge, no prior work has provided a
+  203  correct recovery protocol for this problem.
+  204  This section provides a detailed case study of correctness problems in Viewstamped Replication and an
+  205  overview of the equivalent problem in Paxos Made Live
+  206  and JPaxos. A more complete description, including
+  207  detailed traces of the failure in all three protocols, is
+  208  available in Appendix A.
+
+  209  4.1 Definitions
+  210  The SMR approach models a replicated service as a
+  211  state machine. Clients submit requests to the service,
+  212  which runs a consensus protocol (e.g., Multi-Paxos or
+  213  Viewstamped Replication) to establish a global order
+  214  of requests; the replicas then execute that request and
+  215  respond to the client. A correct SMR protocol provides
+  216  linearizability [4]: clients receive responses as though
+  217  their requests had been executed by a single system in
+  218  a serial order; if operation A receives a response before
+  219  B is invoked, A must precede B in that serial order.
+  220  SMR is well known to be equivalent to repeated instances of consensus, or atomic broadcast. We choose
+  221  to frame the problem as SMR rather than consensus because the former implies a long-lived system consistent
+  222  with our DCR model. In particular, single-instance consensus admits some solutions (such as requiring some
+  223  fraction of nodes to be up for the duration of the protocol [1]) that are not reasonable in the long-lived SMR
+  224  model.
+
+  225  4.2 Viewstamped Replication
+  226  Viewstamped Replication (VR) is a classic SMR algorithm. The original presentation by Oki and Liskov in
+  227  1988 [13] used stable storage for certain parts of the
+  228  replica state. VR always guarantees sequence agreement and integrity, and it guarantees liveness as long as
+  229  there is sufficient network synchrony and no more than
+  230  f out of 2f `1 replicas are failed. A subsequent version [10] revised the protocol to eliminate the need for
+  231  stable storage; we demonstrate that this version does
+  232  not correctly handle all loss-of-state failures.
+  233  VR is a leader-based algorithm: the system moves
+  234  through a series of numbered views, in which one node
+  235  is designated as the leader. VR uses 2 protocols. During normal case execution, the leader assigns sequence
+  236  numbers to incoming client requests, sends PREPARE
+  237  messages to replicas, and executes the operation once
+  238  it has received replies from a majority. When the leader
+
+  239  is suspected to have failed, a view change protocol replaces the leader with a new one. Replicas increment
+  240  their view numbers, stop processing requests in the old
+  241  view, then send the new leader a VIEW-CHANGE message with their log of operations. The new leader begins processing only when it receives VIEW-CHANGE
+  242  messages from a majority of replicas, ensuring that it
+  243  knows about all operations successfully completed in
+  244  prior views. These two protocols are equivalent to the
+  245  two phases of Paxos.
+  246  View Change Invariant. In VR, an important invariant is that each replica's view number increases monotonically: once a replica sends a VIEW-CHANGE message for view v, it never returns to a lower view. This is
+  247  important for correctness because it implies that replicas cannot commit to new operations in prior views
+  248  once they have sent a VIEW-CHANGE message to the
+  249  new leader. Without this invariant, a new leader cannot
+  250  be guaranteed to know about all operations completed
+  251  by previous leaders and would thus violate linearizability.
+  252  Recovery in VR. Ensuring that nodes in VR can recover from failures requires providing a recovery procedure. This procedure must ensure that the view change
+  253  invariant continues to hold, i.e., that each replica recovers in a view number at least as high as the view number
+  254  in any VIEW-CHANGE message it has ever sent.
+  255  The original version of VR [13] achieved this invariant through stable storage. This protocol logged view
+  256  numbers to stable storage during view changes, but it
+  257  eschewed the use of stable storage in normal operations
+  258  because writing every operation to disk is slow. It used
+  259  a recovery protocol to recover all other state, including
+  260  the set of committed operations.
+  261  A later version, "VR Revisited" [10], claimed to provide a completely diskless mode of operation. It used a
+  262  recovery protocol and an extension to the view change
+  263  protocol to, in essence, replace each write to disk with
+  264  communication with a quorum of nodes. We show below that this protocol is insufficient to ensure continued
+  265  correctness of the system.
+  266  VR Revisited's recovery protocol is straightforward:
+  267  the recovering replica sends a RECOVERY message to
+  268  all other replicas.2 If not recovering or in the middle of a view change, every other node replies with
+  269  a RECOVERY-RESPONSE containing its view number;
+
+  270  2 This message contains a unique nonce to distinguish responses
+  271  from different recoveries if a node recovers more than once.
+=== PAGE 5 ===
+
+  272  the leader also includes its log of operations. Once the
+  273  recovering replica has received a quorum of responses
+  274  with the same view, including one from that view's
+  275  leader, it updates its state with the information in the
+  276  log.
+  277  VR Revisited adds another phase to the view change
+  278  protocol. When nodes determine a view change is
+  279  necessary, they increment their view number, stop
+  280  processing requests in the old view, and send a
+  281  START-VIEW-CHANGE message to all other replicas.
+  282  Only when replicas receive START-VIEW-CHANGE
+  283  messages from a quorum of replicas do they send their
+  284  VIEW-CHANGE message to the new leader and proceed
+  285  as in the original protocol. The additional phase is intended to serve as the equivalent of a disk write, ensuring that replicas do not commit to a new view until a
+  286  majority of them becomes aware of the intended view
+  287  change. Together with the recovery protocol, the added
+  288  phase aims to prevent violation of the View Change Invariant by ensuring that a crashed replica recovers in a
+  289  view at least as high as any VIEW-CHANGE message it
+  290  has sent.
+  291  By itself, however, this approach is not sufficient. The problem of persistence has only shifted a
+  292  layer: rather than a node "forgetting" that it sent a
+  293  VIEW-CHANGE message on a crash, it can forget that
+  294  it sent a START-VIEW-CHANGE. That is, consider the
+  295  following case with three nodes:
+  296  Node A initiates a view change by sending
+  297  START-VIEW-CHANGE v`1, but this message is delayed.
+  298  A crashes and recovers; it receives
+  299  RECOVERY-RESPONSEs from B and C. Because they have not seen the START-VIEW-CHANGE
+  300  message, A recovers to view v.
+  301  B receives A's START-VIEW-CHANGE and sends
+  302  START-VIEW-CHANGE v` 1. Because it has a quorum of these messages (from A and itself), it sends
+  303  VIEW-CHANGE v `1, but this message is delayed.
+  304  B crashes, recovers, and receives
+  305  RECOVERY-RESPONSEs from nodes A and C
+  306  during recovery. These nodes are in view v and have
+  307  no knowledge of the view change, so B recovers to
+  308  view v.
+  309  B has now sent a VIEW-CHANGE message but has lost
+  310  all knowledge of that fact, violating the View Change
+  311  Invariant.
+  312  This leads to a violation of linearizability. B can
+  313  now accept a new operation o in view v by sending
+
+  314  PREPARE-OK messages to the leader (say it is A). This
+  315  operation can succeed without C learning of the operations, because A and B together form a quorum. If C
+  316  suspects that A has failed and initiates a view change,
+  317  it can proceed using only its own log and the delayed
+  318  VIEW-CHANGE message from B. Neither log contains
+  319  o, so this operation will not be visible to future clients.
+  320  Appendix A provides a complete trace of a linearizability violation in the VR Revisited protocol.
+
+  321  4.3 Other Protocols: Paxos Made Live and
+
+  322  JPaxos
+  323  Viewstamped Replication is not the only protocol that
+  324  attempts to provide diskless recovery for SMR. The
+  325  same type of correctness problem exists in two other
+  326  protocols, Paxos Made Live [2] and JPaxos [6], and
+  327  we briefly review their recovery approaches here; a full
+  328  description is in Appendix A.
+  329  Paxos Made Live [2] is Google's implementation of
+  330  the Multi-Paxos protocol. To handle corrupted disks,
+  331  it lets a replica rejoin the system without its previous
+  332  state and runs an (unspecified) recovery protocol to restore the application state. The recovering replica must
+  333  then wait to observe a full instance of successful consensus before participating. This step successfully prevents the replica from accepting multiple values for the
+  334  same instance (e.g., one before and one after the crash).
+  335  However, it does not prevent the replica from sending
+  336  different promises (i.e., view change commitments) to
+  337  potential new leaders, which can lead to a new leader
+  338  deciding a new value for a prior successful instance of
+  339  consensus.
+  340  JPaxos [6], a hybrid of Multi-Paxos and VR, provides a variety of deployment options, including a diskless one. Nodes in JPaxos maintain an epoch vector that
+  341  tracks which nodes have crashed and recovered to discard lost promises made by prior incarnations of recovered nodes. However, like VR and PML, this approach
+  342  encounters the same problem at a different level: certain failures during node recovery can cause the system
+  343  to lose state and violate safety properties.
+
+  344  5 Providing Stable Storage in
+
+  345  Diskless Crash-Recovery
+  346  In this section we present a protocol that provides the
+  347  virtual stable storage abstraction in the Diskless Crash-
+  348  Recovery model along with its correctness proof. The
+  349  protocol implementation is shown in Algorithm 1.
+=== PAGE 6 ===
+
+  350  Single reader, single writer non-atomic set in Diskless Crash-Recovery
+
+  351  Algorithm 1
+
+  352  Permanent Local State:
+  353  n P N` Ź Number of processes
+  354  i P r1, . . . ,ns Ź Process number
+
+  355  Volatile Local State:
+  356  v Ð rK for i P r1, . . . ,nss Ź Crash vector
+  357  op Ð f alse Ź Operational flag
+  358  R Ð tu Ź Acquire reply set
+  359  w Ð K Ź Value being written
+  360  S Ð tKu Ź Local set
+
+  361  1: upon SYSTEM-INITIALIZE
+  362  2: op Ð true
+  363  3: end upon
+  364  4: upon RECOVER
+  365  5: vris Ð READ-CLOCK
+  366  6: ACQUIRE-QUORUM(K)
+  367  7: op Ð true
+  368  8: end upon
+  369  9: procedure WRITE(val)
+  370  10: guard: op
+  371  11: ACQUIRE-QUORUM(val)
+  372  12: end procedure
+  373  13: function ACQUIRE-QUORUM(val)
+  374  14: w Ð val
+  375  15: R Ð tu
+  376  16: Add val to S
+  377  17: m Ð xACQUIRE, Sy
+  378  18: for all j P r1, . . . ,ns do
+  379  19: SEND-MESSAGE(m, j)
+  380  20: end for
+  381  21: Wait until |R| ą n{2
+  382  22: end function
+  383  23: procedure READ
+  384  24: guard: op
+  385  25: return S ´ tKu
+  386  26: end procedure
+
+  387  27:
+  388  28:
+  389  29:
+  390  30:
+  391  31:
+  392  32:
+  393  33:
+  394  34:
+  395  35:
+  396  36:
+  397  37:
+  398  38:
+  399  39:
+  400  40:
+  401  41:
+  402  42:
+  403  43:
+  404  44:
+  405  45:
+  406  46:
+  407  47:
+  408  48:
+  409  49:
+  410  50:
+  411  51:
+  412  52:
+  413  53:
+  414  54:
+  415  55:
+  416  56:
+
+  417  function SEND-MESSAGE(m, j)
+  418  m.f Ð i Ź Sender
+  419  m.v Ð v
+  420  Send m to process j
+
+  421  end function
+  422  function DISCARD-OLD-REPLIES
+  423  while Dm P R where
+  424  m.vrm.fs ă vrm.fs do
+  425  Remove m from R
+  426  SEND-MESSAGE(xACQUIRE, Sy, m.f)
+
+  427  end while
+  428  while Dm,m1 P R where
+  429  m.f " m1.f ^m ‰ m1 do
+  430  Remove m from R
+
+  431  end while
+
+  432  end function
+  433  upon receiving xACQUIREy, m
+  434  guard: op
+  435  v Ð v \m.v
+  436  S Ð S Ym.S
+  437  m1 Ð xACQUIRE -REP, Sy
+  438  SEND-MESSAGE(m1 , m.f)
+
+  439  end upon
+  440  upon receiving xACQUIRE-REPy, m
+  441  guard: m.vris ě vris ^w P m.S
+  442  v Ð v \m.v
+  443  S Ð S Ym.S
+  444  Add m to R
+  445  DISCARD-OLD-REPLIES
+
+  446  end upon
+=== PAGE 7 ===
+
+  447  5.1 Overview
+  448  The protocol we propose implements a single reader,
+  449  single writer, fault-tolerant non-atomic set that provides
+  450  the READ/WRITE interface and virtual stable storage
+  451  properties presented in Section 3. Adapted from the definition of regular registers [8], a non-atomic set offers
+  452  weaker guarantees than a linearizable one. It guarantees
+  453  that a READ returns a set containing all previously successfully written values, but it makes no other guarantees. Importantly, the process is allowed only to write
+  454  values to the set, never to remove them. We choose
+  455  these weaker guarantees for simplicity, so we can focus
+  456  on the main problem – how to correctly obtain diskless
+  457  persistence in the presence of crashes and recoveries.
+  458  Stronger properties can be implemented on top of
+  459  this basic interface. For instance, this protocol could
+  460  easily be adapted to provide a multi-reader, multi-writer
+  461  non-atomic set. However, to guarantee that a READ
+  462  returns all previously written values, a process would
+  463  have to read from a (simple, not necessarily consistent)
+  464  quorum instead of its local set. A multi-reader, multiwriter set would be a powerful abstraction upon which
+  465  to readily build other data structures (e.g., the shared
+  466  log of a replicated state machine). Also, it is worth
+  467  noting that concurrent instances of this single reader,
+  468  single writer set can be run to give all processes access
+  469  to virtual stable storage.
+  470  While the virtual stable storage protocol is always
+  471  safe, the termination of WRITE and recovery are guaranteed only under certain assumptions. Section 5.3
+  472  specifies these assumptions and proves protocol correctness.
+
+  473  5.2 Protocol Description
+  474  We now describe the protocol, which is presented as
+  475  pseudo-code in Algorithm 1. We present the algorithm
+  476  using a modified I/O automaton notation. In our protocol, procedures are input actions that can be invoked
+  477  at any time (e.g., in a higher level protocol) by the set's
+  478  owner, the designated reader/writer process for which
+  479  this instance of the protocol is providing virtual stable storage; functions are private methods; and upon
+  480  clauses specify how processes handle external events
+  481  (i.e., messages, the global startup event, and the transition from DOWN to RECOVERING).
+  482  We use guards to prevent actions from being activated under certain conditions. If the guard of a message handler is not satisfied, the message is dropped,
+  483  and the action is not executed. If the guard of a procedure is not satisfied, that procedure is inactive and
+  484  fails upon invocation.
+
+  485  There is a set of n processes, Π, and every process
+  486  has a unique ID in t1,2, ..., nu. Each process maintains
+  487  a crash vector of length n, with one entry for each process in system. Entry i in this vector (called i's crash
+  488  ID) tracks the latest incarnation of process i. When a
+  489  process recovers, it gets a new value from its local,
+  490  monotonic clock and updates its crash ID in its own
+  491  vector. When the recovery procedure ends, the process
+  492  becomes OPERATIONAL and signals this through the
+  493  op flag. A process's crash vector is updated whenever
+  494  a process learns about a newer incarnation of another
+  495  process. Crash vectors are partially ordered, and a join
+  496  operation, denoted \, is defined over vectors, where
+  497  pv1 \v2qris " maxpv1ris, v2risq.
+  498  The crash vector has two purposes: (1) to match requests with their replies (e.g., to ignore old replies), and
+  499  (2) to detect whether a process has crashed and recovered. Initially, each process's crash vector is rK, . . . ,Ks,
+  500  where K is some value smaller than any value ever returned by any clock, and thus smaller than the crash ID
+  501  of any process that has ever crashed and begun recovery.
+
+  502  The single main function of our algorithm,
+  503  ACQUIRE-QUORUM, handles both writing values and
+  504  recovering. ACQUIRE-QUORUM ensures the persistence of both the process's current crash vector (in particular, the process's own crash ID in the vector) as well
+  505  as the value to be written (K, a unique value which every process's local set contains, in the case of recovery).
+  506  Additionally, it updates the process's local set to contain all previously written values. This guarantees that
+  507  upon recovery, if the set owner calls READ, it will get
+  508  those values.
+
+  509  ACQUIRE-QUORUM provides these guarantees by
+  510  collecting replies from a quorum of processes and ensuring that those replies are consistent per Section 5.3.
+  511  It uses crash vectors to detect when any process that
+  512  previously replied could have crashed and thus "forgotten" about the written value and the process's crash ID.
+  513  The DISCARD-OLD-REPLIES function detects and removes these replies from the reply set and then resends
+  514  the original message. While recovering, processes do
+  515  not send replies for WRITEs or other processes' recoveries; all ACQUIRE-REP messages are sent by OPERATIONAL processes.
+=== PAGE 8 ===
+
+  516  5.3 Protocol Correctness
+  517  Prior to discussing the correctness of Algorithm 1, we
+  518  first define basic terms.
+  519  Definition 1. A quorum, Q, is a set of processes such
+  520  that:
+
+  521  Q P Q " tQ | Q P 2Π and |Q| ą |Π|{2u
+
+  522  Note that @Q ,Q P Q, Q X Q ‰ H (Quorum In-
+  523  1 2 1 2
+  524  tersection).
+  525  Definition 2. We say that property X is stable if the
+  526  following two guarantees hold:
+  527  1. If a process, p, has property X, then as long as p
+  528  does not crash, p will still have property X.
+  529  2. If a process, p, has property X and p sends an ACQUIRE or ACQUIRE-REP message to p1, then upon
+  530  receiving the message, p1 will have property X.
+  531  Note that a process having a crash vector, v, that is
+  532  greater than or equal to some value is a stable property.
+  533  Also, a process having some element in its local set, S,
+  534  is a stable property.
+  535  Definition 3. If a process, p, has some stable property,
+  536  X, we say p knows X. If a message, m, from some
+  537  process, p, indicates that at the time p sent m, p knew
+  538  X, then we say m shows X (for p).
+  539  Definition 4. We say that a quorum Q knows some
+  540  stable property X if, for all processes p P Q, one of
+  541  the following holds: (1) p is DOWN, (2) p is OPERATIONAL, and p knows X, or (3) p is RECOVERING and
+  542  is guaranteed to know X upon finishing recovery.
+  543  Definition 5. A set of ACQUIRE-REP messages, R, is
+  544  consistent if:
+
+  545  @s1,s2 P R : s1.vrs2.fs ď s2.vrs2.fs
+  546  Definition 6. We say that a consistent set of ACQUIREREP messages constitutes a quorum promise showing
+  547  stable property X if the set of senders of those messages
+  548  is a quorum, and each message shows X.
+  549  The DISCARD-OLD-REPLIES function (line 32)
+  550  guarantees the consistency of the reply set by discarding any inconsistent messages; it also guarantees that
+  551  there is at most one message from each process in
+  552  the reply set. Therefore, the termination of ACQUIREQUORUM (line 13) means that the process has received
+
+  553  a quorum promise showing that val was written and
+  554  that every participant had a crash vector greater than or
+  555  equal to its own vector when it sent the ACQUIRE messages. This implies that whenever a process finishes
+  556  recovery and sets its op flag to true, it must have received a quorum promise showing that the participants
+  557  in its recovery had that process's latest crash ID in their
+  558  crash vectors.
+  559  Definition 7. We say that a process participates in
+  560  a quorum promise for X when it sends an ACQUIRE REP message that will eventually belong to a quorum
+  561  promise that some other process receives.
+  562  Unlike having a stable property, that a process participated in a quorum promise holds across failures and
+  563  recoveries. That is, we say that a process, not a specific
+  564  incarnation of that process, participated in a quorum
+  565  promise. Also note that only OPERATIONAL processes
+  566  ever participate in a quorum promise, guaranteed by the
+  567  guard on the ACQUIRE message handler.
+  568  Theorem 1 (Persistence of Quorum Knowledge). If at
+  569  time t, some quorum, Q, knows stable property X , then
+  570  for all times t1 ě t, Q knows X .
+  571  Proof. We prove by (strong) induction on t1 that the
+  572  following invariant, I, holds for all t1 ě t. For all p
+  573  in Q: (1) p is OPERATIONAL and knows X, (2) p is
+  574  RECOVERING, or (3) p is DOWN. In the base case at
+  575  time t, Q knows X by assumption, so I holds.
+  576  Now, assuming I holds at all times t1 ´ 1 ě t, we
+  577  show that I holds at time t1. Because X is stable, the
+  578  only step any process, p, in Q could take to falsify I
+  579  is finishing recovery. Either recovery began after time
+  580  t, or at or before time t. If the latter, then because Q
+  581  knew X, p is guaranteed to know X now that it has
+  582  finished recovering. If this recovery began after time t,
+  583  then p must have received some set of ACQUIRE-REP
+  584  messages from a quorum, all of which were sent after
+  585  time t. By quorum intersection, one of these messages
+  586  must have come from some process in Q. Call this process q. Since q's ACQUIRE-REP message, m, was sent
+  587  after time t and before t1 , by the induction hypothesis, q
+  588  must have known X when it sent m. Since X is a stable
+  589  property, p now knows X upon finishing recovery.
+  590  Since I holds for all times t1 ě t, this implies the
+  591  theorem.
+  592  Theorem 2 (Acquisition of Quorum Knowledge). If
+  593  process p receives a quorum promise showing stable
+  594  property X from quorum Q, then Q knows X .
+=== PAGE 9 ===
+
+  595  Proof. We again prove this theorem by (strong) induction, showing that the following invariant, I, holds for
+  596  all times, t:
+  597  1. If p receives a quorum promise showing stable property X from quorum Q, then Q knows X.
+  598  2. If p ever participated in a quorum promise for X at or
+  599  before time t, and p is OPERATIONAL, then p knows
+  600  X.
+  601  In the base case at t " 0, I holds vacuously since
+  602  no process could have yet received or participated in a
+  603  quorum promise. Now, assuming I holds at timet ´1 ě
+  604  0, we will show that I holds at time t.
+  605  We prove our invariant in two parts. First, let's dispatch with property 1 of I. If p has received a quorum
+  606  promise, R, from quorum Q showing X, then because R
+  607  is consistent, we know that at the time they participated
+  608  in R no process in Q had participated in the recovery3
+  609  of any later incarnation of any other process in Q than
+  610  the one that participated in R. If they had, then by the
+  611  induction hypothesis (which we can apply as their participation happened before time t), we would know that
+  612  such a process would have known the recovered process's new crash ID in the crash vector when it participated in R, and R would not have been consistent.
+  613  Given that fact, we will use a secondary induction
+  614  to show that for all times, t1, all of the processes in Q
+  615  either: (1) haven't yet participated R, (2) are DOWN, (3)
+  616  are RECOVERING, or (4) are OPERATIONAL and know
+  617  X.
+  618  In the base case at t1 " 0, no process in Q has yet
+  619  participated in R. Now, for the inductive step, note that
+  620  the only step any process, q, could take that would falsify our invariant is transitioning from RECOVERING to
+  621  OPERATIONAL after having participated in R. We know
+  622  that if q finished recovering, it must have received a
+  623  quorum promise showing that the senders knew its new
+  624  ID in the crash vector. By quorum intersection, at least
+  625  one of these came from some process in Q; call this process r. We already know r couldn't have participated
+  626  in q's recovery before participating in R. So by the induction hypothesis, r knew X at the time it participated
+  627  in q's recovery. And since X is stable, q knows X, completing this secondary induction.
+  628  Finally, we know that since p has received R, at time
+  629  t all of the processes in Q have already participated in
+  630  3 That is, participated in the quorum promise needed by a recovering process, showing that the senders knew the recovering
+  631  process's new ID (or a greater one) in the crash vector.
+
+  632  R, so all of the processes in Q are either DOWN, RECOVERING (and guaranteed to know X upon recovery), or
+  633  are OPERATIONAL and know X. Therefore, Q knows X,
+  634  and this completes the proof that property 1 of I holds
+  635  at time t.
+
+  636  Now, let's deal with property 2 of I. Suppose, for
+  637  the sake of contradiction, that at or before time t, p
+  638  participated in quorum promise R showing X (i.e. sent
+  639  some message showing X that is, or will be, in a quorum promise) received by q. Further suppose that p is
+  640  OPERATIONAL, and p doesn't know X. Let Q be the
+  641  the set of participants in R (i.e. those processes which
+  642  already have or will at some point participate in the
+  643  quorum promise, R).
+  644  Since X is a stable property, p must have crashed
+  645  and recovered since participating in R. Consider p's
+  646  most recent recovery, and let the quorum promise it
+  647  received showing that the senders knew p's new crash
+  648  ID in the crash vector (or a greater one) be R1. Let the
+  649  set of participants in R1 be Q1. By quorum intersection,
+  650  there exists some process in QXQ1. Consider one such
+  651  process, r.
+  652  We know that r couldn't have already participated
+  653  in R when it participated in R1; otherwise by induction,
+  654  when r participated in R1 , it would have known X, so
+  655  our incarnation of p at time t would know X. Therefore, r participated in R1 before participating in R. r
+  656  couldn't have participated in R before time t, however;
+  657  otherwise, by property 2 of I, it would have known p's
+  658  latest crash ID when participating in R, violating the
+  659  consistency of R.
+  660  However, we know that p has received a quorum
+  661  promise for its new crash ID at or before time t. So by
+  662  property 1 of I, which we have already shown holds at
+  663  time t, Q1 knows p's new crash ID. And, by Theorem 1,
+  664  if Q1 knows p's new crash ID at some time less than or
+  665  equal to t, then for all times greater than or equal to t,
+  666  Q1 knows p's new crash ID. In particular, this means
+  667  that for all times greater than or equal to time t, if r
+  668  is up, it knows p's new crash ID. Therefore, r can't
+  669  participate in R at or after time t, contradicting the fact
+  670  that r participates in R and completing the proof that
+  671  property 2 holds at time t.
+
+  672  Finally, as stated above, if WRITE terminates at time
+  673  t, we know that the process received promise from a
+  674  quorum, Q, showing that val was written. So by Theorem 2, we know this means Q knows val, and by Theorem 1, we know that Q will continue to know val. If
+=== PAGE 10 ===
+
+  675  that process ever crashes after time t and subsequently
+  676  recovers, we know that upon finishing recovery, it must
+  677  know val since it must have received an ACQUIREREPLY from some process in Q which knew val. Therefore, once a WRITE terminates, any subsequent READ
+  678  will at least return the written value, showing the safety
+  679  property of virtual stable storage.
+  680  Termination It would be nice to guarantee the termination of WRITE and recovery in all circumstances.
+  681  However, this is clearly impossible. In the DCR model,
+  682  processes can experience "amnesia." Consider some
+  683  process, p, trying to recover or write a value. If every
+  684  time any other process receives a message from p, it
+  685  replies, and then crashes and recovers (before any other
+  686  process receives a message from p), then it is obviously impossible for p to build up distributed knowledge, much less a quorum promise.
+  687  Our single reader, single writer set protocol does,
+  688  however, guarantee termination of both WRITE and
+  689  recovery if there is some quorum of processes, all of
+  690  which remain OPERATIONAL for a sufficient period of
+  691  time (and the writing or recovering process itself does
+  692  not crash). This is easy to see since a writing or recovering process will eventually get an ACQUIRE-REP
+  693  from each of these OPERATIONAL processes, and those
+  694  replies must be consistent (since no process could have
+  695  a crash ID for another process in its vector higher than
+  696  the crash ID of the latest incarnation of that process).
+  697  Furthermore we note that even though our protocol
+  698  is always safe, if ever a majority of processes is DOWN
+  699  any given time, then no process can ever receive replies
+  700  from a quorum again, so no process will ever be able
+  701  to recover or write again.4
+
+  702  6 Related work
+  703  Early work on the Crash-Recovery failure model proposed protocols to solve the consensus problem [3, 14].
+  704  These papers assume stable storage, and do not focus
+  705  on state-loss failures, either assuming that processes do
+  706  not lose state on crash [14] or that every state transition is persisted to stable storage [3]. (Others persist
+  707  only critical state to stable storage [5].) As a result, the
+  708  main focus of this work is omission failures, i.e., the
+  709  messages that processes do not receive while down.
+  710  Aguilera et al. [1] were the first to study consensus
+  711  4 In fact, if there is ever a majority of processes that are DOWN
+  712  or RECOVERING (where there does not exist a set of messages
+  713  currently in the network that will allow any of them to recover),
+  714  then no process will ever be able to recover or write again.
+
+  715  in a Crash-Recovery failure model without stable storage. The authors proved that consensus is impossible
+  716  to solve in this model unless the number of always-up
+  717  processes exceeds the upper bound on processes that
+  718  are either eventually-always-down or unstable. Their
+  719  failure model, however, differs significantly from ours:
+  720  it does not make a distinction between recovering and
+  721  operational processes. As a result, it cannot allow processes to recover their state, and hence at least one
+  722  process must remain always up. Instead, we show that
+  723  it is possible to provide stable storage in the Diskless
+  724  Crash-Recovery model as long as there is a quorum of
+  725  processes that remain operational for a sufficient time.
+  726  This allows any process to crash and fail at some point
+  727  during the execution of the protocol, which is expected
+  728  to happen in long-lived systems.
+  729  An interesting trade-off between stable storage and
+  730  a majority of correct process is discussed by Martin et
+  731  al. [12]. They consider a particular problem in the DCR
+  732  model, eventual leader election, that has weaker requirements than emulating stable storage in this model. In
+  733  particular, this problem can be solved even when processes do not always recover the state that they lost.
+
+  734  7 Conclusion
+  735  This paper defines the Diskless Crash-Recovery model
+  736  (DCR), which supports long-lived distributed services
+  737  where nodes may crash and rejoin the system without
+  738  their volatile state. Building a correct recovery protocol for this environment is surprisingly subtle; to our
+  739  knowledge, it has never been addressed in general. All
+  740  previous protocols for the specific case of state machine
+  741  replication in this model violate safety under certain
+  742  failure scenarios. We present the first general procedure
+  743  for transforming Crash-Stop or Crash-Recovery algorithms that rely on stable storage to the DCR model.
+  744  Our algorithm, which uses a crash vector to achieve
+  745  global knowledge about recovery progress, remains correct in all cases and terminates as long as a majority of
+  746  nodes remain operational.
+=== PAGE 11 ===
+
+  747  References
+  748  [1] M. K. Aguilera, M. Kawazoe, A. Wei, and C. S.
+  749  Toueg. Failure Detection and Consensus in the
+  750  Crash-Recovery Model. In Proc. of DISC, 1998.
+  751  [2] T. D. Chandra, R. Griesemer, and J. Redstone.
+  752  Paxos made live: an engineering perspective. In
+  753  Proc. of PODC, 2007.
+  754  [3] D. Dolev, R. Friedman, I. Keidar, and D. Malkhi.
+  755  Failure detectors in omission failure environments. Technical report, Department of Computer
+  756  Science, Cornell University, 1997.
+  757  [4] M. Herlihy and J. M. Wing. Linearizability: A
+  758  Correctness Condition for Concurrent Objects.
+  759  ACM Trans. Program. Lang. Syst., 1990.
+  760  [5] M. Hurfin, A. Most´efaoui, and M. Raynal. Consensus in Asynchronous Systems Where Processes Can Crash and Recover. In Proc. of the
+  761  17th Symposium on Reliable Distributed Systems,
+  762  SRDS, 1998.
+  763  [6] J. Ko´nczak, N. Santos, T. ˙Zurkowski, P. T. Wojciechowski, and A. Schiper. JPaxos: State machine replication based on the Paxos protocol.
+  764  Technical report, 2011.
+  765  [7] L. Lamport. Time, Clocks, and the Ordering of
+  766  Events in a Distributed System. Communications
+  767  of the ACM, 1978.
+
+  768  [8] L. Lamport. On interprocess communication,
+  769  1986.
+  770  [9] L. Lamport. Paxos made simple. ACM SIGACT
+  771  News 32, 2001.
+  772  [10] B. Liskov and J. Cowling. Viewstamped replication revisited. Technical report, 2012.
+  773  [11] N. A. Lynch and M. R. Tuttle. An Introduction to
+  774  Input/Output Automata. Technical report, MIT
+  775  Laboratory for Computer Science, Cambridge,
+  776  Mass., 1988.
+  777  [12] C. Martin, M. Larrea, and E. Jimenez. Implementing the Omega Failure Detector in the Crash-
+  778  Recovery Failure Model. J. Comput. Syst. Sci.,
+  779  2009.
+  780  [13] B. M. Oki and B. H. Liskov. Viewstamped replication: A new primary copy method to support
+  781  highly-available distributed systems. In Proc. of
+  782  PODC, 1988.
+  783  [14] R. Oliveira, R. Guerraoui, and A. Schiper. Consensus in the Crash Recover Model. Technical
+  784  report, D´epartment d'Informatique, ´Ecole Polytechnique F´ed´erale, Lausanne, Switzerland, 1997.
+  785  [15] F. B. Schneider. Implementing Fault-Tolerant Services Using the State Machine Approach: A Tutorial. ACM Computing Surveys, 1990.
+=== PAGE 12 ===
+
+  786  A Description of Safety Violations in
+
+  787  Existing SMR Solutions
+  788  As mentioned in Section 4, three prior systems have
+  789  proposed protocols for state machine replication in the
+  790  Diskless Crash-Recovery model. This appendix shows
+  791  safety violating traces for these protocols.
+
+  792  A.1 Viewstamp Replication Revisited
+  793  Viewstamped Replication Revisited [10] is a recent version of the classic VR protocol [13] that specifically
+  794  targets the DCR model.
+  795  Basic VR Protocol. VR is a leader-based algorithm;
+  796  the system moves through a series of views in which
+  797  one node is designated as the leader. That node is responsible for assigning an order to operations. When
+  798  the leader receives a request from a client, it sends
+  799  a PREPARE message containing the request and sequence number to the other replicas. Upon receiving
+  800  a PREPARE, a replica verifies that it is in the same view
+  801  as the leader and then records the request in its log
+  802  and responds to the leader with a PREPARE-OK. Once
+  803  the leader receives PREPARE-OK messages from a majority of replicas, it executes the request, responds to
+  804  the client, and sends a COMMIT message to the other
+  805  replicas. The other replicas then execute the request.
+  806  VR uses a view change protocol to mask failures
+  807  of the leader. If a replica suspects the leader of having failed, it notifies the other replicas. These replicas
+  808  stop processing requests, increment their view number,
+  809  stop processing requests in the old view, and send a
+  810  DO-VIEW-CHANGE message to the leader of the new
+  811  view. This request includes the log of operations previously executed or prepared by that replica. Once
+  812  the new leader receives DO-VIEW-CHANGE messages
+  813  from a majority of replicas, it selects the longest log,
+  814  and sends a START-VIEW message to notify the other
+  815  replicas that they can resume normal operation. This
+  816  protocol ensures that all successfully completed operations persist across view changes: each such operation
+  817  must have completed at a majority of replicas, and a
+  818  majority of replicas send logs to their leader, so the
+  819  new leader will have learned about that operation from
+  820  at least one replica.
+  821  As described in Section 4, a key invariant in VR is
+  822  that once a node has sent a DO-VIEW-CHANGE message to the leader of a view, it must never accept new
+  823  operations in prior views – otherwise these operations
+  824  could be lost after the view change. A recovery protocol must ensure that this property continues to hold
+
+  825  A.1
+
+  826  even if replicas crash and recover.
+  827  Diskless Recovery. The original version of VR used
+  828  stable storage for logging view numbers during view
+  829  changes (and only for this purpose). VR Revisited eliminates this use of stable storage, attempting to emulate
+  830  it with a write to a quorum.
+  831  To achieve this goal, VR Revisited uses two additions to the protocol, described in Section 4. First, it
+  832  introduces a recovery protocol, where a recovering
+  833  node contacts all other replicas and waits for a response from a quorum of replicas with matching view
+  834  number. Second, it adds another phase to the view
+  835  change protocol: nodes stop processing requests when
+  836  they notice the need for a view change and send a
+  837  START-VIEW-CHANGE message to all other replicas;
+  838  they only send the DO-VIEW-CHANGE message upon
+  839  receiving START-VIEW-CHANGE messages from a quorum of replicas.
+  840  Failure Trace. Simply replacing a log to stable storage with a write to a quorum is not sufficient to ensure
+  841  correct recovery. In Figure 1, we show a trace with 3
+  842  processes, in which a new leader (NL) mistakenly overwrites the decision of a previous leader (OL).
+
+  843  Initially, NL suspects OL of failing, and sends a
+  844  START-VIEW-CHANGE message to node 1 to switch
+  845  to view 1.
+  846  NL crashes immediately after sending this message
+  847  – before node 1 receives it – then immediately initiates recovery. It sends RECOVERY messages and
+  848  receives RECOVERY-RESPONSE messages from OL
+  849  and 1, both of which are in view 0 – so NL recovers
+  850  in view 0.
+  851  Node 1 receives the START-VIEW-CHANGE message
+  852  sent by the previous incarnation of NL
+  853  Node 1 sends a START-VIEW-CHANGE message
+  854  to NL for view 1. Because node 1 has a quorum of START-VIEW-CHANGE messages for view
+  855  1 (its own and the one from NL), it also sends a
+  856  DO-VIEW-CHANGE message to NL. Both messages
+  857  are delayed by the network.
+  858  Node 1 crashes and immediately recovers, sending
+  859  RECOVERY messages to and receiving responses
+  860  from OL and NL – both of which are in view 0.
+  861  NL receives START-VIEW-CHANGE and
+  862  DO-VIEW-CHANGE messages from node 1. It
+  863  has a quorum of START-VIEW-CHANGE messages,
+  864  so it sends a DO-VIEW-CHANGE message for view
+  865  1. This is enough for it to complete the view change.
+=== PAGE 13 ===
+
+  866  OL NL 1
+  867  X
+
+  868  ime X
+  869  T
+
+  870  Recovered process in View 0 Start-View-Change
+  871  Recovery response Do-View-Change
+  872  X Crash Start-View for View 1
+  873  OL Old Leader
+  874  NL New Leader
+  875  Figure 1: Trace showing safety violation in Viewstamped Replication Revisited [10]
+
+  876  It sends a START-VIEW message.
+  877  Until the START-VIEW message is received, nodes
+  878  OL and 1 are still in view 0 and do not believe a
+  879  view change is in progress. Thus, they can commit
+  880  new operations, which the new leader NL will not
+  881  know about, leaving the system in an inconsistent
+  882  state..
+
+  883  In this trace, messages are reordered inside the network. In particular, messages are reordered across failures, i.e., messages from a prior incarnation of a process are sometimes delivered after messages from a
+  884  later one. A network with FIFO communication channels would not allow the violation described above:
+  885  recovering nodes will receive a reply to their recovery message only after their previous messages (e.g.,
+  886  START-VIEW-CHANGE message) have been received.
+  887  However, message reordering is not required for this
+  888  failure case: we have found a a trace with 7 nodes that
+  889  leads to the same behavior, even with FIFO communication channels, as shown in Figure 2.
+
+  890  A.2 Paxos Made Live
+  891  Paxos Made Live is Google's production implementation of a Paxos [2]. It is based on the well-known
+  892  Multi-Paxos optimization which chains together multiple instances of Paxos [9] and is effectively equivalent
+  893  to VR. This system primarily uses stable storage to support crash recovery, but because disks can become corrupted or otherwise fail, the authors propose a version
+  894  that allows recovery without disks.
+  895  Recovery Protocol. On recovery, a process first uses
+  896  a catch-up mechanism to bring itself up-to-date. The
+  897  specific mechanism it uses is not described, but pre-
+
+  898  A.2
+
+  899  sumably it is an application-level state transfer from
+  900  a quorum of correct processes as in VR. In order to
+  901  ensure consistency, the recovering process is not allowed to participate in the protocol until it observes
+  902  a completed instance of successful consensus after
+  903  its recovery, i.e., until it learns that at least a quorum have agreed on a value for a new consensus instance. This mechamism suffers from a similar problem to the one in VR. Although it protects against losing ACKNOWLEDGEMENTs (i.e., PREPARE-OK messages in VR), it does not protect against losing
+  904  PROMISEs made to potential new leaders (i.e., VR's
+  905  DO-VIEW-CHANGE messages).
+  906  Failure Trace. Figure 3 shows a trace with 5 processes that leads to a new leader mistakenly deciding a
+  907  new value for a prior successful instance of consensus,
+  908  overwriting the decision of the previous leader:
+
+  909  Initially, node OL is the leader.
+  910  Node NL suspects the leader of having failed, so
+  911  sends a PROPOSE message proposing itself as the
+  912  next leader.
+
+  913  OLNL 1 2 3 4 5
+  914  X
+  915  X
+  916  imeTX
+  917  X
+  918  X
+  919  X
+  920  X
+  921  X
+  922  X
+  923  X
+  924  X
+
+  925  Recovered process in View 0
+  926  Recovery response Start-View-Change
+  927  X Crash Do-View-Change
+  928  OL Old Leader Start-View for View 1
+  929  NL New Leader
+  930  Figure 2: Trace showing safety violation in Viewstamped Replication Revisited [10], assuming FIFO
+  931  channels
+=== PAGE 14 ===
+
+  932  OL NL 1 2 3
+  933  X
+  934  C1
+  935  imeT
+  936  C2
+
+  937  C2
+
+  938  Recovered process Propose & Promise
+  939  Recovery response Accept & Acknowledgement
+  940  X Crash Cn Consensus instancen
+  941  OL Old Leader
+  942  NL New Leader
+  943  Figure 3: Trace showing safety violation in Paxos Made
+  944  Live [2]
+
+  945  Node 1 receives NL's proposal, and sends a
+  946  PROMISE to NL, promising that it will not accept
+  947  any further operations from OL.
+  948  Node 1 crashes and immediately recovers.
+  949  OL selects a new value for the next instance, C1, and
+  950  sends ACCEPT and receives ACKNOWLEDGEMENT
+  951  messages from nodes 2 and 3. The operation is committed, and node 1 completes recovery because it
+  952  has now observed an instance of consensus.
+  953  OL selects a value for instance C2, and sends
+  954  ACCEPTs and receives ACKNOWLEDGEMENTs from
+  955  nodes 1 and 3.
+  956  Node 3 then receives NL's PROPOSE and sends NL
+  957  a PROMISE.
+  958  NL has now received a quorum of PROMISE messages: from itself, node 3, and the previous incarnation of node 1. None of these observed consensus
+  959  instance C2, so NL can now start instance 2 of consensus and overwrite the previous value with its own
+  960  ACCEPT messages.
+
+  961  A.3 JPaxos
+  962  JPaxos [6] is a state machine replication protocol based
+  963  on Paxos. It is a hybrid between Multi-Paxos and VR,
+  964  replacing promises with views. The protocol is presented in several deployment options, including one
+  965  that does not use stable storage, i.e., supports the Diskless Crash-Recovery model.5
+  966  Recovery Protocol. JPaxos provides a protocol for
+  967  the DCR model called epoch-based recovery. This protocol is similar in spirit to our use of crash vectors: it
+  968  5The protocol is actually presented as using stable storage on
+  969  process initialization, but only to store a monotonic value on write.
+  970  The monotonic counter available in our DCR model fills this need.
+
+  971  A.3
+
+  972  attempts to maintain a vector clock of how many times
+  973  each node has crashed and recovered. Each node updates this vector when it sends a recovery response to
+  974  another node, and includes a copy of its vector in the
+  975  PROPOSE-OK messages that it uses to commit to a new
+  976  view (i.e., the equivalent of the DO-VIEW-CHANGE
+  977  message). It then uses these vectors to discard all
+  978  PROPOSE-OK messages that do not come from a consistent quorum.
+  979  JPaxos's epoch-based recovery protocol has one critical difference from ours. It treats recovery as complete
+  980  once it has received RECOVERY-ANSWER messages
+  981  from a quorum of replicas. In contrast, our protocol
+  982  requires recovery responses from a consistent quorum
+  983  of replicas. That is, it discards recovery responses from
+  984  the quorum if it learned that the replica that sent the
+  985  response itself crashed and recovered.
+  986  This subtle change has important implications for
+  987  correctness. Without this, JPaxos does not correctly
+  988  handle recovery of nodes when the nodes they are recovering from can themselves crash and recover. When
+  989  this happens, JPaxos can allow a node to recover in a
+  990  way that simultaneously 1) causes the node to lose the
+  991  promise that it made in a previous PREPARE-OK, yet 2)
+  992  does not allow other nodes to detect that the promise
+  993  might have been lost. We give such an example below.
+  994  OL NL 1 2 3
+  995  (0,0,0,0,0) X
+  996  ime X
+  997  T
+  998  X
+  999  (0,0,0,1,1)
+
+ 1000  Recovered process
+ 1001  Recovery response
+ 1002  X Crash
+ 1003  OL Old Leader Recovery & RecoveryAnswer
+ 1004  NL New Leader Prepare & PrepareOK
+ 1005  Figure 4: Trace showing safety violation in JPaxos
+
+ 1006  Failure Trace. Figure 4 shows a trace in which a
+ 1007  process (node 1 in the figure) commits to a new view
+ 1008  via a PREPARE-OK message, then crashes and recovers.
+ 1009  When it recovers, it recovers in the previous view without having learned of its promise; however, the new
+ 1010  leader (NL) does not learn about node 1's crash and recovery, and therefore does not discard its PREPARE-OK
+ 1011  message.
+=== PAGE 15 ===
+
+ 1012  The system starts in a view where OL is the leader,
+ 1013  and all nodes have epoch vector p0,0,0,0,0q.
+ 1014  Node NL suspects OL of having failed, so sends out
+ 1015  a PREPARE message proposing itself as the leader of
+ 1016  the next view.
+ 1017  Node 1 receives NL's PREPARE message and sends
+ 1018  a PREPARE-OK.
+ 1019  Node 1 crashes and immediately recovers. It sends
+ 1020  a RECOVERY message to node 2, and receives a
+ 1021  RECOVERY-ANSWER. Node 2's epoch vector is now
+ 1022  p0,0,1,0,0q
+ 1023  Node 2 crashes and immediately recovers. It
+ 1024  sends a RECOVERY message and receives
+ 1025  RECOVERY-ANSWERs from nodes OL, NL,
+ 1026  and 3. All of these have epoch vector p0,0,0,1,0q,
+ 1027  so 2 now has this vector as well – in other words, it
+ 1028  has lost its knowledge that 1 crashed.
+ 1029  Node 1 sends a RECOVERY message to node 3,
+ 1030  and receives a reply. Node 3's epoch vector is now
+ 1031  p0,0,1,1,0q.
+ 1032  Node 3 crashes and immediately recovers, communicating with nodes OL, NL, and 2 during recovery.
+ 1033  After recovery, its epoch vector is p0,0,0,1,1q.
+ 1034  NL sends a PREPARE message to 3, and receives
+ 1035  a PREPARE-OK responses. It now has a quorum of
+ 1036  PREPARE-OK responses from itself, 1, and 3, so it
+ 1037  can start a new view.
+ 1038  Node 1 sends a RECOVERY message to node OL,
+ 1039  and receives a response. It is now fully recovered in
+ 1040  the original view.
+ 1041  OL can now commit operations (via the quorum of
+ 1042  itself, 1, and 2) which will not appear in NL's new
+ 1043  view.
+
+ 1044  Our protocol avoids this problem by checking for a
+ 1045  consistent quorum on recovery. When node 1 receives
+ 1046  a recovery response from OL, that response will have
+ 1047  crash vector p0,0,0,1,1q – and so node 1 will discard
+ 1048  the earlier recovery responses it received from 2 and 3.
+ 1049  It does so because it has learned that those nodes have
+ 1050  crashed and recovered, and therefore their updates to
+ 1051  the crash vector may not be stable.
+
+ 1052  A.4

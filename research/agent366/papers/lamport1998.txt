@@ -1,0 +1,1654 @@
+---
+title: "The Part-Time Parliament"
+authors:
+  - "Leslie Lamport"
+year: "1998"
+publication: "ACM Transactions on Computer Systems"
+handle_url: "https://doi.org/10.1145/279227.279229"
+source_pdf: "research/agent366/papers/lamport1998-part-time-parliament.pdf"
+source_pdf_sha256: "cd9544e9615bcd417a2c10063671cecca0b28ad4bc5db3f64467a83ecc7028d3"
+page_count: 33
+extracted_text_runs: 5295
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Recent archaeological discoveries on the island of Paxos reveal that the parliament functioned despite the peripatetic propensity of its part-time legislators. The legislators maintained consistent copies of the parliamentary record, despite their frequent forays from the chamber and the forgetfulness of their messengers. The Paxon parliament's protocol provides a new way of implementing the state machine approach to the design of distributed systems.
+tags: []
+---
+
+=== PAGE 1 ===
+
+    1  The Part-Time Parliament
+
+    2  Leslie Lamport
+
+    3  This article appeared in ACM Transactions on Computer Systems 16, 2 (May 1998), 133-169. Minor corrections were made
+    4  on 29 August 2000.
+=== PAGE 2 ===
+
+    5  The Part-Time Parliament
+
+    6  LESLIE LAMPORT
+    7  Digital Equipment Corporation
+
+    8  Recent archaeological discoveries on the island of Paxos reveal that the parliament functioned despite the peripatetic propensity of its part-time legislators. The legislators maintained consistent
+    9  copies of the parliamentary record, despite their frequent forays from the chamber and the forgetfulness of their messengers. The Paxon parliament's protocol provides a new way of implementing
+   10  the state-machine approach to the design of distributed systems.
+   11  Categories and Subject Descriptors: C2.4 [Computer-Communications Networks]: Distributed
+   12  Systems—Network operating systems; D4.5 [Operating Systems]: Reliability—Fault-tolerance;
+   13  J.1 [Administrative Data Processing]: Government
+   14  General Terms:Design, Reliability
+   15  Additional Key Words and Phrases:State machines, three-phase commit, voting
+
+   16  This submission was recently discovered behind a filing cabinet in the TOCS editorial
+   17  office. Despite its age, the editor-in-chief felt that it was worth publishing. Because the
+   18  author is currently doing field work in the Greek isles and cannot be reached, Iwas asked
+   19  to prepare it for publication.
+   20  The author appears to be an archeologist with only a passing interest in computer science. This is unfortunate; even though the obscure ancient Paxon civilization he describes
+   21  is of little interest to most computer scientists, its legislative system is an excellent model
+   22  for how to implement a distributed computer system in an asynchronous environment.
+   23  Indeed, some of the refinements the Paxons made to their protocol appear to be unknown
+   24  in the systems literature.
+   25  The author does give a brief discussion of the Paxon Parliament's relevance to distributed computing in Section 4. Computer scientists will probably want to read that
+   26  section first. Even before that, they might want to read the explanation of the algorithm
+   27  for computer scientists by Lampson [1996]. The algorithm is also described more formally
+   28  by De Prisco et al. [1997]. Ihave added further comments on the relation between the
+   29  ancient protocols and more recent work at the end of Section 4.
+   30  Keith Marzullo
+   31  University of California, San Diego
+
+   32  Authors' address:Systems Research Center, Digital Equipment Corporation, 130 Lytton Avenue,
+   33  Palo Alto, CA 94301.
+   34  Permission to copy without fee all or part of this material is granted provided that the copies are
+   35  not made or distributed for direct commercial advantage, the ACM copyright notice and the title
+   36  of the publication and its date appear, and notice is given that copying is by permission of the
+   37  Association for Computing Machinery. To copy otherwise, or to republish, requires a fee and/or
+   38  specific permission.
+   39  c 1998 ACM 0000-0000/98/0000-0000 $00.00
+=== PAGE 3 ===
+
+   40  ·
+   41  2 Leslie Lamport
+
+   42  1 The Problem
+   43  1.1 The Island of Paxos
+   44  Early in this millennium, the Aegean island of Paxos was a thriving mercantile center.1 Wealth led to political sophistication, and the Paxons replaced their ancient
+   45  theocracy with a parliamentary form of government. But trade came before civic
+   46  duty, and no one in Paxos was willingto devote his life to Parliament. The Paxon
+   47  Parliament had to function even though legislators continually wandered in and out
+   48  of the parliamentary Chamber.
+   49  The problem of governing with a part-time parliament bears a remarkable correspondence to the problem faced by today's fault-tolerant distributed systems, where
+   50  legislators correspond to processes and leaving the Chamber corresponds to failing.
+   51  The Paxons' solution may therefore be of some interest to computer scientists. I
+   52  present here a short history of the Paxos Parliament's protocol, followed by an even
+   53  shorter discussion of its relevance for distributed systems.
+   54  Paxon civilization was destroyed by a foreign invasion, and archeologists have just
+   55  recently begun to unearth its history. Our knowledge of the Paxon Parliament is
+   56  therefore fragmentary. Although the basic protocols are known, we are ignorant of
+   57  many details. Where such details are of interest, I will take the liberty of speculating
+   58  on what the Paxons might have done.
+   59  1.2 Requirements
+   60  Parliament's primary task was to determine the law of the land, which was defined
+   61  by the sequence of decrees it passed. A modern parliament will employ a secretary
+   62  to record its actions, but no one in Paxos was willingto remain in the Chamber
+   63  throughout the session to act as secretary. Instead, each Paxon legislator maintained a ledger in which he recorded the numbered sequence of decrees that were
+   64  passed. For example, legislator Λ˘ινχ∂'s ledger had the entry
+
+   65  155: The olive tax is 3 drachmas per ton
+
+   66  if she believed that the 155th decree passed by Parliament set the tax on olives to 3
+   67  drachmas per ton. Ledgers were written with indelible ink, and their entries could
+   68  not be changed.
+   69  The first requirement of the parliamentary protocol was the consistency of ledgers,
+   70  meaning that no two ledgers could contain contradictory information. If legislator
+   71  Φισ∂ρ had the entry
+
+   72  132: Lamps must use only olive oil
+
+   73  in his ledger, then no other legislator's ledger could have a different entry for decree
+   74  132. However, another legislator might have no entry in his ledger for decree 132 if
+   75  he hadn't yet learned that the decree had been passed.
+   76  Consistency of ledgers was not sufficient, since it could be trivially fulfilled by
+   77  leaving all ledgers blank. Some requirement was needed to guarantee that decrees
+
+   78  1It should not be confused with the Ionian island of Paxoi, whose name is sometimes corrupted
+   79  to Paxos.
+=== PAGE 4 ===
+
+   80  ·
+   81  The Part-Time Parliament 3
+
+   82  were eventually passed and recorded in ledgers. In modern parliaments, the passing
+   83  of decrees is hindered by disagreement among legislators. This was not the case
+   84  in Paxos, where an atmosphere of mutual trust prevailed. Paxon legislators were
+   85  willingto pass any decree that was proposed. However, their peripatetic propensity
+   86  posed a problem. Consistency would be lost if one group of legislators passed the
+   87  decree
+   88  37: Painting on temple walls is forbidden
+   89  and then left for a banquet, whereupon a different group of legislators entered
+   90  the Chamber and, knowingnothingabout what had just happened, passed the
+   91  conflictingdecree
+   92  37: Freedom of artistic expression is guaranteed
+   93  Progress could not be guaranteed unless enough legislators stayed in the Chamber for a long enough time. Because Paxon legislators were unwilling to curtail
+   94  their outside activities, it was impossible to ensure that any decree would ever be
+   95  passed. However, legislators were willing to guarantee that, while in the Chamber,
+   96  they and their aides would act promptly on all parliamentary matters. This guarantee allowed the Paxons to devise a parliamentary protocol satisfyingthe following
+   97  progress condition.
+   98  If a majority of the legislators2 were in the Chamber and no one entered
+   99  or left the Chamber for a sufficiently longperiod of time then any decree
+  100  proposed by a legislator in the Chamber would be passed, and every
+  101  decree that had been passed would appear in the ledger of every legislator
+  102  in the Chamber.
+  103  1.3 Assumptions
+  104  The requirements of the parliamentary protocol could be achieved only by providing
+  105  the legislators with the necessary resources. Each legislator received a sturdy ledger
+  106  in which to record the decrees, a pen, and a supply of indelible ink. Legislators might
+  107  forget what they had been doing if they left the Chamber,3 so they would write
+  108  notes in the back of the ledgers to remind themselves of important parliamentary
+  109  tasks. An entry in the list of decrees was never changed, but notes could be crossed
+  110  out. Achieving the progress condition required that legislators be able to measure
+  111  the passage of time, so they were given simple hourglass timers.
+  112  Legislators carried their ledgers at all times, and could always read the list of
+  113  decrees and any note that had not been crossed out. The ledgers were made of the
+  114  finest parchment and were used for only the most important notes. A legislator
+  115  would write other notes on a slip of paper, which he might (or might not) lose if
+  116  he left the Chamber.
+  117  The acoustics of the Chamber were poor, makingoratory impossible. Legislators
+  118  could communicate only by messenger, and were provided with funds to hire as
+  119  2In translating the progress condition, I have rendered the Paxon word µαδζ∂ωριτιστ˘ as majority
+  120  of the legislators. Alternative translations of this word have been proposed and are discussed in
+  121  Section 2.2.
+  122  3In one tragic incident, legislator T ωυγ developed irreversible amnesia after being hit on the
+  123  head by a falling statue just outside the Chamber.
+=== PAGE 5 ===
+
+  124  ·
+  125  4 Leslie Lamport
+
+  126  many messengers as they needed. A messenger could be counted on not to garble
+  127  messages, but he might forget that he had already delivered a message, and deliver
+  128  it again. Like the legislators they served, messengers devoted only part of their
+  129  time to parliamentary duties. A messenger might leave the Chamber to conduct
+  130  some business—perhaps taking a six-month voyage—before delivering a message.
+  131  He might even leave forever, in which case the message would never be delivered.
+  132  Although legislators and messengers could enter and leave at any time, when
+  133  inside the Chamber they devoted themselves to the business of Parliament. While
+  134  they remained in the Chamber, messengers delivered messages in a timely fashion
+  135  and legislators reacted promptly to any messages they received.
+  136  The official records of Paxos claim that legislators and messengers were scrupulously honest and strictly obeyed parliamentary protocol. Most scholars discount
+  137  this as propaganda, intended to portray Paxos as morally superior to its eastern
+  138  neighbors. Dishonesty, although rare, undoubtedly did occur. However, because it
+  139  was never mentioned in official documents, we have little knowledge of how Parliament coped with dishonest legislators or messengers. What evidence has been
+  140  uncovered is discussed in Section 3.3.5.
+
+  141  2 The Single-Decree Synod
+  142  The Paxon Parliament evolved from an earlier ceremonial Synod of priests that
+  143  was convened every 19 years to choose a single, symbolic decree. For centuries, the
+  144  Synod had chosen the decree by a conventional procedure that required all priests
+  145  to be present. But as commerce flourished, priests began wandering in and out of
+  146  the Chamber while the Synod was in progress. Finally, the old protocol failed, and
+  147  a Synod ended with no decree chosen. To prevent a repetition of this theological
+  148  disaster, Paxon religious leaders asked mathematicians to formulate a protocol for
+  149  choosingthe Synod's decree. The protocol's requirements and assumptions were essentially the same as those of the later Parliament except that instead of containing
+  150  a sequence of decrees, a ledger would have at most one decree. The resulting Synod
+  151  protocol is described here; the Parliamentary protocol is described in Section 3.
+  152  Mathematicians derived the Synod protocol in a series of steps. First, they proved
+  153  results showingthat a protocol satisfyingcertain constraints would guarantee consistency and allow progress. A preliminary protocol was then derived directly from
+  154  these constraints. A restricted version of the preliminary protocol provided the
+  155  basic protocol that guaranteed consistency, but not progress. The complete Synod
+  156  protocol, satisfyingthe consistency and progress requirements, was obtained by
+  157  restrictingthe basic protocol.4
+  158  The mathematical results are described in Section 2.1, and the protocols are
+  159  described informally in Sections 2.2–2.4. A more formal description and correctness
+  160  proof of the basic protocol appears in the appendix.
+
+  161  4The complete history of the Synod protocol's discovery is not known. Like modern computer
+  162  scientists, Paxon mathematicians would describe elegant, logical derivations that bore no resemblance to how the algorithms were actually derived. However, it is known that the mathematical
+  163  results (Theorems 1 and 2 of Section 2.1) really did precede the protocol. They were discovered
+  164  when mathematicians, in response to the request for a protocol, were attempting to prove that a
+  165  satisfactory protocol was impossible.
+=== PAGE 6 ===
+
+  166  ·
+  167  The Part-Time Parliament 5
+
+  168  2.1 Mathematical Results
+  169  The Synod's decree was chosen through a series of numbered ballots, where a ballot
+  170  was a referendum on a single decree. In each ballot, a priest had the choice only
+  171  of votingfor the decree or not voting.5 Associated with a ballot was a set of
+  172  priests called a quorum. A ballot succeeded iff (if and only if) every priest in the
+  173  quorum voted for the decree. Formally, a ballot B consisted of the followingfour
+  174  components. (Unless otherwise qualified, set is taken to mean finite set.6)
+  175  Bdec A decree (the one beingvoted on).
+  176  Bqrm A nonempty set of priests (the ballot's quorum).
+  177  B A set of priests (the ones who cast votes for the decree).7
+  178  vot
+  179  Bbal A ballot number.
+  180  A ballot B was said to be successful iff B ⊆ B , so a successful ballot was one
+  181  qrm vot
+  182  in which every quorum member voted.
+  183  Ballot numbers were chosen from an unbounded ordered set of numbers. If
+  184  B > Bbal, then ballot B was said to be later than ballot B. However, this
+  185  bal
+  186  indicated nothingabout the order in which ballots were conducted; a later ballot
+  187  could actually have taken place before an earlier one.
+  188  Paxon mathematicians defined three conditions on a set B of ballots, and then
+  189  showed that consistency was guaranteed and progress was possible if the set of
+  190  ballots that had taken place satisfied those conditions. The first two conditions
+  191  were simple; they can be stated informally as follows.
+  192  B1(B) Each ballot in B has a unique ballot number.
+  193  B2(B) The quorums of any two ballots in B have at least one priest in common.
+  194  The third condition was more complicated. One Paxon manuscript contained the
+  195  following, rather confusing, statement of it.
+  196  B3(B) For every ballot B in B, if any priest in B's quorum voted in an earlier
+  197  ballot in B, then the decree of B equals the decree of the latest of those
+  198  earlier ballots.
+  199  Interpretation of this cryptic text was aided by the manuscript pictured in Figure 1,
+  200  which illustrates condition B3(B) with a set B of five ballots for a Synod consisting
+  201  of the five priests A, B, Γ, ∆, and E. This set B contains five ballots, where for
+  202  each ballot, the set of voters is the subset of the priests in the quorum whose names
+  203  are enclosed in boxes. For example, ballot number 14 has decree α, a quorum
+  204  containingthree priests, and a set of two voters. Condition B3(B) has the form
+  205  "for every B in B: . . . ", where ". . ." is a condition on ballot B. The conditions for
+  206  the five ballots B of Figure 1 are as follows.
+
+  207  5Like some modern nations, Paxos had not fully grasped the nature of Athenian democracy.
+  208  6Although Paxon mathematicians were remarkably advanced for their time, they obviously had
+  209  no knowledge of set theory. I have taken the liberty of translating the Paxon's more primitive
+  210  notation into the language of modern set theory.
+  211  7Only priests in the quorum actually voted, but Paxon mathematicians found it easier to convince
+  212  people that the protocol was correct if, in their proof, they allowed any priest to vote in any ballot.
+=== PAGE 7 ===
+
+  213  ·
+  214  6 Leslie Lamport
+
+  215  # decree quorum and voters
+
+  216  2 α ABΓ ∆
+
+  217  5 β ABΓE
+
+  218  14 α B ∆ E
+
+  219  27 β AΓ ∆
+
+  220  29 β BΓ ∆
+
+  221  Fig. 1. Paxon manuscript showing a set B, consisting of five ballots, that satisfies conditions
+  222  B1(B)–B3(B). (Explanatory column headings have been added.)
+
+  223  2. Ballot number 2 is the earliest ballot, so the condition on that ballot is trivially
+  224  true.
+  225  5. None of ballot 5's four quorum members voted in an earlier ballot, so the
+  226  condition on ballot 5 is also trivially true.
+  227  14. The only member of ballot 14's quorum to vote in an earlier ballot is ∆, who
+  228  voted in ballot number 2, so the condition requires that ballot 14's decree must
+  229  equal ballot 2's decree.
+  230  27. (This is a successful ballot.) The members of ballot 27's quorum are A, Γ, and
+  231  ∆. Priest A did not vote in an earlier ballot, the only earlier ballot Γ voted in
+  232  was ballot 5, and the only earlier ballot ∆ voted in was ballot 2. The latest of
+  233  these two earlier ballots is ballot 5, so the condition requires that ballot 27's
+  234  decree must equal ballot 5's decree.
+  235  29. The members of ballot 29's quorum are B, Γ, and ∆. The only earlier ballot
+  236  that B voted in was number 14, priest Γ voted in ballots 5 and 27, and ∆ voted
+  237  in ballots 2 and 27. The latest of these four earlier ballots is number 27, so the
+  238  condition requires that ballot 29's decree must equal ballot 27's decree.
+  239  To state B1(B)–B3(B) formally requires some more notation. A vote v was
+  240  defined to be a quantity consistingof three components: a priest vpst, a ballot
+  241  number vbal, and a decree vdec. It represents a vote cast by priest vpst for decree
+  242  vdec in ballot number vbal. The Paxons also defined null votes to be votes v with
+  243  v = −∞ and v = blank, where −∞ < b < ∞ for any ballot number b, and
+  244  bal dec
+  245  blank is not a decree. For any priest p, they defined nullp to be the unique null
+  246  vote v with vpst = p.
+  247  Paxon mathematicians defined a total orderingon the set of all votes, but part
+  248  of the manuscript containingthe definition has been lost. The remainingfragment
+  249  indicates that, for any votes v and v , if vbal < v then v < v . It is not known
+  250  bal
+  251  how the relative order of v and v was defined if vbal = v .
+  252  B B Bbal
+  253  For any set of ballots, the set Votes( ) of votes in was defined to consist of
+  254  all votes v such that v ∈ B , v = B , and v = B for some B ∈ B.
+  255  pst vot bal bal dec dec
+  256  If p is a priest and b is either a ballot number or ±∞, then MaxVote(b, p, B) was
+=== PAGE 8 ===
+
+  257  ·
+  258  The Part-Time Parliament 7
+
+  259  defined to be the largest vote v in Votes(B) cast by p with v < b, or to be nullp
+  260  bal
+  261  if there was no such vote. Since nullp is smaller than any real vote cast by p, this
+  262  means that MaxVote(b, p, B) is the largest vote in the set
+
+  263  {v ∈ Votes(B) : (v = p) ∧ (v < b)} ∪ {nullp}
+  264  pst bal
+
+  265  For any nonempty set Q of priests, MaxVote(b, Q, B) was defined to equal the
+  266  maximum of all votes MaxVote(b, p, B) with p in Q.
+  267  Conditions B1(B)–B3(B) are stated formally as follows.8
+
+  268  B1(B) =∆ ∀B, B ∈ B : (B = B ) ⇒ (B = B )
+  269  bal bal
+  270  B2(B) =∆ ∀B, B ∈ B : B ∩ B = ∅
+  271  qrm qrm
+  272  B3(B) =∆ ∀B ∈ B : (MaxVote(B , B , B) = −∞) ⇒
+  273  bal qrm bal
+  274  (B = MaxVote(B , B , B) )
+  275  dec bal qrm dec
+
+  276  Although the definition of MaxVote depends upon the orderingof votes, B1(B)
+  277  implies that MaxVote(b, Q, B) is independent of how votes with equal ballot
+  278  dec
+  279  numbers were ordered.
+  280  To show that these conditions imply consistency, the Paxons first showed that
+  281  B1(B)–B3(B) imply that, if a ballot B in B is successful, then any later ballot in
+  282  B is for the same decree as B.
+
+  283  Lemma If B1(B), B2(B), and B3(B) hold, then
+
+  284  ((B ⊆ B ) ∧ (B > B )) ⇒ (B = B )
+  285  qrm vot bal bal dec dec
+
+  286  for any B, B in B.
+
+  287  Proof of Lemma
+  288  For any ballot B in B, let Ψ(B, B) be the set of ballots in B later than B for a
+  289  decree different from B's:
+
+  290  Ψ(B, B) =∆ {B ∈ B : (B > B ) ∧ (B = B )}
+  291  bal bal dec dec
+
+  292  To prove the lemma, it suffices to show that if B ⊆ B then Ψ(B, B) is empty.
+  293  qrm vot
+  294  The Paxons gave a proof by contradiction. They assumed the existence of a B with
+  295  B ⊆ B and Ψ(B, B) = ∅, and obtained a contradiction as follows.9
+  296  qrm vot
+  297  1. Choose C ∈ Ψ(B, B) such that C = min{B : B ∈ Ψ(B, B)}.
+  298  bal bal
+  299  : C exists because Ψ(B, B) is nonempty and finite.
+  300  Proof
+  301  2. Cbal > Bbal
+  302  : By 1 and the definition of Ψ(B, B).
+  303  Proof
+  304  3. B ∩ C = ∅
+  305  vot qrm
+  306  Proof: By B2(B) and the hypothesis that B ⊆ B .
+  307  qrm vot
+
+  308  8 ∆
+  309  I use the Paxon mathematical symbol = , which meant equals by definition.
+  310  9Paxon mathematicians always provided careful, structured proofs of important theorems. They
+  311  were not as sophisticated as modern mathematicians, who can omit many details and write
+  312  paragraph-style proofs without ever making a mistake.
+=== PAGE 9 ===
+
+  313  ·
+  314  8 Leslie Lamport
+
+  315  4. MaxVote(C , C , B) ≥ B
+  316  bal qrm bal bal
+  317  Proof: By 2, 3 and the definition of MaxVote(C , C , B).
+  318  bal qrm
+  319  5. MaxVote(C , C , B) ∈ Votes(B)
+  320  bal qrm
+  321  : By 4 (which implies that MaxVote(C , C , B) is not a null vote)
+  322  Proof bal qrm
+  323  and the definition of MaxVote(C , C , B).
+  324  bal qrm
+  325  6. MaxVote(C , C , B) = C .
+  326  bal qrm dec dec
+  327  : By 5 and B3(B).
+  328  Proof
+  329  7. MaxVote(C , C , B) = B
+  330  bal qrm dec dec
+  331  : By 6, 1, and the definition of Ψ(B, B).
+  332  Proof
+  333  8. MaxVote(C , C , B) > B
+  334  bal qrm bal bal
+  335  : By 4, since 7 and B1(B) imply that MaxVote(C , C , B) = B .
+  336  Proof bal qrm bal bal
+  337  9. MaxVote(C , C , B) ∈ Votes(Ψ(B, B))
+  338  bal qrm
+  339  Proof: By 7, 8, and the definition of Ψ(B, B).
+  340  10. MaxVote(C , C , B) < C
+  341  bal qrm bal bal
+  342  Proof: By definition of MaxVote(C , C , B).
+  343  bal qrm
+  344  11. Contradiction
+  345  Proof: By 9, 10, and 1.
+  346  End Proof of Lemma
+
+  347  With this lemma, it was easy to show that, if B1–B3 hold, then any two successful
+  348  ballots are for the same decree.
+
+  349  Theorem 1. If B1(B), B2(B), and B3(B) hold, then
+
+  350  ((B ⊆ B ) ∧ (B ⊆ B )) ⇒ (B = B )
+  351  qrm vot qrm vot dec dec
+
+  352  for any B, B in B.
+
+  353  Proof of Theorem
+  354  If B = B , then B1(B) implies B = B. If B = B , then the theorem
+  355  bal bal bal bal
+  356  follows immediately from the lemma.
+  357  End Proof of Theorem
+
+  358  The Paxons then proved a theorem assertingthat if there are enough priests in
+  359  the Chamber, then it is possible to conduct a successful ballot while preserving B1–
+  360  B3. Although this does not guarantee progress, it at least shows that a balloting
+  361  protocol based on B1–B3 will not deadlock.
+
+  362  Theorem 2. Let b be a ballot number and Q a set of priests such that b > Bbal
+  363  and Q∩ B = ∅ for all B ∈ B. If B1(B), B2(B), and B3(B) hold, then there is a
+  364  qrm
+  365  ballot B with B = b and B = B = Q such that B1(B∪{B }), B2(B∪{B }),
+  366  bal qrm vot
+  367  and B3(B ∪ {B }) hold.
+
+  368  Proof of Theorem
+  369  Condition B1(B∪{B }) follows from B1(B), the choice of B , and the assumption
+  370  bal
+  371  about b. Condition B2(B ∪ {B }) follows from B2(B), the choice of B , and the
+  372  qrm
+  373  assumption about Q. If MaxVote(b, Q, B) = −∞ then let B be any decree,
+  374  bal dec
+  375  else let it equal MaxVote(b, Q, B) . Condition B3(B ∪ {B }) then follows from
+  376  dec
+  377  B3(B).
+  378  End Proof of Theorem
+=== PAGE 10 ===
+
+  379  ·
+  380  The Part-Time Parliament 9
+
+  381  2.2 The Preliminary Protocol
+  382  The Paxons derived the preliminary protocol from the requirement that conditions
+  383  B1(B)–B3(B) remain true, where B was the set of all ballots that had been or were
+  384  beingconducted. The definition of the protocol specified how the set B changed,
+  385  but the set was never explicitly calculated. The Paxons referred to B as a quantity
+  386  observed only by the gods, since it might never be known to any mortal.
+  387  Each ballot was initiated by a priest, who chose its number, decree, and quorum.
+  388  Each priest in the quorum then decided whether or not to vote in the ballot. The
+  389  rules determininghow the initiator chose a ballot's number, decree, and quorum,
+  390  and how a priest decided whether or not to vote in a ballot were derived directly
+  391  from the need to maintain B1(B)–B3(B).
+  392  To maintain B1, each ballot had to receive a unique number. By remembering
+  393  (with notes in his ledger) what ballots he had previously initiated, a priest could
+  394  easily avoid initiatingtwo different ballots with the same number. To keep different
+  395  priests from initiatingballots with the same number, the set of possible ballot
+  396  numbers was partitioned amongthe priests. While it is not known how this was
+  397  done, an obvious method would have been to let a ballot number be a pair consisting
+  398  of an integer and a priest, using a lexicographical ordering, where
+  399  (13, Γρα˘ι) < (13, Λινσ˘ι) < (15, Γρα˘ι)
+  400  since Γ came before Λ in the Paxon alphabet. In any case, it is known that every
+  401  priest had an unbounded set of ballot numbers reserved for his use.
+  402  To maintain B2, a ballot's quorum was chosen to contain a µαδζ∂ωριτ˘ιστ of
+  403  priests. Initially, µαδζ∂ωριτ˘ιστ just meant a simple majority. Later, it was observed that fat priests were less mobile and spent more time in the Chamber than
+  404  thin ones, so a µαδζ∂ωριτ˘ιστ was taken to mean any set of priests whose total
+  405  weight was more than half the total weight of all priests, rather than a simple majority of the priests. When a group of thin priests complained that this was unfair,
+  406  actual weights were replaced with symbolic weights based on a priest's attendance
+  407  record. The primary requirement for a µαδζ∂ωριτ˘ιστ was that any two sets containinga µαδζ∂ωριτ˘ιστ of priests had at least one priest in common. To maintain
+  408  B2, the priest initiatinga ballot B chose Bqrm to be a majority set.
+  409  Condition B3 requires that if MaxVote(b, Q, B) is not equal to , then
+  410  dec blank
+  411  a ballot with number b and quorum Q must have decree MaxVote(b, Q, B) . If
+  412  dec
+  413  MaxVote(b, Q, B) equals blank, then the ballot can have any decree. To maindec
+  414  tain B3(B), before initiatinga new ballot with ballot number b and quorum Q, a
+  415  priest p had to find MaxVote(b, Q, B) . To do this, p had to find MaxVote(b, q, B)
+  416  dec
+  417  for each priest q in Q.
+  418  Recall that MaxVote(b, q, B) is the vote with the largest ballot number less than
+  419  b amongall the votes cast by q, or nullq if q did not vote in any ballot numbered
+  420  less than b. Priest p obtains MaxVote(b, q, B) from q by an exchange of messages.
+  421  Therefore, the first two steps in the protocol for conductinga single ballot initiated
+  422  by p are:10
+
+  423  10Priests p and q could be the same. For simplicity, the protocol is described with p sending
+  424  messages to himself in this case. In reality, a priest could talk to himself without the use of
+  425  messengers.
+=== PAGE 11 ===
+
+  426  ·
+  427  10 Leslie Lamport
+
+  428  (1) Priest p chooses a new ballot number b and sends a NextBallot(b) messag e to
+  429  some set of priests.
+  430  (2) A priest q responds to the receipt of a NextBallot(b) message by sending a
+  431  LastVote(b, v) message to p, where v is the vote with the largest ballot number
+  432  less than b that q has cast, or his null vote nullq if q did not vote in any ballot
+  433  numbered less than b.
+  434  Priest q must use notes in the back of his ledger to remember what votes he had
+  435  previously cast.
+  436  When q sends the LastVote(b, v) message, v equals MaxVote(b, q, B). But the
+  437  set B of ballots changes as new ballots are initiated and votes are cast. Since priest
+  438  p is going to use v as the value of MaxVote(b, q, B) when choosinga decree, to keep
+  439  B3(B) true it is necessary that MaxVote(b, q, B) not change after q has sent the
+  440  LastVote(b, v) message. To keep MaxVote(b, q, B) from changing, q must cast no
+  441  new votes with ballot numbers between vbal and b. By sendingthe LastVote(b, v)
+  442  message, q is promisingnot to cast any such vote. (To keep this promise, q must
+  443  record the necessary information in his ledger.)
+  444  The next two steps in the ballotingprotocol (begun in step 1 by priest p) are:
+  445  (3) After receivinga LastVote(b, v) message from every priest in some majority
+  446  set Q, priest p initiates a new ballot with number b, quorum Q, and decree d,
+  447  where d is chosen to satisfy B3. He then records the ballot in the back of his
+  448  ledger and sends a BeginBallot(b, d) message to every priest in Q.
+  449  (4) Upon receipt of the BeginBallot(b, d) message, priest q decides whether or not
+  450  to cast his vote in ballot number b. (He may not cast the vote if doingso
+  451  would violate a promise implied by a LastVote(b , v ) message he has sent for
+  452  some other ballot.) If q decides to vote for ballot number b, then he sends a
+  453  Voted(b, q) message to p and records the vote in the back of his ledger.
+  454  The execution of step 3 is considered to add a ballot B to B, where B = b,
+  455  bal
+  456  B = Q, B = ∅ (no one has yet voted in this ballot), and B = d. In step 4,
+  457  qrm vot dec
+  458  if priest q decides to vote in the ballot, then executingthat step is considered to
+  459  change the set B of ballots by adding q to the set B of voters in the ballot B ∈ B.
+  460  vot
+  461  A priest has the option not to vote in step 4, even if castinga vote would not
+  462  violate any previous promise. In fact, all the steps in this protocol are optional.
+  463  For example, a priest q can ignore a NextBallot(b) message instead of executing
+  464  step 2. Failure to take an action can prevent progress, but it cannot cause any
+  465  inconsistency because it cannot make B1(B)–B3(B) false. Since the only effect not
+  466  receiving a message can have is to prevent an action from happening, message loss
+  467  also cannot cause inconsistency. Thus, the protocol guarantees consistency even if
+  468  priests leave the chamber or messages are lost.
+  469  Receivingmultiple copies of a message can cause an action to be repeated. Except
+  470  in step 3, performingthe action a second time has no effect. For example, sending
+  471  several Voted(b, q) messages in step 4 has the same effect as sending just one.
+  472  The repetition of step 3 is prevented by usingthe entry made in the back of the
+  473  ledger when it is executed. Thus, the consistency condition is maintained even if a
+  474  messenger delivers the same message several times.
+  475  Steps 1–4 describe the complete protocol for initiatinga ballot and votingon it.
+=== PAGE 12 ===
+
+  476  ·
+  477  The Part-Time Parliament 11
+
+  478  All that remains is to determine the results of the ballotingand announce when a
+  479  decree has been selected. Recall that a ballot is successful iff every priest in the
+  480  quorum has voted. The decree of a successful ballot is the one chosen by the Synod.
+  481  The rest of the protocol is:
+  482  (5) If p has received a Voted(b, q) message from every priest q in Q (the quorum
+  483  for ballot number b), then he writes d (the decree of that ballot) in his ledger
+  484  and sends a Success(d) message to every priest.
+  485  (6) Upon receivinga Success(d) message, a priest enters decree d in his ledger.
+  486  Steps 1–6 describe how an individual ballot is conducted. The preliminary protocol
+  487  allows any priest to initiate a new ballot at any time. Each step maintains B1(B)–
+  488  B3(B), so the entire protocol also maintains these conditions. Since a priest enters
+  489  a decree in his ledger only if it is the decree of a successful ballot, Theorem 1 implies
+  490  that the priests' ledgers are consistent. The protocol does not address the question
+  491  of progress.
+  492  In step 3, if the decree d is determined by condition B3, then it is possible that
+  493  this decree is already written in the ledger of some priest. That priest need not be
+  494  in the quorum Q; he could have left the Chamber. Thus, consistency would not be
+  495  guaranteed if step 3 allowed any greater freedom in choosing d.
+  496  2.3 The Basic Protocol
+  497  In the preliminary protocol, a priest must record (i) the number of every ballot
+  498  he has initiated, (ii) every vote he has cast, and (iii) every LastVote message he
+  499  has sent. Keepingtrack of all this information would have been difficult for the
+  500  busy priests. The Paxons therefore restricted the preliminary protocol to obtain
+  501  the more practical basic protocol in which each priest p had to maintain only the
+  502  followinginformation in the back of his ledger:
+  503  lastTried[p] The number of the last ballot that p tried to initiate, or −∞ if there
+  504  was none.
+  505  prevVote[p] The vote cast by p in the highest-numbered ballot in which he voted,
+  506  or −∞ if he never voted.
+  507  nextBal[p] The largest value of b for which p has sent a LastVote(b, v) message,
+  508  or −∞ if he has never sent such a message.
+  509  Steps 1–6 of the preliminary protocol describe how a single ballot is conducted by
+  510  its initiator, priest p. The preliminary protocol allows p to conduct any number
+  511  of ballots concurrently. In the basic protocol, he conducts only one ballot at a
+  512  time—ballot number lastTried[p]. After p initiates this ballot, he ignores messages
+  513  that pertain to any other ballot that he had previously initiated. Priest p keeps all
+  514  information about the progress of ballot number lastTried[p] on a slip of paper. If
+  515  he loses that slip of paper, then he stops conductingthe ballot.
+  516  In the preliminary protocol, each LastVote(b, v) message sent by a priest q represents a promise not to vote in any ballot numbered between vbal and b. In the
+  517  basic protocol, it represents the stronger promise not to cast a new vote in any
+  518  ballot numbered less than b. This stronger promise might prevent him from casting
+  519  a vote in step 4 of the basic protocol that he would have been allowed to cast in
+  520  the preliminary protocol. However, since the preliminary protocol always gives q
+=== PAGE 13 ===
+
+  521  ·
+  522  12 Leslie Lamport
+
+  523  the option of not castinghis vote, the basic protocol does not require him to do
+  524  anythingnot allowed by the preliminary protocol.
+  525  Steps 1–6 of the preliminary protocol become the followingsix steps for conductinga ballot in the basic protocol. (All information used by p to conduct the ballot,
+  526  other than lastTried[p], prevVote[p], and nextBal[p], is kept on a slip of paper.)
+  527  (1) Priest p chooses a new ballot number b greater than lastTried[p], sets lastTried[p]
+  528  to b, and sends a NextBallot(b) message to some set of priests.
+  529  (2) Upon receipt of a NextBallot(b) message from p with b > nextBal[q], priest q
+  530  sets nextBal[q] to b and sends a LastVote(b, v) message to p, where v equals
+  531  prevVote[q]. (A NextBallot(b) message is ignored if b ≤ nextBal[q].)
+  532  (3) After receivinga LastVote(b, v) message from every priest in some majority
+  533  set Q, where b = lastTried[p], priest p initiates a new ballot with number b,
+  534  quorum Q, and decree d, where d is chosen to satisfy B3. He then sends a
+  535  BeginBallot(b, d) message to every priest in Q.
+  536  (4) Upon receipt of a BeginBallot(b, d) message with b = nextBal[q], priest q casts
+  537  his vote in ballot number b, sets prevVote[q] to this vote, and sends a Voted(b, q)
+  538  message to p. (A BeginBallot(b, d) message is ignored if b = nextBal[q].)
+  539  (5) If p has received a Voted(b, q) message from every priest q in Q (the quorum
+  540  for ballot number b), where b = lastTried[p], then he writes d (the decree of
+  541  that ballot) in his ledger and sends a Success(d) message to every priest.
+  542  (6) Upon receivinga Success(d) message, a priest enters decree d in his ledger.
+  543  The basic protocol is a restricted version of the preliminary protocol, meaning
+  544  that every action allowed by the basic protocol is also allowed by the preliminary
+  545  protocol. Since the preliminary protocol satisfies the consistency condition, the
+  546  basic protocol also satisfies that condition. Like the preliminary protocol, the basic
+  547  protocol does not require that any action ever be taken, so it does not addresses
+  548  the question of progress.
+  549  The derivation of the basic protocol from B1–B3 made it obvious that the consistency condition was satisfied. However, some similarly "obvious" ancient wisdom
+  550  had turned out to be false, and skeptical citizens demanded a more rigorous proof.
+  551  Their Paxon mathematicians' proof that the protocol satisfies the consistency condition is reproduced in the appendix.
+  552  2.4 The Complete Synod Protocol
+  553  The basic protocol maintains consistency, but it cannot ensure any progress because
+  554  it states only what a priest may do; it does not require him to do anything. The
+  555  complete protocol consists of the same six steps for conductinga ballot as the basic
+  556  protocol. To help achieve progress, it includes the obvious additional requirement
+  557  that priests perform steps 2–6 of the protocol as soon as possible. However, to
+  558  meet the progress condition, it is necessary that some priest be required to perform
+  559  step 1, which initiates a ballot. The key to the complete protocol lay in determining
+  560  when a priest should initiate a ballot.
+  561  Never initiatinga ballot will certainly prevent progress. However, initiatingtoo
+  562  may ballots can also prevent progress. If b is larger than any other ballot number,
+  563  then the receipt of a NextBallot(b) message by priest q in step 2 may elicit a
+=== PAGE 14 ===
+
+  564  ·
+  565  The Part-Time Parliament 13
+
+  566  promise that prevents him from votingin step 4 for any previously initiated ballot.
+  567  Thus, the initiation of a new ballot can prevent any previously initiated ballot from
+  568  succeeding. If new ballots are continually initiated with increasing ballot numbers
+  569  before the previous ballots have a chance to succeed, then no progress might be
+  570  made.
+  571  Achievingthe progress condition requires that new ballots be initiated until one
+  572  succeeds, but that they not be initiated too frequently. To develop the complete
+  573  protocol, the Paxons first had to know how longit took messengers to deliver
+  574  messages and priests to respond. They determined that a messenger who did not
+  575  leave the Chamber would always deliver a message within 4 minutes, and a priest
+  576  who remained in the Chamber would always perform an action within 7 minutes
+  577  of the event that caused the action.11 Thus, if p and q were in the Chamber when
+  578  some event caused p to send a message to q, and q responded with a reply to p, then
+  579  p would receive that reply within 22 minutes if neither messenger left the Chamber.
+  580  (Priest p would send the message within 7 minutes of the event, q would receive
+  581  the message within 4 more minutes, he would respond within 7 minutes, and the
+  582  reply would reach p within 4 more minutes.)
+  583  Suppose that only a single priest p was initiatingballots, and that he did so
+  584  by sendinga message to every priest in step 1 of the protocol. If p initiated a
+  585  ballot when a majority set of priests was in the chamber, then he could expect
+  586  to execute step 3 within 22 minutes of initiatingthe ballot, and to execute step 5
+  587  within another 22 minutes. If he was unable to execute the steps by those times,
+  588  then either some priest or messenger left the Chamber after p initiated the ballot,
+  589  or a larger-numbered ballot had previously been initiated by another priest (before
+  590  p became the only priest to initiate ballots). To handle the latter possibility, p had
+  591  to learn about any ballot numbers greater than lastTried[p] used by other priests.
+  592  This could be done by extendingthe protocol to require that if a priest q received
+  593  a NextBallot(b) or a BeginBallot(b, d) message from p with b < nextBal[q], then he
+  594  sent p a message containing nextBal[q]. Priest p would then initiate a new ballot
+  595  with a larger ballot number.
+  596  Still assumingthat p was the only priest initiatingballots, suppose that he were
+  597  required to initiate a new ballot iff (i) he had not executed step 3 or step 5 within
+  598  the previous 22 minutes, or (ii) he learned that another priest had initiated a
+  599  higher-numbered ballot. If the Chamber doors were locked with p and a majority
+  600  set of priests inside, then a decree would be passed and recorded in the ledgers of
+  601  all priests in the Chamber within 99 minutes. (It could take 22 minutes for p to
+  602  start the next ballot, 22 more minutes to learn that another priest had initiated
+  603  a larger-numbered ballot, then 55 minutes to complete steps 1–6 for a successful
+  604  ballot.) Thus, the progress condition would be met if only a single priest, who did
+  605  not leave the chamber, were initiatingballots.
+  606  The complete protocol therefore included a procedure for choosinga single priest,
+  607  called the president, to initiate ballots. In most forms of government, choosing a
+
+  608  11I am assuming a value of 30 seconds for the δζ∂ιφι˘, the Paxon unit of time. This value is within
+  609  the range determined from studies of hourglass shards. The reaction time of priests was so long
+  610  because they had to respond to every message within 7 minutes (14 δζ∂ιφι˘), even if a number of
+  611  messages arrived simultaneously.
+=== PAGE 15 ===
+
+  612  ·
+  613  14 Leslie Lamport
+
+  614  president can be a difficult problem. However, the difficultly arises only because
+  615  most governments require that there be exactly one president at any time. In the
+  616  United States, for example, chaos would result if some people thought Bush had
+  617  been elected president while others thought that Dukakis had, since one of them
+  618  might decide to sign a bill into law while the other decided to veto it. However, in the
+  619  Paxon Synod, havingmultiple presidents could only impede progress; it could not
+  620  cause inconsistency. For the complete protocol to satisfy the progress condition, the
+  621  method for choosingthe president needed only to satisfy the followingpresidential
+  622  selection requirement:
+  623  If no one entered or left the Chamber, then after T minutes exactly one
+  624  priest in the Chamber would consider himself to be the president.
+  625  If the presidential selection requirement were met, then the complete protocol would
+  626  have the property that if a majority set of priests were in the chamber and no one
+  627  entered or left the Chamber for T + 99 minutes, then at the end of that period
+  628  every priest in the Chamber would have a decree written in his ledger.
+  629  The Paxons chose as president the priest whose name was last in alphabetical
+  630  order amongthe names of all priests in the Chamber, though we don't know exactly
+  631  how this was done. The presidential selection requirement would have been satisfied
+  632  if a priest in the Chamber sent a message containing his name to every other priest
+  633  at least once every T − 11 minutes, and a priest considered himself to be president
+  634  iff he received no message from a "higher-named" priest for T minutes.
+  635  The complete Synod protocol was obtained from the basic protocol by requiring
+  636  priests to perform steps 2–6 promptly, addinga method for choosinga president who
+  637  initiated ballots, and requiringthe president to initiate ballots at the appropriate
+  638  times. Many details of the protocol are not known. I have described simple methods
+  639  for selectinga president and for decidingwhen the president should initiate a new
+  640  ballot, but they are undoubtedly not the ones used in Paxos. The rules I have given
+  641  require the president to keep initiatingballots even after a decree has been chosen,
+  642  thereby ensuringthat priests who have just entered the Chamber learn about the
+  643  chosen decree. There were obviously better ways to make sure priests learned about
+  644  the decree after it had been chosen. Also, in the course of selectinga president,
+  645  each priest probably sent his value of lastTried[p] to the other priests, allowingthe
+  646  president to choose a large enough ballot number on his first try.
+  647  The Paxons realized that any protocol to achieve the progress condition must
+  648  involve measuringthe passage of time.12 The protocols given above for selecting
+  649  a president and initiatingballots are easily formulated as precise algorithms that
+  650  set timers and perform actions when time-outs occur—assumingperfectly accurate
+  651  timers. A closer analysis reveals that such protocols can be made to work with
+  652  timers havinga known bound on their accuracy. The skilled glass blowers of Paxos
+  653  had no difficulty constructingsuitable hourglass timers.
+  654  Given the sophistication of Paxon mathematicians, it is widely believed that
+  655  they must have found an optimal algorithm to satisfy the presidential selection
+  656  requirement. We can only hope that this algorithm will be discovered in future
+
+  657  12However, many centuries were to pass before a rigorous proof of this result was given.[Fischer
+  658  et al. 1985]
+=== PAGE 16 ===
+
+  659  ·
+  660  The Part-Time Parliament 15
+
+  661  excavations on Paxos.
+
+  662  3 The Multi-Decree Parliament
+  663  When Parliament was established, a protocol to satisfy its consistency and progress
+  664  requirements was derived from the Synod protocol. The derivation and properties of
+  665  the original parliamentary protocol are described in Sections 3.1 and 3.2. Section 3.3
+  666  discusses the further evolution of the protocol.
+  667  3.1 The Protocol
+  668  Instead of passingjust one decree, the Paxon Parliament had to pass a series of
+  669  numbered decrees. As in the Synod protocol, a president was elected. Anyone who
+  670  wanted a decree passed would inform the president, who would assign a number
+  671  to the decree and attempt to pass it. Logically, the parliamentary protocol used a
+  672  separate instance of the complete Synod protocol for each decree number. However,
+  673  a single president was selected for all these instances, and he performed the first
+  674  two steps of the protocol just once.
+  675  The key to derivingthe parliamentary protocol is the observation that, in the
+  676  Synod protocol, the president does not choose the decree or the quorum until step 3.
+  677  A newly elected president p can send to some set of legislators a single message that
+  678  serves as the NextBallot(b) message for all instances of the Synod protocol. (There
+  679  are an infinite number of instances—one for each decree number.) A legislator q
+  680  can reply with a single message that serves as the LastVote messages for step 2 of
+  681  all instances of the Synod protocol. This message contains only a finite amount of
+  682  information, since q can have voted in only a finite number of instances.
+  683  When the new president has received a reply from every member of a majority
+  684  set, he is ready to perform step 3 for every instance of the Synod protocol. For
+  685  some finite number of instances (decree numbers), the choice of decree in step 3 will
+  686  be determined by B3. The president immediately performs step 3 for each of those
+  687  instances to try passingthese decrees. Then, whenever he receives a request to pass
+  688  a decree, he chooses the lowest-numbered decree that he is still free to choose, and
+  689  he performs step 3 for that decree number (instance of the Synod protocol) to try
+  690  to pass the decree.
+  691  The followingmodifications to this simple protocol lead to the actual Paxon
+  692  Parliament's protocol.
+  693  —There is no reason to go through the Synod protocol for a decree number whose
+  694  outcome is already known. Therefore, if a newly elected president p has all
+  695  decrees with numbers less than or equal to n written in his ledger, then he sends
+  696  a NextBallot(b, n) message that serves as a NextBallot(b) message in all instances
+  697  of the Synod protocol for decree numbers larger than n. In his response to this
+  698  message, legislator q informs p of all decrees numbered greater than n that already
+  699  appear in q's ledger (in addition to sending the usual LastVote information for
+  700  decrees not in his ledger), and he asks p to send him any decrees numbered n or
+  701  less that are not in his ledger.
+  702  —Suppose decrees 125 and 126 are introduced late Friday afternoon, decree 126 is
+  703  passed and is written in one or two ledgers, but before anything else happens, the
+  704  legislators all go home for the weekend. Suppose also that the following Monday,
+=== PAGE 17 ===
+
+  705  ·
+  706  16 Leslie Lamport
+
+  707  ∆φωρκ is elected the new president and learns about decree 126, but she has no
+  708  knowledge of decree 125 because the previous president and all legislators who
+  709  had voted for it are still out of the Chamber. She will hold a ballot that passes
+  710  decree 126, which leaves a gap in the ledgers. Assigning number 125 to a new
+  711  decree would cause it to appear earlier in the ledger than decree 126, which had
+  712  been passed the previous week. Passingdecrees out of order in this way might
+  713  cause confusion—for example, if the citizen who proposed the new decree did so
+  714  because he knew decree 126 had already passed. Instead, ∆φωρκ would attempt
+  715  to pass
+  716  125: The ides of February is national olive day
+  717  a traditional decree that made absolutely no difference to anyone in Paxos. In
+  718  general, a new president would fill any gaps in his ledger by passing the "oliveday" decree.
+  719  The consistency and progress properties of the parliamentary protocol follow
+  720  immediately from the correspondingproperties of the Synod protocol from which
+  721  it was derived. To our knowledge, the Paxons never bothered writing a precise
+  722  description of the parliamentary protocol because it was so easily derived from the
+  723  Synod protocol.
+  724  3.2 Properties of the Protocol
+  725  3.2.1 The Ordering of Decrees Ballotingcould take place concurrently for many
+  726  different decree numbers, with ballots initiated by different legislators—each thinkinghe was president when he initiated the ballot. We cannot say precisely in what
+  727  order decrees would be passed, especially without knowinghow a president was
+  728  selected. However, there is one important property about the orderingof decrees
+  729  that can be deduced.
+  730  A decree was said to to be proposed when it was chosen by the president in step 3
+  731  of the correspondinginstance of the Synod protocol. The decree was said to be
+  732  passed when it was written for the first time in a ledger. Before a president could
+  733  propose any new decrees, he had to learn from all the members of a majority set
+  734  what decrees they had voted for. Any decree that had already been passed must
+  735  have been voted for by at least one legislator in the majority set. Therefore, the
+  736  president must have learned about all previously passed decrees before initiating
+  737  any new decree. The president would not fill a gap in the ledgers with an important
+  738  decree—that is, with any decree other than the "olive-day" decree. He would also
+  739  not propose decrees out of order. Therefore, the protocol satisfied the following
+  740  decree-ordering property.
+  741  If decrees A and B are important and decree A was passed before decree
+  742  B was proposed, then A has a lower decree number than B.
+  743  3.2.2 Behind Closed Doors Although we don't know the details involved in
+  744  choosinga new president, we do know exactly how Parliament functioned when
+  745  the president had been chosen and no one was enteringor leavingthe Chamber.
+  746  Upon receivinga request to pass a decree—either directly from a citizen or relayed
+  747  from another legislator—the president assigned the decree a number and passed it
+  748  with the following exchange of messages. (The numbers refer to the corresponding
+  749  steps in the Synod protocol.)
+=== PAGE 18 ===
+
+  750  ·
+  751  The Part-Time Parliament 17
+
+  752  (3) The president sent a BeginBallot message to each legislator in a quorum.
+  753  (4) Each legislator in the quorum sent a Voted message to the president.
+  754  (5) The president sent a Success message to every legislator.
+  755  This is a total of three message delays and about 3N messages, assuming a
+  756  parliament of N legislators and a quorum of about N/2. Moreover, if Parliament
+  757  was busy, the president would combine the BeginBallot message for one decree with
+  758  the Success message for a previous one, for a total of only 2N messages per decree.
+  759  3.3 Further Developments
+  760  Governingthe island turned out to be a more complex task than the Paxons realized.
+  761  A number of problems arose whose solutions required changes to the protocol. The
+  762  most important of these changes are described below.
+  763  3.3.1 Picking a President The president of parliament was originally chosen
+  764  by the method that had been used in the Synod, which was based purely on the
+  765  alphabetical orderingof names. Thus, when legislator Ωκι returned from a sixmonth vacation, he was immediately made president—even though he had no idea
+  766  what had happened in his absence. Parliamentary activity came to a halt while
+  767  Ωκι, who was a slow writer, laboriously copied six months worth of decrees to bring
+  768  his ledger up to date.
+  769  This incident led to a debate about the best way to choose a president. Some
+  770  Paxons urged that once a legislator became president, he should remain president
+  771  until he left the Chamber. An influential group of citizens wanted the richest
+  772  legislator in the Chamber to be president, since he could afford to hire more scribes
+  773  and other servants to help him with the presidential duties. They argued that once
+  774  a rich legislator had brought his ledger up to date, there was no reason for him
+  775  not to assume the presidency. Others, however, argued that the most upstanding
+  776  citizen should be made president, regardless of wealth. Upstanding probably meant
+  777  less likely to be dishonest, although no Paxon would publicly admit the possibility
+  778  of official malfeasance. Unfortunately, the outcome of this debate is not known; no
+  779  record exists of the presidential selection protocol that was ultimately used.
+  780  3.3.2 Long Ledgers As the years progressed and Parliament passed more and
+  781  more decrees, Paxons had to pore over an ever longer list of decrees to find the
+  782  current olive tax or what color goat could be sold. A legislator who returned to the
+  783  Chamber after an extended voyage had to do quite a bit of copyingto bringhis
+  784  ledger up to date. Eventually, the legislators were forced to convert their ledgers
+  785  from lists of decrees into law books that contained only the current state of the law
+  786  and the number of the last decree whose passage was reflected in that state.
+  787  To learn the current olive tax, one looked in the law book under "taxes"; to learn
+  788  what color goat could be sold, one looked under "mercantile law". If a legislator's
+  789  ledger contained the law through decree 1298 and he learned that decree 1299 set
+  790  the olive tax to 6 drachmas per ton, he just changed the entry for the olive-tax law
+  791  and noted that his ledger was complete through decree 1299. If he then learned
+  792  about decree 1302, he would write it down in the back of the ledger and wait until
+  793  he learned about decrees 1300 and 1301 before incorporatingdecree 1302 into the
+  794  law book.
+=== PAGE 19 ===
+
+  795  ·
+  796  18 Leslie Lamport
+
+  797  To enable a legislator who had been gone for a short time to catch up without
+  798  copyingthe entire law book, legislators kept a list of the past week's decrees in the
+  799  back of the book. They could have kept this list on a slip of paper, but it was
+  800  convenient for a legislator to enter decrees in the back of the ledger as they were
+  801  passed and update the law book only two or three times a week.
+  802  3.3.3 Bureaucrats As Paxos prospered, legislators became very busy. Parliament could no longer handle all details of government, so a bureaucracy was established. Instead of passinga decree to declare whether each lot of cheese was fit
+  803  for sale, Parliament passed a decree appointinga cheese inspector to make those
+  804  decisions.
+  805  It soon became evident that selectingbureaucrats was not as simple as it first
+  806  seemed. Parliament passed a decree making ∆˘ικστρα the first cheese inspector.
+  807  After some months, merchants complained that ∆˘ικστρα was too strict and was
+  808  rejectingperfectly good cheese. Parliament then replaced him by passingthe decree
+
+  809  1375: Γωυδα is the new cheese inspector
+
+  810  But ∆˘ικστρα did not pay close attention to what Parliament did, so he did not learn
+  811  of this decree right away. There was a period of confusion in the cheese market when
+  812  both ∆˘ικστρα and Γωυδα were inspectingcheese and makingconflictingdecisions.
+  813  To prevent such confusion, the Paxons had to guarantee that a position could
+  814  be held by at most one bureaucrat at any time. To do this, a president included
+  815  as part of each decree the time and date when it was proposed. A decree making
+  816  ∆˘ικστρα the cheese inspector might read
+
+  817  2716: 8:30 15 Jan 72—∆˘ικστρα is cheese inspector for 3 months
+
+  818  This declares his term to begin either at 8:30 on 15 January or when the previous
+  819  inspector's term ended—whichever was later. His term would end at 8:30 on 15
+  820  March, unless he explicitly resigned by asking the president to pass a decree like
+
+  821  2834: 9:15 3 Mar 72—∆˘ικστρα resigns as cheese inspector
+
+  822  A bureaucrat was appointed for a short term, so he could be replaced quickly—
+  823  for example, if he left the island. Parliament would pass a decree to extend the
+  824  bureaucrat's term if he was doinga satisfactory job.
+  825  A bureaucrat needed to tell time to determine if he currently held a post. Mechanical clocks were unknown on Paxos, but Paxons could tell time accurately to
+  826  within 15 minutes by the position of the sun or the stars.13 If ∆˘ικστρα's term
+  827  began at 8:30, he would not start inspecting cheese until his celestial observations
+  828  indicated that it was 8:45.
+  829  It is easy to make this method of appointingbureaucrats work if higher-numbered
+  830  decrees always have later proposal times. But what if Parliament passed the decrees
+
+  831  2854: 9:45 9 Apr 78—Φρανσζ is wine taster for 2 months
+  832  2855: 9:20 9 Apr 78—Πνυλ˘ι is wine taster for 1 month
+
+  833  13Cloudy days are rare in Paxos's balmy climate.
+=== PAGE 20 ===
+
+  834  ·
+  835  The Part-Time Parliament 19
+
+  836  that were proposed between 9:30 and 9:35 by different legislators who both thought
+  837  they were president? Such out-of-order proposal times are easily prevented because
+  838  the parliamentary protocol satisfies the followingproperty.
+  839  If two decrees are passed by different presidents, then one of the presidents proposed his decree after learningthat the other decree had been
+  840  proposed.
+  841  To see that this property is satisfied, suppose that ballot number b was successful
+  842  for decree D, ballot number b was successful for decree D , and b < b . Let
+  843  q be a legislator who voted in both ballots. The balloting for D began with
+  844  a NextBallot(b , n) message. If the sender of that message did not already know
+  845  about D, then n is less than the decree number of D, and q's reply to the NextBallot
+  846  message must state that he voted for D.
+  847  3.3.4 Learning the Law In addition to requestingthe passage of decrees, ordinary citizens needed to inquire about the current law of the land. The Paxons
+  848  at first thought that a citizen could simply examine the ledger of any legislator,
+  849  but the followingincident demonstrated that a more sophisticated approach was
+  850  needed. For centuries, it had been legal to sell only white goats. A farmer named
+  851  ∆ωλφ got Parliament to pass the decree
+
+  852  77: The sale of black goats is permitted
+
+  853  ∆ωλφ then instructed his goatherd to sell some black goats to a merchant named
+  854  Σκν. As a law-abidingcitizen, Σκν asked legislator Στωκµ˘ιρ if such a sale
+  855  would be legal. But Στωκµ˘ιρ had been out of the Chamber and had no entry in
+  856  his ledger past decree 76. He advised Σκν that the sale would be illegal under
+  857  the current law, so Σκν refused to buy the goats.
+  858  This incident led to the formulation of the following monotonicity condition on
+  859  inquiries about the law.
+  860  If one inquiry precedes a second inquiry, then the second inquiry cannot
+  861  reveal an earlier state of the law than the first.
+  862  If a citizen learns that a particular decree has been passed, then the process of
+  863  acquiringthat knowledge is considered to be an implicit inquiry to which this
+  864  condition applies. As we will see, the interpretation of the monotonicity condition
+  865  changed over the years.
+  866  Initially, the monotonicity condition was achieved by passinga decree for each
+  867  inquiry. If Σ∂ν˘ιδρ wanted to know the current tax on olives, he would get Parliament to pass a decree such as
+
+  868  87: Citizen Σ∂ν˘ιδρ is reading the law
+
+  869  He would then read any ledger complete at least through decree 86 to learn the olive
+  870  tax as of that decree. If citizen Γρς then inquired about the olive tax, the decree
+  871  for his inquiry was proposed after decree 87 was passed, so the decree-ordering
+  872  property (Section 3.2.1) implies that it received a decree number greater than 87.
+  873  Therefore, Γρς could not obtain an earlier value of the olive tax than Σ∂ν˘ιδρ.
+=== PAGE 21 ===
+
+  874  ·
+  875  20 Leslie Lamport
+
+  876  This method of readingthe law satisfied the monotonicity condition when precedes
+  877  was interpreted to mean that inquiry A precedes inquiry B iff A finished at an
+  878  earlier time than B began.
+  879  Passinga decree for every inquiry soon proved too cumbersome. The Paxons
+  880  realized that a simpler method was possible if they weakened the monotonicity
+  881  condition by changing the interpretation of precedes. They decided that for one
+  882  event to precede another, the first event not only had to happen at an earlier time,
+  883  but it had to be able to causally affect the second event. The weaker monotonicity
+  884  condition prevents the problem first encountered by farmer ∆ωλφ and merchant
+  885  Σκν because there is a causal chain of events between the end of the implicit
+  886  inquiry by ∆ωλφ and the beginning of the inquiry by Σκν.
+  887  The weaker monotonicity condition was met by usingdecree numbers in all business transactions and inquiries. For example, farmer ∆ωλφ, whose flock included
+  888  many nonwhite goats, got Parliament to pass the decree
+  889  277: The sale of brown goats is permitted
+  890  When sellinghis brown goats to Σκν, he informed the merchant that the sale
+  891  was legal as of decree number 277. Σκν then asked legislator Στωκµ˘ιρ if the sale
+  892  were legal under the law through at least decree 277. If Στωκµ˘ιρ's ledger was not
+  893  complete through decree 277, he would either wait until it was or else tell Σκν
+  894  to ask someone else. If Στωκµ˘ιρ's ledger went through decree 298, then he would
+  895  tell Σκν that the sale was legal as of decree number 298. Merchant Σκν would
+  896  remember the number 298 for use in his next business transaction or inquiry about
+  897  the law.
+  898  The Paxons had satisfied the monotonicity condition, but ordinary citizens disliked havingto remember decree numbers. Again, the Paxons solved the problem
+  899  by re-interpretingthe monotonicity condition—this time, by changingthe meaning
+  900  of state of the law. They divided the law into separate areas, and a legislator was
+  901  chosen as specialist for each area. The current state of each area of the law was
+  902  determined by that specialist's ledger. For example, suppose decree 1517 changed
+  903  the tariff law and decree 1518 changed the tax law. The tax law would change
+  904  first if the tax-law specialist learned of both decrees before the tariff-law specialist
+  905  learned of either, yieldinga state of the law that could not be obtained by enacting
+  906  the decrees in numerical order.
+  907  To avoid conflictingdefinitions of the current state, the Paxons required that
+  908  there be at most one specialist at a time for any area. This requirement was
+  909  satisfied by usingthe same method to choose specialists that was used to choose
+  910  bureaucrats (see Section 3.3.3). If each inquiry involved only a single area of the law,
+  911  monotonicity was then achieved by directingthe inquiry to that area's specialist,
+  912  who answered it from his ledger. Since learning that a law had passed constituted
+  913  the result of an implicit inquiry, the Paxons required that a decree change at most
+  914  one area of the law, and that notification of the decree's passage could come only
+  915  from the area's specialist.
+  916  Inquiries involvingmultiple areas were not hard to handle. When merchant
+  917  Λισκωφ asked if the tariff on an imported golden fleece was higher than the sales
+  918  tax on one purchased locally, the tax-law and tariff-law specialists had to cooperate
+  919  to provide an answer. For example, the tax specialist could answer Λισκωφ by first
+=== PAGE 22 ===
+
+  920  ·
+  921  The Part-Time Parliament 21
+
+  922  askingthe tariff specialist for the tariff on golden fleeces, so longas he made no
+  923  changes to his ledger before receiving a reply.
+  924  This method proved satisfactory until it became necessary to make a sweeping
+  925  change to several areas of the law at one time. The Paxons then realized that the
+  926  necessary requirement for maintainingmonotonicity was not that a decree affect
+  927  only a single area, but that every area it affects have the same specialist. Parliament
+  928  could change several areas of the law with a single decree by first appointing a single
+  929  legislator to be the specialist for all those areas. Moreover, the same area could have
+  930  multiple specialists, so longas that area of the law was not allowed to change. Just
+  931  before income taxes were due, Parliament would appoint several tax-law specialists
+  932  to handle the seasonal flood of inquiries about the tax law.
+  933  3.3.5 Dishonest Legislators and Honest Mistakes Despite official assertions to
+  934  the contrary, there must have been a few dishonest legislators in the history of
+  935  Paxos. When caught, they were probably exiled. By sending contradictory messages, a malicious legislator could cause different legislators' ledgers to be inconsistent. Inconsistency could also result from a lapse of memory by an honest legislator
+  936  or messenger.
+  937  When inconsistencies were recognized, they could easily be corrected by passing
+  938  decrees. For example, disagreement about the current olive tax could be eliminated
+  939  by passinga new decree declaringthe tax to have a certain value. The difficult
+  940  problem lay in correctinginconsistent ledgers even if no one was aware of the
+  941  inconsistency.
+  942  The existence of dishonesty or mistakes by legislators can be inferred from the
+  943  redundant decrees that began appearing in ledgers several years after the founding
+  944  of Parliament. For example, the decree
+
+  945  2605: The olive tax is 9 drachmas per ton
+
+  946  was passed even though decree 2155 had already set the olive tax to 9 drachmas
+  947  per ton, and no interveningdecree had changed it. Parliament apparently cycled
+  948  through its laws every six months so that even if legislators' ledgers were initially
+  949  inconsistent, all legislators would agree on the current law of the land within six
+  950  months. It is believed that by the use of these redundant decrees, the Paxons
+  951  made their Parliament self-stabilizing. (Self-stabilizing is a modern term due to
+  952  Dijkstra [Dijkstra 1974].)
+  953  It is not clear precisely what self-stabilization meant in a Parliament with legislators comingand goingat will. The Paxons would not have been satisfied with
+  954  a definition that required all legislators to be in the Chamber at one time before
+  955  consistency could be guaranteed. However, achieving consistency required that if
+  956  one legislator had an entry in his ledger for a certain decree number and another
+  957  did not, then the second legislator would eventually fill in that entry.
+  958  Unfortunately, we don't know exactly what sort of self-stabilization property
+  959  the Paxon Parliament possessed or how it was achieved. Paxon mathematicians
+  960  undoubtedly addressed the problem, but their work has not yet been found. I hope
+  961  that future archaeological expeditions to Paxos will give high priority to the search
+  962  for manuscripts on self-stabilization.
+=== PAGE 23 ===
+
+  963  ·
+  964  22 Leslie Lamport
+
+  965  3.3.6 Choosing New Legislators At first, membership in Parliament was hereditary, passingfrom parent to child. When the elder statesman Παρνας retired,
+  966  he gave his ledger to his son, who carried on without interruption. It made no
+  967  difference to other legislators which Παρνας they communicated with.
+  968  As old families emigrated and new ones immigrated, this system had to change.
+  969  The Paxons decided to add and remove members of Parliament by decree. This
+  970  posed a circularity problem: membership in Parliament was determined by which
+  971  decrees were passed, but passinga decree required knowingwhat constituted a
+  972  majority set, which in turn depended upon who was a member of Parliament. The
+  973  circularity was broken by lettingthe membership of Parliament used in passing
+  974  decree n be specified by the law as of decree n − 3. A president could not try to
+  975  pass decree 3255 until he knew all decrees through decree 3252. In practice, after
+  976  passingthe decree
+  977  3252: Στρωνγ is now a legislator
+  978  the president would immediately pass the "olive-day" decree as decrees 3253 and
+  979  3254.
+  980  Changing the composition of Parliament in this way was dangerous and had to
+  981  be done with care. The consistency and progress conditions would always hold.
+  982  However, the progress condition guaranteed progress only if a majority set was in
+  983  the Chamber; it did not guarantee that a majority set would ever be there. In fact,
+  984  the mechanism for choosinglegislators led to the downfall of the Parliamentary
+  985  system in Paxos. Because of a scribe's error, a decree that was supposed to honor
+  986  sailors who had drowned in a shipwreck instead declared them to be the only
+  987  members of Parliament. Its passage prevented any new decrees from being passed—
+  988  includingthe decrees proposed to correct the mistake. Government in Paxos came
+  989  to a halt. A general named Λαµπσων took advantage of the confusion to stage
+  990  a coup, establishinga military dictatorship that ended centuries of progressive
+  991  government. Paxos grew weak under a series of corrupt dictators, and was unable
+  992  to repel an invasion from the east that led to the destruction of its civilization.
+
+  993  4 Relevance to Computer Science
+  994  4.1 The State Machine Approach
+  995  Although Paxos's Parliament was destroyed many centuries ago, its protocol is still
+  996  useful. For example, consider a simple distributed database system that might be
+  997  used as a name server. A state of the database consists of an assignment of values
+  998  to names. Copies of the database are maintained by multiple servers. A client
+  999  program can issue, to any server, a request to read or change the value assigned to
+ 1000  a name. There are two kinds of read request: a slow read, which returns the value
+ 1001  currently assigned to a name, and a fast read, which is faster but might not reflect
+ 1002  a recent change to the database.
+ 1003  There is an obvious correspondence between this database system and the Paxon
+ 1004  Parliament:
+ 1005  Parliament Distributed Database
+ 1006  legislator ↔ server
+ 1007  citizen ↔ client program
+ 1008  current law ↔ database state
+=== PAGE 24 ===
+
+ 1009  ·
+ 1010  The Part-Time Parliament 23
+
+ 1011  command: read(name, client) update(name, val, client)
+ 1012  response: (client, value of name) (client, "ok")
+ 1013  new state:Same as current state Same as current state
+ 1014  except value of name
+ 1015  changed to val
+ 1016  Fig. 2. State machine for simple database.
+
+ 1017  A client's request to change a value is performed by passing a decree. A slow read
+ 1018  involves passinga decree, as described in Section 3.3.4. A fast read is performed by
+ 1019  readingthe server's current version of the database. The Paxon Parliament protocol
+ 1020  provides a distributed, fault-tolerant implementation of the database system,
+ 1021  This method of implementinga distributed database is an instance of the state
+ 1022  machine approach, first proposed in [Lamport 1978]. In this approach, one first
+ 1023  defines a state machine, which consists of a set of states, a set of commands, a set
+ 1024  of responses, and a function that assigns a response/state pair (a pair consisting of
+ 1025  a response and a state) to each command/state pair. Intuitively, a state machine
+ 1026  executes a command by producinga response and changingits state; the command
+ 1027  and the machine's current state determine its response and its new state. For the
+ 1028  distributed database, a state-machine state is just a database state. The statemachine commands and the function specifyingthe response and new state are
+ 1029  described in Figure 2.
+ 1030  In the state-machine approach, a system is implemented with a network of server
+ 1031  processes. The servers transform client requests into state machine commands,
+ 1032  execute the commands, and transform the state-machine responses into replies to
+ 1033  clients. A general algorithm ensures that all servers obtain the same sequence of
+ 1034  commands, thereby ensuringthat they all produce the same sequence of responses
+ 1035  and state changes—assuming they all start from the same initial state. In the
+ 1036  database example, a client request to perform a slow read or to change a value is
+ 1037  transformed into a state-machine read or update command. That command is
+ 1038  executed, and the state-machine response is transformed into a reply to the client,
+ 1039  which is sent to him by the server who received his request. Since all servers perform
+ 1040  the same sequence of state-machine commands, they all maintain consistent versions
+ 1041  of the database. However, at any time, some servers may have earlier versions than
+ 1042  others because a state-machine command need not be executed at the same time
+ 1043  by all servers. A server uses his current version of the state to reply to a fast read
+ 1044  request, without executinga state-machine command.
+ 1045  The functionality of the system is expressed by the state machine, which is just
+ 1046  a function from command/state pairs to response/state pairs. Problems of synchronization and fault-tolerance are handled by the general algorithm with which
+ 1047  servers obtain the sequence of commands. When designing a new system, only
+ 1048  the state machine is new. The servers obtain the state-machine commands by a
+ 1049  standard distributed algorithm that has already been proved correct. Functions are
+ 1050  much easier to design, and to get right, than distributed algorithms.
+ 1051  The first algorithm for implementing an arbitrary state machine appeared in
+ 1052  [Lamport 1978]. Later, algorithms were devised to tolerate up to any fixed number
+ 1053  f of arbitrary failures [Lamport 1984]. These algorithms guarantee that, if fewer
+=== PAGE 25 ===
+
+ 1054  ·
+ 1055  24 Leslie Lamport
+
+ 1056  than f processes fail, then state machine commands are executed within a fixed
+ 1057  length of time. The algorithms are thus suitable for applications requiring realtime response.14 But if more than f failures occur, then different servers may have
+ 1058  inconsistent copies of the state machine. Moreover, the inability of two servers to
+ 1059  communicate with each other is equivalent to the failure of one of them. For a
+ 1060  system to have a low probability of losingconsistency, it must use an algorithm
+ 1061  with a large value of f, which in turn implies a large cost in redundant hardware,
+ 1062  communication bandwidth, and response time.
+ 1063  The Paxon Parliament's protocol provides another way to implement an arbitrary
+ 1064  state machine. The legislators' law book corresponds to the machine state, and
+ 1065  passinga decree corresponds to executinga state-machine command. The resulting
+ 1066  algorithm is less robust and less expensive than the earlier algorithms. It does not
+ 1067  tolerate arbitrary, malicious failures, nor does it guarantee bounded-time response.
+ 1068  However, consistency is maintained despite the (benign) failure of any number of
+ 1069  processes and communication paths. The Paxon algorithm is suitable for systems
+ 1070  with modest reliability requirements that do not justify the expense of an extremely
+ 1071  fault-tolerant, real-time implementation.
+ 1072  If the state machine is executed with an algorithm that guarantees boundedtime response, then time can be made part of the state, and machine actions can
+ 1073  be triggered by the passage of time. For example, consider a system for granting
+ 1074  ownership of resources. The state can include the time at which a client was granted
+ 1075  a resource, and the state machine can automatically execute a command to revoke
+ 1076  ownership if the client has held the resource too long.
+ 1077  With the Paxon algorithm, time cannot be made part of the state in such a
+ 1078  natural way. If failures occur, it can take arbitrarily longto execute a command
+ 1079  (pass a decree), and one command can be executed before (appear earlier in the
+ 1080  sequence of decrees than) another command that was issued earlier. However, a
+ 1081  state machine can still use real time the same way the Paxon Parliament did. For
+ 1082  example, the method described in Section 3.3.3 for decidingwho was the current
+ 1083  cheese inspector can be used to decide who is the current owner of a resource.
+ 1084  4.2 Commit Protocols
+ 1085  The Paxon Synod protocol is similar to standard three-phase commit protocols
+ 1086  [Bernstein et al. 1987; Skeen 1982]. A Paxon ballot and a three-phase commit
+ 1087  protocol both involve the exchange of five messages between a coordinator (the
+ 1088  president) and the other quorum members (legislators). A commit protocol chooses
+ 1089  one of two values—commit or abort—while the Synod protocol chooses an arbitrary
+ 1090  decree. To convert a commit protocol to a Synod protocol, one sends the decree
+ 1091  in the initial round of messages. A commit decision means that this decree was
+ 1092  passed, and an abort decision means that the "olive-day" decree was passed.
+ 1093  The Synod protocol differs from a converted commit protocol because the decree
+ 1094  is not sent until the second phase. This allows the correspondingparliamentary
+ 1095  protocol to execute the first phase just once for all decrees, so the exchange of only
+ 1096  three messages is needed to pass each individual decree.
+ 1097  The theorems on which the Synod protocol is based are similar to results obtained
+
+ 1098  14These algorithms were derived from the military protocols of another Mediterranean state.
+=== PAGE 26 ===
+
+ 1099  ·
+ 1100  The Part-Time Parliament 25
+
+ 1101  by Dwork, Lynch, and Stockmeyer [Dwork et al. 1988]. However, their algorithms
+ 1102  execute ballots sequentially in separate rounds, and they seem to be unrelated to
+ 1103  the Synod protocol.
+ 1104  Much research has been done in the field since this article was written. The statemachine approach has been surveyed by Schneider [1990]. The recovery protocol by Keidar
+ 1105  and Dolev [1996] and the totally-ordered broadcast algorithm of Fekete et al. [1997] are
+ 1106  quite similar to the Paxon protocol described here. The author was also apparently unaware that the view management protocol by Oki and Liskov [1988] seems to be equivalent
+ 1107  to the Paxon protocol.
+ 1108  Many of the refinements presented in this submission have also appeared in contemporary or subsequent articles. The method of delegation described in Section 3.3.3 is very
+ 1109  similar to the leases mechanism of Gray and Cheriton [1989]. The technique of Section
+ 1110  3.3.4 in which the Paxons satisfy the monotonicity condition by using decree numbers is
+ 1111  described by Ladin et al. [1992]. The technique of Section 3.3.6 for adding new legislators
+ 1112  was also given by Schneider [1990].
+ 1113  K. M.
+ 1114  Appendix: Proof of Consistency of the Synodic Protocol
+ 1115  A1 The Basic Protocol
+ 1116  The Synod's basic protocol, described informally in Section 2.3, is stated here
+ 1117  using modern algorithmic notation. We begin with the variables that a priest p
+ 1118  must maintain. First come the variables that represent information kept in his
+ 1119  ledger. (For convenience, the vote prevVote[p] used in Section 2.3 is replaced by its
+ 1120  components prevBal[p] and prevDec[p].)
+ 1121  outcome[p] The decree written in p's ledger, or blank if there is nothingwritten
+ 1122  there yet.
+ 1123  lastTried[p] The number of the last ballot that p tried to begin, or −∞ if there was
+ 1124  none.
+ 1125  prevBal[p] The number of the last ballot in which p voted, or −∞ if he never
+ 1126  voted.
+ 1127  prevDec[p] The decree for which p last voted, or blank if p never voted.
+ 1128  nextBal[p] The number of the last ballot in which p agreed to participate, or −∞
+ 1129  if he has never agreed to participate in a ballot.
+ 1130  Next come variables representinginformation that priest p could keep on a slip of
+ 1131  paper:
+ 1132  status[p] One of the followingvalues:
+ 1133  idle Not conductingor tryingto begin a ballot
+ 1134  trying Tryingto begin ballot number lastTried[p]
+ 1135  polling Now conductingballot number lastTried[p]
+ 1136  If p has lost his slip of paper, then status[p] is assumed to equal idle
+ 1137  and the values of the followingfour variables are irrelevant.
+ 1138  prevVotes[p] The set of votes received in LastVote messages for the current ballot
+ 1139  (the one with ballot number lastTried[p]).
+=== PAGE 27 ===
+
+ 1140  ·
+ 1141  26 Leslie Lamport
+
+ 1142  quorum[p] If status[p] = polling, then the set of priests formingthe quorum of
+ 1143  the current ballot; otherwise, meaningless.
+ 1144  voters[p] If status[p] = polling, then the set of quorum members from whom p
+ 1145  has received Voted messages in the current ballot; otherwise, meaningless.
+ 1146  decree[p] If status[p] = polling, then the decree of the current ballot; otherwise,
+ 1147  meaningless.
+ 1148  There is also the history variable B, which is the set of ballots that have been started
+ 1149  and their progress—namely, which priests have cast votes. (A history variable is one
+ 1150  used in the development and proof of an algorithm, but not actually implemented.)
+ 1151  Next come the actions that priest p may take. These actions are assumed to be
+ 1152  atomic, meaningthat once an action is begun, it must be completed before priest
+ 1153  p begins any other action. An action is described by an enabling condition and a
+ 1154  list of effects. The enablingcondition describes when the action can be performed;
+ 1155  actions that receive a message are enabled whenever a messenger has arrived with
+ 1156  the appropriate message. The list of effects describes how the action changes the
+ 1157  algorithm's variables and what message, if any, it sends. (Each individual action
+ 1158  sends at most one message.)
+ 1159  Recall that ballot numbers were partitioned amongthe priests. For any ballot
+ 1160  number b, the Paxons defined owner(b) to be the priest who was allowed to use
+ 1161  that ballot number.
+ 1162  The actions in the basic protocol are allowed actions; the protocol does not
+ 1163  require that a priest ever do anything. No attempt at efficiency has been made; the
+ 1164  actions allow p to do silly things, such as sending another BeginBallot message to
+ 1165  a priest from whom he has already received a LastVote message.
+ 1166  Try New Ballot
+ 1167  Always enabled.
+ 1168  – Set lastTried[p] to any ballot number b, greater than its previous value, such
+ 1169  that owner(b) = p.
+ 1170  – Set status[p] to trying.
+ 1171  – Set prevVotes[p] to ∅.
+ 1172  Send NextBallot Message
+ 1173  Enabled whenever status[p]=trying.
+ 1174  – Send a NextBallot(lastTried[p]) message to any priest.
+ 1175  Receive NextBallot(b) Message
+ 1176  If b ≥ nextBal[p] then
+ 1177  – Set nextBal[p] to b.
+ 1178  Send LastVote Message
+ 1179  Enabled whenever nextBal[p] > prevBal[p].
+ 1180  – Send a LastVote(nextBal[p], v) message to priest owner(nextBal[p]), where
+ 1181  vpst = p, vbal = prevBal[p], and vdec = prevDec[p].
+=== PAGE 28 ===
+
+ 1182  ·
+ 1183  The Part-Time Parliament 27
+
+ 1184  Receive LastVote(b, v) Message
+ 1185  If b = lastTried[p] and status[p] = trying, then
+ 1186  – Set prevVotes[p] to the union of its original value and {v}.
+ 1187  Start Polling Majority Set Q
+ 1188  Enabled when status[p] = trying and Q ⊆ {v : v ∈ prevVotes[p]}, where Q is a
+ 1189  pst
+ 1190  majority set.
+ 1191  – Set status[p] to polling.
+ 1192  – Set quorum[p] to Q.
+ 1193  – Set voters[p] to ∅.
+ 1194  – Set decree[p] to a decree d chosen as follows: Let v be the maximum element
+ 1195  of prevVotes[p]. If v = −∞ then d = v , else d can equal any decree.
+ 1196  bal dec
+ 1197  – Set B to the union of its former value and {B}, where B = d, B = Q,
+ 1198  dec qrm
+ 1199  B = ∅, and B = lastTried[p].
+ 1200  vot bal
+ 1201  Send BeginBallot Message
+ 1202  Enabled when status[p] = polling.
+ 1203  – Send a BeginBallot(lastTried[p], decree[p]) message to any priest in quorum[p].
+ 1204  Receive BeginBallot(b, d) Message
+ 1205  If b = nextBal[p] > prevBal[p] then
+ 1206  – Set prevBal[p] to b.
+ 1207  – Set prevDec[p] to d.
+ 1208  – If there is a ballot B in B with B = b [there will be], then choose any such
+ 1209  bal
+ 1210  B [there will be only one] and let the new value of B be obtained from its old
+ 1211  value by setting B equal to the union of its old value and {p}.
+ 1212  vot
+ 1213  Send Voted Message
+ 1214  Enabled whenever prevBal[p] = −∞.
+ 1215  – Send a Voted(prevBal[p], p) message to owner(prevBal[p]).
+ 1216  Receive Voted(b, q) Message
+ 1217  If b = lastTried[p] and status[p] = polling, then
+ 1218  – Set voters[p] to the union of its old value and {q}
+ 1219  Succeed
+ 1220  Enabled whenever status[p] = polling, quorum[p] ⊆ voters[p], and outcome[p] =
+ 1221  blank.
+ 1222  – Set outcome[p] to decree[p].
+ 1223  Send Success Message
+ 1224  Enabled whenever outcome[p] = blank.
+ 1225  – Send a Success(outcome[p]) message to any priest.
+ 1226  Receive Success(d) Message
+ 1227  If outcome[p] = blank, then
+=== PAGE 29 ===
+
+ 1228  ·
+ 1229  28 Leslie Lamport
+
+ 1230  – Set outcome[p] to d.
+ 1231  This algorithm is an abstract description of the real protocol performed by Paxon
+ 1232  priests. Do the algorithm's actions accurately model the actions of the real priests?
+ 1233  There were three kinds of actions that a priest could perform "atomically": receivinga message, writinga note or ledger entry, and sendinga message. Each of these
+ 1234  is represented by a single action of the algorithm, except that Receive actions both
+ 1235  receive a message and set a variable. We can pretend that the receipt of a message
+ 1236  occurred when a priest acted upon the message; if he left the Chamber before actingupon it, then we can pretend that the message was never received. Since this
+ 1237  pretense does not affect the consistency condition, we can infer the consistency of
+ 1238  the basic Synod protocol from the consistency of the algorithm.
+ 1239  A2 Proof of Consistency
+ 1240  To prove the consistency condition, it is necessary to show that whenever outcome[p]
+ 1241  and outcome[q] are both different from blank, they are equal. A rigorous correctness proof requires a complete description of the algorithm. The description given
+ 1242  above is almost complete. Missingis a variable M whose value is the multiset of
+ 1243  all messages in transit.15 Each Send action adds a message to this multiset and
+ 1244  each Receive action removes one. Also needed are actions to represent the loss
+ 1245  and duplication of messages, as well as a Forget action that represents a priest
+ 1246  losinghis slip of paper.
+ 1247  With these additions, we get an algorithm that defines a set of possible behaviors,
+ 1248  in which each change of state corresponds to one of the allowed actions. The Paxons
+ 1249  proved correctness by findinga predicate I such that
+ 1250  (1) I is true initially.
+ 1251  (2) I implies the desired correctness condition.
+ 1252  (3) Each allowed action leaves I true.
+ 1253  The predicate I was written as a conjunction I1∧. . .∧I7, where I1–I5 were in turn
+ 1254  the conjunction of predicates I1(p)–I5(p) for all priests p. Although most variables
+ 1255  are mentioned in several of the conjuncts, each variable except status[p] is naturally
+ 1256  associated with one conjunct, and each conjunct can be thought of as a constraint
+ 1257  on its associated variables. The definitions of the individual conjuncts of I are given
+ 1258  below, where a list of items marked by ∧ symbols denotes the conjunction of those
+ 1259  items. The variables associated with a conjunct are listed in bracketed comments.
+ 1260  I1(p) =∆ p
+ 1261  [Associated variable: outcome[ ] ]
+ 1262  (outcome[p] = blank) ⇒ ∃B ∈ B : (B ⊆ B ) ∧ (B = outcome[p])
+ 1263  qrm vot dec
+ 1264  I2(p) =∆ p
+ 1265  [Associated variable: lastTried[ ] ]
+ 1266  ∧ owner(lastTried[p]) = p
+ 1267  ∧ ∀B ∈ B : (owner(B ) = p) ⇒
+ 1268  bal
+ 1269  ∧ B ≤ lastTried[p]
+ 1270  bal
+ 1271  ∧ (status[p] = trying) ⇒ (B < lastTried[p])
+ 1272  bal
+ 1273  15A multiset is a set that may contain multiple copies of the same element.
+=== PAGE 30 ===
+
+ 1274  ·
+ 1275  The Part-Time Parliament 29
+
+ 1276  I3(p) =∆ p p p
+ 1277  [Associated variables: prevBal[ ], prevDec[ ], nextBal[ ] ]
+ 1278  ∧ prevBal[p] = MaxVote(∞, p, B)
+ 1279  bal
+ 1280  ∧ prevDec[p] = MaxVote(∞, p, B)
+ 1281  dec
+ 1282  ∧ nextBal[p] ≥ prevBal[p]
+
+ 1283  I4(p) =∆ p
+ 1284  [Associated variable: prevVotes[ ] ]
+ 1285  (status[p] = idle) ⇒
+ 1286  ∀v ∈ prevVotes[p] : ∧ v = MaxVote(lastTried[p], v , B)
+ 1287  pst
+ 1288  ∧ nextBal[v ] ≥ lastTried[p]
+ 1289  pst
+
+ 1290  I5(p) =∆ p p p
+ 1291  [Associated variables: quorum[ ], voters[ ], decree[ ] ]
+ 1292  (status[p] = polling) ⇒
+ 1293  ∧ quorum[p] ⊆ {v : v ∈ prevVotes[p]}
+ 1294  pst
+ 1295  ∧ ∃B ∈ B : ∧ quorum[p] = B
+ 1296  qrm
+ 1297  ∧ decree[p] = B
+ 1298  dec
+ 1299  ∧ voters[p] ⊆ B
+ 1300  vot
+ 1301  ∧ lastTried[p] = B
+ 1302  bal
+
+ 1303  I6 =∆ B
+ 1304  [Associated variable: ]
+ 1305  ∧ B1(B) ∧ B2(B) ∧ B3(B)
+ 1306  ∧ ∀B ∈ B : B is a majority set
+ 1307  qrm
+
+ 1308  I7 =∆ M
+ 1309  [Associated variable: ]
+ 1310  ∧ ∀NextBallot(b) ∈ M : (b ≤ lastTried[owner(b)])
+
+ 1311  ∧ ∀LastVote(b, v) ∈ M : ∧ v = MaxVote(b, v , B)
+ 1312  pst
+ 1313  ∧ nextBal[v ] ≥ b
+ 1314  pst
+ 1315  ∧ ∀BeginBallot(b, d) ∈ M : ∃B ∈ B : (B = b) ∧ (B = d)
+ 1316  bal dec
+ 1317  ∧ ∀Voted(b, p) ∈ M : ∃B ∈ B : (B = b) ∧ (p ∈ B )
+ 1318  bal vot
+ 1319  ∧ ∀Success(d) ∈ M : ∃p : outcome[p] = d =
+ 1320  blank
+
+ 1321  The Paxons had to prove that I satisfies the three conditions given above. The
+ 1322  first condition, that I holds initially, requires checkingthat each conjunct is true for
+ 1323  the initial values of all the variables. While not stated explicitly, these initial values
+ 1324  can be inferred from the variables' descriptions, and checkingthe first condition is
+ 1325  straightforward. The second condition, that I implies consistency, follows from I1,
+ 1326  the first conjunct of I6, and Theorem 1. The hard part was provingthe third
+ 1327  condition, the invariance of I, which meant provingthat I is left true by every
+ 1328  action. This condition is proved by showingthat, for each conjunct of I, executing
+ 1329  any action when I is true leaves that conjunct true. The proofs are sketched below.
+
+ 1330  I1(p) B is changed only by addinga new ballot or addinga new priest to B for
+ 1331  vot
+ 1332  some B ∈ B, neither of which can falsify I1(p). The value of outcome[p] is changed
+ 1333  only by the Succeed and Receive Success Message actions. The enablingcondition and I5(p) imply that I1(p) is left true by the Succeed action. The enabling
+ 1334  condition, I1(p), and the last conjunct of I7 imply that I1(p) is left true by the
+ 1335  Receive Success Message action.
+=== PAGE 31 ===
+
+ 1336  ·
+ 1337  30 Leslie Lamport
+
+ 1338  I2(p) This conjunct depends only on lastTried[p], status[p], and B. Only the Try
+ 1339  New Ballot action changes lastTried[p], and only that action can set status[p] to
+ 1340  trying. Since the action increases lastTried[p] to a value b with owner(b) = p,
+ 1341  it leaves I2(p) true. A completely new element is added to B only by a Start
+ 1342  Polling action; the first conjunct of I2(p) and the specification of the action imply
+ 1343  that addingthis new element does not falsify the second conjunct of I2(p). The
+ 1344  only other way B is changed is by adding a new priest to B for some B ∈ B,
+ 1345  vot
+ 1346  which does not affect I2(p).
+ 1347  I3(p) Since votes are never removed from B, the only action that can change
+ 1348  MaxVote(∞, p, B) is one that adds to B a vote cast by p. Only a Receive
+ 1349  BeginBallot Message action can do that, and only that action changes prevBal[p]
+ 1350  and prevDec[p]. The BeginBallot conjunct of I7 implies that this action actually
+ 1351  does add a vote to B, and B1(B) (the first conjunct of I6) implies that there is only
+ 1352  one ballot to which the vote can be added. The enablingcondition, the assumption that I3(p) holds before executingthe action, and the definition of MaxVote
+ 1353  then imply that the action leaves the first two conjuncts of I3(p) true. The third
+ 1354  conjunct is left true because prevBal[p] is changed only by setting it to nextBal[p],
+ 1355  and nextBal[p] is never decreased.
+ 1356  I4(p) This conjunct depends only upon the values of status[p], prevVotes[p],
+ 1357  lastTried[p], nextBal[q] for some priests q, and B. The value of status[p] is changed
+ 1358  from idle to not idle only by a Try New Ballot action, which sets prevVotes[p] to
+ 1359  ∅, making I4(p) vacuously true. The only other actions that change prevVotes[p]
+ 1360  are the Forget action, which leaves I4(p) true because it sets status[p] to idle,
+ 1361  and the Receive LastVote Message action. It follows from the enablingcondition and the LastVote conjunct of I7 that the Receive LastVote Message action preserves I4(p). The value of lastTried[p] is changed only by the Try New
+ 1362  Ballot action, which leaves I4(p) true because it sets status[p] to trying. The
+ 1363  value of nextBal[q] can only increase, which cannot make I4(p) false. Finally,
+ 1364  MaxVote(lastTried[p], v , B) can be changed only if v is added to B for
+ 1365  pst pst vot
+ 1366  some B ∈ B with B < lastTried[p]. But v is added to B (by a Receive
+ 1367  bal pst vot
+ 1368  BeginBallot Message action) only if nextBal[vpst ] = Bbal , in which case I4(p)
+ 1369  implies that B ≥ lastTried[p].
+ 1370  bal
+ 1371  I5(p) The value of status[p] is set to polling only by the Start Polling action.
+ 1372  This action's enablingcondition guarantees that the first conjunct becomes true,
+ 1373  and it adds the ballot to B that makes the second conjunct true. No other action
+ 1374  changes quorum[p], decree[p], or lastTried[p] while leaving status[p] equal to polling.
+ 1375  The value of prevVotes[p] cannot be changed while status[p] = polling, and B is
+ 1376  changed only by addingnew elements or by addinga new priest to Bvot . The only
+ 1377  remainingpossibility for falsifyingI5(p) is the addition of a new element to voters[p]
+ 1378  by the Receive Voted Message action. The Voted conjunct of I7, B1(B) (the
+ 1379  first conjunct of I6), and the action's enablingcondition imply that the element
+ 1380  added to voters[p] is in Bvot, where B is the ballot whose existence is asserted in
+ 1381  I5(p).
+ 1382  I6 Since B and B are never changed for any B ∈ B, the only way B1(B),
+ 1383  bal qrm
+ 1384  B2(B), and the second conjunct of I6 can be falsified is by addinga new ballot to
+=== PAGE 32 ===
+
+ 1385  ·
+ 1386  The Part-Time Parliament 31
+
+ 1387  B, which is done only by the Start Polling Majority Set Q action when status[p]
+ 1388  equals trying. It follows from the second conjunct of I2(p) that this action leaves
+ 1389  B1(B) true; and the assertion, in the enablingcondition, that Q is a majority set
+ 1390  implies that the action leaves B2(B) and the second conjunct of I6 true. There
+ 1391  are two possible ways of falsifying B3(B): changing MaxVote(B , B , B) by
+ 1392  bal qrm
+ 1393  addinga new vote to B, and addinga new ballot to B. A new vote is added
+ 1394  only by the Receive BeginBallot Message action, and I3(p) implies that the
+ 1395  action adds a vote later than any other vote cast by p in B, so it cannot change
+ 1396  MaxVote(B , B , B) for any B in B. Conjunct I4(p) implies that the new ballot
+ 1397  bal qrm
+ 1398  added by the Start Polling action does not falsify B3(B).
+ 1399  I7 I7 can be falsified either by addinga new message to M or by changing the
+ 1400  value of another variable on which I7 depends. Since lastTried[p] and nextBal[p]
+ 1401  are never decreased, changing them cannot make I7 false. Since outcome[p] is never
+ 1402  changed if its value is not blank, changing it cannot falsify I7. Since B is changed
+ 1403  only by addingballots and addingvotes, the only change to it that can make I7
+ 1404  false is the addition of a vote by vpst that makes the LastVote(b, v) conjunct false by
+ 1405  changing MaxVote(b, v , B). This can happen only if v votes in a ballot B with
+ 1406  pst pst
+ 1407  Bbal < b. But vpst can vote only in ballot number nextBal[vpst], and the assumption
+ 1408  that this conjunct holds initially implies that nextBal[v ] ≥ b. Therefore, we need
+ 1409  pst
+ 1410  check only that every message that is sent satisfies the condition in the appropriate
+ 1411  conjunct of I7.
+ 1412  NextBallot : Follows from the definition of the Send NextBallot Message action
+ 1413  and the first conjunct of I2(p).
+ 1414  LastVote: The enablingcondition of the Send LastVote Message action and
+ 1415  I3(p) imply that MaxVote(nextBal[p], p, B) = MaxVote(∞, p, B), from which it
+ 1416  follows that the LastVote message sent by the action satisfies the condition in I7.
+ 1417  BeginBallot : Follows from I5(p) and the definition of the Send BeginBallot
+ 1418  Message action.
+ 1419  Voted : Follows from I3(p), the definition of MaxVote, and the definition of the
+ 1420  Send Voted Message action.
+ 1421  Success: Follows from the definition of Send Success Message.
+
+ 1422  ACKNOWLEDGMENTS
+ 1423  Daniel Duchamp pointed out to me the need for a new state-machine implementation. Discussions with Mart´ın Abadi, Andy Hisgen, Tim Mann, and Garret Swart
+ 1424  led me to Paxos. Λων´ιδας Γ κ´ιµπας provided invaluable assistance with the Paxon
+ 1425  dialect.
+
+ 1426  References
+ 1427  Bernstein, P. A., Hadzilacos, V., and Goodman, N. 1987. Concurrency Control and Recovery in Database Systems. Addison-Wesley, Reading, Massachusetts.
+ 1428  De Prisco, R., Lampson, B., and Lynch, N. 1997. Revisiting the Paxos algorithm. In
+ 1429  M. Mavronicolas and P. Tsigas (Eds.), Proceedings of the 11th International Workshop on Distributed Algorithms (WDAG 97), Volume 1320 of Lecture Notes in Computer
+=== PAGE 33 ===
+
+ 1430  ·
+ 1431  32 Leslie Lamport
+
+ 1432  Science, Saarbruken, Germany, pp. 111–125. Springer-Verlag.
+ 1433  Dijkstra, E. W. 1974. Self-stabilizing systems in spite of distributed control. Commun.
+ 1434  ACM 17, 11 (Nov.), 643–644.
+ 1435  Dwork, C., Lynch, N., and Stockmeyer, L. 1988. Consensus in the presence of partial
+ 1436  synchrony. Journal of the ACM 35, 2 (April), 288–323.
+ 1437  Fekete, A., Lynch, N., and Shvartsman, A. 1997. Specifying and using a partitionable
+ 1438  group communication service. In Proceedings of the Sixteenth Annual ACM Symposium on
+ 1439  Principles of Distributed Computing, pp. 53–62. ACM Press.
+ 1440  Fischer, M. J., Lynch, N., and Paterson, M. S. 1985. Impossibility of distributed consensus
+ 1441  with one faulty process. Journal of the ACM 32, 2 (April), 374–382.
+ 1442  Gray, C. G. and Cheriton, D. R. 1989. Leases:An efficient fault-toerant mechanism for distributed file cache consistency. In Proceedings of the Twelfth ACM Symposium on Operating
+ 1443  Systems Principles, New York, pp. 202–210. ACM.
+ 1444  Keidar, I. and Dolev, D. 1996. Efficient message ordering in dynamic networks. In Proceedings
+ 1445  of the 15th Annual ACM Symposium on Principles of Distributed Computing. ACM.
+ 1446  Ladin, R., Liskov, B., Shrira, L., and Ghemawat, S. 1992. Providing high availability using
+ 1447  lazy replication. ACM Transactions on Computer Systems 10, 4 (Nov.), 360–391.
+ 1448  Lamport, L. 1978. Time, clocks, and the ordering of events in a distributed system. Commun.
+ 1449  ACM 21, 7 (July), 558–565.
+ 1450  Lamport, L. 1984. Using time instead of timeout for fault-tolerant distributed systems. ACM
+ 1451  Trans. on Programm. Lang. Syst. 6, 2 (April), 254–280.
+ 1452  Lampson, B. W. 1996. How to build a highly available system using consensus. In O. Babaoglu
+ 1453  and K. Marzullo (Eds.), Distributed Algorithms, Volume 1151 of Lecture Notes in Computer Science, Berlin, pp. 1–17. Springer-Verlag.
+ 1454  Oki, B. M. and Liskov, B. H. 1988. Viewstamped replication:A new primary copy method to
+ 1455  support highly-available distributed systems. In Proceedings of the Seventh Annual ACM
+ 1456  Symposium on Principles of Distributed Computing, pp. 8–17. ACM Press.
+ 1457  Schneider, F. B. 1990. Implementing fault-tolerant services using the state machine approach:
+ 1458  A tutorial. ACM Computing Surveys 22, 4 (Dec.), 299–319.
+ 1459  Skeen, M. D. 1982. Crash recovery in a distributed database system. Ph. D. thesis, University
+ 1460  of California, Berkeley.
+
+ 1461  Received January 1990; Accepted March 1998

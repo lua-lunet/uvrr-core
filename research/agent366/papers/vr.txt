@@ -1,0 +1,1312 @@
+---
+title: "Viewstamped Replication: A New Primary Copy Method to Support Highly-Available Distributed Systems"
+authors:
+  - "Brian M Oki"
+  - "Barbara H Liskov"
+year: "1988"
+publication: ""
+handle_url: "https://www.cs.princeton.edu/courses/archive/fall11/cos518/papers/viewstamped.pdf"
+source_pdf: "research/agent366/papers/vsr-1988-oki-liskov.pdf"
+source_pdf_sha256: "ebaf3c9159a06203da7fadbd88b0ef8b5435a2bac7cba69a19617a5f68b66f92"
+page_count: 10
+extracted_text_runs: 1287
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  This paper introduces Viewstamped Replication, a primary-copy method for highly available replicated services. It explains how replicas maintain consistent state and continue service when a primary fails through view changes.
+tags:
+  - "consensus"
+  - "viewstamped-replication"
+---
+
+=== PAGE 1 ===
+
+    1  Viewstamped Replication: A New Primary Copy Method to
+
+    2  Brian M. Oki
+    3  Barbara H. Liskov
+    4  Massachusetts institute of Technology
+    5  Laboratory for Computer Science
+    6  Cambridge, MA 02139
+
+    7  Support Highly-Available
+
+    8  Abstract
+
+    9  One of the potential benefits of distributed systems is their use in
+   10  providing highly-available services that are likely to be usable when
+   11  needed. Availabilay is achieved through replication. By having inore
+   12  than one copy of information, a service continues to be usable even
+   13  when some copies are inaccessible, for example, because of a crash
+   14  of the computer where a copy was stored. This paper presents a
+   15  new replication algorithm that has desirable performance properties.
+   16  Our approach is based on the primary copy technique.
+   17  Computations run at a primary. which notifies its backups of what it
+   18  has done. If the primary crashes, the backups are reorganized, and
+   19  one of the backups becomes the new primary. Our method works in
+   20  a general network with both node crashes and partitions. Replication
+   21  causes little delay in user computations and little information is lost in
+   22  a reorganization; we use a special kind of timestamp called a
+   23  viewstamp to detect lost information.
+
+   24  1 Introduction
+   25  One of the potential benefits of distributed systems is their use in
+   26  providing highly-available services, that is, services that are likely to
+   27  be up and accessible when needed. Availability is essential to many
+   28  computer-based services; for example, in airline reservation systems
+   29  the failure of a single computer can prevent ticket sales for a
+   30  considerable time, causing a loss of revenue and passenger
+   31  goodwill.
+
+   32  Availability is achieved through replication. By having more than
+   33  one copy of important information, the service continues to be usable
+   34  even when some copies are inaccessible, for example, because of a
+   35  crash of the computer where a copy was stored. Various replication
+   36  algorithms have been proposed to achieve availability
+   37  [2, 4, 9, 11, 12, 16, 21,351. This paper presents a new replication
+   38  algorithm that has desirable performance properties.
+
+   39  This research was supported in part by the Advanced Research
+   40  Projects Agency of the Department of Defense, monitored by the
+   41  Office of Naval Research under contract NO001 4-83-K-01 25, and in
+   42  parl by the National Science Foundation under granl DCR-8503662.
+
+   43  Permission to copy without fee all or part of this material is granted provided that the copies are not made or distributed for direct commercial
+   44  advantage, the ACM copyright notice and the title of the publication and
+   45  its date appear, and notice is given that copying is by permission of the
+   46  Association for Computing Machinery. To copy otherwise, or to republish,
+   47  requires a fee and/or specific permission.
+
+   48  0 1988 ACM O-89791-277-2/88/0007/0008 $1.50
+
+   49  Distributed Systems
+
+   50  Our algorithm runs on a system consisting of nodes connected by
+   51  a communication network. Nodes are independent computers that
+   52  communicate with each other only by sending messages over the
+   53  network. Although both nodes and the netwolrk may fail, we assume
+   54  these failures are not byzantine [24]. Nodes can crash, but we
+   55  assume they are faiistop processors (341. The network may bse,
+   56  delay, and duplicate messages, or delver messages out of order.
+   57  Link failures may cause the network to parlition into subnetworks that
+   58  are unable to communicate with each other. We assume that nodes
+   59  eventually recover from crashes and partitions are eventually
+   60  repaired.
+
+   61  Our replication method assumes a model of computation in which
+   62  a distributed program consists of modu/es, each of which resides at
+   63  a single node of the network. Each module contains within it both
+   64  data objects and code that manipulates the objects; modules can
+   65  recover from crashes with some of their state intact. No other
+   66  module can access the data objects of another module directly.
+   67  instead, each module provides procedures that can b8 used to
+   68  access its objects; modules communicate by means of remote
+   69  pfoceduf8 calls. Modules that make calls (are called clients; the
+   70  called module is a server.
+
+   71  Modules are the unit of replication in our method. Ideally,
+   72  programmers would write programs without concern for availability in
+   73  some (distributed) programming language that supports our model of
+   74  computation. The language implementation thlen uses our technique
+   75  to replicate individual modules automatically; ithe resulting programs
+   76  are highly available.
+
+   77  We assume that computations run as atomic transactions [14].
+   78  Our method guarantees the one-copy serializability correctness
+   79  criterion [3, 331: the concurrent execution of transactions on
+   80  replicated data is equivalent to a serial execution on non-replicated
+   81  data.
+   82  Our approach is based on the primary o~py technique [t, 361.
+   83  which works roughly as follows. One replica is designated the
+   84  primary; the others are backups. The primary is responsible for the
+   85  processing of transactions that use its objects; it notifies the backups
+   86  of what it has done. When a replica crashes or is separated from the
+   87  others by a partition. or when a replica recovers from a crash or a
+   88  parfition is repaired, the replicas are reorganized and a new primary
+   89  is selected if necessary. We refer to this reorganization as a view
+   90  change (131. Once the view change is complete, the (new) primary
+   91  can continue with transaction processing.
+
+   92  The primary copy technique as originally proposed worked only if
+   93  node failures were distinguishable from network failures; in general
+   94  such a distinction cannot be made and our method does not require
+   95  it. In addition, our method exhibits useful performance properties.
+   96  Transactions encounter little delay in interacting with the replicas, yet
+   97  little information is lost in a view change. Remote procedure calls to
+=== PAGE 2 ===
+
+   98  access or modify objects are executed entirely at the primary, which
+   99  notifies the backups in background mode. If a view change
+  100  happens, the effects of a call may or may not survive into the new
+  101  view. If they do survive, the transaction can commit; otherwise, it
+  102  must abort. We use a special kind of timestamp called a viewsramp
+  103  to distinguish the two situations.
+
+  104  We begin in the next section with an overview of our method.
+  105  Sections 3 and 4 describe the two parts of the method, transaction
+  106  processing and view changes. Section 5 discusses how our method
+  107  compares with other replication techniques. We conclude in Section
+  108  6 with a summary of what we have accomplished.
+
+  109  2 Overview of our Method
+  110  The method replicates individual modules to obtain module
+  111  groups. A module group consists of several copies of the module,
+  112  called cohods, which behave as a single, logical entity; the program
+  113  can indicate the number of cohorts when the group is created. The
+  114  set of cohorts is the group's configuration. Each cohort has a unique
+  115  name called an mid; the group as a whole bears a unique groupid.
+  116  We expect a small number of cohorts per group, on the order of
+  117  three or five.
+
+  118  One cohort is designated as the primary; it executes procedure
+  119  calls, and participates in two-phase commit.
+
+  120  The remaining cohorts are backups, which are essentially passive
+  121  and merely receive state information from the primary.
+
+  122  Failures and recoveries are masked when they are noticed. Over
+  123  time the communication capability within a group may change as
+  124  cohorts or communication links fail and recover. To reflect this
+  125  changing situation, each cohort runs in a view. A view is a set of
+  126  cohorts that are (or were) capable of communicating with each other,
+  127  together with an indication of which cohort is the primary; it is a
+  128  subset of the configur&ion and must contain a majority of group
+  129  members.
+
+  130  A group switches to a new view by executing a view change
+  131  protocol; our protocol is a simpfiffcation and modification of the virtual
+  132  partitions protocol [12]. Each view is identified by a unique viewid;
+  133  we guarantee that viewids are totally ordered. The view change
+  134  protocol generates a new view and viewid. If a majority of cohorts
+  135  accept the new view, cohorts switch to the new, active view;
+  136  otherwise, they remain in their old views, but the views become
+  137  inactive. Transactions are processed only in active views.
+
+  138  Views and viewids reflect the current communication patterns, but
+  139  not the information about committed and active transactions that
+  140  have run at the group. This additional information is obtained by
+  141  using fimestamps. Timestamps are unique within a view and form a
+  142  total order: they are generated by the primary and are easy to
+  143  produce, for example, by incrementing a local counter. The primary
+  144  generates a new timestamp each time it needs to communicate
+  145  information to its backups; we refer to each such occurrence as an
+  146  event. Examples of events are the completion of processing of a
+  147  remote calf or of a prepare or commit message. Each event is
+  148  assigned a unique timestamp, and later events receive later
+  149  timestamps. Instead of checkpointing events directly to the backups,
+  150  the primary maintains a communication buffer (similar to a fifo
+  151  queue) to which it writes event records. An event record identifies
+  152  the type of the event, and contains other relevant information about
+  153  the event. Information in the buffer is sent to the backups in
+  154  timestamp order. The buffer implementation provides reliable
+  155  delivery of event records to all backups in the primary's view; if it fails
+  156  to defiver a message, then a crash or communication failure has
+  157  occurred that willcause a view change.
+
+  158  We use timestamps as an inexpensive way of determining what
+
+  159  information survives a view change. Because a timestamp is
+  160  meaningful only within a view, we introduce viewstamps. A
+  161  viewstamp is simply a timestamp concatenated with the viewid of the
+  162  view In which the timestamp was generated; we refer to the parts of
+  163  viewstamp Y as v.id and v.ts. Each cohort maintains a history.
+  164  consisting of a sequence of viewstamps. each with a different viewfd.
+  165  We guarantee that for each viewstamp v in its history, the cohort's
+  166  state reflects event e from view v.id iff e's timestamp is less than or
+  167  equal to v.ts.
+
+  168  The correctness of our algorithm depends on the interaction of
+  169  transaction processing and the view change algorithm. Transaction
+  170  processing guarantees that transactions are serialized properly. In
+  171  addition, it guarantees that a transaction can commit only if all its
+  172  events are known to at least a majority of cohorts. The view change
+  173  algorithm guarantees that events known to a majority of cohorts
+  174  survive into subsequent views. Thus, events of committed
+  175  transactions will survive view changes. Not all events survive view
+  176  changes, however; for example, the processing of a particular
+  177  remote calf may be lost. We use the hisfory plus some information
+  178  that arrives in the prepare message to ensure that the transaction
+  179  will be forced to abort in such a case. On the other hand, if the
+  180  history and the information in the prepare message indicate that all
+  181  the events associated with the transaction survived the view change,
+  182  the transaction can commit.
+
+  183  In the next two sections we describe our technique. First, we
+  184  describe transaction processing and then the view change algorithm.
+
+  185  3 Running Transactions
+  186  Our system runs transactions in a manner similar to a system
+  187  without replication. There are two main differences: we use
+  188  viewstamps to determine whether a transaction can commit, and
+  189  instead of writing Information to stable storage [25] during two-phase
+  190  commit, the primary sends it to the backups using the
+  191  communication buffer discussed above.
+
+  192  The part of a cohort'sstate that affects transaction processing is
+  193  summarized in Figure 1. Each cohort has a status; if it is "active," it
+  194  can participate in transaction processing, and otherwise it is involved
+  195  in a view change. We say that a cohort is active if its status is
+  196  "active"; otherwise it is inactive. The g&ate consists of all objects
+  197  that constitute the group state. Each object has a unique name
+  198  (relative to the group) and a current value, and also whatever
+  199  information is needed to implement synchronization and recovery. In
+
+  200  status: status % cohort is active or doing a view change
+  201  gstate: (object) % objects in the group state
+  202  mygroupid: int % the name of the module group
+  203  cur-viewid: viewid % the current viewid
+  204  cur-view: view % the current view
+  205  history: [viewstamp] % indicates events known to cohort
+  206  timestamp: int % the timestamp generator
+  207  buffer: [event-record] % the communication buffer
+
+  208  where
+
+  209  Status = oneof[active, view-manager, underling: null]
+  210  object - cuid: int, base: T, lockers: (lock-info)>
+  211  lock-info = clocker: aM, info: oneofjread: null, write: TJ>
+  212  viewid = <cnt: int, mid: int>
+  213  view = <primary: int, backups: (int},
+  214  viewstamp = <id: viewid. ts: int>
+
+  215  Flgure 1: Partial State of a Cohort: () denotes a set, [ 1 denotes
+  216  a sequence, oneof means a tagged union wilh component
+  217  tags and types as indicated, and CX=denotes a record, with
+  218  component names and types as indicated.
+=== PAGE 3 ===
+
+  219  the remainder of this paper, we assume that transactions
+  220  synchronized by means of strict P-phase locking [18] with read and
+  221  write locks. Each object has a base version of some type T; different
+  222  objects can be of different types, but we ignore these differences in
+  223  the paper. A transaction modifies a tentaUve version, which is
+  224  discarded if the transaction aborts and becomes the base version if it
+  225  commits. Thus, in addition to its name and base version, an object
+  226  contains a set of lockers that identifies transactions holding locks on
+  227  the objects, the kinds of locks held, and any tentative versions
+  228  created for them.
+
+  229  The primary uses the buffer to communicate information about
+  230  events to the backups; the implementation of the buffer guarantees
+  231  reliable delivery of event records to all backups in timestamp order.
+  232  We distinguish between writing and forcing information to the buffer;
+  233  a similar distinction is made in transaction systems that use stable
+  234  storage. Writing means that the information will be delivered to the
+  235  backups at a convenient time; this is accomplished by calling the add
+  236  operation on the buffer. Add takes an event record as an argument.
+  237  It atomically assigns the event a timestamp (advancing the
+  238  timestamp and updating the history in the process) and adds the
+  239  event record to the buffer; it returns the event's viewstamp. There
+  240  may be concurrent execution within a module, so the implementation
+  241  of add must serialize the use of the buffer and ensure that event
+  242  records are recorded in the buffer in timesramp order.
+
+  243  The farce-to operation is used to force the buffer. Since
+  244  sometimes it is not necessary to force the entire buffer, the operation
+  245  takes a viewstamp v as an argument. If the viewstamp is not for the
+  246  current view it returns immediately; othenvise it waits until a
+  247  sub-major&y of backups know about all events in the current view
+  248  with timestamps less than or equal to V.&Z.' A sub-majority is one
+  249  less than a majority of the configuration; if a sub-majority of backups
+  250  knows about an event, then a majority of the cohorts in the
+  251  configuration knows about that event. As mentioned earlier, if a
+  252  majority of cohorts knows some information, the view change
+  253  algorithm guarantees that the information will be known in all
+  254  subsequent views.
+
+  255  Running transactions requires the collaboration of both clients and
+  256  servers. Clients create transactions, make any remote calls they
+  257  contain, and act as coordinators of two-phase commit. Servers
+  258  process remote calls and participate in two-phase cammft; in
+  259  processing a call, a server may make further calls.
+
+  260  We assume the system provides a highly-available location server
+  261  that maps Qroupids to configurations; various implementations are
+  262  discussed in [15, 20, 22, 311. * To find a server it has not used
+  263  before, a cohort fetches the configuration from the location server
+  264  and communicates with members of the configuration to determine
+  265  the current primary and viewid. It stores this information in a local
+  266  cache.
+
+  267  Below we discuss the work done by active primaries of clients and
+  268  servers, other processing at cohorts, and processing of query
+  269  messages. We assume that both clients and servers are replicated;
+  270  we discuss an alternative to replicating clients in Section 3.5. Our
+  271  discussion assumes that transactions are one-level; we discuss
+  272  nested transactions in Section 3.6.
+
+  273  'Force-to delays its caller, but other work, including adding and
+  274  forcing the buffer, can still go on at the cohott in other processes. If
+  275  communication with some backups is impossible, the calf of force-to
+  276  will be abandoned, and the cohort will switch to running the view
+  277  change algorithm.
+
+  278  *Note that the location server defines the limits of availability: no
+  279  module group can be more available than it is.
+
+  280  3.1 Actlve Prlmarles of Clients
+  281  Recall that we intend to use viewstamps to determine whether a
+  282  transaction can commit. Each time a server finishes processing a
+  283  remote call on behalf of a transaction, sit assigns the call a
+  284  viewstamp. Information about these viewstamps is collected as the
+  285  transaction runs in a data structure called the ,oset, which is a set of
+  286  cgroupid: int, vs: viewstamp>
+  287  pairs. The pser contains an entry for every call made by the
+  288  transaction; a pair cQ, v, indicates that group g ran a call for the
+  289  transaction and as ;igned it viewstamp v.
+
+  290  The processing at the client's primary is summarized in Fiiure 2.
+  291  When a transaction is created, it receives a unique transaction
+  292  identifier aid and an empty pset. (We make the aid unique across
+  293  view changes by including mygrcupid and cur-viewid in it.) To make
+  294  a remote call, the system looks up the primary and viewid for the
+  295  group in its cache, initializing the cache if necessary, and then sends
+  296  the call message to the primary. The message contains the viewid
+  297  from the cache, a unique call id (to prevent duplicate processing of a
+  298  single call), and information about the call itself (the procedure name
+  299  and the arguments).
+
+  300  There are three possible results of such a message. The first,and
+  301  most likely, is a reply message for the call. The reply message
+  302  contains a pset that records cgruupid, viewslamp pairs for this call
+
+  303  Starting a transactlon:
+
+  304  Create the transaction aid and an empty pset.
+
+  305  Maklng a remote call:
+  306  1. Look up the server in th$ cache, updating the cache if
+  307  necessary. Send the call message to the primary; the
+  308  message contains the unique call id and also the
+  309  viewid obtained from the cache.
+  310  2. If a repfy message arrives, add the elements of the
+  311  pset in the reply message to the tran!;action's pset.
+  312  User code at the client can now continue running.
+  313  3. If there is no reply, abort the transaction: send abort
+  314  messages to the participants (determiined from the
+  315  pset), and add an <"aborted", aid> record to the buffer.
+  316  4. If the reply indicates that the view has charged, update
+  317  the cache, if possible, and QO to sfep 1. If a more
+  318  recent view cannot be discovered, atlorl the
+  319  transaction as described above.
+
+  320  Coordinator for two-phase Commit:
+  321  1. Send prepare messages containing tlhe aid and pset to
+  322  the participants, which can be determined from the
+  323  pset.
+  324  2. If all participants agree to commit, release any local
+  325  locks held by the transaction and install its tentative
+  326  versions, adda <"committing", plist, aid:. record to the
+  327  buffer, where the plist is a list of non-read-only
+  328  participants, and then do a force-fo(new-vs), where
+  329  new-vs is the viewstamp returned by the call on the
+  330  addoperation. Send commif messages to the
+  331  participants; when all of them acknowledge the
+  332  commit, add a <"done*, aid> record to the buffer.
+  333  3. If there is no answer after repeated tries, update the
+  334  cache, if possible, and retry the prepare. If a more
+  335  recent view cannot be discovered, or if any participant
+  336  refuses to prepare, discard any local locks and
+  337  versions held by the transaction and send aborf
+  338  messages to the participants. Add an -?'aborted". aid>
+  339  record to the buffer.
+  340  Flgure 2: Processing at the Active Primary of a Client.
+=== PAGE 4 ===
+
+  341  and any further remote calls made in processing it. The pairs in the
+  342  reply's pset are added to the transaction's psef.
+
+  343  The second possibility is no reply at all (after a sufficient number
+  344  of probes). In this case, we abort the transaction; we also attempt to
+  345  update the cache, so that the next use of the server will not cause an
+  346  abort. The transaction must abort because we cannot know whether
+  347  the call message would be a duplicate if we sent it to a new primary.
+  348  The message might be a new one, or it might be a duplicate for a Call
+  349  that ran before the view change or was running when the view
+  350  change happened. In the first case, we need to do the call; in the
+  351  second case, we must not redo it. To resolve this uncertainty, we
+  352  aborf the transaction.
+
+  353  The lhird possibility is a reply indicating that the view has
+  354  changed. In this case, we update the cache and retry the call. We
+  355  assume the message delivery system maintains some connection
+  356  information that enables it to not deliver duplicate messages even in
+  357  the case when the module crashes and recovers between deliveries.
+  358  If duplicate messages are possible, we must abort the transaction In
+  359  this case too.
+
+  360  When the transaction commits, the client's primary acts as the
+  361  coordinator of the two-phase commit protocol [19]. It determines
+  362  who the participants are from the psef. It sends the pset in the
+  363  prepare messages to allow each participant to determine whether it
+  364  knows all events of the preparing transaction.
+
+  365  If all participants agree to prepare, the coordinator adds a
+  366  "committing" record to its buffer and forces the entire buffer to the
+  367  backups. This ensures that the commit wilt be known across a view
+  368  change of the coordinator. The "committing" record lists only the
+  369  participants where the transaction holds write locks, since only these
+  370  must take part in phase two; the reply from a participant indicates
+  371  whether or not it is read-only. Then the coordinator sends commit
+  372  messages, and, when all are acknowledged, adds a "done" record to
+  373  the buffer. Note that user code can continue running as soon as the
+  374  "committing" record has been forced to the backups.
+
+  375  If the transaction aborts, or if any participant refuses the prepare,
+  376  the coordinator sends abort messages to the participants and adds
+  377  an "aborted" record to the buffer. This record is not really needed
+  378  because a view change at the coordinator that leads to a new
+  379  primary will cause any of the group's transactions to aboti
+  380  automatically. (To avoid such aborts would require some kind of
+  381  checkpoint mechanism [f7j.) However, the record is useful for query
+  382  processing as discussed in Section 3.4.
+
+  383  3.2 Active Primaries of Servers
+  384  Servers process remote calls and act as participants in two-phase
+  385  commit. Each time a call completes, the primary assigns it a
+  386  viewstamp, and returns this information in the reply message. The
+  387  primary can agree to prepare only if it knows about all remote calls
+  388  its group has done on behalf of the preparing transaction. It uses its
+  389  history and the pset in the prepare message to determine this.
+
+  390  Processing at the primary of the server is summarized in Figure 3.
+  391  When the primary receives a call message, tt rejects the call if the
+  392  call's viewid is not equal to cur-viewid. Otherwise, it creates an
+  393  empty pset and runs the call, possibly making further nested calls as
+  394  described above. When the call completes, it adds a "completedcall" record to the buffer; this record identifies each atomic object that
+  395  was read or written in processing the call, together with the type of
+  396  lock obtained and the tentative version if any. Then it adds a pair for
+  397  this call to the call's pset and returns the psetin the reply message.
+
+  398  When the primary receives a prepare message, it checks whether
+  399  it knows about all calls made by the transaction to its group by calling
+  400  wmpafi&fe@sef, mygroupid, history):
+
+  401  compatible(ps, g, vh) =
+  402  Q p E ps (p.groupid = g 3
+  403  V v E vh (p.vs.id = v.id ti p.vs.ts i v.ts))
+  404  If the pser is not compatible with the hisfory, it refuses the prepare.
+  405  Otherwise, it computes the viewstamp of the most recent
+  406  "completed-call" event by calling vs-max(pset, mygmup~~:
+  407  vs_max(ps, 9) = p.vs s.t.
+  408  p E ps & p.groupid = g & V p' E ps (p'.groupid = g
+  409  3 p'.vs.id < p.vs.id v (p'.vs.id = p.vs.id & p'.vs.ts 5 p.vs.ts))
+
+  410  It uses this viewstamp to force the buffer to ensure that all
+  411  "completed-call" events are known to at least a sub-majority of
+  412  backups and then sends an acceptance to the coordinator.
+
+  413  When it receives a commit message, the primary forces a
+  414  "committed" record to the buffer and then sends an acknowledgment
+  415  to the coordinator. If it receives an abort message, it adds an
+  416  "aborted" record to the buffer.
+
+  417  3.3 Other Processing at Cohorts
+  418  Cohorts that are not active primaries reject messages sent to them
+  419  by other module groups, except for queries as discussed in the next
+  420  section. The response to the re jetted message COntainS information
+  421  about the current viewid and primary if the cohort knows them (for
+  422  example, if it is a backup in an active view).
+
+  423  Processing a call:
+  424  1. If the viewid in the call message is not equal to the
+  425  primary's cur-viewid, send back a rejection message
+  426  containing the new viewid and view.
+  427  2. Create an empty pset. Then run the call. If it makes
+  428  any nested calls, process them as described in Figure
+  429  2.
+  430  3. When the call finishes, add a &ompleted-call", objectlist, aid> record to the buffer; the object-list lists all
+  431  objects used by the remote call, together with the type
+  432  of lock acquired and the tentative version if any. Add a
+  433  emygroupid, new-vs> pair to the pset, where new-vs
+  434  is the viewstamp returned by the call on the add
+  435  operation of the buffer, and send back a reply message
+  436  containing the pset.
+
+  437  Processing a Prepare Message:
+  438  1. If wmpati&le(pset, history, mygroupid), perform a
+  439  forceJo( vs-max(psef, mygroupid)), release read locks
+  440  held by the transaction, and then reply prepared. In
+  441  the reply message, indicate whether the transaction
+  442  held only read locks at this participant. If the
+  443  transaction is read-only, add a <"committed", aid>
+  444  record to the buffer.
+  445  2. Otherwise, send a message to the coordinator refusing
+  446  the prepare and abort the transaction: discard its locks
+  447  and versions and add an c"abort". aid> event record to
+  448  the buffer.
+
+  449  PrOceSSlng a Commit Message:
+  450  1. Release locks and install versions held by the
+  451  transaction. Add a c'%ommitted", aid> record to the
+  452  buffer, do a force-to(new-vs), where new-vs is the
+  453  VieWStamp return by add, and send a done message to
+  454  the coordinator.
+
+  455  Processing an Abort Message:
+  456  1. Discard locks and versions held by the aborted
+  457  tranSaCtiOn and add an <"aborted", aid> record to the
+  458  buffer.
+  459  Figure 3: Processing at the Active Primary of a Server,
+=== PAGE 5 ===
+
+  460  Active backups receive messages containing information from the
+  461  communication buffer. They process event records in timestamp
+  462  order, updating the state accordingly. The backup can simply store
+  463  the records, or it can perform them, for example, by setting locks and
+  464  Creating versions for a "completed-call" record. There is a tradeoff
+  465  here between the amount of processing at the backups, and how
+  466  much work is needed during a view change before a backup can
+  467  become a primary. Perhaps a good compromise is to store
+  468  "completed-call" records (as part of the gs&fe) until the "committed"
+  469  or "aborted" record for the call's transaction is received; at this point
+  470  records for a committed transaction would be processed, while those
+  471  for an aborted transaction would be discarded.
+
+  472  3.4 Queries
+  473  Our implementation does not guarantee that all messages about
+  474  transaction events arrive where they might be needed. For example,
+  475  if the transaction aborts, we send abort messages to the participants,
+  476  but do not guarantee they will arrive. Instead, a cohort that needs to
+  477  know whether an abort occurred sends a query to another cohofi
+  478  that might know. For example, the primary of the participant can
+  479  send a query to the primary of the coordinator.
+
+  480  To speed up the processing of queries, we allow any cohort to
+  481  respond to a query whenever it knows the answer. For example, a
+  482  cohort that is not a primary may know about the abort of a
+  483  transaction because B received the "aborted" event record from the
+  484  primary.
+
+  485  3.5 Replicated Clients
+  486  The algorithms above assumed that both the client and the server
+  487  are replicated. It is good to replicate servers, since they do work on
+  488  behalf of many clients. Replicating a client that is not a server,
+  489  however, may not be worthwhile.
+
+  490  If the client is not replicated, it is still desirable for the coordinator
+  491  to be highly available, since this can reduce the "window of
+  492  vulnerability" [30] in two-phase commit. This can be accomplished
+  493  by providing a replicated "coordinator-server." The client
+  494  communicates with such a server when it starts a transaction, and
+  495  when t commits or aborts the transaction. The coordinator-server
+  496  carries out two-phase commit as described above on the client's
+  497  behalf. It also responds to queries about the outcome of the
+  498  transaction; its groupid is part of the transaction's aid, so that
+  499  participants know who it is. In answering a query about a transaction
+  500  that appears to still be active, tt would check wtth the client, but if no
+  501  reply is forthcoming, it can abort the transaction unilaterally.
+
+  502  3.6 Nested Transactlons
+  503  The protocol discussed above is quite permisstve about when a
+  504  transaction can prepare, but much less permissive when a client
+  505  sends a message to a cohort that does not respond. A lack of
+  506  response causes the entire transaction to abort. Such an abort can
+  507  cause lots of work to be lost.
+
+  508  Obviously, there are ways to reduce the number of situations in
+  509  which the abort happens. For example, we couM force a special
+  510  "start call" record to the backups before making a nested remote call.
+  511  It would be safe to run the call at the new primary lf there were no
+  512  such record, since even if the call ran before the view change, its
+  513  effects were bcal lo this group and therefore have been undone by
+  514  the view change. Atternatively, the client could do a probe before
+  515  making the call to determine the current primary. However, neither
+  516  of these techniques is satisfactory, since they delay normal
+  517  processing.
+
+  518  A better approach is to use nested transactions [lo, 28.301.
+  519  Nested transactions have two desirable properties. First, they allow
+
+  520  concurrency within a transaction in a way that allows the concurrent
+  521  activities to be serialized. Second, they provide a checkpointing
+  522  mechanism: if some part of a transaction cannot complete, we can
+  523  avoid aborting the entire transaction by running that part as a
+  524  subactiin.
+
+  525  Checkpointing is what allows us to minimize the effects of view
+  526  changes. If the call is made as a subaction, we need not abort the
+  527  entire transaction if there is no reply. Instead. we can abort just the
+  528  subaction, and then do the call again as a new subaction. An
+  529  algorithm for our ,nethod in a system with nested transactions is
+  530  described in[32]: lt is based on the implementation of nested
+  531  transactions in Argus (26, 281.
+
+  532  Subactions are an economical way to cope with view changes.
+  533  They are not expensive to implement [27j; they are much cheaper
+  534  than either of the alternatives for avoiding aborts sketched above.
+  535  Furthermore, we need to abort and redo a call subaction Only when
+  536  the view changes; thus we do extra work only when the problem
+  537  arises.
+
+  538  3.7 Dlscusslon
+  539  There is a one-to-one correspondence between event records and
+  540  information written to stable storage by a coniventional transaction
+  541  system and therefore our system works because a conventional one
+  542  does. The "completed-call" records are equivalent to the data
+  543  records that must be forced to stable storage before preparing, and
+  544  the "commit" and "abort" records are the same as their stable
+  545  storage counterparts. The only difference is our treatment of
+  546  prepares, since we have no prepare record. In a conventional
+  547  system, the prepare record tells the participant #after a crash whether
+  548  a transaction that ran there before a crash is ablle to commit. We do
+  549  not need the prepare record because we use the primary's history
+  550  and the psef in the prepare message to determine what to do.
+
+  551  Even when a transaction only has read locks, we must force the
+  552  "completed-call" records to the backups when preparing to ensure
+  553  that read locks are held across aview change. A view change may
+  554  have happened without this primary being aware of it. and there may
+  555  be a new primary already processing user requests in the other view.
+  556  Furthermore, the preparing transaction's read-locks may not be
+  557  known in the new view, so the new primary may allow other
+  558  transactions to obtain conflicting locks. Forcing the buffer
+  559  guarantees that the prepare can succeed only if the transaction's
+  560  locks survived the view change. Without the force, the prepare could
+  561  succeed at the old primary even though the locks did not survive. fn
+  562  essence, not doing the force is equivalent to not sending the prepare
+  563  message to a read-only participant; such prepare messages are
+  564  needed to prevent violations of two-phase locking.
+
+  565  We believe that our method will perform better than a nonreplicated system. Remote calls in our system run only at the
+  566  primary and need not involve the backups and therefore their
+  567  performance is the same as in a non-replicated system. We expect
+  568  that pfepafe messages are usually processed entirely at the primary
+  569  because the needed "completed-call" event records for remote calls
+  570  of the preparing transaction will already be stored at a sub-majority
+  571  of cohorts; otherwise, the primary must watt while the relevant part of
+  572  the buffer is forced to the backups. Careful engineering is needed
+  573  here to provide both speedy delivery and small numbers of
+  574  messages. Committing a transaction requires forcing the
+  575  "committed" record to the coordinators backups; the remainder of
+  576  the protocol can run in background. For both preparing and
+  577  committing, our method will be faster than using non-replicated
+  578  clients and sewers if communication is faster than writing to stable
+  579  storage, which is often the case provided that the number of backups
+  580  is small.
+=== PAGE 6 ===
+
+  581  4 Changing Views
+  582  Transaction processing depends upon forcing information to
+  583  backups so that a majority of cohorts know about particular events.
+  584  The job of the view change algorithm is to ensure that events known
+  585  to a majority of cohorts survive into subsequent views. It does this
+  586  by ensuring that every view contains at least a majority of cohorts
+  587  and by starting up the new view in the latest possible state.
+
+  588  If every view has at least a majority of cohorts, then it contains at
+  589  least one cohort that knows about any event that was forced to a
+  590  majority of cohorts. Thus we need only make sure that the state of
+  591  the new view includes what that cohort knows. This is done using
+  592  viewstamps: the state of the cohort with the highest viewstamp for
+  593  the previous view is used to initialize the state in the new view. This
+  594  scheme works because event records are sent to the backups in
+  595  timestamp order, and therefore a cohort with a later viewstamp for
+  596  some view knows everything known to a cohort with an earlier
+  597  viewstamp for that view.
+
+  598  The view change algorithm requires some information to be
+  599  recorded in the cohort state. This information is summarized in
+  600  Figure 4, which shows the complete cohort state. Most of this state
+  601  is volatile andwill be lost in a crash; the ramifications of such
+  602  crashes are discussed in Section 4.2. The exceptions are mymid,
+  603  configuration, and mygroupid, which are stored on stable storage
+  604  when the cohort is first created, and cur-viewid, which is stored at
+  605  the end of a view change. When a cohort recovers from a crash, it
+  606  initializes up-to-dale to be false, indicating that its gsfate is not up to
+  607  date, and initializes max-wiewid to cur viewid. Then it initializes
+  608  statusto be "view-manager; this causesft to start a view change as
+  609  discussed below.
+
+  610  Cohorts send periodic "I'm Alive" messages to other cohorts in the
+  611  configuration. If a cohort notices that it is not communicating with
+  612  some other cohort in its view, or if ft notices that it is communicating
+  613  with a cohort that it could not communicate with previously, or if ft
+  614  has just recovered from a crash, ft initiates a view change. It is the
+  615  manager Ofthis protocol; the other, cohorts are the underlings.
+
+  616  An overview of the algorithm run by a cohort is shown in Figure 5.
+  617  The figure shows what the cohort does in each of its three states,
+  618  "active," "view-manager," and "underling." In the "active" state, the
+  619  cohotl waits for messages to arrive; the receive statement selects
+  620  an atbiirary waiting message for delivery to the program, and
+  621  dispatches to the arm that matches the name of that message. If the
+
+  622  status: status % cohort is active or doing a view change
+  623  gstate: (object) % objects in the group's state
+  624  up-to-date: bool % true if gstate is meaningful
+  625  configuration: [int) % modules in the configuration
+  626  mymid: int % name of this module
+  627  mygroupid: int % name of the group
+  628  cur-viewid: viewid % current viewid
+  629  cur-view: view % current view
+  630  history: [viewstamp] % indicates events known to cohort
+  631  max-viewid: viewid % highest viewid seen so far
+  632  timestamp: int % the timestamp generator
+  633  buffer: [event-recordj % the communication buffer
+
+  634  where
+
+  635  view = status = oneoflactive, view-manager, underling: null]
+  636  object = euid: int, base: T, lockers: (lock-info}>
+  637  lock-info - clocker: aid, info: oneof[read: null, wrtte: Tj>
+  638  viewid - <cnt: int. mid: inb
+  639  view = cprimaty: int, backups: (in+viewstamp = cid: viewid, ts: inb
+
+  640  Flgure 4: State of a Cohort.
+
+  641  cohort receives a "change" message, this means that the exchange
+  642  of "I'm alive" messages indicates the need for a view change; it
+  643  becomes the view manager by changing its StatUS to
+  644  "view manager." If it receives an invitation to join a view, and if the
+  645  new view's viewid is greater than any it has seen so far, it accepts
+  646  the view and becomes an underling by changing its status to
+  647  "underling." The procedure do-accept records the new viewid in
+  648  max-viewid and sends an acceptance message. There are two
+  649  kinds of acceptance messages, "normal" ones, and *crashed" ones.
+  650  If the cohort is up to date (i.e., up-to-date = true), it SendS an
+  651  acceptance containing its current viewstamp and an indication of
+  652  whether it is the primary in the current view. Otherwise, it sends a
+  653  "crash-accept" response; this response contains only its viewid, and
+  654  means that it has forgotten its gstate.
+
+  655  If it is a view manager, the cohorl sends invitations to join the new
+  656  view to all other cohorts, and waits for responses. The procedure
+  657  make_invifations creates a new viewid by pairing mymid with a
+  658  number greater than max-viewid.cnf and stores it in max-viewid.
+  659  Notice that the new viewid will be different from any produced by
+  660  another cohort. Then it sends invitations containing max-viewid to
+  661  the other cohorts, records its own response ("crashed" or "normal"),
+  662  and collects the other responses. If an invitation with a higher viewid
+  663  arrives, it signals invited, returning the new viewid and the mid of the
+  664  inviter. In this case, the view manager accepts the invitation and
+
+  665  while true do
+  666  tagcaee status
+
+  667  tag active:
+  668  receive % accept a message
+  669  when change: status := view=manager
+  670  when invite (vid: viewid, m: mid):
+  671  If vid < max viewid then conllnue end %ignore the msg
+  672  do-accept(vid, m)
+  673  status := underling
+  674  others: % transaction messages handled here
+  675  end % receive
+
+  676  tag view-manager:
+  677  responses := make-invitations( )
+  678  except when invited (vid: viewid, m: mid):
+  679  do-accept(vid, m)
+  680  status := underling
+  681  continue % continue at next iteration
+  682  end except
+  683  v: view := form-view(responses)
+  684  except when cannot: continue end % wait and then try again
+  685  If v.primafy = mymid
+  686  then start-view(v)
+  687  status :- active
+  688  else send init-view(max-viewid. v) to v.primary
+  689  status := underling
+  690  end % if
+
+  691  tag underling:
+  692  await-view( )
+  693  except
+  694  when timeout:
+  695  status := view-manager
+  696  continue
+  697  when Invited (vid: viewid, m: mid):
+  698  do-accept(vid, m)
+  699  continue
+  700  when becomegrimary(v: view): start-view(v)
+  701  end % except
+  702  status := active
+
+  703  end % tagcase
+  704  end % while
+
+  705  Figure 5: The View Change Algorithm.
+=== PAGE 7 ===
+
+  706  becomes an underling. Otherwise, when all cohorts accept the
+  707  invitation or a timeout expires, make-invitations returns the
+  708  responses. In this case, the view manager attempts to form a new
+  709  view (the details are discussed below). If the attempt fails,
+  710  (form_view signals cannor), the cohort attempts another view
+  711  formation later. If the attempt succeeds, and if the view manager is
+  712  not the new primary, it sends an "init-view" message to the new
+  713  primary, and becomes an underling. Otherwise it starts the new
+  714  view: it updates cur-view and cur-viewid, stores zero in timestamp
+  715  and appends <cur-viewid, (h to the history, and writes cur-viewidto
+  716  stable storage. Then it initializes the buffer to contain a single
+  717  "newview" event record; this record contains cur-view, history, and
+  718  gstate. Finally, it becomes active.
+
+  719  View formation can succeed only if two conditions are satisfied: at
+  720  least a majority of cohorts must have accepted the invitation, and at
+  721  least one of them must know all forced information from previous
+  722  views. The latter condition may not be true if some acceptances are
+  723  of the "crashed" variety. For example, suppose there are three
+  724  cohorts, A, 8 and C, and that view vl = <primary: A, backups: IS,
+  725  C+. Suppose that A committed a transaction, forcing its event
+  726  records to f? but not C, then A crashed and recovered, and then a
+  727  partition occurred that separated 6 from A and C. In this case we
+  728  cannot form a new view until the partition is repaired because A hes
+  729  lost information and there are forced events that C does not know.
+
+  730  The correct rule for view fofination is: a majority of cohorts have
+  731  accepted and
+  732  1. a majority of cohorts accepted normally, or
+  733  2. crash-viewid -Z normal-viewid, or
+  734  3. crash-viewid = normal-viewid and the primary of view
+  735  normal-viewid has done a normal acceptance of the
+  736  invitation.
+  737  Here crash-viewid is the largest viewid returned in a "crashed
+  738  acceptance, and normalviewid is the largest viewstamp returned in
+  739  a "normal" acceptance. Condition (1) says we can ignore crashed
+  740  acceptances if we have enough normal ones; condition (2) says we
+  741  can ignore crashed acceptances if they are from old views; and
+  742  condition (3) says we can ignore a crashed acceptance if we have
+  743  information from the primary of its view, because the primary always
+  744  knows at least as much as any backup.
+
+  745  If the view can be formed, the cohort returning the largest
+  746  viewstamp (in a "normal" acceptance) is selected as the new
+  747  primary; the old primary of that view is selected if possible, since this
+  748  causes minimal disruption in the system.
+
+  749  A cohort in the underling state Calls await_view to wait to find out
+  750  what happened to the new view. If no message arrives within some
+  751  interval, await_view signals timeout and the cohort becomes the view
+  752  manager and attempts to form another view. If an invitation for a
+  753  higher viewid arrives, await_view signals invited, and the cohort
+  754  accepts the invitation. If an "init-view" message containing a viewid
+  755  equal to maw_viewid arrives, await_view signals becomegrimary;
+  756  the cohort initializes itself to be a primary as discussed above, and
+  757  becomes active. If a "newview" record for a view with viewid equal
+  758  to max-viewid arrives from the buffer, await-view inftializes the
+  759  cohort state before returning: it initializes cur-view, wr-viewid,
+  760  hisfory and gstate from the information in the message, writes
+  761  cur-viewid to stable storage, sets up-lo-date to true (to indicate that
+  762  it now has information in gsnte), and returns normally. Then the
+  763  cohoR becomes active.
+
+  764  4.1 Discussion
+  765  When failures or recoveries are detected by the system, the view
+  766  change protocol runs in each affected module group. The protocol
+  767  requires relatively little message-passing in the simple case of no
+  768  additional failures and no concurrent view managers. One round of
+
+  769  messages is all that is needed when the manager is also the primary
+  770  in the last active view; otherwise, one round plus one message is
+  771  needed.
+
+  772  The system performs correctly even if there are several active
+  773  primaries. This situation could arise when them is a panlion and the
+  774  old primary is slow to notice the need for a view change and
+  775  continues to respond to client requests even after the new view is
+  776  formed. The old primary will not be able to prepare and commit user
+  777  transactions, however, since it Cannot force their effects to the
+  778  backups.
+
+  779  If the same cohort is the primary both befo,re and after the view
+  780  change, then no user work is lost in the change. Otherwise, we
+  781  guarantee the following: Transactions that prepared in the okl view
+  782  will be able to commit, and those that committed will still be
+  783  committed. Transactions that had not yet prepared before the
+  784  change may be able to prepare afterwards, depending on whether
+  785  the completion events of the remote calls are known in the new view.
+  786  Aborts of transactions may have been forgotten, but delivery of abort
+  787  messages is not guaranteed in any case: recovery from lost
+  788  messages is done by using queries (see Section 3.4). To minimize
+  789  disruption while a view change is happening, or when there is no
+  790  active view, queries can be answered by any cohort that knows the
+  791  answer.
+
+  792  The algorithm is tolerant to several cohorts simultaneously acting
+  793  as managers; the one that chooses the higher viewid will ultimately
+  794  succeed. Having several managers will slow things down, since
+  795  there will be more message traffic, but the slow down will be slight.
+  796  Furthermore, we can avoid concurrent managers to some extent by
+  797  various policies. For example, the cohorts could be ordered, and a
+  798  cohort would become a manager only if all higher-priority cohorts
+  799  appear to be inaccessible.
+
+  800  However, the algofhm is not tolerant of lost messages and slow
+  801  responses. For example, suppose a manager waits only until it
+  802  hears from a sub-majority even though there are other cohorts that
+  803  could respond. This would result in those other cohorts being
+  804  excluded from the new view, which in turn will mean another round of
+  805  view changing will occur shortly. If that next view change also
+  806  excludes some potential members, that will lead to another view
+  807  change, and so on.
+
+  808  To avoid such a situation, a manager should use a fairly long
+  809  timeout while it waits to hear from all cohorts8 that the "I'm alive"
+  810  messages indicate should reply. Similarly, an underling should use a
+  811  fairly long timeout before it becomes a manager. In addition, it is
+  812  worthwhile to mask lost messages by sending duplicates, so that a
+  813  lost message won't trigger another view change.
+
+  814  A final point is that not all view changes descrfbed above really
+  815  need to be done. One special case is wheln an active primary
+  816  notices that it cannot communicate wfth a backup, but it still has a
+  817  sub-majority of other backups. In this case, the primary can
+  818  unilaterally exclude the inaccessible backup from the view. Similarly,
+  819  an acttte primary can unilaterally add a backup to its view. View
+  820  changes are really needed only when the primary is lost, or when a
+  821  current active view loses enough members that it is no longer a
+  822  majority. In the latter case, we need not do a view change either; we
+  823  make the primary inactive since this stops it from working on
+  824  transactions when it wilt not be able to commit them.
+
+  825  4.2 Stable Storage
+  826  In our algorithm we assumed that most of a cohort's state was
+  827  volatile. Such an assumption means that if a majority of cohorts are
+  828  crashed "simultaneously," we may lose information about the module
+  829  group's state. Here we view a cohort as crashed if either it is really
+  830  crashed, or if it has recovered from a crash, but its up-to-dare
+=== PAGE 8 ===
+
+  831  variable is false. Note that a catastrophe does not cause a group to
+  832  enter a new view missing some needed information. Rather, it
+  833  causes the algorithm to never again form a new view.
+
+  834  Whether it is worthwhile to worry about catastrophes depends on
+  835  the likelihood of occurrence and the importance of the information in
+  836  the group state. The considerations here are similar to decisions
+  837  about when it is necessary to store information in stable storage in a
+  838  nonreplicated system, except that replication makes the probability of
+  839  .
+  840  catastrophe smaller to begin with.
+
+  841  If protection against catastrophes is desired, there are various
+  842  techniques that could be tried. For example, we might use stable
+  843  storage only at the primary or we might supply each cohort with a
+  844  universal power supply and have them write information to
+  845  nonvolatile storage in the background.
+
+  846  5 Related Work
+  847  In this section we discuss the relationship of our approach to other
+  848  work on replication and view changes.
+
+  849  The best known replication technique is voting [16,21]. With
+  850  voting, write operations are usually performed at all Cohorts, and
+  851  reads are performed at only one cohort, but in general writes can be
+  852  performed at a majority of cohorts and reads at enough cohorts that
+  853  each read will intersect each write at at least one cohort. The write
+  854  ail/read one choice is preferred when reads are much more common
+  855  than writes.
+
+  856  Our method is faster than voting for write operations since we
+  857  require fewer messages. Also, we avoid the deadlocks that can
+  858  arise if messages for concurrent updates arrive at the cohorts in
+  859  different orders. Our method will also be faster for read operations if
+  860  these take place at several cohorts. If reads take place at just one
+  861  cohorl, voting may outperform our method because reading can
+  862  occur at any cohort, while reading in our scheme must happen at the
+  863  primary, which could become a performance bottleneck. On the
+  864  other hand, the real source of a bottlenedc is a node, not a cohort,
+  865  and we can organize our system so that primaries of different groups
+  866  usually run on different nodes. Furthermore, the system can be
+  867  Configured to place primaries at more powerful nodes most of the
+  868  time. This organization Could lead to better performance than voting.
+
+  869  Voting allows operations to continue running as long as the
+  870  needed number of cohorts are up and accessible. However, when
+  871  writes must happen at all Cohorts, the lost of a single cohort can
+  872  cause writes to become unavailable. The virtual partitions
+  873  pro~ocol[l2, 131 was invented to solve this problem. Our view
+  874  change protocol is a simplification and modification of this protocol
+  875  and has better performance. The virtual partitions protocol requires
+  876  three phases. The first round establishes the new view, the second
+  877  informs the cohorts of the new view, and in the third, the Cohorts all
+  878  communicate with one another to find out the current state. We
+  879  avoid extra work by using viewstamps in phase 1 (the first round) to
+  880  determine what each cohort knows. Our technique can be used in
+  881  conjunction with voting when writes are done at all members of a
+  882  view. Just as we use viewstamps, in such a system timestamps
+  883  assigned when transactions commit could be used to determine
+  884  which replica has the most information about transaction Commits
+  885  (the timestamps would not contain information about the state of
+  886  active transactions). Systems in which writes only go to a majority
+  887  are more difficult to optimize in this way since there is usually no
+  888  cohort whose state Contains at least as much information as the
+  889  state of any other cohort.
+
+  890  Virtual partitions force transactions that were active across a view
+  891  change to abort. For example, a transaction that did a remote call in
+  892  the old view will not be able to prepare in the new view. We use
+  893  viewstamps to avoid the abort and we rely on the fact that knowledge
+
+  894  of later events implies knowledge of earlier ones. A total order on
+  895  viewstamps would be costly to implement with voting, since there iS
+  896  no single place (like our primary) to generate the viewstamp. it might
+  897  be possible to use multipart viewstamps (23, 291, however. This is a
+  898  matter for future research.
+
+  899  A different approach to replication is taken in Isis [4, 51. Isis works
+  900  only in a local area network because its view change protocol does
+  901  not tolerate partitions. In Isis, calls are sent to a single cohort. If the
+  902  called procedure is a read, the cohort acquires a read lock IOCally
+  903  and performs the operation locally. If the procedure is a write, the
+  904  cohort acquires write locks at all cohorts before doing the Call. (Write
+  905  locks are acquired using a two-phase algorithm that prevents
+  906  deadlocks in the case of concurrent writes.) Then the cohoR
+  907  performs the call. In either case, the Cohort communicates the
+  908  effects of reads3 and writes to other cohorts in background 'mode,
+  909  and piggybacks them on reply messages. This piggybacked
+  910  information accompanies all future client messages, including calls to
+  911  other servers as well as prepare and commit messages. This
+  912  means, for example, that if the prepare message is sent to a different
+  913  cohort from the one that performed the call, the information about the
+  914  effect of the call wilt be present at the cohort doing the prepare, SO
+  915  there will be no need for that cohort to wait for the background
+  916  message to arrive, and no possibility that it would need to reject the
+  917  prepare. Unlike our pset, however, piggybacked information in Isis
+  918  cannot be discarded when transactions commit. A disadvantage of
+  919  Isis is the large amount of extra information flowing on every
+  920  message, and the difficulty in garbage collecting that information.
+
+  921  Our method avoids these problems at the Cost of a possible delay
+  922  at prepare time (to force the buffer) and of an occasional abort when
+  923  there is a view change. The viewstamps in our method represent the
+  924  information flowing in Isis. However, since the viewstamps only
+  925  indicate that certain events have occurred, but not what these events
+  926  are, we must sometimes wait for information about its events to
+  927  arrive in buffer messages. Also, we must sometimes abort a
+  928  transaction because information about its events is lost in a view
+  929  change.
+
+  930  In Cooper's replicated remote procedure calls [9], each procedure
+  931  call is replicated and executed at every cohort of a server. This
+  932  technique has high overhead during normal system operation: il
+  933  requires lots of messages, is wasteful of computation, and requires
+  934  that programs be deterministic. The advantage of the method is that
+  935  recovery is inexpensive.
+
+  936  Finally, Tandem's Nonstop systemI2, 7,8] and Ihe Auragen
+  937  system [6] are primary copy methods but there is just one backup, so
+  938  they can survive onfy a single failure. Furlhermore, the
+  939  primary/backup pair must reside at a single node (containing multiple
+  940  processors). If these constraints are acceptable, these methods are
+  941  efficient. Ours is more general.
+
+  942  6 Conclusions
+  943  This paper has described a new replication method for providing
+  944  high availability. The method performs well in the normal case, does
+  945  view changes efficiently, and loses little information in a view
+  946  change. We expect the performance of our method to be
+  947  comparable to that of a system in which modules are not replicated
+  948  and better than most other replication methods. At present we are
+  949  implementing our method; we will be able to run experiments about
+  950  system performance when our implementation is complete.
+
+  951  Our view change algorithm is highly likely not to lose work in a
+  952  view change. If a transaction's effects are known at the new primary,
+
+  953  3The effect of a read is that a read lock has been acquired.
+=== PAGE 9 ===
+
+  954  the transaction can commit. Our notion of viewstamps allows us to
+  955  determine inexpensively how much each cohort knows and whether
+  956  a transaction can be committed. Our policy of choosing the primary
+  957  of the last active view to be the new primary whenever possible
+  958  avoids losing work altogether; even remote calls that were running
+  959  before the view change can continue to run afterwards. Note that
+  960  the probability of aborts can be decreased further if desired. There is
+  961  a tradeoff here between loss of information in view changes and
+  962  speed of processing calls. For example, if "completed call" records
+  963  were forced to the backups before the call returned, there would be
+  964  no aborts due to view changes, but calls would be processed more
+  965  slowly.
+
+  966  Choosing the primary of the old view to be the new primary
+  967  minimizes information loss and makes the view change protocol run
+  968  quickly. On the other hand, we could modify the protocol to always
+  969  choose a particular cohort to be the primary if possible. Such a
+  970  policy matches the needs of some applications. The policy would
+  971  not cause loss of information: if the old primary is a member of the
+  972  new view, all its events will survive into the new view. However,
+  973  work in progress at the old primary would be lost in the change
+  974  (unless some additional mechanism is included); this includes
+  975  aborting transactions for which the primary is the coordinator. In
+  976  addition, a few extra messages will sometimes be needed in the view
+  977  change protocol.
+
+  978  We presented our algorithm in a system with one-level
+  979  transactions. However, as noted earlier, such a system can lead to
+  980  aborts in which a substantial amount of work can be lost. The
+  981  problem arises when a client gets no reply for a remote call; the
+  982  transaction must be aborted to avoid running a call more than once.
+  983  Nested transactions prevent the abort of the top level transaction,
+  984  and, furthermore, do so efficiently.
+
+  985  In defining our algorithm, we chose to avoid the use of stable
+  986  storage as much as possible because we were interested in
+  987  understanding the extent to which having several replicas eliminated
+  988  the need for stable storage. We found that catastrophes (loss of a
+  989  group's state) that would not happen if events were recorded on
+  990  stable storage could sometimes occur in our system. The probability
+  991  of a catastrophe depends on the configuration, e.g., on whether the
+  992  cohort's nodes are failure independent. The algorithm can be
+  993  modified in various ways to reduce the probability of catastrophe if it
+  994  is considered to be too high.
+
+  995  The use of viewstamps is an interesting compromise between loss
+  996  of work in failures and extra information. Isis represents one
+  997  extreme here: no work is lost when there is a failure but large
+  998  amounts of information must flow around the system. Other systems
+  999  have no information like viewstamps and must abort all transactions
+ 1000  affected by a failure.
+
+ 1001  Viewstamps may also be worthwhile in a nonreplicated System. In
+ 1002  such a system, records containing the effects of Calls could be
+ 1003  written to stable storage in background mode; the records, like event
+ 1004  records, would contain viewstamps. When the prepare message
+ 1005  arrives, it would only be necessaty to force the records; no delay
+ 1006  would be encountered if the records had already been Written. A
+ 1007  crash would not cause active transactions to abort aUtOmatiCally;
+ 1008  instead, queries would be sent to coordinators to determine the
+ 1009  outcomes. The result would be a system that is more tolerant Of
+ 1010  crashes (by avoiding aborts) and also faster at prepare time.
+
+ 1011  Acknowledgments
+
+ 1012  We are thankful for the helpful comments of readers of earlier
+ 1013  drafts of this paper, and especially to Sanjay Ghemawat, Dave
+ 1014  Gifford, Bob Gruber, Deborah Hwang, Elliot Kolodner, Gary Leavens,
+ 1015  Sharon Perl, Liuba Shrira, and Bill Weihl.
+
+ 1016  References
+
+ 1017  1. Alsberg, P. A., and Day, J. D. A Principle for Resilient Sharing of
+ 1018  Distributed Resources. Proc. of the 2nd International Conference on
+ 1019  Software Engineering, October, 1976. pp. 627-644. Also available in
+ 1020  unpublished form as CAC Document number 202 Center for
+ 1021  Advanced Computation University of Illinois, Urbana-Champaign,
+ 1022  Illinois 61801 by Alsberg, Benfod, Day, and Grapa.
+ 1023  2. Bartlett, J. F. A Nonstop Kernel. Proc. of the 8th ACM
+ 1024  Symposium on Operating System Principles, SIGOPS Operating
+ 1025  System Review, 15 5, December, 1981. pp. 22-29.
+ 1026  3. Bernstein, P. A., and Goodman, N. The Failure and Recovery
+ 1027  Problem for Replicated Databases. Second ACM ljymposium on the
+ 1028  Principles of Distributed Computing, August, 1983, pp. 114-122.
+ 1029  4. Birman, K. P., Joseph, T. A., Rauchle. T., and Eil Abbadi, A.
+ 1030  "Implementing Fault-tolerant Distributed Objects". /E/Z Trans. on
+ 1031  Sclffwaft? Engineering 11.6 (June 1985). 502-508.
+ 1032  5. Birman, K. P. and Joseph, T. A. "Reliable Communication in the
+ 1033  Presence of Failures". ACM Trans. on Computer Systems 5, 1
+ 1034  (Februaty 1987), 47-76.
+ 1035  6. Borg, A., Baumbach, J., and Glazer, S. A Message System
+ 1036  Supporling Fault Tolerance. Proc. of the 9th ACM Symposium on
+ 1037  Operating System Principles, SIGOPS Operating System Review,
+ 1038  17,5, October, 1983, pp. 90-99.
+ 1039  7. Barr, A. J. Transaction Monitoring in Encompass: Reliable
+ 1040  Distributed Transaction Processing. Proc. of the Seventh
+ 1041  International Conference on Very Large Data Bases, September,
+ 1042  1981, pp. 155-165.
+ 1043  8. Barr, A. J. Robustness to Crash in a Distributed Database: A
+ 1044  Non Shared-Memory Multi-Processor Approach. F'roc. of the Tenth
+ 1045  International Conference on Very Large Data Bases, August, 1984,
+ 1046  pp. 445-453.
+ 1047  9. Cooper, E. C. Replicated Distributed Programs. UCBICSD
+ 1048  85/231, University of California, Berkeley, CA, May, 1985.
+ 1049  10. Davies, C. T. "Data Processing Spheres of Control". IBM
+ 1050  SystemsJournal f7,2 (February78), 179-198.
+ 1051  Il. Eager, D. L.. and Sevcik, K. C. "Achieving Rolsustness in
+ 1052  Distributed Database Systems". ACM Trans. on Database Systems
+ 1053  8,3 (September 1983), 354-381.
+ 1054  12. El Abbadi. A., Skeen, D., and Cristian, F. An Efficient, Fault-
+ 1055  Tolerant Protocol for Replicated Data Management. Proc. of the 4th
+ 1056  ACM SIGACT/SIGMOD Conference on Principles of Data Base
+ 1057  Systems, 1985.
+ 1058  13. El Abbadi, A., and Toueg, S. Maintaining Availability in
+ 1059  Partitioned Replicated Databases. Proc. of the 5th ACM
+ 1060  SIGACT/SIGMOD Conference on Principles of Data Base Svstems.
+ 1061  1986.
+ 1062  14. Eswaran, K. P., Gray, J. N., Lorfe, Ft. A., and Traiger, 1. L. "The
+ 1063  Notions of Consistency and Predicate Locks in a Database System",
+ 1064  Comm. of the ACM i9,ll (November 1976), 624-633.
+ 1065  15. Fowler, R.J. DecentralizedObject Finding Using Forwarding
+ 1066  Addresses. 85-12-1, University of Washington, Dept. of Computer
+ 1067  Science, Seattle, WA, December, 1985.
+ 1068  16. Gifford, D. K. Weighted Voting for Replicated Data. Proc. of the
+ 1069  7th ACM Symposium on Operating Systems Princilples, SIGOPS
+ 1070  Operating Systems Review, 13,5, December, 1979, pp. 150-162.
+ 1071  17. Gifford, D. K.;and Donahue, J. E. Coordinating Independent
+ 1072  Atomic Actions. Proc. of IEEE CompCon February, 1985, pp.
+ 1073  92-95.
+ 1074  18. Gray, J. N.. Lorie, R. A. Putzolu, G. F., and Traiger, I. L.
+ 1075  Granularity of locks and degrees of consistency in a shared data
+ 1076  base. In Modeling in Data Base Management Sysremss,
+ 1077  G. M. Nijssen, Eds., Elsevier North-Holland, New York, 1976, pp.
+ 1078  365-394.
+=== PAGE 10 ===
+
+ 1079  19. Gray, J. N. Notes on Database Operating Systems. In LeCtUfe
+ 1080  Notes in Computer Science 60, Goos and Hartmanis, Eds., Springer-
+ 1081  Verlag Berlin, 1978, pp. 393-481.
+ 1082  20. Henderson, C. Locating Migratory Objects in an Internet. M.I.T.
+ 1083  Laboratory tar Computer Science, Cambridge, MA, 1983.
+ 1084  21. Herfihy. M. P. "A Quorum-Consensus Replication Method for
+ 1085  Abstract Data Types". ACM Trans, on Compuler Systems 4, 1
+ 1086  (February 1986), 32-53.
+ 1087  22. l-twang, 0. J. Constructing a Highly-Available Location Service
+ 1088  for a Distributed Environment. Technical ReDort MIT/LCS/TR-410.
+ 1089  M.I.T. Laboratory for Computer Science, Cahbridge, MA, January;
+ 1090  1988.
+ 1091  23. Ladin, Ft.. Liskov, B.. and Shrira, L. A Technique for
+ 1092  Constructing Highly-Available Services. M.I.T. Laboratory for
+ 1093  Computer Science, Cambridge, MA, January, 1988. To be published
+ 1094  in Algorifhmca.
+ 1095  24. Lamport. L., Shostak, Ft., and Pease, M. "The Byzantine
+ 1096  Generals Problem". ACM Trans. on Programming Languages and
+ 1097  Sysrems 4,3 (July 1982), 382-401.
+ 1098  25. Lampson, B. W., and Sturgis, H. E. Crash Recovery in a
+ 1099  Distributed Data Storage System. Xerox Research Center, Palo
+ 1100  Alto, Ca., 1979.
+ 1101  26. Liskov, B., and Scheifler, R. 'Guardians and Actions: Linguistic
+ 1102  Support for Robust Distributed Programs". ACM Trans. on
+ 1103  Programming Languages and Systems 5,3 (July 1963), 381404.
+ 1104  27. Liskov, B., Curtis, D., Johnson, P., and Scheifler, R.
+ 1105  Implementation of Argus. Proc. of the Eleventh ACM Symposium on
+ 1106  Operating Systems Principles, SIGOPS Operating Systems Review,
+ 1107  21,5, November, 1987, pp. 111-122.
+
+ 1108  28. Liskov, B. "Distributed Programming in Argus". &mm. of fhe
+ 1109  ACM 31,3 (March 1988), 300-312.
+ 1110  29. Liskov, B., and Ladin, R. Highly-Available Distributed Services
+ 1111  and Fault-Tolerant Distributed Garbage CoLtion. Proo. of the Fifth
+ 1112  ACM Symposium on the Principles of Distributed Computing,
+ 1113  August, 1986.
+ 1114  30. Moss, J. E. B. Nested Transactions: An Approach to Reliable
+ 1115  Distributed Computing. Technical Reporl MITILCSTTR-260, M.I.T.
+ 1116  Laboratory for Computer Science, June, 1981.
+ 1117  31. Mullender, S.. and Vitanyi, P. Distributed Match-Making for
+ 1118  Processes in Computer Networks---Preliminary Version. Proc. of the
+ 1119  Fourth Symposium on the Principles of Distributed Computing, ACM,
+ 1120  August, 1985.
+ 1121  32. Oki, B. M. Viewstamped ffeplicafion for Highly-Avai&b/e
+ 1122  Distributed Systems. Ph.D. Th., Massachusetts Institute of
+ 1123  Technology, Laboratory for Computer Science, Cambridge. MA, May
+ 1124  1988. Forthcoming.
+ 1125  33. Papadimitriou, C. H. "Serializability of Concurrent Database
+ 1126  Updates". J. of the ACM 24,4 (October 1979), 631-653.
+ 1127  34. Schneider, F. 6. Fail-Stop Processors. Digest of Papers from
+ 1128  Spring CompCon '83 26th IEEE Computer Society International
+ 1129  Conference, March, 1983, pp. 66-70.
+ 1130  35. Skeen, D., and Wright, D. D. Increasing Availability in
+ 1131  Partitioned Database Systems. TR 83581, Dept. of Computer
+ 1132  Science, Cornell University, March, 1984.
+ 1133  36. Stonebraker, M. "Concurrency Control and Consistency of
+ 1134  Multiple Copies of Data in Distributed INGRES". /EEE Trans. on
+ 1135  Software Engineering 53 (May 1979), 188-194.

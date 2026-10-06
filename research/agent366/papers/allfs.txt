@@ -1,0 +1,1459 @@
+---
+title: "All File Systems Are Not Created Equal: On the Complexity of Crafting Crash Consistent Applications"
+authors:
+  - "Thanumalayan Sankaranarayana Pillai"
+  - "Vijay Chidambaram"
+  - "Ramnatthan Alagappan"
+  - "Samer {Al-Kiswany}"
+  - "Andrea C {Arpaci-Dusseau}"
+  - "Remzi H {Arpaci-Dusseau}"
+year: "2014"
+publication: ""
+handle_url: "https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-pillai.pdf"
+source_pdf: "research/agent366/papers/osdi14-pillai-allfs.pdf"
+source_pdf_sha256: "44dd92938871b09d3233a09ca1234313e920c451863eb85e5cc719b61ccfc18b"
+page_count: 17
+extracted_text_runs: 3004
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  This paper studies how file systems differ in the guarantees they provide after a crash. It examines application techniques for crash consistency and shows why assumptions about write ordering and persistence can fail across file systems.
+tags: []
+---
+
+=== PAGE 1 ===
+
+    1  All File Systems Are Not Created Equal:
+
+    2  On the Complexity of Crafting
+
+    3  Crash-Consistent Applications
+
+    4  Thanumalayan Sankaranarayana Pillai, Vijay Chidambaram, Ramnatthan Alagappan,
+
+    5  Samer Al-Kiswany, Andrea C. Arpaci-Dusseau,
+
+    6  and Remzi H. Arpaci-Dusseau,University of Wisconsin–Madison
+
+    7  https://www.usenix.org/conference/osdi14/technical-sessions/presentation/pillai
+
+    8  This paper is included in the Proceedings of the
+
+    9  11th USENIX Symposium on
+
+   10  Operating Systems Design and Implementation.
+
+   11  October 6–8, 2014 • Broomfield, CO
+
+   12  978-1-931971-16-4
+
+   13  Open access to the Proceedings of the
+
+   14  11th USENIX Symposium on Operating Systems
+
+   15  Design and Implementation
+
+   16  is sponsored by USENIX.
+=== PAGE 2 ===
+
+   17  All File Systems Are Not Created Equal:
+
+   18  On the Complexity of Crafting Crash-Consistent Applications
+
+   19  Vijay Chidambaram
+
+   20  Andrea C. Arpaci-Dusseau
+
+   21  University of Wisconsin-Madison
+
+   22  11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14) 433
+
+   23  Thanumalayan Sankaranarayana Pillai
+
+   24  Samer Al-Kiswany
+
+   25  Abstract
+   26  We present the first comprehensive study of applicationlevel crash-consistency protocols built atop modern file
+   27  systems. We find that applications use complex update
+   28  protocols to persist state, and that the correctness of
+   29  these protocols is highly dependent on subtle behaviors
+   30  of the underlying file system, which we term persistence
+   31  properties. We develop a tool named BOB that empirically tests persistence properties, and use it to demonstrate that these properties vary widely among six popular Linux file systems. We build a framework named
+   32  ALICE that analyzes application update protocols and
+   33  finds crash vulnerabilities, i.e., update protocol code that
+   34  requires specific persistence properties to hold for correctness. Using ALICE, we analyze eleven widely-used
+   35  systems (including databases, key-value stores, version
+   36  control systems, distributed systems, and virtualization
+   37  software) and find a total of 60 vulnerabilities, many of
+   38  which lead to severe consequences. We also show that
+   39  ALICE can be used to evaluate the effect of new filesystem designs on application-level consistency.
+
+   40  1 Introduction
+   41  Crash recovery is a fundamental problem in systems
+   42  research [8, 21, 34, 38], particularly in database management systems, key-value stores, and file systems.
+   43  Crash recovery is hard to get right; as evidence, consider the ten-year gap between the release of commercial
+   44  database products (e.g., System R [7, 8] and DB2 [34])
+   45  and the development of a working crash recovery algorithm (ARIES [33]). Even after ARIES was invented, another five years passed before the algorithm was proven
+   46  correct [24, 29].
+   47  The file-systems community has developed a standard
+   48  set of techniques to provide file-system metadata consistency in the face of crashes [4]: logging [5, 9, 21, 37, 45,
+   49  51], copy-on-write [22,30,38,44], soft updates [18], and
+   50  other similar approaches [10, 16]. While bugs remain in
+   51  the file systems that implement these methods [28], the
+   52  core techniques are heavily tested and well understood.
+   53  Many important applications, including databases
+   54  such as SQLite [43] and key-value stores such as LevelDB [20], are currently implemented on top of these
+   55  file systems instead of directly on raw disks. Such datamanagement applications must also be crash consistent,
+
+   56  USENIX Association
+
+   57  Ramnatthan Alagappan
+
+   58  Remzi H. Arpaci-Dusseau
+
+   59  but achieving this goal atop modern file systems is challenging for two fundamental reasons.
+   60  The first challenge is that the exact guarantees provided by file systems are unclear and underspecified.
+   61  Applications communicate with file systems through the
+   62  POSIX system-call interface [48], and ideally, a wellwritten application using this interface would be crashconsistent on any file system that implements POSIX.
+   63  Unfortunately, while the POSIX standard specifies the
+   64  effect of a system call in memory, specifications of how
+   65  disk state is mutated in the event of a crash are widely
+   66  misunderstood and debated [1]. As a result, each file system persists application data slightly differently, leaving
+   67  developers guessing.
+   68  To add to this complexity, most file systems provide
+   69  a multitude of configuration options that subtly affect
+   70  their behavior; for example, Linux ext3 provides numerous journaling modes, each with different performance
+   71  and robustness properties [51]. While these configurations are useful, they complicate reasoning about exact
+   72  file system behavior in the presence of crashes.
+   73  The second challenge is that building a highperformance application-level crash-consistency protocol is not straightforward. Maintaining application consistency would be relatively simple (though not trivial)
+   74  if all state were mutated synchronously. However, such
+   75  an approach is prohibitively slow, and thus most applications implement complex update protocols to remain
+   76  crash-consistent while still achieving high performance.
+   77  Similar to early file system and database schemes, it is
+   78  difficult to ensure that applications recover correctly after a crash [41, 47]. The protocols must handle a wide
+   79  range of corner cases, which are executed rarely, relatively untested, and (perhaps unsurprisingly) error-prone.
+   80  In this paper, we address these two challenges directly,
+   81  by answering two important questions. The first question
+   82  is: what are the behaviors exhibited by modern file systems that are relevant to building crash-consistent applications? We label these behaviors persistence properties
+   83  (§2). They break down into two global categories: the
+   84  atomicity of operations (e.g., does the file system ensure
+   85  that rename() is atomic [32]?), and the orderingof operations (e.g., does the file system ensure that file creations
+   86  are persisted in the same order they were issued?).
+   87  To analyze file system persistence properties, we de-
+
+   88  1
+=== PAGE 3 ===
+
+   89  434 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14)
+
+   90  Figure 1: Git Crash Vulnerability. The figure shows part of
+   91  the Git update protocol. The arrows represent ordering dependencies:
+   92  if the appends are not persisted before the rename, any further commits
+   93  to the repository fail. We find that, whether the protocol is vulnerable
+   94  or not varies even between configurations of the same file system.
+   95  velop a simple tool, known as the Block Order Breaker
+   96  (BOB). BOB collects block-level traces underneath a file
+   97  system and re-orders them to explore possible on-disk
+   98  crash states that may arise. With this simple approach,
+   99  BOB can find which persistence properties do not hold
+  100  for a given system. We use BOB to study six Linux file
+  101  systems (ext2, ext3, ext4, reiserfs, btrfs, and xfs) in various configurations. We find that persistence properties
+  102  vary widely among the tested file systems. For example,
+  103  appends to file A are persisted before a later rename of
+  104  file B in the ordered journaling mode of ext3, but not in
+  105  the same mode of ext4, unless a special option is enabled.
+  106  The second question is: do modern applications implement crash consistency protocols correctly? Answering this question requires understanding update protocols, no easy task since update protocols are complex [47] and spread across multiple files in the source
+  107  code. To analyze applications, we develop ALICE, a
+  108  novel framework that enables us to systematically study
+  109  application-level crash consistency (§3). ALICE takes advantage of the fact that, no matter how complex the application source code, the update protocol boils down to
+  110  a sequence of file-system related system calls. By analyzing permutations of the system-call trace of workloads, ALICE produces protocol diagrams: rich annotated
+  111  graphs of update protocols that abstract away low-level
+  112  details to clearly present the underlying logic. ALICE
+  113  determines the exact persistence properties assumed by
+  114  applications as well as flaws in their design.
+  115  Figure 1 shows an example of ALICE in action. The
+  116  figure shows a part of the update protocol of Git [26].
+  117  ALICE detected that the appends need to be persisted before the rename; if not, any future commits to the repository fail. This behavior varies widely among file systems: a number of file-system features such as delayed
+  118  allocation and journaling mode determine whether file
+  119  systems exhibit this behavior. Some common configurations like ext3 ordered mode persist these operations in
+  120  order, providing a false sense of security to the developer.
+  121  We use ALICE to study and analyze the update protocols of eleven important applications: LevelDB [20], GDBM [19], LMDB [46], SQLite [43],
+  122  PostgreSQL [49], HSQLDB [23], Git [26], Mercurial [31]), HDFS [40], ZooKeeper [3], and VMWare
+
+  123  Player [52]. These applications represent software from
+  124  different domains and at varying levels of maturity. The
+  125  study focuses on file-system behavior that affects users,
+  126  rather than on strictly verifying application correctness.
+  127  We hence consider typical usage scenarios, sometimes
+  128  checking for additional consistency guarantees beyond
+  129  those promised in the application documentation. Our
+  130  study takes a pessimistic view of file-system behavior;
+  131  for example, we even consider the case where renames
+  132  are not atomic on a system crash.
+  133  Overall, we find that application-level consistency in
+  134  these applications is highly sensitive to the specific persistence properties of the underlying file system. In general, if application correctness depends on a specific filesystem persistence property, we say the application contains a crash vulnerability; running the application on a
+  135  different file system could result in incorrect behavior.
+  136  We find a total of 60 vulnerabilities across the applications we studied; several vulnerabilities have severe consequences such as data loss or application unavailability.
+  137  Using ALICE, we also show that many of these vulnerabilities (roughly half) manifest on current file systems
+  138  such as Linux ext3, ext4, and btrfs.
+  139  We find that many applications implicitly expect ordering among system calls (e.g., that writes, even to different files, are persisted in order); when such ordering
+  140  is not maintained, 7 of the 11 tested applications have
+  141  trouble properly recovering from a crash. We also find
+  142  that 10 of the 11 applications expect atomicity of filesystem updates. In some cases, such a requirement is
+  143  reasonable (e.g., a single 512-byte write or file rename
+  144  operation are guaranteed to be atomic by many current
+  145  file systems when running on a hard-disk drive); in other
+  146  situations (e.g., with file appends), it is less so. We also
+  147  note that some of these atomicity assumptions are not future proof; for example, new storage technology may be
+  148  atomic only at a smaller granularity than 512-bytes (e.g.,
+  149  eight-byte PCM [12]). Finally, for 7 of the 11 applications, durability guarantees users likely expect are not
+  150  met, often due to directory operations not being flushed.
+  151  ALICE also enables us to determine whether new filesystem designs will help or harm application protocols.
+  152  We use ALICE to show the benefits of an ext3 variant
+  153  we propose (ext3-fast), which retains much of the positive ordering and atomicity properties of ext3 in data
+  154  journaling mode, without the high cost. Such verification would have been useful in the past; when delayed
+  155  allocation was introduced in Linux ext4, it broke several
+  156  applications, resulting in bug reports, extensive mailinglist discussions, widespread data loss, and finally, filesystem changes [14]. With ALICE, testing the impact of
+  157  changing persistence properties can become part of the
+  158  file-system design process.
+
+  159  2
+  160  USENIX Association
+=== PAGE 4 ===
+
+  161  11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14) 435
+
+  162      
+  163      
+  164      
+  165        
+  166      
+  167      
+  168  Figure 2: Crash States. The figure shows the initial, final, and
+  169  some of the intermediate crash states possible for the workload described in Section 2.1 . X represents garbage data in the files. Intermediate states #A and #B represent different kinds of atomicity violations,
+  170  while intermediate state #C represents an ordering violation.
+
+  171  2 Persistence Properties
+  172  In this section, we study the persistence properties of
+  173  modern file systems. These properties determine which
+  174  possible post-crash file system states are possible for a
+  175  given file system; as we will see, different file systems
+  176  provide subtly different guarantees, making the challenge of building correct application protocols atop such
+  177  systems more vexing.
+  178  We begin with an example, and then describe our
+  179  methodology: to explore possible on-disk states by reordering the I/O block stream, and then examine possible resulting states. Our testing is not complete, but
+  180  finds persistence properties that do not hold for a filesystem implementation. We then discuss our findings for
+  181  six widely-used Linux file systems: ext2 [6], ext3 [51],
+  182  ext4 [50], btrfs [30], xfs [45], and reiserfs [37].
+  183  Application-level crash consistency depends strongly
+  184  upon these persistence properties, yet there are currently
+  185  no standards. We believe that defining and studying persistence properties is the first step towards standardizing
+  186  them across file systems.
+
+  187  2.1 An Example
+  188  All application update protocols boil down to a sequence
+  189  of I/O-related system calls which modify on-disk state.
+  190  Two broad properties of system calls affect how they are
+  191  persisted. The first is atomicity: does the update from the
+  192  call happen all at once, or are there possible intermediate
+  193  states that might arise due to an untimely crash? The
+  194  second is ordering: can this system call be persisted after
+  195  a later system call? We now explain these properties with
+  196  an example.
+  197  We consider the following pseudo-code snippet:
+  198  write(f1, "pp");
+  199  write(f2, "qq");
+  200  In this example, the application first appends the string
+  201  pp to file descriptor f1 and then appends the string qq to
+  202  file descriptor f2. Note that we will sometimes refer to
+  203  such a write() as an append() for simplicity.
+  204  Figure 2 shows a few possible crash states that can
+  205  result. If the append is not atomic, for example, it would
+  206  be possible for the size of the file to be updated without
+  207  the new data reflected to disk; in this case, the files could
+  208  contain garbage, as shown in State A in the diagram. We
+
+  209  USENIX Association
+
+  210  refer to this as size-atomicity. A lack of atomicity could
+  211  also be realized with only part of a write reaching disk, as
+  212  shown in State B. We refer to this as content-atomicity.
+  213  If the file system persists the calls out of order, another
+  214  outcome is possible (State C). In this case, the second
+  215  write reaches the disk first, and as a result only the second
+  216  file is updated. Various combinations of these states are
+  217  also possible.
+  218  As we will see when we study application update protocols, modern applications expect different atomicity
+  219  and ordering properties from underlying file systems. We
+  220  now study such properties in detail.
+
+  221  2.2 Study and Results
+  222  We study the persistence properties of six Linux file systems: ext2, ext3, ext4, btrfs, xfs, and reiserfs. A large
+  223  number of applications have been written targeting these
+  224  file systems. Many of these file systems also provide
+  225  multiple configurations that make different trade-offs between performance and consistency: for instance, the
+  226  data journaling mode of ext3 provides the highest level of
+  227  consistency, but often results in poor performance [35].
+  228  Between file systems and their various configurations, it
+  229  is challenging to know or reason about which persistence
+  230  properties are provided. Therefore, we examine different
+  231  configurations of the file systems we study (a total of 16).
+  232  To study persistence properties, we built a tool, known
+  233  as the Block Order Breaker (BOB), to empirically find
+  234  cases where various persistence properties do not hold
+  235  for a given file system. BOB first runs a simple usersupplied workload designed to stress the persistence
+  236  property tested (e.g., a number of writes of a specific size
+  237  to test overwrite atomicity). BOB collects the block I/O
+  238  generated by the workload, and then re-orders the collected blocks, selectively writing some of them to disk to
+  239  generate a new legal disk state (disk barriers are obeyed).
+  240  In this manner, BOB generates a number of unique disk
+  241  images corresponding to possible on-disk states after a
+  242  system crash. BOB then runs file-system recovery on
+  243  each resulting disk image, and checks whether various
+  244  persistence properties hold (e.g., if writes were atomic).
+  245  If BOB finds even a single disk image where the checker
+  246  fails, then we know that the property does not hold on
+  247  the file system. Proving the converse (that a property
+  248  holds in all situations) is not possible using BOB; currently, only simple block re-orderings and all prefixes of
+  249  the block trace are tested.
+  250  Note that different system calls (e.g., writev(),
+  251  write()) lead to the same file-system output. We group
+  252  such calls together into a generic file-system update we
+  253  term an operation. We have found that grouping all operations into three major categories is sufficient for our
+  254  purposes here: file overwrite, file append, and directory
+  255  operations (including rename, link, unlink, mkdir, etc.).
+
+  256  3
+=== PAGE 5 ===
+
+  257  436 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14)
+
+  258  Persistence Property File system
+
+  259  ext2 ext2-sync ext3-writeback ext3-ordered ext3-datajournal ext4-writeback ext4-ordered ext4-nodelalloc ext4-datajournal btrfs xfs xfs-wsync reiserfs-nolog reiserfs-writeback reiserfs-ordered reiserfs-datajournal
+
+  260  Atomicity
+  261  Single sector overwrite
+  262  Single sector append × × × ×
+  263  Single block overwrite × × × × × × × × × × × ×
+  264  Single block append × × × × × ×
+  265  Multi-block append/writes × × × × × × × × × × × × × × × ×
+  266  Multi-block prefix append × × × × × ×
+  267  Directory op × × ×
+
+  268  Ordering
+  269  Overwrite → Any op × × × × × × × × × × ×
+  270  [Append, rename]→ Any op × × × × ×
+  271  O TRUNC Append → Any op × × × × ×
+  272  Append → Append (same file) × × × × ×
+  273  Append → Any op × × × × × × × ×
+  274  Dir op → Any op × × ×
+  275  Table 1: Persistence Properties. The table shows atomicity and ordering persistence properties that we empirically determined
+  276  for different configurations of file systems. X → Y indicates that X is
+  277  persisted before Y. [X,Y] → Z indicates that Y follows X in program
+  278  order, and both become durable before Z. A × indicates that we have a
+  279  reproducible test case where the property fails in that file system.
+  280  Table 1 lists the results of our study. The table shows,
+  281  for each file system (and specific configuration) whether
+  282  a particular persistence property has been found to not
+  283  hold; such cases are marked with an ×.
+  284  The size and alignment of an overwrite or append affects its atomicity. Hence, we show results for single sector, single block, and multi-block overwrite and append
+  285  operations. For ordering, we show whether given properties hold assuming different orderings of overwrite, append, and directory operations; the append operation has
+  286  some interesting special cases relating to delayed allocation (as found in Linux ext4) – we show these separately.
+
+  287  2.2.1 Atomicity
+  288  We observe that all tested file systems seemingly provide atomic single-sector overwrites: in some cases (e.g.,
+  289  ext3-ordered), this property arises because the underlying disk provides atomic sector writes. Note that if such
+  290  file systems are run on top of new technologies (such as
+  291  PCM) that provide only byte-level atomicity [12], singlesector overwrites will not be atomic.
+  292  Providing atomic appends requires the update of two
+  293  locations (file inode, data block) atomically. Doing so requires file-system machinery, and is not provided by ext2
+  294  or writeback configurations of ext3, ext4, and reiserfs.
+  295  Overwriting an entire block atomically requires data
+  296  journaling or copy-on-write techniques; atomically appending an entire block can be done using ordered mode
+  297  journaling, since the file system only needs to ensure the
+
+  298  entire block is persisted before adding a pointer to it.
+  299  Current file systems do not provide atomic multi-block
+  300  appends; appends can be broken down into multiple operations. However, most file systems seemingly guarantee that some prefix of the data written (e.g., the first 10
+  301  blocks of a larger append) will be appended atomically.
+  302  Directory operations such as rename() and link()
+  303  are seemingly atomic on all file systems that use techniques like journaling or copy-on-write for consistency.
+
+  304  2.2.2 Ordering
+  305  We observe that ext3, ext4, and reiserfs in data journaling mode, and ext2 in sync mode, persist all tested operations in order. Note that these modes often result in
+  306  poor performance on many workloads [35].
+  307  The append operation has interesting special cases. On
+  308  file systems with the delayed allocation feature, it may
+  309  be persisted after other operations. A special exception
+  310  to this rule is when a file is appended, and then renamed.
+  311  Since this idiom is commonly used to atomically update
+  312  files [14], many file systems recognize it and allocate
+  313  blocks immediately. A similar special case is appending to files that have been opened with O TRUNC. Even
+  314  with delayed allocation, successive appends to the same
+  315  file are persisted in order. Linux ext2 and btrfs freely reorder directory operations (especially operations on different directories [11]) to increase performance.
+
+  316  2.3 Summary
+  317  From Table 1, we observe that persistence properties
+  318  vary widely among file systems, and even among different configurations of the same file system. The order of
+  319  persistence of system calls depends upon small details
+  320  like whether the calls are to the same file or whether the
+  321  file was renamed. From the viewpoint of an application
+  322  developer, it is risky to assume that any particular property will be supported by all file systems.
+
+  323  3 The Application-Level Intelligent
+
+  324  Crash Explorer (ALICE)
+  325  We have now seen that file systems provide different persistence properties. However, some important questions
+  326  remain: How do current applications update their on-disk
+  327  structures? What do they assume about the underlying
+  328  file systems? Do such update protocols have vulnerabilities? To address these questions, we developed ALICE
+  329  (Application-Level Intelligent Crash Explorer). ALICE
+  330  constructs different on-disk file states that may result due
+  331  to a crash, and then verifies application correctness on
+  332  each created state.
+  333  Unlike other approaches [53, 54] that simply test an
+  334  application atop a given storage stack, ALICE finds the
+  335  generic persistence properties required for application
+  336  correctness, without being restricted to only a specified
+
+  337  4
+  338  USENIX Association
+=== PAGE 6 ===
+
+  339  11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14) 437
+
+  340  Figure 3: ALICE Overview. The figure shows how ALICE
+  341  converts user inputs into crash states and finally into crash vulnerabilities. Black boxes are user inputs. Grey boxes are optional inputs.
+  342  file system. ALICE associates discovered vulnerabilities directly with source lines, and targets specific states
+  343  that are prone to reveal crash vulnerabilities in different
+  344  source lines. ALICE achieves this by constructing file
+  345  states directly from the system-call trace of an application workload. The states to be explored and verified can
+  346  be described purely in terms of system calls: the actual
+  347  storage stack is not involved. ALICE can also be used to
+  348  abstractly test the safety of new file systems.
+  349  We first describe how ALICE is used (§3.1). We then
+  350  describe how ALICE calculates states possible during
+  351  a system crash, using an Abstract Persistence Model
+  352  (APM) (§3.2). Next, we describe how these states are
+  353  selectively explored so as to discover application requirements in terms of persistence properties (§3.3), and how
+  354  discovered vulnerabilities are reported associated with
+  355  source code lines (§3.4). Finally, we describe our implementation (§3.5) and its limitations (§3.6).
+
+  356  3.1 Usage
+  357  ALICE is simple to use. The user first supplies ALICE
+  358  with an initial snapshot of the files used by the application (typically an entire directory), and a workload script
+  359  that exercises the application (such as performing a transaction). The user also supplies a checker script corresponding to the workload that verifies whether invariants
+  360  of the workload are maintained (such as atomicity of the
+  361  transaction). ALICE runs the checker atop different crash
+  362  states, i.e., the state of files after rebooting from a system
+  363  crash that can occur during the workload. ALICE then
+  364  produces a logical representation of the update protocol
+  365  executed during the workload, vulnerabilities in the protocol and their associated source lines, and persistence
+  366  properties required for correctness.
+
+  367  USENIX Association
+
+  368  # Workload # Checker
+  369  # Opening database db = gdbm.open('mydb')
+  370  db = gdbm.open('mydb') c = len(db.keys())
+  371  if alice.printed('Done'):
+  372  # Inserting key-value ..assert c == 1
+  373  db['x'] = 'foo' else:
+  374  db.sync() ..assert c == 0 or c == 1
+  375  print 'Done' if c == 1:
+  376  ..assert db['x'] == 'foo'
+  377  Listing 1: Workload and Checker. Simplified form of python
+  378  workload and checker for GDBM (a key-value store).
+  379  The exact crash states possible for a workload varies
+  380  with the file system. For example, depending on the file
+  381  system, appending to a file can result in the file containing either a prefix of the data persisted, with random data intermixed with file data, or various combinations thereof. ALICE uses file-system Abstract Persistence Models (APMs) to define the exact crash states
+  382  possible in a given file system. By default, ALICE uses an
+  383  APM with few restrictions on the possible crash states, so
+  384  as to find generic persistence properties required for application correctness. However, ALICE can be restricted
+  385  to find vulnerabilities occurring only on a specific file
+  386  system, by supplying the APM of that file system.
+  387  Listing 1 shows example workload and checker scripts
+  388  for GDBM, a key-value store, written in Python. We discuss how APMs are specified in the next subsection.
+
+  389  3.2 Crash States and APMs
+  390  Figure 3 shows an overview of the steps ALICE follows
+  391  to find crash vulnerabilities. The user-supplied workload
+  392  is first run, and a system-call trace obtained; the trace
+  393  represents an execution of the application's update protocol. The trace is converted into a sequence of logical
+  394  operations by ALICE. The sequence of logical operations, along with an APM, is used to calculate the different crash states that are possible from the initial state.
+  395  These steps are now explained in detail.
+
+  396  3.2.1 Logical Operations
+  397  ALICE first converts the trace of system calls in the application workload to logical operations. Logical operations abstract away details such as current read and write
+  398  offsets, file descriptors, and transform a large set of system calls and other I/O producing behavior into a small
+  399  set of file-system operations. For example, write(),
+  400  pwrite(), writev(), pwritev(), and mmap()-writes
+  401  are all translated into overwrite or append logical operations. Logical operations also associate a conceptual
+  402  inode to each file or directory involved.
+
+  403  3.2.2 Abstract Persistence Models
+  404  An APM specifies all constraints on the atomicity and ordering of logical operations for a given file system, thus
+  405  defining which crash states are possible.
+  406  APMs represent crash states as consisting of two logical entities: file inodes containing data and a file size,
+
+  407  5
+=== PAGE 7 ===
+
+  408  438 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14)
+
+  409  Logical Operation Micro-operations
+  410  overwrite N × write block(data)
+  411  append {change file size
+  412  N× write block(random)
+  413  write block(data)
+  414  truncate {change file size
+  415  N× write block(random)
+  416  write block(zeroes)
+  417  link create dir entry
+  418  unlink delete dir entry + truncate if last link
+  419  rename delete dir entry(dest) + truncate if last link
+  420  create dir entry(dest)
+  421  delete dir entry(source)
+  422  print stdout
+  423  (a) Atomicity Constraints.
+
+  424  Description Constraint
+  425  sync-ops [any-op⟩(A) ... fsyncj(A)]→any-opk ∀ i < j < k
+  426  stdout stdout⟩()→any-opj ∀ i < j
+  427  (b) Ordering Constraints.
+  428  Table 2: Default APM Constraints. (a) shows atomicity
+  429  constraints; N indicates a logical operation being divided into many
+  430  micro-ops. (b) shows ordering constraints. X⟩ is the ⟩th operation, and
+  431  any-op(A) is an operation on the file or directory A.
+  432  and directories containing directory entries. Each logical
+  433  operation operates on one or more of these entities. An
+  434  infinite number of instances of each logical entity exist,
+  435  and they are never allocated or de-allocated, but rather
+  436  simply changed. Additionally, each crash state also includes any output printed to the terminal during the time
+  437  of the crash as a separate entity.
+  438  To capture intermediate crash states, APMs break logical operations into micro-operations, i.e., the smallest
+  439  atomic modification that can be performed upon each
+  440  logical entity. There are five micro-ops:
+  441  • write block: A write of size block to a file. Two special arguments to write block are zeroes and random:
+  442  zeroes indicates the file system initializing a newly
+  443  allocated block to zero; random indicates an uninitialized block. Writes beyond the end of a file cause
+  444  data to be stored without changing file size.
+  445  • change file size: Changes the size of a file inode.
+  446  • create dir entry: Creates a directory entry in a directory, and associates a file inode or directory with it.
+  447  • delete dir entry: Deletes a directory entry.
+  448  • stdout: Adds messages to the terminal output.
+  449  The APM specifies atomicity constraints by defining
+  450  how logical operations are translated into micro-ops. The
+  451  APM specifies ordering constraints by defining which
+  452  micro-ops can reach the disk before other micro-ops.
+  453  In most cases, we utilize a default APM to find the
+  454  greatest number of vulnerabilities in application update
+  455  protocols. The atomicity constraints followed by this default file system are shown in Table 2(a), which specifically shows how each logical operation is broken down
+  456  into micro-ops. The ordering constraints imposed by the
+  457  default APM are quite simple, as seen in Table 2(b): all
+  458  micro-ops followed by a sync on a file A are ordered after
+
+  459  open(path="/x2VC") = 10
+  460  Micro-ops: None
+  461  Ordered after: None
+  462  pwrite(fd=10, offset=0, size=1024)
+  463  Micro-ops: #1 write block(inode=8, offset=0, size=512)
+  464  Micro-ops: #2 write block(inode=8, offset=512, size=512)
+  465  Ordered after: None
+  466  fsync(10)
+  467  Micro-ops: None
+  468  Ordered after: None
+  469  pwrite(fd=10, offset=1024, size=1024)
+  470  Micro-ops: #3 write block(inode=8, offset=1024, size=512)
+  471  Micro-ops: #4 write block(inode=8, offset=1536, size=512)
+  472  Ordered after: #1, #2
+  473  link(oldpath="/x2VC", newpath="/file")
+  474  Micro-ops: #5 create dir entry(dir=2, entry='file', inode=8)
+  475  Ordered after: #1, #2
+  476  write(fd=1, data="Writes recorded", size=15)
+  477  Micro-ops: #6 stdout("Writes recorded")
+  478  Ordered after: #1, #2
+  479  Listing 2: Annotated Update Protocol Example. Microoperations generated for each system call are shown along with their
+  480  dependencies. The inode number of x2VC is 8, and for the root
+  481  directory is 2. Some details of listed system calls have been omitted.
+  482  writes to A that precede the sync. Similar ordering also
+  483  applies to stdout, and additionally, all operations following an stdout must be ordered after it.
+  484  ALICE can also model the behavior of real file systems
+  485  when configured with other APMs. As an example, for
+  486  the ext3 file system under the data=journal mode, the
+  487  ordering constraint is simply that each micro-op depends
+  488  on all previous micro-ops. Atomicity constraints for ext3
+  489  are mostly simple: all operations are atomic, except file
+  490  writes and truncates, which are split at block-granularity.
+  491  Atomic renames are imposed by a circular ordering dependency between the micro-ops of each rename.
+
+  492  3.2.3 Constructing crash states.
+  493  As explained, using the APM, ALICE can translate the
+  494  system-call trace into micro-ops and calculate ordering
+  495  dependencies amongst them. Listing 2 shows an example
+  496  system-call trace, and the resulting micro-ops and ordering constraints. ALICE also represents the initial snapshot
+  497  of files used by the application as logical entities.
+  498  ALICE then selects different sets of the translated
+  499  micro-ops that obey the ordering constraints. A new
+  500  crash state is constructed by sequentially applying the
+  501  micro-ops in a selected set to the initial state (represented
+  502  as logical entities). For each crash state, ALICE then converts the logical entities back into actual files, and supplies them to the checker. The user-supplied checker thus
+  503  verifies the crash state.
+
+  504  3.3 Finding Application Requirements
+  505  By default, ALICE targets specific crash states that concern the ordering and atomicity of each individual system
+  506  call. The explored states thus relate to basic persistence
+  507  properties like those discussed in Section 2, making it
+
+  508  6
+  509  USENIX Association
+=== PAGE 8 ===
+
+  510  11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14) 439
+
+  511  straightforward to determine application requirements.
+  512  We now briefly describe the crash states explored.
+  513  Atomicity across System Calls. The application update protocol may require multiple system calls to be
+  514  persisted together atomically. This property is easy to
+  515  check: if the protocol has N system calls, ALICE constructs one crash state for each prefix (i.e., the first X
+  516  system calls, ∀ 1 < X < N) applied. In the sequence
+  517  of crash states generated in this manner, the first crash
+  518  state to have an application invariant violated indicates
+  519  the start of an atomic group. The invariant will hold
+  520  once again in crash states where all the system calls in
+  521  the atomic group are applied. If ALICE determines that a
+  522  system call X is part of an atomic group, it does not test
+  523  whether the protocol is vulnerable to X being persisted
+  524  out of order, or being partially persisted.
+  525  System-Call Atomicity. The protocol may require a
+  526  single system call to be persisted atomically. ALICE tests
+  527  this for each system call by applying all previous system calls to the crash state, and then generating crash
+  528  states corresponding to different intermediate states of
+  529  the system call and checking if application invariants are
+  530  violated. The intermediate states for file-system operations depend upon the APM, as shown (for example)
+  531  in Table 2. Some interesting cases include how ALICE
+  532  handles appends and how it explores the atomicity of
+  533  writes. For appends, we introduce intermediate states
+  534  where blocks are filled with random data; this models
+  535  the update of the size of a file reaching disk before the
+  536  data has been written. We split overwrites and appends
+  537  in two ways: into block-sized micro-operations, and into
+  538  three parts regardless of size. Though not exhaustive, we
+  539  have found our exploration of append and write atomicity useful in finding application vulnerabilities.
+  540  Ordering Dependency among System Calls. The
+  541  protocol requires system call A to be persisted before B
+  542  if a crash state with B applied (and not A) violates application invariants. ALICE tests this for each pair of system
+  543  calls in the update protocol by applying every system call
+  544  from the beginning of the protocol until B except for A.
+
+  545  3.4 Static Vulnerabilities
+  546  ALICE must be careful in how it associates problems
+  547  found in a system-call trace with source code. For example, consider an application issuing ten writes in a loop.
+  548  The update protocol would then contain ten write()
+  549  system calls. If each write is required to be atomic for
+  550  application correctness, ALICE detects that each system
+  551  call is involved in a vulnerability; we term these as dynamic vulnerabilities. However, the cause of all these
+  552  vulnerabilities is a single source line. ALICE uses stack
+  553  trace information to correlate all 10 system calls to the
+  554  line, and reports it as a single static vulnerability. In the
+  555  rest of this paper, we only discuss static vulnerabilities.
+
+  556  USENIX Association
+
+  557  3.5 Implementation
+  558  ALICE consists of around 4000 lines of Python code, and
+  559  also traces memory-mapped writes in addition to system
+  560  calls. It employs a number of optimizations.
+  561  First, ALICE caches crash states, and constructs a new
+  562  crash state by incrementally applying micro-operations
+  563  onto a cached crash state. We also found that the time
+  564  required to check a crash state was much higher than
+  565  the time required to incrementally construct a crash state.
+  566  Hence, ALICE constructs crash states sequentially, but invokes checkers concurrently in multiple threads.
+  567  Different micro-op sequences can lead to the same
+  568  crash state. For example, different micro-op sequences
+  569  may write to different parts of a file, but if the file is unlinked at the end of sequence, the resulting disk state is
+  570  the same. Therefore, ALICE hashes crash states and only
+  571  checks the crash state if it is new.
+  572  We found that many applications write to debug logs
+  573  and other files that do not affect application invariants.
+  574  ALICE filters out system calls involved with these files.
+
+  575  3.6 Limitations
+  576  ALICE is not complete, in that there may be vulnerabilities that are not detected by ALICE. It also requires the
+  577  user to write application workloads and checkers; we believe workload automation is orthogonal to the goal of
+  578  ALICE, and various model-checking techniques can be
+  579  used to augment ALICE. For workloads that use multiple
+  580  threads to interact with the file system, ALICE serializes
+  581  system calls in the order they were issued; in most cases,
+  582  this does not affect vulnerabilities as the application uses
+  583  some form of locking to synchronize between threads.
+  584  ALICE currently does not handle file attributes; it would
+  585  be straight-forward to extend ALICE to do so.
+
+  586  4 Application Vulnerabilities
+  587  We study 11 widely used applications to find whether
+  588  file-system behavior significantly affects application
+  589  users, which file-system behaviors are thus important,
+  590  and whether testing using ALICE is worthwhile in general. One of ALICE's unique advantages, of being able
+  591  to find targeted vulnerabilities under an abstract file system and reporting them in terms of a persistence property violated, is thus integral to the study. The applications each represent different domains, and range
+  592  in maturity from a few years-old to decades-old. We
+  593  study three key-value stores (LevelDB [20], GDBM [19],
+  594  LMDB [46]), three relational databases (SQLite [43],
+  595  PostgreSQL [49], HSQLDB [23]), two version control
+  596  systems (Git [26], Mercurial [31]), two distributed systems (HDFS [40], ZooKeeper [3]), and a virtualization
+  597  software (VMWare Player [52]). We study two versions
+  598  of LevelDB (1.10, 1.15), since they vary considerably in
+  599  their update-protocol implementation.
+
+  600  7
+=== PAGE 9 ===
+
+  601  440 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14)
+
+  602  Aiming towards the stated goal of the study, we try to
+  603  consider typical user expectations and deployment scenarios for applications, rather than only the guarantees
+  604  listed in their documentation. Indeed, for some applications (Git, Mercurial), we could not find any documented
+  605  guarantees. We also consider file-system behaviors that
+  606  may not be common now, but may become prevalent in
+  607  the future (especially with new classes of I/O devices).
+  608  Moreover, the number of vulnerabilities we report (in
+  609  each application) only relates to the number of source
+  610  code lines depending on file-system behavior. Note that,
+  611  due to these reasons, the study is not suitable for comparing the correctness between different applications, or
+  612  towards strictly verifying application correctness.
+  613  We first describe the workloads and checkers used
+  614  in detecting vulnerabilities (§4.1). We then present an
+  615  overview of the protocols and vulnerabilities found in
+  616  different applications (§4.2). We discuss the importance
+  617  of the discovered vulnerabilities (§4.3), interesting patterns observable among the vulnerabilities (§4.4), and
+  618  whether vulnerabilities are exposed on current file systems (§4.5). We also evaluate whether ALICE can validate new file-system designs (§4.6).
+
+  619  4.1 Workloads and Checkers
+  620  Most applications have configuration options that change
+  621  the update protocol or application crash guarantees. Our
+  622  workloads test a total of 34 such configuration options
+  623  across the 11 applications. Our checkers are conceptually simple: they do read operations to verify workload
+  624  invariants for that particular configuration, and then try
+  625  writes to the datastore. However, some applications have
+  626  complex invariants, and recovery procedures that they
+  627  expect users to carry out (such as removing a leftover
+  628  lock file). Our checkers are hence complex (e.g., about
+  629  500 LOC for Git), invoking all recovery procedures we
+  630  are aware of that are expected of normal users.
+  631  We now discuss the workloads and checkers for
+  632  each application class. Where applicable, we also
+  633  present the guarantees we believe each application makes
+  634  to users, information garnered from documentation,
+  635  mailing-list discussions, interaction with developers, and
+  636  other relevant sources.
+  637  Key-value Stores and Relational Databases. Each
+  638  workload tests different parts of the protocol, typically
+  639  opening a database, and inserting enough data to trigger
+  640  checkpoints. The checkers check for atomicity, ordering,
+  641  and durability of transactions. We note here that GDBM
+  642  does not provide any crash guarantees, though we believe lay users will be affected by any loss of integrity.
+  643  Similarly, SQLite does not provide durability under the
+  644  default journal-mode (we became aware of this only after interacting with developers), but its documentation
+  645  seems misleading. We enable checksums on LevelDB.
+
+  646  Version Control Systems. Git's crash guarantees are
+  647  fuzzy; mailing-list discussions suggest that Git expects a
+  648  fully-ordered file system [27]. Mercurial does not provide any guarantees, but does provide a plethora of manual recovery techniques. Our workloads add two files to
+  649  the repository and then commit them. The checker uses
+  650  commands like git-log, git-fsck, and git-commit
+  651  to verify repository state, checking the integrity of the
+  652  repository and the durability of the workload commands.
+  653  The checkers remove any leftover lock files, and perform
+  654  recovery techniques that do not discard committed data
+  655  or require previous backups.
+  656  Virtualization and Distributed Systems. The
+  657  VMWare Player workload issues writes and flushes from
+  658  within the guest; the checker repairs the virtual disk
+  659  and verifies that flushed writes are durable. HDFS is
+  660  configured with replicated metadata and restore enabled.
+  661  HDFS and ZooKeeper workloads create a new directory
+  662  hierarchy; the checker tests that files created before the
+  663  crash exist. In ZooKeeper, the checker also verifies that
+  664  quota and ACL modifications are consistent.
+  665  If ALICE finds a vulnerability related to a system call,
+  666  it does not search for other vulnerabilities related to the
+  667  same call. If the system call is involved in multiple, logically separate vulnerabilities, this has the effect of hiding some of the vulnerabilities. Most tested applications,
+  668  however, have distinct, independent sets of failures (e.g.,
+  669  dirstate and repository corruption in Mercurial, consistency and durability violation in other applications). We
+  670  use different checkers for each type of failure, and report
+  671  vulnerabilities for each checker separately.
+  672  Summary. If application invariants for the tested configuration are explicitly and conspicuously documented,
+  673  we consider violating those invariants as failure; otherwise, our checkers consider violating a lay user's expectations as failure. We are careful about any recovery
+  674  procedures that need to be followed on a system crash.
+  675  Space constraints here limit exact descriptions of the
+  676  checkers; we provide more details in our webpage [2].
+
+  677  4.2 Overview
+  678  We now discuss the logical protocols of the applications
+  679  examined. Figure 4 visually represents the update protocols, showing the logical operations in the protocol (organized as modules) and discovered vulnerabilities.
+
+  680  4.2.1 Databases and Key-Value Stores
+  681  Most databases use a variant of write-ahead logging.
+  682  First, the new data is written to a log. Then, the log is
+  683  checkpointed or compacted, i.e., the actual database is
+  684  usually overwritten, and the log is deleted.
+  685  Figure 4(A) shows the protocol used by LevelDB-
+  686  1.15. LevelDB adds inserted key-value pairs to the log
+  687  until it reaches a threshold, and then switches to a new
+
+  688  8
+  689  USENIX Association
+=== PAGE 10 ===
+
+  690  creat(x.ldb) 0 creat(tmp) write(pg xlog)
+  691  N x append(x.ldb) write(mdb file) 1 append(tmp) fdatasync(pg xlog)
+  692  fdatasync(x.ldb) append(mdb file) 2 fsync(tmp) write(pg clog)
+  693  { creat(new.log) fdatasync(mdb file) [ ] fdatasync(pg clog)
+  694  ? x [ ] 3 unlink(props) ....
+  695  creat(mani-new) write(mdb file) 4 rename(tmp, props) [write(pg control)]
+  696  [N x append(mani-new)] file sync range(mdb file) fsync(pg control)
+  697  fsync(parent-dir) (B) LMDB (D)(i) HSQLDB
+  698  update props (E) Postgres
+  699  fdatasync(mani-new) checkpoint
+  700  { creat(tmp) [append(log)]
+  701  append(tmp) N x fsync(log) creat(journal)
+  702  ? x fdatasync(tmp) creat(db) creat(stmp)
+  703  [ ] N x append(db) i(4)* N x append(journal)
+  704  rename(tmp, current) append(stmp) fsync(journal)
+  705  unlink(mani-old) fsync(db) fsync(stmp)
+  706  N x append(db) fsync(parent-dir)
+  707  unlink(old.log) i(4)* (i) update props write(journal)
+  708  (A)(i) LevelDB compaction N x write(db) unlink(log) (i)4
+  709  ? x fsync(db) fsync(journal)
+  710  creat(new.log) (i)3 unlink(script) write(db)
+  711  [ ] stdout(done) [rename(stmp, script)]
+  712  N x append(new.log) fsync(db)
+  713  ? x fdatasync(new.log) (C) GDBM create (i) update props (i)3 unlink(journal)
+  714  stdout(done) and insert stdout(done)
+  715  (D)(ii) HSQLDB
+  716  (A)(ii) LevelDB insert shutdown (F) SQLite
+
+  717  0 mkdir(o/x) creat(tmp) { mkdir(v)
+  718  1 creat(o/x/tmp y) creat(tmp) append(tmp) ? x
+  719  append(tmp) creat(v/log)
+  720  2 N x append(o/x/tmp y) [ ] fsync(tmp) append(v/log)
+  721  3 fsync(o/x/tmp y) rename(tmp, dirstate) [rename(tmp, x.vmdk)]
+  722  trunc(v/log)
+  723  4 link(o/x/tmp y, o/x/y) (H)(i) Mercurial update dirstate { write(x-split1) append(v/log)
+  724  unlink(o/x/tmp y) ... N x fsync region(x-split1)
+  725  5 creat(journal) [write(v/log)]
+  726  (G)(i) Git store object { creat(filelog) (I) VMWare write-flush ? x write(v/log)''
+  727  creat(index.lock) [append(journal)] ? x write(v/log)
+  728  N x (i) store object (i)0,(i)4 N x ....
+  729  N x append(filelog) creat(tmp) fdatasync(v/log)
+  730  append(index.lock) [ ... ] stdout(done)
+  731  [ ] append(journal) append(tmp)
+  732  rename(index.lock, index) [append(manifest)] [rename(tmp, seen txid)] (K) ZooKeeper
+  733  stdout(finished add) [append(journal)] creat(ckpt)
+  734  N x (i) store object (i)0,(i)4 append(changelog) append(ckpt)
+  735  creat(branch.lock) rename(journal, undo) fsync(ckpt)
+  736  append(branch.lock) ... creat(md5.tmp) Legend
+  737  creat(tmp)
+  738  (i)0,(i)4 append(branch.lock) append(tmp) N x append(md5.tmp) Safe flush, rename
+  739  append(logs/branch) [ ] fsync(md5.tmp) Other ordering
+  740  append(logs/HEAD) rename(tmp, fncache)... [ ]
+  741  update dirstate rename(md5.tmp, md5) Atomicity
+  742  rename(branch.lock, x/branch) ... rename(ckpt, fsimage)
+  743  stdout(finished commit) (H)(ii) Mercurial commit ....
+  744  (J) HDFS update
+  745  (G)(ii) Git add commit
+
+  746  Figure 4: Protocol Diagrams. The diagram shows the modularized update protocol for all applications. For applications with more than
+  747  one configuration (or versions), only a single configuration is shown (SQLite: Rollback, LevelDB: 1.15). Uninteresting parts of the protocol and
+  748  a few vulnerabilities (similar to those already shown) are omitted. Repeated operations in a protocol are shown as 'N ×' next to the operation,
+  749  and portions of the protocol executed conditionally are shown as '? ×'. Blue-colored text simply highlights such annotations and sync calls.
+  750  Ordering and durability dependencies are indicated with arrows, and dependencies between modules are indicated by the numbers on the arrows,
+  751  corresponding to line numbers in modules. Durability dependency arrows end in an stdout micro-op; additionally, the two dependencies marked
+  752  with * in HSQLDB are also durability dependencies. Dotted arrows correspond to safe rename or safe file flush vulnerabilities discussed in
+  753  Section 4.4. Operations inside brackets must be persisted together atomically.
+
+  754  9
+
+  755  USENIX Association 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14) 441
+=== PAGE 11 ===
+
+  756  442 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14)
+
+  757  log; during the switch, a background thread starts compacting the old log file. Figure 4(A)(i) shows the compaction; Figure 4(A)(ii) shows the appends to the log file.
+  758  During compaction, LevelDB first writes data to a new
+  759  ldb file, updates pointers to point to the new file (by appending to a manifest), and then deletes the old log file.
+  760  In LevelDB, we find vulnerabilities occurring while
+  761  appending to the log file. A crash can result in the appended portion of the file containing garbage; LevelDB's
+  762  recovery code does not properly handle this situation,
+  763  and the user gets an error if trying to access the inserted
+  764  key-value pair (which should not exist in the database).
+  765  We also find some vulnerabilities occurring during compaction. For example, LevelDB does not explicitly persist the directory entries of ldb files; a crash might cause
+  766  the files to vanish, resulting in unavailability.
+  767  Some databases follow protocols that are radically different from write-ahead logging. For example, LMDB
+  768  uses shadow-paging (copy-on-write). LMDB requires
+  769  that the final pointer update (106 bytes) in the copy-onwrite tree to be atomic. HSQLDB uses a combination of
+  770  write-ahead logging and update-via-rename, on the same
+  771  files, to maintain consistency. The update-via-rename
+  772  is performed by first separately unlinking the destination file, and then renaming; out-of-order persistence of
+  773  rename(), unlink(), or log creation causes problems.
+
+  774  4.2.2 Version Control Systems
+  775  Git and Mercurial maintain meta-information about their
+  776  repository in the form of logs. The Git protocol is illustrated in Figure 4(G). Git stores information in the
+  777  form of object files, which are never modified; they are
+  778  created as temporary files, and then linked to their permanent file names. Git also maintains pointers in separate files, which point to both the meta-information log
+  779  and the object files, and are updated using update-viarename. Mercurial, on the other hand, uses a journal to
+  780  maintain consistency, using update-via-rename only for
+  781  a few unimportant pieces of information.
+  782  We find many ordering dependencies in the Git protocol, as shown in Figure 4(G). This result is not surprising, since mailing-list discussions suggest Git developers
+  783  expect total ordering from the file system. We also find
+  784  a Git vulnerability involving atomicity across multiple
+  785  system calls; a pointer file being updated (via an append)
+  786  has to be persisted atomically with another file getting
+  787  updated (via an update-via-rename). In Mercurial, we
+  788  find many ordering vulnerabilities for the same reason,
+  789  not being designed to tolerate out-of-order persistence.
+
+  790  4.2.3 Virtualization and Distributed Systems
+  791  VMWare Player's protocol is simple. VMWare maintains a static, constant mapping between blocks in the
+  792  virtual disk, and in the VMDK file (even for dynamically allocated VMDK files); directly overwriting the VMDK
+
+  793  file maintains consistency (though VMWare does use
+  794  update-via-rename for some small files). Both HDFS and
+  795  ZooKeeper use write-ahead logging. Figure 4(K) shows
+  796  the ZooKeeper logging module. We find that ZooKeeper
+  797  does not explicitly persist directory entries of log files,
+  798  which can lead to lost data. ZooKeeper also requires
+  799  some log writes to be atomic.
+
+  800  4.3 Vulnerabilities Found
+  801  ALICE finds 60 static vulnerabilities in total, corresponding to 156 dynamic vulnerabilities. Altogether, applications failed in more than 4000 crash states. Table 3(a)
+  802  shows the vulnerabilities classified by the affected persistence property, and 3(b) shows the vulnerabilities classified by failure consequence. Table 3(b) also separates
+  803  out those vulnerabilities related only to user expectations
+  804  and not to documented guarantees, with an asterik (∗);
+  805  many of these correspond to applications for which we
+  806  could not find any documentation of guarantees.
+  807  The different journal-mode configurations provided by
+  808  SQLite use different protocols, and the different versions
+  809  of LevelDB differ on whether their protocols are designed around the mmap() interface. Tables 3(a) and 3(b)
+  810  hence show these configurations of SQLite and LevelDB
+  811  separately. All other configurations (in all applications)
+  812  do not change the basic protocol, but vary on the application invariants; among different configurations of the
+  813  same update protocol, all vulnerabilities are revealed in
+  814  the safest configuration. Table 3 and the rest of the paper
+  815  only show vulnerabilities we find in the safest configuration, i.e., we do not count separately the same vulnerabilities from different configurations of the same protocol.
+  816  We find many vulnerabilities have severe consequences such as silent errors or data loss. Seven applications are affected by data loss, while two (both LevelDB
+  817  versions and HSQLDB) are affected by silent errors. The
+  818  cannot open failures include failure to start the server in
+  819  HDFS and ZooKeeper, while the failed reads and writes
+  820  include basic commands (e.g., git-log, git-commit)
+  821  failing in Git and Mercurial. A few cannot open failures and failed reads and writes might be solvable by
+  822  application experts, but we believe lay users would have
+  823  difficulty recovering from such failures (our checkers invoke standard recovery techniques). We also checked
+  824  if any discovered vulnerabilities are previously known,
+  825  or considered inconsequential. The single PostgreSQL
+  826  vulnerability is documented; it can be solved with nonstandard (although simple) recovery techniques. The single LMDB vulnerability is discussed in a mailing list,
+  827  though there is no available workaround. All these previously known vulnerabilities are separated out in Table 3(b) († ). The five dirstate fail vulnerabilities in Mercurial are shown separately, since they are less harmful
+  828  than other vulnerabilities (though frustrating to the lay
+
+  829  10
+  830  USENIX Association
+=== PAGE 12 ===
+
+  831  Types Application ext3-w ext3-o ext3-j ext4-o btrfs
+  832  Application Atomicity Ordering Durability Leveldb1.10 3 1 1 2 4
+  833  writes Leveldb1.15 2 1 1 2 3
+  834  and LMDB
+  835  atomicity erwrites GDBM 3 3 2 3 4
+  836  truncates ov unlinks vulnerabilities ors open HSQLDB 4
+  837  and err loss reads Sqlite-Roll 1 1 1 1 1
+  838  and flush flush static Sqlite-WAL
+  839  oss-syscalls file renames file Application Silent Data Cannot Failed Other PostgreSQL
+  840  Leveldb1.10 1 1 5 4 Git 2 2 2 2 5
+  841  Acr Appends Single-block Renames Safe Safe Other Safe Other Unique Mercurial 4 3 3 6 8
+  842  Leveldb1.10 1‡ 1 1 2 1 3 1 10 Leveldb1.15 2 2 2 VMWare
+  843  Leveldb1.15 1 1 1 1 2 6 LMDB read-only open† HDFS 1
+  844  LMDB 1 1 GDBM 2∗ 3∗ ZooKeeper 1 1 1 1
+  845  GDBM 1 1 1 2 5 HSQLDB 2 3 5 Total 16 12 10 17 31
+  846  HSQLDB 1 2 1 3 2 1 10 Sqlite-Roll 1∗ (c) Under Current File Systems.
+  847  Sqlite-Roll 1 1 Sqlite-WAL Ordering DO AGCA
+  848  Sqlite-WAL 0 PostgreSQL 1† ext3-w Dir ops and file-sizes ordered among 4K ×
+  849  PostgreSQL 1 1 Git 1∗ 3∗ 5∗ 3#∗ themselves, before sync operations.
+  850  Git 1 1 2 1 3 1 9 Mercurial 2∗ 1∗ 6∗ 5 dirstate fail∗ ext3-o Dir ops, appends, truncates ordered 4K
+  851  Mercurial 2 1 1 1 4 2 10 among themselves. Overwrites be-
+  852  VMWare 1 1 VMWare 1∗ fore non-overwrites, all before sync.
+  853  HDFS 1 1 2 HDFS 2∗ ext3-j All operations are ordered. 4K
+  854  ZooKeeper 1 1 2 4 ZooKeeper 2∗ 2∗ ext4-o Safe rename, safe file flush, dir ops 4K
+  855  6 4 3 9 6 3 18 5 7 60 Total 5 12 25 17 9 ordered among themselves
+  856  Total btrfs Safe rename, safe file flush 4K
+  857  (a) Types. (b) Failure Consequences. (d) APMs considered.
+  858  Table 3: Vulnerabilities. (a) shows the discovered static vulnerabilities categorized by the type of persistence property. The number of
+  859  unique vulnerabilities for an application can be different from the sum of the categorized vulnerabilities, since the same source code lines can
+  860  exhibit different behavior. ‡ The atomicity vulnerability in Leveldb1.10 corresponds to multiple mmap() writes. (b) shows the number of static
+  861  vulnerabilities resulting in each type of failure. † Previously known failures, documented or discussed in mailing lists. ∗ Vulnerabilities relating
+  862  to unclear documentation or typical user expectations beyond application guarantees. # There are 2 fsck-only and 1 reflog-only errors in Git. (c)
+  863  shows the number of vulnerabilities that occur on current file systems (all applications are vulnerable under future file systems). (d) shows APMs
+  864  used for calculating Table (c). Legend: DO: directory operations atomicity. AG: granularity of size-atomicity. CA: Content-Atomicity.
+  865  user). Git's fsck-only and reflog-only errors are poten- behavior guaranteed by SQLite (specifically, that duratially dangerous, but do not seem to affect normal usage. bility cannot be achieved under rollback journaling);
+  866  We interacted with the developers of eight applica- we believe the documentation is misleading.
+  867  tions, reporting a subset of the vulnerabilities we find. Of the five acted-on vulnerabilities, three relate to not
+  868  Our interactions convince us that the vulnerabilities will explicitly issuing an fsync() on the parent directory afaffect users if they are exposed. The other applications ter creating and calling fsync() on a file. However, not
+  869  (GDBM, Git, and Mercurial) were not designed to pro- issuing such an fsync() is perhaps more safe in modvide crash guarantees, although we believe their users ern file systems than out-of-order persistence of directory
+  870  will be affected by the vulnerabilities found should an operations. We believe the developers' interest in fixing
+  871  untimely crash occur. Thus, the vulnerabilities will not this problem arises from the Linux documentation exsurprise a developer of these applications, and we did not plicitly recommending an fsync() after creating a file.
+  872  report them. We also did not report vulnerabilities con- Summary. ALICE detects 60 vulnerabilities in total,
+  873  cerning partial renames (usually dismissed since they are with 5 resulting in silent failures, 12 in loss of durability,
+  874  not commonly exposed), or documented vulnerabilities. 25 leading to inaccessible applications, and 17 returning
+  875  errors while accessing certain data. ALICE is also able to
+  876  Developers have acted on five of the vulnerabilities detect previously known vulnerabilities.
+  877  we find: one (LevelDB-1.10) is now fixed, another
+  878  (LevelDB-1.15) was fixed parallel to our discovery, and 4.4 Common Patterns
+  879  three (HDFS, and two in ZooKeeper) are under consider- We now examine vulnerabilities related with different
+  880  ation. We have found that developers often dismiss other persistence properties. Since durability vulnerabilities
+  881  vulnerabilities which do not (or are widely believed to show a separate pattern, we consider them separately.
+  882  not) get exposed in current file systems, especially relating to out-of-order persistence of directory operations. 4.4.1 Atomicity across System Calls
+  883  The fact that only certain operating systems allow an Four applications (including both versions of LevelDB)
+  884  fsync() on a directory is frequently referred to; both require atomicity across system calls. For three applica-
+  885  HDFS and ZooKeeper respondents lament that such an tions, the consequences seem minor: inaccessibility durfsync() is not easily achievable with Java. The devel- ing database creation in GDBM, dirstate corruption in
+  886  opers suggest the SQLite vulnerability is actually not a Mercurial, and an erratic reflog in Git. LevelDB's vul-
+
+  887  11
+  888  USENIX Association 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14) 443
+=== PAGE 13 ===
+
+  889  444 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14)
+
+  890  nerability has a non-minor consequence, but was fixed
+  891  immediately after introducing LevelDB-1.15 (when LevelDB started using read()-write() instead of mmap()).
+  892  In general, we observe that this class of vulnerabilities
+  893  seems to affect applications less than other classes. This
+  894  result may arise because these vulnerabilities are easily
+  895  tested: they are exposed independent of the file system
+  896  (i.e, via process crashes), and are easier to reproduce.
+
+  897  4.4.2 Atomicity within System Calls
+  898  Append atomicity. Surprisingly, three applications require appends to be content-atomic: the appended portion should contain actual data. The failure consequences
+  899  are severe, such as corrupted reads (HSQLDB), failed
+  900  reads (LevelDB-1.15) and repository corruption (Mercurial). Filling the appended portion with zeros instead of
+  901  garbage still causes failure; only the current implementation of delayed allocation (where file size does not increase until actual content is persisted) works. Most appends seemingly do not need to be block-atomic; only
+  902  Mercurial is affected, and the affected append also requires content-atomicity.
+  903  Overwrite atomicity. LMDB, PostgreSQL, and
+  904  ZooKeeper require small writes (< 200 bytes) to be
+  905  atomic. Both the LMDB and PostgreSQL vulnerabilities
+  906  are previously known.
+  907  We do not find any multi-block overwrite vulnerabilities, and even single-block overwrite requirements are
+  908  typically documented. This finding is in stark contrast
+  909  with append atomicity; some of the difference can be
+  910  attributed to the default APM (overwrites are contentatomic), and to some workloads simply not using overwrites. However, the major cause seems to be the basic
+  911  mechanism behind application update protocols: modifications are first logged, in some form, via appends;
+  912  logged data is then used to overwrite the actual data. Applications have careful mechanisms to detect and repair
+  913  failures in the actual data, but overlook the presence of
+  914  garbage content in the log.
+  915  Directory operation atomicity. Given that most file
+  916  systems provide atomic directory operations (§2.2), one
+  917  would expect that most applications would be vulnerable to such operations not being atomic. However, we
+  918  do not find this to be the case for certain classes of applications. Databases and key-value stores do not employ atomic renames extensively; consequently, we observe non-atomic renames affecting only three of these
+  919  applications (GDBM, HSQLDB, LevelDB). Non-atomic
+  920  unlinks seemingly affect only HSQLDB (which uses unlinks for logically performing renames), and we did not
+  921  find any application affected by non-atomic truncates.
+
+  922  4.4.3 Ordering between System Calls
+  923  Applications are extremely vulnerable to system calls being persisted out of order; we find 27 vulnerabilities.
+
+  924  Safe renames. On file systems with delayed allocation, a common heuristic to prevent data loss is to persist
+  925  all data (including appends and truncates) of a file before
+  926  subsequent renames of the file [14]. We find that this
+  927  heuristic only matches (and thus fixes) three discovered
+  928  vulnerabilities, one each in Git, Mercurial, and LevelDB-
+  929  1.10. A related heuristic, where updating existing files
+  930  by opening them with O TRUNC flushes the updated data
+  931  while issuing a close(), does not affect any of the vulnerabilities we discovered. Also, the effect of the heuristics varies with minor details: if the safe-rename heuristic does not persist file truncates, only two vulnerabilities
+  932  will be fixed; if the O TRUNC heuristic also acts on new
+  933  files, an additional vulnerability will be fixed.
+  934  Safe file flush. An fsync() on a file does not guarantee that the file's directory entry is also persisted. Most
+  935  file systems, however, persist directory entries that the
+  936  file is dependent on (e,g., directory entries of the file and
+  937  its parent). We found that this behavior is required by
+  938  three applications for maintaining basic consistency.
+
+  939  4.4.4 Durability
+  940  We find vulnerabilities in seven applications resulting in
+  941  durability loss. Of these, only two applications (GDBM
+  942  and Mercurial) are affected because an fsync() is not
+  943  called on a file. Six applications require fsync() calls
+  944  on directories: three are affected by safe file flush discussed previously, while four (HSQLDB, SQLite, Git,
+  945  and Mercurial) require other fsync() calls on directories. As a special case, with HSQLDB, previously committed data is lost, rather than data that was being committed during the time of the workload. In all, only
+  946  four out of the twelve vulnerabilities are exposed when
+  947  full ordering is promised: many applications do issue an
+  948  fsync() call before durability is essential, but do not
+  949  fsync() all the required information.
+
+  950  4.4.5 Summary
+  951  We believe our study offers several insights for filesystem designers. Future file systems should consider
+  952  providing ordering between system calls, and atomicity within a system call in specific cases. Vulnerabilities involving atomicity of multiple system calls seem to
+  953  have minor consequences. Requiring applications to separately flush the directory entry of a created and flushed
+  954  file can often result in application failures. For durability,
+  955  most applications seem to explicitly flush some, but not
+  956  all, of the required information; thus, providing ordering
+  957  among system calls can also help durability.
+
+  958  4.5 Impact on Current File Systems
+  959  Our study thus far has utilized an abstract (and weak) file
+  960  system model (i.e., APM) in order to discover the broadest number of vulnerabilities. We now utilize specific
+  961  file-system APMs to understand how modern protocols
+
+  962  12
+  963  USENIX Association
+=== PAGE 14 ===
+
+  964  11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14) 445
+
+  965  would function atop a range of modern file systems and
+  966  configurations. Specifically, we focus on Linux ext3 (including writeback, ordered, and data-journaling mode),
+  967  Linux ext4, and btrfs. The considered APMs are based
+  968  on our understanding of file systems from Section 2.
+  969  Table 3(c) shows the vulnerabilities reported by
+  970  ALICE, while 3(d) shows the considered APMs. We
+  971  make a number of observations based on Table 3(c).
+  972  First, a significant number of vulnerabilities are exposed
+  973  on all examined file systems. Second, ext3 with journaled data is the safest: the only vulnerabilities exposed
+  974  relate to atomicity across system calls, and a few durability vulnerabilities. Third, a large number of vulnerabilities are exposed on btrfs as it aggressively persists
+  975  operations out of order [11]. Fourth, some applications
+  976  show no vulnerabilities on any considered APM; thus,
+  977  the flaws we found in such applications do not manifest
+  978  on today's file systems (but may do so on future systems).
+  979  Summary. Application vulnerabilities are exposed on
+  980  many current file systems. The vulnerabilities exposed
+  981  vary based on the file system, and thus testing applications on only a few file systems does not work.
+
+  982  4.6 Evaluating New File-System Designs
+  983  File-system modifications for improving performance
+  984  have introduced wide-spread data loss in the past [14],
+  985  because of changes to the file-system persistence properties. ALICE can be used to test whether such modifications break correctness of existing applications. We now
+  986  describe how we use ALICE to evaluate a hypothetical
+  987  variant of ext3 (data-journaling mode), ext3-fast.
+  988  Our study shows that ext3 (data-journaling mode) is
+  989  the safest file system; however, it offers poor performance for many workloads [35]. Specifically, fsync()
+  990  latency is extremely high as ext3 persists all previous operations on fsync(). One way to reduce fsync() latency would be to modify ext3 to persist only the synced
+  991  file. However, other file systems (e.g,. btrfs) that have
+  992  attempted to reduce fsync() latency [13] have resulted
+  993  in increased vulnerabilities. Our study suggests a way to
+  994  reduce latency without exposing more vulnerabilities.
+  995  Based on our study, we hypothesize that data that is
+  996  not synced need not be persisted before explicitly synced
+  997  data for correctness; such data must only be persisted
+  998  in-order amongst itself. We design ext3-fast to reflect
+  999  this: fsync() on a file A persists only A, while other
+ 1000  dirty data and files are still persisted in-order.
+ 1001  We modeled ext3-fast in ALICE by slightly changing
+ 1002  the APM of ext3 data journaling mode, so that synced
+ 1003  directories, files, and their data, depend only on previous
+ 1004  syncs and operations necessary for the file to exist (i.e.,
+ 1005  safe file flush is obeyed). The operations on a synced file
+ 1006  are also ordered among themselves.
+ 1007  We test our hypothesis with ALICE; the observed or-
+
+ 1008  USENIX Association
+
+ 1009  dering vulnerabilities (of the studied applications) are not
+ 1010  exposed under ext3-fast. The design was not meant to fix
+ 1011  durability or atomicity across system calls vulnerabilities, so those vulnerabilities are still reported by ALICE.
+ 1012  We estimate the performance gain of ext3-fast using
+ 1013  the following experiment: we first write 250 MB to
+ 1014  file A, then append a byte to file B and fsync() B.
+ 1015  When both files are on the same ext3-ordered file system,
+ 1016  fsync() takes about four seconds. If the files belong to
+ 1017  different partitions on the same disk, mimicking the behavior of ext3-fast, the fsync() takes only 40 ms. The
+ 1018  first case is 100 times slower because 250 MB of data is
+ 1019  ordered before the single byte that needs to be persistent.
+ 1020  Summary. The ext3-fast file system (derived from inferences provided by ALICE) seems interesting for application safety, though further investigation is required into
+ 1021  the validity of its design. We believe that the ease of use
+ 1022  offered by ALICE will allow it to be incorporated into the
+ 1023  design process of new file systems.
+
+ 1024  4.7 Discussion
+ 1025  We now consider why crash vulnerabilities occur commonly even among widely used applications. We find
+ 1026  that application update protocols are complex and hard to
+ 1027  isolate and understand. Many protocols are layered and
+ 1028  spread over multiple files. Modules are also associated
+ 1029  with other complex functionality (e.g., ensuring thread
+ 1030  isolation). This complexity leads to issues that are obvious with a bird's eye view of the protocol: for example,
+ 1031  HSQLDB's protocol has 3 consecutive fsync() calls to
+ 1032  the same file (increasing latency). ALICE helps solve this
+ 1033  problem by making it easy to obtain logical representations of update protocols as shown in Figure 4.
+ 1034  Another factor contributing to crash vulnerabilities is
+ 1035  poorly written, untested recovery code. In LevelDB, we
+ 1036  find vulnerabilities that should be prevented by correct
+ 1037  implementations of the documented update protocols.
+ 1038  Some recovery code is non-optimal: potentially recoverable data is lost in several applications (e.g., HSQLDB,
+ 1039  Git). Mercurial and LevelDB provide utilities to verify
+ 1040  or recover application data; we find these utilities hard to
+ 1041  configure and error-prone. For example, an user invoking LevelDB's recovery command can unintentionally
+ 1042  end up further corrupting the datastore, and be affected
+ 1043  by (seemingly) unrelated configuration options (paranoid checksums). We believe these problems are a direct
+ 1044  consequence of the recovery code being infrequently executed and insufficiently tested. With ALICE, recovery
+ 1045  code can be tested on many corner cases.
+ 1046  Convincing developers about crash vulnerabilities is
+ 1047  sometimes hard: there is a general mistrust surrounding
+ 1048  such bug reports. Usually, developers are suspicious that
+ 1049  the underlying storage stack might not respect fsync()
+ 1050  calls [36], or that the drive might be corrupt. We hence
+
+ 1051  13
+=== PAGE 15 ===
+
+ 1052  446 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14)
+
+ 1053  believe that most vulnerabilities that occur in the wild are
+ 1054  associated with an incorrect root cause, or go unreported.
+ 1055  ALICE can be used to easily reproduce vulnerabilities.
+ 1056  Unclear documentation of application guarantees contributes to the confusion about crash vulnerabilities. During discussions with developers about durability vulnerabilities, we found that SQLite, which proclaims itself
+ 1057  as fully ACID-complaint, does not provide durability
+ 1058  (even optionally) with the default storage engine, though
+ 1059  the documentation suggests it does. Similarly, GDBM's
+ 1060  GDBM SYNC flag does not ensure durability. Users can
+ 1061  employ ALICE to determine guarantees directly from the
+ 1062  code, bypassing the problem of bad documentation.
+
+ 1063  5 Related Work
+ 1064  Our previous workshop paper [47] identifies the problem of application-level consistency depending upon filesystem behavior, but is limited to two applications and
+ 1065  does not use automated testing frameworks. Since we
+ 1066  use ALICE to obtain results, our current study includes a
+ 1067  greater number and variety of applications.
+ 1068  This paper adapts ideas from past work on dynamic
+ 1069  program analysis and model checking. EXPLODE [53]
+ 1070  has a similar flavor to our work: the authors use insitu model checking to find crash vulnerabilities on different storage stacks. ALICE differs from EXPLODE in
+ 1071  four significant ways. First, EXPLODE requires the target
+ 1072  storage stack to be fully implemented; ALICE only requires a model of the target storage stack, and can therefore be used to evaluate application-level consistency on
+ 1073  top of proposed storage stacks, while they are still at
+ 1074  the design stage. Second, EXPLODE requires the user to
+ 1075  carefully annotate complex file systems using choose()
+ 1076  calls; ALICE requires the user to only specify a highlevel APM. Third, EXPLODE reconstructs crash states by
+ 1077  tracking I/O as it moves from the application to the storage. Although it is possible to use EXPLODE to determine the root cause of a vulnerability, we believe it is
+ 1078  easier to do so using ALICE since ALICE checks for violation of specific persistence properties. Fourth, EXPLODE stops at finding crash vulnerabilities; by helping
+ 1079  produce protocol diagrams, ALICE contributes to understanding the protocol itself. Like BOB, EXPLODE can be
+ 1080  used to test persistence properties; however, while BOB
+ 1081  only re-orders block I/O, EXPLODE can test re-orderings
+ 1082  caused at different layers in the storage stack.
+ 1083  Zheng et al. [54] find crash vulnerabilities in
+ 1084  databases. They contribute a standard set of workloads
+ 1085  that stress databases (particularly, with multiple threads),
+ 1086  and check ACID properties; the workloads and checkers
+ 1087  can be used with ALICE. Unlike our work, Zheng et al.
+ 1088  do not systematically explore vulnerabilities of each system call; they are limited by the re-orderings and nonatomicity exhibited by a particular (implemented) file
+
+ 1089  system during a single workload execution. Thus, their
+ 1090  work is more suited for finding those vulnerabilities that
+ 1091  are commonly exposed under a given file system.
+ 1092  Woodpecker [15] can be used to find crash vulnerabilities when supplied with suspicious source code patterns
+ 1093  to guide symbolic execution. Our work is fundamentally
+ 1094  different to this approach, as ALICE does not require prior
+ 1095  knowledge of patterns in checked applications.
+ 1096  Our work is influenced by SQLite's internal testing
+ 1097  tool [43]. The tool works at an internal wrapper layer
+ 1098  within SQLite, and is not helpful for generic testing.
+ 1099  RACEPRO [25], a testing tool for concurrency bugs,
+ 1100  records system calls and replays them by splitting them
+ 1101  into small operations, but does not test crash consistency.
+ 1102  OptFS [9], Featherstitch [16], and transactional file
+ 1103  systems [17, 39, 42], discuss new file-system interfaces
+ 1104  that will affect vulnerabilities. Our study can help inform
+ 1105  the design of new interfaces by providing clear insights
+ 1106  into what is missing in today's interfaces.
+
+ 1107  6 Conclusion
+ 1108  In this paper, we show how application-level consistency
+ 1109  is dangerously dependent upon file system persistence
+ 1110  properties, i.e., how file systems persist system calls.
+ 1111  We develop BOB, a tool to test persistence properties
+ 1112  and show that such properties vary widely among file
+ 1113  systems. We build ALICE, a framework that analyzes
+ 1114  application-level protocols and detects crash vulnerabilities. We analyze 11 applications, and find 60 vulnerabilities, some of which result in severe consequences
+ 1115  like corruption or data loss. We present several insights
+ 1116  derived from our study. The ALICE tool, and detailed descriptions of the vulnerabilities found in our study, can
+ 1117  be obtained from our webpage [2].
+
+ 1118  Acknowledgments
+ 1119  We thank Lorenzo Alvisi (our shepherd) and the anonymous reviewers for their insightful comments. We
+ 1120  thank members of ADSL, application developers and
+ 1121  users, and file system developers, for valuable discussions. This material is based upon work supported by
+ 1122  the NSF under CNS-1421033, CNS-1319405, and CNS-
+ 1123  1218405 as well as donations from EMC, Facebook,
+ 1124  Fusion-io, Google, Huawei, Microsoft, NetApp, Samsung, Sony, and VMware. Vijay Chidambaram and
+ 1125  Samer Al-Kiswany are supported by the Microsoft Research PhD Fellowship and the NSERC Postdoctoral Fellowship, respectively. Any opinions, findings, and conclusions, or recommendations expressed herein are those
+ 1126  of the authors and do not necessarily reflect the views of
+ 1127  the NSF or other institutions.
+
+ 1128  14
+ 1129  USENIX Association
+=== PAGE 16 ===
+
+ 1130  11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14) 447
+
+ 1131  References
+
+ 1132  [1] Necessary step(s) to synchronize filename operations on disk.
+ 1133  http://austingroupbugs.net/view.php?id=672.
+ 1134  [2] Tool and Results: Application Crash Vulnerabilities.
+ 1135  http://research.cs.wisc.edu/adsl/Software/alice/.
+ 1136  [3] Apache. Apache Zookeeper. http://zookeeper.apache.
+ 1137  org/.
+ 1138  [4] Remzi H. Arpaci-Dusseau and Andrea C. Arpaci-Dusseau. Operating Systems: Three Easy Pieces. Arpaci-Dusseau Books, 0.8
+ 1139  edition, 2014.
+ 1140  [5] Steve Best. JFS Overview. http://jfs.sourceforge.
+ 1141  net/project/pub/jfs.pdf, 2000.
+ 1142  [6] Remy Card, Theodore Ts'o, and Stephen Tweedie. Design and
+ 1143  Implementation of the Second Extended Filesystem. In First
+ 1144  Dutch International Symposium on Linux, Amsterdam, Netherlands, December 1994.
+ 1145  [7] Donald D Chamberlin, Morton M Astrahan, Michael W Blasgen,
+ 1146  James N Gray, W Frank King, Bruce G Lindsay, Raymond Lorie, James W Mehl, Thomas G Price, Franco Putzolu, et al. A
+ 1147  history and evaluation of system r. Communications of the ACM,
+ 1148  24(10):632–646, 1981.
+ 1149  [8] Donald D Chamberlin, Arthur M Gilbert, and Robert A Yost. A
+ 1150  history of system r and sql/data system. In VLDB, pages 456–464,
+ 1151  1981.
+ 1152  [9] Vijay Chidambaram, Thanumalayan Sankaranarayana Pillai, Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau. Optimistic Crash Consistency. In Proceedings of the 24th ACM Symposium on Operating Systems Principles (SOSP '13), Nemacolin
+ 1153  Woodlands Resort, Farmington, Pennsylvania, October 2013.
+ 1154  [10] Vijay Chidambaram, Tushar Sharma, Andrea C. Arpaci-Dusseau,
+ 1155  and Remzi H. Arpaci-Dusseau. Consistency Without Ordering. In
+ 1156  Proceedings of the 10th USENIX Symposium on File and Storage
+ 1157  Technologies (FAST '12), pages 101–116, San Jose, California,
+ 1158  February 2012.
+ 1159  [11] Chris Mason. Btrfs Mailing List. Re: Ordering of directory operations maintained across system crashes in Btrfs?
+ 1160  http://www.spinics.net/lists/linux-btrfs/
+ 1161  msg32215.html, 2014.
+ 1162  [12] Jeremy Condit, Edmund B. Nightingale, Christopher Frost, Engin
+ 1163  Ipek, Benjamin Lee, Doug Burger, and Derrick Coetzee. Better
+ 1164  I/O Through Byte-addressable, Persistent Memory. In Proceedings of the 22nd ACM Symposium on Operating Systems Principles (SOSP '09), Big Sky, Montana, October 2009.
+ 1165  [13] Jonathan Corbet. Solving the Ext3 Latency Problem. http:
+ 1166  //lwn.net/Articles/328363/, 2009.
+ 1167  [14] Jonathan Corbet. That massive filesystem thread. http://
+ 1168  lwn.net/Articles/326471/, March 2009.
+ 1169  [15] Heming Cui, Gang Hu, Jingyue Wu, and Junfeng Yang. Verifying systems rules using rule-directed symbolic execution. In
+ 1170  Proceedings of the eighteenth international conference on Architectural support for programming languages and operating systems, pages 329–342. ACM, 2013.
+ 1171  [16] Christopher Frost, Mike Mammarella, Eddie Kohler, Andrew
+ 1172  de los Reyes, Shant Hovsepian, Andrew Matsuoka, and Lei
+ 1173  Zhang. Generalized File System Dependencies. In Proceedings of the 21st ACM Symposium on Operating Systems Principles (SOSP '07), pages 307–320, Stevenson, Washington, October 2007.
+ 1174  [17] Bill Gallagher, Dean Jacobs, and Anno Langen. A Highperformance, Transactional Filestore for Application Servers. In
+ 1175  Proceedings of the 2005 ACM SIGMOD International Conference on Management of Data (SIGMOD '05), pages 868–872,
+ 1176  Baltimore, Maryland, June 2005.
+ 1177  [18] Gregory R. Ganger and Yale N. Patt. Metadata Update Performance in File Systems. In Proceedings of the 1st Symposium
+ 1178  on Operating Systems Design and Implementation (OSDI '94),
+ 1179  pages 49–60, Monterey, California, November 1994.
+ 1180  [19] GNU. GNU Database Manager (GDBM). http://www.gnu.
+ 1181  org.ua/software/gdbm/gdbm.html, 1979.
+ 1182  [20] Google. LevelDB. https://code.google.com/p/
+ 1183  leveldb/, 2011.
+ 1184  [21] Robert Hagmann. Reimplementing the Cedar File System Using
+ 1185  Logging and Group Commit. In Proceedings of the 11th ACM
+ 1186  Symposium on Operating Systems Principles (SOSP '87), Austin,
+ 1187  Texas, November 1987.
+
+ 1188  USENIX Association
+
+ 1189  [22] Dave Hitz, James Lau, and Michael Malcolm. File System Design for an NFS File Server Appliance. In Proceedings of the
+ 1190  USENIX Winter Technical Conference (USENIX Winter '94), San
+ 1191  Francisco, California, January 1994.
+ 1192  [23] HyperSQL. HSQLDB. http://www.hsqldb.org/.
+ 1193  [24] Dean Kuo. Model and verification of a data manager based on
+ 1194  aries. ACM Trans. Database Syst., 21(4):427–479, December
+ 1195  1996.
+ 1196  [25] Oren Laadan, Nicolas Viennot, Chia-Che Tsai, Chris Blinn, Junfeng Yang, , and Jason Nieh. Pervasive Detection of Process
+ 1197  Races in Deployed Systems. In Proceedings of the 23rd ACM
+ 1198  Symposium on Operating Systems Principles (SOSP '11), Cascais, Portugal, October 2011.
+ 1199  [26] Linus Torvalds. Git. http://git-scm.com/, 2005.
+ 1200  [27] Linus Torvalds. Git Mailing List. Re: what's the current wisdom
+ 1201  on git over NFS/CIFS? http://marc.info/?l=git&m=
+ 1202  124839484917965&w=2, 2009.
+ 1203  [28] Lanyue Lu, Andrea C. Arpaci-Dusseau, Remzi H. Arpaci-
+ 1204  Dusseau, and Shan Lu. A Study of Linux File System Evolution. In Proceedings of the 11th USENIX Symposium on File and
+ 1205  Storage Technologies (FAST '13), San Jose, California, February
+ 1206  2013.
+ 1207  [29] Cris Pedregal Martin and Krithi Ramamritham. Toward formalizing recovery of (advanced) transactions. In Advanced Transaction
+ 1208  Models and Architectures, pages 213–234. Springer, 1997.
+ 1209  [30] Chris Mason. The Btrfs Filesystem. oss.oracle.
+ 1210  com/projects/btrfs/dist/documentation/
+ 1211  btrfs-ukuug.pdf, September 2007.
+ 1212  [31] Matt Mackall. Mercurial. http://mercurial.selenic.
+ 1213  com/, 2005.
+ 1214  [32] Marshall K. McKusick, William N. Joy, Sam J. Leffler, and
+ 1215  Robert S. Fabry. A Fast File System for UNIX. ACM Transactions on Computer Systems, 2(3):181–197, August 1984.
+ 1216  [33] C. Mohan, D. Haderle, B. Lindsay, H. Pirahesh, and P. Schwarz.
+ 1217  ARIES: A Transaction Recovery Method Supporting Fine-
+ 1218  Granularity Locking and Partial Rollbacks Using Write-Ahead
+ 1219  Logging. ACM Transactions on Database Systems, 17(1):94–
+ 1220  162, March 1992.
+ 1221  [34] C Mohan, Bruce Lindsay, and Ron Obermarck. Transaction
+ 1222  management in the r* distributed database management system.
+ 1223  ACM Transactions on Database Systems (TODS), 11(4):378–
+ 1224  396, 1986.
+ 1225  [35] Vijayan Prabhakaran, Andrea C. Arpaci-Dusseau, and Remzi H.
+ 1226  Arpaci-Dusseau. Analysis and Evolution of Journaling File Systems. In Proceedings of the USENIX Annual Technical Conference (USENIX '05), pages 105–120, Anaheim, California, April
+ 1227  2005.
+ 1228  [36] Abhishek Rajimwale, Vijay Chidambaram, Deepak Ramamurthi,
+ 1229  Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau. Coerced Cache Eviction and Discreet-Mode Journaling: Dealing
+ 1230  with Misbehaving Disks. In Proceedings of the International
+ 1231  Conference on Dependable Systems and Networks (DSN '11),
+ 1232  Hong Kong, China, June 2011.
+ 1233  [37] Hans Reiser. ReiserFS. www.namesys.com, 2004.
+ 1234  [38] Mendel Rosenblum and John Ousterhout. The Design and Implementation of a Log-Structured File System. ACM Transactions
+ 1235  on Computer Systems, 10(1):26–52, February 1992.
+ 1236  [39] Frank Schmuck and Jim Wylie. Experience with transactions in
+ 1237  quicksilver. In ACM SIGOPS Operating Systems Review, volume 25, pages 239–253. ACM, 1991.
+ 1238  [40] Konstantin Shvachko, Hairong Kuang, Sanjay Radia, and Robert
+ 1239  Chansler. The Hadoop Distributed File System. In Proceedings
+ 1240  of the 26th IEEE Symposium on Mass Storage Systems and Technologies (MSST '10), Incline Village, Nevada, May 2010.
+ 1241  [41] Stewart Smith. Eat My Data: How everybody gets file I/O wrong.
+ 1242  In OSCON, Portland, Oregon, July 2008.
+ 1243  [42] R. P. Spillane, S. Gaikwad, E. Zadok, C. P. Wright, and
+ 1244  M. Chinni. Enabling transactional file access via lightweight kernel extensions. In Proceedings of the Seventh USENIX Conference on File and Storage Technologies (FAST '09), pages 29–42,
+ 1245  San Francisco, CA, February 2009. USENIX Association.
+ 1246  [43] SQLite. SQLite transactional SQL database engine. http://
+ 1247  www.sqlite.org/.
+ 1248  [44] Sun Microsystems. ZFS: The last word in file systems. www.
+ 1249  sun.com/2004-0914/feature/, 2006.
+
+ 1250  15
+=== PAGE 17 ===
+
+ 1251  [45] Adan Sweeney, Doug Doucette, Wei Hu, Curtis Anderson, Mike
+ 1252  Nishimoto, and Geoff Peck. Scalability in the XFS File System. In Proceedings of the USENIX Annual Technical Conference
+ 1253  (USENIX '96), San Diego, California, January 1996.
+ 1254  [46] Symas. Lightning Memory-Mapped Database (LMDB). http:
+ 1255  //symas.com/mdb/, 2011.
+ 1256  [47] Thanumalayan Sankaranarayana Pillai, Vijay Chidambaram, Jooyoung Hwang, Andrea C. Arpaci-Dusseau, Remzi H. Arpaci-
+ 1257  Dusseau. Towards Efficient, Portable Application-Level Consistency. In Proceedings of the 9th Workshop on Hot Topics in
+ 1258  Dependable Systems (HotDep '13), Farmington, PA, November
+ 1259  2013.
+ 1260  [48] The Open Group. POSIX.1-2008 IEEE Std 1003.1. http://
+ 1261  pubs.opengroup.org/onlinepubs/9699919799/,
+ 1262  2013.
+ 1263  [49] The PostgreSQL Global Development Group. PostgreSQL.
+ 1264  http://www.postgresql.org/.
+ 1265  [50] Theodore Ts'o and Stephen Tweedie. Future Directions for the
+ 1266  Ext2/3 Filesystem. In Proceedings of the USENIX Annual Technical Conference (FREENIX Track), Monterey, California, June
+ 1267  2002.
+ 1268  [51] Stephen C. Tweedie. Journaling the Linux ext2fs File System. In
+ 1269  The Fourth Annual Linux Expo, Durham, North Carolina, May
+ 1270  1998.
+ 1271  [52] VMWare. VMWare Player. http://www.vmware.com/
+ 1272  products/player.
+ 1273  [53] Junfeng Yang, Can Sar, and Dawson Engler. EXPLODE: A
+ 1274  Lightweight, General System for Finding Serious Storage System Errors. In Proceedings of the 7th Symposium on Operating
+ 1275  Systems Design and Implementation (OSDI '06), Seattle, Washington, November 2006.
+ 1276  [54] Mai Zheng, Joseph Tucek, Dachuan Huang, Feng Qin, Mark Lillibridge, Elizabeth S Yang, Bill W Zhao, and Shashank Singh.
+ 1277  Torturing Databases for Fun and Profit. In 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI
+ 1278  '14), Broomfield, CO, October 2014.
+
+ 1279  16
+
+ 1280  448 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI '14) USENIX Association

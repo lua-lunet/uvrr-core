@@ -1,0 +1,1462 @@
+---
+title: "Virtually Synchronous Methodology for Dynamic Service Replication"
+authors:
+  - "Ken Birman"
+  - "Dahlia Malkhi"
+  - "Robbert {van Renesse}"
+year: "2010"
+publication: ""
+handle_url: "https://consensus.app/papers/virtually-synchronous-methodology-for-dynamic-service-malki/1caefbe3ba4e5928bb31f842ef4fb696/"
+source_pdf: "research/agent366/papers/birman2010-virtually-synchronous.pdf"
+source_pdf_sha256: "286f79988c46d593cdba294b2c5bd7a0db90a230775c7f18863e2e55a5996b72"
+page_count: 33
+extracted_text_runs: 4717
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  In designing and building distributed systems, it is common engineering practice to separate steady-state operation from abnormal events such as recovery from failure. This paper explores this topic in a dynamic reconfiguration model that unifies virtual synchrony for reliable group communication and state machine replication, including Paxos.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Virtually Synchronous Methodology
+
+    2  for
+
+    3  Dynamic Service Replication
+
+    4  Ken Birman† Dahlia Malkhi∗ Robbert van Renesse†
+
+    5  November 18, 2010
+
+    6  Abstract
+    7  In designing and building distributed systems, it is common engineering practice to separate steady-state ("normal") operation from abnormal events such as recovery from failure. This way the normal case can be optimized
+    8  extensively while recovery can be amortized. However, integrating the recovery procedure with the steady-state
+    9  protocol is often far from obvious, and can present subtle difficulties. This issue comes to the forefront in modern data centers, where applications are often implemented as elastic sets of replicas that must reconfigure while
+   10  continuing to provide service, and where it may be necessary to install new versions of active services as bugs
+   11  are fixed or new functionality is introduced. Our paper explores this topic in the context of a dynamic reconfiguration model of our own design that unifies two widely popular prior approaches to the problem: virtual
+   12  synchrony, a model and associated protocols for reliable group communication, and state machine replication
+   13  (in particular, Paxos), a model and protocol for replicating some form of deterministic functionality specified as
+   14  an event-driven state machine.
+
+   15  ∗Microsoft Research Silicon Valley, dalia@microsoft.com
+   16  †Cornell University, {ken,rvr}@cs.cornell.edu
+
+   17  1
+=== PAGE 2 ===
+
+   18  1 Introduction
+
+   19  Our work deals with a style of distributed services that uses elastic sets of replicas to achieve availability, scalability,
+   20  and long term durability. These replica sets can vary widely over time: expanding as the service confronts load
+   21  surges or replaces failed server instances, and contracting as load drops or members crash. Thus, the contemporary
+   22  distributed systems developer, or service developer, is unavoidably faced with issues of dynamic service replication.
+   23  Service replication and reconfiguration confront the developer with a series of tough choices. One can evade
+   24  these choices by abandoning consistency, but there are many kinds of services for which consistency guarantees
+   25  are important and must not be violated simply because the service replica set is elastic. For services of this type,
+   26  reconfiguration remains a murky black art, error prone and associated with complex, subtle bugs. Moreover, among
+   27  the correct, rigorously analyzed solutions there are all sorts of hidden tradeoffs, representing deliberate compromises between performance and complexity during steady-state operation of the service (when reconfiguration isn't
+   28  happening) and the complexity of the reconfiguration event itself, which may also entail some period of service
+   29  unavailability.
+   30  Our treatment of this problem is tutorial in style, but aimed at a sophisticated audience. We suspect that
+   31  any developer confronting this topic will have had a considerable amount of experience with distributed systems.
+   32  Accordingly, we target a reader who knows how one creates distributed services, has some familiarity with the
+   33  classical papers on asynchronous consensus and communication protocols and impossibility results such as the
+   34  FLP theorem, and who may even have worked with the virtual synchrony [8] or the state machine replication
+   35  methodologies [19, 32, 20]. Our premise is that even knowledgeable readers be surprised to learn of some of
+   36  the pitfalls, anomalies and tradeoffs that the prevailing methodologies tacitly accept. Our work unifies what had
+   37  previously been different models using a single overarching methodology and formalism which we name Dynamic
+   38  Service Replication (DSR).
+   39  Our goal will be to design services that can be reconfigured without disrupting correctness, up to some maximum tolerable rate of service membership changes, beyond which it becomes unavailable. We assume that reconfiguration is triggered by a reconfiguration command, issued by the system management layer, and either removing
+   40  some members from a service, or adding some, or perhaps doing both at once. Reconfiguration could also change
+   41  application parameters, or even be used to upgrade to a new version of an application or a protocol while keeping
+   42  the service as available as possible.
+   43  Building a reliable service using the DSR approach entails three fundamental steps.
+
+   44  Safety. The first is to provide a service-oriented safety definition. A good specification must abstract away from
+   45  implementation details, and describe the service using the methods clients can access, and expressing properties
+   46  in terms of guarantees that those methods will offer. Two example services are interwoven throughout the body
+   47  of our paper. The first example is a Reliable Multicast service, for which we give a service-oriented description.
+   48  Our definition exposes a Get() API call that provide clients with a full, consistent history of messages that clients
+   49  Add(). This definition lets us focus on the matter of preserving service state consistently while transitioning
+   50  through configuration changes. Conversely, it is stripped of internal details such as clients joining and departing
+   51  the service, delivery duplication, etc.; those can be added as various filters and add-ons, as discussed below. We
+   52  use the well known State Machine Replication (SMR) problem [19, 32] as our second primary example. For
+   53  completeness, in Section 8 we also briefly flesh out an Atomic Read/Write Storage service.
+
+   54  Liveness. The second ingredient of our treatment is an appropriate failure model. In the distributed computing
+   55  arena, reliability is often expressed as the requirement to tolerate a threshold t failures out of an initial system of n
+   56  processes. This classical fault model ignores the ability of a dynamic system to out-live such an initial setting via
+   57  administrative decrees, e.g., to deploy new processes, or to remove faulty ones from consideration. For example,
+   58  an initial system configuration of four processes, {A, B, C, D}, may tolerate a single failure. However, through
+
+   59  2
+=== PAGE 3 ===
+
+   60  an administrative decree to reconfigure, say removing A after a failure, the remaining set {B, C, D} can tolerate
+   61  an additional single failure. But as this example suggests, although we have increased the overall fault tolerance
+   62  through dynamism, we can't simply say that we have a system of four processes, any two of which may crash at
+   63  any time. We need a more subtle condition that gives the system "sufficient time" to reconfigure. In our example,
+   64  two crashes can be tolerated over the total period the system is running, but during the early part, before the
+   65  system had been reconfigured, only one of {A, B, C, D} may fail. This notion of a dynamically-defined majority
+   66  appeared implicitly in various prior works, including [30, 31, 37, 24, 20, 26], but the conditions always involved
+   67  solution-specific details. Here, we adopt the principles of the DynaStore liveness model [1], which gives an opaque
+   68  Reconfig() handle for (administrative) clients. We then enhance this model to suit our more general framework.
+
+   69  Reconfiguration recipe. The third component is an algorithmic foundation for solution. Briefly, a DSR epochby-epoch reconfiguration starts with a consensus decision by the current configuration (say, C1) on a new configuration (C2). The reconfiguration procedure proceeds with a transfer of control from C1 to C2, which entails (a) a
+   70  decision to suspend C1; (b) a snapshot of completed and potentially-completed operations in C1 ; (c) a state transfer
+   71  of the snapshot to C2. The reconfiguration completes with a decision to enable C2 for processing new operations,
+   72  with the initial state of C2 determined by step b.
+   73  In our methodology, the developer deals with one epoch at a time. An epoch terminates with a configuration
+   74  change decision. The next configuration is uniquely determined in the current epoch, and transition to it is irreversible. When an epoch ends, a new epoch starts a new incarnation of the same algorithm (albeit with a non-empty
+   75  initial service state), whose participants and messages do not mix with the current epoch. If an epoch starts in a
+   76  configuration that already includes some failed nodes, it might make progress in that state, or it might initiate a
+   77  further round of reconfiguration to remove those nodes; indeed, it can initiate reconfiguration as its first action.
+   78  The new configuration operates completely separately from the current one; the messages in it are not confused
+   79  with messages in the current configuration; and it can consist of an entirely new set of machine. Any number of
+   80  reconfigurations can be chained in this manner.
+
+   81  Solutions. While the general framework – decide, suspend, state transfer, resume – may appear obvious, there
+   82  are numerous design choices and potential pitfalls when realizing any specific service. Underlying any choice of
+   83  reconfiguration solution are inherent tradeoffs. One wants to maximize availability and performance, but without
+   84  violating safety, and it isn't easy to accomplish all of these simultaneously. This does not mean that protocols need
+   85  to be overly cumbersome. To the contrary, in six Figures, 4-10, we give succinct pseudo-code solutions for six
+   86  service variants, each frame containing a entire solution including precise safety and liveness definitions.
+   87  We'll see that we can trade steady-state simplicity with continuous availability: A fault-recovery approach
+   88  utilizes servers in steady-state in an uncomplicated manner, disregarding the possibility of failure. It can be highly
+   89  optimized, but requires reconfiguration to unblock the service in case of a failure. Figure 4 illustrates this methodology within the context of Reliable Multicast and Figure 8 does so for SMR. The alternative is a fault-masking
+   90  methodology, which crafts steady-state protocols with built-in redundancy for high availability; it adds reconfiguration functionality for even greater agility in a long-lived system. Figures 5, 6, 9 and 10 demonstrate fault-masking
+   91  for multicast, SMR and read/write storage, respectively.
+   92  Reconfiguration itself presents another interesting design tradeoff. The reconfiguration procedure entails forming two consensus decisions – one on the next configuration and another on the closing state of the current. These
+   93  may be obtained either among the group of servers themselves, or using a separate consensus engine. Even the latter case requires careful integration with the steady-state protocol, and we give the recipes for doing so in Figures 4
+   94  and 8. Fully distributed reconfiguration protocols are detailed in Figures 6, 10 and 9.
+   95  In general, any new members will need to catch up: for this we use the term state transfer; it entails packaging
+   96  the state of the service of the service into some sort of external representation, copying that data to the new
+   97  member(s), and them loading the state before starting to process new requests. The benefit of forming agreement
+
+   98  3
+=== PAGE 4 ===
+
+   99  on a closing state is explained below in Section 6, using a novel formulation of an old idea, virtual synchrony.
+  100  Without agreement, we'll see that a service might exhibit various forms of unexpected behavior. For example, one
+  101  standard approach leads to services that are correct, but in which unfinished operations can linger in a concealed
+  102  form, suddenly becoming complete "retroactively" arbitrarily far in the future, as discussed in Section 9. An
+  103  alternative approach to this problem was explored in systems like RAMBO [24] which seek to offer continuous
+  104  availability, to do so they must keep both the old and the new configurations active for a potentially extended
+  105  period until the new one can take over entirely. Our methodology explains such behaviors, clarifies the associated
+  106  design choices, and offers simple tradeoffs that let the developer select the properties needed, and to understand
+  107  the associated costs and implementation issues.
+  108  We also explore a number of misconceptions regarding reconfigurable SMR. For example, when using the
+  109  reconfigurable Paxos protocol, developers find themselves forced to choose between a simple solution with poor
+  110  performance and a far more complex one that runs at higher speed (corresponding to the choice of value for the
+  111  Paxos concurrency window parameter). However, a higher concurrency window may result in undesirable behavior
+  112  where the sequence of state machine commands contains a mix of decisions out of their intended order. In fact,
+  113  our paper grew out of a project to create a new "Virtually Synchronous Paxos" protocol, and our dynamically
+  114  reconfigurable version of state machine replication in Section 7.2 achieves this objective (in particular, Figure 9
+  115  can be recognized as a virtually synchronous version of the Paxos protocol).
+  116  More pitfalls and anomalies of existing approaches are discussed in Section 9. This section contrasts our DSR
+  117  method with respect to the three most relevant methodologies, namely, implementations of virtually synchronous
+  118  protocols, implementations of the Paxos protocol for state machine replication, and dynamic atomic storage protocols.
+  119  Finally, we briefly sketch a correctness argument for a sample of our solutions in the Appendix.
+
+  120  Contribution. While some methodologies lead the developer to some single best solution, that won't be the case
+  121  here; not only will the solutions we develop be incomparable in some ways, they even include application-specific
+  122  considerations: the best protocols for implementing a reconfigurable reliable multicast turn out not to be directly
+  123  mappable to state machine replication solution, and this illustrates just one of many such examples. Thus, readers
+  124  of this paper will draw different conclusions based on the utility they individually assign to the various tradeoffs
+  125  involved. Our contribution isn't some single answer, but rather a more principled treatment of the question. The
+  126  methodology we offer here offers confidence in correctness, and for any given set of application-specific goals,
+  127  enables steady-state performance similar to the best known hand-crafted solutions to the same problems. Also, our
+  128  solution assumes less than is assumed when creating state machine solutions, and for this reason may be applicable
+  129  to problems for which state machine replication is inappropriate.
+  130  In summary, our paper offers an overarching and unified reconfiguration framework, which reveals relationships between a number of prior works that led to correct and yet seemingly incomparable reconfigurable solutions
+  131  in this space. Doing so helps the developer understand reconfiguration against a broad spectrum of choices, to
+  132  understand the implications of those choices, and also makes it possible to see protocols that might previously
+  133  have been portrayed as competing options as different realizations of a single overall goal.
+
+  134  2 Liveness Model
+
+  135  Our aim is to provide services in asynchronous systems whose set of servers is changed through explicit reconfigurations. We assume an additional set, potentially overlapping, of clients. We do not assume any bounds on
+  136  message latencies or message processing times (i.e., the execution environment is asynchronous), and messages
+  137  may get lost, re-ordered, or duplicated on the network. However, we assume that a message that is delivered was
+  138  previously sent by some live member and that correct members can eventually communicate any message.
+
+  139  4
+=== PAGE 5 ===
+
+  140  In order to capture a formal execution model with changing memberships, we borrow concepts which express explicit dynamism from [1], but modify the treatment for weaker requirements. We proceed with a formal
+  141  definition, and follow with examples.
+  142  A fixed system membership consists of some set of servers and liveness conditions. As usual, our goal is to
+  143  build systems that are guaranteed to make progress as long as the conditions on the servers hold. If too many
+  144  servers fail (violating the conditions for liveness), safety will not be impaired, but the system might need to stop
+  145  responding to client requests until reconfiguration occurs. We further refine our liveness conditions by breaking
+  146  them into two parts, one for performing read requests, and one for performing updates; by doing so, we can
+  147  sometimes continue to support one kind of operation even if the other kind is temporarily unavailable. Example
+  148  memberships are 'f + 1 servers, f may crash on any read, no crash tolerance on update', and 'n servers, any
+  149  minority of which may fail for either read or write tolerance'.
+  150  We assume an initial membership M0. Clients are provided with a membership-changing API function
+  151  Reconfig(M), where M is a new membership. A call to Reconfig(M) must eventually complete, and returns an
+  152  ACK response some time after its invocation. Clients might issue concurrent Reconfig(M) calls, and when this
+  153  occurs, the protocol orders the reconfigurations through the sequence of ACK responses. Thus, a system might
+  154  perform M0, M1, M2, . . . even though Reconfig(M2) was invoked before Reconfig(M1). We will view issues
+  155  such as pre-conditions for invoking Reconfig, and any access restrictions (e.g., to designated administrative users)
+  156  on using the Reconfig API as falling outside of the scope of our treament.
+  157  In our model, two execution events are associated with each Reconfig call, marking its invocation and its
+  158  completion. Both events change the liveness conditions, so they could be thought of as 'model-changing' events
+  159  in that they transform a fixed liveness-condition into another liveness-condition. For clarity, we will continue
+  160  referring to them as Reconfig invocation and response events. The first event occurs upon invocation of Reconfig.
+  161  It changes the current liveness condition to incorporate the requested new membership, including its set of servers
+  162  and its corresponding liveness conditions. The second event in our model marks a completion of a Reconfig call.
+  163  This event signifies that the system has re-organized to switch the service to the new set of servers and transferred
+  164  all necessary information to it, so that the old membership may be garbage collected.
+  165  We define the startup of a membership Mk to begin with the Reconfig(Mk) invocation and end with its response event (for M0, this is defined as the point the system starts). We define the lifetime of a membership Mk to
+  166  begin with the Reconfig(Mk) invocation (or with the start time of the system, for M0) and end when the succeeding
+  167  reconfiguration Reconfig(Mk+1) startup is completed.
+
+  168  Liveness: For every membership Mk in the sequence of Reconfig calls, the following holds:
+
+  169  1. Throughout the lifetime of Mk, its read-resilience is not violated.
+  170  2. There exists a future membership M`, where ` > k, such that the update-resilience of M` holds
+  171  throughout the startup of Reconfig(M`).
+
+  172  Note that it follows inductively from the definitions above that memberships Mk+1, ..., M`−1 maintain their
+  173  read-resilience condition until the response event of Reconfig(M`).
+  174  To illustrate the features of our liveness model, let's apply it in three simple scenarios. In the first, we have a
+  175  system implemented by a single server which may be replaced as needed. Each membership consists of a singleton
+  176  set. The read and update resilience conditions are identical here: Zero failures. Plugging these bounds into our
+  177  liveness condition implies that, not surprisingly, a server must remain alive until a new one is installed. Moreover,
+  178  the new server must be alive during its startup procedure. For example, say that initially we have M0, which
+  179  contains a singleton set of servers {q0}. A client wishes to replace q0 with an upgraded server q1 by invoking
+  180  Reconfig(M1), with M1 containing the set of servers {q1}. Internally, the startup procedure of Reconfig(M1)
+  181  suspends q0, copies data from q0 to q1, and redirects clients to q1. Note that this startup procedure will be successful
+
+  182  5
+=== PAGE 6 ===
+
+  183  under the assumptions of our liveness model, because both q0 and q1 remain alive while Reconfig(M1) is in
+  184  progress. Once q1 stores the system state, the Reconfig(M1) procedure completes and we model this as an abstract
+  185  response event. From here on, q0 may safely shut down.
+  186  The second example is a service implemented by N = F +1 servers for F-tolerance, such as a primary-backup
+  187  setup. Here, the read and the update thresholds are substantially different. The update-threshold is F + 1. That is,
+  188  in order for the service to store updates durably, it requires participation of all servers. In case of a failure, updates
+  189  become stalled, and we use the reconfiguration manager to facilitate progress. Such a service must include another
+  190  system component in charge of reconfiguration, because it impossible to form a consensus decision on the next
+  191  membership among the F + 1 processes alone. To reconfigure, we need both one server to be available, in order
+  192  to persist the service state; and the reconfiguration manager must be available in order to initiate the Reconfig
+  193  procedure.
+  194  For example, say that M0 has a set of servers S0 and M1 has S1, each consisting of F + 1 servers. Upon invocation of Reconfig(M1 ), our liveness requires read availability in both S0 and S1 and that some later membership
+  195  has update availability. More specifically, our model says that at most F out of each of the sets S0, S1 fail. This
+  196  suffices to suspend M0 and transfer the closing state of M0 to at least one server in S1. When the closing state of
+  197  M0 has been transferred to all F + 1 servers of M1 our model schedules the Reconfig(M1) response event. At
+  198  that time, our liveness model changes: it drops any resilience assumption on M0. Indeed, it would be safe for all
+  199  servers of S0 (that are not in S1) to shut down.
+  200  To re-iterate a point made above, Reconfig calls may overlap. Hence, this scenario could develop quite differently. Say that there is a failure in S1 before we complete the state transfer to it. Hence, a client may issue
+  201  Reconfig(M2) to remedy this, before Reconfig(M1) completes. In our formal model, another event occurs, marking the invocation of Reconfig(M2) and changing the liveness assumption to 'F out of each of the sets S0, S1
+  202  and S2 may fail'. Now servers in S2 suspend M1 and obtain its state. Note that our read-resilience assumption
+  203  implies that this is possible, despite having failures in M1 already. When all F + 1 servers in S2 obtained their
+  204  state, Reconfig(M2 ) becomes completed. In this case, the completion of Reconfig(M2) also pertinently marks the
+  205  completion of Reconfig(M1). Consequently, both M0 and M1 will be retired by this completion.
+  206  In our last example, a membership consists of a set of N = 2F + 1 servers, F of which may crash for either
+  207  read or update. Here, the read and update resilience thresholds are identical. The liveness condition is simple
+  208  here: During the lifetime of a membership, at most F of its servers may crash. A membership Mk ends with the
+  209  completion of Reconfig(Mk+1), when the closing state of Mk is stored on F + 1 members of Mk+1. At that time,
+  210  Mk may be retired.
+  211  Finally, we note that in order to reach a unique Reconfig decision, we are obviously bound by the impossibility
+  212  of consensus: in order to guarantee termination for Reconfig decisions, we require an eventual leader with timely
+  213  communication to a majority of the membership.
+
+  214  3 The Dynamic Reliable Multicast Problem
+
+  215  Let's jump in by exploring the reconfiguration question in the context of a simple but general form of reliable
+  216  multicast. A reliable multicast protocol is simply a service (perhaps implemented by a library that its clients
+  217  employ), which allows clients to send new multicast messages to groups of receivers, and to receive messages
+  218  within groups. Multicast is a popular technology, both in the explicit form just described, and also in implicit
+  219  forms, such as publish-subscribe or content-based communication infrastructures, so called enterprise message
+  220  bus technologies, and many kinds of data replication and caching technologies. In three accompanying break-out
+  221  boxes (Figures 1, 2, and 3) we discuss the possible mappings of our simple multicast API to more standard ones
+  222  that might be used in such services.
+  223  Reliable multicast is a good place to start because many distributed systems rely on some form of multicast-like
+  224  mechanism at a basic level, perhaps presenting it as a multicast, or perhaps hiding it in a data or file replication
+
+  225  6
+=== PAGE 7 ===
+
+  226  How can our service model be made available through a more standard multicast package? Our multicast API
+  227  is pull-based, but one could change it into a notification API by supporting an explicit group join operation. The
+  228  join itself would change the group membership using a reconfiguration command, and we'll discuss these below.
+  229  The Send operation maps directly to our Add() interface. Receive would then be supported as a callback from the
+  230  multicast library into the application. When a process joins a multicast group for the first time, our durability rule
+  231  requires it to learn the state of the group. Thus the first event that occurs upon joining would be a Get() of the
+  232  sort we've included in our model: the Get(), in effect, embodies the state transfer. Subsequent receive operations,
+  233  in contrast, would be modeled as Get() operations that omit messages that were previously delivered to the caller.
+  234  View notification, if desired, would be implemented as an upcall that occurs when a new membership is initiated.
+  235  A real implementation would also garbage collect durable multicast messages once they are processed by the
+  236  group members and reflected into the group state. The needed mechanisms complicate the protocol, but have no
+  237  fundamental bearing on the reconfiguration problem, hence we omit discussion of them here. See [10] for details on
+  238  methods for detecting durability and using that information to drive garbage collection.
+
+  239  Figure 1: Our simple multicast service abstracts classical ones.
+
+  240  mechanism. But whatever form the end-user functionality takes, the multicast communication pattern arises. If
+  241  we can understand reconfiguration in a multicast protocol, we'll have taken a big step towards understanding
+  242  reconfiguration as a general computing paradigm.
+
+  243  The multicast API. Our proposed service offers two interfaces to its clients, Add() and Get(). The Add()
+  244  primitive sends a new message and returns an ACK. A Get() call returns a set of messages. A message m of a
+  245  completed Add() or Get() operation becomes durable. The main requirement we have of a Get() call is:
+
+  246  Definition 1 (Multicast Durability) A Get() call returns a set of messages that contains all messages which have
+  247  become durable when the call was invoked.
+
+  248  In practice, Get() returns all durable messages of completed Add() operations and possibly also some additional messages associated with concurrently executing Add() operations. If a message m is returned by Get, it
+  249  becomes durable; hence every subsequent call to Get will also return m.
+  250  We don't require any particular order on operations; in particular, two concurrent calls to Get() may return
+  251  disjoint sets of durable messages, and might order messages differently. We discuss this in more detail in Figure 2.
+
+  252  Epoch-by-epoch Solution. Our approach for dynamically reconfigurable reliable multicast has two parts: A
+  253  steady-state protocol for sending and delivering messages during normal, stable periods; and a reconfiguration
+  254  protocol. Each of these protocols is defined relative to a single epoch, which begins when a configuration of
+  255  the system becomes live and ends by running the epoch termination protocol given below. After the current epoch
+  256  ends, a new epoch starts, and we can understand it as hosting a completely new incarnation of this algorithm, whose
+  257  newly added messages do not mix with the previous epoch. Indeed, when changing epochs a system could modify
+  258  protocol parameters or even switch to a new protocol stack entirely incompatible with the prior one, reinitialize
+  259  data, agree upon new security keys (in a secured group [29]), and so forth.
+
+  260  A Single Server Solution. It may be helpful to begin with a degenerate solution that employs just a single server,
+  261  because by doing so, we create a form of reference implementation. Later when we explore distributed solutions,
+  262  we can reason about their correctness by asking ourselves what properties it shares with the single server solution.
+
+  263  7
+=== PAGE 8 ===
+
+  264  Multicast protocols and systems come in many forms and flavors. Variants may offer any of a wide range of
+  265  message ordering policies, such as FIFO, causal, atomic (total), etc. Several of these policies can be implemented as
+  266  a filtering policy over Get(). For example, a FIFO primitive would simply add a header to each message to represent
+  267  ordering information (namely, the sender's sequence number). When Get() reports a durable message history to the
+  268  application, the filtering policy would suppress previously delivered messages, and then sort undelivered messages,
+  269  delivering them in sequence order, delaying any messages that follow a gap. Causal ordering can be done in the
+  270  same manner: here, the sender includes a vector timestamp or some other representation of the causal dependency
+  271  information, and Get() delays a given message until all causally prior multicasts have already been delivered. Total
+  272  ordering is more complex; we discuss the issues and how they can be solved below, when we look closely at support
+  273  for dynamically reconfigurable state machine replication.
+  274  Other multicast delivery primitives could implement delivery semantics beyond the model considered here. For
+  275  our work here, we require durability, but many multicast systems support "early" delivery of non-durable messages,
+  276  to reduce latency in situations where the application itself doesn't need durability. Failure could cause such messages
+  277  to be lost, but there are applications that replicate various forms of soft or transient state and in which durability,
+  278  for those updates, is unimportant, but minimizing latency is paramount (see the discussion of this topic in [11]).
+  279  It is also possible to modify Get() to report non-durable messages, and the application could then manipulate its
+  280  filtering policy to control which ones it will see. Doing this typically entails offering two versions of Get(), one
+  281  with durability and one without. To give the application even more control, one can offer a Flush() primitive, which
+  282  pauses until every multicast that was pending when it was invoked has become durable. None of these variants
+  283  impose fundamentally different requirements on the underlying reconfiguration protocols, and hence for brevity, we
+  284  will not explore them in detail.
+
+  285  Figure 2: Alternative delivery functionalities.
+
+  286  To implement Add(), the client in the single-server case locates the server and sends it a store request for
+  287  whatever message m is being sent. The server adds m to the message history and acknowledges, and the client
+  288  considers the Add() complete when the acknowledgment is received.
+  289  To implement Get(), the client contacts the server and the server sends back the entire current message history.
+  290  Notice that this history will contain every completed Add(), and perhaps also a few more messages that were
+  291  recently stored but for which the corresponding client hasn't yet received the acknowledgment. These requests are,
+  292  in a technical sense, incomplete, although the associated messages will in fact be durable. In particular, notice that
+  293  once a Get() includes m into a response, every future Get() will also include m.
+  294  Finally, how might we reconfigure the single-server implementation? The simplest solution would be as follows. A membership tracking module would receive a reconfigure command, specifying that henceforth, server
+  295  s0 will run the service. The membership service determines that s is currently running the service, and sends a
+  296  message to s that causes it to enter what we will call a wedged state, meaning that no further operations will be
+  297  accepted. Server s now transmits its final state to the membership service, which now sends s0 a message that
+  298  includes the final state. Having initialized itself from this transferred state, s0 becomes operational, accepting new
+  299  store operations. Meanwhile, s can terminate, discarding its state. The protocol, of course, isn't tolerant of failures:
+  300  if s fails before the state is transferred, s0 will be unable to enter the normal operational state.
+  301  Notice that we passed the new epoch state via the membership service. If this state is large, doing so might be
+  302  undesirable, because during the period between when s transmits the state and when s0 loads it, the service will
+  303  be unavailable. However, there are ways to reduce this gap. For example, we might have s0 speculatively copy
+  304  the state from s using Get() operations, before the reconfiguration is even initiated. Now only the recent delta of
+  305  messages that reached s subsequent to that preliminary transfer will be needed to bring s0 into sync with s. Indeed,
+  306  one could iterate, such that the membership service forms the new epoch, in which s0 is the new server, only when
+
+  307  8
+=== PAGE 9 ===
+
+  308  Readers familiar with protocols such as IP multicast, or gossip-based multicast, might be surprised to see
+  309  durability even considered as a property that a multicast protocol should offer. In many settings, durability is viewed
+  310  strictly as an end-to-end question, not something that belongs in a multicast layer. Moreover, there are many ways
+  311  for an application to satisfy objectives such as durability. For example, while our discussion looks at multicasts that
+  312  only deliver messages when they are safe in the sense of durable, there are some kinds of applications that operate
+  313  optimistically, accepting messages instantly upon reception, but then rolling back if necessary to back out of unsafe
+  314  states [28]. Why, then, are we treating durability as a multicast property?
+  315  Recall, however, that our overarching goal is to drill down on the question of reconfiguring a durable service,
+  316  with the hope of teasing out essential aspects of the required solution. We're looking at multicast simply because
+  317  multicast is the communication pattern underlying data replication, hence applications that perform durable data
+  318  replication can be understood as if they were using a multicast for the data updates. By modeling the multicast
+  319  protocol as the source of durability, we avoid needing to explicitly model the application, and can isolate the interplay
+  320  between durability within the multicast protocol and reconfiguration of the multicast group membership.
+
+  321  Figure 3: Why should a multicast primitive offer durability?
+
+  322  the remaining delta is small enough; this way, if s0 tries to join during a burst of activity, it is delayed slightly
+  323  (during which it will continue to transfer chunks of state), until finally a brief moment of reduced load occurs,
+  324  when s0 can finally catch up relatively rapidly.
+  325  To use the terminology introduced above, we now have a fault-intolerant solution in which each epoch is
+  326  associated with some single server, begins with the initialization of that server, runs in a steady state by storing
+  327  messages, and ends when the next server takes over, wedging the previous one. The previous server can shut down
+  328  entirely once the state transfer has been carried out.
+
+  329  Fault-Recovery versus Fault-Masking Steady State. We are now in a position to replicate our service to
+  330  achieve such benefits as higher availability, load balancing of Get() operations over its members, etc. In what
+  331  follows, we start by designing the steady-state protocols and only then consider the protocol needed to reconfigure.
+  332  Two principal strategies suggest themselves:
+
+  333  1. The first is a fault-recovery approach, in which we store messages at all of the servers. If some server is
+  334  unresponsive, this version will become blocked until a reconfiguration occurs.
+  335  2. The second is a fault-masking algorithm, in which we store messages at a majority of the servers. We deliver
+  336  messages by reading from a majority and storing back messages at a majority. This version can continue to
+  337  complete operations of both types as long as no more than a minority of servers become unresponsive. We
+  338  need a majority of servers to remain available in order to transfer the state of the current configuration to any
+  339  future one, but after reconfiguration, the old configuration may be retired completely.
+
+  340  In the coming two sections, we first flesh out a fault-recovery solution (Section 4), then a fault-masking one
+  341  (Section 5).
+
+  342  4 Fault-Recovery Multicast
+
+  343  We start with the fault-recovery solution. The advantage of the a fault-recovery approach to the reliable multicast
+  344  problem is that it requires just N = F + 1 servers and maintains data durability in the face of up to F failures. In
+  345  case of a failure, we employ an auxiliary consensus engine to facilitate reconfiguration.
+
+  346  9
+=== PAGE 10 ===
+
+  347  API:
+  348  Add(m): return(ACK)
+  349  Get(): return(S), such that:
+  350  if Add(m) completed before Get() was invoked, m ∈ S
+  351  if S0 = Get() completed before invocation, S0 ⊆ S
+  352  Reconfig(M): return(ACK)
+
+  353  Liveness condition:
+  354  throughout the lifetime of M, at least one server is correct; and
+  355  there exists a future membership M0 in which all servers are correct throughout the startup of Reconfig(M0)
+
+  356  Operation Add(m) at client: Upon ⟨store, m⟩ request at server and not wedged:
+  357  send(⟨store, m⟩) to servers save m to local store and return ACK
+  358  wait for replies from all servers
+  359  return(ACK)
+  360  Operation Get() at client: Upon ⟨collect⟩ request at server and not wedged:
+  361  send(⟨collect⟩) to servers return all locally stored messages
+  362  wait for reply Sq from each server q
+  363  return(∩qSq)
+
+  364  Operation Reconfig(M): Upon ⟨wedge⟩ request at server q:
+  365  Send(⟨wedge⟩) request to servers stop serving store/collect commands
+  366  Wait for reply ⟨suspended, Sq ⟩q return ⟨suspended, Sq ⟩ where
+  367  from any server q Sq contains all locally stored messages
+  368  Invoke consensus engine decide(M, Sq )
+  369  When all servers of new epoch have started At any server of new membership M0
+  370  return(ACK) Upon learning (M 0, S) ← decide():
+  371  store S locally and start service
+
+  372  Figure 4: Single Epoch Fault-Recovery Reliable Multicast Solution
+
+  373  Figure 4 gives a succinct summary of the entire problem definition and its fault-recovery solutions. We elaborate further on them below.
+
+  374  4.1 Fault-Recovery Add/Get Implementation
+
+  375  Add: A client that wants to send a message m sends a store message containing m to all servers in a configuration. A server that receives the update inserts m to its local messages set (unless the server is wedged—see
+  376  Reconfiguration below). Each server acknowledges the store message to the client, and the Add call completes
+  377  when acknowledgments have been received from all servers.
+  378  Get: When a client invokes Get(), it sends a collect message to all servers in a configuration. A server that receives
+  379  a collect command returns its locally stored messages to the client (again, unless it is wedged). The client waits to
+  380  receive responses from all servers, and computes an intersection set S of message which appear in all of of these
+  381  histories (message order is unimportant). The Get call returns the set S.
+
+  382  10
+=== PAGE 11 ===
+
+  383  4.2 Reconfiguration Protocol
+  384  Recall that participants initiate reconfiguration by issuing a Reconfig command. Reconfiguration entails these
+  385  steps:
+  386  1. The issuing client sends a wedge request to servers in the current epoch. As in our single-server solution,
+  387  such a request causes a receiving server to become wedged (it may already be wedged from another Reconfig
+  388  command), and to return a representation of its state.
+  389  2. Since as many as F servers could be faulty, the client waits for just one response, but this response will
+  390  contain all durable messages (and possibly more). These messages are used for the initial state of each
+  391  server in the next epoch.
+  392  3. Reconfig employs some kind of a consensus engine to form a decision both on the next membership M and
+  393  on the set S of durable messages. For example, the consensus engine could be implemented by a centralized
+  394  authority, which itself could be made reliable by running Paxos among replicated state machines [20].
+  395  4. Servers s0 in a new membership M0 learn the reconfiguration decision either directly from the auxiliary
+  396  authority, or indirectly from other members. Either way, they learn both the membership M0 of the new
+  397  configuration and its initial message store S0. The initial state could also include application-specific information, or even specify an upgrade to a new version of the application or the protocols it uses. As in the
+  398  single-server case, note that there are many ways to optimize state transfer so that the amount of information
+  399  actually passed through the membership service could be quite small. What matters here is that a server s0
+  400  in the new epoch should only process new requests after it has initialized itself appropriately.
+  401  After completing state transfer, the server enables itself for handling normal client requests in the new epoch.
+  402  Of course, if the server was also present in an earlier epoch, it remains wedged with respect to that epoch.
+  403  5. The Reconfig command is considered completed when all servers in the new configuration have enabled
+  404  themselves. Note that Reconfig may never complete. In that case, yet a further reconfiguration command
+  405  would be needed before system availability is restored.
+  406  The reader may wonder about reconfigurations that occur in response to a failure. In such cases, one or
+  407  more servers in the current epoch will be unresponsive. However, any durable message will have been stored in
+  408  all histories, and hence will be included in the initial state of all servers in the new epoch. On the other hand,
+  409  consider an uncompleted operation, corresponding to a message stored in just a subset of the histories. At this
+  410  stage, depending on the pattern of failures, that message could be missing from some of the surviving histories
+  411  and dropped. But it could also turn out to be included in the history of the server whose state is used for the next
+  412  configuration, in which case it would become durable even though the associated Add() operation may not have
+  413  completed.
+  414  It isn't difficult to see that such problems are unavoidable. In effect, the outcome of a Add() that was pending
+  415  at the time of a reconfiguration is determined by the membership service: if the message is included into the new
+  416  epoch state, the Add() should be construed as successful, and if the message is not included, the Add() has failed
+  417  and should be reissued in the new epoch. The client can learn this outcome from any server in the new epoch, or
+  418  from the membership service itself. We leave the details of returning these out-of-band responses to clients out of
+  419  the discussion here.
+
+  420  5 Fault-Masking Multicast
+
+  421  We continue with a fault-masking, majorities-based solution. The majorities-based fault-masking approach to
+  422  the reliable multicast problem deploys N = 2F + 1 servers to maintain both data durability and non-disrupted
+
+  423  11
+=== PAGE 12 ===
+
+  424  API:
+  425  Add(m): return(ACK)
+  426  Get(): return(S), such that:
+  427  if Add(m) completed before Get() was invoked, m ∈ S
+  428  if S0 = Get() completed before invocation, S0 ⊆ S
+  429  Reconfig(M): return(ACK)
+
+  430  Liveness condition:
+  431  throughout the lifetime of a membership M , a majority of servers are correct
+
+  432  Operation Add(m) at client: Upon ⟨store, m⟩ request at server and not wedged:
+  433  send(⟨store, m⟩) to servers save m to local store and return ACK
+  434  wait for replies from a majority of servers
+  435  return(ACK)
+  436  Operation Get() at client: Upon ⟨collect⟩ request at server and not wedged:
+  437  send(⟨collect⟩) to servers return all locally stored messages
+  438  wait for replies Sq from a majority of servers q
+  439  send(⟨store, ∪qSq ⟩) to servers
+  440  wait for replies from a majority of servers
+  441  return(∪q Sq )
+
+  442  Operation Reconfig(M): Upon ⟨wedge⟩ request at server q:
+  443  Send(⟨wedge⟩) request to servers stop serving store/collect commands
+  444  Wait for replies ⟨suspended, Sq⟩q return ⟨suspended, Sq ⟩ where
+  445  from a majority of servers q Sq contains all locally stored messages
+  446  Invoke consensus engine decide(M, ∪q Sq)
+  447  At any server of new membership M0
+  448  When a majority of servers in M have started Upon learning (M 0, S) ← decide():
+  449  return(ACK) store S locally and start service
+
+  450  Figure 5: Majority-based Reliable Multicast Solution
+
+  451  operation in face of up to F failures. Figure 5 gives a succinct summary. For convenience, the differences from the
+  452  Fault-Recovery approach of Figure 4 are highlighted.
+
+  453  5.1 Majorities-Based Tolerant Add/Get Implementation
+  454  The steady-state fault-masking solution for Reliable Multicast works as follows.
+  455  Add: A client that wants to send a message m sends a store message containing m to all servers in a configuration.
+  456  A server that receives the update and is not wedged inserts m to its local messages set. Each server acknowledges
+  457  the store message to the client, and the Add call completes when a majority of acknowledgments have been
+  458  received.
+  459  Get: When a client invokes Get(), it sends a collect message to all servers in a configuration. A server that receives
+  460  a collect command and is not wedged returns its locally stored messages to the client. The client waits to receive
+  461  responses from a majority, and computes a union set S of message which appear in any of these histories. The
+  462  client then stores back the set S at a majority by issuing a store message and waiting for acknowledgement from a
+
+  463  12
+=== PAGE 13 ===
+
+  464  majority. 1 The Get call returns the set S.
+
+  465  5.2 Reconfiguration Protocol for Majorities-Based Multicast
+  466  The same reconfiguration protocol as the fault-recovery one can be used in this case, but with a minor modification
+  467  to the rule used to compute the initial state of the new epoch.
+  468  Now, the issuing client must contact a majority of servers to discover all successful multicasts. Such a server
+  469  enters the wedged state, and then sends the message history to the client, as above. This was why we required that,
+  470  for the fault-masking case, the service include at least 2F + 1 servers: if F fail, F + 1 will still be operational, and
+  471  for any durable message, at least one of them will know of it. This, then, permits the client to include all durable
+  472  messages in the initial state of the new epoch.
+  473  Again, after completing state transfer, a server of the new membership enables itself for handling normal client
+  474  requests in the new epoch. However, it suffices for a majority of servers of the new configuration to become enabled
+  475  for the Reconfig operation to be considered completed. And just as we saw above, state transfer can be optimized
+  476  to transfer much of the data through an out-of-band channel, directly from the servers in the current epoch to the
+  477  ones that will be members of the next epoch.
+
+  478  5.3 Reconfiguration Agreement Protocol
+  479  We now "open" the consensus engine and flesh out a procedure that unifies forming agreement on the next epoch
+  480  with state transfer. Figure 6 summarizes a multicast solution that uses N = 2F + 1 servers and contains a detailed
+  481  reconfiguration decision protocol combined with state transfer. (Only the Reconfig part is changed from Figure 5,
+  482  but for completeness, Figure 6 gives a full solution.)
+  483  The combined reconfiguration and state transfer protocol is based on the well-known Synod algorithm [20].
+  484  It is triggered by a client Reconfig command and uses a set of N = 2F + 1 servers of the current epoch. The
+  485  Reconfig procedure makes use of a uniquely chosen stake (for example, an integer or some other ordered type).
+  486  Clients invoking reconfiguration may repeatedly try increasingly higher stakes until a decision is reached. The
+  487  protocol of a particular stake has two phases. Although we could wait for the consensus decision and then perform
+  488  state transfer, it turns out that we can make efficient use of message exchanges inside the protocol to accomplish
+  489  state transfer at the same time.
+  490  More specifically, in Phase 1, a client performs one exchange with a majority of servers. When the client hears
+  491  back from a majority, it learns:
+
+  492  (1) Either a reconfiguration command RC, which might have been chosen. In case of multiple possibly chosen
+  493  RC's, the one whose stake is highest is selected.
+  494  (2) Or that no reconfiguration command was chosen.
+
+  495  This exchange also tells the servers to ignore future proposals from any client that precedes it in the stake-order.
+  496  Coupled into this (standard) Phase 1 of consensus protocol is the collect phase of our state transfer. Namely,
+  497  the same exchange marks the servers wedged, which is done by obtaining a commitment from the servers not to
+  498  respond to any store or collect request from processes. In their responses in Phase 1, the client collects from each
+  499  server the set of messages it stores.
+  500  In Phase 2, the client performs another single exchange with a majority of servers. If case (1) applies, then it
+  501  tells servers to choose RC. Otherwise, in case (2), it proposes a new reconfiguration decision RC. The new RC
+  502  contains the configuration that the client requested, as well as a a union of the messages it collected in the first
+  503  phase.
+  504  1 Clearly, we can optimize to store S only at sufficiently many servers to guarantee that S is stored at a majority.
+
+  505  13
+=== PAGE 14 ===
+
+  506  The server's protocol is to respond to client's messages, unless it was contacted by a higher-stake client already:
+  507  • In phase 1, it responds with the value of a reconfiguration proposal RC of the highest-stake it knows of, or an
+  508  empty RC. It also incorporates into the response the set of messages it stores locally, and commits to ignore
+  509  future client store/collect requests.
+  510  • In phase 2, it acknowledges a client's proposal and stores it.
+  511  Each server in the new membership waits to collect start messages with the same stake from a majority
+  512  of servers of the previous epoch. In this way, it learns about the next epoch decision, which includes the new
+  513  configuration and the set of messages that are now durable. It stores these messages in its message history and
+  514  becomes enabled for serving clients in the new epoch. Once a majority of servers in the new epoch are enabled,
+  515  the Reconfig() operation completes.
+  516  As an example scenario, consider a system with three servers {1,2, 3}. Assume message a reaches {1,2}, b
+  517  reaches {2,3} and c reaches server 3. During Phase 1 of reconfiguration, a client sends wedge messages to the
+  518  servers. In response, server 2 suspends itself and sends {a, b}, and server 3 sends {b, c}. The client collects these
+  519  responses, and enters phase 2, proposing a new epoch configuration consisting of server-set {4,5,6} and message
+  520  set {a, b, c}. Although this set contains more than the set of completed messages (c's Add() not having completed),
+  521  those extra messages pose no problem; in effect, they complete and become durable as part of reconfiguration.
+  522  Again, here we ignore the matter of sending out of band responses to the client which invoked Add(c).
+  523  Servers {4,5} in the new epoch each learns the decision, stores {a, b, c} locally and become enabled. At this
+  524  point, it is possible that all the servers in the previous epoch are shut down. This poses no risk, as no information
+  525  is lost. In particular, every Get() request in the new epoch returns {a, b, c}.
+  526  Another possibility is that the client collects information from servers {1,2}, and the reconfiguration decision
+  527  includes only messages {a, b}. In this case, message c disappears. This is legitimate, as no Add() or Get() with c
+  528  ever completes, in the past or in the future.
+
+  529  6 Coordinated State Transfer: The Virtual Synchrony Property
+
+  530  Consider what would happen in the Reliable Multicast service if we did not include in the reconfiguration decision
+  531  the set S of messages ever completed in the current configuration. Instead, imagine a protocol in which every
+  532  server in the new membership independently obtains the state from a read-set of the current configuration. For
+  533  those messages M whose Add or Get have completed, there will be no difference. That is, every server in the new
+  534  membership will obtain M before starting the new epoch. However, messages with partially completed Add/Get
+  535  may or may not be obtained by the new servers, depending on which member(s) of the current configuration they
+  536  query. Such messages could later become durable, by being transferred to all servers some epoch. Let's study this
+  537  case in more detail by revising our fault-recovery approach.
+  538  For example, suppose that Add(a) has arrived at both servers {1,2} of some initial epoch. Say that Add(b)
+  539  has reached {1} so far, and Add(c) has reached {2}. Let the reconfiguration manager establish a decision on a new
+  540  epoch set {3, 4,5}. We may have server 3 suspend and pull messages {a, b} from {1}. Note that message a was
+  541  completed, and b may yet complete in the future; however, we cannot distinguish between these two situations. If
+  542  servers 4,5 were to do the same state transfer, it would then be possible for a client to perform a Get() in the new
+  543  epoch, and return {a, b}. This is the only safe response, as Add(b) could complete meanwhile.
+  544  Alternatively, servers 4,5 might pull {a, c} from {2}. At this point, because both 1 and 2 are wedged and will
+  545  not acknowledge further store requests, neither b nor c may ever complete in the current configuration. However,
+  546  this situation cannot be distinguished by the servers. Hence, when a client requests Get() in the new epoch, server
+  547  3 must responds with {a, b}, while 4,5 must respond with {a, c}. This is fine, since the client will return the
+  548  intersection {a} in response to Get().
+
+  549  14
+=== PAGE 15 ===
+
+  550  API:
+  551  Add(m): return(ACK)
+  552  Get(): return(S), such that:
+  553  if Add(m) completed before Get() was invoked, m ∈ S
+  554  if S0 = Get() completed before invocation, S0 ⊆ S
+  555  Reconfig(M): return(ACK)
+
+  556  Liveness condition:
+  557  throughout the lifetime of a membership M, a majority of servers are correct
+
+  558  Operation Add(m) at client: Upon ⟨store, m⟩ request at server and not wedged:
+  559  send(⟨store, m⟩) to servers save m to local store and return ACK
+  560  wait for replies from a majority of servers
+  561  return(ACK)
+  562  Operation Get() at client: Upon ⟨collect⟩ request at server and not wedged:
+  563  send(⟨collect⟩) to servers return all locally stored messages
+  564  wait for replies Sq from a majority of servers q
+  565  send(⟨store,∪q Sq ⟩) to servers
+  566  wait for replies from a majority of servers
+  567  return(∪qSq)
+
+  568  Operation Reconfig(M): Upon ⟨wedge, st⟩ request at server q:
+  569  Choose unique stake stop serving store/collect commands
+  570  Send(⟨wedge, stake⟩) request to servers unless accessed by higher-stake leader already
+  571  Wait for replies ⟨suspended, stake, ⟨st, RC⟩, Sq ⟩q return ⟨suspended, st, ⟨highst, highRC⟩, Sq ⟩
+  572  from a majority of servers q ⟨ , st, RC⟩ q
+  573  Upon accept ) request at server :
+  574  if any (st, RC) is non-empty
+  575  unless accessed by higher-stake leader already
+  576  choose RC of highest (st, RC) pair; highst ← st highRC ← RC
+  577  store ,
+  578  else ⟨start, st, RC⟩
+  579  send to servers in RC
+  580  let RC ← (M, ∪qSq )
+  581  Send(⟨accept, stake, RC⟩) At any server in RC
+  582  When a majority of servers in RC have started Upon obtaining ⟨start, st, RC = (M, S)⟩
+  583  return(ACK) from a majority of previous epoch
+  584  store S locally and start service
+
+  585  Figure 6: Majority-based Reliable Multicast with 2F + 1 Servers: Full Solution
+
+  586  15
+=== PAGE 16 ===
+
+  587  The service remains correct with such 'uncoordinated state transfer'. However, in some future epoch, events
+  588  might transpire in a way that causes all the servers to pull b and c from the preceding configuration. Suddenly,
+  589  b and c will become durable, and all future Get() requests will include them. We believe that this behavior is
+  590  undesirable. Indeed, in DSR we prevented such outcome by including in the consensus reconfiguration decision
+  591  a set of messages from the current configuration, such that no other messages may appear later. The connection
+  592  of the DRS approach to reconfiguration with the virtual synchrony approach to group communication may now
+  593  become apparent to readers familiar with that literature: DRS guarantees to terminate operations within the lifetime
+  594  of their invoking configuration. We now give a new formal definition of this old idea.
+  595  We'll start by explicitly modelling the configuration visible to a client when it invokes an operation. Notice
+  596  that this is a reasonable addition to our model, since any client-side library must locate and interact with servers
+  597  of the configuration, and hence it makes sense to rigorously specify the behavior of the associated interface. In
+  598  addition to Reconfig invoke and response events, we model Reconfig notification events, which arrive at clients
+  599  individually. Clients may be notified at different times about the same configuration.
+
+  600  Definition 2 We say that a client invokes operation o in configuration C if C is the latest Reconfig-notification
+  601  event at this client preceding o's invocation, or, in case no Reconfig-notification event has occurred, if C is the
+  602  initial configuration C0.
+
+  603  For example, for some client, we may have the following sequence of events: invoke Add(m1), response from
+  604  Add(m1), invoke Add(m2), Reconfig(C1) notification, response from Add(m2), invoke Add(m3), response from
+  605  Add(m3). In this sequence, the Add() operations of m1 and m2 are invoked in the initial configuration (C0), and
+  606  that of m3 is invoked in C1.
+  607  Now for Reliable Multicast, virtual synchrony requires the following:
+
+  608  Definition 3 (Virtually Synchronous Multicast) If Add(m) was invoked in configuration Ck, then if ever Get()
+  609  returns m, then for all configurations C`, where ` > k, a Get() invoked in C` returns m.
+
+  610  It is not hard to see that our Multicast reconfiguration strategy satisfies this condition, because whether or not
+  611  m is stored in future configuration is determined by the reconfiguration decision itself.
+  612  For arbitrary services, we would consider operations which have an effect on others. In the Multicast case,
+  613  Add operations change the behavior of future Get requests: Get() must return all previously sent messages. More
+  614  generally, an operation o of type O which has an effect on operations o0 of type O0 changes the outcome of o0 if the
+  615  response event for o occurs before o0 is invoked. Conversely, we say that o0 reflects o.
+  616  The Virtual Synchrony guarantee implies the following:
+
+  617  Definition 4 (Virtual Synchrony) Consider an operation o of type O which has an effect on operations of type
+  618  O0 . If o was invoked in configuration C , then if any operation o0 of type O0 reflects o, then for all configurations
+  619  k
+  620  C , where ` > k, operations w0 of type O0 invoked in C reflect o.
+  621  ` `
+
+  622  16
+=== PAGE 17 ===
+
+  623  7 Dynamic State Machine Replication and Virtually Synchronous Paxos
+
+  624  In this section, we take our Dynamic Service Replication (DSR) epoch-changing approach into the generic realm
+  625  of State Machine Replication (SMR). In the state machine replication approach, replicas are implemented as deterministic state machines. The state machines start with a common initial state and apply commands in sequence
+  626  order. This approach yields a protocol we refer to as Virtually Synchronous Paxos2. Paxos-users will recognize
+  627  the close similarity of the protocol to the standard Paxos, yet in contrast with Reconfigurable Paxos and other
+  628  reconfigurable SMR implementations, this solution achieves higher steady state performance with less complexity
+  629  around the handling of reconfiguration.
+
+  630  7.1 On Paxos Anomalies
+  631  SMR operates on an infinite sequence of commands. Even though the sequence of commands is logically active
+  632  all the time, in reality, systems progress in epochs: During each epoch, a fixed leader chooses a dense sequence of
+  633  commands. Then, the leader is replaced, and a new epoch starts. The new leader starts where the previous leader
+  634  stopped, and passes another subsequence of commands. And so on. If we envision the sequence of commands
+  635  as a horizontal axis, then each leader-epoch lasts a contiguous segment along the horizontal axis. Nevertheless,
+  636  abstractly, the same consensus protocol runs in the entire infinite sequence of commands, ignoring epoch and
+  637  leader changes. Each instance vertically runs a succession of leaders, though each leader takes actual actions only
+  638  in some instances, and none in others. The consensus-based point of view makes arguing correctness easy.
+  639  Unfortunately, the seemingly obvious intuition about epochs is wrong, and may lead to undesirable effects.
+  640  Consider the scenario depicted in Figure 7. We have two Leaders U and V contending for the same pair of offsets,
+  641  k and k + 1. U proposes uk at k and uk+1 and k + 1, intending that uk executes before uk+1. V proposes vk
+  642  and vk+1 for these offsets. Consider the case where neither Leader U nor V obtains acceptance of a majority to
+  643  their proposals. Hence, a third Leader W , starts after U and V are both retired. W finds traces of the command
+  644  uk+1, proposed by U, at offset k + 1, and of the command vk, proposed by V , at offset k. Paxos mandates W
+  645  to re-propose vk and uk+1 at k and k + 1, respectively. If W is a stable leader, then indeed vk and uk+1 will be
+  646  chosen. But this violates the intended ordering constraint of the proposers!
+  647  In the above situation, Paxos permits the intended ordering of commands to be violated. As noted by the
+  648  engineers who designed and built the Yahoo! ZooKeeper service [17], there are real-life situations in which leaders
+  649  intend for their proposed k+ 1 command to be executed only if their proposed k command is done first. To achieve
+  650  high performance many such systems are forced to pipeline their proposals, so a leader might propose command
+  651  k + 1 without waiting for a decision on command k. Paxos is quite capable of choosing k + 1 but not k, and
+  652  (as just noted) there are conditions under which it might choose both, but each one from a different leader. This
+  653  particular case was sufficiently troublesome to convince the ZooKeeper engineers to move away from Paxos and
+  654  to implement a virtually-synchronous, epoch-by-epoch type of leader election in their system.
+  655  So far, we have only discussed simple leader-changes. Our scenario turns out to have even more serious
+  656  ramifications for previous reconfigurable SMR solutions. Recall that vanilla Paxos allows reconfiguration of the
+  657  system that implements the state machine by injecting configuration-changing commands into the sequence of
+  658  state machine commands. This is a natural use of the power of consensus inherent in the implementation of
+  659  SMR. It entails a concurrency barrier on the steady-state command path: Suppose we form a reconfiguration
+  660  command, for example, at index y in the sequence of commands. The command determines how the system will
+  661  form the agreement decision on subsequent commands, for example, at index y + 1 onward. More generally,
+  662  the configuration-changing command at y may determine the consensus algorithm for commands starting at index
+  663  2 This is a good juncture at which to note that Leslie Lamport was involved in an earlier stage of this research. Although he is not a
+  664  co-author on this paper, his help in the initial formulation of our problem was invaluable, and this choice of protocol name is intended to
+  665  acknowledge the strong roots of our protocol in his earlier work.
+
+  666  17
+=== PAGE 18 ===
+
+  667  Figure 7: Anomalous Paxos behavior.
+
+  668  y + α, for some pre-determined concurrency parameter α. We must wait for a reconfiguration decision at y
+  669  to complete before we inject additional command requests to the system, at index y + 1 onward (or y + α in
+  670  the general case). This barrier effectively reduces the system to one-by-one execution of commands, hence if
+  671  reconfigurable Paxos is used, it would normally be deployed with α greater than 1 [23].
+  672  But, now consider the behavior of a Paxos-based SMR solution with α > 1. Recall the scenario of contending
+  673  leaders in Figure 7 above, and suppose that commands vk and uk+1 are reconfiguration commands, which are
+  674  mutually incompatible. This may cause the current configuration to issue two (or more) Reconfig commands, up
+  675  to the maximum of α commands. Suppose that all of these were intended to apply to the configuration in they
+  676  were issued. The first to be chosen will update the configuration as usual. But what are we to do when a second or
+  677  subsequent command is chosen? These commands may no longer make sense. For example, a pending request to
+  678  remove a faulty server from the configuration might be chosen after one that switches to a configuration in which
+  679  that server is no longer a member. Executing these reconfigurations one after another is nonsensical. Likewise, a
+  680  command to change a protocol parameter might be executed in a context where the system has reconfigured and is
+  681  now using some other protocol within which that parameter has a different meaning, or no meaning at all.
+  682  If we use a window α larger than 1, then such events will be possible. An approach that seeks to prevent
+  683  these commands from being chosen once they are no longer meaningful would require us to implement complex
+  684  semantic rules. Allowing them to be chosen forces the application designer to understand that a seemingly "buggy"
+  685  behavior is actually permitted by the protocol. In practice, many Paxos implementations (indeed, all that we know
+  686  of) either do not support reconfiguration at all, or set α to 1, thus serializing command processing: only one
+  687  command can be performed at a time. Batching commands can alleviate this cost: rather than one command at a
+  688  time, the system might perform β at a time, for some parameter β. But this can help only to a limited degree.
+  689  Our remarks may come as a surprise to readers familiar with SMR and Paxos, because many published presentations of the model and protocols omit any discussion of the complexities introduced by reconfiguration. These
+  690  remarks are not entirely new, and summarize several recent works which allude to these difficulties: The causalityviolating scenario has been pointed out in [17], and Paxos reconfiguration idiosyncracies were discussed in [22].
+
+  691  7.2 Virtually Synchronous SMR
+  692  We now give a full solution to the dynamic SMR problem which avoids the above undesired behavior. As for the
+  693  multicast service, we flesh out two approaches, a fault-recovery solution and a fault-masking one. The latter we
+
+  694  18
+=== PAGE 19 ===
+
+  695  also call "Virtually Synchronous Paxos" because of its resemblance to the Paxos protocol.
+  696  We model an SMR service as providing clients with a Submit(op) API to atomically perform op on a shared
+  697  object obj. Below, we denote by objk the object state after k operations. For durability, we store obj at a group of
+  698  servers: F + 1 in the fault-recovery approach, and 2F + 1 for fault-masking. We denote by objq the copy stored
+  699  by server q. As usual, we provide a Reconfig API in order to reconfigure the service.
+  700  It is worth noting that our model is slightly different from the standard SMR model, in which there is a distributed engine for forming total order on commands and a separate one for execution. In most deployments, the
+  701  same set of servers is used for both roles, and this simplifies our exposition.
+
+  702  Fault-Recovery Virtually Synchronous SMR
+  703  We begin with a fault-recovery approach, which utilizes only F + 1 state machine servers for F-tolerance. As
+  704  usual, this means that an auxiliary configuration engine is responsible for forming a consensus decision on the next
+  705  configuration. This captures the classical primary-backup approach for replication, and extends it with a precise
+  706  treatment of reconfiguration. Figure 9 describes the problem definition and gives a full solution in pseudo-code. We
+  707  give one reconfiguration procedure for all cases, though specific scenarios may be further optimized, e.g., single
+  708  backup failure, deploying a new secondary without failures, etc. Our formulation follows precisely the Vertical
+  709  Paxos protocol [21], and we repeat it here for completeness.
+  710  The steady-state solution designates one server as primary. The primary obtains command requests from
+  711  clients. For each request, it picks the next unused index k in the sequence of commands and requests the servers
+  712  to accept the new command as the k'th. (If computing an operation is a heavy burden, the primary may opt to
+  713  precompute the next state objk and send it to servers for efficiency, instead of sending the operation itself. This
+  714  trick may also be used in case non-deterministic operations are to be supported.) A command is completed when
+  715  the client received a (deterministic) response from all servers.
+  716  We put our DSR methodology to action in order to reconfigure state machines by having a reconfiguration
+  717  decision that stops the sequence of state machine commands. The reconfiguration procedure first wedges (at least)
+  718  one server. Here, the server's protocol is to respond to client's wedge messages with the latest object state and
+  719  its index objq, kq. The initiating client then lets the consensus engine form a decision on the next configuration.
+  720  Crucially, the consensus decision contains the new configuration as well as the closing state of the current configuration. The decision value determines the configuration used in the next SMR instance and its initial object state.
+  721  This decision effectively completes operations up to the k'th (and as usual, results of uncompleted operations are
+  722  returned to their clients).
+  723  Once a decision is formed on both the new configuration and on its closing state, we can start the new state
+  724  machine. However, in order for the new configuration to uphold linearizability [16], the sequence of commands
+  725  in the new configuration must follow those of the current configuration. We achieve this by initializing the servers
+  726  of the new configuration with the closing state of the object from the current configuration. Any server in the new
+  727  membership M0 that learns the decision (M0, k , obj ) can start the new configuration by (i) initializing its local
+  728  q q
+  729  state to kq, objq and becoming enabled for normal command processing. Our liveness condition guarantees that
+  730  the transfer can complete before reconfiguration is done to at least one server in the next configuration, and that
+  731  some future configuration can become completely enabled. Accordingly, only upon receiving acknowledgement
+  732  from all servers of that configuration, the Reconfig response event occurs.
+
+  733  Fault-Masking Virtually Synchronous SMR
+  734  We continue in Figure 9 with a fault-masking virtually synchronous SMR solution, which we call Virtually Synchronous Paxos. Although we could use the Paxos Synod protocol even in steady-state mode, we present a simpler
+  735  version that uses a fixed primary. When the primary fails, we simply reconfigure to facilitate progress. Reconfiguring upon primary replacement in this manner alleviates the anomalous behavior related with primary transition in
+
+  736  19
+=== PAGE 20 ===
+
+  737  API:
+  738  Submit(op): execute op atomically on object and return result r = apply(op, obj)
+  739  Reconfig(M): return(ACK)
+
+  740  Liveness condition:
+  741  throughout the lifetime of a membership M, one server is correct and
+  742  there exists a future membership M0 in which all servers are correct throughout the startup of Reconfig(M0)
+
+  743  Operation Submit(op) at client: Upon ⟨op⟩ request at primary:
+  744  send ⟨op⟩ to designated primary send ⟨submit, k, op⟩ to servers
+  745  wait for responses r from all servers increment k
+  746  return(r) possibly optimize:
+  747  rk ← apply(op, objk−1)
+  748  send ⟨submit, k, objk, rk⟩
+
+  749  Upon ⟨submit, k, op⟩ request at server and not wedged:
+  750  let rk ← apply(op, objk−1)
+  751  store k, objk
+  752  send rk to client
+
+  753  Operation Reconfig(M): Upon ⟨wedge⟩ request at server q:
+  754  Send ⟨wedge⟩ request to servers stop serving submit commands
+  755  Wait for reply ⟨suspended, kq , objq ⟩q return ⟨suspended, kq, objq⟩
+  756  from any server q
+  757  Invoke consensus engine decide(M, k , obj ) At any server in M0
+  758  q q
+  759  When all servers of new epoch have started Upon learning (M0, k , obj ) ← decide():
+  760  q q
+  761  return(ACK) initialize local k, obj from kq, objq and start service
+
+  762  Figure 8: Fault-Recovery Virtually Synchronous SMR with F + 1 servers (Vertical Paxos)
+
+  763  Paxos pointed above in Figure 7. Leader election of our Virtually Synchronous Paxos within a fixed configuration
+  764  is similar to the leader change protocol of ZooKeeper [17].
+  765  Steady state operation is done as follows. The primary obtains command requests from clients. For each
+  766  request, it picks the next unused index k in the sequence of commands and requests the servers to accept the new
+  767  command as the k'th. (The same optimization of pre-computing the resulting state is possible in case computing
+  768  is expensive or non-deterministic, but not shown in the code.) A command is completed when the client received
+  769  a (deterministic) response from majority of servers.
+  770  Recall that when reconfiguration is desired, we need to form agreement both on the next configuration and
+  771  on the closing state of the current configuration. A client that wishes to reconfigure chooses a unique stake and
+  772  performs the following two phases.
+  773  Phase 1: The client performs one exchange with a majority of servers. When it hears back from servers, it learns
+  774  the latest computed state of the object objk known to servers. This reflects a prefix of the commands sequence
+  775  proposed by the primary, whose tail may not have been completed yet. It also learns with respect to the
+  776  configuration-changing decision either: (1) A reconfiguration command RC that might have been chosen, or
+  777  (2) That no command was chosen. In this exchange, the client also obtains a commitment from the servers
+  778  to ignore future messages from any lower stake client.
+  779  Phase 2: The client performs another single exchange with a majority of servers. If case (1) applies, then it tells
+
+  780  20
+=== PAGE 21 ===
+
+  781  API:
+  782  Submit(op): execute op atomically on object and return result r = apply(op, obj)
+  783  Reconfig(M): return(ACK)
+
+  784  Liveness condition:
+  785  throughout the lifetime of a membership M, a majority of servers are correct
+
+  786  Operation Submit(op) at client: Upon ⟨op⟩ request at primary:
+  787  send ⟨op⟩ to designated primary send ⟨submit, k, op⟩ to servers
+  788  wait for responses r from a majority of servers increment k
+  789  return(r)
+  790  Upon ⟨submit, k, op⟩ request at server and not wedged:
+  791  let rk ← apply(op, objk−1)
+  792  store k, objk
+  793  send rk to client
+
+  794  Operation Reconfig(M): Upon ⟨wedge, st⟩ request at server q:
+  795  choose unique stake stop serving submit commands
+  796  send ⟨wedge, stake⟩ request to servers unless accessed by higher-stake leader already
+  797  wait for replies ⟨wedged, (st, RC), kq , objq ⟩ return ⟨wedged, stq, RCq , kq , objq ⟩
+  798  from each server q in a majority ⟨ ⟩
+  799  Upon accept, st, RC request at server q:
+  800  if any (st, RC) is non-empty
+  801  unless accessed by higher-stake leader already
+  802  choose RC of highest (st, RC) pair;
+  803  store st, RC
+  804  else ⟨ , st, RC⟩
+  805  send start to servers in RC
+  806  let RC ← (M, kq , objq ) of highest kq
+  807  send ⟨accept, stake, RC⟩ At any server in RC
+  808  Upon obtaining ⟨start, st, RC = (M, kq, objq)⟩
+  809  when a majority of servers in RC have started from a majority of previous epoch
+  810  return(ACK) initialize obj state from RC and start service
+
+  811  Figure 9: Fault-Masking Virtually Synchronous SMR with 2F + 1 servers (Virtually Synchronous Paxos)
+
+  812  servers to choose RC. Otherwise, in case (2), it proposes a new RC which contains the new membership
+  813  and the closing state (k, objk). In either case, a client may propose only one reconfiguration for a particular
+  814  stake.
+
+  815  The server's protocol is to respond to client's messages, unless it was instructed by a higher-stake client to
+  816  ignore this client: In phase 1, server q responds with the latest object state objq; and with the value of a reconfiguration proposal RC of the highest-ranking client it knows of, or empty if none. In phase 2, it stores a client's
+  817  proposal and acknowledges it in the form of a start message to the servers of the new configuration.
+  818  Any server in the new membership that learns the decision RC from a majority of servers in the current
+  819  configuration (directly or indirectly) can start the new configuration by (i) initializing its local object to RC.obj
+  820  and becoming enabled for normal command processing. Our liveness condition guarantees that the transfer can
+  821  complete before reconfiguration is done. Accordingly, only upon receiving acknowledgement from a majority of
+  822  servers in RC.M, the Reconfig response event occurs.
+
+  823  21
+=== PAGE 22 ===
+
+  824  8 Dynamic Read/Write Storage
+
+  825  In this section, we complement our arsenal of dynamic services with a solution to the dynamic Read/Write storage
+  826  problem. A Read/Write Storage service provides two API methods, Read and Write, which execute atomically.
+  827  This classical problem received much attention in the literature, starting with the seminal fault tolerant solution for
+  828  static environments by Attiya et al. [5], and continuing with several recent storage systems for dynamic settings [24,
+  829  14, 12, 1, 33]. The full problem description and pseudo-code solution are given in Figure 10 below. The solution
+  830  resembles the RDS protocol of Chockler et al. [12], but differs in that it maintains the virtual synchrony property
+  831  and uses fewer phases. Although the solution approach is very similar to the Reliable Multicast one, we discuss it
+  832  here for completeness. However, we only describe one flavor, a fault-masking protocol; the reader can complete
+  833  the other variants based on the Multicast example. The fault-masking solution employs 2F + 1 servers, each of
+  834  which stores a copy of a shared object obj along with a logical update timestamp t. We denote by objq, tq, the
+  835  local copies stored at server q.
+
+  836  22
+=== PAGE 23 ===
+
+  837  and return(ACK)
+
+  838  , a majority of servers are correct
+
+  839  Figure 10: Majority-based Atomic Read/Write Storage with
+
+  840  API:
+  841  Write(v): execute write(v) atomically on obj
+  842  Read(): execute read() atomically on obj and return(u)
+  843  Reconfig(M): return(ACK)
+
+  844  Liveness condition:
+  845  throughout the lifetime of a membership M
+
+  846  Operation Write(v) at client:
+  847  send(⟨writequery⟩) to servers
+  848  wait for replies ⟨tq ⟩ from a majority of servers q
+  849  choose t greater than all tq
+  850  send(⟨store, v, t⟩) to servers
+  851  wait for replies from a majority of servers
+  852  return(ACK)
+  853  Operation Read() at client:
+  854  send(⟨collect⟩) to servers
+  855  wait for replies ⟨vq , tq ⟩ from a majority of servers q
+  856  let ⟨v, t⟩ be the pair of highest timestamp
+  857  send(⟨store, v, t⟩) to servers
+  858  wait for replies from a majority of servers
+  859  return(v)
+
+  860  Operation Reconfig(M):
+  861  Choose unique stake
+  862  Send(⟨wedge, stake⟩) request to servers
+  863  Wait for replies ⟨suspended, stake, ⟨st, RC⟩, objq, tq⟩q
+  864  from a majority of servers q
+  865  if any (st, RC) is non-empty
+  866  choose RC of highest (st, RC) pair;
+  867  else
+  868  let RC ← (M, objq , tq ) of highest tq
+  869  Send(⟨accept, stake, RC⟩)
+  870  When a majority of servers in RC have started
+  871  return(ACK)
+
+  872  23
+
+  873  Upon ⟨writequery⟩ request at server q and not wedged:
+  874  return ⟨tq ⟩
+
+  875  Upon ⟨store, v0 , t0⟩ request at server q and not wedged:
+  876  if t0 > t save v0, t0 to obj , t
+  877  q q q
+  878  return ACK
+
+  879  Upon ⟨collect⟩ request at server q and not wedged:
+  880  return ⟨objq, tq ⟩
+
+  881  Upon ⟨wedge, st⟩ request at server q:
+  882  stop serving store/collect/writequery commands
+  883  unless accessed by higher-stake leader already
+  884  return ⟨suspended, st, ⟨highst, highRC⟩, objq , tq⟩
+  885  Upon ⟨accept, st, RC⟩ request at server q:
+  886  unless accessed by higher-stake leader already
+  887  store highst ← st, highRC ← RC
+  888  send ⟨start, st, RC⟩ to servers in RC
+  889  At any server in RC
+  890  Upon obtaining ⟨start, st, RC = (M, objq, tq )⟩
+  891  from a majority of previous epoch
+  892  store v, t, locally and start service
+
+  893  2F + 1 Servers: Full Solution
+=== PAGE 24 ===
+
+  894  9 DSR in Perspective
+
+  895  Although our development portrays reconfiguration as a relatively linear task that entails making a series of seemingly straightforward decisions, there exist many incorrect or inefficient reconfiguration solutions in the published
+  896  literature. In this section, we discuss the reasoning that can lead to complexity in dynamic membership protocols,
+  897  and because of that complexity, expose the solution to potential bugs. As a first step it may be helpful to express
+  898  our solution as a high-level recipe. Abstractly, the DSR epoch-by-epoch reconfiguration strategy entails the steps
+  899  listed below. We have numbered the steps as either A.n or B.n to indicate that steps A/B may intermix in any order:
+
+  900  A.1 In the current configuration, form a consensus decision on the next configuration.
+  901  B.1 Suspend the current configuration from serving new requests (in progress requests may continue to completion, or die).
+  902  B.2 Take a snapshot of the current configuration's closing state. A legitimate (non-unique) snapshot must contain
+  903  all operations ever to complete.
+  904  B.3 Form agreement on a legitimate closing state. In fault-recovery solutions, this agreement must be carried by
+  905  the configuration manger, or in the next configuration (after the configuration manager has designated one).
+  906  In a fault-masking solution, it may be carried by either the current configuration or the next one, but we must
+  907  a priori designate which one has the responsibility.
+  908  A.2/B.4 Enable servers in the next configuration initialized with the consensus snapshot state formed in step B.3.
+
+  909  With this in mind, we pause to highlight some of the more common pitfalls that have traditionally led researchers (including the authors of the current paper) to propose less than ideal solutions.
+
+  910  9.1 Speculative-views
+  911  One design decision that we recommend against arises when a service is optimized for high availability by adding
+  912  a mechanism that will copy state and enable activity in a new epoch that has been proposed, but not finalized,
+  913  for example during intermediate steps of the agreement protocol. Much prior work in the group communication
+  914  literature falls in this category [9, 3, 4, 35, 34, 6]; a significant body of PhD dissertations and published papers on
+  915  transient/ambiguous configurations, extended/weak virtual synchrony, and others, were devoted to this strategy [2,
+  916  13, 18, 27]. Many other works in the group-communication area are covered in the survey by Chockler et al. [15].
+  917  The group communication approach essentially performs the task of steps A.1 and B.1-B.3 inside a speculative
+  918  next configuration, in an attempt to optimize and transfer-state while forming agreement on it. This works roughly
+  919  as follows.
+
+  920  A.1 In the current configuration, form a proposal on the next configuration.
+  921  A.2(B.1) Suspend those members of the next configuration which persist from the current one from serving new
+  922  requests.
+  923  A.3(B.2-3) Among the members of the proposed next configuration, form agreement on both the transition itself,
+  924  and on a legitimate snapshot of the current configuration's closing state. The snapshot decision incorporates input from those members which persist from the current configuration and from previously attempted
+  925  proposed configurations.
+  926  A.4 If the next configuration fails to reach consensus, go back to step A.1.
+
+  927  24
+=== PAGE 25 ===
+
+  928  A.5(B.4) Enable servers in the next configuration (their state is already initialized with the consensus snapshot
+  929  state formed in step A.3.)
+
+  930  While the resulting solutions can certainly be implemented and proved correct, they require protocol steps in
+  931  which the members of a new epoch collect information from every view in which operations might have been
+  932  performed, so that the view that will ultimately be used has full knowledge of the service state. Such solutions can
+  933  embody substantial complexity, and this of course means that implementations will often be quite hard to debug.
+  934  As an example scenario, let's revisit the scenario explored above, with an initial membership {1,2, 3}. During
+  935  reconfiguration, a client could propose a new epoch configuration consisting of server-set {2,3,4}. A typical
+  936  complication here was for servers {2, 3,4} to form a "transient" configuration without waiting for a majority of
+  937  the previous epoch to acknowledge it. They perform a state transfer and start serving client requests immediately.
+  938  Thus, servers {3,4} might respond to a Get() request with a message-set containing {b, c}. In the end, we may
+  939  form consensus on a different configuration, say {1, 2,5}. If we only collect information from a majority of the
+  940  previous epoch, say {1,2}, we might "forget" message c. Note that we intentionally chose a new server-set that
+  941  intersects with a majority of the members of the previous epoch. We did so to illustrate that there are situations
+  942  in which a set large enough to reach agreement could nonetheless not suffice if a system needs to discover every
+  943  durable message.
+  944  We therefore need to collect information from the transient configuration, so as not to lose message c. This
+  945  is not only complex, but there is no guarantee that we will find traces of the transient epoch, unless we enforce
+  946  additional constraints, the dynamic-quorum rule, as we now show.
+
+  947  9.2 Dynamic-quorums and Cascading changes.
+  948  The above scenario leads us to another common pitfall. In essence, it requires that cascading epoch changes
+  949  jointly have a non-empty intersection. This guarantees that speculative epochs all intersect and become aware of
+  950  one another. In the example above, server 2 is in the intersection of all attempted changes, and so we rely on
+  951  information collected from it to discover the transient epoch, and collect information from its majority as well.
+  952  More generally, a line of related works emanating from those with speculative configurations was devoted to
+  953  the issue of handling "cascading reconfigurations", and to quorum intersection rules that guarantee to maintain a
+  954  unique primary quorum through such cascading changes, e.g., [30, 37]. This constraint is unnecessary.
+  955  In our method, consensus is reached by a majority in the current epoch; the next epoch need not share any
+  956  servers with the previous one. More generally, our epoch-by-epoch approach emphasizes that one only needs
+  957  to deal with one epoch at a time, and that cascading or chained epochs just aren't necessary (nor do they have
+  958  any performance or code complexity benefit; indeed, quite the opposite). The correct algorithmic foundation we
+  959  establish terminates an epoch with a configuration-changing decision. It does not matter if we have a centralized
+  960  configuration manager, or run a distributed consensus protocol; both are part of the current epoch, and it is well
+  961  defined who determines the next configuration. The next epoch is uniquely determined in the current epoch, and
+  962  transition to it is irreversible. When an epoch ends, a new epoch starts a new incarnation of the same algorithm
+  963  (albeit with a non-empty initial service state), whose participants and messages do not mix with the current epoch.
+  964  The new epoch may itself decide to reconfigure, and we iterate through epoch changes again. Any number of
+  965  reconfigurations can be chained in this manner, with no difficulty at all.
+  966  In the example above, either we decide to transition to {2,3,4} or not. If a decision is made, it is irreversible.
+  967  A future decision to switch to {1,2,5} must be taken by the new epoch, after it is enabled. It is achieved with
+  968  the normal decision and state transfer mechanism. Conversely, if there is no decision on {2,3, 4}, then no client
+  969  operation executes in that epoch. Later, when a different decision is reached the new epoch starts with servers
+  970  {1,2,5}.
+
+  971  25
+=== PAGE 26 ===
+
+  972  9.3 Off-line Versus on-line reconfiguration
+  973  We need to comment briefly on our decision to use an off-line reconfiguration strategy. A recent line of works, pioneered by the RAMBO project [24] and continued in Rambo II [14], RDS [12], DynaStore [1] and DynaDisk [33],
+  974  emphasize the importance of non-blocking reconfiguration. These systems tackle dynamic Read/Write storage
+  975  services, but the same design issues occur in Reliable Multicast and other, similar services.
+  976  In the "RAMBO" approach, the solution is further optimized by mechanisms that prevent a client from ever
+  977  encountering a suspended service. This on-line transition comes, however, at the cost of greater system complexity.
+  978  RAMBO clients continue accessing the Read/Write objects by interacting both with the current and the next
+  979  epoch. Every Read operation copies the object it accesses from one epoch to the next. Every Write operation also
+  980  accesses a majority in the previous epoch, but no copying of data is necessary. Even if clients access objects which
+  981  have already been copied to the new epoch (which would be the common case for "hot objects"), they still need to
+  982  access majorities in all active configurations. The advantage is that RAMBO never blocks any client request, even
+  983  momentarily, but the disadvantage is the complication of sorting through responses from two epochs and figuring
+  984  out which one is more current.
+  985  Even more importantly, the on-line reconfiguration approach prevents a client from ever "sealing" partiallycompleted operations which were initiated in the current epoch. Traces of those may transfer to later epochs,
+  986  and become durable arbitrarily far in the future. Such behavior may not be desirable for applications engineered
+  987  with a Reliable Multicast (or Read/Write) infrastructure, as we saw earlier in our discussion of Virtual Synchrony
+  988  (Section 6).
+  989  By comparison, the advantage of off-line reconfiguration is simplicity: clients only deal with a single system
+  990  view at a time. We therefore see the off-line reconfiguration strategy above as occupying an attractive sweet-spot,
+  991  despite the need to briefly block the service while switching from the old to the new configuration. On the other
+  992  hand, off-line reconfiguration comes with its own form of complexity: the need to think hard about state transfer.
+  993  If the service state might become large (for example, if the server is an entire file system or database) state transfer
+  994  may entail moving a huge amount of data from the old to the new servers. Blocking the service while this occurs
+  995  can be prohibitive, and even doing it rapidly may degrade the responsiveness of a service to an unacceptable degree.
+  996  Thus our suggestion that state be transferred in advance of the reconfiguration, as much as possible, is important
+  997  and may be key to using this approach in settings where service unavailability must be minimized.
+  998  By pre-transferring server state, the amount of state actually moved in the last steps of the procedure can be
+  999  minimized and clients prevented from seeing much of a disruption. Moreover, the actual mechanism needed for
+ 1000  this sort of anticipatory state transfer is fairly simple; the new server needs to fetch and load the state, and also
+ 1001  needs some way to compute the delta between the loaded state and the initial state assigned to it in the new epoch,
+ 1002  which will reflect operations that completed after it fetched that preloaded state and before the consensus decision
+ 1003  was made.
+
+ 1004  9.4 Paxos Anomaly
+ 1005  The anomalous behavior we encountered when discussing Paxos reconfiguration illustrated a different kind of
+ 1006  problem. Recall that vanilla Paxos is quite simple but runs in a fixed configuration. In contrast, reconfigurable
+ 1007  Paxos introduced not just a leader-changing procedure, but also a set of secondary issues that represent side-effects
+ 1008  of the way in which reconfiguration is supported. Although the per-command leader transition in Paxos entails a
+ 1009  virtually-synchronous reconfiguration, the actions of a new leader are made independently for each command. In
+ 1010  this way, leader W in our example above could not know that leader V 's proposal to command k + 1 implies that
+ 1011  no command was committed by its predecessor, leader U, at command k.
+ 1012  Reconfigurable Paxos with α > 1 indeed forms an orderly succession of configurations, but suffers from the
+ 1013  same leader-change anomaly above within the window of α commands.
+
+ 1014  26
+=== PAGE 27 ===
+
+ 1015  10 Related Work
+
+ 1016  Our primary contribution in this paper is to offer a unifying framework for the problem of dynamic service reconfiguration. We are not aware of any prior work on this question. Closest was the survey of Chockler, et al. [15],
+ 1017  which offers a very interesting review of group communication systems in a single model. However, the main
+ 1018  objective in that work was to contrast the guarantees offered by each category of solution and to categorize the
+ 1019  weakest progress (liveness) assumptions made in each. In particular, the model used didn't formalize the reconfiguration topic as a separate mechanism, and hence doesn't get at the kinds of fine-grained choices, and their
+ 1020  consequences, explored here.
+ 1021  Our epoch-by-epoch approach draws heavily on prior work on group communication. As mentioned, a good
+ 1022  survey of group communication specifications appears in [15]. The approach resembles Virtual Synchrony [7, 11],
+ 1023  but unlike our approach Virtual Synchrony does not provide linearizability. The approach also resembles Reconfigurable Paxos (as worked out in SMART [23]), but as pointed out in Section 7 this approach allows anomalous
+ 1024  behavior. Approaches like Boxwood [25] and Chain Replication [36] allow reconfiguration with the help of an
+ 1025  external configuration service.
+ 1026  There has also been considerable work on reconfigurable read/write stores, such as RAMBO [24], Dynamic
+ 1027  Byzantine Storage [26], and DynaStore [1]. Our approach allows more general operations. Our liveness model is
+ 1028  entirely based on that of DynaStore, however.
+ 1029  This review of prior work could cite a huge number of papers on specific multicast protocols, message-queuing
+ 1030  middleware products, publish-subscribe products, enterprise service buses ands related technologies. However, we
+ 1031  concluded that to do so would be tangential and perhaps even confusing to the reader. First, only some of these
+ 1032  prior technologies offered durability, and among the ones that did (such as message-queuing middleware), some
+ 1033  accomplished that goal using non-reconfigurable databases or logging servers. Thus, while the area is rich in prior
+ 1034  work, the prior work on durability across reconfigurations is much scantier, and we believe the key works on that
+ 1035  specific topic are precisely the ones we looked at closely in the body of this paper.
+
+ 1036  27
+=== PAGE 28 ===
+
+ 1037  References
+
+ 1038  [1] M. Aguilera, I. Keidar, D. Malkhi, and A. Shraer. Dynamic atomic storage without consensus. In Proceedings
+ 1039  of the ACM Symposium on Principles of Distributed Computing (PODC), 2009.
+ 1040  [2] Y. Amir. Replication Using Group Communication Over a Partitioned Network. PhD thesis, Hebrew University of Jerusalem, September 1995.
+ 1041  [3] Y. Amir, D. Dolev, S. Kramer, and D. Malkhi. Transis: A communication subsystem for high availability.
+ 1042  In Proc. of the Twenty-2nd Int. Symp. on Fault-Tolerant Computing, pages 76–84, Boston, MA, July 1992.
+ 1043  IEEE.
+ 1044  [4] Y. Amir, L.E. Moser, P.M. Melliar-Smith, D.A. Agarwal, and P. Ciarfella. The Totem single-ring ordering
+ 1045  and membership protocol. Trans. on Computer Systems, 13(4):311–342, November 1995.
+ 1046  [5] H. Attiya, A. Bar Noy, and D. Dolev. Sharing memory robustly in message passing systems. Journal of the
+ 1047  ACM, 42(1):121–132, 1995.
+ 1048  [6] ¨O. Babao˘glu, R. Davoli, L. A. Giachini, and M. G. Baker. Relacs: A communication infrastructure for
+ 1049  constructing reliable applications in large-scale distributed systems. In Proc. of the the 28th Hawaii Int.
+ 1050  Conf. on System Sciences, pages 612–621. IEEE, January 1995.
+ 1051  [7] K. Birman and T. Joseph. Exploiting virtual synchrony in distributed systems. In 11th ACM Symposium on
+ 1052  Operating Systems Principles. ACM, 1987.
+ 1053  [8] K. P. Birman and T. A. Joseph. Exploiting virtual synchrony in distributed systems. In Proc. of the 11th ACM
+ 1054  Symp. on Operating Systems Principles, pages 123–138, Austin, TX, November 1987. ACM Press.
+ 1055  [9] K.P. Birman. Replication and availability in the ISIS system. In Proc. of the 10th ACM Symp. on Operating
+ 1056  Systems Principles, pages 79–86, Orcas Island, WA, December 1985.
+ 1057  [10] K.P. Birman. Reliable Distributed Systems: Technologies, Web Services and Applications. Springer-Verlag,
+ 1058  2005.
+ 1059  [11] K.P. Birman. A history of the Virtual Synchrony replication model. In B. Charron-Bost, F. Pedone, and
+ 1060  A. Schiper, editors, Replication: Theory and Practice, volume 5959 of Lecture Notes in Computer Science,
+ 1061  chapter 6, pages 91–120. Springer-Verlag, 2010.
+ 1062  [12] G. Chockler, S. Gilbert, V.C. Gramoli, P.M. Musial, and AA.A. Shvartsman. Reconfigurable distributed
+ 1063  storage for dynamic networks. In 9th International Conference on Principles of Distributed Systems
+ 1064  (OPODIS'05), December 2005.
+ 1065  [13] R. Friedman. Consistency Conditions for Distributed Shared Memories. PhD thesis, Technion, 1994.
+ 1066  [14] S. Gilbert, N. Lynch, and A. Shvartsman. Rambo II: Rapidly reconfigurable atomic memory for dynamic
+ 1067  networks. In Proc. of the 17th Intl. Symp. on Distributed Computing (DISC), pages 259–268, June 2003.
+ 1068  [15] R. Vitenberg G.V. Chockler, I. Keidar. Group communication specifications: a comprehensive study. ACM
+ 1069  Computing Surveys, 33(4), December 2001.
+ 1070  [16] M. Herlihy and J. Wing. Linearizability: a correctness condition for concurrent objects. ACM Transactions
+ 1071  on Programming Languages and Systems (TOPLAS), 12(3):463 – 492, 1990.
+
+ 1072  28
+=== PAGE 29 ===
+
+ 1073  [17] F. Junqueira, P. Hunt, M. Konar, and B. Reed. The ZooKeeper Coordination Service (poster). In Symposium
+ 1074  on Operating Systems Principles (SOSP), 2009.
+ 1075  [18] I. Keidar. Consistency and High Availability of Information Dissemination in Multi-Processor Networks.
+ 1076  PhD thesis, Hebrew University of Jerusalem, October 1998.
+ 1077  [19] L. Lamport. Time, clocks, and the ordering of events in a distributed system. CACM, 21(7):558–565, July
+ 1078  1978.
+ 1079  [20] L. Lamport. The part-time parliament. ACM Transactions on Computer Systems, 16:133–169, 1998.
+ 1080  [21] L. Lamport, D. Malkhi, and L. Zhou. Brief announcement: Vertical Paxos and primary-backup replication.
+ 1081  In Proceedings of the 28th ACM symposium on Principles of Distributed Computing (PODC'09), pages 312–
+ 1082  313, 2009.
+ 1083  [22] L. Lamport, D. Malkhi, and L. Zhou. Reconfiguring a state machine. Technical report, Microsoft Research,
+ 1084  2009.
+ 1085  [23] J.R. Lorch, A. Adya, W.J. Bolosky, R. Chaiken, J.R. Douceur, and J. Howell. The SMART way to migrate
+ 1086  replicated stateful services. In Proc. of the 1st Eurosys Conference, pages 103–115, Leuven, Belgium, April
+ 1087  2006. ACM.
+ 1088  [24] N. Lynch and A.A. Shvartsman. RAMBO: A reconfigurable atomic memory service for dynamic networks.
+ 1089  In Proc. of the 16th International Symposium on Distributed Computing, pages 173–190, Toulouse, France,
+ 1090  October 2002.
+ 1091  [25] J. MacCormick, N. Murphy, M. Najork, C.A. Thekkath, and L. Zhou. Boxwood: Abstractions as the foundation for storage infrastructure. In Symposium on Operating System Design and Implementation (OSDI),
+ 1092  pages 105–120. USENIX, December 2004.
+ 1093  [26] J.-P. Martin and L Alvisi. A framework for dynamic byzantine storage. In Proc. of the Intl. Conf. on Dependable Systems and Networks, pages 325–334, 2004.
+ 1094  [27] A. Montresor. System Support for Programming Object-Oriented Dependable Applications in Partitionable
+ 1095  Systems. PhD thesis, University of Bologna, Italy, 2000.
+ 1096  [28] M. Pati˜no-Mart´ınez, R. Jim´enez-Peris, B. Kemme, and G. Alonso. MIDDLE-R: Consistent database replication at the middleware level. Trans. on Computer Systems, 23(4), November 2005.
+ 1097  [29] M. Reiter, K. P. Birman, and R. van Renesse. A security architecture for fault-tolerant systems. Trans. on
+ 1098  Computer Systems, 12(4):340–371, November 1994.
+ 1099  [30] A. Ricciardi and K.P. Birman. Using process groups to implement failure detection in asynchronous environments. In Proc. of the 11th ACM Symp. on Principles of Distributed Computing, pages 341–351, Montreal,
+ 1100  Quebec, August 1991. ACM SIGOPS-SIGACT.
+ 1101  [31] A.M. Ricciardi. The Asynchronous Membership Problem in Asynchronous Systems. PhD thesis, Cornell
+ 1102  University, November 1992.
+ 1103  [32] F.B. Schneider. Implementing fault-tolerant services using the state machine approach: A tutorial. ACM
+ 1104  Computing Surveys, 22(4):299–319, December 1990.
+
+ 1105  29
+=== PAGE 30 ===
+
+ 1106  [33] A. Shraer, J.-P. Martin, D. Malkhi, and I. Keidar. Data-centric reconfiguration with network-attached disks.
+ 1107  In Large-Scale Distributed Systems and Middleware (LADIS 2010), July 2010.
+ 1108  [34] R. van Renesse, Kenneth P. Birman, Mark Hayden, Alexey Vaysburd, and David Karr. Building adaptive
+ 1109  systems using Ensemble. Software—Practice and Experience, August 1998.
+ 1110  [35] R. van Renesse, Kenneth P. Birman, and Silvano Maffeis. Horus: A flexible group communication system.
+ 1111  CACM, 39(4):76–83, April 1996.
+ 1112  [36] R. van Renesse and F.B. Schneider. Chain replication for supporting high throughput and availability. In Sixth
+ 1113  Symposium on Operating Systems Design and Implementation (OSDI '04), San Francisco, CA, December
+ 1114  2004.
+ 1115  [37] E. Yeger-Lotem, I. Keidar, and D. Dolev. Dynamic voting for consistent primary components. In 16th ACM
+ 1116  Symposium on Principles of Distributed Computing (PODC'97), pages 63–71, 1997.
+
+ 1117  30
+=== PAGE 31 ===
+
+ 1118  A Correctness
+
+ 1119  Our goal in this section is to give a flavor of the correctness argument regarding our DSR epoch-by-epoch reconfiguration methodology. We view a formal specification and correctness proofs as being outside the scope of this
+ 1120  paper. In this section, we provide sketch arguments on two sample solutions, the fault-recovery Reliable Multicast solution (Figure 4) and the fault-masking Reliable Multicast solution (Figure 6). The proof arguments for
+ 1121  our other protocols, for SMR and for Read/Write storage, are similar in their core arguments concerning reconfiguration. They differ mostly in details regarding the specific problem models, namely, consensus and atomic
+ 1122  Read/Write storage, which are well studied in the literature.
+
+ 1123  A.1 Correctness of Fault-Recovery Reliable Multicast Solution
+ 1124  In this section, we show that our fault-recovery protocol of Figure 4 maintains Multicast Durability (see Definition 1) and Virtual Synchrony (see Definition 3). Our proof shows that these conditions hold from one configuration
+ 1125  to the next; proving that it holds for a sequence of reconfigurations follows by induction.
+ 1126  Refer to a current, initial configuration as C0 and a new configuration as C1. Recall that a message is durable
+ 1127  if it belongs to a completed Add() or Get() operation.
+
+ 1128  Claim 1 If a message m ever becomes durable by Add(m) or Get() operations in C0, and a server q that learns
+ 1129  about C1 transfers to C1 a set S0 of messages, then m ∈ S0.
+
+ 1130  Proof: This claim is the core of the correctness claim. Although it is simple to prove given our algorithmic
+ 1131  foundation, it is crucial to note that the set of messages sent/delivered in C0 may continue changing after a decision
+ 1132  on C1 was made, and also subsequent to a state transfer. Nevertheless, the precise statement of this claim is in fact
+ 1133  stable: Any message m which is ever sent/delivered in C0 is included in S0. We now prove it.
+ 1134  Since m is in a Add(m) or Get() which completes in C0, every process in C0 performs the ⟨store, m⟩ request
+ 1135  and acknowledges it. Since wedged servers do not respond to store requests, q has responded to the store request
+ 1136  before it became wedged for state transfer. Therefore, at step 2 of the state transfer, q already stores m, and includes
+ 1137  it in the set S0 which it transfers to C1.
+
+ 1138  Claim 2 If a message m becomes durable by Add(m) or Get() operations in C0 and a subsequent Get() command
+ 1139  completes at some process p, then p's response contains m.
+
+ 1140  Proof: A Get() request which is subsequent to the completion of the Add(Get) command containing m may
+ 1141  either occur in C0 or in C1. In C0, every process already acknowledged ⟨store, m⟩. Hence, every server contacted
+ 1142  by the requesting client will include m in the delivery response. In C1 , by Claim 1 above, every server also stores
+ 1143  m by the time state transfer has completed. Therefore, Get() in C1 also includes m.
+
+ 1144  Claim 3 If a message m becomes durable by Add(m) or Get() operations in C1 and a subsequent Get() command
+ 1145  completes at some process p, then p's delivery response contains m.
+
+ 1146  Proof: We first note that a Get() request that arrives at C0 after m was sent/delivered in C1 is not served by any
+ 1147  server that participated in reconfiguration, because they are wedged; hence, the deliver request does not complete
+ 1148  in C0, and is deferred to C1. In C1, every process stores already acknowledged ⟨store, m⟩. Hence, every server
+ 1149  contacted by the requesting client will include m in the delivery response.
+
+ 1150  Claim 4 The fault-recovery protocol maintains Multicast Durability (Definition 1); that is, if a message m becomes durable by Add(m) or Get() operations, and a subsequent Get() command completes at some process p,
+ 1151  then p's delivery response contains m.
+
+ 1152  31
+=== PAGE 32 ===
+
+ 1153  Proof: By Claims 2 and 3, after m is completely sent/delivered, a subsequent Get() request invoked at any
+ 1154  process p includes m in the delivery response.
+ 1155  Claim 5 The fault-recovery protocol maintains Multicast Virtual Synchrony (Definition 3); that is, If Add(m) was
+ 1156  invoked in configuration Ck, then if ever Get() returns m, then for all configurations C`, where ` > k, Get() returns
+ 1157  m.
+ 1158  Proof: By Claim 1, if Get() ever returns m in C0, then m is included in the set S0 of messages transferred to
+ 1159  C1. Hence, any Get() request in C1 will return m.
+ 1160  Otherwise, suppose that no Get() in C0 returns m, but there exists a Get() call in C1 which returns m. Since m
+ 1161  was sent to C0, there exists a server q in C1 which obtained m in a state transfer. But since state transfer passes a
+ 1162  message-set determined by a consensus decision, every server in C1 stores m before it becomes enabled for service
+ 1163  in C1. Hence, every Get() call in C1 must return m.
+ 1164  We have shown that the claim holds for C1. Using C1 as the initial view, we obtain the result by induction for
+ 1165  any subsequent view following C1.
+
+ 1166  A.2 Correctness of Fault-Masking Reliable Multicast Solution
+ 1167  In this section, we show that our fault-masking protocol of Figure 6 maintains Multicast Durability and Virtual
+ 1168  Synchrony. Our proof shows that these conditions hold from one configuration to the next; proving that it holds
+ 1169  for a sequence of reconfigurations follows by induction.
+ 1170  Refer to a current, initial configuration as C0 and a new configuration as C1. Recall that a message is durable
+ 1171  if it belongs to a completed Add() or Get() operation.
+ 1172  Claim 6 If a message m ever becomes durable by Add(m) or Get() operations in C0, and a client collects suspended responses to a wedge request from a majority of servers in C0 into a set S0 of messages, then m ∈ S0.
+ 1173  Proof: Since m is in a Add(m) or Get() which completes in C0, a majority of servers in C0 perform the
+ 1174  ⟨store, m⟩ request and acknowledge it. Since wedged servers do not respond to store requests, every server in this
+ 1175  majority has responded to the store request before it became wedged for state transfer. There exists a server q in
+ 1176  the intersection of this majority and the majority of servers responding to the client wedge request. Therefore, q
+ 1177  already stores m when it sends its suspended response to the client, and m is included in Sq. Since the client takes
+ 1178  a union of the sets Sq contained in all the server responses, m ∈ S0.
+ 1179  Claim 7 If a message m ever becomes durable by Add(m) or Get() operations in C0, then the set S0 of the
+ 1180  consensus decision on the next configuration contains m, i.e., m ∈ S0 .
+ 1181  Proof: By Claim 6 above, any client which proposes input to the consensus engine regarding reconfiguration
+ 1182  includes m in its proposed message-set. Hence, any decision S0 contains m.
+ 1183  Claim 8 If a message m becomes durable by Add(m) or Get() operations in C0 and a subsequent Get() command
+ 1184  completes at some process p, then p's response contains m.
+ 1185  Proof: A Get() request which is subsequent to the completion of the Add(Get) command containing m may
+ 1186  either occur in C0 or in C1.
+ 1187  In C0, a majority of servers already acknowledged ⟨store, m⟩. There exists a server q in the intersection of this
+ 1188  majority and the majority of servers responding to the client's collect request. Therefore, q already stores m when
+ 1189  it sends its response to the client's collect request, and m is included in the response Sq. Since the client takes a
+ 1190  union of the sets Sq contained in all the server responses, m is returned in the return-set of the Get() call.
+ 1191  In C1, by Claim 7 above, a majority of servers also stores m by the time state transfer has completed. Therefore,
+ 1192  Get() in C1 also includes m by the same argument as in C0.
+
+ 1193  32
+=== PAGE 33 ===
+
+ 1194  Claim 9 If a message m becomes durable by Add(m) or Get() operations in C1 and a subsequent Get() command
+ 1195  completes at some process p, then p's delivery response contains m.
+
+ 1196  Proof: We first note that a Get() request that arrives at C0 after m was sent/delivered in C1 is not served by any
+ 1197  server that participated in reconfiguration, because they are wedged; hence, the deliver request does not complete
+ 1198  in C0, and is deferred to C1. In C1, a majority of servers already acknowledged ⟨store, m⟩. Hence, by the same
+ 1199  argument as in Claim 7 above, a Get() call in C1 returns m.
+
+ 1200  Claim 10 If a message m becomes durable by Add(m) or Get() operations, and a subsequent Get() command
+ 1201  completes at some process p, then p's delivery response contains m.
+
+ 1202  Proof: By Claims 8 and 9, after m is completely sent/delivered, a subsequent Get() request invoked at any
+ 1203  process p includes m in the delivery response.
+
+ 1204  Claim 11 The fault-masking protocol maintains Multicast Virtual Synchrony (Definition 3); that is, If Add(m) was
+ 1205  invoked in configuration Ck, then if ever Get() returns m, then for all configurations C`, where ` > k, Get() returns
+ 1206  m.
+
+ 1207  Proof: By Claim 6, if Get() ever returns m in C0, then m is included in the set S0 of messages transferred to
+ 1208  C1. Hence, any Get() request in C1 will return m.
+ 1209  Otherwise, suppose that no Get() in C0 returns m, but there exists a Get() call in C1 which returns m. Since m
+ 1210  was sent to C0, there exists a server q in C1 which obtained m in a state transfer. But since state transfer passes a
+ 1211  message-set determined by a consensus decision, every server in C1 stores m before it becomes enabled for service
+ 1212  in C1. Hence, every Get() call in C1 must return m.
+ 1213  We have shown that the claim holds for C1. Using C1 as the initial view, we obtain the result by induction for
+ 1214  any subsequent view following C1.
+
+ 1215  33

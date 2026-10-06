@@ -1,0 +1,1546 @@
+---
+title: "BtrLog: Low-Latency Logging for Cloud Database Systems"
+authors:
+  - "Maximilian Kuschewski"
+  - "Lam-Duy Nguyen"
+  - "Matthias Jasny"
+  - "Tobias Ziegler"
+  - "Viktor Leis"
+  - "Muhammad {El-Hindi}"
+year: "2026"
+publication: "Proceedings of the VLDB Endowment"
+handle_url: "https://arxiv.org/abs/2606.27051"
+source_pdf: "research/agent366/papers/kuschewski2026-btrlog.pdf"
+source_pdf_sha256: "d45936ecd478bac70c23d8f6c76ed58b5eeeb250dfd9ff7ad10ee25dab057e24"
+page_count: 14
+extracted_text_runs: 2403
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Cloud database systems cannot rely on instance-local disks for write-ahead logging (WAL) durability, forcing WAL onto remote storage. Existing options are unsatisfying: remote block storage like EBS is easy to adopt but adds substantial write latency and cost, while object storage offers excellent durability and low storage cost but is impractical for OLTP due to high latency and per-append cost. Many cloud-native databases, therefore, depend on purpose-built logging backends, which are typically proprietary and tightly coupled to engine-specific replication and recovery protocols, limiting reuse. We present BtrLog, a reusable cloud logging service that combines low-latency durable appends with low-cost archival for the common single-writer architecture. BtrLog replicates log records across a quorum of SSD-backed log nodes in a single network round trip, reducing sensitivity to stragglers in commit latency. To minimize storage cost, log nodes archive records to object storage as large segments, which are written asynchronously and off the latency-critical write path. In our evaluation, BtrLog achieves lower latency than EBS and enables higher end-to-end transaction throughput when integrated into a DBMS.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  BtrLog: Low-Latency Logging for Cloud Database Systems
+
+    2  Lam-Duy Nguyen
+
+    3  Technische Universität München
+
+    4  lamduy.nguyen@tum.de
+
+    5  Viktor Leis
+
+    6  Technische Universität München
+
+    7  leis@in.tum.de
+
+    8  Maximilian Kuschewski
+
+    9  Technische Universität München
+
+   10  maximilian.kuschewski@tum.de
+
+   11  Tobias Ziegler∗
+
+   12  TigerBeetle
+
+   13  tobias@tigerbeetle.com
+
+   14  ABSTRACT
+   15  Cloud database systems cannot rely on instance-local disks for
+   16  write-ahead logging (WAL) durability, forcing WAL onto remote
+   17  storage. Existing options are unsatisfying: remote block storage
+   18  like EBS is easy to adopt but adds substantial write latency and cost,
+   19  while object storage offers excellent durability and low storage cost
+   20  but is impractical for OLTP due to high latency and per-append
+   21  cost. Many cloud-native databases, therefore, depend on purposebuilt logging backends, which are typically proprietary and tightly
+   22  coupled to engine-specific replication and recovery protocols, limiting reuse. We present BtrLog, a reusable cloud logging service
+   23  that combines low-latency durable appends with low-cost archival
+   24  for the common single-writer architecture. BtrLog replicates log
+   25  records across a quorum of SSD-backed log nodes in a single network round trip, reducing sensitivity to stragglers in commit latency.
+   26  To minimize storage cost, log nodes archive records to object storage as large segments, which are written asynchronously and off
+   27  the latency-critical write path. In our evaluation, BtrLog achieves
+   28  lower latency than EBS and enables higher end-to-end transaction
+   29  throughput when integrated into a DBMS.
+
+   30  PVLDB Reference Format:
+   31  Maximilian Kuschewski, Lam-Duy Nguyen, Matthias Jasny, Tobias Ziegler,
+   32  Viktor Leis, and Muhammad El-Hindi. BtrLog: Low-Latency Logging for
+   33  Cloud Database Systems. PVLDB, 19(10): 2894 - 2907, 2026.
+   34  doi:10.14778/3828612.3828640
+
+   35  PVLDB Artifact Availability:
+   36  The source code, data, and/or other artifacts have been made available at
+   37  https://github.com/maxi-k/btrlog.
+
+   38  1 INTRODUCTION
+   39  Durable cloud logging is remote. On-premise database systems
+   40  ensure durability through write-ahead logging (WAL) to a local disk
+   41  or SSD. In the cloud, instance-local storage is ephemeral and can
+   42  be lost on instance failure or deprovisioning [4]. Cloud database
+   43  systems must therefore store their log on durable remote storage.
+   44  An ideal cloud logging backend combines strong durability and
+
+   45  ∗Work done while at Technische Universität München and Technische Universität
+   46  Darmstadt.
+   47  This work is licensed under the Creative Commons BY-NC-ND 4.0 International
+   48  License. Visit https://creativecommons.org/licenses/by-nc-nd/4.0/ to view a copy of
+   49  this license. For any use beyond those covered by this license, obtain permission by
+   50  emailing info@vldb.org. Copyright is held by the owner/author(s). Publication rights
+   51  licensed to the VLDB Endowment.
+   52  Proceedings of the VLDB Endowment, Vol. 19, No. 10 ISSN 2150-8097.
+   53  doi:10.14778/3828612.3828640
+
+   54  Matthias Jasny
+
+   55  Technische Universität Darmstadt
+
+   56  matthias.jasny@tu-darmstadt.de
+
+   57  Muhammad El-Hindi
+
+   58  Technische Universität München
+
+   59  muhammad.el-hindi@tum.de
+
+   60  Table 1: Comparison of storage options for WAL in the cloud.
+   61  Availability Latency Capacity/$ Append/$
+   62  Local SSD − ++ o ++
+   63  EBS (io2) 1 AZ + o − o
+   64  S3 Express 1 AZ + − o −
+   65  BookKeeper 1 AZ + o − o
+   66  BtrLog 1 AZ + + + +
+   67  S3 3 AZs ++ −− + −
+   68  BtrLog 3 AZs ++ o + o
+
+   69  availability with low-latency appends, low per-append cost, and
+   70  low storage cost. Table 1 qualitatively compares logging backends
+   71  along these dimensions.
+   72  Remote block storage: easy, but slow and expensive. A straightforward approach is remote block storage, such as Amazon EBS,
+   73  which provides a network-attached volume that can be re-attached
+   74  to a different VM after failure. EBS makes it straightforward to lift
+   75  on-premise architectures to the cloud and is used in many deployments, including Amazon RDS [15]. However, even high-end EBS
+   76  variants (e.g., io2) incur substantially higher write latency than
+   77  instance-local SSDs and are expensive, with costs driven by both
+   78  provisioned capacity and provisioned IOPS.
+   79  Object storage: great archive, poor WAL backend. Cloud object
+   80  storage, such as S3, provides very high availability and durability,
+   81  low cost per GB, and high throughput for scans. These properties
+   82  make it attractive as a log archive, and we use it for this purpose
+   83  in our design. However, placing a transactional WAL directly onto
+   84  object storage (even its lower-latency variant, S3 Express) is impractical due to high latency and high per-append cost.
+   85  Log systems exist, but are not reusable. The limitations of
+   86  general-purpose storage services for logging are well known, and
+   87  many cloud-native database systems therefore rely on purpose-built
+   88  logging backends. Examples include Microsoft Socrates' XLOG [6],
+   89  Huawei TaurusDB's PLog [25], and Neon's Safekeeper [62]. AWS's
+   90  proprietary internal "Journal" service is used by Amazon Aurora
+   91  DSQL, S3, DynamoDB, Lambda, and Kinesis [20]. However, these
+   92  systems are typically proprietary and tightly coupled to systemspecific replication and recovery protocols, which makes them
+   93  difficult to reuse outside their original architectures. Because they
+   94  are not publicly described in sufficient detail, the community still
+   95  lacks both a reusable design and a systematic understanding of
+   96  the latency/cost/availability tradeoffs for cloud logging backends.
+   97  In contrast, the open-source log system Apache BookKeeper [46]
+=== PAGE 2 ===
+
+   98  was designed for a pre-cloud world and does not exploit modern
+   99  low-latency networks and object storage for WAL archival.
+  100  BtrLog: fast quorum, cheap archive. We argue that logging
+  101  is a fundamental primitive and should be available as reusable
+  102  infrastructure. BtrLog (pronounced "better log") is a cloud logging
+  103  service that combines low-latency appends with low-cost archival.
+  104  It replicates log records across multiple SSD-backed log nodes; for
+  105  the common single-writer architecture, each append sends one
+  106  request per log node and becomes durable once a quorum (e.g., 2 of
+  107  3 nodes) has persisted it, limiting the impact of stragglers on commit
+  108  latency. Once a log segment (e.g., 16 MB) fills, it is asynchronously
+  109  written to S3, exploiting S3's low storage cost without suffering
+  110  from its high latency. BtrLog can be deployed within a single data
+  111  center (Availability Zone or AZ in AWS) for the lowest latency
+  112  and cost, or across AZs to protect the unarchived log tail against
+  113  datacenter-wide failures. As Table 1 shows, this design achieves
+  114  high availability, low latency, and low per-append and storage cost.
+  115  Novelty. While specialized cloud logging backends already exist
+  116  in the industry, they are proprietary and system-specific. The novelty of BtrLog is therefore not merely to provide another logging
+  117  service, but to make this design space explicit through a reusable
+  118  service tailored to cloud WAL workloads. We build on established
+  119  distributed systems ideas, combining them in a way specifically
+  120  tailored to cloud database logging. To the best of our knowledge,
+  121  BtrLog is the first cloud logging system that simultaneously
+  122  • achieves single network round-trip append latency for the
+  123  common single-writer architecture,
+  124  • provides a reusable service interface instead of coupling logging to a specific engine,
+  125  • exploits cloud object storage for low-cost, high-durability
+  126  archival without placing it on the critical path, and
+  127  • is engineered for high-speed datacenter networks and NVMe
+  128  SSDs, with explicit attention to tail latency and throughput.
+  129  Microbenchmarks in realistic AWS setups show that BtrLog reduces append latency by up to 4× compared to the high-end io2
+  130  variant of EBS, and end-to-end experiments with LeanStore [52]
+  131  show how these gains translate into higher transaction throughput.
+
+  132  2 BACKGROUND: WAL IN THE CLOUD
+  133  In this section, we briefly summarize WAL semantics and the resulting requirements on a logging backend, then review existing
+  134  log systems and cloud storage services. The goal is to clarify the
+  135  tradeoffs that motivate our design choices.
+
+  136  2.1 WAL Semantics and Requirements
+  137  Log interface. Write-ahead logging (WAL) in database systems
+  138  requires only a small interface. During transaction execution, the
+  139  DBMS appends log records via append [61]. Each record is assigned
+  140  a monotonically increasing log sequence number (LSN). At commit,
+  141  the engine calls sync to ensure all records up to the commit LSN
+  142  are persisted – the ARIES paper [61] refers to this as forcing the log.
+  143  For restart recovery, the engine issues a scan operation to retrieve
+  144  log records starting from a given LSN. During recovery or rollback,
+  145  it calls read to fetch individual records by LSN for undo processing.
+  146  Key requirements. Because the log is the source of truth for
+  147  recovery, ARIES-style logging requires durable storage that survives
+
+  148  process, system, and device failures [61]. Accordingly, the logging
+  149  backend must provide durability and high availability. It must also
+  150  support low-latency appends, since WAL lies on the critical path of
+  151  transaction processing. Cloud database systems may also operate
+  152  at extreme transaction rates (e.g., 70 M/s [53]), producing massive
+  153  log volumes. This makes cost-efficiency, both per append and per
+  154  GB, another important requirement.
+  155  Single-writer semantics. A key observation underlying our work
+  156  is that many cloud and distributed databases achieve durability via
+  157  per-partition (or per-replica) log streams. Each log stream has an exclusive writer at any given time. In primary/secondary architectures
+  158  such as Amazon Aurora [76], Microsoft Azure SQL HyperScale [6],
+  159  Alibaba PolarDB [53], and Google AlloyDB [36], only the writer instance issues updates and generates the corresponding log records.
+  160  Similarly, in strongly consistent distributed database systems such
+  161  as Google Spanner [23], each replicated partition (Paxos group)
+  162  elects a leader. All writes are ordered through that leader, yielding a
+  163  single total order of writes per group [23]. Even systems that expose
+  164  multi-region write APIs (e.g., Cosmos DB [60]) implement durability via locally replicated physical partitions. Ordering guarantees
+  165  are defined by a leader within the associated replication scopes [60].
+  166  As we discuss next, exploiting the monotonic, single-writer append
+  167  order (via sequence numbers) is key to reducing WAL latency.
+
+  168  2.2 Log Service Architectures
+  169  Durability and ordering guarantees. General-purpose distributed log systems, and some distributed streaming systems (e.g.,
+  170  Apache Kafka), provide an append-only abstraction and use replication to achieve durability and availability. In contrast to the singlewriter WAL streams common in cloud database systems, they are
+  171  designed for multiple concurrent writers. They therefore include
+  172  a sequencer that orders writes across clients, linearizing appends.
+  173  The need to coordinate ordering and replication adds substantial
+  174  latency on the append path, and architectures differ in how these
+  175  responsibilities are implemented, as Figure 1 visualizes.
+  176  Consensus-based systems (Paxos, Raft, VSR). As the left-hand
+  177  side of Figure 1 shows, leader-based consensus protocols [50, 66,
+  178  67] replicate a log across a set of nodes coordinated by a leader.
+  179  The leader serializes appends and replicates them to a quorum of
+  180  followers, combining ordering and replication on the write path.
+  181  Each append requires four network hops (or two network round
+  182  trips): client → leader and leader → follower. The leader is both a
+  183  throughput bottleneck and a source of latency variance.
+  184  Throughput-optimized systems (Corfu, Scalog). Corfu [12],
+  185  Scalog [27], and similar systems [11, 45] decouple sequencing from
+  186  storage. This avoids the leader bottleneck by scaling the sequencer
+  187  layer across nodes. However, these systems still use eager ordering [56]: clients receive an LSN for an append once both ordering
+  188  and replication are complete (append(rec) → LSN). As Figure 1
+  189  shows, this results in additional network communication across layers. The replication strategy further impacts latency: Corfu's chain
+  190  replication requires six network hops; Scalog's primary-backup
+  191  strategy reduces it to four, which is still well above the singleround-trip latency achievable with single-writer WAL semantics.
+  192  Lazy ordering (LazyLog). LazyLog [56] reduces append latency
+  193  by separating ordering from durability. Clients send metadata to
+=== PAGE 3 ===
+
+  194  Figure 1: Comparison of existing log systems. Leader-based systems incur latency overheads due to centralized sequencing
+  195  (Paxos, Corfu, Scalog). LazyLog and BookKeeper achieve optimal single-round-trip latency, which inspires BtrLog's design.
+
+  196  Paxos, Raft, VSR Corfu Scalog
+  197  append(rec): LSN append(rec): LSN append(rec): LSN
+
+  198  Client 1 4 1 2 4
+
+  199  L Sequencer Ordering
+  200  (Paxos)
+  201  Ordering 2 3 3 2 3 6 1
+
+  202  3 2
+  203  FFPB
+  204  4 5
+  205  Storage
+
+  206  sequencers while also sending data to storage nodes in parallel.
+  207  Appends are acknowledged without an LSN (append(rec) →
+  208  bool) since ordering is resolved lazily during reads. This yields
+  209  single round-trip appends, but leaving LSNs unspecified at append
+  210  time is incompatible with ARIES-style WAL, which requires a welldefined log order (and commit LSNs) on the write path.
+  211  Single-writer systems (Apache BookKeeper). In contrast to
+  212  multi-writer log systems, Apache BookKeeper [46] targets singlewriter logs, as in primary/replica database architectures. On writer
+  213  failure (e.g., a crash), safe failover requires additional mechanisms.
+  214  BookKeeper therefore implements fencing and recovery to prevent
+  215  split-brain scenarios during failover. With a single writer, the order
+  216  of records is implicitly defined by the writer's append sequence.
+  217  Thus, sequencing shifts to the client, eliminating the need for dedicated ordering nodes and their associated latency overheads. Book-
+  218  Keeper uses client-driven quorum replication; in the common case,
+  219  an append completes in a single client round trip.
+  220  Implications for BtrLog. All discussed systems and architectures can provide the high durability and availability required for
+  221  WAL in the cloud. However, the previous discussion shows that architectural decisions directly affect the append latency of a logging
+  222  system. Similarly, cost efficiency is also impacted by architectural
+  223  decisions such as the integration of cloud object storage. The rest
+  224  of the paper describes how BtrLog achieves low latency and cost
+  225  while meeting WAL durability and availability requirements.
+
+  226  3 BTRLOG DESIGN AND DEPLOYMENT
+  227  Design space. One possible solution for WAL in the cloud is writing
+  228  log records directly to cheap and durable object storage. However,
+  229  object storage writes take tens of milliseconds [18] and are expensive for workloads with many small writes – such as WAL. At
+  230  the other extreme, one can envision a DRAM-based design similar
+  231  to RAMCloud [68], where the client sends data to a quorum of
+  232  nodes ("log nodes") that keep data in DRAM and provide durability
+  233  through replication. This approach provides low latency but is expensive due to high DRAM cost [72]. Furthermore, it is prone to
+
+  234  LazyLog Apache BookKeeper
+  235  append(rec): bool append(rec, LSN): bool
+  236  1 1
+  237  Legend
+  238  2 2 2
+  239  1 1 1 Client Leader (L) /
+  240  = Primary (P)
+  241  LFF Leader
+  242  Node
+
+  243  1 1 1 Follower (F)
+  244  / Backup (B)
+  245  2 2 2 2 2 Node
+  246  PBFFF
+  247  Request
+  248  Global
+  249  ordering Response
+
+  250  Async
+
+  251  correlated failures such as data center-wide outages or software
+  252  bugs. Log nodes can mitigate correlated failures by writing data
+  253  to local SSDs, which are guaranteed to persist data across powerloss reboots [4]. In an extreme design, clients could persist data
+  254  on remote SSDs directly using NVMe-over-TCP [65], a protocol
+  255  supported by the kernel and systems such as simplyblock [71] and
+  256  DAOS [74]. However, building a correct WAL backend using raw
+  257  remote SSD semantics requires the client itself to handle log ownership, writer fencing for failover, remote node failures, and load
+  258  balancing. BtrLog instead distributes this logic between a client
+  259  library and protocol-aware log nodes, as described in the following.
+
+  260  3.1 System Overview
+  261  BtrLog's high-level design. BtrLog overcomes durability and
+  262  cost tradeoffs by combining a staging layer for low-latency appends
+  263  with object storage for durable, cost-efficient persistence. BtrLog
+  264  stages appends on a cluster of log nodes and flushes them asynchronously to object storage in large segments. Log nodes retain
+  265  only a bounded unflushed tail locally: the tail resides in RAM for
+  266  fast reads and is backed by local NVMe SSDs for recovery after
+  267  crashes or power loss. By flushing large segments asynchronously,
+  268  BtrLog amortizes object store PUT cost and eliminates both object
+  269  store latency and long-term storage capacity management. BtrLog
+  270  thus consists of four components, visualized in Figure 2:
+  271  (1) a client library used by the DBMS to append log records,
+  272  (2) a cluster of log nodes that form the staging layer,
+  273  (3) a cloud object store for durable, low-cost storage, and
+  274  (4) metadata storage for log metadata and cluster configuration.
+  275  BtrLog requires few metadata operations, which can be implemented using conditional writes (If-Match in S3). Using S3 or a
+  276  compatible service for metadata simplifies deployment and avoids
+  277  a separate coordination system such as ZooKeeper or etcd.
+  278  Log abstraction and API. BtrLog exposes a single-writer, appendonly log abstraction. The client library hides the internal storage
+  279  tiering and provides a WAL-compatible API: append, sync, scan,
+=== PAGE 4 ===
+
+  280  Client Layer Staging Layer Cheap Long-Term
+  281  Storage
+  282  Primary Fast 3 Log Node Log Node
+  283  DB Reads
+  284  Client Flush Large
+  285  1 Quorum 2 Log Node 2 5 Segments
+  286  Writes
+  287  Secondary 2
+  288  DB
+  289  6
+  290  Client Recovery Metadata
+  291  4 Reads Operations
+  292  (failover, ...)
+  293  Legend Write Read Async Atomic-Op
+
+  294  Figure 2: System overview showing the append (write) and
+  295  read paths across the staging layer and object storage.
+
+  296  and read. Failover, metadata updates, and other control operations
+  297  are handled transparently when the client opens a log for writing.
+  298  Write path. The append (write) path is BtrLog's hot path, optimized for single network round-trip commits. As Figure 2 illustrates,
+  299  each client maintains a local LSN counter and replicates appends in
+  300  parallel to all log nodes 1 . Upon receiving an append, a node adds
+  301  the record to an in-memory segment and writes it out-of-place [51]
+  302  to a local NVMe SSD 2 . Only after the SSD write and fsync complete, the node acknowledges the append to the client. The client
+  303  library returns success to the DBMS after receiving acknowledgments from a quorum of nodes. If multiple appends are in flight, the
+  304  client library ensures that appends are acknowledged in LSN order
+  305  to preserve ARIES semantics. This client-driven sequencing eliminates a separate sequencer, enables single round-trip latency, and
+  306  masks network and SSD latency jitter [38] via quorum replication.
+  307  Read path. BtrLog distinguishes between hot and cold reads. The
+  308  hot, unflushed tail (e.g., for transaction rollback) is read from inmemory segments on log nodes 3 . Cold entries are read from
+  309  flushed segments on object storage 4 (e.g., for point-in-time recovery), leveraging its aggregate read bandwidth while reducing load
+  310  on log nodes. The client routes requests transparently via read and
+  311  scan based on the requested LSN range and the replicated commit
+  312  watermark, and may cache recently read tail records.
+
+  313  3.2 Guarantees and Usage in Database Systems
+  314  Durability and correlated failures. BtrLog replicates each append to a quorum of 𝑄 log nodes before acknowledging it and
+  315  𝑤
+  316  thus tolerates up to 𝑄 − 1 node failures without data loss. For
+  317  𝑤
+  318  example, with 3 log nodes, 𝑄 = 2, and the system tolerates 1
+  319  𝑤
+  320  node failure. Log segments are flushed asynchronously to object
+  321  storage for long-term durability 5 . To tolerate correlated failures
+  322  (e.g., software bugs or power outages), each node persists the hot
+  323  tail on its local NVMe SSD, similar to prior work on highly durable
+  324  storage backends [19]. This increases append latency, but strengthens durability: if all log nodes crash because of a software fault,
+  325  in-memory data is lost, whereas data persisted on local SSDs can
+  326  be recovered after fixing the fault and restarting the processes.
+  327  Single writer, multiple readers. BtrLog enforces a single-writer,
+  328  multi-reader abstraction, supporting use cases like log shipping.
+  329  The writer maintains a commit watermark that is replicated across
+
+  330  log nodes, allowing readers to distinguish committed from uncommitted data. Enforcing a single writer prevents inconsistent appends
+  331  during DBMS failover (e.g., when replacing a failed primary).
+  332  Failure handling in the cloud. Quorum replication masks transient node failures and network jitter, providing predictable tail
+  333  latency for appends. The client-side failover protocol 6 prevents
+  334  split-brain during DBMS failover. BtrLog also handles compound
+  335  and AZ+1 failure scenarios, as discussed in Section 4.
+  336  Database integration. As Figure 2 illustrates, the DBMS integrates
+  337  the BtrLog client into its WAL subsystem rather than writing log
+  338  records to a storage device. When the primary starts, or when explicitly requested, the client creates a new log on the log nodes and
+  339  registers the log in the metadata management layer (c.f., Section 4),
+  340  which establishes the primary as the log's single writer. It is then
+  341  free to append log records as described in Section 3.1.
+  342  Transaction rollback. The client may cache recently appended
+  343  records in memory to enable low-latency reads for abort and rollback. In addition, log nodes keep the hot log tail in memory, which
+  344  accelerates hot reads. The hot log tail is asynchronously flushed to
+  345  object storage when it fills up or becomes cold.
+  346  Database recovery. The BtrLog client supports high-throughput
+  347  reads of cold log data for database recovery. For example, when a
+  348  database node must replay a large log prefix to reconstruct database
+  349  state, the client transparently fetches the hot tail from log nodes and
+  350  streams older segments from high-bandwidth object storage [30].
+  351  Database failover. For planned maintenance or primary failure,
+  352  a backup node can take over as the writer. When a BtrLog client
+  353  opens an existing log for writing, it acquires ownership and fences
+  354  off the previous writer to prevent conflicting appends. Section 4
+  355  details the protocol that implements these mechanisms.
+  356  Ease of use. Integrating BtrLog into an existing DBMS that relies
+  357  on file system storage requires minor source code changes due to
+  358  interface differences (append vs. write). Note, however, that filesystem-based logging necessitates protecting against torn writes
+  359  and identifying the last successful log record write during recovery.
+  360  BtrLog prevents both issues due to its record-level atomicity and
+  361  failover support: its interface is purpose-built for database WAL.
+  362  Parallel logging. To avoid contention on a single log, some highperformance DBMSs support parallel logging through multiple
+  363  (e.g., per-thread) log streams [26, 41, 64, 78]. Such designs already
+  364  manage transaction order across multiple log streams to ensure
+  365  correct recovery and can thus simply use multiple BtrLog logs.
+
+  366  3.3 Deployment Options
+  367  Configurable availability. BtrLog supports two deployment options to adapt to different latency and durability/availability requirements: single-AZ and multi-AZ. Although we use AWS terminology,
+  368  the same concepts apply to other cloud providers as well.
+  369  Single-AZ deployment. To minimize append latency, BtrLog can
+  370  be deployed in the same availability zone as the client application.
+  371  An AZ consists of one or more data centers within an AWS region,
+  372  which are isolated from failures such as power, network outages,
+  373  or flooding [2]. Services such as EBS and S3 Express operate within
+  374  a single AZ. Intra-AZ network communication has latency of about
+  375  100 µs and is free of charge. BtrLog log nodes reside in partitioned
+  376  placement groups [3] to reduce correlated failures like rack-level
+=== PAGE 5 ===
+
+  377  power or network faults. If the entire AZ becomes unavailable
+  378  (e.g., due to a major power outage), all log nodes in that AZ and
+  379  BtrLog become unavailable as well. Because BtrLog writes log
+  380  records to instance-local SSDs, which persist data across power-loss
+  381  reboots [4], data is still durable and can be recovered upon restart.
+  382  Records that were already flushed to object store remain accessible
+  383  during the outage, since S3 replicates data across multiple AZs.
+  384  Multi-AZ deployment. To improve availability, BtrLog also supports deployments that span multiple AZs. A straightforward approach would place three log nodes across three AZs, ensuring
+  385  that AZ failures affect only one replica. However, an additional
+  386  independent failure (e.g., an SSD failure in a second AZ) can reduce
+  387  a three-node deployment below the required 2/3 quorum, making
+  388  the log unavailable for reads. To tolerate such AZ+1 failures [76],
+  389  BtrLog uses six nodes (two per AZ). This configuration remains
+  390  write-available after losing any two nodes or an entire AZ (4/6 append quorum), and remains read-available after losing up to three
+  391  nodes (3/6 read quorum). Even with six nodes, BtrLog persists
+  392  records to local SSDs to guard against correlated software failures.
+  393  Improving cost-efficiency in multi-AZ deployments. Besides
+  394  increasing latency, multi-AZ deployments also increase cost due to
+  395  cross-AZ data transfer. For example, replicating 100 million 1 KB
+  396  log records from one AZ to another AZ of the same AWS region
+  397  transfers 100 GB and costs $2. The overhead is amplified by quorum
+  398  replication: if a client sends each append to all four remote nodes,
+  399  it pays the transfer charge per remote replica (e.g., 4 · $2 = $8).
+  400  BtrLog reduces this overhead by 2× via hierarchical replication:
+  401  the client sends each record to one node per AZ, which forwards it
+  402  to its peer in the same AZ. This significantly reduces cost but only
+  403  slightly increases latency because intra-AZ latency (about 100 µs)
+  404  is significantly lower than cross-AZ latency (about 500 µs).
+
+  405  4 PROTOCOLS AND FAULT TOLERANCE
+  406  Our design is simple: quorum-replicated appends to a staging layer,
+  407  with asynchronous, segment-based persistence to object storage.
+  408  The challenge is to preserve BtrLog's guarantees under realistic
+  409  cloud failure modes – transient faults, correlated node/AZ outages,
+  410  and DBMS failovers – without sacrificing one-round-trip commits.
+  411  To this end, we employ a leader-based quorum protocol with view
+  412  changes, similar to Apache BookKeeper, customized for BtrLog's
+  413  object storage-oriented persistence path. The protocol is grounded
+  414  in two invariants: (i) log records commit in order, and (ii) no committed entries are lost, even in the presence of failures within our
+  415  failure model. We formalize these safety properties and an abstract
+  416  model of the protocol in TLA+ and model-check them (see artifact
+  417  URL). The remainder of this section gives a high-level overview of
+  418  the protocol design.
+  419  Failure model. BtrLog adopts the standard non-Byzantine crashstop failure model in asynchronous networks [22]. Accordingly,
+  420  our protocol tolerates message loss, reordering, duplication, delay,
+  421  network partitions, log node failures, and client failures. In the
+  422  following, we discuss client and log node failures separately. Client
+  423  failures coincide with database failover. Log node failures must not
+  424  compromise the availability or durability of committed data in the
+  425  log tail. Because cloud object storage provides high durability and
+  426  availability (e.g., S3 advertises 99.99% availability and 11 nines of
+
+  427  Client wToken 1 wToken 1 Metadata
+  428  1 init()
+  429  C1 cLSN 3 bSize 4 Store
+  430  nLSN 5 3 append(lsn: 4)
+
+  431  2 open()
+  432  Node L1 Node L2 Node L3
+  433  wToken 1 wToken 1 lsn 1 wToken 1 lsn 1
+  434  cLSN 3 cLSN 2 cLSN 1 lsn 2
+  435  lsn 3
+
+  436  4 flush() Legend
+  437  Flushed Segment Set
+  438  Object
+  439  epoch 1 Store Write
+  440  cLSN 3 lsn 1 lsn 2 lsn 3 lsn 4 Read
+
+  441  Figure 3: State for a single log without failures. The client
+  442  acquires a write token (wtoken) from the metadata store and
+  443  installs it on log nodes via open. Appends are replicated, advancing the committed watermark (cLSN). Log segments are
+  444  flushed to object storage in large (bSize) segments.
+
+  445  durability [5]), we treat object storage and the metadata store as
+  446  reliable and focus on failures in the staging and replication layers.
+  447  Protocol overview. BtrLog targets the same failure modes as
+  448  Paxos-like protocols, but shifts responsibilities to reduce latency
+  449  while preserving fault tolerance. It assigns the leader/proposer role
+  450  to the single writer (the client) to minimize commit latency, and
+  451  leverages WAL monotonicity to avoid per-record ordering at log
+  452  nodes. BtrLog integrates object storage to simplify node recovery
+  453  and avoid re-replication across log nodes. Cloud object storage also
+  454  serves as a highly available metadata store with atomic compareand-swap (CAS) semantics for leader election (client failover). In the
+  455  following, we discuss how BtrLog uses these concepts to achieve
+  456  fault tolerance. We assume a single-AZ deployment for simplicity,
+  457  but our explanations generalize to BtrLog's multi-AZ deployment.
+  458  We first describe the failure-free operations that enable low-latency
+  459  appends and consistent reads, then we discuss failure scenarios.
+
+  460  4.1 Failure-Free Operation
+  461  Log creation. Before appending, clients have to create a new log
+  462  by initializing its metadata (such as the segment size (bSize)) in the
+  463  metadata store, as shown in Figure 3 1 . To open a log for writing,
+  464  the client acquires a write token (wtoken) from the metadata store
+  465  (c.f. Section 4.2) and sends an open request to all log nodes to install
+  466  that token 2 . Before issuing append requests, the client waits for
+  467  acknowledgments from a quorum of log nodes.
+  468  Append operations. The BtrLog client sends append requests to
+  469  all log nodes and commits after replies from a write quorum 3 . In
+  470  addition to the payload, each append request includes three fields:
+  471  (1) the record's log sequence number (nLSN), (2) the last committed
+  472  LSN (cLSN, a commit watermark for readers), and (3) the record's
+  473  byte offset within the current segment, computed as the prefix sum
+  474  of payload sizes of preceding records in the segment. The prefix
+  475  sum allows log nodes to place each record at a deterministic offset
+  476  within a segment, enabling optimized flushing to object storage.
+  477  Idempotent segment flushes. On the failure-free fast path, log
+  478  nodes flush full segments to object storage asynchronously 4 . If
+=== PAGE 6 ===
+
+  479  all nodes wrote the same segment, this would incur 3× the PUT
+  480  cost in a 3-node deployment. To avoid redundant PUTs, BtrLog
+  481  uses the prefix sum of record sizes to construct byte-by-byte identical segments across all nodes. As a result, each node derives the
+  482  same deterministic object name for the segment, making the flush
+  483  idempotent. Nodes create the object using a conditional PUT (with
+  484  If-None-Match in S3), so at most one concurrent uploader succeeds.
+  485  To optimize costs, a node checks whether the object already exists
+  486  before issuing a PUT and skips the write if it does. Since flushes
+  487  are performed asynchronously, BtrLog can use expensive cryptographic hashing to avoid accidental hash collisions. In the rare
+  488  case of packet loss or writer fencing, hashes may differ; BtrLog
+  489  then tolerates duplicate flushes to reduce coordination overhead
+  490  and performs data de-duplication during read operations.
+  491  Read guarantees. The read protocol guarantees that all committed
+  492  data is readable. Internally, BtrLog distinguishes hot reads, served
+  493  by log nodes, from cold reads, served by object storage. The client
+  494  handles both types of reads transparently to the DBMS.
+  495  Hot data reads. Hot data residing on log nodes is typically read
+  496  either for transaction rollback (where records are read to undo
+  497  a transaction), for log shipping, or for read-replication, as in Microsoft Socrates [6], for example. Because the write path tolerates
+  498  message loss, committed entries may be absent on some log nodes.
+  499  Similarly, the committed LSN watermark (cLSN) may be stale on
+  500  nodes that have not yet received the latest appends. Hot data reads
+  501  are therefore performed as quorum reads, which enable clients to
+  502  tolerate gaps on individual nodes and observe up-to-date committed
+  503  LSN watermarks. To optimize bandwidth utilization, readers may
+  504  optimistically decide to read only from a single node and switch to
+  505  quorum reads when encountering gaps or detecting a stale cLSN
+  506  on that node. If the requested LSN range has already been flushed,
+  507  log nodes redirect the request to object storage.
+  508  Cold data reads. BtrLog clients leverage object storage for highthroughput reads of cold data, as required for database recovery.
+  509  After a crash, the DBMS replays log segments directly from object
+  510  storage, reducing load on log nodes and allowing them to prioritize
+  511  low-latency tail operations. To enable clients to build an index via
+  512  LIST operations and use it to retrieve ranges, log nodes encode the
+  513  log ID, epoch, and LSN range in addition to the hash of the data
+  514  in the object key. The index can be incrementally maintained on
+  515  clients using metadata from log nodes (e.g., the last flushed LSN).
+  516  Deferred eviction for low-latency reads. The core protocol guarantees that no committed data is lost, but does not by itself guarantee low read latency for all access patterns. For example, data
+  517  requested for log shipping or transaction rollback may have already
+  518  been evicted to object storage. In practice, object store eviction can
+  519  be controlled without modifying the core protocol using the LSN
+  520  window mechanism, which is described in Section 5.
+
+  521  4.2 Client Failover
+  522  Given the client's leader role, client failures require explicit failover
+  523  handling. The key challenge is to preserve the single-writer invariant and prevent split-brain, in which two clients concurrently
+  524  believe they hold leadership for the same log. Without fencing,
+  525  concurrent append operations can create divergent tails across log
+  526  nodes and conflicting persisted segments in object storage.
+
+  527  Client C1 wToken 2 wToken 2 Meta
+  528  Client 1 init()
+  529  wToken 1 cLSN ? bSize 4 Store
+  530  C2
+  531  cLSN 3 nLSN ?
+  532  nLSN 5 3 read(lsn)
+  533  2 open()
+  534  Node L1 Node L2 Node L3
+  535  wToken 1 wToken 2 lsn 1 wToken 2 lsn 1
+  536  cLSN 3 cLSN 2 cLSN 1 lsn 2
+  537  lsn 3
+
+  538  Network Legend
+  539  Flushed Segment Set
+  540  Partition Object
+  541  epoch 1 Store Write
+  542  cLSN 3 lsn 1 lsn 2 lsn 3 lsn 4 Read
+
+  543  Figure 4: Client failover: The new client acquires a write token (wtoken) and installs it on a quorum of log nodes, fencing
+  544  off the old writer. It repairs the tail by identifying the highest
+  545  LSN and re-replicating records using the new wtoken.
+
+  546  Running example. We use the example depicted in Figure 4 to
+  547  show how BtrLog prevents split-brain scenarios and enforces
+  548  single-writer semantics through its failover protocol. In this example, client C1 is isolated in a network partition and retains connectivity only to log node L1. To replace the faulty client, a new
+  549  client, C2, opens the existing log as the writer.
+  550  Writer fencing. Concurrent writes to the same log violate Btr-
+  551  Log's single-writer invariant. We therefore use a monotonically
+  552  increasing write token (wtoken) to implement writer fencing. In
+  553  Figure 4, client C2 atomically increments the log's write token from
+  554  1 to 2 1 via an atomic metadata operation. It then installs the token
+  555  on log nodes by sending open and waiting for acknowledgments
+  556  from a write quorum 2 . A log node accepts requests only for the
+  557  highest token it has observed; if it has already seen a higher token,
+  558  it rejects open and returns the higher value. If the client cannot
+  559  obtain a quorum of acknowledgments, it aborts the takeover and
+  560  reports failure to the application (which may retry).
+  561  Avoiding data loss. Before taking over, a new writer must establish a correct log tail to preserve monotonicity and avoid losing
+  562  committed data. Figure 4 highlights a subtlety introduced by object
+  563  storage: Even if client C2 cannot reach log node L1, it may still
+  564  observe segments that node L1 has already flushed to object storage. Naively consulting object storage during failover would add
+  565  substantial latency (tens of milliseconds per access), so the protocol
+  566  avoids putting object storage reads on the critical path.
+  567  Finding the log tail. Fortunately, failover does not require using
+  568  object storage. To locate the tail of the log without losing committed
+  569  data, the new writer determines the largest contiguous recoverable
+  570  LSN prefix supported by a read quorum of log nodes. To accelerate
+  571  this step, log nodes piggyback their last committed LSN watermark
+  572  when acknowledging the installation of the client's write token.
+  573  The client then starts reading log records sequentially 3 , starting
+  574  from the highest watermark it observed (cLSN = 2 in the example).
+  575  Determining committed data. The retrieved log record's LSN
+  576  might be below the last committed watermark observed by a node,
+  577  and only one copy of the record might exist. A stricter setting that
+  578  requires the writer to observe a quorum of copies might cause data
+=== PAGE 7 ===
+
+  579  loss, as illustrated in Figure 4. In the example, C2 observes only
+  580  one copy of LSN 3 even though the previous writer replicated it to
+  581  2/3 nodes and reported success to the application (cLSN = 3 on C1).
+  582  Such cases occur because quorum replication can introduce gaps,
+  583  e.g., due to message loss, and the last committed watermark can
+  584  lag, especially when multiple appends are in flight. To avoid data
+  585  loss, new writers are conservative when inferring the log tail: they
+  586  include every consecutive LSN present on at least one node in the
+  587  quorum. Only LSNs that a quorum of log nodes confirms as absent
+  588  could not have been committed. In the example, although LSN 4 is
+  589  durably stored in object storage, C2 can infer it was not committed
+  590  because a read quorum confirms it absent.
+  591  Log repair and appending. Under-replicated records (e.g., LSNs
+  592  2 and 3 in Figure 4) are more susceptible to data loss during network partitions. For example, the only accessible copy of LSN 2 is
+  593  lost when node L3 fails. To improve durability of under-replicated
+  594  records, the new client re-replicates such records to all nodes using
+  595  the new write token 4 . These repair writes may fail if the new
+  596  client is also fenced, in which case it stops the failover process and
+  597  informs the application to handle retries. Writer fencing can happen
+  598  at any stage, but the protocol guarantees that concurrent repairs
+  599  will recover the same or a higher log tail. Once fencing and repair
+  600  are complete, the new client continues appending to the same log.
+  601  Reconstructing the client's log state. As described earlier, the
+  602  failover protocol determines all required metadata for the new
+  603  writer's state, including the last committed LSN and the next LSN
+  604  (nLSN). During tail recovery, the writer also retrieves each record's
+  605  byte offset from log nodes. This information is used to reconstruct
+  606  the segment prefix sum for idempotent object storage flushes.
+
+  607  4.3 Node Failures
+  608  Detecting node failures. Although BtrLog uses a client-driven
+  609  replication protocol, it does not depend on clients to detect or handle
+  610  node failures. If failure detection were delegated to clients, node
+  611  outages could go unnoticed when a client idles or crashes, leaving
+  612  the tail unreplicated and increasing the risk of data loss. Instead,
+  613  BtrLog detects node failures via peer-to-peer heartbeats between
+  614  log nodes. If a node misses heartbeats from a peer for a configurable
+  615  interval, it marks that peer as failed.
+  616  Handling node failures. Traditional protocols, like VSR [66],
+  617  Raft [67], Corfu [24], or Scalog [27], use re-replication from surviving nodes to recover and rebuild failed nodes. Healthy nodes
+  618  serve read requests to recovering nodes, increasing load. To avoid
+  619  this overhead, BtrLog flushes a snapshot of the log segments to
+  620  object storage rather than re-replicating the data to other nodes.
+  621  The snapshot flush persists all LSNs up to the point at which the
+  622  failure was detected. Entries committed after detection are still
+  623  replicated to a quorum by design. Besides reducing load on healthy
+  624  nodes, this strategy also enables new or recovering nodes to accept
+  625  new writes immediately after receiving the current write token.
+  626  Cost-efficient failure handling. Flushing log segment snapshots
+  627  to object storage on every node failure might, however, increase
+  628  costs due to the number of PUT requests. To reduce the flush costs,
+  629  BtrLog introduces two optimizations: First, log nodes trigger a
+  630  flush only when they detect 𝑁 − 𝑄 node failures. For example, in
+  631  𝑤
+  632  a cluster with 3 nodes and 𝑄 = 2, a single failure would already
+  633  𝑤
+
+  634  trigger a flush. In a cluster of 6 nodes and 𝑄 = 4, snapshot flushes
+  635  𝑤
+  636  are only triggered after two failures. Second, we deterministically
+  637  assign a per-log flush leader: the leader flushes immediately, while
+  638  other nodes first check whether the object already exists before
+  639  writing. This optimization avoids unnecessary flushes.
+  640  Node replacement and reconfiguration. BtrLog does not automatically redeploy failed nodes and assumes that a higher-level
+  641  monitoring component handles such logic. Currently, faulty nodes
+  642  can be replaced by removing a node and replacing it with a new
+  643  node, reusing the same DNS name or IP address. More automated
+  644  node replacement strategies and cluster resizing through reconfiguration are interesting avenues of future work.
+
+  645  4.4 Unreliable Networks
+  646  Impact of network issues. BtrLog assumes unreliable networks
+  647  where append requests may get reordered or dropped entirely. Network issues can introduce gaps in node-local segments and delay
+  648  the propagation of the committed watermark from the client to
+  649  the log nodes. Nodes may also flush incomplete or overlapping
+  650  segments to object storage, potentially leading to uncommitted
+  651  or duplicated records stored there. For instance, a node may flush
+  652  while client failover is in progress. Figure 4 illustrates how this failure case can cause data to appear on object storage even without
+  653  being replicated and committed by quorum.
+  654  Handling uncommitted data. To keep the write path fast, BtrLog
+  655  postpones handling such cases to the read path. A key invariant
+  656  for the read path is that data in object storage is only durable, not
+  657  necessarily committed. Readers identify committed data through
+  658  the last committed watermark (cLSN) that the client propagates
+  659  to log nodes, which in turn include it as object metadata on each
+  660  flush. For example, when clients retrieve data with the read API,
+  661  nodes return both the requested data and the committed LSN they
+  662  observed. This mechanism enables readers to distinguish committed
+  663  data from merely durable data. Similarly, when retrieving data from
+  664  object storage, clients evaluate the committed watermark in the
+  665  object's metadata to filter out uncommitted data if required.
+  666  Handling overlapping data. Due to quorum replication, log segments may have gaps and overlapping ranges. For instance, some
+  667  nodes might observe LSN1 and LSN3, while others receive LSN2 and
+  668  LSN4. When such overlapping log segments are flushed to object
+  669  storage, e.g., due to a node failure, clients may observe overlapping
+  670  copies of those segments. The BtrLog client transparently merges
+  671  log segments while reading from object storage.
+  672  Handling duplicate data. A more subtle issue can occur during
+  673  client failover. As Figure 4 illustrates, pending requests from an
+  674  old writer (client C1) can fill up log segments and trigger a flush to
+  675  object storage. When a new writer (client C2) takes over the log,
+  676  it might append new data with the same LSN, for instance, LSN4
+  677  in Figure 4. Once the new log segment is flushed to object storage,
+  678  readers would observe multiple different copies of LSN4. To resolve
+  679  such conflicts in object storage, BtrLog utilizes the write token
+  680  as an epoch. Each flushed object encodes the epoch in its key and
+  681  includes it in its metadata. Similar to the last committed watermark,
+  682  BtrLog clients use this information to ignore outdated data from
+  683  prior epochs while streaming from object storage.
+=== PAGE 8 ===
+
+  684  client Thread N Thread K
+  685  request <port NNN> <port KKK>
+  686  dispatch belongs to apply()1
+  687  other thread?
+  688  own valid?
+  689  log?
+  690  apply()1 valid? write()2
+  691  write()2 Log Y
+  692  Log 1 Log 2lsn 1
+  693  WALWAL lsn 2
+  694  lsn 1Log X lsn 1
+  695  lsn 2 Buffer Buffer lsn 2
+  696  lsn 1 lsn 3
+  697  lsn 3 lsn 4 full?
+  698  full? lsn 3 write uring uring inmem segments
+  699  inmem segments ok? write
+  700  reply_to: reply()3 ok? reply()3 reply_to:
+  701  <NNN> <KKK>
+
+  702  Figure 5: BtrLog log node architecture for managing parallelism across requests, CP U cores, and SSDs.
+
+  703  5 ENGINEERING BTRLOG FOR LOW LATENCY
+  704  Implementation overview. Achieving high throughput and low
+  705  latency requires efficient protocols and an optimized implementation that can effectively utilize modern networks, NVMe SSDs,
+  706  and multi-core CPUs [43]. Our prototype implements the latencycritical, failure-free append path; failure cases are modeled in TLA+.
+  707  Lower latency bound. Microbenchmarks using sockperf [59] and
+  708  fio [9] in AWS show that a cluster of c6id.metal instances can achieve
+  709  approximately 40 µs network round-trip and 30 µs SSD write latency
+  710  without load in a partitioned placement group. Our implementation
+  711  thus targets 70 µs latency without load. Achieving this requires
+  712  careful optimization of cache misses, allocations, and system calls:
+  713  For example, system calls and large allocations can take hundreds
+  714  of nanoseconds or even microseconds, potentially deteriorating
+  715  response latency by several percent. Thus, our technology stack
+  716  needs to allow for fine-grained control over such operations.
+  717  Technology stack: Rust, io_uring, UDP. BtrLog is implemented
+  718  in Rust. Since no tested off-the-shelf asynchronous Rust runtime
+  719  offered consistently low latency and observability, we implemented
+  720  our own. Our custom asynchronous runtime is built on io_uring [10],
+  721  which allows batching system calls for common operations such as
+  722  send, recv, and write [44]. Finally, since the quorum-based BtrLog
+  723  protocol obviates the need for many of TCP's guarantees, we use
+  724  UDP by default, avoiding stream and connection overhead.
+  725  Multi-Core architecture. BtrLog is designed as a multi-tenant
+  726  cloud service, so it expects to manage many independent open
+  727  log streams simultaneously. Conversely, each log requires sequential semantics internally, and the most common append operation
+  728  needs few CPU cycles: As Figure 5 illustrates, each thread 1 checks
+  729  the message and copies it to the in-memory log segment if valid,
+  730  2 asynchronously writes it to the local SSD, ensuring fsync semantics, 3 replies to the client once data is durable, and then
+  731  asynchronously flushes full segments to S3 if necessary. This model
+  732  naturally yields an architecture where each log is owned by a single
+  733  thread that sequentially processes requests for that log.
+  734  Per-Thread runtime. I/O dominates the end-to-end latency of
+  735  requests, so I/O wait times should be utilized to process other requests. One could achieve this by using synchronous I/O requests
+
+  736  and letting the OS schedule other threads. However, the resulting
+  737  thread-to-core oversubscription and excessive OS scheduling can
+  738  lead to latency spikes. BtrLog thus spawns one thread per CPU
+  739  core and uses cooperative scheduling within a custom asynchronous Rust runtime to interleave I/O and CPU work on each thread.
+  740  Symmetric networking. Many systems use dedicated networking
+  741  threads to simplify the architecture and guarantee fast packet acceptance. However, this asymmetric approach requires cross-thread
+  742  synchronization for every packet and is detrimental on small nodes
+  743  with few CPUs, since one CPU thread is designated to networking
+  744  only. In BtrLog, every thread accepts network requests on its own
+  745  port using the io_uring-based runtime and processes them directly.
+  746  Internal load balancing. The symmetric networking approach
+  747  has a significant drawback: If clients send requests directly to individual threads on BtrLog nodes, the node cannot balance log
+  748  segments across threads. Load balancing is important since we expect multi-tenant workloads to serve tenants with both very high
+  749  and very low append frequency. Having multiple high-frequency
+  750  logs handled by the same thread would negatively impact peak
+  751  throughput. To enable load balancing while still allowing threads
+  752  to respond to clients directly and reduce cross-thread synchronization, our network protocol includes a reply_to field that specifies
+  753  a port number. Clients can use any previously used port, including
+  754  a well-known port for initial requests, and the BtrLog node may
+  755  internally forward the message to a different thread, handing over
+  756  the connection. The receiving thread responds to the client directly,
+  757  setting its own port in the reply_to field, which the client uses for
+  758  future requests – until the log moves to a different thread again.
+  759  Figure 5 illustrates the resulting architecture.
+  760  S3 integration. BtrLog uses AWS's Rust S3 SDK to flush full log
+  761  segments to S3. As Section 4 describes, BtrLog reduces network
+  762  utilization and costs when flushing to S3: Log segments flushed to
+  763  S3 by some node will not be flushed again by another. The Rust S3
+  764  SDK integrates with Rust's asynchronous ecosystem but exhibits
+  765  long-running blocking operations (single-digit milliseconds) that deteriorate latency when run on regular log node worker threads. The
+  766  implementation thus executes S3 operations on dedicated threads.
+  767  Concurrent appends. The BtrLog protocol permits clients to
+  768  issue a bounded number of appends concurrently. We implement
+  769  this via an LSN window 𝑊 respected by both the client library and
+  770  the log nodes: a client does not submit LSN 𝑋 until a write quorum
+  771  has acknowledged LSN 𝑋 −𝑊 . Conversely, log nodes delay flushing
+  772  segments overlapping with the LSN window to S3, ensuring that
+  773  the corresponding records remain accessible in memory. Beyond
+  774  allowing pipelining, the LSN window also serves as a retention
+  775  mechanism for tail-following readers such as database secondaries,
+  776  as discussed in Section 4.1. A larger window accommodates slower
+  777  readers but entails higher memory usage per active log stream.
+
+  778  6 EVALUATION
+  779  Outline. After detailing the experimental setup, this section evaluates BtrLog across a number of dimensions, including append
+  780  latency (Sec. 6.1), single-AZ and multi-AZ deployment (Sec. 6.3),
+  781  impact of node failure and quorum (Sec. 6.2), cost and availability
+  782  (Sec. 6.5), and end-to-end OLTP performance (Sec. 6.4).
+=== PAGE 9 ===
+
+  783  p50 latency p99 latency
+  784  1 000 µs
+  785  ↑↑↑↑ ↑↑↑↑
+  786  cy default default
+  787  en 800 µs BookKeeper BookKeeper
+  788  at >2000 >2000
+  789  L 600 µs BookKeeper
+  790  nd
+  791  -E 400 µs
+  792  to EBS
+  793  d- BtrLog
+  794  200 µs
+  795  En
+  796  0 µs max SSD IOPS→ max SSD IOPS→
+  797  0.2M 0.5M 0.8M 1.1M0.2M 0.5M 0.8M 1.1M
+  798  Appends per Second
+  799  Figure 6: Latency with increasing load in EBS ( ), SSDoptimized BookKeeper ( ), and BtrLog ( ).
+
+  800  Comparison systems. As discussed, Apache BookKeeper is the
+  801  only alternative log system that eagerly assigns LSNs and executes
+  802  appends with a single network round trip. Since other log systems
+  803  have higher latency by design, our comparison focuses on Apache
+  804  BookKeeper. We also compare BtrLog with Amazon EBS [14] in its
+  805  low-latency, high-durability variant io2, which is a common choice
+  806  for attaining durable writes on ephemeral cloud instances [69].
+  807  Experimental setup. We evaluate all systems on a cluster of three
+  808  c6id.metal log nodes with local SSDs in the AWS eu-central-1 region,
+  809  plus a c6in.metal client node, which has enough network bandwidth
+  810  to serve all log nodes simultaneously. The cluster uses "partitioned"
+  811  placement groups, as recommended by AWS [1] for high-availability
+  812  services. All measurements for an experiment are executed on the
+  813  same cluster to ensure comparability. All nodes run Linux 6.14, and
+  814  BtrLog uses instance-local SSDs as block devices.
+  815  BookKeeper setup. For BookKeeper, we measured both the default configuration and an optimized configuration for low-latency
+  816  writes on SSDs. The default BookKeeper configuration buffers appends for up to 2 ms before group-flushing them to SSD. This buffering time is a fraction of typical HDD latency, but 60 times the write
+  817  latency of a modern SSD. Our SSD-optimized BookKeeper configuration removes buffering entirely, aligns writes to 4 KiB, and
+  818  disables the page cache. We combine SSDs in a RAID0 using the
+  819  XFS file system, which has little overhead [37, 49].
+  820  Amazon EBS. EBS experiments directly attach an io2 volume to the
+  821  client node to achieve IOPS comparable with the BtrLog cluster.
+  822  This volume is used as a block device, without a file system, similar
+  823  to how BtrLog log nodes write to their local SSD.
+
+  824  6.1 Append Latency and Throughput
+  825  Open-loop latency under load. Response latency depends on
+  826  both system configuration and load. For example, systems may
+  827  batch disk writes from multiple requests to improve peak throughput at the cost of higher latency. Therefore, we vary the system load
+  828  (appends per second), and record the end-to-end latency of each
+  829  append. For comparability, we configure all systems to achieve the
+  830  best possible latency by deactivating write batching. Our open-loop
+  831  benchmark schedules requests with exponentially distributed interarrival times per log stream, i.e., as a Poisson point process. The
+  832  client node adds more independent log streams over time, increasing system load and stress-testing many concurrent log streams.
+
+  833  Latency with increasing load. Figure 6 shows the median and
+  834  99th-percentile response latency for BookKeeper, EBS io2, and Btr-
+  835  Log with 128-byte appends, which we choose based on observed
+  836  YCSB, TPC-C, and pgbench LSN write sizes. Each point corresponds
+  837  to a 500 ms interval over which throughput and latency percentiles
+  838  are measured. BookKeeper does not scale beyond 240,000 appends
+  839  per second in either configuration ( , ), and its throughput and
+  840  latency fluctuate strongly under load, producing the chaotic pattern
+  841  in Figure 6. The default BookKeeper configuration is not visible
+  842  in the figure because its latency never falls below 2 ms. EBS io2
+  843  ( ) shows steadily increasing write latency as load rises and consistently exhibits 4–5× higher median latency than the BtrLog
+  844  prototype. At approximately 1 M appends/s, which is the IOPS limit
+  845  of the instance-local SSD, both EBS and BtrLog latency deteriorate.
+  846  Additional functionality such as authentication and encryption
+  847  can be comfortably supported by BtrLog's remaining CPU cycles;
+  848  stronger hardware-based protection using enclaves [32, 57, 58] is
+  849  also an interesting avenue for future work.
+  850  Best-case latency. Let us now discuss interesting latency and
+  851  system load results for each system using the data points shown in
+  852  Figure 6. Across a large set of BookKeeper configurations, the best
+  853  median latency we observed was 262 µs at 6,800 appends per second;
+  854  latency deteriorates quickly as load increases. The best median
+  855  latency on EBS was 318 µs, which increased steadily with higher
+  856  load. BtrLog's best median latency is 70 µs (79 µs p99 latency) at a
+  857  load of 35,500 appends per second. At half of the maximum system
+  858  load, approximately 500 k appends per second, BtrLog achieves a
+  859  median latency of 111 µs. This headroom would also allow adding
+  860  a BtrLog gateway that exposes a simple authenticated HTTP or
+  861  gRPC API. Even with an additional 40 µs of latency, such a design
+  862  would remain substantially faster than EBS and BookKeeper.
+  863  Full system load. At the maximum load of 1 M appends/s (128byte), EBS reaches 503 µs median latency and 651 µs p99 latency.
+  864  Once the provisioned-IOPS volume is saturated, EBS latency increases beyond the range shown in Figure 6. BtrLog reaches 188 µs
+  865  median latency at full load, limited by the 1.1 M IOPS of the underlying SSDs. To enable overload detection and to bound the latency
+  866  of admitted requests, BtrLog limits its internal queue lengths and
+  867  drops excess requests once the system is saturated [42]. As a result,
+  868  it does not exhibit the typical "hockey stick" latency curve near full
+  869  load. At peak throughput, BtrLog serves 2,186 concurrently active
+  870  logs in this experiment, and log nodes use 71 GiB of main memory.
+  871  While the maximum append rate is bounded by SSD IOPS, the number of logs stored is bounded by main memory because each log
+  872  consumes 32 MiB on average. A production implementation should
+  873  therefore flush segments of logs with very low append frequency
+  874  to SSD or S3.
+  875  Impact of SSD latency. Applications with weaker durability requirements may run BtrLog with SSD writes disabled on log nodes:
+  876  Each log node appends to log segments in memory and flushes them
+  877  to S3 when full, but does not write its own WAL to SSD. This setting
+  878  improves latency, since SSD write latency is similar to the network
+  879  round-trip time in a single availability zone (35 µs vs 40 µs). We find
+  880  that disabling SSDs reduces median latency by approximately 50%
+  881  and improves tail latency across most throughput settings.
+  882  Comparison with EBS. The large latency gap between EBS and
+  883  BtrLog has a plausible architectural explanation: EBS provides
+=== PAGE 10 ===
+
+  884  300 µs
+  885  cy 250 µs p99: 221µs
+  886  en p99: 192µs
+  887  at 200 µs
+  888  L
+  889  nd 150 µs p95: 185µs
+  890  p95: 164µs
+  891  -E
+  892  to 100 µs p50: 115µs
+  893  d- p50: 95µs
+  894  En 50 µs
+  895  node killed at t = 64s
+  896  0 µs
+  897  0 10 20 30 40 50 60 70 80 90 100
+  898  Runtime (s)
+
+  899  Figure 7: End-to-End latency before and after killing one log
+  900  node at 400,000 log appends per second.
+
+  901  durability using chain replication [21]. As discussed in Section 2.2,
+  902  chain replication requires more network hops than BtrLog's clientdriven quorum replication on the append path. More broadly, remote block storage exposes a general-purpose block device abstraction rather than an append-only interface and therefore cannot
+  903  optimize as aggressively for small WAL appends. To assess whether
+  904  this behavior is specific to AWS, we also measured public block
+  905  storage services on GCP and Azure and compared them to the
+  906  corresponding network-plus-local-SSD baseline (evaluated with
+  907  sockperf and fio using n4-standard-2 + hyperdisk-balanced in GCP
+  908  europe-west3, and Standard_D4s_v3 + PremiumV2_LRS in Azure
+  909  germanywestcentral). We find that all hyperscaler block storage
+  910  services exhibit high write latency compared to the optimum:
+  911  AWS GCP Azure
+  912  Network + SSD 76 µs 71 µs 301 µs
+  913  Remote Block Storage Service 311 µs 453 µs 776 µs
+  914  Factor 4.1× 6.4× 2.6×
+  915  These measurements suggest that block storage services in general
+  916  are not optimized for low latency WAL appends.
+  917  Comparison with BookKeeper. Unlike EBS, BookKeeper and
+  918  BtrLog share the same replication mechanism: both use clientdriven quorum replication and can acknowledge appends in a single
+  919  round trip. To assess whether their remaining latency gap is primarily due to language-level effects, we conducted microbenchmarks
+  920  showing that Java's networking and SSD I/O primitives can achieve
+  921  latency comparable to their Rust and C counterparts. We therefore
+  922  attribute the gap mainly to implementation choices in BookKeeper,
+  923  which was designed around millisecond-scale HDD latency rather
+  924  than modern low-latency networks and NVMe SSDs.
+
+  925  6.2 Impact of Node Failure and Quorum
+  926  Impact of node failure. Our experimental setup with three log
+  927  nodes can tolerate one node failure, since a quorum of two nodes
+  928  suffices for appends. The following experiment tests the append
+  929  availability and latency of the BtrLog prototype under node failure
+  930  by manually stopping a random log node while the benchmark
+  931  is running. The load is kept constant at approximately 400,000
+  932  appends per second. As Figure 7 shows, the client keeps successfully
+  933  appending log entries on the BtrLog cluster after a node is killed
+
+  934  p50 latency p99 latency
+  935  300 µs
+  936  cy 250 µs Quorum Size 3
+  937  en
+  938  at 200 µs
+  939  L
+  940  nd 150 µs
+  941  -E
+  942  to 100 µs
+  943  d-
+  944  En 50 µs Quorum Size 2
+  945  0 µs
+  946  0.2 M0.5 M0.8 M0.2 M0.5 M0.8 M
+  947  Appends per Second
+
+  948  Figure 8: Impact of required quorum (2 or 3 nodes) on median
+  949  and tail latency.
+
+  950  at 𝑡 = 64𝑠. The median latency deteriorates from 95 µs to 115 µs
+  951  (21%), and the p99 latency from 192 µs to 221 µs (15%).
+  952  Discussion: quorum latency. BtrLog's quorum-based algorithm
+  953  does not need to wait for all responses to arrive, thereby hedging
+  954  against network latency jitter. Killing one node effectively stops
+  955  request hedging and causes the latency increase visible in Figure 7.
+  956  Impact of quorum size. BtrLog can be configured with different
+  957  quorum sizes. The default number of responses required for a successful append operation is a majority, e.g., two out of three nodes.
+  958  In the following experiment, we investigate the effect of disabling
+  959  quorum for append requests, so that they require responses from
+  960  all nodes. As Figure 8 shows, the quorum-based protocol significantly improves end-to-end latency: At half system load (500,000
+  961  appends/s), the quorum improves median latency by approximately
+  962  30 µs and p99 latency by approximately 50 µs.
+
+  963  6.3 Cross-AZ Latency
+  964  Network latency dominates. Previous experiments used a log
+  965  cluster inside a single availability zone (AZ). This yields better
+  966  latency and availability comparable to EBS, but may not provide
+  967  enough availability for some use cases. To validate that BtrLog,
+  968  like in a single AZ, achieves latency close to the hardware limit,
+  969  we now spread the three-node cluster across multiple AZs of the
+  970  same region (eu-central-1). In this configuration, the client sees
+  971  idle-load median network latency of 270 µs, 440 µs, and 540 µs to
+  972  the three log nodes as measured using sockperf [59]. Note that
+  973  these numbers may vary by region. As the following figure shows,
+  974  the overall append request latency in BtrLog is indeed dominated
+  975  by cross-AZ network latency (400,000 appends per second):
+
+  976  Latency
+  977  Single AZ
+  978  BtrLog
+  979  Multi AZSSD
+  980  Network
+  981  0.0 ms 0.1 ms 0.2 ms 0.3 ms 0.4 ms
+  982  End-to-End Latency
+
+  983  As the previous single-AZ experiments showed, BtrLog achieves
+  984  4× better latency than EBS io2. In a multi-AZ configuration with
+  985  three nodes, BtrLog achieves comparable latency (12% worse) to a
+  986  single-AZ provisioned EBS volume at the same throughput while
+  987  providing multi-AZ availability and a WAL-optimized interface.
+=== PAGE 11 ===
+
+  988  1 client worker 32 client workers
+  989  125 k
+  990  s 4 k
+  991  x/ 100 k
+  992  T 3 k
+  993  75 k
+  994  -A
+  995  2 k 50 k
+  996  SB
+  997  YC 1 k 25 k
+  998  0 k 0 k
+  999  og r og r
+ 1000  o2) p3) epe o2) p3) epe
+ 1001  BtrL S (i S (g kKe BtrL S (i S (g kKe
+ 1002  EBEB Boo EBEB Boo
+ 1003  WAL Backend
+
+ 1004  Figure 9: YCSB-A transaction throughput with different WAL
+ 1005  backends in LeanStore.
+
+ 1006  6.4 End-to-End Database Performance
+ 1007  Integration in LeanStore. Experiments so far have used a custom
+ 1008  open-loop benchmarking client designed to measure response latency as accurately as possible under different load settings. We now
+ 1009  turn towards evaluating the performance of these systems in a transactional database, LeanStore [52]. LeanStore's autonomous commit
+ 1010  protocol [64] uses multiple log streams (one per worker thread)
+ 1011  that are flushed independently. This design was conceived for local
+ 1012  SSDs, which require many parallel writes to saturate bandwidth,
+ 1013  but it also fits the BookKeeper and BtrLog APIs, since their multitenant architecture supports multiple independent log streams. We
+ 1014  modify LeanStore by swapping its WAL implementation with different backends: Custom-built backends for BookKeeper and BtrLog,
+ 1015  and the default block-device backend for EBS.
+ 1016  Transaction Throughput. Figure 9 shows the measured YCSB-A
+ 1017  (50% reads, 50% writes) throughput using different WAL backends in
+ 1018  LeanStore. LeanStore using the BtrLog WAL backend achieves 2×
+ 1019  higher throughput than LeanStore using the BookKeeper backend,
+ 1020  3× higher throughput than EBS gp3, and 1.25× higher throughput
+ 1021  than EBS io2. These results show that systems previously using
+ 1022  EBS io2 for their WAL can replace EBS with a non-provisioned,
+ 1023  multi-tenant service while simultaneously increasing transaction
+ 1024  throughput using a simple append interface.
+
+ 1025  6.5 WAL Backend Tradeoffs
+ 1026  Choosing a cloud WAL backend requires balancing append latency
+ 1027  with cost and availability. While the previous results focused on
+ 1028  latency, Figure 10 also compares cost and fault-tolerance for BtrLog
+ 1029  and existing alternatives across all three dimensions.
+ 1030  Append latency and availability. We measure the 1 KiB append latency using each backend's native append interface in microbenchmarks. In contrast to Section 6.1, we optimize for throughput rather than latency to compare per-append costs: All systems
+ 1031  batch four 1 KiB appends into one 4 KiB I/O. Corfu, Scalog, and
+ 1032  BookKeeper benchmarks use the implementations provided by each
+ 1033  GitHub repository [8, 24, 70]; S3 Standard and S3 Express benchmarks use the AWS C++ S3 SDK; EBS gp3 and io2 benchmarks use
+ 1034  fio [9]. Corfu and Scalog run in a 400 Gbit/s lab environment; other
+ 1035  measurements use AWS c6id instances in eu-central-1.
+
+ 1036  AvailabilityAvailability VMVM1 AZ1 AZ 3 AZs3 AZs S3
+ 1037  ) 10.0 ms S3 Express
+ 1038  og Corfu
+ 1039  (l
+ 1040  cy Scalog BookKeeper (3AZ)
+ 1041  en 1.0 ms
+ 1042  at EBS (gp3)
+ 1043  L BtrLog (3AZ)
+ 1044  nd EBS (io2)
+ 1045  pe BookKeeper (1AZ)
+ 1046  Ap 0.1 ms
+ 1047  BtrLog (1AZ)
+ 1048  Local SSD Low Durability
+ 1049  Better
+ 1050  $0.001 $0.010 $0.100 $1.000
+ 1051  Cost per 1M Append Operations (log)
+
+ 1052  Figure 10: Comparison of append cost, append latency, and
+ 1053  availability of potential WAL backends for the cloud. BtrLog
+ 1054  shrinks the gap between local SSDs and alternative solutions.
+
+ 1055  Availability. Instance-local NVMe SSD writes on EC2 take approximately 35 µs, but provide neither durability nor availability
+ 1056  under instance failure. Figure 10 thus classifies them as low availability (red). Deployments replicated across nodes within a single
+ 1057  AZ provide higher availability (orange), while deployments spanning multiple AZs, including S3 and the corresponding variants of
+ 1058  BtrLog and BookKeeper, provide the highest availability (green).
+ 1059  Cost. To compare services with different pricing models, we normalize all costs to per-append cost, shown on the x-axis of Figure 10. Cloud-native services such as S3 and S3 Express already use
+ 1060  per-operation pricing. For provisioned services (EBS) and hosted
+ 1061  systems such as Apache BookKeeper and BtrLog, we derive perappend cost assuming full resource utilization.
+ 1062  Detailed cost calculation. For EBS, we assume peak provisioned
+ 1063  performance (256,000 IOPS for io2 and 80,000 IOPS for gp3) and
+ 1064  consider only IOPS cost, excluding storage-capacity cost. Provisioning 256,000 IOPS on EBS io2 costs $9,651.20 per month, or,
+ 1065  assuming a 30-day month, $ 1.45 × 10−8 per I/O operation. With full
+ 1066  IOPS utilization, this corresponds to $0.0145 per 1 M I/O operations
+ 1067  and thus $0.0036 per 1 M appends. For hosted systems, including
+ 1068  BtrLog, Apache BookKeeper, Corfu, and Scalog, we use the same
+ 1069  IOPS-based calculation and assume c6id.metal instances, each providing 1,073,336 IOPS across four local SSDs. Under this model,
+ 1070  single-AZ BtrLog yields a cost of $0.00125 per 1 million appends,
+ 1071  while its additional S3 PUT cost is negligible because appends are
+ 1072  batched before upload (for 16 MB batches and 1 KB requests, the S3
+ 1073  PUT cost is approximately $ 3 × 10−10 per append). Apache Book-
+ 1074  Keeper incurs higher cost because it dedicates SSD devices to read
+ 1075  operations, reducing the IOPS available for writes. For multi-AZ
+ 1076  deployments of BtrLog and BookKeeper, we additionally account
+ 1077  for the larger deployment size (six rather than three nodes) and
+ 1078  cross-AZ network transfer cost, again assuming 1 KB requests.
+ 1079  Discussion of results. As Figure 10 shows (on a logarithmic scale),
+ 1080  BtrLog yields the best cost/latency tradeoff in both the single-
+ 1081  AZ and multi-AZ availability classes. Note that these calculations
+ 1082  assume the best case for all systems, even those that were not able
+ 1083  to fully utilize the SSD IOPS budget in our experiments.
+=== PAGE 12 ===
+
+ 1084  7 RELATED WORK
+ 1085  In addition to prior discussions, we review related work on cloudnative databases, shared-log designs, and cloud storage backends.
+ 1086  Disaggregated and cloud databases. Decoupling and optimizing
+ 1087  logging functionality is a common pattern in modern cloud database
+ 1088  systems. Amazon Aurora [76] uses a log-centric design with a
+ 1089  highly coupled log and storage component to reduce network traffic
+ 1090  and improve fault tolerance. Microsoft Socrates [6] implements a
+ 1091  dedicated XLOG service with quorum-based commit, and Huawei
+ 1092  TaurusDB [25] uses distinct log nodes (PLog) to reduce commit
+ 1093  latency. OceanBase PALF [39] and FoundationDB [83] similarly
+ 1094  utilize a dedicated log component in their design. Neon separates
+ 1095  PostgreSQL compute from a replicated WAL service ("safekeepers")
+ 1096  that provides durable WAL ingestion and supports failover [63].
+ 1097  Many of these systems, e.g., Aurora, Socrates, OceanBase, and Neon,
+ 1098  also integrate object storage for low-cost storage. Although these
+ 1099  systems highlight the need for a specialized logging component,
+ 1100  their components are tightly coupled with the database engine and
+ 1101  are not described sufficiently in the literature. In contrast, BtrLog
+ 1102  aims to provide a reusable write-ahead logging system that can be
+ 1103  integrated with database engines, supporting the development of
+ 1104  modular and composable cloud database architectures [54, 79].
+ 1105  Shared logs and distributed log systems. Besides industrial systems, log abstractions have also been studied in academic research.
+ 1106  Hyder proposed using a single totally ordered log on shared flash as
+ 1107  the backend for OLTP [16], motivating systems such as Corfu [13].
+ 1108  However, shared-log systems including Corfu, Delos, and Scalog
+ 1109  emphasize multi-writer semantics and throughput rather than low
+ 1110  latency [11, 13, 27]. Milliscale [82] recently proposed using S3 Express for OLTP to achieve scalable multi-millisecond latency, while
+ 1111  BtrLog targets scalable multi-microsecond latency. LazyLog [56]
+ 1112  and SpecLog [17] explore lazy or speculative binding of records to
+ 1113  log positions to reduce append latency, and FuzzyLog [55] relaxes
+ 1114  ordering to partial orders to increase concurrency. These works,
+ 1115  however, introduce new append semantics in which LSNs are unknown at commit time, making them incompatible with common
+ 1116  recovery protocols such as ARIES.
+ 1117  Log-centric streaming systems. There has also been work on
+ 1118  distributed log systems for streaming. LogDevice is a deprecated
+ 1119  distributed log system developed by Facebook that was designed to
+ 1120  support generic record-oriented and append-only use cases such
+ 1121  as write-ahead logging for durability and stream processing [33].
+ 1122  Kafka [48] popularized the replicated commit-log model for highthroughput streaming and introduced tiered storage [29] to archive
+ 1123  old log segments to object storage. Streaming-oriented systems
+ 1124  such as Apache Pulsar [7] and Pravega [75], built on top of Apache
+ 1125  BookKeeper [46] as a backend for durability, also provide data
+ 1126  offloading to object storage. BtrLog complements these works by
+ 1127  optimizing for databases instead of streaming use cases: it targets
+ 1128  the single-writer, low-latency append pattern of database WAL and
+ 1129  leverages ARIES-style semantics to minimize commit overhead,
+ 1130  while still supporting asynchronous archival to object storage. Still,
+ 1131  the prevalence of the log abstraction in other systems motivates us
+ 1132  to explore using BtrLog for other latency-sensitive use cases.
+ 1133  Low-latency durable commits. Related work has studied how fast
+ 1134  networks and memory can reduce commit latency. FaRM [28] and
+
+ 1135  RAMCloud [68] replicate logs to remote DRAM to make commits
+ 1136  durable with microsecond-scale overhead. QueryFresh [77] uses an
+ 1137  RDMA-accessible NVRAM log as primary storage to enable fresh
+ 1138  reads on standbys. In contrast to these works, BtrLog aims to
+ 1139  achieve low-latency durability on commodity cloud infrastructure.
+ 1140  Using cloud storage for databases. Cloud storage characteristics
+ 1141  shape database design beyond WAL. Durner et al. study how to
+ 1142  use object storage for analytics despite higher latency and different access patterns [30]. Other benchmarking efforts characterize
+ 1143  cloud storage services and database I/O behavior in cloud-native
+ 1144  systems [81]. Early work evaluated alternative database architectures on cloud primitives such as EC2/EBS/S3 and quantified their
+ 1145  performance implications [47]. More recent studies characterize
+ 1146  cloud database system architecture tradeoffs [40, 84] and the implications of object vs. block storage latency/variance [73]. Instead of
+ 1147  adapting database systems to different storage backends, BtrLog
+ 1148  provides a specialized WAL storage backend that requires minimal
+ 1149  database adaptation and transparently tiers storage for cold data.
+
+ 1150  8 SUMMARY & F UTURE WORK
+ 1151  Summary. We present BtrLog, a reusable single-writer logging
+ 1152  service purpose-built for cloud-native database systems. It combines low-latency durable appends with low-cost, highly durable
+ 1153  archival on cloud object storage. Our evaluation shows that Btr-
+ 1154  Log improves latency by up to 4× relative to the commonly used
+ 1155  EBS io2, translating to higher end-to-end transaction throughput in
+ 1156  OLTP systems. Unlike EBS, BtrLog does not require provisioned
+ 1157  IOPS or capacity when run as a multi-tenant service.
+ 1158  Beyond database systems. Logging is a primitive with a multitude
+ 1159  of applications, and although BtrLog is designed as a WAL backend
+ 1160  for database systems, we believe its low latency and cost can also
+ 1161  be advantageous in other use cases. Like BookKeeper, BtrLog can
+ 1162  be used as a storage backend for streaming systems such as Apache
+ 1163  Pulsar. Using an additional ordering layer, it can also support multiwriter semantics, similar to Corfu and Scalog.
+ 1164  Towards extensibility. BtrLog provides a reusable interface and
+ 1165  is not coupled to a specific database engine. One can conceive of
+ 1166  further BtrLog extension points in an open ecosystem. For example, custom log segment filtering and transformation functions on
+ 1167  log nodes enable writing to S3 in application-specific formats [35],
+ 1168  or verification metadata [31] for long-term storage. This can be
+ 1169  achieved securely using WebAssembly functions, which have recently been used for future-proof storage formats [34, 80]. Custom
+ 1170  archival backends, such as a page materialization service, enable
+ 1171  optimizations for cloud-native OLTP systems, such as Socrates [6].
+
+ 1172  ACKNOWLEDGMENTS
+ 1173  We thank Carsten Binnig for fruitful discussions during the early
+ 1174  stages of the project; Philipp Unterbrunner, Pat Helland, Anub
+ 1175  Ghatage, and Michael Haubenschild for their valuable feedback and
+ 1176  industry insights; and the anonymous reviewers for their feedback.
+ 1177  Funded/Co-funded by the European Union (ERC, CODAC,
+ 1178  101041375). Views and opinions expressed are however those of the
+ 1179  author(s) only and do not necessarily reflect those of the European
+ 1180  Union or the European Research Council. Neither the European
+ 1181  Union nor the granting authority can be held responsible for them.
+=== PAGE 13 ===
+
+ 1182  REFERENCES
+ 1183  [1] Amazon Web Services. 2025. Amazon EC2 Placement Groups. https://docs.aws.
+ 1184  amazon.com/AWSEC2/latest/UserGuide/placement-groups.html
+ 1185  [2] Amazon Web Services. 2025. Availability Zones. https://docs.aws.amazon.com/
+ 1186  whitepapers/latest/aws-fault-isolation-boundaries/availability-zones.html
+ 1187  [3] Amazon Web Services. 2025. Placement strategies for your placement
+ 1188  groups. https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/placementstrategies.htm
+ 1189  [4] Amazon Web Services. 2026. Data persistence for Amazon EC2 instance store
+ 1190  volumes. https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancestore-lifetime.html
+ 1191  [5] Amazon Web Services. 2026. Data protection in Amazon S3. https://docs.aws.
+ 1192  amazon.com/AmazonS3/latest/userguide/DataDurability.html
+ 1193  [6] Panagiotis Antonopoulos, Alex Budovski, Cristian Diaconu, Alejandro Hernandez Saenz, Jack Hu, Hanuma Kodavalla, Donald Kossmann, Sandeep Lingam,
+ 1194  Umar Farooq Minhas, Naveen Prakash, Vijendra Purohit, Hugh Qu, Chaitanya Sreenivas Ravella, Krystyna Reisteter, Sheetal Shrotri, Dixin Tang, and
+ 1195  Vikram Wakade. 2019. Socrates: The New SQL Server in the Cloud. In SIGMOD.
+ 1196  1743–1756.
+ 1197  [7] Apache Software Foundation. 2020. Apache Pulsar. https://pulsar.apache.org/.
+ 1198  Accessed: 2026-01-31.
+ 1199  [8] Apache Software Foundation. 2026. Apache BookKeeper Github Repository.
+ 1200  https://github.com/apache/bookkeeper
+ 1201  [9] Jens Axboe. 2026. Flexible I/O Tester. https://github.com/axboe/fio
+ 1202  [10] Jens Axboe. September 13, 2023. Efficient IO with io_uring. https://kernel.dk/
+ 1203  io_uring.pdf.
+ 1204  [11] Mahesh Balakrishnan, Jason Flinn, Chen Shen, Mihir Dharamshi, Ahmed Jafri,
+ 1205  Xiao Shi, Santosh Ghosh, Hazem Hassan, Aaryaman Sagar, Rhed Shi, Jingming
+ 1206  Liu, Filip Gruszczynski, Xianan Zhang, Huy Hoang, Ahmed Yossef, Francois
+ 1207  Richard, and Yee Jiun Song. 2020. Virtual Consensus in Delos. In OSDI. 617–632.
+ 1208  [12] Mahesh Balakrishnan, Dahlia Malkhi, John D. Davis, Vijayan Prabhakaran,
+ 1209  Michael Wei, and Ted Wobber. 2013. CORFU: A distributed shared log. ACM
+ 1210  Trans. Comput. Syst. 31, 4 (2013), 10.
+ 1211  [13] Mahesh Balakrishnan, Dahlia Malkhi, Vijayan Prabhakaran, Ted Wobber, Michael
+ 1212  Wei, and John D. Davis. 2012. CORFU: A Shared Log Design for Flash Clusters.
+ 1213  In NSDI. 1–14.
+ 1214  [14] Jeff Barr. 2008. Amazon EBS (elastic block store) – bring us your data | Amazon
+ 1215  Web Services. https://aws.amazon.com/blogs/aws/amazon-elastic/
+ 1216  [15] Jeff Barr. 2009. Introducing Amazon RDS – The Amazon Relational Database
+ 1217  Service. https://aws.amazon.com/blogs/aws/introducing-rds-the-amazonrelational-database-service/
+ 1218  [16] Philip A. Bernstein, Colin W. Reid, and Sudipto Das. 2011. Hyder - A Transactional
+ 1219  Record Manager for Shared Flash. In CIDR. 9–20.
+ 1220  [17] Shreesha G. Bhat, Tony Hong, Xuhao Luo, Jiyu Hu, Aishwarya Ganesan, and
+ 1221  Ramnatthan Alagappan. 2025. Low End-to-End Latency atop a Speculative
+ 1222  Shared Log with Fix-Ante Ordering. In OSDI. USENIX Association, 465–481.
+ 1223  [18] Thomas Bodner, Theo Radig, David Justen, Daniel Ritter, and Tilmann Rabl. 2025.
+ 1224  An Empirical Evaluation of Serverless Cloud Infrastructure for Large-Scale Data
+ 1225  Processing. In EDBT. 935–948.
+ 1226  [19] James Bornholt, Rajeev Joshi, Vytautas Astrauskas, Brendan Cully, Bernhard
+ 1227  Kragl, Seth Markle, Kyle Sauri, Drew Schleit, Grant Slatton, Serdar Tasiran, Jacob Van Geffen, and Andrew Warfield. 2021. Using Lightweight Formal Methods
+ 1228  to Validate a Key-Value Storage Node in Amazon S3. In SOSP. ACM, 836–850.
+ 1229  [20] Marc Brooker. 2024. AWS re:Invent 2024 - Deep dive into Amazon Aurora DSQL
+ 1230  and its architecture (DAT427-NEW). https://www.youtube.com/watch?v=
+ 1231  huGmR_mi5dQ&t=627s
+ 1232  [21] Marc Brooker, Tao Chen, and Fan Ping. 2020. Millions of Tiny Databases. In
+ 1233  17th USENIX Symposium on Networked Systems Design and Implementation, NSDI
+ 1234  2020, Santa Clara, CA, USA, February 25-27, 2020, Ranjita Bhagwan and George
+ 1235  Porter (Eds.). 463–478. https://www.usenix.org/conference/nsdi20/presentation/
+ 1236  brooker
+ 1237  [22] Tushar Deepak Chandra and Sam Toueg. 1996. Unreliable Failure Detectors for
+ 1238  Reliable Distributed Systems. J. ACM 43, 2 (1996), 225–267.
+ 1239  [23] James C. Corbett, Jeffrey Dean, Michael Epstein, Andrew Fikes, Christopher
+ 1240  Frost, J. J. Furman, Sanjay Ghemawat, Andrey Gubarev, Christopher Heiser,
+ 1241  Peter Hochschild, Wilson C. Hsieh, Sebastian Kanthak, Eugene Kogan, Hongyi
+ 1242  Li, Alexander Lloyd, Sergey Melnik, David Mwaura, David Nagle, Sean Quinlan,
+ 1243  Rajesh Rao, Lindsay Rolig, Yasushi Saito, Michal Szymaniak, Christopher Taylor,
+ 1244  Ruth Wang, and Dale Woodford. 2012. Spanner: Google's Globally-Distributed
+ 1245  Database. In OSDI. 251–264.
+ 1246  [24] CorfuDB Organization. 2026. Corfu Github Repository. https://github.com/
+ 1247  CorfuDB/CorfuDB
+ 1248  [25] Alex Depoutovitch, Chong Chen, Jin Chen, Paul Larson, Shu Lin, Jack Ng, Wenlin
+ 1249  Cui, Qiang Liu, Wei Huang, Yong Xiao, and Yongjun He. 2020. Taurus Database:
+ 1250  How to be Fast, Available, and Frugal in the Cloud. In SIGMOD. 1463–1478.
+ 1251  [26] Cristian Diaconu, Craig Freedman, Erik Ismert, Per-Åke Larson, Pravin Mittal,
+ 1252  Ryan Stonecipher, Nitin Verma, and Mike Zwilling. 2013. Hekaton: SQL server's
+
+ 1253  memory-optimized OLTP engine. In SIGMOD. 1243–1254.
+ 1254  [27] Cong Ding, David Chu, Evan Zhao, Xiang Li, Lorenzo Alvisi, and Robbert van
+ 1255  Renesse. 2020. Scalog: Seamless Reconfiguration and Total Order in a Scalable
+ 1256  Shared Log. In NSDI. 325–338.
+ 1257  [28] Aleksandar Dragojević, Dushyanth Narayanan, Orion Hodson, and Miguel Castro. 2014. FaRM: Fast Remote Memory. In NSDI. 401–414.
+ 1258  [29] Satish Duggana, Sriharsha Chintalapani, Ying Zheng, and Suresh Srinivas. 2025.
+ 1259  KIP-405: Kafka Tiered Storage. https://cwiki.apache.org/confluence/display/
+ 1260  KAFKA/KIP-405%3A+Kafka+Tiered+Storage
+ 1261  [30] Dominik Durner, Viktor Leis, and Thomas Neumann. 2023. Exploiting Cloud
+ 1262  Object Storage for High-Performance Analytics. Proc. VLDB Endow. 16, 11 (2023),
+ 1263  2769–2782.
+ 1264  [31] Muhammad El-Hindi, Tobias Ziegler, and Carsten Binnig. 2023. Towards Merkle
+ 1265  Trees for High-Performance Data Systems. In VDBS@SIGMOD. ACM, 28–33.
+ 1266  [32] Muhammad El-Hindi, Tobias Ziegler, Matthias Heinrich, Adrian Lutsch,
+ 1267  Zheguang Zhao, and Carsten Binnig. 2022. Benchmarking the Second Generation of Intel SGX Hardware. In DaMoN. ACM, 5:1–5:8.
+ 1268  [33] Facebook Engineering. 2017. LogDevice: a distributed data store for
+ 1269  logs. https://engineering.fb.com/2017/08/31/core-infra/logdevice-a-distributeddata-store-for-logs/. Accessed: 2026-01-31.
+ 1270  [34] Mateusz Gienieczko, Maximilian Kuschewski, Thomas Neumann, Viktor Leis,
+ 1271  and Jana Giceva. 2025. AnyBlox: A Framework for Self-Decoding Datasets. Proc.
+ 1272  VLDB Endow. 18, 11 (2025), 4017–4031.
+ 1273  [35] Pascal Ginter and Viktor Leis. 2026. Active Data Lakes: Regaining Physical Data
+ 1274  Independence Without Losing Interoperability. Proc. VLDB Endow (2026).
+ 1275  [36] Google. 2026. AlloyDB for PostgreSQL. https://cloud.google.com/products/
+ 1276  alloydb
+ 1277  [37] Gabriel Haas, Michael Haubenschild, and Viktor Leis. 2020. Exploiting Directly-
+ 1278  Attached NVMe Arrays in DBMS. In CIDR.
+ 1279  [38] Gabriel Haas, Bohyun Lee, Philippe Bonnet, and Viktor Leis. 2025. SSD-iq:
+ 1280  Uncovering the Hidden Side of SSD Performance. Proc. VLDB Endow. 18, 11
+ 1281  (2025), 4295–4308.
+ 1282  [39] Fusheng Han, Hao Liu, Bin Chen, Debin Jia, Jianfeng Zhou, Xuwang Teng,
+ 1283  Chuanhui Yang, Huafeng Xi, Wei Tian, Shuning Tao, Sen Wang, Quanqing Xu,
+ 1284  and Zhenkun Yang. 2024. PALF: Replicated Write-ahead Logging for Distributed
+ 1285  Databases. Proc. VLDB Endow. 17, 12 (2024), 3745–3758.
+ 1286  [40] Michael Haubenschild and Viktor Leis. 2025. Oltp in the cloud: architectures,
+ 1287  tradeoffs, and cost. VLDB J. 34, 4 (2025), 42.
+ 1288  [41] Michael Haubenschild, Caetano Sauer, Thomas Neumann, and Viktor Leis. 2020.
+ 1289  Rethinking Logging, Checkpoints, and Recovery for High-Performance Storage
+ 1290  Engines. In SIGMOD. 877–892.
+ 1291  [42] Rebecca Isaacs, Peter Alvaro, Rupak Majumdar, Kiran Kumar, Muniswamy Reddy,
+ 1292  Mahmoud Salamati, and Sadegh Soudjani. 2025. Analyzing Metastable Failures.
+ 1293  In HotOS. ACM, 172–178.
+ 1294  [43] Matthias Jasny, Muhammad El-Hindi, Tobias Ziegler, and Carsten Binnig. 2025.
+ 1295  A Wake-Up Call for Kernel-Bypass on Modern Hardware. In DaMoN. ACM,
+ 1296  14:1–14:5.
+ 1297  [44] Matthias Jasny, Muhammad El-Hindi, Tobias Ziegler, Viktor Leis, and Carsten
+ 1298  Binnig. 2025. High-Performance DBMSs with io_uring: When and How to use
+ 1299  it. CoRR abs/2512.04859 (2025). https://doi.org/10.48550/ARXIV.2512.04859
+ 1300  arXiv:2512.04859
+ 1301  [45] Zhipeng Jia and Emmett Witchel. 2021. Boki: Stateful Serverless Computing
+ 1302  with Shared Logs. In SOSP. 691–707.
+ 1303  [46] Flavio Paiva Junqueira, Ivan Kelly, and Benjamin C. Reed. 2013. Durability with
+ 1304  BookKeeper. ACM SIGOPS Oper. Syst. Rev. 47, 1 (2013), 9–15.
+ 1305  [47] Donald Kossmann, Tim Kraska, and Simon Loesing. 2010. An evaluation of
+ 1306  alternative architectures for transaction processing in the cloud. In SIGMOD.
+ 1307  579–590.
+ 1308  [48] Jay Kreps, Neha Narkhede, and Jun Rao. 2011. Kafka: A distributed messaging
+ 1309  system for log processing. In Proceedings of the NetDB, Vol. 11. 1–7.
+ 1310  [49] Maximilian Kuschewski, Jana Giceva, Thomas Neumann, and Viktor Leis. 2024.
+ 1311  High-Performance Query Processing with NVMe Arrays: Spilling without Killing
+ 1312  Performance. Proc. ACM Manag. Data 2, 6 (2024), 238:1–238:27.
+ 1313  [50] Leslie Lamport. 1998. The Part-Time Parliament. ACM Trans. Comput. Syst. 16, 2
+ 1314  (1998), 133–169.
+ 1315  [51] Bohyun Lee, Tobias Ziegler, and Viktor Leis. 2026. How to Write to SSDs.
+ 1316  Proceedings of the VLDB Endowment 19 (2026), 1469–1482.
+ 1317  [52] Viktor Leis, Michael Haubenschild, Alfons Kemper, and Thomas Neumann. 2018.
+ 1318  LeanStore: In-Memory Data Management beyond Main Memory. In ICDE. 185–
+ 1319  196.
+ 1320  [53] Feifei Li. 2019. Cloud native database systems at Alibaba: Opportunities and
+ 1321  Challenges. Proc. VLDB Endow. 12, 12 (2019), 2263–2272.
+ 1322  [54] Feifei Li. 2023. Modernization of Databases in the Cloud Era: Building Databases
+ 1323  that Run Like Legos. Proc. VLDB Endow. 16, 12 (2023), 4140–4151. https://doi.
+ 1324  org/10.14778/3611540.3611639
+ 1325  [55] Joshua Lockerman, Jose M. Faleiro, Juno Kim, Soham Sankaran, Daniel J. Abadi,
+ 1326  James Aspnes, Siddhartha Sen, and Mahesh Balakrishnan. 2018. The FuzzyLog:
+ 1327  A Partially Ordered Shared Log. In OSDI. USENIX Association, 357–372.
+=== PAGE 14 ===
+
+ 1328  [56] Xuhao Luo, Shreesha G. Bhat, Jiyu Hu, Ramnatthan Alagappan, and Aishwarya
+ 1329  Ganesan. 2024. LazyLog: A New Shared Log Abstraction for Low-Latency Applications. In SOSP. 296–312.
+ 1330  [57] Adrian Lutsch, Muhammad El-Hindi, Zsolt István, and Carsten Binnig. 2025.
+ 1331  Towards High-performance and Trusted Cloud DBMSs. Datenbank-Spektrum 25,
+ 1332  1 (2025), 39–50.
+ 1333  [58] Adrian Lutsch, Christian Franck, Muhammad El-Hindi, Zsolt István, and Carsten
+ 1334  Binnig. 2025. An Analysis of AWS Nitro Enclaves for Database Workloads. In
+ 1335  DaMoN. ACM, 5:1–5:8.
+ 1336  [59] Mellanox. Accessed: April 22, 2026. https://github.com/Mellanox/sockperf
+ 1337  [60] Microsoft. 2024. Global data distribution with Azure Cosmos DB - under the
+ 1338  hood. https://learn.microsoft.com/en-us/azure/cosmos-db/global-dist-underthe-hood. Accessed: 2026-01-28.
+ 1339  [61] C. Mohan, Don Haderle, Bruce G. Lindsay, Hamid Pirahesh, and Peter M. Schwarz.
+ 1340  1992. ARIES: A Transaction Recovery Method Supporting Fine-Granularity
+ 1341  Locking and Partial Rollbacks Using Write-Ahead Logging. ACM Trans. Database
+ 1342  Syst. 17, 1 (1992), 94–162.
+ 1343  [62] Neon. [n.d.]. Neon architecture. https://neon.com/blog/architecture-decisionsin-neon. Accessed: 2025-12-31.
+ 1344  [63] Neon. [n.d.]. Neon architecture. https://neon.com/docs/introduction/
+ 1345  architecture-overview. Accessed: 2025-12-31.
+ 1346  [64] Lam-Duy Nguyen, Adnan Alhomssi, Tobias Ziegler, and Viktor Leis. 2025. Moving on From Group Commit: Autonomous Commit Enables High Throughput and
+ 1347  Low Latency on NVMe SSDs. Proc. ACM Manag. Data 3, 3 (2025), 191:1–191:24.
+ 1348  [65] NVMe Express, Inc. Accessed: March 22, 2026. https://nvmexpress.org/
+ 1349  specifications
+ 1350  [66] Brian M. Oki and Barbara Liskov. 1988. Viewstamped Replication: A General
+ 1351  Primary Copy. In PODC. 8–17.
+ 1352  [67] Diego Ongaro and John K. Ousterhout. 2014. In Search of an Understandable
+ 1353  Consensus Algorithm. In USENIX ATC. 305–319.
+ 1354  [68] John K. Ousterhout, Arjun Gopalan, Ashish Gupta, Ankita Kejriwal, Collin Lee,
+ 1355  Behnam Montazeri, Diego Ongaro, Seo Jin Park, Henry Qin, Mendel Rosenblum,
+ 1356  Stephen M. Rumble, Ryan Stutsman, and Stephen Yang. 2015. The RAMCloud
+ 1357  Storage System. ACM Trans. Comput. Syst. 33, 3 (2015), 7:1–7:55.
+ 1358  [69] SAP. [n.d.]. Storage Configuration for SAP HANA. https://docs.aws.amazon.
+ 1359  com/sap/latest/sap-hana/hana-ops-storage-config.html. Accessed: 2024-12-08.
+ 1360  [70] Scalog Organization. 2019. Scalog Github Repository. https://github.com/scalog/
+ 1361  scalog
+ 1362  [71] Simplyblock GmbH. Accessed: March 22, 2026. Simplyblock: Cloud-native storage in your data center. https://simplyblock.io/
+
+ 1363  [72] Till Steinert, Maximilian Kuschewski, and Viktor Leis. 2026. Cloudspecs: Cloud
+ 1364  Hardware Evolution Through the Looking Glass. In CIDR.
+ 1365  [73] Junjay Tan, Thanaa M. Ghanem, Matthew Perron, Xiangyao Yu, Michael Stonebraker, David J. DeWitt, Marco Serafini, Ashraf Aboulnaga, and Tim Kraska.
+ 1366  2019. Choosing A Cloud DBMS: Architectures and Tradeoffs. Proc. VLDB Endow.
+ 1367  12, 12 (2019), 2170–2182.
+ 1368  [74] The Linux Foundation. Accessed: March 22, 2026. DAOS: The Open-Source
+ 1369  Storage Platform for AI & HPC. https://daos.io/
+ 1370  [75] Raúl Gracia Tinedo, Flavio Junqueira, Tom Kaitchuck, and Sachin Joshi. 2023.
+ 1371  Pravega: A Tiered Storage System for Data Streams. In Proceedings of the 24th
+ 1372  International Middleware Conference, Middleware 2023, Bologna, Italy, December
+ 1373  11-15, 2023. 165–177.
+ 1374  [76] Alexandre Verbitski, Anurag Gupta, Debanjan Saha, Murali Brahmadesam,
+ 1375  Kamal Gupta, Raman Mittal, Sailesh Krishnamurthy, Sandor Maurice, Tengiz
+ 1376  Kharatishvili, and Xiaofeng Bao. 2017. Amazon Aurora: Design Considerations
+ 1377  for High Throughput Cloud-Native Relational Databases. InSIGMOD. 1041–1052.
+ 1378  [77] Tianzheng Wang, Ryan Johnson, and Ippokratis Pandis. 2017. Query Fresh: Log
+ 1379  Shipping on Steroids. Proc. VLDB Endow. 11, 4 (2017), 406–419.
+ 1380  [78] Yu Xia, Xiangyao Yu, Andrew Pavlo, and Srinivas Devadas. 2020. Taurus: Lightweight Parallel Logging for In-Memory Database Management Systems. Proc.
+ 1381  VLDB Endow. 14, 2 (2020), 189–201.
+ 1382  [79] Xiangyao Yu. 2025. Disaggregation: A New Architecture for Cloud Databases.
+ 1383  Proc. VLDB Endow. 18, 12 (2025), 5527–5530.
+ 1384  [80] Xinyu Zeng, Ruijun Meng, Martin Prammer, Wes McKinney, Jignesh M. Patel,
+ 1385  Andrew Pavlo, and Huanchen Zhang. 2025. F3: The Open-Source Data File
+ 1386  Format for the Future. Proc. ACM Manag. Data 3, 4 (2025), 245:1–245:27.
+ 1387  [81] Jiashu Zhang, Wen Jiang, Bo Tang, Haoxiang Ma, Lixun Cao, Zhongbin Jiang,
+ 1388  Yuanyuan Nie, Fan Wang, Lei Zhang, and Yuming Liang. 2023. CDSBen: Benchmarking the Performance of Storage Services in Cloud-native Database System
+ 1389  at ByteDance. Proc. VLDB Endow. 16, 12 (2023), 3584–3596.
+ 1390  [82] Jiatang Zhou, Kaisong Huang, and Tianzheng Wang. 2026. Milliscale: Fast
+ 1391  Commit on Low-Latency Object Storage. arXiv:2603.02108 [cs.DB] https:
+ 1392  //arxiv.org/abs/2603.02108
+ 1393  [83] Jingyu Zhou, Meng Xu, Alexander Shraer, Bala Namasivayam, Alex Miller, Evan
+ 1394  Tschannen, Steve Atherton, Andrew J. Beamon, Rusty Sears, John Leach, Dave
+ 1395  Rosenthal, Xin Dong, Will Wilson, Ben Collins, David Scherer, Alec Grieser,
+ 1396  Young Liu, Alvin Moore, Bhaskar Muppana, Xiaoge Su, and Vishesh Yadav.
+ 1397  2021. FoundationDB: A Distributed Unbundled Transactional Key Value Store.
+ 1398  In SIGMOD. 2653–2666.
+ 1399  [84] Tobias Ziegler, Philip A. Bernstein, Viktor Leis, and Carsten Binnig. 2023. Is
+ 1400  Scalable OLTP in the Cloud a Solved Problem?. In CIDR.

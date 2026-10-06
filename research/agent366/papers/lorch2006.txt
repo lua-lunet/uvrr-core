@@ -1,0 +1,1459 @@
+---
+title: "The SMART Way to Migrate Replicated Stateful Services"
+authors:
+  - "Jacob R Lorch"
+  - "Atul Adya"
+  - "William J Bolosky"
+  - "Ronnie Chaiken"
+  - "John R Douceur"
+  - "Jon Howell"
+year: "2006"
+publication: "Proceedings of the 2006 EuroSys Conference"
+handle_url: "https://consensus.app/papers/the-smart-way-to-migrate-replicated-stateful-services-lorch-adya/5e2486b0952f5155911f1bb5c896250f/"
+source_pdf: "research/agent366/papers/lorch2006-smart.pdf"
+source_pdf_sha256: "eb3d2bb5213e851f3a1a169760633f6b3a41c44ca819054de82590d6d5da6835"
+page_count: 13
+extracted_text_runs: 2354
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Many stateful services use the replicated state machine approach for high availability. In this approach, a service runs on multiple machines to survive machine failures. This paper describes SMART, a new technique for changing the set of machines where such a service runs, i.e., migrating the service. SMART improves upon existing techniques in three important ways. First, SMART allows migrations that replace non-failed machines. Thus, SMART enables load balancing and lets an automated system replace failed machines. Such autonomic migration is an important step toward full autonomic operation, in which administrators play a minor role and need not be available twenty-four hours a day, seven days a week. Second, SMART can pipeline concurrent requests, a useful performance optimization. Third, prior published migration techniques are described in insufficient detail to admit implementation, whereas our description of SMART is complete. In addition to describing SMART, we also demonstrate its practicality by implementing it, evaluating our implementation's performance, and using it to build a consistent, replicated, migratable file system. Our experiments demonstrate the performance advantage of pipelining concurrent requests, and show that migration has only a minor and temporary effect on performance.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  The SMART Way to Migrate Replicated Stateful Services
+
+    2  Jacob R. Lorch, Atul Adya, William J. Bolosky, Ronnie Chaiken,
+
+    3  John R. Douceur, and Jon Howell
+    4  Microsoft Research
+    5  lorch, adya, bolosky, rchaiken, johndo, howell
+
+    6  {
+
+    7  Abstract
+    8  Many stateful services use the replicated state machine
+    9  approach for high availability. In this approach, a service
+   10  runs on multiple machines to survive machine failures. This
+   11  paper describes SMART, a new technique for changing the
+   12  set of machines where such a service runs, i.e., migrating
+   13  the service. SMART improves upon existing techniques in
+   14  three important ways. First, SMART allows migrations that
+   15  replace non-failed machines. Thus, SMART enables load
+   16  balancing and lets an automated system replace failed machines. Such autonomic migration is an important step toward full autonomic operation, in which administrators play
+   17  a minor role and need not be available twenty-four hours a
+   18  day, seven days a week. Second, SMART can pipeline concurrent requests, a useful performance optimization. Third,
+   19  prior published migration techniques are described in insufficient detail to admit implementation, whereas our description of SMART is complete. In addition to describing SMART, we also demonstrate its practicality by implementing it, evaluating our implementation's performance,
+   20  and using it to build a consistent, replicated, migratable
+   21  file system. Our experiments demonstrate the performance
+   22  advantage of pipelining concurrent requests, and show that
+   23  migration has only a minor and temporary effect on performance.
+
+   24  Categories and Subject Descriptors: C.2.4 [Computer-
+   25  Communication Networks]: Distributed Systems
+   26  General Terms: Algorithms, reliability
+   27  Keywords: Migration, replication, reconfiguration, Paxos,
+   28  replicated state machine
+
+   29  1. INTRODUCTION
+   30  Increasingly, services are being designed to seamlessly tolerate machine failures so they can use inexpensive, unreliable hardware yet still be highly available. A common
+   31  way to make a service tolerate machine failures is to repli-
+
+   32  Permission to make digital or hard copies of all or part of this work for
+   33  personal or classroom use is granted without fee provided that copies are
+   34  not made or distributed for profit or commercial advantage and that copies
+   35  bear this notice and the full citation on the first page. To copy otherwise, to
+   36  republish, to post on servers or to redistribute to lists, requires prior specific
+   37  permission and/or a fee.
+   38  EuroSys'06, April 18–21, 2006, Leuven, Belgium.
+   39  Copyright 2006 ACM 1-59593-322-0/06/0004 ...$5.00.
+
+   40  }@microsoft.com
+
+   41  cate it on several machines. However, replication can only
+   42  mask a limited number of failures, and the longer the service
+   43  runs the more likely the failure count will exceed this number. Therefore, a service must replace failed machines in a
+   44  timely fashion, and this requires that the service be able to
+   45  change its configuration, i.e., the set of machines replicating
+   46  it. Changing the configuration, also called migration, has
+   47  other purposes, e.g., moving replicas from highly loaded machines to lightly loaded ones, or changing the number of machines replicating the service. This paper presents the Service Migration And Replication Technique, a.k.a. SMART,
+   48  our technique for migrating a replicated service.
+   49  It is easy to achieve consistency in a replicated service
+   50  with no changing state, so this paper concerns only stateful
+   51  services, such as file systems, databases, or market trading
+   52  systems. A stateful service must replicate its state so that
+   53  clients never see inconsistencies, even when failures occur.
+   54  The state of the art for building consistent, replicated
+   55  services is the replicated state machine approach [13, 20,
+   56  22], so SMART targets services using this approach. In
+   57  this approach, a replica, i.e., a copy of the service, runs
+   58  on each machine; these replicas use the Paxos protocol to
+   59  stay synchronized. System designers are increasingly using
+   60  this approach for several reasons. First, it works on cheap
+   61  and easily-administered hardware, such as PCs connected by
+   62  Ethernet. It does not, e.g., require storage-area networks,
+   63  RAID, or networks with partition-free or real-time guarantees. Second, its requirement of service determinism is becoming easier to satisfy with the advent of new techniques
+   64  and tools [3, 21]. Third, the approach can be extended to
+   65  deal with Byzantine server failures, i.e., failures that cause
+   66  behavior other than stopping [3]. This is increasingly important as services move to less reliable infrastructures, such as
+   67  on-demand computing systems and peer-to-peer overlays,
+   68  and also as people increasingly exploit security weaknesses.
+   69  Existing migratable replicated state machine implementations have several restrictions that limit their adoption in
+   70  a general setting [23]. First, they cannot perform migrations that remove or replace a non-failed machine. So, for
+   71  instance, they cannot move a replica from a highly loaded
+   72  machine to a less loaded machine, and they make it dangerous to rely on an imperfect failure detector, such as an
+   73  autonomic system, to decide whether to replace a machine.
+   74  Second, they cannot process requests in parallel, a useful
+   75  performance optimization for services with concurrent requests. Third, important details of these systems have not
+   76  been published, making it difficult for others to duplicate
+   77  their designs. We are only aware of one publication de-
+=== PAGE 2 ===
+
+   78  scribing a migratable replicated state machine, and it only
+   79  describes its approach at a high level [16].
+   80  Consequently, we developed a new technique, SMART, for
+   81  migrating replicated state machines. SMART can pipeline
+   82  concurrent requests, and it allows arbitrary migrations.
+   83  Most notably, it can safely perform a migration that replaces a machine, even if it is not certain that the replaced
+   84  machine has failed. This ability enables autonomic service
+   85  management.
+   86  A key feature of SMART is configuration-specific replicas.
+   87  Each replica is associated with one and only one configuration, so a migration creates a new set of replicas, one for
+   88  each machine in the new configuration. For example, when
+   89  the service migrates from {A, B, C} to {A, B, D}, SMART
+   90  does not create a new replica on D and destroy the one
+   91  on C, as current approaches do. Instead, it starts three
+   92  new configuration-2 replicas on A, B, and D, and keeps the
+   93  three configuration-1 replicas running on A, B, and C until
+   94  the new configuration is established. This feature substantially simplifies the process of migration and thereby allows
+   95  SMART to overcome the problems of existing approaches.
+   96  However, it makes implementation inefficient, so we introduce the use of shared execution modules to eliminate this
+   97  inefficiency.
+   98  We implemented SMART to demonstrate its practicality
+   99  and to evaluate its performance. Using this implementation, called LibSMART, we built a file system that is fully
+  100  consistent, replicated, and migratable. We also built a less
+  101  complex service to enable microbenchmarks. We show that
+  102  allowing pipelining reduces latency by 14% when there are
+  103  multiple clients submitting requests concurrently. We also
+  104  show that clients observe little additional latency due to migration. During migration, one or two client requests see
+  105  about 25 ms of additional latency, and for a short while after migration, clients see about 0.4 ms of extra latency per
+  106  request.
+  107  The contributions of this paper are as follows:
+  108  • We introduce the concept of configuration-specific
+  109  replicas, which enables arbitrary migrations and
+  110  pipelining of concurrent requests.
+  111  • We describe how to use shared execution modules to
+  112  efficiently implement configuration-specific replicas.
+  113  • We describe SMART, our technique for migrating
+  114  replicated state machines. We are the first to describe
+  115  all details necessary to implement such migration.
+  116  • We demonstrate SMART's practicality by implementing it and evaluating that implementation.
+
+  117  For space reasons, we only sketch our arguments for
+  118  SMART's correctness. Our technical report [12] contains
+  119  a formal proof.
+  120  The paper is structured as follows. §2 provides background about Paxos and the replicated state machine approach. §3 describes current approaches to service migration
+  121  and explains their limitations. §4 describes SMART, our
+  122  technique for service migration. §5 sketches our arguments
+  123  for SMART's correctness. §6 describes our implementation
+  124  and our experimental evaluation of it. §7 describes related
+  125  work, and §8 discusses avenues for future work. Finally, §9
+  126  concludes.
+
+  127  2. BACKGROUND: PAXOS
+  128  This section provides enough detail about Paxos and the
+  129  replicated state machine approach to understand SMART.
+  130  Other sources contain complete details [13, 14, 22].
+
+  131  2.1 Assumptions
+  132  First, we describe the assumptions that must hold for the
+  133  replicated state machine approach to be applicable. Except
+  134  where noted, we make the same assumptions for SMART.
+  135  We assume the service runs only on fail-stop machines,
+  136  i.e., machines that fail only by stopping. In §8, we discuss
+  137  how SMART could be extended to deal with Byzantine failures. Note that if a machine crashes and eventually recovers,
+  138  this is temporary unavailability, not a failure.
+  139  Paxos assumes that fewer than half the machines will fail.
+  140  In other words, there is always some future time when a
+  141  quorum of replicas will be alive, where a quorum is a simple
+  142  majority. SMART weakens this assumption in that once a
+  143  new configuration is established, machines in older configurations can fail. After all, one purpose of service migration is
+  144  to eliminate dependence on the current configuration when
+  145  one believes it may stop operating properly. Consequently,
+  146  SMART only assumes that fewer than half the machines
+  147  in a configuration will fail before the next configuration is
+  148  established.
+  149  The service must be deterministic, i.e., its state changes
+  150  and outputs can depend only on its state, its input requests,
+  151  and the order of those requests. So, for example, the service cannot use local random number generators or clocks,
+  152  and must be single-threaded to avoid non-deterministic effects of thread scheduling. Many techniques and tools simplify building deterministic services [3, 21]. For instance,
+  153  there are deterministic techniques to approximate the current time, schedule future events, and choose pseudorandom
+  154  numbers. It may also be possible to use a virtual machine
+  155  monitor to make arbitrary non-deterministic services run
+  156  deterministically [11]. In our discussion of future work in
+  157  §8, we sketch how SMART might be modified to allow nondeterministic services.
+  158  All we assume about network reliability is that if one alive
+  159  process sends a message to another alive process an infinite
+  160  number of times, it is eventually received.
+
+  161  2.2 Overview
+  162  In the replicated state machine approach [13, 20, 22], a
+  163  replica, i.e., a copy of the service, runs on each of several
+  164  machines. These replicas run the Paxos protocol to ensure
+  165  they all execute the same client requests in the same order.
+  166  Then, since the service is deterministic, the replicas change
+  167  their states in the same way and produce identical outputs,
+  168  e.g., replies to clients. The replicas thereby act like a single
+  169  copy of the service that is more resilient to failure than any
+  170  individual machine.
+  171  Paxos's goal is to ensure all replicas execute the same
+  172  requests in the same order. In other words, Paxos must
+  173  decide what request to execute first, what request to execute
+  174  second, etc. In general, we say that Paxos assigns requests
+  175  to slots, where the request it assigns to slot n is the one each
+  176  replica will execute as its nth request.
+  177  Figure 1 illustrates how Paxos works. One of the replicas is the leader. To submit a request, a client sends it to
+  178  this leader. The leader chooses an unused slot and sends
+  179  each replica a proposal, which is a tentative suggestion that
+=== PAGE 3 ===
+
+  180  Client R T REQ Y
+
+  181  EQ UEST PL
+
+  182  U EC RE
+
+  183  ES IR PROPOSE LOGGED DECIDED
+
+  184  Replica A T D logging executing
+
+  185  RE
+
+  186  Replica B logging executing
+
+  187  Replica C logging executing
+
+  188  (a) (b) (c) (d) (e) (f) (g)
+
+  189  Figure 1: Example of Paxos operation. (a) The client sends a request to the replica it thinks is leader. (b)
+  190  The client is wrong, so the recipient redirects the client to the correct leader. (Normally, the client is correct
+  191  and thus skips steps a and b.) (c) The client sends its request to the correct leader. (d) The leader selects
+  192  the next available slot and sends a message to each replica (including itself ) proposing that the request fill
+  193  the selected slot. (e) The replicas log the proposal, then notify the leader. (f ) When the leader receives
+  194  LOGGED messages from a quorum, it sends a message declaring the proposal decided. (g) Each replica
+  195  receiving a DECIDED message executes the request and sends a reply to the client. The client ignores all
+  196  but the first reply.
+
+  197  the given client request should occupy the given slot. Each checkpoint with index at least n.
+  198  replica receiving a proposal logs it, i.e., writes it to stable We say an index is stable once there is a quorum of replistorage, then sends the leader a LOGGED message. Once cas each having a checkpoint with that index or higher. If
+  199  the leader receives LOGGED messages from a quorum, it an index is stable, there will always eventually be an alive
+  200  announces that the proposal has been decided, i.e., the re- replica with a checkpoint with that index or higher. This
+  201  quest has been assigned to the slot. is because there will always eventually be a quorum of alive
+  202  One complication is that the leader may fail. So, replicas, and this quorum must overlap the quorum that
+  203  the leader sends periodic HEARTBEAT messages to each made the index stable.
+  204  replica, and a replica that does not hear one for a while elects
+  205  a new leader by sending ELECT messages to each replica. State transfer
+  206  Before a new leader does anything, it must learn enough Normally, a replica reaches the state following request n
+  207  about the actions of previous leaders to ensure it does not by executing requests 1 through n. However, it can somemake conflicting assignments. So, it polls the replicas, ask- times accomplish this more expediently via state transfer,
+  208  ing what proposals they logged from previous leaders. Once i.e., by receiving a copy of some other replica's checkpoint
+  209  it gets poll responses from a quorum of replicas, it can ensure with index n. For instance, if a replica has only executed
+  210  it does not make conflicting assignments. 100 requests, but receives a copy of a state checkpoint with
+  211  The Paxos leader change protocol includes other details index 200 from another replica, it can make this its curthat we have not described, but they are not relevant rent service state and thereby avoid executing requests 101
+  212  to understanding SMART. As we will see, SMART uses through 200.
+  213  configuration-specific replicas, so the Paxos leader change
+  214  algorithm runs only on static configurations and thus needs Log truncation
+  215  no modification.
+  216  A client may think a non-leader is leader, e.g., because of Because stable storage is limited, we cannot force replicas
+  217  a recent leader change, but this gets corrected promptly. If a to maintain every logged proposal forever. We thus require
+  218  non-leader receives a request, it cannot propose the request a way to let replicas discard old proposals from their logs,
+  219  so it replies with a REDIRECT message indicating the cur- i.e., to perform log truncation.
+  220  Once n is a stable index, there will always eventually be
+  221  rent leader. If the client does not receive a timely reply to n
+  222  a request, it broadcasts the request to all replicas. an alive replica with a checkpoint with index or more.
+  223  This replica can transfer this checkpoint to any replica that
+  224  Each replica executes requests in slot order. After execut- n
+  225  ing the request in slot n, it waits to learn what request gets has not yet executed request , allowing the recipient to
+  226  assigned to slot n + 1, then executes that request. skip executing that request. This means no replica need
+  227  ever know what request n is, so it is safe to discard logged
+  228  2.3 Practical implementation details proposals for slot n.
+  229  We can thus place a bound, MaximumLogSize, on the number of logged proposals a replica need ever hold in stable
+
+  230  Checkpoints
+  231  storage, by making the following rule. A leader never pro-
+  232  If a replica loses its volatile state, e.g., due to a reboot, it poses a request to fill slot n until index n −MaximumLogSize
+  233  may have to start over from the initial state and re-execute is stable. This way, a replica need not log a proposal for slot
+  234  all requests. So, each replica periodically saves a checkpoint, n until it can discard logged proposals for all but the prei.e., a copy of its service state on stable storage. It restores ceding MaximumLogSize slots.
+  235  its latest checkpoint after losing its volatile state. Limiting the log size can improve performance when repli-
+  236  We call the last slot executed before saving a checkpoint cas have NVRAM available. As long as the log fits in
+  237  the index of that checkpoint. A replica discards a checkpoint NVRAM, replicas can log proposals without expensive disk
+  238  only if it has a checkpoint with a higher index, so once a writes. This, in turn, speeds up the critical path of request
+  239  replica has a checkpoint with index n it will always have a handling.
+=== PAGE 4 ===
+
+  240  3. MIGRATION: CURRENT METHODS
+  241  In this section, we discuss current approaches to migrating replicated state machines. §3.1 presents Lamport's idea,
+  242  which all current approaches use. §3.2 describes challenges
+  243  in implementing this idea, and §3.3 shows how current implementations address them only by significantly restricting
+  244  functionality.
+
+  245  3.1 Lamport's idea
+  246  Lamport's description of Paxos includes the following idea
+  247  about how to perform migration [13]. The service state includes the configuration, and the service migrates when a
+  248  request changes this configuration. The migration does not
+  249  happen immediately; it takes effect α slots later, where α is
+  250  some positive constant. In other words, if n is the slot of
+  251  the request that changes the configuration, then this change
+  252  takes effect starting with slot n + α.
+  253  Using a small α can hurt performance, because the leader
+  254  cannot make a proposal for slot n + α until it has executed
+  255  slot n. Until it executes slot n, it cannot know whether the
+  256  request in that slot excludes the leader's machine from the
+  257  configuration as of slot n +α. For instance, if the leader has
+  258  only executed slots 1–100 and α is 2, it can only propose slots
+  259  101–102 because as far as it knows it is excluded as of slot
+  260  103. The bigger α is, the less likely the leader must wait to
+  261  propose a request until it has finished executing some other
+  262  one, and thus the more undecided proposals the leader can
+  263  have outstanding. We call the use of concurrent undecided
+  264  proposals pipelining, reflecting how this overlaps the Paxos
+  265  network delays for multiple requests.
+
+  266  3.2 Implementation challenges
+  267  Storing the configuration in the state is an elegant idea
+  268  for migrating replicated state machines. However, it is not
+  269  a complete solution to the problem. Implementing the idea
+  270  involves addressing several challenges, including the following five.
+
+  271  Unaware-leader challenge: A new leader may not know
+
+  272  the latest configuration.
+  273  A new leader must poll the replicas to ensure its assignments do not conflict with previous leaders' assignments.
+  274  However, when it is elected, it may have not yet executed a
+  275  request that changed the configuration. It may then poll the
+  276  wrong set of replicas, not learn about a recent assignment,
+  277  and make a proposal that conflicts with that assignment.
+  278  For example, suppose that after the service migrates from
+  279  {A, B, C} to {A, B, D}, the leader, A, fails. Now, B initiates
+  280  a leader change, but B has not yet executed the request that
+  281  migrated the service. So, it only polls A, B, and C, and is
+  282  content getting responses only from B and C, since they are
+  283  a quorum of the configuration it knows. However, A and D
+  284  together constitute a quorum of the new configuration, so
+  285  they may have assigned some request to a slot. B does not
+  286  learn of these assignments, and may propose requests that
+  287  conflict with them.
+
+  288  Window-of-vulnerability challenge: Migrations that
+
+  289  remove or replace a machine can create a period of
+
+  290  reduced fault tolerance.
+  291  During migration, a service can have reduced fault tolerance. For example, a service replicated on three machines
+  292  should be able to survive one machine failure. But, if it migrates from configuration {A, B, C} to {A, B, D}, a failure of
+  293  A at the wrong time can halt the service forever. Suppose
+  294  the leader, A, crashes while sending DECIDED messages for
+  295  the request that changes the configuration. Only C receives
+  296  a DECIDED message, and when it executes the request, it
+  297  learns that it has been removed from the configuration and
+  298  terminates. Now, some replica must become the new leader.
+  299  B thinks the only replicas are A, B, and C, so it will never
+  300  receive a quorum of poll responses; C has terminated; and D
+  301  is not even aware yet that it is part of the configuration. So,
+  302  no replica can become leader, and the service halts forever
+  303  even though only one machine has failed.
+  304  It might seem we could avoid this problem by first migrating to {A, B, C, D} and then migrating to {A, B, D}, but this
+  305  also has a window of vulnerability. The leader, A, may crash
+  306  while sending DECIDED messages for the request that removes C. Only C receives a DECIDED message, and it executes the request and terminates. Now, some replica must
+  307  become the new leader. However, A has failed and C has
+  308  self-terminated, so at most two replicas, B and D, can reply
+  309  to polls. Since {B, D} is not a quorum of {A, B, C, D}, no
+  310  replica can receive a quorum of poll responses and become
+  311  leader.
+
+  312  Extended-disconnection challenge: After a long dis-
+
+  313  connection, a client may be unable to find the service.
+  314  If a client reconnects after a long disconnection, its idea
+  315  of the latest configuration may be out of date due to migrations during the disconnection. Furthermore, all machines in
+  316  the configuration it knows of may have permanently failed.
+  317  Thus, every machine it contacts will never respond, it will
+  318  never learn of a working configuration, and it will not be
+  319  able to submit requests.
+  320  Consecutive-migration challenge: If request n changes
+  321  the configuration, requests n+1 through n+α−1 cannot
+
+  322  change the configuration.
+  323  Suppose request n removes machine C from the configuration as of slot n + α, and request n + 1 restores C to the
+  324  configuration as of slot n + α + 1. Suppose also that C does
+  325  not execute request n because it receives a state transfer of
+  326  the checkpoint with index n + 1. In this case, it will never
+  327  see the configuration that removes it from the configuration,
+  328  and will incorrectly think it is responsible for slot n + α.
+
+  329  Multiple-poll challenge: A new leader may have to poll
+
+  330  several configurations.
+  331  It is possible for several undecided proposals to be outstanding at the time of a leader change. Thus, it is possible
+  332  that some of these are managed by one configuration and
+  333  others are managed by another. The leader change algorithm must be modified so it can poll multiple configurations.
+
+  334  3.3 Current approaches
+  335  Current approaches to migration address these challenges
+  336  at the cost of restricted functionality. In this section, we discuss a typical example of these approaches, Petal's global
+  337  state manager (GSM) [16, 23]. Anecdotal evidence suggests that unpublished commercial systems use similar techniques.
+  338  To address the unaware-leader challenge, Petal's GSM
+  339  uses the following unpublished technique [23]. After a new
+=== PAGE 5 ===
+
+  340  leader collects poll responses from a quorum of replicas, it
+  341  fetches the configuration from the responder that executed
+  342  the most requests. If this configuration is different than the
+  343  leader's, it updates its configuration and restarts the leader
+  344  change process. Petal's GSM also enforces two additional
+  345  restrictions that, together with the preceding technique, are
+  346  sufficient to address the unaware-leader challenge. First,
+  347  requests are not pipelined. Second, only two types of migration are allowed: adding one machine, or removing one
+  348  machine. This ensures quorums from consecutive configurations always overlap. Since SMART addresses the unawareleader challenge in a different way, it can pipeline requests
+  349  for performance and it does not require quorums from consecutive configurations to overlap. In fact, SMART does
+  350  not require any overlap at all between consecutive configurations.
+  351  To sidestep the window-of-vulnerability challenge, Petal's
+  352  GSM removes a machine via migration only if a human
+  353  knows it is failed and beyond repair. Thus, although
+  354  such a migration reduces the number of tolerable permanent failures by one, this is acceptable because one machine is already known to have permanently failed. For
+  355  instance, Petal's GSM will only migrate from {A, B, C, D}
+  356  to {A, B, D} when C is permanently failed. It is reasonable to not survive the failure of A during migration,
+  357  since the service is not expected to survive two simultaneous machine failures. SMART addresses the window-ofvulnerability challenge differently, by eliminating the window of vulnerability. Thus, unlike Petal's GSM, it can remove a non-failed machine via migration. In particular, it
+  358  can migrate replicas from highly loaded machines to lightly
+  359  loaded ones, and it can safely rely on an autonomic system
+  360  with an imperfect failure detector to decide when to replace
+  361  a machine.
+  362  Petal's GSM addresses the extended-disconnection challenge similarly to how SMART does. We discuss how
+  363  SMART addresses it in §4.5.
+  364  Petal's GSM avoids the consecutive-migration and
+  365  multiple-poll challenges by requiring α = 1. This precludes
+  366  pipelining concurrent requests. SMART uses a different approach, so it can pipeline concurrent requests.
+
+  367  4. SMART
+  368  This section describes SMART incrementally, adding details and optimizations as it proceeds. Figure 3, appearing
+  369  later, will present an overview of the protocol this section
+  370  describes.
+
+  371  4.1 Configuration-specific replicas
+  372  A key feature of SMART is configuration-specific replicas:
+  373  each replica is associated with one and only one configuration. A migration request creates a new set of replicas, one
+  374  for each machine in the new configuration. Figure 2 illustrates an example. When the service migrates from configuration {A, B, C} to {A, B, D}, we do not create a new replica
+  375  on D and destroy the one on C, as current approaches do.
+  376  Instead, we keep the three configuration-1 replicas running
+  377  on A, B, and C, and start three new configuration-2 replicas
+  378  on A, B, and D.
+  379  The old configuration's replicas continue running even after creating the new configuration. They remain running
+  380  long enough to ensure there is no period of reduced fault
+  381  tolerance, i.e., to address the window-of-vulnerability chal-
+
+  382  Replica 1A
+
+  383  A
+
+  384  Replica 2A
+
+  385  Paxos #1
+
+  386  Replica 1B
+
+  387  B
+
+  388  Replica 2B
+
+  389  C Replica 1C Paxos #2
+
+  390  D Replica 2D
+
+  391  Figure 2: Example of configuration-specific replicas,
+  392  where configuration 1 is {A, B, C} and configuration
+  393  2 is {A, B, D}.
+
+  394  lenge; we discuss this further in §4.4. While both configurations are running, if one machine is in both configurations,
+  395  that machine will simultaneously run two replicas, one for
+  396  each configuration.
+  397  Each configuration uses its own instance of Paxos. The
+  398  replicas of that configuration are cohorts of each other, i.e.,
+  399  participants in the same Paxos instance. For example, each
+  400  configuration's Paxos has its own leader, one of the replicas in that configuration. Leaders of different configurations may or may not happen to be replicas on the same
+  401  machine. Since each instance of Paxos has a static configuration, the leader change algorithm need not deal with a
+  402  changing configuration or multiple simultaneous configurations. This straightforwardly addresses the unaware-leader
+  403  and multiple-poll challenges.
+  404  We discuss how we address the extended-disconnection
+  405  and consecutive-migration challenges in §4.5 and §4.9, respectively.
+  406  When a replica executes a request that creates a new configuration, it sends JOIN messages to each machine in this
+  407  new set, telling them to join the configuration if they have
+  408  not done so already. A machine joins a configuration by
+  409  starting a replica associated with that configuration.
+
+  410  4.2 Avoiding inter-configuration conflict
+  411  Separate configurations use separate instances of Paxos,
+  412  so we must ensure they do not assign different requests to
+  413  the same slot. We achieve this by making each configuration
+  414  responsible for a range of slots, FirstSlot through LastSlot,
+  415  with no two ranges overlapping. If the request that creates
+  416  a configuration is in slot n, then the new configuration's
+  417  FirstSlot is n + α, and the old configuration's LastSlot is
+  418  n + α − 1. Each replica only assigns and executes slots in
+  419  its range because a leader only proposes slots in its range.
+  420  A leader can avoid proposing slots less than FirstSlot because each replica is created knowing its FirstSlot. If it is
+  421  in configuration 1, it knows FirstSlot is 1. Otherwise, it
+  422  was created due to a JOIN message, and the JOIN message
+  423  specified this value.
+  424  It is trickier to avoid proposing slots after LastSlot, since
+  425  often the leader will not know this value because it has not
+  426  yet created a successor configuration. For this case, we use
+  427  Lamport's idea: the leader may not make a proposal for slot
+  428  n +α until it has executed slot n. Thus, as usual, α controls
+  429  the degree to which the leader's proposals can get ahead of
+  430  its execution.
+=== PAGE 6 ===
+
+  431  Figure 3: Overview of the SMART protocol
+
+  432  For each server machine:
+  433  Whenever you learn that configuration n is defunct, and n > d
+  434  where d is the highest one you know is defunct,
+  435  Set d := n and destroy all replicas in configurations ≤ n.
+  436  Upon initial startup, if you are in the initial service configuration,
+  437  Start a replica in configuration 1.
+  438  Upon receipt of a JOIN message for a configuration n > d,
+  439  Start a replica in configuration n if one isn't running already.
+  440  Upon receipt of a FINISHED, HEARTBEAT, or ELECT message
+  441  addressed to a replica in configuration n > d,
+  442  If there is no local running replica in that configuration,
+  443  Reply with a JOIN-REQUEST message for configuration n
+  444  Upon receipt of a client request to a replica in configuration n ≤ d,
+  445  Reply with a NEW-CONFIGURATION message.
+  446  Upon receipt of any other message to a replica in
+  447  configuration n ≤ d,
+  448  Reply with a DEFUNCT message.
+  449  Upon receipt of a DEFUNCT message regarding configuration n,
+  450  Note that configuration n is defunct.
+
+  451  4.3 Transfer of responsibility
+  452  We now discuss how a new configuration begins receiving
+  453  and executing client requests.
+  454  When a leader has filled up all slots through LastSlot, it
+  455  cannot make any more proposals. So, it responds to client
+  456  requests with a NEW-CONFIGURATION message, telling
+  457  the client to start using the new configuration. The client
+  458  ignores the message if it already knows about a later configuration.
+  459  Before a new replica executes any requests, it must initialize its service state to an appropriate starting state. Since
+  460  the first request this replica can execute is the one in slot
+  461  FirstSlot, a proper starting state is a state reflecting the execution of at least slots 1 through FirstSlot − 1. Thus, it can
+  462  acquire its starting state from a replica from the previous
+  463  configuration that has executed its LastSlot, i.e., a finished
+  464  replica from the previous configuration. In some cases, it
+  465  may acquire its starting state from a cohort instead.
+
+  466  4.4 Destroying defunct replicas
+  467  In §3.2, we showed how a window of vulnerability arises
+  468  when a replica terminates before the next configuration is
+  469  able to make independent forward progress. In SMART,
+  470  we eliminate this window of vulnerability by not destroying
+  471  replicas of an old configuration immediately. In this subsection, we discuss when SMART can destroy a replica of an
+  472  old configuration.
+  473  We say a configuration is established once FirstSlot −1 is a
+  474  stable index of that configuration. After this, it will always
+  475  eventually have an alive replica with a copy of the state
+  476  reflecting slots 1 through FirstSlot − 1, obviating the need
+  477  for any information about those slots. Since these slots are
+  478  exactly those that previous configurations are responsible
+  479  for, those configurations and their replicas are defunct, i.e.,
+  480  safe to destroy.
+  481  The replicas of a configuration must continue operating
+  482  until a successor configuration is established. Recall from
+  483  §2.1 that we assume a quorum of replicas in a configuration
+  484  will continue operating at least until a successor is established. The liveness of a quorum enables that configuration
+
+  485  For each replica on each server machine:
+  486  After executing a request that creates a new configuration,
+  487  Send a JOIN message to each machine in that
+  488  configuration.
+  489  After executing the last slot of your configuration,
+  490  From now until you are eventually destroyed, periodically
+  491  send a FINISHED message to each machine in the next
+  492  configuration.
+  493  Upon receipt of a FINISHED message,
+  494  If you have a checkpoint at or after your starting state,
+  495  Reply with a READY message;
+  496  . Otherwise, if you don't have your starting state,
+  497  Request your starting state from the sender.
+  498  Upon receipt of READY messages from a quorum of your
+  499  successor configuration,
+  500  Note that your configuration is defunct. (This will cause
+  501  you to be destroyed.)
+  502  Upon receipt of a JOIN-REQUEST message,
+  503  Reply with a JOIN message for the requested
+  504  configuration.
+
+  505  to complete its work, namely to eventually assign a request
+  506  to LastSlot, execute that request, then propagate the resulting state to a successor configuration so that configuration
+  507  can become established.
+  508  We use the following two-part protocol to ensure that a
+  509  defunct, alive replica eventually destroys itself. First, when
+  510  a machine receives a message addressed to a replica that has
+  511  destroyed itself, it responds with a DEFUNCT message. A
+  512  replica destroys itself if it hears a DEFUNCT message indicating a cohort or a member of a successor configuration has
+  513  destroyed itself. Second, when a replica is finished, it creates a thread that periodically sends a FINISHED message
+  514  to each replica in its successor configuration. This message
+  515  asks the recipient to reply with a READY message if it has
+  516  saved a checkpoint at or after its starting state. Once the
+  517  finished replica has received a READY reply from a quorum
+  518  of successor replicas, or one DEFUNCT reply, it knows some
+  519  successor configuration is established and destroys itself.
+  520  When a replica destroys itself, its machine must remember its configuration number and successor configuration
+  521  so it can send DEFUNCT and NEW-CONFIGURATION
+  522  messages as appropriate. As an optimization, a machine only remembers this information for the highestnumbered configuration. It can then send DEFUNCT or
+  523  NEW-CONFIGURATION messages on behalf of any lowernumbered configurations, which are necessarily also defunct.
+  524  The latter message may inform a client of a successor configuration that is not the immediate successor of the one the
+  525  client was addressing, but this poses no problem.
+
+  526  4.5 Configuration repository
+  527  Next, we discuss how we address the extendeddisconnection challenge. If a machine reconnects after a long
+  528  disconnection, it may not know the latest configuration due
+  529  to migrations during the disconnection. Furthermore, due to
+  530  the weak reliability assumption in §2.1, all servers it knows
+  531  of may have permanently failed, so it may never discover
+  532  a working configuration. If it is a client, its requests may
+  533  never get executed. If it has a defunct replica, that replica
+  534  may never learn it is defunct. This is a fundamental problem
+  535  for any self-migrating service, and necessitates a configura-
+=== PAGE 7 ===
+
+  536  tion repository where the service can store its most recent
+  537  configuration information.
+  538  We use the repository as follows. Periodically, e.g., every
+  539  five minutes, a leader of an established configuration writes
+  540  its configuration information to the repository. A process
+  541  suspecting a configuration is defunct reads the repository to
+  542  try to learn a newer configuration. Also, a leader reads the
+  543  repository before writing its own information; if it finds an
+  544  earlier configuration, it sends DEFUNCT messages to the
+  545  replicas in that configuration.
+  546  This protocol ensures correct operation even if the repository is not consistent or durable. Furthermore, the service
+  547  can be highly available even if the repository is less available,
+  548  because the repository is only necessary on those rare occasions when a machine reconnects after an extremely long
+  549  disconnection. It is important that the repository need not
+  550  be consistent, durable, and highly available, since otherwise
+  551  we could not build a service with those properties unless we
+  552  already had a repository service with those properties.
+  553  Because there are such weak requirements for the repository, there are several simple ways to build it. For instance,
+  554  one can store the configuration information in a DNS entry.
+
+  555  4.6 Ensuring new replicas are created
+  556  Next, we discuss how we ensure that every alive machine
+  557  in a non-defunct configuration eventually joins that configuration.
+  558  We cannot rely on the JOIN messages replicas send when
+  559  they create a new configuration. There are a finite number
+  560  of these messages, so they may all be lost. We can use
+  561  them as an optimization to start the replicas quickly, but
+  562  not as a guarantee that every machine that should join the
+  563  configuration does so.
+  564  If a machine receives a FINISHED message addressed to
+  565  a not-yet-created replica on that machine, it creates the addressed replica. Since some replica will send FINISHED
+  566  messages repeatedly until it receives a READY message
+  567  from a quorum, a quorum of the new configuration will
+  568  eventually join. This does not completely solve our problem, since we want every alive machine to eventually join.
+  569  So, in addition, if a machine receives a HEARTBEAT or
+  570  ELECT message addressed to a not-yet-created replica, it
+  571  creates the addressed replica.
+  572  A small problem with this is that a machine must join
+  573  upon receiving a FINISHED, HEARTBEAT, or ELECT
+  574  message, but such a message does not specify the configuration's set of machines or FirstSlot. Thus, a machine does not
+  575  join immediately upon receiving such a message. It sends
+  576  back a JOIN-REQUEST message, and the recipient replies
+  577  with a JOIN message.
+
+  578  4.7 Acquiring starting state
+  579  Recall that a new replica generally obtains its starting
+  580  state from a finished replica in its predecessor configuration. Instead of repeatedly polling those replicas, waiting
+  581  for one to be finished, a new replica just waits to receive a
+  582  FINISHED message, then asks the sender for a state copy.
+  583  However, there is a wrinkle. Once the predecessor configuration becomes defunct, its replicas may destroy themselves
+  584  and become unable to provide a state copy. So, sometimes a
+  585  new replica must acquire its starting state from one of its cohorts. A replica can always eventually do this, because if its
+  586  predecessor configuration is defunct then its configuration
+
+  587  is established, and eventually an alive cohort can provide a
+  588  state copy with index at least FirstSlot − 1.
+
+  589  4.8 Null requests
+  590  In Paxos [13], sometimes upon election a new leader must
+  591  propose a null request to fill a slot. A null request is simply
+  592  an extra request whose execution does nothing, so it is always safe to propose a null request. SMART has the leader
+  593  submit null requests in an additional scenario.
+  594  When a leader knows its LastSlot, it proposes null requests
+  595  for all remaining unproposed slots. This hastens establishment of the successor configuration, reducing the time that
+  596  correctness relies on the old configuration's machines and
+  597  letting replicas of the old configuration destroy themselves
+  598  sooner. It also serves to prevent deadlock, as follows.
+  599  Suppose a leader with LastSlot of 100 has made proposals for slots 1–100. Having filled up all its slots, it starts
+  600  redirecting clients to the next configuration as discussed in
+  601  §4.3. Now, the leader crashes, and the network loses all its
+  602  proposal messages for slots 98–100. A new leader is elected,
+  603  learns about slots 1–97 in its poll, and waits for a client request to propose for slot 98. However, it waits in vain: all
+  604  clients were redirected to the next configuration, so they will
+  605  not submit a request to that leader. This next configuration
+  606  may assign requests to slots 101 and beyond, but not slots
+  607  98–100. No request ever gets assigned to slot 98, so the service stops forever. Our technique avoids this scenario since
+  608  the newly elected leader will propose null requests for slots
+  609  98–100, allowing the service to make progress.
+
+  610  4.9 Configuration information in state
+  611  Often, a replica needs to obtain from its service state information about its successor configuration: whether it has
+  612  been created and, if so, its FirstSlot and its set of machines.
+  613  A leader needs this to determine for what slots it may propose. A replica needs this to determine whether it is finished
+  614  and, if so, where to send FINISHED messages.
+  615  The consecutive-migration challenge arises because sometimes this information may not be present, having been
+  616  overwritten by a later configuration. However, in SMART,
+  617  the service state includes information not just about the
+  618  latest configuration, as Lamport recommended, but also
+  619  about older, non-defunct configurations. Consequently, the
+  620  consecutive-migration challenge does not arise, and SMART
+  621  can let any request change the configuration.
+  622  The service state may also include information about defunct configurations. However, the service should eventually
+  623  discard such information to prevent its state from growing
+  624  indefinitely. Since it is deterministic, it can only change its
+  625  state while executing requests. So, at the beginning of executing request n, it checks whether n − MaximumLogSize
+  626  is the LastSlot of some configuration C. If so, it knows that
+  627  C is defunct, and discards information about it. It knows
+  628  C is defunct because, as we discussed in §2.3, no leader can
+  629  propose request n unless n − MaximumLogSize is a stable
+  630  index of its configuration. This means that LastSlot of C is a
+  631  stable index of some successor configuration, so C is defunct.
+
+  632  4.10 Shared execution modules
+  633  The scheme described thus far is inefficient in that a new
+  634  replica must always copy its starting state from another
+  635  replica. For many services, this state can be quite large, so
+  636  copying it from one machine to another, or even just copy-
+=== PAGE 8 ===
+
+  637  A Replica 1A B Replica 1B
+
+  638  Replica 2A Replica 2B
+
+  639  EM A EM B
+
+  640  C D
+
+  641  Replica 1C Replica 2D
+
+  642  EM C EM D
+
+  643  replica execution module (EM)
+
+  644  Figure 4: This figure illustrates shared execution
+  645  modules, i.e., that all replicas on a machine share
+  646  a single EM. Here, configuration 1 is {A, B, C} and
+  647  configuration 2 is {A, B, D}.
+
+  648  ing it between processes on the same machine, can be timeconsuming. In this subsection, we describe an optimization
+  649  we call shared execution modules that obviates most copying
+  650  and saves space.
+  651  The optimization factors some of the functionality out of
+  652  each replica into a separate module called an execution module (EM). This functionality includes storing service state,
+  653  modifying state by executing requests, and saving and transferring state checkpoints. The remaining functionality remains in the replica, including acting as leader, logging proposals, and electing a new leader. This way, we can share
+  654  a single EM among all replicas on the same machine, as
+  655  illustrated in Figure 4.
+  656  Shared EMs reduce state copying as follows. Frequently,
+  657  successive configurations will overlap, so several new replicas will be colocated with replicas of the old configuration.
+  658  For instance, an autonomic system might replace a failed
+  659  machine C in configuration {A, B, C} by reconfiguring to
+  660  {A, B, D}, so the new replicas on A and B find themselves
+  661  with colocated replicas. Each new replica that is colocated
+  662  with a replica from its predecessor configuration defers copying its starting state. It hopes that the colocated replica will
+  663  soon finish executing its final slot, thereby putting the EM
+  664  in exactly the state the new replica needs and obviating a
+  665  copy.
+  666  However, its hopes may be dashed, and the colocated
+  667  replica may not reach its final state before destroying itself.
+  668  Fortunately, even in this case there is opportunity to save
+  669  state-copying costs. Although the EM did not execute all
+  670  requests from the previous configuration, it likely executed
+  671  most of them, so its state is close to the required starting
+  672  state. Thus, the replica can substantially reduce copying
+  673  time with an incremental state transfer [3].
+  674  Some things a replica used to do internally now involve
+  675  communication with the EM. For instance, it no longer executes requests. Instead, it tells the EM when requests are
+  676  assigned to slots, and the EM executes those requests when
+  677  it is ready.
+  678  A seemingly problematic aspect of EMs is that a replica
+  679  may find its EM state progressing beyond LastSlot. For instance, if replicas in configurations 3 and 4 coexist on a machine, then the replica in configuration 4 may cause the EM
+  680  to execute a slot that configuration 4 is responsible for. Or,
+  681  the replica in configuration 4 may overwrite the EM state
+
+  682  with a checkpoint copy reflecting slots that configuration 4
+  683  is responsible for. However, this does not pose a problem,
+  684  since the only reason a replica ever inspects its EM's state
+  685  is to obtain information about its successor configuration.
+  686  As we discussed in §4.9, executing further requests cannot
+  687  change this information due to the way we manage configuration information in the state.
+
+  688  5. CORRECTNESS
+  689  In this section, we sketch our arguments about SMART's
+  690  correctness. For the full proof, see our technical report [12],
+  691  which specifies our system and proves its safety property in
+  692  the formal systems-specification language TLA+ [15].
+  693  SMART's safety property is that no two replicas ever assign different requests to the same slot.
+  694  Basic Paxos uses the following proof. Suppose two leaders assign requests to the same slot. The earlier leader must
+  695  have gotten a quorum of replicas to log its corresponding
+  696  proposal, and the second leader must have gotten a quorum
+  697  of replicas to reply to its poll so it could make any proposal
+  698  at all. Quorums overlap, so the second leader must have
+  699  heard about the first leader's logged proposal and thus proposed the same request for the slot. So, both leaders assign
+  700  the same request to the slot.
+  701  However, this proof does not work for SMART, since not
+  702  all quorum pairs overlap. For instance, one quorum might
+  703  be {A, C} from configuration {A, B, C} and another might
+  704  be {B, D} from configuration {A, B, D}.
+  705  We start by proving the following lemma: if only one configuration is responsible for a slot, only one request is assigned to that slot. Configuration-specific replicas make this
+  706  proof straightforward. A replica only sends Paxos messages
+  707  to replicas of the same configuration. Therefore, if only one
+  708  configuration is responsible for a slot, the quorum of replicas
+  709  that logs a proposal for that slot must come from the same
+  710  configuration as any quorum that replies to a poll that enables a future leader to create a new proposal for that slot.
+  711  Reasoning as in the basic Paxos proof, the lemma follows.
+  712  We now prove that only one request is assigned to each
+  713  slot by induction on slot. Only the initial configuration is
+  714  responsible for slot 1, so by the lemma, the induction condition holds for slot 1. Now, suppose it holds for slots 1
+  715  through n. This implies only one request is assigned to
+  716  each of those slots. The state machine is deterministic, so
+  717  the outcome of executing requests 1 through n will be the
+  718  same everywhere such an outcome is observed. This outcome specifies the configuration responsible for slot n + 1,
+  719  and the uniqueness of that configuration means only one request will be assigned to that slot according to the lemma.
+  720  This completes the inductive step and thus the proof.
+  721  The proof in the companion technical report [12] is formal and far more detailed. One illustration of this is that it
+  722  showed us a bug in both the implementation and the protocol specification. Our specification considers volatile state
+  723  by admitting a "crash" action that erases certain variables.
+  724  We discovered that after a crash, a leader forgot which slots
+  725  it had proposed for. If it recovered quickly enough that
+  726  none of its cohorts noticed its failure, it could remain leader
+  727  throughout its crash and recovery. Then, it could propose
+  728  new requests in slots it had already used, possibly leading
+  729  to conflicting requests for the same slot. Once we discovered
+  730  this bug, it was easy to fix.
+=== PAGE 9 ===
+
+  731  6. EXPERIMENTAL RESULTS
+  732  To evaluate SMART, we built a prototype implementation
+  733  of it and performed experiments to evaluate its performance.
+  734  This section describes that implementation, the methodology of our experiments, and our experimental results.
+
+  735  6.1 Implementation
+  736  We implemented SMART as a library called LibSMART.
+  737  Service implementations can use this library to obtain replication and migratability. LibSMART presents a similar
+  738  interface to BFT [3], enabling us to port existing services
+  739  written for that interface. LibSMART's implementation of
+  740  SMART is complete except for the configuration repository.
+  741  To demonstrate SMART's practicality, we used LibS-
+  742  MART to build a real service: a consistent, replicated,
+  743  migratable file system. We ran thousands of hours of file
+  744  system traces on this new file system, and thousands of
+  745  runs that verified the correctness of our implementation during disconnections, reboots, and migrations. Furthermore,
+  746  building this service was fairly straightforward. We already
+  747  had a file system that used BFT for consistency and replication [1], so by porting it to LibSMART we achieved migratability. Note that by doing so we replaced its Byzantine
+  748  fault tolerance with mere fail-stop fault tolerance; it is future
+  749  work to enable Byzantine fault tolerance in SMART.
+  750  The file system uses highly effective techniques to hide
+  751  the latency of server operations, so evaluating its performance sheds little light on the performance of LibSMART.
+  752  Therefore, in this section, we benchmark LibSMART with
+  753  a simple key/value service. This service permits client requests that read, write, and delete string values associated
+  754  with integer keys. Each replica of the service caches information in memory for the most recently accessed 1,000 keys.
+  755  Thus, it must access the disk when processing a request for
+  756  a non-recently accessed key.
+
+  757  6.2 Methodology
+  758  Our experimental test bed uses seven identical HP D530
+  759  convertible mini-towers, each with a 3.2 GHz Intel Pentium 4
+  760  processor with 800 MHz Front Side Bus, 512 KB L2 cache
+  761  with HyperThreading enabled, 1 GB 400 MHz DDR Dual
+  762  Channel RAM, and 80 GB 7200 RPM PATA hard drive.
+  763  Each runs Windows XP Professional with Service Pack 2.
+  764  Each is connected to the same LAN subnet via built-in 100
+  765  Mb/s Ethernet. This subnet provides sub-millisecond ping
+  766  times.
+  767  The first machine runs service clients. The next three,
+  768  which we call A, B, and C, act as servers in the service's initial configuration, with A as the initial Paxos leader. Two
+  769  other machines, which we call D and E, act as servers in
+  770  one experiment that requires five machines instead of three
+  771  in the initial configuration. The last machine acts as a replacement during migration; accordingly, we call it R. We
+  772  coordinate experiments using a host machine on the same
+  773  subnet.
+  774  For most experiments, the only client requests we measure
+  775  are ones that read a key expected to be in each server's
+  776  cache. We chose these requests since servers can execute
+  777  them quickly. This highlights the more interesting sources
+  778  of latency, e.g., those due to replication and migration.
+  779  Our test bed uses Seagate Barracuda ST380011A hard
+  780  drives. Since these drives' internal write caches are volatile,
+  781  write caching could prevent SMART's checkpoints and
+
+  782  Waiting for reply Sending proposal
+
+  783  Logging proposal Executing request
+
+  784  Client
+
+  785  Leader A
+
+  786  Replica B
+
+  787  Replica C
+
+  788  0 1 2 3
+
+  789  Time (ms)
+
+  790  Figure 5: Timeline of one request selected for illustration
+
+  791  logged proposals from surviving a machine crash. Therefore,
+  792  in a real deployment we would have to disable these disks'
+  793  write caches. However, since real servers' hard drives generally use NVRAM write caches, and this will be increasingly
+  794  true in the future, for most of our experiments we simulate
+  795  the presence of such NVRAM by enabling write caching on
+  796  the disks.
+
+  797  6.3 Request timeline
+  798  The goal of our first experiment is to present a timeline
+  799  of the interesting events contributing to the latency of a
+  800  single client request. This timeline will help frame further
+  801  experimental results. To provide correspondence between
+  802  times measured on different machines, we synchronize the
+  803  machines' clocks by broadcasting reference Ethernet packets [7].
+  804  Figure 5 shows the timeline that results from a single request we selected for illustration. The client sends a request,
+  805  and after some communication delay the leader receives it
+  806  and sends a proposal. The leader logs this proposal immediately, while the other replicas must wait until they receive it.
+  807  Once the leader receives LOGGED messages from a quorum,
+  808  it begins executing the request. In this case, the quorum
+  809  consists of the leader and machine B, since machine C takes
+  810  longer to receive and log the proposal. The leader sends a
+  811  reply to the client, which considers the request complete.
+  812  Machines B and C eventually hear the leader's decision and
+  813  execute the request, but this is not on the critical path seen
+  814  by the client. Note that the leader takes longer to execute
+  815  than the other replicas, because as an optimization in our
+  816  implementation, only the leader sends a reply.
+
+  817  6.4 Effect of NVRAM
+  818  In the next experiment, we measure the effect of using
+  819  NVRAM for disk write caching. A client submits 20,000
+  820  consecutive requests and we measure the average latency.
+  821  We do this once with disk write caching on, simulating the
+  822  presence of NVRAM, and once with disk write caching off.
+  823  We find that the 95% confidence intervals for average latency are 2.98 ms ± 0.04 ms with NVRAM and 8.67 ms
+  824  ± 0.06 ms without it. We conclude that NVRAM reduces
+  825  latency by approximately 5.7 ms. Figure 6 breaks down
+  826  the latency into major components, showing, as expected,
+  827  that the main reason for this difference is that logging takes
+  828  longer without NVRAM.
+  829  Most of the remaining time is spent in communication,
+  830  which includes waiting for network transmission, waiting for
+=== PAGE 10 ===
+
+  831  Log Execute Communicate Miscellaneous
+
+  832  With NVRAM
+
+  833  Without NVRAM
+
+  834  0 1 2 3 4 5 6 7 8 9
+
+  835  Milliseconds
+
+  836  Figure 6: Breakdown of average request latency
+  837  seen by client. "Miscellaneous" includes time spent
+  838  proposing requests and time spent waiting for checkpoints.
+
+  839  s) 150
+  840  m
+  841  y ( 100
+  842  cn
+  843  te 50
+  844  a
+  845  g l 0
+  846  v
+  847  A
+
+  848  0 10 20 30
+
+  849  Added network delay (ms)
+
+  850  Figure 7: Effect of additional network delay on average request latency seen by client
+
+  851  message handlers to be scheduled, and encrypting and decrypting messages. Executing requests is minor, because we
+  852  have chosen requests that are quickly executed. Incidentally,
+  853  our implementation delays execution of a request while saving a checkpoint, which happens after every 50th request;
+  854  repairing this is future work. However, in this example, the
+  855  state changes are minor, so requests spend almost no time
+  856  waiting for checkpoints.
+
+  857  6.5 Effect of network latency
+  858  Our next experiment measures the effect of network delay
+  859  on client latency. A client submits 20,000 consecutive requests and we measure the average latency. We do this four
+  860  times, each time simulating a different additional network
+  861  delay. The added delays range from 0–30 ms.
+  862  Figure 7 shows the results. We see that for every 1 ms
+  863  added to network latency, request latency goes up by approximately 4 ms. This is as expected since, as illustrated
+  864  in Figure 5, there are four network hops on the critical path
+  865  of handling a client request: the client sends the request to
+  866  the leader, the leader sends a proposal to the other replicas,
+  867  the replicas send the leader a LOGGED message, and the
+  868  leader sends the client a reply.
+
+  869  6.6 Concurrent requests
+  870  Our next experiment measures the effect of pipelining on
+  871  the latency of concurrent requests. Two clients run simultaneously, each submitting a stream of consecutive requests.
+  872  We measure the average latency of 20,000 consecutive requests on one of the two clients. We run this experiment
+  873  twice, once with pipelining enabled and once with it disabled. We disable pipelining by setting α to 1 instead of its
+  874  default 10.
+
+  875  s) 9
+
+  876  (m 6
+
+  877  y
+
+  878  nc 3
+
+  879  te
+
+  880  a 0
+
+  881  L
+
+  882  0 200 400 600 800 1000
+
+  883  Request #
+
+  884  Figure 8: Request latencies seen by client before
+  885  and after disconnection of machine C, shown as a
+  886  vertical dashed line
+
+  887  With pipelining enabled, average latency is 4.3 ms; without pipelining, it is 4.9 ms. We see that in both cases
+  888  the submission of requests by another client reduces performance. However, this effect is substantially reduced by
+  889  pipelining. In all, pipelining reduces latency by 14%. We
+  890  conclude that SMART's ability to pipeline is useful in reducing request latency when there are concurrent requests.
+  891  Note that our implementation does not batch multiple
+  892  requests, which would normally mitigate the effect of lack
+  893  of pipelining. However, this is irrelevant for this experiment, since with two clients at most one request is waiting for proposal at a time and thus there is no opportunity
+  894  for batching. Batching would reduce further performance
+  895  degradation from a third client, a fourth client, etc., but it
+  896  cannot help with the performance degradation from the first
+  897  additional client.
+
+  898  6.7 Disconnection
+  899  We next perform a simple experiment to demonstrate resilience to a single failure. A client submits 1,000 requests;
+  900  partway through, we disconnect machine C. Figure 8 shows
+  901  the results, with the following two things most notable.
+  902  First, there is no pause in service operation at the time
+  903  of disconnection, since Paxos performs no special processing to exclude a disconnected non-leader machine. Second,
+  904  average latency is the same before and after disconnection:
+  905  2.6 ms in both cases. The critical path of request handling
+  906  involves the time it takes the fastest quorum of replicas to
+  907  log the proposal and respond to the leader, so it goes essentially just as quickly with machine C disconnected as with
+  908  all machines alive.
+  909  In another experiment, we disconnect the leader instead.
+  910  The service continues operating correctly, but in this case
+  911  the performance effect is far higher: after the disconnection,
+  912  the next client request has a latency of 3.1 sec. This large
+  913  delay is mostly due to the tunable 3-second timeout before
+  914  another replica concludes the leader has failed and initiates
+  915  a leader change.
+
+  916  6.8 Migration
+  917  In this section, we discuss experiments demonstrating the
+  918  performance impact of service migration in our implementation. Specifically, we show the extra request latency that
+  919  clients see during a service migration, and examine the
+  920  sources of that additional latency.
+  921  To set up the first experiment, our client writes various
+  922  100-byte values to 10,000 keys. Then, the client submits
+  923  a stream of read requests. Partway through this stream,
+  924  another client running on the host machine issues an administrative request to migrate the service to configuration
+=== PAGE 11 ===
+
+  925  s) 10
+
+  926  8
+
+  927  (m
+
+  928  yc 6
+
+  929  n 4
+
+  930  te
+
+  931  a 2
+  932  L x
+
+  933  0
+
+  934  0 5000 10000 15000 20000 25000
+
+  935  Request #
+
+  936  s) 20
+
+  937  (m 15
+
+  938  yc
+
+  939  n 10
+
+  940  te
+
+  941  a 5
+
+  942  L
+
+  943  0
+
+  944  3060 3070 3080 3090 3100
+
+  945  Request #
+
+  946  Figure 9: The top graph shows request latencies before and after migration of the service from {A, B, C}
+  947  to {A, B, R}. The migration is shown as a vertical
+  948  dashed line, and the period during which machine
+  949  B was copying state to machine R is shown with a
+  950  gray background. For scale, several uninteresting
+  951  outliers above 10 ms are not shown. The bottom
+  952  graph shows the period surrounding the migration.
+
+  953  {A, B, R}. Figure 9 shows the request latencies observed by
+  954  the reading client throughout this process.
+  955  The first two requests following migration incur a higher
+  956  latency than typical, 8 ms and 16 ms. We explore the cause
+  957  of this in §6.9. After those, request latencies return to the
+  958  typical amounts seen before migration. Then, a short while
+  959  later, there is a period of increased average latency, up to
+  960  about 3.4 ms from the typical 3.0 ms. During this time, machine B takes slightly longer to process proposals as in the
+  961  background it is sending a checkpoint to machine R. This
+  962  takes about 53 seconds, mostly because our state transfer
+  963  code has not been tuned for performance. After this transfer, latency returns to normal for the rest of the run. Overall,
+  964  we conclude that migration has only a minor and temporary
+  965  effect on observed latency, demonstrating the efficiency of
+  966  our migration technique and implementation.
+  967  In our next experiment, we show that the delay caused
+  968  by the checkpoint transfer can be eliminated by replicating
+  969  the service on five machines instead of three. This experiment is just like the previous one except that the initial
+  970  configuration is {A, B, C, D, E} and the subsequent configuration is {A, B, R, D, E}. Figure 10 shows the results of this
+  971  experiment. We see that, indeed, using a five-machine configuration eliminates the period of slightly elevated latencies
+  972  during the gray region representing when the new machine
+  973  is copying a checkpoint. The reason for this is as follows.
+  974  When we replace one of five machines, four machines from
+  975  the original configuration are also in the subsequent configuration. While one of these four is transferring state to the
+  976  new machine, three machines are unaffected. These three
+  977  machines by themselves constitute a quorum of the configuration, so it is their speed that determines the latency seen
+  978  by clients.
+
+  979  10
+
+  980  s) 8
+
+  981  (m
+
+  982  y 6
+
+  983  nc 4
+
+  984  te
+
+  985  a
+
+  986  L 2
+
+  987  0
+
+  988  0 5000 10000 15000 20000 25000
+
+  989  Request #
+
+  990  25
+
+  991  s) 20
+
+  992  (m 15
+
+  993  y
+
+  994  c
+
+  995  n
+
+  996  te 10
+
+  997  a
+
+  998  L 5
+
+  999  0
+
+ 1000  2900 2910 2920 2930 2940
+
+ 1001  Request #
+
+ 1002  Figure 10: The top graph shows request latencies before and after migration of the service from
+ 1003  {A, B, C, D, E} to {A, B, R, D, E}. The migration is
+ 1004  shown as a vertical dashed line, and the period during which machine D was copying state to machine
+ 1005  R is shown with a gray background. For scale, uninteresting outliers above 10 ms are not shown. The
+ 1006  bottom graph shows the period surrounding the migration.
+
+ 1007  Incidentally, the two client requests immediately following
+ 1008  migration have elevated latencies of 10 ms and 21 ms, similar
+ 1009  to what we observed in the previous experiment.
+
+ 1010  6.9 Sources of delay following migration
+ 1011  To understand the source of the latency increases immediately following migration, we conduct an additional experiment. In this experiment, we perform 200 consecutive migrations, alternating between configurations {A, B, C} and
+ 1012  {A, B, R}. We find that the delays observed by the client
+ 1013  correspond to certain phases leader machine A goes through
+ 1014  during migration, shown in Figure 11. Phase 1, taking 3 ms
+ 1015  on average, is waiting for the migration request to be logged.
+ 1016  Phase 2, taking 4 ms on average, is executing that request,
+ 1017  including sending JOIN messages and proposing null requests. Phase 3, taking 12 ms on average, is waiting for
+ 1018  null requests to be logged and then executing them. Phase
+ 1019  4, taking 8 ms on average, is waiting for a checkpoint save;
+ 1020  our implementation always saves a checkpoint upon reaching a configuration's final state, to hasten the establishment
+ 1021  of the next configuration. Depending on whether any client
+ 1022  request arrives during phase 1, either one request observes
+ 1023  the latency of phase 2 and another observes the latency of
+ 1024  phase 4, or a single request observes the latency of most of
+ 1025  phases 2–4. The former case happened in our earlier migration experiments, explaining the two slightly elevated latencies immediately following migration. In our 200 migrations,
+ 1026  the former case happens 83% of the time and when it does,
+ 1027  the two delayed requests have average latency of 11 ms and
+=== PAGE 12 ===
+
+ 1028  Waiting for migration request to be logged (3 ms)
+
+ 1029  Executing migration request (4 ms)
+
+ 1030  1 2 3 4
+
+ 1031  Waiting for null requests to be logged (12 ms)
+
+ 1032  Saving state checkpoint (8 ms)
+
+ 1033  Figure 11: This rough timeline shows the phases
+ 1034  leader machine A goes through during a migration.
+ 1035  The two main sources of latency observed by clients
+ 1036  are described in italics.
+
+ 1037  17 ms. The latter case happens 17% of the time during
+ 1038  our 200 migrations, and then the average latency of the one
+ 1039  delayed request is 28 ms.
+ 1040  Incidentally, if our implementation did not force requests
+ 1041  to wait to execute during checkpoint saves, we would not
+ 1042  see the latency of phase 4. Instead, we would see additional latency due to client redirection. Recall that a client
+ 1043  request submitted after migration must incur two extra network transmission delays: one for the old leader to send a
+ 1044  REDIRECT message to the client and one for the client to
+ 1045  resubmit its request to the new leader. In our experiments,
+ 1046  since requests were delayed until the end of phase 4, this
+ 1047  redirection latency was not on the critical path, and so contributed nothing to observed latency.
+
+ 1048  7. RELATED WORK
+ 1049  Yin et al. [25] argue for the separation of agreement from
+ 1050  execution in Byzantine fault-tolerant state machine replication, to reduce the number of execution modules in a static
+ 1051  configuration and to enable the use of a privacy firewall.
+ 1052  SMART also separates agreement from execution, but for
+ 1053  a different purpose, namely to share one execution module
+ 1054  among replicas of different configurations on the same machine.
+ 1055  Our use of configuration-specific service replicas is similar
+ 1056  to the use of configuration-specific object replicas in systems
+ 1057  such as RAMBO [17]. We are the first to use configurationspecific replicas to migrate replicated state machines, and
+ 1058  to use shared execution modules to make this approach efficient.
+ 1059  Researchers have developed several methods for migrating
+ 1060  replicated services that do not involve migrating replicated
+ 1061  state machines. In the remainder of this section, we discuss
+ 1062  these methods and compare them to SMART.
+ 1063  One method is to use a view-oriented group communication system (GCS) such as ISIS [2], Transis [6], or Horus [8].
+ 1064  Such a system allows a process to send a message to a group
+ 1065  of processes, and allows the set of processes in this group,
+ 1066  called the view, to change. This is a useful building block for
+ 1067  replicated state machines, since it allows client processes to
+ 1068  send requests to a changing group of servers. Most GCSes
+ 1069  also provide virtual synchrony, meaning that processes in
+ 1070  consecutive views see the same set of messages in the earlier view [4]. This simplifies coordination of replicas when
+ 1071  views change. The main advantage SMART has over GCSes
+ 1072  for replicating services is that Paxos deals more efficiently
+ 1073  with temporarily unavailable machines. A GCS must incur
+ 1074  the overhead of view change whenever any machine becomes
+ 1075  temporarily unavailable [10, 17], while Paxos incurs comparable overhead only when the leader becomes temporarily
+ 1076  unavailable or the configuration changes.
+ 1077  Another method for building replicated services is to build
+ 1078  them out of replicated objects, as in RAMBO [17] and Martin et al.'s reconfigurable Byzantine quorum system [19]. In
+ 1079  such a system, an object is replicated among several servers,
+ 1080  and the set of servers can change. A client request can either read or write an object. The main disadvantage of
+ 1081  this approach is that some services cannot be composed out
+ 1082  of read/write objects. For instance, some services need to
+ 1083  atomically read and conditionally modify an object, or to
+ 1084  atomically modify two objects. This is why a file service
+ 1085  built on a replicated object system, such as Om [26], cannot
+ 1086  provide namespace operations such as atomically moving a
+ 1087  file out of one directory and into another.
+ 1088  Finally, a service can obtain migratability by using a separate configuration service, as done by Boxwood [18], GFS [9],
+ 1089  and chain replication [24]. In this method, a separate service
+ 1090  determines the current configuration of the main service.
+ 1091  This approach is reasonable, but still requires a mechanism
+ 1092  like SMART to allow the configuration service itself to migrate. For instance, most components in the Boxwood system are migratable, with the notable exception of the master
+ 1093  configuration service, a limitation acknowledged by its authors [18]. SMART would be an excellent tool for building
+ 1094  a migratable master configuration service for Boxwood.
+
+ 1095  8. FUTURE WORK
+ 1096  In this section, we discuss two promising avenues of future
+ 1097  work. One is modifying SMART to allow non-deterministic
+ 1098  services. The other is modifying it to survive a limited number of Byzantine server failures, i.e., failures that cause behavior other than merely stopping.
+ 1099  For some services, determinism is impractical, such as a
+ 1100  multi-threaded service whose behavior is affected by thread
+ 1101  scheduling. A standard way to deal with non-determinism
+ 1102  in Paxos is semi-passive replication [5]. In this method, a
+ 1103  leader does not propose requests. Instead, it tentatively executes requests, recording state changes and buffering outputs. What it proposes are those state changes and outputs.
+ 1104  When another replica learns a proposal is decided, it merely
+ 1105  applies the state changes. Thus, only one replica executes
+ 1106  requests, as is appropriate considering the service is nondeterministic and thus may execute differently on different
+ 1107  replicas. We believe SMART can be used with semi-passive
+ 1108  replication, thereby enabling non-deterministic services.
+ 1109  There are well-known approaches, such as BFT [3], that
+ 1110  let replicated state machines operate correctly despite limited Byzantine behavior. In principle, SMART could use
+ 1111  BFT instead of basic Paxos, and thereby also tolerate such
+ 1112  failures. However, many changes to SMART would be necessary. For instance, we would require a method like Martin
+ 1113  et al.'s forgetting protocol [19] to ensure that old configurations cannot mislead clients if they become faulty.
+
+ 1114  9. CONCLUSIONS
+ 1115  In this paper, we presented SMART, our technique for
+ 1116  migrating replicated stateful services. Unlike similar approaches, SMART can overlap processing of multiple requests, allows migrations with no overlap between consecutive configurations, and allows migrations that remove or
+ 1117  replace a non-failed machine. Thus, it can migrate services
+=== PAGE 13 ===
+
+ 1118  to balance load, and it can safely rely on autonomic systems
+ 1119  to decide when to migrate. Also, we are the first to publish
+ 1120  full details of how our migration technique works.
+ 1121  A key element of SMART is its use of configurationspecific replicas. We create a new configuration by starting
+ 1122  a new replica of the service on each machine in the new configuration. These replicas run concurrently with the replicas from the old configuration until the new configuration
+ 1123  is established. The replicas of each configuration run a perconfiguration instance of Paxos; this simplifies the protocol
+ 1124  since Paxos never has to run across multiple configurations
+ 1125  simultaneously.
+ 1126  When multiple replicas run on the same machine, there is
+ 1127  unnecessary duplication of service state, which can lead to
+ 1128  expensive copying of service state across machines and/or
+ 1129  processes. Thus, we use shared execution modules to let
+ 1130  replicas on the same machine share service state.
+ 1131  We evaluated the performance of our technique by running experiments on our implementation of it. We found
+ 1132  that SMART's ability to overlap processing of multiple requests reduces latency of requests when there are concurrent
+ 1133  requests. We also found that migration has only a small and
+ 1134  temporary effect on performance.
+ 1135  SMART allows a service to migrate and still preserve absolute consistency. Any deterministic algorithm may guide
+ 1136  this migration, permitting any desired mechanism for balancing load and for recovering from lost fault tolerance due
+ 1137  to failures. Even if the algorithm sometimes incorrectly decides that a machine has failed and needs replacement, it
+ 1138  does not risk halting the service forever. Such autonomic
+ 1139  migration is an important step toward full autonomic operation, in which administrators play a minor role and need
+ 1140  not be constantly available.
+
+ 1141  10. ACKNOWLEDGMENTS
+ 1142  The authors would like to thank the people whose comments on early drafts helped refine this paper: Leslie Lamport, Marvin Theimer, Helen Wang, Dahlia Malkhi, Mike
+ 1143  Schroeder, Lidong Zhou, and especially Chandu Thekkath,
+ 1144  who was always available to answer our detailed questions
+ 1145  about Petal. Finally, we thank the anonymous reviewers
+ 1146  and our shepherd, Maurice Herlihy, for their many helpful
+ 1147  comments and suggestions.
+
+ 1148  11. REFERENCES
+ 1149  [1] A. Adya, W. Bolosky, M. Castro, G. Cermak, R. Chaiken,
+ 1150  J. Douceur, J. Howell, J. Lorch, M. Theimer, and R. P.
+ 1151  Wattenhofer. FARSITE: Federated, available, and reliable
+ 1152  storage for an incompletely trusted environment. In Proc.
+ 1153  5th OSDI, pages 1–14, Boston, MA, Dec. 2002.
+ 1154  [2] K. P. Birman. Replication and fault-tolerance in the ISIS
+ 1155  system. In Proc. 10th SOSP, pages 79–86, Orcas Island,
+ 1156  WA, Dec. 1985.
+ 1157  [3] M. Castro and B. Liskov. Practical Byzantine fault
+ 1158  tolerance. In Proc. 3rd OSDI, pages 173–186, New Orleans,
+ 1159  LA, Feb. 1999.
+ 1160  [4] G. V. Chockler, I. Keidar, and R. Vitenberg. Group
+ 1161  communication specifications: a comprehensive study.
+ 1162  ACM Computing Surveys, 33(4):427–469, Dec. 2001.
+ 1163  [5] X. D´efago, A. Schiper, and N. Sergent. Semi-passive
+ 1164  replication. In Proc. 17th SRDS, pages 43–50, West
+ 1165  Lafayette, IN, Oct. 1998.
+ 1166  [6] D. Dolev and D. Malkhi. The Transis approach to high
+ 1167  availability cluster communication. Communications of the
+ 1168  ACM, 39(4), Apr. 1996.
+
+ 1169  [7] J. Elson, L. Girod, and D. Estrin. Fine-grained network
+ 1170  time synchronization using reference broadcasts. In Proc.
+ 1171  5th OSDI, pages 147–163, Boston, MA, Dec. 2002.
+ 1172  [8] R. Friedman and A. Vaysburd. Fast replicated state
+ 1173  machines over partitionable networks. In Proc. 16th SRDS,
+ 1174  pages 130–137, Durham, NC, Oct. 1997.
+ 1175  [9] S. Ghemawat, H. Gobioff, and S.-T. Leung. The Google file
+ 1176  system. In Proc. 19th SOSP, pages 29–43, Bolton Landing,
+ 1177  NY, Oct. 2003.
+ 1178  [10] R. Guerraoui and A. Schiper. Consensus service: a
+ 1179  modular approach for building agreement protocols in
+ 1180  distributed systems. In Proc. 26th International
+ 1181  Symposium on Fault-Tolerant Computing (FTCS-26),
+ 1182  pages 168–177, Sendai, Japan, June 1996.
+ 1183  [11] J. Howell and J. Douceur. Replicated virtual machines.
+ 1184  Technical report MSR-TR-2005-119, Microsoft Research,
+ 1185  2005.
+ 1186  [12] J. Howell, J. R. Lorch, and J. Douceur. Correctness of
+ 1187  Paxos with replica-set-specific views. Technical report
+ 1188  MSR-TR-2004-45, Microsoft Research, 2004.
+ 1189  [13] L. Lamport. The part-time parliament. ACM Transactions
+ 1190  on Computer Systems, 16(2):133–169, May 1998.
+ 1191  [14] L. Lamport. Paxos made simple. ACM SIGACT News,
+ 1192  32(4):18–25, Dec. 2001.
+ 1193  [15] L. Lamport. Specifying Systems: The TLA+ Language and
+ 1194  Tools for Hardware and Software Engineers. Addison
+ 1195  Wesley, 2003.
+ 1196  [16] E. K. Lee and C. A. Thekkath. Petal: Distributed virtual
+ 1197  disks. In Proc. 7th ASPLOS, pages 84–92, Cambridge, MA,
+ 1198  Oct. 1996.
+ 1199  [17] N. Lynch and A. A. Shvartsman. RAMBO: A
+ 1200  reconfigurable atomic memory service for dynamic
+ 1201  networks. In Proc. 16th International Symposium on
+ 1202  Distributed Computing, pages 173–190, Toulouse, France,
+ 1203  Oct. 2002.
+ 1204  [18] J. MacCormick, N. Murphy, M. Najork, C. A. Thekkath,
+ 1205  and L. Zhou. Boxwood: Abstractions as the foundation for
+ 1206  storage infrastructure. In Proc. 6th OSDI, pages 105–120,
+ 1207  San Francisco, CA, Dec. 2004.
+ 1208  [19] J.-P. Martin and L. Alvisi. A framework for dynamic
+ 1209  Byzantine storage. In Proc. 2004 International Conference
+ 1210  on Dependable Systems and Networks (DSN'04), pages
+ 1211  325–334, Florence, Italy, Jun. 2004.
+ 1212  [20] B. M. Oki. Viewstamped replication for highly available
+ 1213  distributed systems. Ph.D. thesis technical report
+ 1214  MIT/LCS/TR-423, MIT, Aug. 1988.
+ 1215  [21] R. Rodrigues, M. Castro, and B. Liskov. BASE: Using
+ 1216  abstractions to improve fault tolerance. In Proc. 18th
+ 1217  SOSP, pages 15–28, Banff, Canada, Oct. 2001.
+ 1218  [22] F. B. Schneider. Implementing fault-tolerant services using
+ 1219  the state machine approach: a tutorial. ACM Computing
+ 1220  Surveys, 22(4):299–319, Dec. 1990.
+ 1221  [23] C. A. Thekkath. Personal communication. 2005.
+ 1222  [24] R. van Renesse and F. B. Schneider. Chain replication for
+ 1223  supporting high throughput and availability. In Proc. 6th
+ 1224  OSDI, pages 91–104, San Francisco, CA, Dec. 2004.
+ 1225  [25] J. Yin, J.-P. Martin, A. Venkataramani, L. Alvisi, and
+ 1226  M. Dahlin. Separating agreement from execution for
+ 1227  Byzantine fault tolerant services. In Proc. 19th SOSP,
+ 1228  pages 253–267, Bolton Landing, NY, Oct. 2003.
+ 1229  [26] H. Yu and A. Vahdat. Consistent and automatic replica
+ 1230  regeneration. In Proc. 1st NSDI, pages 323–336, San
+ 1231  Francisco, CA, Mar. 2004.

@@ -1,0 +1,1515 @@
+---
+title: "Crash Consistency in Block-Level Caching Systems: An Open CAS Case Study"
+authors:
+  - "Shaohua Duan"
+  - "Youmin Chen"
+year: "2025"
+publication: "2025 USENIX Annual Technical Conference"
+handle_url: "https://www.usenix.org/conference/atc25/presentation/duan-shaohua"
+source_pdf: "research/agent366/papers/duan2025-open-cas.pdf"
+source_pdf_sha256: "0df669028ea88f10845165dd33f5815bb03145b1c218c06aa28901d5941a633f"
+page_count: 17
+extracted_text_runs: 2728
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Byte-addressable non-volatile memory (NVM) proposes a new opportunity to enable file systems with better performance and durability by adding a new persistent caching layer. However, crash consistency of caching layers and compatibility with diverse reliability features of file systems remains unknown. This paper conducts a crash consistency case study of Open CAS, a popular block-level caching system. Through careful and thorough crash consistency experiments, we show that Open CAS cannot always maintain crash consistency in the persistent caching layer. We also demonstrate some reliability features of file systems are not compatible with Open CAS. Our analysis reveals the importance of a systematic crash consistency test to caching systems and reliability feature co-design with file systems in the construction of a reliable end-to-end file system.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Crash Consistency in Block-Level Caching Systems:
+
+    2  An Open CAS Case Study
+
+    3  Shaohua Duan,Washington State University;
+
+    4  Youmin Chen,Shanghai Jiao Tong University
+
+    5  https://www.usenix.org/conference/atc25/presentation/duan-shaohua
+
+    6  This paper is included in the Proceedings of the
+
+    7  2025 USENIX Annual Technical Conference.
+
+    8  July 7–9, 2025 • Boston, MA, USA
+
+    9  ISBN 978-1-939133-48-9
+
+   10  Open access to the Proceedings of the
+
+   11  2025 USENIX Annual Technical Conference
+
+   12  is sponsored by
+=== PAGE 2 ===
+
+   13  Crash Consistency in Block-Level Caching Systems: An Open CAS Case Study
+
+   14  Shaohua Duan
+
+   15  Washington State University
+
+   16  Abstract
+   17  Byte-addressable non-volatile memory (NVM) proposes a
+   18  new opportunity to enable file systems with better performance and durability by adding a new persistent caching layer.
+   19  However, crash consistency of caching layers and compatibility with diverse reliability features of file systems remains
+   20  unknown. This paper conducts a crash consistency case study
+   21  of Open CAS, a popular block-level caching system. Through
+   22  careful and thorough crash consistency experiments, we show
+   23  that Open CAS cannot always maintain crash consistency
+   24  in the persistent caching layer. We also demonstrate some
+   25  reliability features of file systems are not compatible with
+   26  Open CAS. Our analysis reveals the importance of a systematic crash consistency test to caching systems and reliability
+   27  feature co-design with file systems in the construction of a
+   28  reliable end-to-end file system.
+
+   29  1 Introduction
+
+   30  Byte-addressable non-volatile memory (NVM) opens a
+   31  new opportunity in designing high-performance block-level
+   32  caching systems for file systems. NVM provides byte addressability and low-access latency like DRAM and offers
+   33  data persistence like HDD. Like page cache in traditional
+   34  file systems, similar hybrid storage is adopted in persistent
+   35  caching systems, where a fast persistent device is used for a
+   36  caching layer and a slow but large storage capacity is used for
+   37  a backend file system to achieve high I/O performance while
+   38  reducing monetary costs. For example, Open CAS [11], an
+   39  advanced caching solution recently developed by Intel, allows
+   40  NVM, SSD, and other high-performance storage devices to
+   41  be used as a caching layer for improving the I/O performance
+   42  of Linux file systems.
+   43  While the primary goal for introducing non-volatile memory into block-level caching systems is to improve the performance of file systems that are typically installed at the
+   44  HDDs, i.e., backend devices, it also improves the data durability of file systems. Unlike traditional block-level caching
+
+   45  USENIX Association
+
+   46  Youmin Chen
+
+   47  Shanghai Jiao Tong University
+
+   48  systems (e.g., in-DRAM page cache), block-level caching systems on non-volatile memory guarantee better data durability
+   49  and enable system designers to leverage new tiered persistent
+   50  storage devices (e.g., Intel Optane persistent memory [37]) to
+   51  recover the cached data from system crashes. For example,
+   52  Open CAS [11] and other persistent caching systems such as
+   53  bcache [5] and flashcache [28] guarantee the data durability
+   54  once returning an acknowledgment to users.
+   55  Although the advent of fast storage and interconnect technologies present new opportunities to achieve better performance and durability, they also cast new questions on system
+   56  reliability: How robust are persistent block-level caching systems to system crashes? How compatible are caching systems
+   57  with diverse reliability features of file systems which were
+   58  typically designed with in-DRAM page cache? To maximize
+   59  the performance of block-level caching systems, more and
+   60  more complicated software architectures, cache strategies and
+   61  modes, and storage hierarchies are applied which make blocklevel caching systems tend to be less reliable. Although some
+   62  block-level caching systems promise data durability and crash
+   63  consistency in certain crash scenarios by using multiple robustness features, the effectiveness of these reliability designs
+   64  and the complete crash behavior of the caching systems remain unknown due to a lack of third-party systematical crash
+   65  consistency tools. For example, Open CAS developers noticed the risk of data durability loss in case of system crashes
+   66  in certain cache modes, i.e., write-only and write-back modes
+   67  due to unknown reasons [9]. By contrast, there are multiple
+   68  third-party domain-specific test libraries and tools [38, 46]
+   69  focus on crash-consistency tests to file systems, and the crash
+   70  behaviors of state-of-the-art file systems are well studied. Furthermore, state-of-the-art reliability features of file systems
+   71  are designed, implemented, and tested with in-DRAM page
+   72  cache which is modeled as all data in the caching layer are
+   73  not available after a crash. It is unclear whether these file system reliability features still work well with the new persistent
+   74  storage hierarchy without suffering compatibility issues. To
+   75  answer these questions, we analyze Open CAS, a representative block-level caching system, by performing careful and
+
+   76  2025 USENIX Annual Technical Conference 749
+=== PAGE 3 ===
+
+   77  thorough crash consistency experiments. To the best of our
+   78  knowledge, this is the first work that specifically focuses on
+   79  the crash consistency of block-level caching systems.
+   80  In this paper, we use Open CAS as an example of blocklevel caching systems and perform a thorough crash consistency study on persistent block-level caching layers. Our study
+   81  unveils important, previously undetected crash inconsistency
+   82  and incompatibility in Open CAS. In our analysis, we find
+   83  that Open CAS fails to maintain crash consistency and returns
+   84  bad data to the user due to system crashes. We further find
+   85  that some reliability features of state-of-the-art file systems
+   86  are not compatible with Open CAS1. Besides Open CAS, we
+   87  also analyzed a simpler caching system, NVCache [15], and
+   88  observed similar experiment results. In summary, we make
+   89  the following contributions:
+   90  • The first study (to the best of our knowledge) to empirically analyze the crash consistency behavior of Open
+   91  CAS, a state-of-the-art block-level caching system.
+   92  • A novel workload-oriented test framework (WLOT) to
+   93  analyze crash consistency behavior of caching systems
+   94  by leveraging implicit information.
+   95  • Results and observations that demonstrate the importance of systematical crash-consistency tests to caching
+   96  systems and compatibility tests with diverse reliability
+   97  features of file systems.
+
+   98  The rest of this paper is organized as follows. In Section 2,
+   99  we motivate our work and discuss the challenges for crashconsistency tests to block-level caching systems. Section 3
+  100  provides some background on Open CAS. Section 4 presents
+  101  the principle of crash-consistency tests to caching systems and
+  102  our code inspections to Open CAS. In Section 5 and Section 6,
+  103  we present our analysis of crash consistency experiments on
+  104  Open CAS. In Section 7, we present the initial results of the
+  105  crash consistency analysis in NVCache. Section 8 discusses
+  106  related work and Section 9 concludes our work.
+
+  107  2 Block-Level Caching Systems
+  108  Caching systems have long been the most popular design for
+  109  improving the performance of storage systems [6,20,40]. In
+  110  caching systems, consider a system with two storage layers: a
+  111  (fast, expensive, small) performance layer and a (slow, cheap,
+  112  large) capacity layer. With caching, all data resides in the capacity layer, and copies of hot data items are placed, via cache
+  113  replacement algorithms [7,34], in the performance layer. With
+  114  a high-enough fraction of requests going to the fast layer, the
+  115  overall performance approaches the peak performance of the
+  116  fast layer. In the context of block-level caching systems, e.g.,
+  117  Open CAS [11], OrthusCAS [50], First Responder [42], Assise [1], and NVCache [15], they are generally implemented
+  118  as a kernel module in operating systems, and provide caching
+  119  service for block devices which typically are file systems.
+  120  1We have reported the issues exposed in our study to the developers and
+  121  have received acknowledgment.
+
+  122  750 2025 USENIX Annual Technical Conference
+
+  123  The advent of fast storage and interconnect technologies, such as persistent memory (PMem) [37], Non-Volatile
+  124  Memory Express (NVMe) [30], and Compute Express Link
+  125  (CXL) [13], present new opportunities in boosting the performance of memory hierarchy and caching systems. With
+  126  new storage technologies like 3D XPoint [43], NVMe SSDs
+  127  (over the PCIe bus) achieve much higher bandwidth (e.g.,
+  128  8 GB/s) and lower latency (e.g., 3µs) [58]. Further, byteaddressable persistent memory has also been commercially
+  129  available [37] and offers an order of magnitude higher capacity than DRAM and within an order of magnitude performance of DRAM [52].
+
+  130  2.1 Why Crash Consistency Does Matter
+
+  131  Although the main goal for introducing nonvolatile memory
+  132  to caching systems is for performance boosting [12,19,24,
+  133  25, 49,51,57], this technique also poses opportunities and
+  134  challenges to the reliability of end-to-end file systems, including caching layers and backend file systems. During the
+  135  past decades, there have been many related works to improve
+  136  the reliability of file systems [14,23,29,35,36,55], and they
+  137  typically modeled the behavior of in-memory cache, i.e., page
+  138  cache, as all information in the caching layer is lost upon a
+  139  crash. However, when nonvolatile memory is introduced into
+  140  block-level caching systems, this stale crash model doesn't
+  141  hold, and it provides a new opportunity for caching systems to
+  142  reuse the cached data for fast system recovery. For example,
+  143  Open CAS provides a configuration option for the system
+  144  managers to perform a fast recovery and reuse the cached
+  145  data from an unplanned system shutdown.
+  146  Although a persistent caching layer automatically provides
+  147  data durability due to the natural behavior of nonvolatile memory, i.e., it retains data even when power is removed, adding
+  148  a new tiered persistent caching layer also poses critical challenges to the system reliability. First, a persistent caching system is much more complex than traditional in-memory page
+  149  cache. To meet the various use scenarios and user requirements, a persistent caching system normally provides multiple cache modes to cope with. For example, compared with
+  150  a single cache mode in page cache, Open CAS provides six
+  151  cache modes for the different use scenarios. Similarly, First
+  152  Responder offers seven cache modes for users. Furthermore,
+  153  to maximally deliver the performance of nonvolatile memory,
+  154  caching systems normally design complicated caching algorithms and asynchronous data movement mechanisms to fit
+  155  in nonvolatile memory characteristics. For example, in OrthusCAS [50] the cache eviction strategy not only considers
+  156  the characteristics of workloads but also is decided by the
+  157  performance model of caching devices. In general, the more
+  158  complicated software design and implementation means the
+  159  systems are less reliable.
+  160  Second, testing persistent caching systems poses unique
+  161  requirements and challenges. In caching systems, the code
+
+  162  USENIX Association
+=== PAGE 4 ===
+
+  163  logic usually requires a heavy workload to change the caching
+  164  system status and/or trigger the specific cache operation. For
+  165  example, cache eviction and cache cleaning operations generally require a heavy workload to be implicitly triggered by
+  166  cache replacement policies [7,34]. The requirement for heavy
+  167  workloads makes traditional system testing tools, such as
+  168  fuzzing [4,17,23,53] and black-box testing [29] less effective
+  169  which tend to generate lightweight test cases by applying syntax and semantic mutations [22,54]. Furthermore, implicitly
+  170  triggering through heavy workloads also means there are enormous potential crash points in the heavy-workload test case
+  171  for a test framework to explore. Therefore, crash-consistency
+  172  tests to caching systems specifically require a test framework
+  173  that can generate heavy workloads while precisely identifying
+  174  crash points for implicit cache operations.
+  175  Third, it still remains unknown whether the added persistent
+  176  caching layer is compatible with the diverse reliability features of file systems. For file systems, the reliability features
+  177  such as logging [18,39], journaling [48], write-back [47,48],
+  178  and copy-on-write [21], are designed on a simple crash model
+  179  that file systems on the persistent device, e.g., HDD, are the
+  180  only survived data source upon system crashes [3]. When
+  181  introducing a new persistent caching layer in end-to-end file
+  182  systems, this stale crash model doesn't hold anymore, and the
+  183  reliability design based on this model may not be compatible
+  184  with the newly added persistent caching layer. Actually, in
+  185  case of a system crash, data movement between the persistent caching layer and the backend file system immediately
+  186  terminates, which is the same as in-memory page cache. However, during the post-recovery process, the survived data in
+  187  caching layers and file systems can be inconsistent. If the
+  188  reliability design between caching layers and file systems is
+  189  not well coordinated, the end-to-end file system may suffer
+  190  from durability loss or data inconsistency issues.
+  191  In this work, we focus on the crash consistency of blocklevel caching systems. We specifically take Open CAS as an
+  192  example and try to answer the system reliability questions in
+  193  two aspects: does the persistent caching layer maintain crash
+  194  consistency in case of system crashes? Are state-of-the-art
+  195  reliability features of file systems compatible with the newly
+  196  added persistent caching layer?
+
+  197  3 Introduction to Open CAS
+
+  198  Open Cache Acceleration Software, short for Open CAS [11],
+  199  is a block-level caching solution that is primarily designed
+  200  to improve the performance of HDDs (backend devices) by
+  201  caching data on nonvolatile memory (cache devices). Open
+  202  CAS is widely used and studied in both industrial solutions [31,33] and research projects [16,50]. Open CAS Linux
+  203  is a kernel module that works under Linux in-kernel file systems. It handles I/O requests from upper-layer file systems
+  204  through a virtual block device and submits I/O requests to
+  205  underlying storage devices according to cache modes and poli-
+
+  206  USENIX Association
+
+  207  Open CAS Metadata
+  208  Superblock Collision Segment
+
+  209  Persistent Storage Devices
+  210  struct ocf_metadata_map {
+  211  # Block Adress
+  212  # Backend Device ID
+  213  # Status Bits
+  214  }
+  215  Bitmap
+  216  Superblock Collision Segment Meta Block Meta Chunk
+  217  Figure 1: Metadata Structures in Open CAS
+  218  cies. In the official document, Open CAS guarantees that data
+  219  integrity is maintained on the persistent cache device once returning an acknowledgment to users for all cache modes [10].
+  220  To achieve this guarantee, Open CAS developers utilize multiple reliability techniques. Besides, a set of built-in test cases
+  221  is provided to ensure the correct implementation of functionalities and reliability features.
+  222  For the rest of this section, we first introduce the key data
+  223  structures in Open CAS. We then introduce cache modes and
+  224  basic cache operations including their reliability features for
+  225  maintaining crash consistency. After that, We analyze the challenges of performing crash-consistency tests to implicit cache
+  226  operation. Finally, we describe the post-recovery process of
+  227  Open CAS.
+
+  228  3.1 Data Structures
+  229  A cache line is the smallest data unit that Open CAS can
+  230  manage. Every occupied cache line is associated with a
+  231  core line on the backend file system and the cache line
+  232  will be eventually written back to its associated core line.
+  233  Open CAS supports different cache line sizes ranging
+  234  from 4KB to 64KB. For each cache line, Open CAS maintains a small portion of metadata, which contains the information including core id, core line number, and valid
+  235  and dirty bits for every sector. The core id determines on
+  236  which core is the core line corresponding to the given
+  237  cache line located, whereas the core line number determines the precise core line location on the backend file
+  238  systems. Valid and dirty bits define the current cache line
+  239  state. When a cache line is valid, it means that it's mapped
+  240  to a core line determined by a core id and a core line number. Otherwise, all the other cache line metadata information
+  241  is invalid and should be ignored. When a cache line is in
+  242  an invalid state, it may be used to map core line accessed
+  243  by I/O requests, and then it becomes valid. The dirty bit determines if the user data stored in the caching layer is in sync
+  244  with the corresponding data on the backend file systems. If
+  245  a cache line is dirty, then only data on the caching layer
+  246  is up to date, and it needs to be flushed at some point in the
+  247  future and be marked as clean by zeroing the dirty bit.
+  248  More specifically, as shown in Figure 1, Open CAS has
+  249  different types of metadata information stored in multiple
+
+  250  2025 USENIX Annual Technical Conference 751
+=== PAGE 5 ===
+
+  251  Cache modes Read cache hit Write cache hit Read/Write cache miss Cache eviction Cache cleaning Cache flushing
+  252  Write-Through (WT) - Update Mapping, Insertion Eviction, Invalidation - -
+  253  Write-Back (WB) - Update Mapping, Insertion Eviction, Invalidation Cleaning, Invalidation Flushing, Invalidation
+  254  Write-Around (WA) Invalidation - Mapping, Insertion Eviction, Invalidation - -
+  255  Write-Invalidation (WI) - Update Mapping, Insertion Eviction, Invalidation - -
+  256  Write-Only (WO) - Update Mapping, Insertion Eviction, Invalidation Cleaning, Invalidation Flushing, Invalidation
+  257  Pass-Through (PT) - - - - - -
+  258  Table 1: The involved cache operations in different cache modes. Blank cells mean that none of the cache operations is applicable.
+
+  259  caching layer by utilizing the cache eviction operation.
+  260  Applications Applications Applications Applications
+  261  Write-Through mode: as shown in Figure 2(a), Open CAS
+  262  Initial ApplicationsSubsequentInitial WritesApplicationsSubsequent Writes Initial ApplicationsSubsequentInitial WritesApplicationsSubsequent Writes
+  263  read readsread reads read readsread reads writes data to the caching layer and simultaneously writes
+  264  Initial SubsequentInitial WritesSubsequent Writes Initial SubsequentInitial WritesSubsequent the same data "through" to the backend file systems. Write-Writes
+  265  read Persistent Cache Layerreadsread Persistent Cache Layerreads read Persistent Cache Layerreadsread Persistent Cache Layercleaningreads cleaning
+  266  through ensures the data written to the caching layer is always
+  267  Persistent Cache LayerBackend File Systems Persistent Cache LayerBackend File Systems Persistent Cache LayerBackend File SystemsPersistent Cache LayerBackend File Systemscleaning in sync with data on the backend file system. This mode onlycleaning
+  268  OS Kernel OS Kernel OS Kernel OS Kernel accelerates read requests, as writes need to be performed on
+  269  Write ThroughBackend File SystemsWrite Through Backend File Systems Write Back Backend File SystemsWrite BackBackend File Systems
+  270  OS Kernel OS Kernel (a) WT mode OS Kernel (b) WB modeOS Kernel both the backend file system and caching layer.
+  271  Applications Applications Applications Applications
+  272  Write Through Write Through Write Back Write Back Write-Back mode: as shown in Figure 2(b), Open CAS writes
+  273  Reads OR ApplicationsReadsReads ORWritesApplicationsReads Writes Initial ApplicationsSubsequentInitial WritesApplicationsSubsequent Writes
+  274  read readsread reads the data first to the caching layer and acknowledges to the
+  275  OR ReadsReads OR Reads Writes Initial SubsequentInitial if existSubsequent application that the write request is completed before theWritesif exist
+  276  Reads Persistent Cache LayerPersistent Cache LayercleaningWrites cleaning read Persistent Cache Layerreadsread Persistent Cache LayerWritesreads
+  277  data is actually written to the backend file systems. Based
+  278  Backend File Systems Persistent Cache LayerBackend File Systems cleaning Backend File SystemsPersistent Cache LayerBackend File Systemsif exist if exist
+  279  Persistent Cache Layer cleaning Persistent Cache Layer on the cleaning policy, Open CAS writes back those data to
+  280  OS Kernel OS Kernel OS Kernel OS Kernelfor Write Invalidate for Write Invalidatethe backend file system opportunistically. Write-back mode
+  281  Write Only Backend File Systems Backend File Systems Write Around & Write InvalidateBackend File Systems Backend File Systems
+  282  Write Only Write Around & Write Invalidate
+  283  OS Kernel OS Kernel OS Kernel OS Kernelfor Write Around for Write Invalidateimproves both write-intensive and read-intensive requests.
+  284  Write Only Write Only Write Around & Write InvalidateWrite Around & Write Invalidate Write-Only mode: as shown in Figure 2(c), Open CAS writes
+  285  (c) WO mode (d) WA and WI modes
+  286  Figure 2: Cache modes of Open CAS. Cache eviction and flushing user data exactly like in Write-Back mode so the data is
+  287  are not shown in all figures. written to the caching layer without writing it to backend file
+  288  systems immediately. Read requests do not promote data to
+  289  the caching layer.
+  290  segments, among which the "collision" segment is the key Write-Around mode: as shown in Figure 2(d), Open CAS
+  291  data structure for storing Open CAS cache line meta- writes data to the caching layer if and only if that cache line is
+  292  data. The collision section includes a set of 4KB metadata already mapped into the caching layer that it can be mapped
+  293  blocks in DRAM, each of which consists of multiple 12-byte during read requests. Simultaneously, Open CAS writes the
+  294  chunks (12, 18, and 42 bytes for cache line sizes = 4KB, same data "through" to the backend file systems. This cache
+  295  16KB, and 64KB respectively) storing the mapping between mode only accelerates read-intensive requests.
+  296  a cache line and a core line and status bits (valid and Write-Invalidate mode: as shown in Figure 2(d), Open CAS
+  297  dirty). In addition, the superblock segment includes the avail- handles write requests by writing data directly to backend file
+  298  able cache line bitmap block and the recovery block which systems, and if the written cache line is already mapped into
+  299  stores the option of post-recovery process. the cache, then it becomes invalid. Write-invalidate mode only
+  300  improves read-intensive requests. It also reduces the number
+  301  of eviction operations for workloads where written data is not
+
+  302  3.2 Cache Modes
+  303  often subsequently read.
+  304  Open CAS accelerates Linux file systems by caching active Pass-Through mode: Open CAS bypasses the caching layer
+  305  (hot) data to caching layers, i.e., performance devices, thus re- for all I/O requests. This mode is used for dynamically enducing storage latency. Open CAS provides six cache modes, abling/disabling caching layers without requiring to manually
+  306  and based on performance improvements to read and/or write alter the I/O path in the application.
+  307  I/O requests, we generally classify them into two categories.
+  308  In the read cache, initial read data is retrieved from backend 3.3 Cache Operations
+  309  file systems and copied to the caching layer. Subsequent reads
+  310  are returned the copied data from the caching layer at the There are seven cache operations upon which cache modes
+  311  speed of performance devices. In the write cache, all data are constructed. To guarantee crash consistency of cache opis written to the caching layer and eventually flushed to the erations, Open CAS utilizes multiple techniques like atomic
+  312  backend file systems through the cache eviction and cleaning metadata update, I/O request ordering, and flapped sections.
+  313  operations. For all cache modes, when the caching layer is Getting familiar with them is essential to understanding how
+  314  full, newly identified active data evicts stale data from the the test procedure is designed to cover all possible crash sce-
+
+  315  752 2025 USENIX Annual Technical Conference USENIX Association
+=== PAGE 6 ===
+
+  316  narios. It also helps us to explain our crash consistency experiment results.
+  317  Mapping is a cache operation of linking up a core line
+  318  with a cache line in the cache line metadata. During
+  319  mapping, a single cache line is assigned to the core line,
+  320  and during cache operations, this area can be used for storing
+  321  core line data, until the cache line is evicted.
+  322  In Open CAS, cache line metadata is stored in a
+  323  small and constant block, i.e., 4K. Cache operations such
+  324  as insertion, invalidation, etc. can atomically update
+  325  cache line metadata to the caching layer by requiring a single I/O request and guarantees cache line metadata transactional consistency during performing I/O operations.
+  326  In addition, to ensure atomic update of the cache line
+  327  bitmap, the flapped sections are designed. Specifically, the
+  328  flapped sections in Open CAS maintain two copies of the
+  329  cache line bitmap and information about which copy is
+  330  valid. On the bitmap update, the bitmap flush is performed to
+  331  an invalid copy, and then only after this operation succeeds
+  332  the updated copy is marked as valid in the superblock, which
+  333  is flushed afterward.
+  334  Insertion is a cache operation of writing core line data to
+  335  a cache line. During insertion, the data of the I/O request
+  336  is written to the cache line corresponding to core line
+  337  being accessed. The valid and dirty bits of the cache line in the
+  338  metadata are being updated accordingly during this operation.
+  339  To guarantee cache line data integrity, insertion operation is designed by ordering the I/O requests of cache line
+  340  data and its metadata. Specifically, insertionfirst flushes the
+  341  user data to cache line. When it is done, it then changes the
+  342  corresponding validation bit from invalid to valid and updates
+  343  the corresponding cache line metadata in the caching layer.
+  344  Due to the initial invalid state of cache line, the corrupted
+  345  data, which are caused by a system crash during flushing them
+  346  to the caching layer, aren't accessed by users or flushed to the
+  347  backend file system.
+  348  Update is a cache operation of overwriting cache line data
+  349  in the caching layer. It's performed when the core line
+  350  accessed during a write request is mapped into the caching
+  351  layer and the accessed sectors are marked as valid.
+  352  Invalidation is a cache operation of marking one or more
+  353  cache line sectors as invalid. It can be done during the
+  354  handling of discard requests, during purge operations, or as a
+  355  result of some internal cache operations.
+  356  Flushing is a cache operation of flushing all dirty data to
+  357  the backend file system. flushing is a cache management
+  358  operation and has to be triggered by users or Open CAS Udev
+  359  rule. It is typically done for safely detaching the backend file
+  360  system from the caching system or recovering the backend
+  361  file system without risking data loss.
+  362  Eviction is a cache operation of removing cache line mappings. It's performed when there is not sufficient space in the
+  363  caching layer for mapping data of incoming I/O requests, i.e.,
+  364  when cache occupancy is close to 100%. The cache lines
+
+  365  USENIX Association
+
+  366  to be evicted are selected by an eviction policy algorithm.
+  367  Open CAS supports multiple eviction policies including the
+  368  Least Recently Used (LRU) which selects cache lines that
+  369  have not been accessed for the longest period of time.
+  370  Cleaning is a cache operation of synchronizing data in the
+  371  caching layer and the backend file system. It involves reading sectors marked as dirty from the caching layer, writing
+  372  them to the backend file systems, and setting dirty bits in
+  373  cache line metadata to zero. It's performed by the cache
+  374  automatically as a background task. The process of cleaning
+  375  is controlled by a cleaning policy. Open CAS supports multiple cleaning policies including Approximately Least Recently
+  376  Used (ALRU), Aggressive Cleaning Policy (ACP), and No
+  377  Operation (NOP).
+  378  Finally, it is important to note that Open CAS doesn't
+  379  record an operation log and persist it in the caching layer for
+  380  the debug or failure recovery due to maximizing the caching
+  381  performance. Table 1 summarizes the involved cache operations in different cache modes.
+
+  382  3.3.1 Implicit Cache Operation
+  383  Block-level caching systems like Open CAS are typically
+  384  integrated into Linux operating system as a kernel module.
+  385  The advantage of the integration is that the cache solution is
+  386  transparent to the user applications and existing storage infrastructures, and no storage migration or application changes are
+  387  required. However, due to restrictions by the existing Linux
+  388  user interfaces, i.e., the POSIX standard [32], some cache
+  389  operations cannot be explicitly invoked by the user interfaces.
+  390  It also means that it is hard for a test framework to test these
+  391  operations by explicitly invoking while performing system
+  392  crashes. Furthermore, as a portion of Linux operation system,
+  393  kernel modules are unexpected to change for software testing,
+  394  e.g., adding the stub code. Actually, these cache operations
+  395  are only invoked by internal cache policies, e.g., Least Recently Used (LRU) [7,34,50], which are typically decided by
+  396  a heavy workload. We call these cache operations an implicit
+  397  cache operation. For example, in Open CAS, eviction and
+  398  cleaning are implicit cache operations. In summary, due to
+  399  the implicit invocation and heavy workload requirement, an
+  400  implicit cache operation is hard to test, and we will introduce
+  401  our solution, workload-oriented test framework (WLOT) in
+  402  Section 5.
+
+  403  3.4 Post-Recovery Process
+
+  404  Open CAS post-recovery process provides two options to recover a caching layer from a crash. The first option is to deal
+  405  with a caching layer as page cache in volatile memory (e.g.,
+  406  DRAM). Specifically, Open CAS reinitializes the caching
+  407  layer with new metadata, which clears the cache device, resulting in the loss of all cache data that is currently residing
+  408  in the cache device.
+
+  409  2025 USENIX Annual Technical Conference 753
+=== PAGE 7 ===
+
+  410  The second option, a more sophisticated one, is to restart a
+  411  caching layer and utilize the previous cache data, including
+  412  metadata, in the cache device for a fast recovery. Specifically,
+  413  Open CAS first performs CRC checksums for all metadata
+  414  sections in the cache device and then compares them with
+  415  ones stored in the recovery section to guarantee the metadata
+  416  data integrity. To guarantee the data integrity of the recovery
+  417  section, the recovery size is kept under 4K, which makes Open
+  418  CAS update the recovery section atomically with a single 4K
+  419  I/O. Then, Open CAS mounts the core devices, i.e., backend
+  420  file systems, and the corresponding file system recovery process is activated according to the file system's reliability configuration. If the cache device and core device are successfully
+  421  recovered, the recovered data in the caching layer can be accessed and reused by the backend file system and the applications. Open CAS recovery process is performed automatically
+  422  in accordance with dynamic device management Udev [26].
+  423  Open CAS administrator can set the post-recovery process
+  424  option and enable the caching layer to automatically flush the
+  425  dirty data to the recovered file systems by configuring the inbuilt Udev rules in 60-persistent-storage-cas.rules.
+  426  Note that although Open CAS developers also mention the
+  427  potential risk of data durability loss under this recovery option [9], there is no clear description or guidance to help
+  428  users to evaluate the tradeoff between performance benefit
+  429  and reliability risk for choosing the suitable recovery options.
+  430  Therefore, we believe a thorough study is much needed.
+
+  431  4 Crash-Consistency Tests to Caching Systems
+
+  432  In this section, we first investigate the general principles for
+  433  crash-consistency tests to a block-level caching system. Then,
+  434  we take the in-build test suite in Open CAS as an example
+  435  and specifically inspect its crash-consistency tests. Our aim
+  436  is to find whether Open CAS in-build crash-consistency tests
+  437  can guarantee data consistency in case of system crashes.
+
+  438  4.1 Principle of Reliability Test
+
+  439  Principle 1: Crash-consistency tests should explore the crash
+  440  behaviors of a caching system for crashes at any time. Although crash consistency and data durability may not be guaranteed in any crash scenario, a system crash, such as a power
+  441  outlet and system corruption, can happen at any time. It's
+  442  necessary to understand complete crash behavior rather than
+  443  solely crash scenarios where crash consistency is promised
+  444  by caching system developers. By contrast, the crash consistency behaviors of file systems under any time system crashes
+  445  were well studied [36]. More importantly, it helps system administrators to identify the root cause of crash inconsistency
+  446  issues in the end-to-end file system. For end-to-end file systems, it can include multiple persistent caching layers, local
+  447  file systems, and remote storage components. Each persistent
+  448  layer and component may exhibit various crash consistency
+
+  449  754 2025 USENIX Annual Technical Conference
+
+  450  characteristics. Finding the root cause of crash inconsistency
+  451  issues to such systems can be a daunt task. Understanding
+  452  the complete crash consistency characteristics of individual
+  453  storage layers eases system administrators to identify the root
+  454  cause of crash inconsistency issues.
+  455  Principle 2: Crash-consistency tests should cover all crashvulnerable cache operations. Like crash-consistency tests to
+  456  other storage systems, it's necessary for test cases to cover
+  457  all crash-vulnerable operations that potentially cause crash
+  458  inconsistency. For example, many file system test tools [23,
+  459  29] more focus on testing the write-related operations since
+  460  they change the internal state and the persistent user data.
+  461  For caching systems, if a cache operation updates user data
+  462  and/or caching system metadata in the caching layer, it will
+  463  change the caching system state and be potentially vulnerable
+  464  to system crashes. This cache operation can be seen as a
+  465  crash-vulnerable cache operation. For example, in Open CAS,
+  466  all cache operations can be seen as crash-vulnerable cache
+  467  operations. By contrast, the cache operation for responding
+  468  to a read cache hit request is not a crash-vulnerable cache
+  469  operation since it doesn't change user data or caching system
+  470  metadata.
+  471  Principle 3: Crash-consistency tests should include diverse
+  472  reliability features of file systems to guarantee compatibility with them. The state-of-the-art reliability features of file
+  473  systems, such as data journaling, copy-on-write, etc., are designed under the assumption that cached data is not available
+  474  after crashes. During the post-recovery process, reusing the
+  475  cached data in the persistent caching layer for a fast recovery
+  476  may cause compatibility issues such as durability loss and
+  477  crash inconsistency.
+
+  478  4.2 Crash-Consistency Tests in Open CAS
+
+  479  Open CAS provides a set of test cases, including unit tests and
+  480  integration tests to guarantee correct implementation. Regarding system reliability, Open CAS offers crash-consistency
+  481  tests in the integration test suite. We find that the test cases
+  482  provided by Open CAS aren't enough to guarantee crash
+  483  consistency and compatibility.
+  484  Code Observation 1: Open CAS didn't provide crashconsistency tests to implicit cache operations. Open CAS
+  485  provides the test cases to all cache operations for functionality testing under normal cache scenarios. However, in crashconsistency tests, the test cases didn't include implicit cache
+  486  operations. One possible reason for crash-consistency tests
+  487  without including implicit cache operations is that it is difficult for a test framework to identify the running state of such
+  488  cache operations for precisely injecting synthetic crashes.
+  489  Code Observation 2: Open CAS didn't explore crash behaviors when crashes happen during cache operations on the fly.
+  490  In Open CAS, the in-built crash-consistency tests only cover
+  491  the crash scenarios in which system crashes happen right after
+  492  an acknowledgment of user APIs, which are the guarantees
+
+  493  USENIX Association
+=== PAGE 8 ===
+
+  494  Trace Mode: Performance
+  495  Monitor
+  496  Operating System
+  497  Workload Caching Layer File Systems
+  498  Generator (Open CAS)
+
+  499  Trace & Crash Point Oracle
+  500  Test Mode: Checker
+  501  Workload Operating System
+  502  Generator Caching Layer File Systems
+  503  (Open CAS)
+  504  Crash Injector Recovery Process
+  505  Figure 3: Overview of crash-consistency test framework.
+  506  of data durability and consistency.
+  507  Code Observation 3: There are no test cases testing the compatibility with diverse reliability features of file systems. In
+  508  Open CAS, crash-consistency tests only perform synthetic
+  509  crashes to the caching layer and takes one specific file system,
+  510  i.e., ext-4, with the default configuration as the backend file
+  511  system. The back logic of such test cases is based on the following assumption. If the newly added caching layer itself can
+  512  keep crash consistency successfully, it should naturally work
+  513  well with other file systems that include diverse reliability
+  514  features.
+  515  In summary, crash consistency of Open CAS remains unknown in some crash scenarios. Also, extra test cases are
+  516  required to guarantee the compatibility with diverse reliability features of file systems. We will present our analysis,
+  517  including test methodology and results in later sections.
+
+  518  5 Crash-Consistency Tests to Caching Layer
+
+  519  Our crash-consistency tests to Open CAS includes two parts.
+  520  One is crash-consistency tests to caching layers. The other is
+  521  compatibility tests with backend file systems. In this section,
+  522  we mainly focus on crash consistency of caching layers and
+  523  perform system crashes solely on caching layers and try to
+  524  answer the following research question: Can Open CAS keep
+  525  the internal metadata and cached data crash consistency under
+  526  all cache operations, cache modes, and crash scenarios? We
+  527  will present compatibility tests to file systems in section 6,
+  528  in which we explore Open CAS compatibility with diverse
+  529  reliability features of state-of-the-art file systems.
+  530  This section is organized as follows. We first introduce our test framework, procedure, and workload for crashconsistency tests. We then discuss the results of our crashconsistency tests.
+
+  531  5.1 Test Framework
+  532  In this section, we first show the overview of our test framework. We then specifically present the workload-oriented test
+  533  (WLOT) for testing implicit cache operations.
+
+  534  5.1.1 Overview of Test Framework
+  535  Our test framework is specifically performed on an HPE Pro-
+  536  Liant DL380 Gen10 Plus server with 1 × Intel Xeon Silver
+  537  4314 processor, 1 × 4GB Optane Pmem as a cache device, and
+
+  538  USENIX Association
+
+  539  1 × 256GB Samsung SATA SSD PM9A3 as a backend storage
+  540  device. Above the hardware, we install Red Hat enterprise
+  541  server 7.9 with 5.4.0-144-generic Linux kernel. We install
+  542  Open CAS (version 22.03.2) as a caching system and ext-
+  543  4 [47] as a backend file system. In addition, we set ext-4 with
+  544  the default configuration and enabled direct I/O (–direct=1) to
+  545  bypass page cache. WLOT has two modes of operation: trace
+  546  mode and test mode. Figure 3 shows the main components
+  547  and workflow in these two modes.
+  548  In trace mode, the framework first generates a specific
+  549  workload and tracks write and/or read requests. While generating I/O requests to the caching layer, the framework utilizes
+  550  the Open CAS command casctl static to monitor the I/O
+  551  performance of the caching layer and sets crashing points
+  552  which is based on the performance degradation caused by
+  553  implicit cache operations. Right after setting crashing points,
+  554  the framework stops the I/O requests and performs a flush
+  555  operation to flush all cached data to a file to generate the test
+  556  oracle. Except for the performance monitoring, we do similar
+  557  steps for the trace generation and crash point setting to other
+  558  cache operations.
+  559  In test mode, the framework first feeds the workload trace
+  560  and injects a preset synthetic crash to the caching layer, and
+  561  then triggers the post-recovery process of the caching systems.
+  562  Finally, the checker checks the correctness by comparing the
+  563  reads from the recovered caching system with the oracle. Two
+  564  modes of operation are specifically important for testing implicit cache operations because the framework cannot identify
+  565  the crash "window" for implicit cache operations without
+  566  running the workload to the caching layer.
+
+  567  5.1.2 Workload-Oriented Test
+  568  The key challenge for performing crash-consistency tests to
+  569  caching layers is to precisely inject a synthetic crash while executing an implicit cache operation, i.e., eviction and cleaning
+  570  operation. As we discussed in section 3, an implicit cache operation can only be activated by cache policies rather than being explicitly invoked by user APIs. To address this challenge,
+  571  we utilize the concept of implicit information [2,41] in the
+  572  operating system design and present the workload-oriented
+  573  test (WLOT), a generic crash-consistency test framework for
+  574  caching systems. Implicit information is a powerful tool to
+  575  understand the running state of a gray box system, such as the
+  576  operating system kernel, which knows the internal mechanism
+  577  and external behavior but is ineligible to change the internal
+  578  design including the interfaces. In crash-consistency tests to
+  579  caching systems, WLOT detects the performance degradation
+  580  of a caching system and leverages the performance degradation as implicit information to identify cache operation
+  581  running states for a crash injection.
+  582  To better understand the performance degradation caused
+  583  by implicit cache operations, we demonstrate an experiment
+  584  for cache evictionand cleaning operations. We apply 4GB
+
+  585  2025 USENIX Annual Technical Conference 755
+=== PAGE 9 ===
+
+  586  4 thread 8 thread 16 thread 4 CL16 CL64 CL
+  587  1000 eviction 700 eviction
+  588  900 600
+  589  800
+  590  B/s) 700 B/s) 500
+  591  (M 600 (M 400
+  592  hput 500 hput
+  593  400 300
+  594  oug 300 oug 200
+  595  Thr 200 Thr
+  596  100 100
+  597  0 0
+  598  (a) eviction, cache line = 4k (b) eviction, thread = 1
+  599  4 thread 8 thread 16 thread 4 CL16 CL64 CL
+  600  2000 cleaning 1600 cleaning
+  601  1800 1400
+  602  1600 1200
+  603  B/s) 1400 B/s)
+  604  (M 1200 (M 1000
+  605  hput 1000 hput 800
+  606  800 600
+  607  oug 600 oug
+  608  Thr Thr 400
+  609  400
+  610  200 200
+  611  0 0
+  612  (c) cleaning, cache line = 4k (d) cleaning, thread = 1
+  613  Figure 4: Performance Degradation by eviction and cleaning
+  614  operations. We measure the throughput degradation of Open CAS
+  615  while performing eviction and cleaning operations under different
+  616  cache line sizes and the number of threads.
+
+  617  Optane Pmem and 256GB PM9A3 as a cache device and a
+  618  backend storage device separately. For the eviction operation, we continuously write data to the cache device, until
+  619  it is full, to force the cache eviction policy to trigger the
+  620  eviction operation. For the cleaning operation, we initialize the cache device with a 2GB cached data and repeatedly
+  621  write a small subset of cached data (2MB) to the cache device,
+  622  and wait for the cache cleaning policy to trigger the cleaning
+  623  operation. To understand impacts of various factors, we test
+  624  different cache line sizes = 4KB, 16KB, and 64KB, and
+  625  various intention of workloads (# threads = 2, 4, 8, and 16).
+  626  Figure 4 shows the I/O throughput degradation when performing eviction and cleaning operations. The results indicate
+  627  that throughput degradation becomes significant when applying an intensive workload and a small size cache line
+  628  size. Based on the above observations, we apply the following
+  629  settings for our test procedure to help the test framework to
+  630  identify the running state of eviction and cleaning operations more precisely. We use FIO (version 3.34-13) in 16
+  631  threads as the workload setting and 4K cache line size as
+  632  the caching layer setting.
+  633  To confirm the accuracy of WLOT further, we specifically implement user APIs casctl cleaning and
+  634  casctl eviction as testing drivers on Open CAS (version
+  635  22.03.2) for cache implicit operations cleaning and
+  636  eviction separately. We then applied the same workloads
+  637  above and explicitly invoked cleaning and eviction
+  638  operations, and saw the same performance degradation
+  639  pattern shown in Figure 4. We believe WOLT provides high
+
+  640  756 2025 USENIX Annual Technical Conference
+
+  641  accuracy for testing implicit cache operation with better
+  642  generality and less human effort involved.
+
+  643  5.2 Test Procedure and Workloads
+
+  644  Since we specifically focus on the crash consistency of
+  645  caching layers, we only perform synthetic crashes on the
+  646  caching layer and leave the backend file system alive throughout our crash-consistency tests. Specifically, we use unmount
+  647  and Open CAS's command casctl stop to perform a synthetic crash on the caching layer. By doing so, all in-DRAM
+  648  user data and metadata that are related to the caching system
+  649  are not available after a synthetic crash. We utilize mount and
+  650  Open CAS's command casctl start to only activate the
+  651  caching layer post-recovery process. We perform synthetic
+  652  crashes during performing a cache operation and right after
+  653  receiving an API return. Also, for each cache mode, we perform crashes for each cache operation multiple times to cover
+  654  all possible crash scenarios.
+  655  The workloads are carefully crafted to cover all cache
+  656  modes and cache operations including implicit cache operations. We set the capacity of the cache device as 4GB while
+  657  utilizing FIO to write and read an oversized file with 6GB
+  658  size to the Linux virtual block device. We specifically list
+  659  workloads for each cache mode and cache operation below.
+  660  Write-Through mode: We apply sequential write (SW) and
+  661  sequential read (SR) workloads, in which we sequentially
+  662  write/read data into/from an oversize file, to test cache operations mapping, insertion, and eviction in the read cache
+  663  miss, write cache miss, and cache eviction states separately.
+  664  To test cache operation update in the write cache hit, we also
+  665  apply repeat write (RW) workload, in which we repeatably
+  666  write a small portion of the cached data to the caching layer.
+  667  Write-Back mode: We apply sequential write (SW) and
+  668  sequential read (SR) workloads to test cache operations
+  669  mapping, insertion, and eviction in the read cache miss,
+  670  write cache miss, and cache eviction states separately. To test
+  671  cache operations update, cleaning, and flushing in the
+  672  write cache hit, cache cleaning, and cache flushing, we also
+  673  apply repeat write (RW) workload.
+  674  Write-Around mode: We apply sequential read (SR) workload to test cache operations mapping, insertion, and
+  675  eviction in read cache miss and cache eviction states separately. We also apply an update-after-read (UR) workload, in
+  676  which we sequentially read and then write the same user data
+  677  from an oversized file to test cache operation update in the
+  678  write cache hit.
+  679  Write-Invalidate mode: We apply sequential read (SR)
+  680  workload to test cache operations mapping, insertion, and
+  681  eviction in read cache miss and cache eviction states separately. In addition, we apply repeat write (RW) workload to
+  682  test cache operation invalidate in a write cache hit.
+  683  Write-Only mode: We apply sequential write (SW) workload
+  684  to test cache operations mapping, insertion, and eviction
+
+  685  USENIX Association
+=== PAGE 10 ===
+
+  686  Cache mode Workload Crash point Result-1 Result-2
+  687  sequential write write cache miss RC
+  688  cache eviction RC
+  689  Write-Through sequential read read cache miss RC
+  690  cache eviction RC
+  691  repeat write write cache hit RB
+  692  sequential write write cache miss RC
+  693  cache eviction RC
+  694  sequential read read cache miss RC
+  695  Write-Back cache eviction RC
+  696  cache cleaning - C
+  697  repeat write cache flushing RC
+  698  write cache hit RB
+  699  sequential read read cache miss RC
+  700  cache eviction RC
+  701  Write-Around read cache miss RC
+  702  update after read cache eviction RC
+  703  read cache hit RB
+  704  sequential read read cache miss RC
+  705  Write-Invalidate cache eviction RC
+  706  repeat write write cache hit RB
+  707  sequential write write cache miss RC
+  708  cache eviction RC
+  709  Write-Only cache cleaning - C
+  710  repeat write cache flushing RC
+  711  write cache hit RB
+  712  Table 2: Crash-consistency test results of caching layers. The table
+  713  shows the results of crash-consistency experiments on caching layers.
+  714  Result 1 and result 2 represent crashes that happen right after acknowledgments and during performing cache operations separately.
+  715  Each cell indicates whether Open CAS was able to recover data
+  716  from a crash (R), whether Open CAS maintains crash consistency
+  717  but did not successfully persist user data (C), and whether Open CAS
+  718  returned bad data to the user (B). Blank cells mean that the result
+  719  was not applicable.
+
+  720  in the write cache miss and cache eviction states separately. In
+  721  addition, we apply repeat write (RW) workload to test cache
+  722  operations update,cleaning, andflushing in a write cache
+  723  hit, cache cleaning, and cache flushing. Table 2 summarizes
+  724  the test workloads with the inserted crash points for all cache
+  725  operations and modes.
+  726  For the check criteria, we check Open CAS log files and
+  727  API returns for error messages and states. We also compare
+  728  the cached data with the oracle, which is recorded during
+  729  generating I/O workload, to ensure user data correctly persists
+  730  in the caching layer when an acknowledgment returns to
+  731  applications.
+
+  732  5.3 Results and Observations
+  733  The results of our crash-consistency tests are shown in Table 2. We now explain the results in detail in terms of the
+  734  observations we made from our crash-consistency tests.
+  735  Observation 1: Open CAS gracefully maintains crash consistency and data durability to caching layers in all cache
+  736  operations and modes once it returns an acknowledgment to
+  737  users. This behavior is shown by the results (R) in the result-1
+  738  column of Table 2. Just like what Open CAS designers guarantee, we found that Open CAS gracefully recovers from a
+  739  crash and maintains data consistency and durability, including
+  740  internal metadata, after returning acknowledgment to users.
+  741  There are no asynchronous I/O operations to flush data from
+
+  742  USENIX Association
+
+  743  DRAM to the persistent caching layer. Before returning an
+  744  acknowledgment, all data and metadata have safely persisted
+  745  in the caching layer.
+  746  Observation 2: Open CAS maintains crash consistency to
+  747  caching layers if a crash happens during cache miss and
+  748  cache eviction. This behavior is shown by the results (C) in
+  749  the result-2 column of Table 2. Write/Read cache miss is
+  750  activated by an initial write/read request and involves cache
+  751  operations mapping and insertion which include three key
+  752  steps:
+  753  1. Mapping cache line to core line and initialize valid
+  754  bit of cache line to be invalid (atomic operation).
+  755  2. Write new user data to the cache device.
+  756  3. Write new metadata to the cache device (atomic operation).
+  757  Since the initial valid bit of cache line for caching the new
+  758  data is invalid. Any corrupted data due to a crash in step 2 will
+  759  not be returned to users or flushed to backend file systems.
+  760  The corresponding cache line will be reused for caching
+  761  other data in the future. Similarly, cache eviction involves
+  762  cache operations cleaning and invalidate which include
+  763  five key steps:
+  764  1. Read old data from the cache device to DRAM.
+  765  2. Write old data to the backend storage device.
+  766  3. Update status bits to be invalid and write it to the cache
+  767  device (atomic operation).
+  768  4. Write new user data to the cache device.
+  769  5. Write new metadata to the cache device (atomic operation).
+  770  Notice again, since the valid bit of the evicted cache line
+  771  for the new user data is updated to invalidate, any corrupted
+  772  data later in that cache line will not be returned to the user
+  773  or flushed to backend file systems.
+  774  Observation 3: Except for write-around mode, Open CAS
+  775  returns bad data to users if a crash happens during a write
+  776  cache hit. This behavior is shown by the results (B) in the
+  777  result-2 column of Table 2. Unlike a write cache miss, in
+  778  the write cache hit, there is no step 1 that initializes the corresponding cache line metadata as invalid when updating
+  779  user data. The corrupted user data due to a crash can be cached
+  780  to the caching layer and finally flushed to the backend file
+  781  system and returned to users.
+  782  Observation 2 and Observation 3 also lead to an interesting
+  783  conclusion that cold data is likely to tolerate more serious
+  784  crashes than hot data which frequently update or access.
+  785  Observation 4: Open CAS returns bad data to users if a
+  786  crash happens during a write request to the cached data in
+  787  write-around mode. This behavior is shown by the results
+  788  (B) in the result-2 column of Table 2. In write-around mode,
+  789  processing a write request is mainly processed by the cache
+  790  operation invalidate and involves two key steps:
+  791  1. Write the updated data to the backend file system.
+
+  792  2025 USENIX Annual Technical Conference 757
+=== PAGE 11 ===
+
+  793  2. Update status bits of metadata to invalid and flush it to
+  794  cache device (atomic operation).
+  795  If Open CAS successfully writes the new data to the backend
+  796  file system but fails to flush the corresponding metadata to
+  797  the caching layer, the stale user data in the caching layer can
+  798  return to users. Notice again, since the read cache hit doesn't
+  799  involve cache operations in other cache modes, we only inject
+  800  synthetic crashes during a read cache hit in write-around
+  801  mode.
+  802  In summary, for all cache operations and modes, Open
+  803  CAS successfully maintains crash consistency and persists
+  804  the cached data once returns an acknowledgment to users.
+  805  Meanwhile, when a system crash happens during cache operations on the fly, some cache operations cannot maintain
+  806  crash consistency or data durability. The corrupted data may
+  807  return to users and flush to the backend file system.
+
+  808  6 Compatibility Tests with File Systems
+
+  809  In Section 5, we showed crash-consistency tests to the caching
+  810  layer. In this section, we try to explore how compatible Open
+  811  CAS is with diverse reliability features of state-of-the-art file
+  812  systems, i.e., whether post-recovery processes of file systems
+  813  can coordinately work well with persistent caching layers.
+  814  Our compatibility tests with file systems indicates that some
+  815  reliability features of file systems are not compatible with
+  816  Open CAS: incompatibility issues are various from minor
+  817  issues, e.g., performance degradation to serious ones, e.g.,
+  818  durability loss.
+  819  This section is organized as follows. First, we discuss our
+  820  test framework, procedure, and workloads we used to conduct compatibility tests. Then, we present the results and our
+  821  observations.
+
+  822  6.1 Test Framework
+  823  Our test framework for compatibility tests is similar to crashconsistency tests to caching layers. The difference is the backend file system setting. We choose five state-of-the-art file systems with diverse reliability features as backend file systems.
+  824  The target file systems roughly fall into three categories: 1) file
+  825  systems with no or simple reliability features, i.e., ext-2 [8];
+  826  2) file systems with journaling approaches, i.e., ext-3 [48]
+  827  and ext-4 [47] in writeback, ordered, journal, and nodealloc
+  828  configurations, and xfs [45]; 3) copy-on-write file systems,
+  829  i.e., btrfs [27]. Table 3 lists backend file systems and their
+  830  reliability features, i.e., configuration settings, we choose for
+  831  our compatibility tests.
+
+  832  6.2 Test Procedure and Workloads
+  833  We study the compatibility of Open CAS under the more
+  834  realistic crash-recovery procedures. During the crash procedure, we perform a crash as a clean power fault. Specifically, at the time of crashes, all I/O operations between the
+  835  caching layer and the backend file system terminate immediately, and the caching layer cannot receive I/O errors from
+
+  836  758 2025 USENIX Annual Technical Conference
+
+  837  the backend device. In addition, all in-DRAM data and metadata that are related to the caching system and backend file
+  838  system are not available after a crash. For the recovery procedure, we perform the post-recovery process on both the
+  839  caching layer and the backend file system. Also, we reuse
+  840  the cached data and metadata in the caching layer for a fast
+  841  recovery. The specifics of our crash-recovery procedure in
+  842  our test framework are as follows: we use unmount and Open
+  843  CAS's command casctl stop to perform synthetic crashes
+  844  on the both caching layer and backend file system. We utilize
+  845  mount and Open CAS's command casctl start to perform
+  846  the caching layer post-recovery process. After that, we utilize
+  847  mount to automatically invoke the post-recovery process of
+  848  the backend file system.
+  849  Since we are only interested in the post-recovery process
+  850  of caching layers and backend file systems, we apply with
+  851  the simpler workload and cache mode settings than Section 5.
+  852  We only choose the repeat write workload and two write
+  853  cache modes, i.e., write-back mode and write-only mode for
+  854  compatibility tests. The reason for choosing WB and WO
+  855  modes is that these cache modes can cache the latest user
+  856  data, i.e., dirty data, in the caching layer and leave the stale
+  857  user data in the backend file system, which enables us to
+  858  expose more interesting results such as crash inconsistency or
+  859  durability loss during the post-recovery process. Specifically,
+  860  We first restore a file on the backend file system and then
+  861  apply repeat write (RW) workload in the write-back mode
+  862  and write-around mode separately, in which we repeatably
+  863  write a small portion of the cached data to the caching layer.
+  864  For the crash point setting, we simultaneously inject synthetic crashes on both the caching layer and the backend file
+  865  system. In addition, since we attempt to activate the postrecovery process of backend file systems, we always inject
+  866  synthetic crashes during the backend file system performing
+  867  I/O operation. We utilize the cache operations cleaning to
+  868  raise I/O requests to the backend file system.
+  869  For the check criteria, we flush the cached data to the backend file system and compare the recovered file system image
+  870  with oracle, which is generated by performing the same workload without a crash. We also check log files and API returns
+  871  in both Open CAS and the backend file system for error messages.
+
+  872  6.3 Results and Observations
+
+  873  The results of our compatibility tests are shown in Table 3.
+  874  The table reports the results of compatibility tests with stateof-the-art reliability features of file systems. We now explain
+  875  the results in detail in terms of the observations we made from
+  876  our compatibility tests.
+  877  Observation 1: For ext-2 with all configurations and ext-3
+  878  with the default configuration, performing the file system postrecovery process and flushing dirty data to the file systems
+  879  keep crash consistency and durability. In Table 3, this behavior is shown by the results (SR). Since the recovered caching
+
+  880  USENIX Association
+=== PAGE 12 ===
+
+  881  File system Configuration Cache mode Result
+  882  - Write-Back SR
+  883  ext-2 Write-Only SR
+  884  sync Write-Back SR
+  885  Write-Only SR
+  886  - Write-Back SR
+  887  Write-Only SR
+  888  writeback Write-Back FE
+  889  ext-3 Write-Only FE
+  890  orderd Write-Back FE
+  891  Write-Only FE
+  892  journal Write-Back FE, LE
+  893  Write-Only FE, LE
+  894  nodelalloc Write-Back FE
+  895  Write-Only FE
+  896  writeback Write-Back FE
+  897  ext-4 Write-Only FE
+  898  orderd Write-Back FE
+  899  Write-Only FE
+  900  journal Write-Back FE, LE
+  901  Write-Only FE, LE
+  902  btrfs - Write-Back FE, LS
+  903  Write-Only FE, LS
+  904  - Write-Back FE, LS
+  905  xfs Write-Only FE, LS
+  906  wsync Write-Back FE, LS
+  907  Write-Only FE, LS
+  908  Table 3: Compatibility test results of caching layers. The table
+  909  shows the results of caching layer compatibility experiments with
+  910  state-of-the-art file systems and their reliability configurations. SR
+  911  represents end-to-end file systems fully recovered with a slow postrecovery process; FE represents flushing dirty data to file systems
+  912  incurred an I/O error; LE indicates end-to-end file systems suffered
+  913  from durability loss with an I/O error; LS indicates end-to-end file
+  914  system suffered from durability loss silently. Blank cells mean the
+  915  default configuration settings.
+
+  916  layer maintains the complete and up-to-date user data, including the related metadata, flushing dirty data to the recovered
+  917  file systems can help file systems to keep up-to-date and maintain crash consistency. One minor issue is that during the file
+  918  system post-recovery process, the time-consuming checking
+  919  task, i.e. fsck, is performed and incur a slow recovery process. It finally makes Open CAS "fast" recovery guarantee
+  920  impossible.
+  921  It seems the solution for this incompatibility issue is simple
+  922  which just requires file systems to degrade their reliability
+  923  features and omit to check entire file systems. However, there
+  924  is a dilemma to do so. Actuarily, not all cache modes cache
+  925  the complete and up-to-date user data so flushing dirty data
+  926  to backend file systems are not always helpful for keeping
+  927  file system crash consistency. For example, in write-around
+  928  mode and write-invalidate mode, the caching system may or
+  929  may not cache the up-to-date user data in the caching layer,
+  930  which depends on workload and data access pattern. For these
+  931  cache modes, degrading the reliability features and omitting
+  932  internal data consistency checking can potentially cause the
+  933  file system crash inconsistency.
+  934  Observation 2: For ext-3 and ext-4 in journaling-related
+  935  configurations, xfs, and btrfs, performing the post-recovery
+  936  process and flushing the dirty data to the file systems incur I/O
+  937  error. In Table 3, this behavior is shown by the results (FE).
+
+  938  USENIX Association
+
+  939  For the file systems with journaling-related configurations,
+  940  if a crash causes an incomplete journal transaction, the file
+  941  systems will automatically switch to read-only mode in postrecovery process. As a result, flushing the dirty data to the
+  942  recovered file systems incurs I/O error. Naively forcing the
+  943  file systems to the read-write mode incurs a similar dilemma
+  944  situation which we discussed in Observation 1.
+  945  Observation 3: For ext-3 and ext-4 in journal configuration
+  946  and xfs, performing the post-recovery process and flushing
+  947  the dirty data to the file systems incur durability loss with
+  948  an error. Similar to Observation 2, ext-3 and ext-4 in journal
+  949  configuration and xfs automatically switched into read-only
+  950  mode when they were remounted to the caching system due
+  951  to the incomplete journal transaction. However, forcing these
+  952  file systems to read-write mode still cannot solve all compatibility issues. Different from Observation 2, ext-3 and ext-4
+  953  in the journal configuration and xfs write both data block
+  954  and the related metadata, which are normally larger than 4K
+  955  caching line size, to the journal. During the post-recovery
+  956  process, if the journal transaction is complete, the data block
+  957  and metadata in the journal are checkpointed to its final inplace block location. Otherwise, the incomplete transaction
+  958  is discarded. On the other hand, Open CAS only guarantees data transaction at the grain of caching line size. By
+  959  setting the dirty bits for each cache line , Open CAS can
+  960  identify whether a cache line is successfully synchronized
+  961  to the backend file system or not. Furthermore, during the
+  962  post-recovery process Open CAS doesn't redo the last failed
+  963  cache operation, i.e., cleaning in our case. Since the flushed
+  964  dirty cache line didn't include the complete journal transaction, the file systems discarded the flushed data and raised
+  965  an I/O error. Although Open CAS persisted the complete journal transaction data in the caching layer, part of them had
+  966  been marked as a clean state i.e., setting the dirty bit to zero,
+  967  and cannot be flushed to the backend file system again but
+  968  be evicted by eviction cache operation which finally cause
+  969  durability loss.
+  970  Observation 4: For btrfs, performing the post-recovery process and flushing the dirty data to the file system incur durability loss without an error. Btrfs is a copy-on-write file system
+  971  that writes to the same block only once except for the superblock which contains root-node information. Specifically,
+  972  btrfs first writes to a log tree to record changes and then writes
+  973  the data block and any related metadata to new locations and
+  974  updates the roots in its superblock. In case of a crash, btrfs
+  975  effectively reverts the contents of the data block and metadata
+  976  back to its old state. Similar to Observation 3, btrfs simply
+  977  discards the incomplete user data and metadata during the
+  978  post-recovery process. Flushing the rest data blocks and metadata cannot help btrfs to maintain crash consistency and keep
+  979  user data up-to-date. However, unlike Observation 3, flushing
+  980  the dirty data to btrfs does not return an error which finally
+  981  causes a silent durability loss.
+  982  In summary, Open CAS fails to be compatible with the
+
+  983  2025 USENIX Annual Technical Conference 759
+=== PAGE 13 ===
+
+  984  diverse reliability features of state-of-the-art file systems. The
+  985  incompatibility issues are various from minor issues, e.g.,
+  986  performance degradation to serious ones, e.g., durability loss.
+  987  The results also indicate the more rigid reliability features
+  988  may suffer from the more serious incompatibility issues.
+
+  989  7 Beyond Open CAS
+  990  In addition to Open CAS, we have applied the same test
+  991  framework used in Section 5 to a simpler caching system,
+  992  NVCache [15]. NVCache is an approach that leverages a
+  993  non-volatile main memory (NVMM) as a write cache to improve the write performance of legacy applications. Similar to Open CAS, NVCache intercepts and redirects in userspace I/O function calls to achieve this transparency. Also,
+  994  NVCache guarantees data durability once returning an acknowledgment to users. Unlike Open CAS, NVCache uses
+  995  log structures for persisting cache line and its metadata.
+  996  In each write request, NVCache appends the new user data
+  997  at the end of cache line area and directly embeds a commit flag within each cache line. The commit flag indicates
+  998  whether cache line data is successfully committed to the
+  999  caching layer or not. In order to handle non-committed writes
+ 1000  left in the caching layer after a crash, NVCache firstly saves
+ 1001  user data to cache line and then updates the corresponding
+ 1002  commit flag from non-committed to committed.
+ 1003  Our initial results indicate that NVCache is also vulnerable
+ 1004  to system crashes. As shown in table 4, NVCache gracefully
+ 1005  recovers data from system crashes for the write cache after
+ 1006  returning an acknowledgment. Moreover, thanks to the log
+ 1007  structure to cache line, NVCache maintains crash consistency to the caching layer if a crash happens during cache
+ 1008  miss and hit which is better than Open CAS. However, similar
+ 1009  to Open CAS, NVCache returns bad data to users if a crash
+ 1010  happens during the cache operation cleaning, the only implicit cache operation in NVCache. In addition, we see the
+ 1011  significant throughput collapses when performing the cache
+ 1012  operation cleaning which indicates the generalization of the
+ 1013  workload-oriented test for identifying the running state of
+ 1014  implicit cache operations.
+ 1015  In summary, so far we have studied two examples: Open
+ 1016  CAS, a complex block-level caching system with techniques
+ 1017  to maintain crash consistency, and NVCache, a simpler blocklevel caching system with few mechanisms to provide extra
+ 1018  reliability. Both are vulnerable to system crashes. In addition,
+ 1019  since OrthusCAS [50] was integrated with Open CAS with
+ 1020  minor modifications for performance optimization, we believe
+ 1021  most of our observations of Open CAS should also apply to
+ 1022  OrthusCAS. It seems that regardless of the complexity of the
+ 1023  caching system and the amount of machinery used for crash
+ 1024  consistency, implicit cache operations are still a bottleneck for
+ 1025  crash consistency, and systematical crash-consistency tests are
+ 1026  necessary for various caching systems. In addition, reliability
+ 1027  feature co-design on caching layers and backend file system
+ 1028  is necessary for keeping crash consistency.
+
+ 1029  760 2025 USENIX Annual Technical Conference
+
+ 1030  Cache mode Workload Crash point Result 1 Result 2
+ 1031  sequential write cache miss RC
+ 1032  Write-Cache cache cleaning - B
+ 1033  repeat write cache hit RC
+ 1034  Table 4: Crash-consistency test result to NVCache. Each cell indicates whether NVCache was able to recover data from a crash (R),
+ 1035  whether NVCache maintains crash consistency but did not successfully persist user data (C), and whether NVCache returned bad data
+ 1036  to the user (B). Blank cells mean that the result was not applicable.
+
+ 1037  8 Related Work
+ 1038  There is a lack of related work on crash-consistency tests to
+ 1039  block-level caching systems. In addition, previous work on
+ 1040  the crash-consistency tests to end-to-end file systems simply
+ 1041  models the crash behavior of caching layers as an in-DRAM
+ 1042  page cache in which all cached data is lost in case of a crash.
+ 1043  We compare our work with ones on file systems and databases.
+ 1044  Crash-consistency test frameworks and fault injection techniques have been widely used to analyze the robustness and
+ 1045  find bugs in file systems and databases [23,29,36,44,55,56]
+ 1046  For example, Crashmonkey [29] exhaustively performs file
+ 1047  system crash-consistency tests within a bounded space, a
+ 1048  heuristic pruning rule based on the bug study of real file systems. Hydra [23] mutates both file systems image and operation sequences when performing feedback-oriented fuzzing
+ 1049  to identify crash consistency bugs. Block Order Breaker
+ 1050  (BOB) [36] creates crash states from recorded I/O to show
+ 1051  that different file systems persist file-system operations in significantly different ways. The Application-Level Intelligent
+ 1052  Crash Explorer (ALICE), explores application-level crash vulnerabilities in databases, key-value stores, etc. The logging
+ 1053  and replay framework from Zheng et al. [56] is focused on verifying ACID guarantees of databases, works on iSCSI disks,
+ 1054  and uses four dedicated manual workloads.
+ 1055  However, our work on Open CAS is the first comprehensive crash consistency analysis of the block-level caching system that covers carefully controlled crash-consistency tests
+ 1056  to caching layers and compatibility tests with backend file
+ 1057  systems.
+
+ 1058  9 Conclusion and Discussion
+ 1059  In this paper, we analyzed a representative block-level caching
+ 1060  system, Open CAS, to study the reliability of the persistent
+ 1061  caching layer in case of system crashes. We introduce a novel
+ 1062  approach the workload-oriented test to systematically perform crash consistency experiments to the caching layer and
+ 1063  selectively perform integration test to the diverse reliability
+ 1064  features of file systems. We presented our observations about
+ 1065  Open CAS crash consistency and compatibility with the diverse reliability features of file systems.
+ 1066  Although these are always the tradeoffs one has to make
+ 1067  for crash consistency, as one tier of the end-to-end file system,
+ 1068  the block-level caching layer should provide strong crash
+ 1069  consistency against crashes. We conclude by discussing some
+ 1070  techniques that caching systems can use to increase system
+
+ 1071  USENIX Association
+=== PAGE 14 ===
+
+ 1072  reliability and compatibility.
+ 1073  Checksums in cache lines: Caching systems could protect
+ 1074  the user data in the cache line by using checksums. For example, Open CAS could use a checksum inside cache line
+ 1075  in the caching layer, update it on caching operation update,
+ 1076  and verify the checksum on read-related caching operations
+ 1077  or during the post-recovery process (Observation 3 in Section 5.3). However, this does incur an overhead in computation as well as some complexity in implementation.
+ 1078  Data synchronization during post-recovery process: To
+ 1079  deal with the stale user data in the caching layer due to system
+ 1080  crashes (Observation 4 in Section 5.3), a caching system could
+ 1081  synchronize user data with backend file systems during postrecovery process.
+ 1082  Reliability-feature-aware post-recovery process: A caching
+ 1083  system could be aware of the reliability features of the backed
+ 1084  file system, and take a well-co-designed post-recovery process
+ 1085  with them (Observation 1 - 4 in Section 6.3).
+
+ 1086  Acknowledgments
+
+ 1087  We thank the anonymous reviewers and our shepherd, Mai
+ 1088  Zheng, for their insightful comments and feedback. We thank
+ 1089  Kan Wu for the invaluable discussions. This work is supported by the National Key R&D Program of China (Grant
+ 1090  No. 2022YFB4500302) and the National Natural Science
+ 1091  Foundation of China (Grant No. 62202255). Youmin Chen is
+ 1092  the corresponding author.
+
+ 1093  References
+
+ 1094  [1] Thomas E. Anderson, Marco Canini, Jongyul Kim, Dejan Kosti´c, Youngjin Kwon, Simon Peter, Waleed Reda,
+ 1095  Henry N. Schuh, and Emmett Witchel. Assise: Performance and availability via client-local NVM in a
+ 1096  distributed file system. In 14th USENIX Symposium on
+ 1097  Operating Systems Design and Implementation (OSDI
+ 1098  20), pages 1011–1027. USENIX Association, November
+ 1099  2020.
+
+ 1100  [2] Andrea C. Arpaci-Dusseau and Remzi H. Arpaci-
+ 1101  Dusseau. Information and control in gray-box systems.
+ 1102  In Proceedings of the 18th Symposium on Operating Systems Principles (SOSP'01), pages 43–56, Banff, Canada,
+ 1103  October 2001.
+
+ 1104  [3] Remzi H. Arpaci-Dusseau and Arpaci-Dusseau Andrea C. Operating Systems: Three Easy Pieces.
+ 1105  Arpaci-Dusseau Books, LLC, 1.00 edition, 2015.
+ 1106  http://pages.cs.wisc.edu/ remzi/OSTEP/.
+
+ 1107  [4] Cornelius Aschermann, Tommaso Frassetto, Thorsten
+ 1108  Holz, Patrick Jauernig, Ahmad-Reza Sadeghi, , and
+ 1109  Daniel Teuchert. Nautilus: Fishing for deep bugs with
+
+ 1110  USENIX Association
+
+ 1111  grammars. In Symposium on Network and Distributed
+ 1112  System Security (NDSS), 2019.
+ 1113  [5] Bcache. A block layer cache. https://bcache.
+ 1114  evilpiepirate.org.
+ 1115  [6] Randal E Bryant and O'Hallaron David Richard. Computer systems: a programmer's perspective, volume 281.
+ 1116  Prentice Hall Upper Saddle River, 2003.
+
+ 1117  [7] Cache (computing). https://en.wikipedia.org/
+ 1118  wiki/Cache_(computing).
+ 1119  [8] Remy Card, Theodore Ts'o, and Stephen Tweedie. Design and implementation of the second extended filesystem. In First Dutch International Symposium on Linux,
+ 1120  Amsterdam, Netherlands, December 1994.
+ 1121  [9] Open CAS. Cache configuration. https://open-cas.
+ 1122  com/cache_configuration.html.
+ 1123  [10] Open CAS. Data integrity test to a power failure scenario. https://github.com/Open-CAS/
+ 1124  open-cas-linux/blob/master/test/functional/
+ 1125  tests/data_integrity/test_data_integrity_
+ 1126  unplug.py.
+ 1127  [11] Open CAS. Open cache acceleration software. https:
+ 1128  //open-cas.github.io/.
+ 1129  [12] Youmin Chen, Youyou Lu, Bohong Zhu, Andrea C.
+ 1130  Arpaci-Dusseau, Remzi H. Arpaci-Dusseau, and Jiwu
+ 1131  Shu. Scalable persistent memory file system with
+ 1132  Kernel-Userspace collaboration. In 19th USENIX Conference on File and Storage Technologies (FAST 21),
+ 1133  pages 81–95. USENIX Association, February 2021.
+ 1134  [13] Compute express link: The breakthrough cpu-to-device
+ 1135  interconnect. https://www.computeexpresslink.
+ 1136  org/download-the-specification.
+ 1137  [14] David Domingo and Sudarsun Kannan. pFSCK: Accelerating file system checking and repair for modern
+ 1138  storage. In 19th USENIX Conference on File and Storage Technologies (FAST 21), pages 113–126. USENIX
+ 1139  Association, February 2021.
+ 1140  [15] Remi Dulong, Rafael Piresz, Andreia Correia, Valerio
+ 1141  Schiavoni, Pedro Ramalhetex, Pascal Felber, and Gael
+ 1142  Thomas. Nvcache: A plug-and-play nvmm-based i/o
+ 1143  booster for legacy systems. In Proceedings of the 51st
+ 1144  Annual IEEE/IFIP International Conference on Dependable Systems and Networks (DSN 21), page 186–198.
+ 1145  IEEE, September 2021.
+ 1146  [16] Alexandra Fedorova, Keith A. Smith, Keith Bostic, Susan LoVerso, Michael Cahill, and Alex Gorrod. Writes
+ 1147  hurt: lessons in cache design for optane nvram. In the
+
+ 1148  2025 USENIX Annual Technical Conference 761
+=== PAGE 15 ===
+
+ 1149  13th Symposium on Cloud Computing (SoCC 22), pages
+ 1150  110–125, 2022.
+
+ 1151  [17] Andrea Fioraldi, Dominik Maier, Heiko Eißfeldt, and
+ 1152  Marc Heuse. AFL++ : Combining incremental steps
+ 1153  of fuzzing research. In 14th USENIX Workshop on
+ 1154  Offensive Technologies (WOOT 20), August 2020.
+
+ 1155  [18] Robert Hagmann. Reimplementing the cedar file system
+ 1156  using logging and group commit. In Proceedings of the
+ 1157  11th ACM Symposium on Operating Systems Principles
+ 1158  (SOSP '87), Austin, Texas, November 1987.
+
+ 1159  [19] Jun He, Kan Wu, Sudarsun Kannan, Andrea Arpaci-
+ 1160  Dusseau, and Remzi Arpaci-Dusseau. Read as needed:
+ 1161  Building wiser, a flash-optimized search engine. In 18th
+ 1162  USENIX Conference on File and Storage Technologies
+ 1163  (FAST 20), pages 59–73, February 2020.
+
+ 1164  [20] John L Hennessy and David A Patterson. Computer
+ 1165  architecture: a quantitative approach. Elsevier, 2011.
+
+ 1166  [21] Dave Hitz, James Lau, and Michael Malcolm. File system design for an nfs file server appliance. In Proceedings of the USENIX Winter Technical Conference
+ 1167  (USENIX Winter '94), San Francisco, California, January 1994.
+
+ 1168  [22] Shengtuo Hu. A grammar-based custom mutator for afl++. https://github.com/AFLplusplus/
+ 1169  Grammar-Mutator.
+
+ 1170  [23] Seulbae Kim, Meng Xu, Sanidhya Kashyap, Jungyeon
+ 1171  Yoon, Wen Xu, and Taesoo Kim. Finding semantic bugs
+ 1172  in file systems with an extensible fuzzing framework.
+ 1173  In Proceedings of the 27th Symposium on Operating
+ 1174  Systems Principles (SOSP'19), pages 147–161, October
+ 1175  2019.
+
+ 1176  [24] Youngjin Kwon, Henrique Fingler, Tyler Hunt, Simon
+ 1177  Peter, Emmett Witchel, and Thomas Anderson. Strata:
+ 1178  A cross media file system. In Proceedings of the 26th
+ 1179  Symposium on Operating Systems Principles (SOSP'17),
+ 1180  pages 460–477, October 2017.
+
+ 1181  [25] Zhen Lin, Lianjie Cao, Faraz Ahmed, Hui Lu, and
+ 1182  Puneet Sharma. When caching systems meet emerging storage devices: A case study. In 15th USENIX
+ 1183  Workshop on Hot Topics in Storage and File Systems
+ 1184  (HotStorage 23), Boston, MA, July 2023.
+
+ 1185  [26] Linux. Udev. https://www.man7.org/linux/
+ 1186  man-pages/man7/udev.7.html.
+
+ 1187  [27] Chris Mason. The btrfs filesystem, September
+ 1188  2007. https://www.oss.oracle.com/projects/
+ 1189  btrfs/dist/documentation/btrfs-ukuug.pdf.
+
+ 1190  762 2025 USENIX Annual Technical Conference
+
+ 1191  [28] Meta. A general purpose, write-back block cache
+ 1192  for linux. https://github.com/facebookarchive/
+ 1193  flashcache.
+
+ 1194  [29] Jayashree Mohan, Ashlie Martinez, Soujanya Ponnapalli, Pandian Raju, and Vijay Chidambaram. Finding
+ 1195  crash-consistency bugs with bounded black-box crash
+ 1196  testing. In Proceedings of the 13th USENIX Conference on Operating Systems Design and Implementation
+ 1197  (OSDI'18), pages 33–50, 2018.
+
+ 1198  [30] Intel optane dc ssd series. https://www.
+ 1199  intel.com/content/www/us/en/products/
+ 1200  details/memory-storage/data-center-ssds/
+ 1201  optane-dcssd-series.html.
+
+ 1202  [31] Open cas - who already uses ocf? https:
+ 1203  //opencas.github.io/ocf_intro.html#
+ 1204  who-already-uses-ocf.
+
+ 1205  [32] The open group. The open group base specifications issue 7, 2018. http://pubs.opengroup.org/
+ 1206  onlinepubs/9699919799/.
+
+ 1207  [33] Research on performance tuning of
+ 1208  hdd-based ceph cluster using open cas.
+ 1209  https://01.org/blogs/tingjie/2020/
+ 1210  performance-tuning-ceph-cluster-using-open-cas.
+
+ 1211  [34] Elizabeth J O'neil, Patrick E O'neil, and Gerhard
+ 1212  Weikum. The lru-k page replacement algorithm for
+ 1213  database disk buffering. Acm Sigmod Record, 22(2):297–
+ 1214  306, 1993.
+
+ 1215  [35] Thanumalayan Sankaranarayana Pillai, Ramnatthan Alagappan, Lanyue Lu, Vijay Chidambaram, Andrea C.
+ 1216  Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau. Application crash consistency and performance with CCFS.
+ 1217  In 15th USENIX Conference on File and Storage Technologies (FAST 17), pages 181–196, Santa Clara, CA,
+ 1218  February 2017. USENIX Association.
+
+ 1219  [36] Thanumalayan Sankaranarayana Pillai, Vijay Chidambaram, Ramnatthan Alagappan, Samer Al-Kiswany,
+ 1220  Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-
+ 1221  Dusseau. All file systems are not created equal: On the
+ 1222  complexity of crafting Crash-Consistent applications.
+ 1223  In 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI 14), pages 433–448,
+ 1224  Broomfield, CO, October 2014. USENIX Association.
+
+ 1225  [37] Intel optane dimm. https://
+ 1226  www.intel.com/content/www/us/
+ 1227  en/architecture-and-technology/
+ 1228  optane-dc-persistent-memory.html.
+
+ 1229  USENIX Association
+=== PAGE 16 ===
+
+ 1230  [38] Tom Ridge, David Sheets, Thomas Tuerk, Andrea
+ 1231  Giugliano, Anil Madhavapeddy, and Peter Sewell.
+ 1232  Sibylfs: Formal specification and oracle-based testing
+ 1233  for posix and real-world file systems. In Proceedings of
+ 1234  the 25th Symposium on Operating Systems Principles
+ 1235  (SOSP'15), pages 38–53, October 2015.
+ 1236  [39] Mendel Rosenblum and John Ousterhout. The design
+ 1237  and implementation of a log-structured file system. ACM
+ 1238  Transactions on Computer Systems, 10(1):26–52, February 1992.
+ 1239  [40] Abraham Silberschatz, Greg Gagne, and Peter B Galvin.
+ 1240  Operating system concepts. Wiley, 2018.
+ 1241  [41] Muthian Sivathanu, Vijayan Prabhakaran, Florentina I.
+ 1242  Popovici, Timothy E. Denehy, Andrea C. Arpaci-
+ 1243  Dusseau, and Remzi H. Arpaci-Dusseau. Semantically-
+ 1244  Smart disk systems. In 2nd USENIX Conference on File
+ 1245  and Storage Technologies (FAST 03), pages 73–88, San
+ 1246  Francisco, CA, March 2003. USENIX Association.
+ 1247  [42] Hyunsub Song, Shean Kim, J. Hyun Kim, Ethan JH
+ 1248  Park, and Sam H. Noh. First responder: Persistent memory simultaneously as high performance buffer cache
+ 1249  and storage. In 2021 USENIX Annual Technical Conference (USENIX ATC 21), pages 839–853. USENIX
+ 1250  Association, July 2021.
+ 1251  [43] Intel optane ssd p5800x series. https:
+ 1252  //www.intel.com/content/www/us/
+ 1253  en/products/docs/memory-storage/
+ 1254  solid-state-drives/datacenter-ssds/
+ 1255  optane-ssd-p5800x-p5801x-brief.html.
+ 1256  [44] Sriram Subramanian, Yupu Zhang, Rajiv Vaidyanathan,
+ 1257  Haryadi S. Gunawi, Andrea C. Arpaci-Dusseau,
+ 1258  Remzi H. Arpaci-Dusseau, and Jeffrey F. Naughton.
+ 1259  Impact of disk corruption on open-source dbms. In Proceedings of the 26th International Conference on Data
+ 1260  Engineering (ICDE'10), pages 509–520, March 2010.
+ 1261  [45] Adan Sweeney, Doug Doucette, Wei Hu, Curtis Anderson, Mike Nishimoto, and Geoff Peck. Scalability in
+ 1262  the xfs file system. In Proceedings of the USENIX Annual Technical Conference (USENIX '96),, San Diego,
+ 1263  California, January 1996.
+ 1264  [46] Theodore Ts'o. Ext2/3/4 file system utilities. https:
+ 1265  //github.com/tytso/e2fsprogs., 2018.
+ 1266  [47] Theodore Ts'o and Stephen Tweedie. Future directions
+ 1267  for the ext2/3 filesystem. In Proceedings of the USENIX
+ 1268  Annual Technical Conference (FREENIX Track), Monterey, California, June 2002.
+ 1269  [48] Stephen C. Tweedie. Journaling the linux ext2fs file
+ 1270  system. In The Fourth Annual Linux Expo, Durham,
+ 1271  North Carolina, May 1998.
+
+ 1272  USENIX Association
+
+ 1273  [49] Kan Wu, Andrea Arpaci-Dusseau, and Remzi Arpaci-
+ 1274  Dusseau. Towards an unwritten contract of intel optane
+ 1275  SSD. In 11th USENIX Workshop on Hot Topics in Storage and File Systems (HotStorage 19), Renton, WA, July
+ 1276  2019. USENIX Association.
+ 1277  [50] Kan Wu, Zhihan Guo, Guanzhou Hu, Kaiwei Tu, Ramnatthan Alagappan, Rathijit Sen, Kwanghyun Park, Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau.
+ 1278  The storage hierarchy is not a hierarchy: Optimizing
+ 1279  caching on modern storage devices with orthus. In 19th
+ 1280  USENIX Conference on File and Storage Technologies
+ 1281  (FAST 21), pages 307–323, San Francisco, CA, February
+ 1282  2021. USENIX Association.
+ 1283  [51] Kan Wu, Kaiwei Tu, Yuvraj Patel, Rathijit Sen,
+ 1284  Kwanghyun Park, Andrea Arpaci-Dusseau, and Remzi
+ 1285  Arpaci-Dusseau. NyxCache: Flexible and efficient
+ 1286  multi-tenant persistent memory caching. In 20th
+ 1287  USENIX Conference on File and Storage Technologies
+ 1288  (FAST 22), pages 1–16, Santa Clara, CA, February 2022.
+ 1289  USENIX Association.
+ 1290  [52] Jian Yang, Juno Kim, Morteza Hoseinzadeh, Joseph
+ 1291  Izraelevitz, and Steve Swanson. An empirical guide
+ 1292  to the behavior and use of scalable persistent memory.
+ 1293  In 18th USENIX Conference on File and Storage Technologies (FAST 20), pages 169–182, Santa Clara, CA,
+ 1294  February 2020. USENIX Association.
+ 1295  [53] Michał Zalewski. American fuzzy lop, 2017. https:
+ 1296  //github.com/google/AFL.
+ 1297  [54] Andreas Zeller, Rahul Gopinath, Marcel Böhme, Gordon Fraser, and Christian Holler. The Fuzzing Book.
+ 1298  CISPA Helmholtz Center for Information Security, 2021.
+ 1299  Retrieved 2021-10-26 15:30:20+02:00.
+ 1300  [55] Yupu Zhang, Abhishek Rajimwale, Andrea C. Arpaci-
+ 1301  Dusseau, and Remzi H. Arpaci-Dusseau. End-to-end
+ 1302  data integrity for file systems: A ZFS case study. In
+ 1303  8th USENIX Conference on File and Storage Technologies (FAST 10), San Jose, CA, February 2010. USENIX
+ 1304  Association.
+ 1305  [56] Mai Zheng, Joseph Tucek, Dachuan Huang, Feng Qin,
+ 1306  Mark Lillibridge, Elizabeth S. Yang, Bill W Zhao, and
+ 1307  Shashank Singh. Torturing databases for fun and profit.
+ 1308  In 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI 14), pages 449–464,
+ 1309  Broomfield, CO, October 2014. USENIX Association.
+ 1310  [57] Shawn Zhong, Chenhao Ye, Guanzhou Hu, Suyan Qu,
+ 1311  Andrea Arpaci-Dusseau, Remzi Arpaci-Dusseau, and
+ 1312  Michael Swift. MadFS: Per-File virtualization for
+ 1313  userspace persistent memory filesystems. In 21st
+ 1314  USENIX Conference on File and Storage Technologies
+
+ 1315  2025 USENIX Annual Technical Conference 763
+=== PAGE 17 ===
+
+ 1316  (FAST 23), pages 265–280, Santa Clara, CA, February
+ 1317  2023. USENIX Association.
+ 1318  [58] Yuhong Zhong, Haoyu Li, Yu Jian Wu, Ioannis Zarkadas,
+ 1319  Jeffrey Tao, Evan Mesterhazy, Michael Makris, Junfeng
+ 1320  Yang, Amy Tai, Ryan Stutsman, and Asaf Cidon. XRP:
+ 1321  In-Kernel storage functions with eBPF. In 16th USENIX
+ 1322  Symposium on Operating Systems Design and Implementation (OSDI 22), pages 375–393, Carlsbad, CA,
+ 1323  July 2022. USENIX Association.
+
+ 1324  764 2025 USENIX Annual Technical Conference USENIX Association

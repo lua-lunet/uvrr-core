@@ -1,5 +1,5 @@
 ---
-name: paper-linearlatex
+name: paper-pdftolines
 description: >-
   Extract a PDF paper into a single-column, line-numbered TXT so any passage can
   be quoted verbatim with a line number and section context. Use when a citation
@@ -9,16 +9,16 @@ description: >-
 status: alpha
 ---
 
-# paper-linearlatex
+# paper-pdftolines
 
-`linearlatex.py` renders a PDF as a fixed-column, line-numbered text file: for
+`pdftolines.py` reads a PDF as a fixed-column, line-numbered text file: for
 every page the left column is emitted in full before the right column, so a
 passage is one contiguous run of lines. That is what `pdftotext -layout` cannot
 give you on a two-column paper — it merges both columns onto shared line
 numbers, so no passage spanning more than one physical line is quotable as one
 run.
 
-The tool is at `research/agent366/tools/linearlatex.py`. It needs `pdftohtml` from
+The tool is at `research/agent366/tools/pdftolines.py`. It needs `pdftohtml` from
 poppler on `PATH`, and nothing else: no pip packages, no network.
 
 ## Method
@@ -61,9 +61,9 @@ poppler on `PATH`, and nothing else: no pip packages, no network.
 ## Invocation
 
 ```sh
-python3 research/agent366/tools/linearlatex.py \
+python3 research/agent366/tools/pdftolines.py \
   research/agent366/papers/PAPER.pdf \
-  -o research/agent366/linear/PAPER.txt \
+  -o research/agent366/papers/PAPER.txt \
   --title "Paper Title" \
   --authors "First Author" --authors "Second Author" \
   --year 2012 \
@@ -115,13 +115,14 @@ authority.
 
 ## Worked example
 
-`research/agent366/linear/vrr.txt` is the same paper rendered in this
+`research/agent366/papers/vrr.txt` is the same paper rendered in this
 repository: Liskov & Cowling, *Viewstamped Replication Revisited*
 (MIT-CSAIL-TR-2012-021), its PDF untouched in `research/literature/turner/`.
 
 `research/agent366/tools/linear_corpus.py` renders the whole cited corpus
 through this tool, in first-citation order, taking the header metadata from
-the Zotero bib snapshot; `research/agent366/linear/MANIFEST.md` records every
-result. Scans with no text layer are recorded there as not rendered, with
+the Zotero bib snapshot, and writes each `.txt` beside its PDF in
+`research/agent366/papers/`, where every corpus PDF now lives; `research/agent366/papers/00-linear-manifest.md`
+records every result. Scans with no text layer are recorded there as not rendered, with
 their OCR'd markdown named as the reading surface: a geometry extractor
 cannot invent a text layer, and a stub is worse than an honest gap.

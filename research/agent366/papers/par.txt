@@ -1,0 +1,1682 @@
+---
+title: "Protocol-Aware Recovery for Consensus-Based Storage"
+authors:
+  - "Ramnatthan Alagappan"
+  - "Aishwarya Ganesan"
+  - "Eric Lee"
+  - "Aws Albarghouthi"
+  - "Vijay Chidambaram"
+  - "Andrea C {Arpaci-Dusseau}"
+  - "Remzi H {Arpaci-Dusseau}"
+year: "2018"
+publication: ""
+handle_url: "https://www.usenix.org/system/files/conference/fast18/fast18-alagappan.pdf"
+source_pdf: "research/agent366/papers/fast18-alagappan-par.pdf"
+source_pdf_sha256: "b18cc6fc2d6605e54a153697b608ac3d60bc363bacd6a8395860430286af5dc5"
+page_count: 18
+extracted_text_runs: 3816
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  This paper studies recovery from storage faults in consensus-based systems. It shows that local log corruption can propagate through a replicated protocol and proposes recovery procedures that account for the protocol state.
+tags:
+  - "consensus"
+  - "consensus-protocols"
+---
+
+=== PAGE 1 ===
+
+    1  Protocol-Aware Recovery for
+
+    2  Consensus-Based Storage
+
+    3  Ramnatthan Alagappan and Aishwarya Ganesan,University of Wisconsin—Madison;
+
+    4  Eric Lee,University of Texas at Austin;Aws Albarghouthi,University of Wisconsin—Madison;
+
+    5  Vijay Chidambaram,University of Texas at Austin;Andrea C. Arpaci-Dusseau and
+
+    6  Remzi H. Arpaci-Dusseau,University of Wisconsin - Madison
+
+    7  https://www.usenix.org/conference/fast18/presentation/alagappan
+
+    8  This paper is included in the Proceedings of the
+
+    9  16th USENIX Conference on File and Storage Technologies.
+
+   10  February 12–15, 2018 • Oakland, CA, USA
+
+   11  ISBN 978-1-931971-42-3
+
+   12  Open access to the Proceedings of
+
+   13  the 16th USENIX Conference on
+
+   14  File and Storage Technologies
+
+   15  is sponsored by USENIX.
+=== PAGE 2 ===
+
+   16  Protocol-Aware Recovery for Consensus-Based Storage
+
+   17  Ramnatthan Alagappan, Aishwarya Ganesan, Eric Lee
+
+   18  , Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau
+
+   19  16th USENIX Conference on File and Storage Technologies 15
+
+   20  Vijay Chidambaram†
+
+   21  University of Wisconsin – Madison
+
+   22  Abstract
+   23  We introduce protocol-aware recovery (PAR), a new approach that exploits protocol-specific knowledge to correctly recover from storage faults in distributed systems. We demonstrate the efficacy of PAR through
+   24  the design and implementation of corruption-tolerant
+   25  replication (CTRL), a PAR mechanism specific to replicated state machine (RSM) systems. We experimentally
+   26  show that the CTRL versions of two systems, LogCabin
+   27  and ZooKeeper, safely recover from storage faults and
+   28  provide high availability, while the unmodified versions
+   29  can lose data or become unavailable. We also show that
+   30  the CTRL versions have little performance overhead.
+
+   31  1 Introduction
+   32  Failure recovery using redundancy is central to improved
+   33  reliability of distributed systems [14, 22, 31, 35, 61, 67].
+   34  Distributed systems recover from node crashes and network failures using copies of data and functionality on
+   35  several nodes [6, 47, 55]. Similarly, bad or corrupted data
+   36  on one node should be recovered from redundant copies.
+   37  In a static setting where all nodes always remain
+   38  reachable and where clients do not actively update data,
+   39  recovering corrupted data from replicas is straightforward; in such a setting, a node could repair its state by
+   40  simply fetching the data from any other node.
+   41  In reality, however, a distributed system is a dynamic
+   42  environment, constantly in a state of flux. In such
+   43  settings, orchestrating recovery correctly is surprisingly
+   44  hard. As a simple example, consider a quorum-based
+   45  system, in which a piece of data is corrupted on one node.
+   46  When the node tries to recover its data, some nodes may
+   47  fail and be unreachable, some nodes may have recently
+   48  recovered from a failure and so lack the required data or
+   49  hold a stale version. If enough care is not exercised, the
+   50  node could "fix" its data from a stale node, overwriting
+   51  the new data, potentially leading to a data loss.
+   52  To correctly recover corrupted data from redundant
+   53  copies in a distributed system, we propose that a recovery
+   54  approach should be protocol-aware. A protocol-aware
+   55  recovery (PAR) approach is carefully designed based on
+   56  how the distributed system performs updates to its replicated data, elects the leader, etc. For instance, in the previous example, a PAR mechanism would realize that a
+   57  faulty node has to query at least R (read quorum) other
+   58  nodes to safely and quickly recover its data.
+
+   59  USENIX Association
+
+   60  †, Aws Albarghouthi,
+
+   61  † University of Texas at Austin
+
+   62  In this paper, we apply PAR to replicated state machine (RSM) systems. We focus on RSM systems for
+   63  two reasons. First, correctly implementing recovery is
+   64  most challenging for RSM systems because of the strong
+   65  consistency and durability guarantees they provide [58];
+   66  a small misstep in recovery could violate the guarantees. Second, the reliability of RSM systems is crucial:
+   67  many systems entrust RSM systems with their critical
+   68  data [45]. For example, Bigtable, GFS, and other systems [7,26] store their metadata on RSM systems such as
+   69  Chubby [16] or ZooKeeper [4]. Hence, protecting RSM
+   70  systems from storage faults such as data corruption will
+   71  improve the reliability of many dependent systems.
+   72  We first characterize the different approaches to handling storage faults by developing the RSM recovery
+   73  taxonomy, through experimental and qualitative analysis of practical systems and methods proposed by prior
+   74  research (§2). Our analyses show that most approaches
+   75  employed by currently deployed systems do not use any
+   76  protocol-level knowledge to perform recovery, leading to
+   77  disastrous outcomes such as data loss and unavailability.
+   78  Thus, to improve the resiliency of RSM systems to
+   79  storage faults, we design a new protocol-aware recovery approach that we call corruption-tolerant replication
+   80  or CTRL (§3). CTRL constitutes two components: a local storage layer and a distributed recovery protocol;
+   81  while the storage layer reliably detects faults, the distributed protocol recovers faulty data from redundant
+   82  copies. Both the components carefully exploit RSMspecific knowledge to ensure safety (e.g., no data loss)
+   83  and high availability.
+   84  CTRL applies several novel techniques to achieve
+   85  safety and high availability. For example, a crashcorruption disentanglement technique in the storage
+   86  layer distinguishes corruptions caused by crashes from
+   87  disk faults; without this technique, safety violations or
+   88  unavailability could result. Next, a global-commitment
+   89  determination protocol in the distributed recovery separates committed items from uncommitted ones; this separation is critical: while recovering faulty committed
+   90  items is necessary for safety, discarding uncommitted
+   91  items quickly is crucial for availability. Finally, a novel
+   92  leader-initiated snapshotting mechanism enables identical snapshots across nodes to greatly simplify recovery.
+   93  We implement CTRL in two storage systems that are
+   94  based on different consensus algorithms: LogCabin [43]
+=== PAGE 3 ===
+
+   95  16 16th USENIX Conference on File and Storage Technologies
+
+   96  (based on Raft [50]) and ZooKeeper [4] (based on
+   97  ZAB [39]) (§4). Through experiments, we show that
+   98  CTRL versions provide safety and high availability in the
+   99  presence of storage faults, while the original systems remain unsafe or unavailable in many cases; we also show
+  100  that CTRL induces minimal performance overhead (§5).
+
+  101  2 Background and Motivation
+  102  We first provide background on storage faults and RSM
+  103  systems. We then present the taxonomy of different approaches to handling storage faults in RSM systems.
+
+  104  2.1 Storage Faults in Distributed Systems
+  105  Disks and flash devices exhibit a subtle and complex failure model: a few blocks of data could become inaccessible or be silently corrupted [8, 9, 32, 59]. Although such
+  106  storage faults are rare compared to whole-machine failures, in large-scale distributed systems, even rare failures
+  107  become prevalent [60, 62]. Thus, it is critical to reliably
+  108  detect and recover from storage faults.
+  109  Storage faults occur due to several reasons: media errors [10], program/read disturbance [60], and bugs in
+  110  firmware [9], device drivers [66], and file systems [27,
+  111  28]. Storage faults manifest in two ways: block errors
+  112  and corruption. Block errors (or latent sector errors)
+  113  arise when the device internally detects a problem with a
+  114  block and throws an error upon access. Studies of both
+  115  flash [33, 60] and hard drives [10, 59] show that block errors are common. Corruption could occur due to lost and
+  116  misdirected writes that may not be detected by the device. Studies [9, 51] and anecdotal evidence [36, 37, 57]
+  117  show the prevalence of data corruption in the real world.
+  118  Many local file systems, on encountering a storage
+  119  fault, simply propagate the fault to applications [11, 54,
+  120  64]. For example, ext4 silently returns corrupted data
+  121  if the underlying device block is corrupted. In contrast,
+  122  a few file systems transform an underlying fault into a
+  123  different one; for example, btrfs returns an error to applications if the accessed block is corrupted on the device.
+  124  In either case, storage systems built atop local file systems should handle corrupted data and storage errors to
+  125  preserve end-to-end data integrity.
+  126  One way to tackle storage faults is to use RAID-like
+  127  storage to maintain multiple copies of data on each node.
+  128  However, many distributed deployments would like to
+  129  use inexpensive disks [22, 31]. Given that the data in
+  130  a distributed system is inherently replicated, it is wasteful to store multiple copies on each node. Hence, it is
+  131  important for distributed systems to use the inherent redundancy to recover from storage faults.
+
+  132  2.2 RSM-based Storage Systems
+  133  Our goal is to harden RSM systems to storage faults.
+  134  In an RSM system, a set of nodes compute identical
+
+  135  states by executing commands on a state machine (an inmemory data structure on each node) [58]. Typically,
+  136  clients interact with a single node (the leader) to execute operations on the state machine. Upon receiving
+  137  a command, the leader durably writes the command to
+  138  an on-disk log and replicates it to the followers. When
+  139  a majority of nodes have durably persisted the command
+  140  in their logs, the leader applies the command to its state
+  141  machine and returns the result to the client; at this point,
+  142  the command is committed. The commands in the log
+  143  have to be applied to the state machine in-order. Losing
+  144  or overwriting committed commands violates the safety
+  145  property of the state machine. The replicated log is kept
+  146  consistent across nodes by a consensus protocol such as
+  147  Paxos [41] or Raft [50].
+  148  Because the log can grow indefinitely and exhaust disk
+  149  space, periodically, a snapshot of the in-memory state
+  150  machine is written to disk and the log is garbage collected. When a node restarts after a crash, it restores
+  151  the system state by reading the latest on-disk snapshot
+  152  and the log. The node also recovers its critical metadata
+  153  (e.g., log start index) from a structure called metainfo.
+  154  Thus, each node maintains three critical persistent data
+  155  structures: the log, the snapshots, and the metainfo.
+  156  These persistent data structures could be corrupted
+  157  due to storage faults. Practical systems try to safely
+  158  recover the data and remain available under such failures [15, 17]. However, as we will show, none of the
+  159  current approaches correctly recover from storage faults,
+  160  motivating the need for a new approach.
+
+  161  2.3 RSM Recovery Taxonomy
+  162  To understand the different possible ways to handling
+  163  storage faults in RSM systems, we analyze a broad range
+  164  of approaches. We perform this analysis by two means:
+  165  first, we analyze practical systems including ZooKeeper,
+  166  LogCabin, etcd [25], and a Paxos-based system [24] using a fault-injection framework we developed (§5); second, we analyze techniques proposed by prior research
+  167  or used in proprietary systems [15, 17].
+  168  Through our analysis, we classify the approaches into
+  169  two categories: protocol-oblivious and protocol-aware.
+  170  The oblivious approaches do not use any protocol-level
+  171  knowledge to perform recovery. Upon detecting a
+  172  fault, these approaches take a recovery action locally
+  173  on the faulty node; such actions interact with the distributed protocols in unsafe ways, leading to data loss.
+  174  The protocol-aware approaches use some RSM-specific
+  175  knowledge to recover; however, they do not use this
+  176  knowledge correctly, leading to undesirable outcomes.
+  177  Our taxonomy is not complete in that there may be other
+  178  techniques; however, to the best of our knowledge, we
+  179  have not observed other approaches apart from those in
+  180  our taxonomy.
+
+  181  USENIX Association
+=== PAGE 4 ===
+
+  182  16th USENIX Conference on File and Storage Technologies 17
+
+  183  S 2 3 2 3 2 3 2 3 2 3 2 3
+  184  1
+
+  185  S 1 2 3 1 2 3 1 3 1 3 1 3 1 3
+  186  2
+
+  187  S 1 2 3 1 2 3 1 2 3 1 2 3 1 2 1 2
+  188  3
+
+  189  S 1 2 3 1 2 3 1 2 3 1 2 3 2 3
+  190  4
+
+  191  S 1 2 3 1 2 3 1 2 3 1 3
+  192  5
+  193  (i) (ii) (iii) (iv) (v) (vi)
+  194  Figure 1: Sample Scenarios. The figure shows sample scenarios in
+  195  which current approaches fail. Faulty entries are striped. Crashed and
+  196  lagging nodes are shown as gray and empty boxes, respectively.
+  197  To illustrate the problems, we use Figure 1. In all
+  198  cases, log entries† 1, 2, and 3 are committed; losing these
+  199  items will violate safety. Table 1 shows how each approach behaves in Figure 1's scenarios. As shown in
+  200  the table, all current approaches lead to safety violation
+  201  (e.g., data loss), low availability, or both. A recovery
+  202  mechanism that effectively uses redundancy should be
+  203  safe and available in all cases. Table 1 also compares the
+  204  approaches along other axes such as performance, maintenance overhead (intervention and extra nodes), recovery time, and complexity. Although Figure 1 shows only
+  205  faults in the log, the taxonomy applies to other structures
+  206  including the snapshots and the metainfo.
+  207  NoDetection. The simplest reaction to storage faults is
+  208  none at all: to trust every layer in the storage stack to
+  209  work reliably. For example, a few prototype Paxos-based
+  210  systems [24] do not use checksums for their on-disk data;
+  211  similarly, LogCabin does not protect its snapshots with
+  212  checksums. NoDetection trivially violates safety; corrupted data can be obliviously served to clients. However, deployed systems do use checksums and other integrity strategies for most of their on-disk data.
+  213  Crash. A better strategy is to use checksums and handle I/O errors, and crash the node on detecting a fault.
+  214  Crash may seem like a good strategy because it intends to prevent any damage that the faulty node may
+  215  inflict on the system. Our experiments show that the
+  216  Crash approach is common: LogCabin, ZooKeeper, and
+  217  etcd crash sometimes when their logs are faulty. Also,
+  218  ZooKeeper crashes when its snapshots are corrupted.
+  219  Although Crash preserves safety, it suffers from severe unavailability. Given that nodes could be unavailable due to other failures, even a single storage fault results in unavailability, as shown in Figure 1(i). Similarly,
+  220  a single fault even in different portions of data on a majority (e.g., Figure 1(v)) renders the system unavailable.
+  221  Note that simply restarting the node does not help; storage faults, unlike other faults, could be persistent: the
+  222  node will encounter the same fault and crash again until
+  223  manual intervention, which is error-prone and may cause
+  224  a data loss. Thus, it is desirable to recover automatically.
+  225  Truncate. A more sophisticated action is to truncate
+
+  226  †A log entry contains a state-machine command and data.
+
+  227  USENIX Association
+
+  228  xity
+  229  eryv
+  230  ention nodes
+  231  Reco Comple
+  232  ailability Interv extra w
+  233  v ast v)
+  234  Class Approach Safety √ √ √ √A Performance No No F √Lo (i) (ii) (iii) (i (v) (vi)
+  235  NoDetection × na E E E E E E
+  236  √ √ √ √
+  237  Crash ×√ √ √ √× na √ U C U C U U
+  238  vious
+  239  Truncate × √ √ √ ×√ C L C L L L
+  240  Protocol Obli
+  241  DeleteRebuild × × × C L C L L L
+  242  √ √ √ √
+  243  MarkNonVoting √× × √ ×√ U C U C U U
+  244  are Reconfigure × × × × U C U C U U
+  245  √ √
+  246  w Byzantine FT × × × na × U C U U U U
+  247  Protocol A √ √ √ √ √ √ √
+  248  CTRLC C C C C C
+  249  E- Return Corrupted, L- Data Loss, U- Unavailable, C- Correct
+  250  Table 1: Recovery Taxonomy. The table shows how different
+  251  approaches behave in Figure 1 scenarios. While all approaches are
+  252  unsafe or unavailable, CTRL ensures safety and high availability.
+  253  (possibly faulty) portions of data and continue operating. The intuition behind Truncate is that if the faulty
+  254  data is discarded, the node can continue to operate (unlike Crash), improving availability.
+  255  However, we find that Truncate can cause a safety violation (data loss). Consider the scenario shown in Figure 2 in which entry 1 is corrupted on S1; S4, S5 are lagging and do not have any entry. Assume S2 is the leader.
+  256  When S1 reads its log, it detects the corruption; however,
+  257  S1 truncates its log, losing the corrupted entry and all
+  258  subsequent entries (Figure 2(ii)). Meanwhile, S2 (leader)
+  259  and S3 crash. S1, S4, and S5 form a majority and elect S1
+  260  the leader. Now the system does not have any knowledge
+  261  of committed entries 1, 2, and 3, resulting in a silent data
+  262  loss. The system also commits new entries x, y, and z in
+  263  the place of 1, 2, and 3 (Figure 2(iii)). Finally, when S2
+  264  and S3 recover, they follow S1's log (Figure 2(iv)), completely removing entries 1, 2, and 3.
+  265  In summary, although the faulty node detects the corruption, it truncates its log, losing the data locally. When
+  266  this node forms a majority along with other nodes that
+  267  are lagging, data is silently lost, violating safety. We find
+  268  this safety violation in ZooKeeper and LogCabin.
+  269  Further, Truncate suffers from inefficient recovery.
+  270  For instance, in Figure 1(i), S1 truncates its log after a
+  271  fault, losing entries 1, 2, and 3. Now to fix S1's log,
+  272  the leader needs to transfer all entries, increasing S1's recovery time and wasting network bandwidth. ZooKeeper
+  273  and LogCabin suffer from this slow recovery problem.
+  274  DeleteRebuild. Another commonly employed action is
+  275  to manually delete all data on the faulty node and restart
+  276  the node. Unfortunately, similar to Truncate, DeleteRebuild can violate safety; specifically, a node whose data
+  277  is deleted could form a majority along with the lagging
+  278  nodes, leading to a silent data loss. Surprisingly, administrators often use this approach hoping that the faulty
+=== PAGE 5 ===
+
+  279  18 16th USENIX Conference on File and Storage Technologies
+
+  280  S 2 3 x y z x y z
+  281  1
+  282  S 1 2 3 1 2 3 1 2 3 x y z
+  283  2
+  284  S 1 2 3 1 2 3 1 2 3 x y z
+  285  3
+  286  S x y z x y z
+  287  4
+  288  S x y z x y z
+  289  5
+  290  (i) S, S lagging; (ii) S truncates 1,2,3; (iii) 1,2,3 lost; (iv) S, S follow
+  291  1 faulty at S4 5 S1 , S down overwritten by x,y,z S2 's log3
+  292  1 2 3 1
+  293  Figure 2: Safety Violation Example. The figure shows the sequence of events which exposes a safety violation in Truncate.
+  294  node will be "simply fixed" by fetching the data from
+  295  other nodes [63, 65, 73]. DeleteRebuild also suffers from
+  296  the slow recovery problem similar to Truncate.
+  297  MarkNonVoting. In this approach, used by a Paxosbased system at Google [17], a faulty node deletes all its
+  298  data on a fault and marks itself as a non-voting member; the node does not participate in elections until it
+  299  observes one round of consensus and rebuilds its data
+  300  from other nodes. By marking a faulty node as nonvoting, safety violations such as the one in Figure 2 are
+  301  avoided. However, MarkNonVoting can sometimes violate safety as noted by prior work [70]. The underlying
+  302  reason for unsafety is that a corrupted node deletes all
+  303  its state including the promises† given to leaders. Once
+  304  a faulty node has lost its promise given to a new leader,
+  305  it could accept an entry from an old leader (after observing a round of consensus on an earlier entry). The new
+  306  leader, however, still believes that it has the promise from
+  307  the faulty node and so can overwrite the entry, previously
+  308  committed by the old leader.
+  309  Further, this approach suffers from unavailability. For
+  310  example, when only a majority of nodes are alive, a single fault can cause unavailability because the faulty node
+  311  cannot vote; other nodes cannot now elect a leader.
+  312  Reconfigure. In this approach, a faulty node is removed
+  313  and a new node is added. However, to change the configuration, a configuration entry needs to be committed
+  314  by a majority. Hence, the system remains unavailable in
+  315  many cases (for example, when a majority are alive but
+  316  one node's data is corrupted). Although Reconfigure is
+  317  not used in practical systems to tackle storage faults, it
+  318  has been suggested by prior research [15, 44].
+  319  BFT. An extreme approach is to use a Byzantine-faulttolerant algorithm which should theoretically tolerate
+  320  storage faults. However, BFT is expensive to be used in
+  321  practical storage systems; specifically, BFT can achieve
+  322  only half the throughput of what a crash-tolerant protocol can achieve [21]. Moreover, BFT requires 3f +1
+  323  nodes to tolerate f faults [2], thus remaining unavailable
+  324  in most scenarios in Figure 1.
+  325  Taxonomy Summary. None of the current approaches
+  326  effectively use redundancy to recover from storage faults.
+  327  †In Paxos, a promise for a proposal numbered p is a guarantee given
+  328  by a follower (acceptor) to the leader (proposer) that it will not accept
+  329  a proposal numbered less than p in the future [41].
+
+  330  Most approaches do not use any protocol-level knowledge to recover; for example, Truncate and DeleteRebuild take actions locally on the faulty node and so interact with the distributed protocol in unsafe ways, causing
+  331  a global data loss. Although some approaches (e.g., MarkNonVoting) use some RSM-specific knowledge, they do
+  332  not do so correctly, causing data loss or unavailability.
+  333  Thus, to ensure safety and high availability, a recovery
+  334  approach should effectively use redundancy by exploiting protocol-specific knowledge. Further, it is beneficial to avoid other problems such as manual intervention
+  335  and slow recovery. Our protocol-aware approach, CTRL,
+  336  aims to achieve these goals.
+
+  337  3 Corruption-Tolerant Replication
+  338  Designing a correct recovery mechanism needs a careful
+  339  understanding of the underlying protocols of the system.
+  340  For example, the recovery mechanism should be cognizant of how updates are performed on the replicated
+  341  data and how the leader is elected. We base CTRL's design on the following important protocol-level observations common to most RSM systems.
+  342  Leader-based. A single node acts as the leader; all data
+  343  updates flow only through the leader.
+  344  Epochs. RSM systems partition time into logical units
+  345  called epochs. For any given epoch, only one leader is
+  346  guaranteed to exist. Every data item is associated with
+  347  the epoch in which it was appended and its index in the
+  348  log. Since the entries could only be proposed by the
+  349  leader and only one leader could exist for an epoch, an
+  350  ⟨epoch, index⟩ pair uniquely identifies a log entry.
+  351  Leader Completeness. A node will not vote for a candidate if it has more up-to-date data than the candidate.
+  352  Since committed data is present at least in a majority of
+  353  nodes and a majority vote is required to win the election,
+  354  the leader is guaranteed to have all the committed data.
+  355  CTRL exploits these protocol-level attributes common
+  356  to RSM systems to correctly recover from storage faults.
+  357  CTRL divides the recovery responsibility between two
+  358  components: the local storage layer and the distributed
+  359  recovery protocol; while the storage layer reliably detects faulty data on a node, the distributed protocol recovers the data from redundant copies. Both the components
+  360  use RSM-specific knowledge to perform their functions.
+  361  In this section, we first describe CTRL's fault model
+  362  (§3.1) and safety and availability guarantees (§3.2). We
+  363  then describe the local storage layer (§3.3). Finally, we
+  364  describe CTRL's distributed recovery in two parts: first,
+  365  we show how faulty logs are recovered (§3.4) and then
+  366  we explain how faulty snapshots are recovered (§3.5).
+
+  367  3.1 Fault Model
+  368  Our fault model includes the standard failure assumptions made by crash-tolerant RSM systems: nodes could
+
+  369  USENIX Association
+=== PAGE 6 ===
+
+  370  16th USENIX Conference on File and Storage Technologies 19
+
+  371  Fault Outcome Possible Causes
+  372  corrupted data misdirected and lost writes in ext
+  373  Data inaccessible data LSE, corruptions in ZFS and btrfs
+  374  directory entry corrupted, fsck may
+  375  missing files/directories
+  376  remove a faulty inode
+  377  sanity check fails after inode corunopenable files/directories
+  378  ruption, permission bits corrupted
+  379  Metadata files with more or fewer bytes i size field in the inode corrupted
+  380  FS file system read-only journal corrupted; fsck not run
+  381  file system unmountable superblock corrupted; fsck not run
+  382  Table 2: Storage Fault Model. The table shows storage faults
+  383  included in our model and possible causes that lead to a fault outcome.
+  384  crash at any time and recover later, and nodes could be
+  385  unreachable due to network failures [21, 42, 50]. Our
+  386  model adds another realistic failure scenario where persistent data on the individual nodes could be corrupted
+  387  or inaccessible. Table 2 shows a summary of our storage
+  388  fault model. Our model includes faults in both user data
+  389  and the file-system metadata blocks.
+  390  User data blocks in the files that implement the system's persistent structures could be affected by errors
+  391  or corruption. A number of (possibly contiguous) data
+  392  blocks could be faulty as shown by studies [12,59]. Also,
+  393  a few bits/bytes of a block could be corrupted. Depending on the local file system in use, corrupted data may be
+  394  returned obliviously or transformed into errors.
+  395  File-system metadata blocks can also be affected by
+  396  faults; for example, the inode of a log file could be corrupted. Our fault model considers the following outcomes that can be caused by file-system metadata faults:
+  397  files/directories may go missing, files/directories may be
+  398  unopenable, a file may appear with fewer or more bytes,
+  399  the file system may be mounted read-only, and in the
+  400  worst case, the file system may be unmountable. Some
+  401  file systems such as ZFS may mask most of the above
+  402  outcomes from applications [72]; however, our model
+  403  includes these faulty outcomes because they could realistically occur on other file systems that provide weak
+  404  protection against corruption (e.g., ext2/3/4). Through
+  405  fault-injection tests, we have verified that the metadata
+  406  fault outcomes shown in Table 2 do occur on ext4.
+
+  407  3.2 Safety and Availability Guarantees
+  408  CTRL guarantees that if there exists at least one correct
+  409  copy of a committed data item, it will be recovered or the
+  410  system will wait for that item to be fixed; committed data
+  411  will never be lost. In unlikely cases where all copies of
+  412  a committed item are faulty, the system will correctly remain unavailable. CTRL also guarantees that the system
+  413  will make a decision about an uncommitted faulty item
+  414  as early as possible, ensuring high availability.
+
+  415  3.3 CTRL Local Storage Layer
+  416  To reliably recover, the storage layer (CLSTORE) needs
+  417  to satisfy three key requirements. First, CLSTORE must
+  418  be able to reliably detect a storage fault. Second,
+
+  419  USENIX Association
+
+  420  entry len
+  421  log Update:
+  422  e e ... cksum len data
+  423  1 2 data = <index, epoch, write(log, e)
+  424  format fsync(log)i
+  425  (a) Typical command, ...>
+  426  entry identifiers
+  427  Update:
+  428  id id ... e e ... pwrite(log, e )
+  429  1 2 1 2 i
+  430  LSTORE e- ithlog entry; id - identifier of entry e pwrite(log, id)
+  431  format idi = <index(e), epoch(ei ), offset(e ), cksum>i fsync(log) i
+  432  (b) C i i i i
+  433  idalso serves as persist record for e
+  434  i i
+  435  Figure 3: Log Format. (a) shows the format and update protocol
+  436  of a typical RSM log; (b) shows the same for CLSTORE.
+  437  CLSTORE must correctly distinguish crashes from corruptions; safety can be violated otherwise. Third, CLSTORE
+  438  must identify which pieces of data are faulty; only if
+  439  CLSTORE identifies which pieces have been affected, can
+  440  the distributed protocol recover those pieces.
+
+  441  3.3.1 Persistent Structures Overview
+  442  As we discussed, RSM systems maintain three persistent structures: the log, the snapshots, and the metainfo.
+  443  CLSTORE uses RSM-specific knowledge of how these
+  444  structures are used and updated, to perform its functions.
+  445  For example, CLSTORE detects faults at a different granularity depending on the RSM data structure: faults in the
+  446  log are detected at the granularity of individual entries,
+  447  while faults in the snapshot are detected at the granularity of chunks. Similarly, CLSTORE uses the RSM-specific
+  448  knowledge that a log entry is uniquely qualified by its
+  449  ⟨epoch, index⟩ pair to identify faulty log entries.
+  450  Log. The log is a set of files containing a sequence of
+  451  entries. The format of a typical RSM log is shown in
+  452  Figure 3(a). The log is updated synchronously in the critical path; hence, changes made to the log format should
+  453  not affect its update performance. CLSTORE uses a modified format as shown in Figure 3(b) which achieves this
+  454  goal. A corrupted log is recovered at the granularity of
+  455  individual entries.
+  456  Snapshots. The in-memory state machine is periodically written to a snapshot. Since snapshots can be huge,
+  457  CLSTORE splits them into chunks; a faulty snapshot is recovered at the granularity of individual chunks.
+  458  Metainfo. The metainfo is special in that faulty metainfo
+  459  cannot be recovered from other nodes. This is because
+  460  the metainfo contains information unique to a node (e.g.,
+  461  its current epoch); recovering metainfo obliviously from
+  462  other nodes could violate safety. CLSTORE uses this
+  463  knowledge correctly and so maintains two copies of the
+  464  metainfo locally; if one copy is faulty, the other copy is
+  465  used. Fortunately, the metainfo is only a few tens of bytes
+  466  in size and is updated infrequently; therefore, maintaining two copies does not incur significant overheads.
+
+  467  3.3.2 Detecting Faulty Data
+  468  CLSTORE uses well-known techniques for detection: inaccessible data is detected by catching return codes (e.g.,
+=== PAGE 7 ===
+
+  469  20 16th USENIX Conference on File and Storage Technologies
+
+  470  EIO) and corrupted data is detected by a checksum mismatch. CLSTORE assumes that if an item and its checksum agree, then the item is not faulty. In the log, each
+  471  entry is protected by a checksum; similarly, each chunk
+  472  in a snapshot and the entire metainfo are checksummed.
+  473  CLSTORE also handles file-system metadata faults.
+  474  Missing and unopenable files/directories are detected by
+  475  handling error codes upon open. Log and metainfo
+  476  files with fewer or more bytes are detected easily because these files are preallocated and are of a fixed size;
+  477  snapshot sizes are stored separately, and CLSTORE crosschecks the stored size with the file-system reported size
+  478  to detect discrepancies. A read-only/unmountable file
+  479  system is equivalent to a missing data directory. In most
+  480  cases of file-system metadata faults, CLSTORE crashes
+  481  the nodes. Crashing reliably on a metadata fault preserves safety but compromises on availability. However,
+  482  we believe this is an acceptable behavior because there
+  483  are far more data blocks than metadata blocks; therefore,
+  484  the probability of faults is significantly less for metadata
+  485  than data blocks.
+
+  486  3.3.3 Disentangling Crashes and Corruption in Log
+  487  An interesting challenge arises when detecting corruptions in the log. A checksum mismatch for a log entry
+  488  could occur due to two different situations. First, the
+  489  system could have crashed in the middle of an update; in
+  490  this case, the entry would be partially written and hence
+  491  cause a mismatch. Second, the entry could be safely persisted but corrupted at a later point. Most log-based systems conflate these two cases: they treat a mismatch as
+  492  a crash [30]. On a mismatch, they discard the corrupted
+  493  entry and all subsequent entries, losing the data. Discarding entries due to such conflation introduces the possibility of a global data loss (as shown earlier in Figure 2).
+  494  Note that if the mismatch were really due to a crash,
+  495  it is safe to discard the partially written entry. It is safe
+  496  because the node would not have acknowledged to any
+  497  external entity that it has written the entry. However, if
+  498  an entry is corrupted, the entry cannot be simply discarded since it could be globally committed. Further, if a
+  499  mismatch can be correctly attributed to a crash, the faulty
+  500  entry can be quickly discarded locally, avoiding the distributed recovery. Hence, it is important for the local
+  501  storage layer to distinguish the two cases.
+  502  To denote the completion of an operation, many systems write a commit record [13, 18]. Similarly, CLSTORE
+  503  writes a persist record, pi, after writing an entry ei. For
+  504  now, assume that ei is ordered before pi, i.e., the sequence of steps to append an entry ei is write(ei),fsync(),
+  505  write(pi), fsync(). On a checksum mismatch for ei, if pi
+  506  is not present, we can conclude that the system crashed
+  507  during the update. Conversely, if pi is present, we can
+  508  conclude that the mismatch was caused due to a corruption and not due to a crash. pi is checksummed and is
+  509  very small; it can be atomically written and thus cannot
+  510  be "corrupted" due to a crash. If pi is corrupted in addition to ei, we can conclude that it is a corruption and not
+  511  a crash.
+  512  The above logic works when ei is ordered before pi.
+  513  However, such ordering requires an (additional) expensive fsync in the critical path, affecting log-update performance. For this reason, CLSTORE does not order
+  514  ei before pi; thus, the append protocol is t1:write(ei),
+  515  t :write(p ), t :fsync().† Given this update sequence, as-
+  516  2 i 3
+  517  sume a checksum mismatch occurs for ei. If pi is not
+  518  present, CLSTORE can conclude that it is a crash (before
+  519  t2) and discard ei. Contrarily, if pi is present, there are
+  520  two possibilities: either ei could be affected by a corruption after t3 or a crash could have occurred between t2
+  521  and t3 in which pi hit the disk while ei was only partially
+  522  written. The second case is possible because file systems
+  523  can reorder writes between two fsync operations and ei
+  524  could span multiple sectors [3, 19, 52, 53]. CLSTORE can
+  525  still conclude that it is a corruption if ei+1 or pi+1 is
+  526  present. However, if ei is the last entry, then we cannot
+  527  determine whether it was a crash or a corruption.∗
+  528  The inability to disentangle the last entry when its
+  529  persist record is present is not specific to CLSTORE, but
+  530  rather a fundamental limitation in log-based systems. For
+  531  instance, in ext4's journal async commit mode (where a
+  532  transaction is not ordered before its commit record), a
+  533  corrupted last transaction is assumed to be caused due to
+  534  a crash, possibly losing data [38,69]. Even if crashes and
+  535  corruptions can be disentangled, there is little a singlemachine system can do to recover the corrupted data.
+  536  However, in a distributed system, redundant copies can
+  537  be used to recover. Thus, when the last entry cannot
+  538  be disentangled, CLSTORE safely marks the entry as corrupted and leaves it to the distributed recovery to fix or
+  539  discard the entry based on the global commitment.
+  540  The entanglement problem does not arise for snapshots or metainfo. These files are first written to a temporary file and then atomically renamed. If a crash happens
+  541  before the rename, the partially written temporary file is
+  542  discarded. Thus, the system will never see a corrupted
+  543  snapshot or metainfo due to a crash; if these structures
+  544  are corrupted, it is because of a storage corruption.
+
+  545  3.3.4 Identifying Faulty Data
+  546  Once a faulty item is detected, it has to beidentified; only
+  547  if CLSTORE can identify a faulty item, the distributed
+  548  layer can recover the item. For this purpose, CLSTORE
+  549  redundantly stores an identifier of an item apart from the
+  550  item itself; duplicating only the identifier instead of the
+  551  whole item obviates the (2×) storage and performance
+  552  †The final fsync is required for durability.
+  553  ∗The proof of this claim is available [1].
+
+  554  USENIX Association
+=== PAGE 8 ===
+
+  555  16th USENIX Conference on File and Storage Technologies 21
+
+  556  overhead. However, storing the identifier near the item is
+  557  less useful; a misdirected write can corrupt both the item
+  558  and its identifier [9, 10]. Hence, identifiers are physically
+  559  separated from the items they identify.
+  560  The ⟨epoch, index⟩ pair serves as the identifier for a
+  561  log entry and is stored separately at the head of the log,
+  562  as shown in Figure 3(b). The offset of an entry is also
+  563  stored as part of the identifier to enable traversal of subsequent entries on a fault. The identifier of a log entry also
+  564  conveniently serves as its persist record. Similarly, for
+  565  a snapshot chunk, the ⟨snap-index, chunk#⟩ pair serves
+  566  as the identifier; the snap-index and the snapshot size are
+  567  stored in a separate file than the snapshot file. The identifiers have a nominal storage overhead (32 bytes for log
+  568  entries and 12 bytes for snapshots), can be atomically
+  569  written, and are also protected by a checksum.
+  570  It is highly unlikely an item and its identifier will both
+  571  be faulty since they are physically separated [9, 10, 12,
+  572  59]. In such unlikely and unfortunate cases, CLSTORE
+  573  crashes the node to preserve safety. Table 3 (second column) summarizes CLSTORE's key techniques.
+
+  574  3.4 CTRL Distributed Log Recovery
+  575  The local storage layer detects faulty data items and
+  576  passes on their identifiers to the distributed recovery
+  577  layer. We now describe how the distributed layer recovers the identified faulty items from redundant copies using RSM-specific knowledge. We first describe how log
+  578  entries are recovered and subsequently describesnapshot
+  579  recovery. As we discussed, metainfo files are recovered
+  580  locally and so we do not discuss them any further. We
+  581  use Figure 4 to illustrate how log recovery works.
+  582  Naive Approach: Leader Restriction. RSM systems
+  583  do not allow a node with an incomplete log to become
+  584  the leader. A naive approach to recovering from storage
+  585  faults could be to impose an additional constraint on the
+  586  election: a node cannot be elected the leader if its log
+  587  contains a faulty entry. The intuition behind the naive
+  588  approach is as follows: since the leader is guaranteed to
+  589  have all committed data and our new restriction ensures
+  590  that the leader is not faulty, faulty log entries on other
+  591  nodes could be fixed using the corresponding entries on
+  592  the leader. Cases (a)(i) and (a)(ii) in Figure 4 show scenarios where the naive approach could elect a leader. In
+  593  (a)(i), only S1 can become the leader because other nodes
+  594  are either lagging or have at least one faulty entry. Assume S1 is the leader also in case (a)(ii).
+  595  Fixing Followers' Logs. When the leader has no faulty
+  596  entries, fixing the followers is straightforward. For example, in case (a)(i), the followers inform S1 of their
+  597  faulty entries; S1 then supplies the correct entries. However, sometimes the leader might not have any knowledge of an entry that a follower is querying for. For instance, in case (a)(ii), S5 has a faulty entry at index 3 but
+
+  598  USENIX Association
+
+  599  with a different epoch. This situation is possible because
+  600  S5 could have been the leader for epoch 2 and crashed
+  601  immediately after appending an entry. As discussed earlier, an entry is uniquely identified by its ⟨epoch, index⟩;
+  602  thus, when querying for faulty entries, a node needs to
+  603  specify the epoch of the entry in addition to its index.
+  604  Thus, S5 informs the leader that its entry ⟨epoch:2, index:3⟩ is faulty. However, S1 does not have such an entry
+  605  in its log. If the leader does not have an entry that the follower has, then the entry must be an uncommitted entry
+  606  because the leader is guaranteed to have all committed
+  607  data; thus, the leader instructs S5 to truncate the faulty
+  608  entry and also replicates the correct entry.
+  609  Although the naive approach guarantees safety, it has
+  610  availability problems. The system will be unavailable
+  611  in cases such as the ones shown in (b): a leader cannot
+  612  be elected because the logs of the alive nodes are either
+  613  faulty or lagging. Note that even a single storage fault
+  614  can cause an unavailability as shown in (b)(i). It is possible for a carefully designed recovery protocol to provide
+  615  better availability in these cases. Specifically, since at
+  616  least one intact copy of all committed entries exists, it is
+  617  possible to collectively reconstruct the log.
+
+  618  3.4.1 Removing the Restriction Safely
+  619  To recover from scenarios such as those in Figure 4(b),
+  620  we remove the additional constraint on the election.
+  621  Specifically, any node that has a more up-to-date log can
+  622  now be elected the leader even if it has faulty entries.
+  623  This relaxation improves availability; however, two key
+  624  questions arise: first, when can the faulty leader proceed
+  625  to accept new commands? second, and more importantly,
+  626  is it safe to elect a faulty node as the leader?
+  627  To accept a new command, the leader has to append
+  628  the command to its log, replicate it, and apply it to the
+  629  state machine. However, before applying the new command, all previous commands must be applied. Specifically, faulty commands cannot be skipped and later applied when they are fixed; such out-of-order application
+  630  would violate safety. Hence, it is required for the leader
+  631  to fix its faulty entries before it can accept new commands. Thus, for improved availability, the leader needs
+  632  to fix its faulty entries as early as possible.
+  633  The crucial part of the recovery to ensure safety is to
+  634  fix the leader's log using the redundant copies on the followers. In simple cases such as (b)(i) and (b)(ii), the
+  635  leader S1 could fix its faulty entry ⟨epoch:1, index:1⟩ using the correct entries from the followers and proceed
+  636  to normal operation. However, in several scenarios, the
+  637  leader cannot immediately recover its faulty entries; for
+  638  example, none of the reachable followers might have any
+  639  knowledge of the entry to be recovered or the entry to be
+  640  recovered could also be faulty on the followers.
+=== PAGE 9 ===
+
+  641  1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 Legend
+  642  SL a b c L a b c3 L b c L b c L a b L a b L a b L a b L a b correct entry,
+  643  1 d
+  644  S a b a b c3 a b a b a b a b c a b a b a b data:d, epoch: 1
+  645  2
+  646  S a b a b c3 a b a b a b a b a b a b a b faulty entry,
+  647  3
+  648  S b c a b c3 a b c b c a b a b a b c a b a b epoch: 1
+  649  4
+  650  S a c a b 2 a b c a c a b a b a b c a b a b c correct entry,
+  651  5 de
+  652  (a)(i) (a)(ii) (b)(i) (b)(ii) (c)(i) (c)(ii) (d)(i) (d)(ii) (d)(iii) data: d, epoch: e
+  653  Leader restriction Leader restrictionDiscard faulty Waiting to determine e faulty entry,
+  654  works unavailability uncommitted entries commitment epoch: e
+
+  655  Figure 4: Distributed Log Recovery. The figure shows how CTRL's log recovery operates. All entries are appended in epoch 1 unless explicitly
+  656  mentioned. For entries appended in other epochs, the epoch number is shown in the superscript. Entries shown as striped boxes are faulty. A gray
+  657  box around a node denotes that it is down or extremely slow. The leader is marked with L on the left. Log indexes are shown at the top.
+  658  3.4.2 Determining Commitment mulating three (a majority out of five) negative acknowledgments; hence, the leader can conclude that the entry
+  659  The main insight to fix the leader's faulty log safely and
+  660  is uncommitted, discard it, and continue to normal operquickly is to distinguish uncommitted entries from possiation. In (d)(iii), S4 would respond that it has the entry
+  661  bly committed ones; while recovering the committed ena b but is faulty in its log too. In this case, the leader has to
+  662  tries is necessary for safety, uncommitted entries can be
+  663  safely discarded. Further, discarding uncommitted faulty wait for the response from S5 to determine commitment.
+  664  entries immediately is crucial for availability. For in- In the unfortunate and unlikely case where all copies of
+  665  stance, in case (c)(i), the faulty entry on S cannot be an entry are faulty, the system will remain unavailable.
+  666  1
+  667  fixed since there are no copies of it; waiting to fix that
+  668  entry results in indefinite unavailability. Sometimes, an 3.4.3 The Complete Log Recovery Protocol
+  669  entry could be partially replicated but remain uncommit- We now assemble the pieces of the log recovery protocol.
+  670  ted; for example, in case (c)(ii), the faulty entry on S is First, fixing faulty followers is straightforward; the com-
+  671  1
+  672  partially replicated but is not committed. Although there mitted faulty entries on the followers can be eventually
+  673  is a possibility of recovering this entry from the other fixed by the leader because the leader is guaranteed to
+  674  node (S ), this is not necessary for safety; it is completely have all committed data. Faulty entries on followers that
+  675  2
+  676  safe for the leader to discard this uncommitted entry. the leader does not know about are uncommitted; hence,
+  677  To determine the commitment of a faulty entry, the the leader instructs the followers to discard such entries.
+  678  leader queries the followers. If a majority of the follow- The main challenge is thus fixing the leader's log. The
+  679  ers respond that they do not have the entry (negative ac- leader queries the followers to recover its entry ⟨epoch:e,
+  680  knowledgment), then the leader concludes that the entry index:i⟩. Three types of responses are possible:
+  681  is uncommitted. In this case, the leader safely discards Response 1: have – a follower could respond that it has
+  682  that and all subsequent entries; it is safe to discard the the entry ⟨epoch:e, index:i⟩ and is not faulty in its log.
+  683  subsequent entries because entries are committed in or- Response 2: dontHave – a follower could respond that it
+  684  der. Conversely, if the entry were committed, at least does not have the entry ⟨epoch:e, index:i⟩.
+  685  one node in this majority would have that entry and in- Response 3: haveFaulty – a follower could respond that
+  686  form the leader of it; in this case, the leader can fix its it has ⟨epoch:e, index:i⟩ but is faulty in its log too.
+  687  faulty entry using that response. Once the leader collects these responses from the fol-
+  688  Waiting to Determine Commitment. Sometimes, it lowers, it takes the following possible actions:
+  689  may be impossible for the leader to quickly determine Case 1: if it gets a have response from at least one folcommitment. For instance, consider the cases in Fig- lower, it fixes the entry in its log.
+  690  ure 4(d) in which S and S are down or slow. S queries Case 2: if it gets a dontHave response from a majority
+  691  4 5 1
+  692  the followers to recover its entry ⟨epoch:1, index:3⟩. S of followers, it confirms that the entry is uncommitted,
+  693  2
+  694  and S respond that they do not have such an entry (neg- discards that entry and all subsequent entries.
+  695  3
+  696  ative acknowledgment). S and S do not respond be- Case 3: if it gets a haveFaulty response from a follower,
+  697  4 5
+  698  cause they are down or slow. The leader, in this case, it waits for either Case 1 or Case 2 to happen.
+  699  has to wait for either S4 or S5 to respond; discarding the Case 1 and Case 2 can happen in any order; both orderentry without waiting for S4 or S5 could violate safety. ings are safe. Specifically, if the leader decides to discard
+  700  However, once S4 or S5 responds, the leader will make a the faulty entry (after collecting a majority dontHave redecision immediately. In (d)(i), S4 or S5 would respond sponses), it is safe since the entry was uncommitted anywith the correct entry, fixing the leader. In (d)(ii), S4 or ways. Conversely, there is no harm in accepting a correct
+  701  S5 would respond that it does not have the entry, accu- entry (at least one have response) and replicating it. The
+
+  702  22 16th USENIX Conference on File and Storage Technologies USENIX Association
+=== PAGE 10 ===
+
+  703  16th USENIX Conference on File and Storage Technologies 23
+
+  704  first to happen out of these two cases will take precedence over the other.
+  705  The leader proceeds to normal operation only after its
+  706  faulty data is discarded or recovered. However, CTRL
+  707  discards uncommitted data as early as possible and minimizes the recovery latency by recovering faulty data at
+  708  a fine granularity (as we show in §5.2), ensuring that the
+  709  leader proceeds to normal operation quickly.
+  710  The leader could crash or be partitioned while recovering its log. On a leader failure, the followers will elect
+  711  a new leader and make progress. The partial repair done
+  712  by the failed leader is harmless: it could have either fixed
+  713  committed faulty entries or discarded uncommitted ones,
+  714  both of which are safe.
+
+  715  3.5 CTRL Distributed Snapshot Recovery
+  716  Because the logs can grow indefinitely, periodically,
+  717  the in-memory state machine is written to disk and the
+  718  logs are garbage collected. Current systems including
+  719  ZooKeeper and LogCabin do not handle faulty snapshots
+  720  correctly (§2.3): they either crash or load corrupted snapshots obliviously. CTRL aims to recover faulty snapshots
+  721  from redundant copies. Snapshot recovery is different
+  722  from log recovery in that all data in a snapshot is committed and already applied to the state machine; hence,
+  723  faulty snapshots cannot be discarded in any case (unlike
+  724  uncommitted log entries which can be discarded safely).
+
+  725  3.5.1 Leader-Initiated Identical Snapshots
+  726  Current systems [43] have two properties with respect to
+  727  snapshots. First, they allow new commands to be applied
+  728  to the state machine while a snapshot is in progress. Second, they take index-consistent snapshots: a snapshot Si
+  729  represents the state machine in which log entries exactly
+  730  up to i have been applied. One of the mechanisms used
+  731  in current systems to realize the above two properties is
+  732  to take snapshots in a fork-ed child process; while the
+  733  child can write an index-consistent image to the disk, the
+  734  parent can keep applying new commands to its copy of
+  735  the state machine. CTRL should enable snapshot recovery
+  736  while preserving the above two properties.
+  737  In current systems, every node runs the snapshot procedure independently, taking snapshots at different log
+  738  indexes. Because the snapshots are taken at different indexes, snapshot recovery can be complex: a faulty snapshot on one node cannot be simply fetched from other
+  739  nodes. Further, snapshots cannot be recovered at the
+  740  granularity of chunks because they will be byte-wise
+  741  non-identical; entire snapshots have to be transferred
+  742  across nodes, slowing down recovery.
+  743  This complexity can be significantly alleviated if the
+  744  nodes take the snapshot at the same index; identical snapshots also enable chunk-based recovery.
+  745  However, coordinating a snapshot operation across
+  746  nodes can, in general, affect the common-case perfor-
+
+  747  USENIX Association
+
+  748  Local Storage Distributed Recovery
+  749  Log granularity: entry; global-commitment deidentifier:⟨epoch, index⟩; termination to fix leader,
+  750  crash-corruption disentanglement leader fixes followers
+  751  Snapshot granularity: chunk; leader-initiated identical
+  752  identifier:⟨snap-index, chunk#⟩; snapshots,
+  753  no entanglement chunk-based recovery
+  754  Metainfo granularity: file; none (only internal reidentifier: n/a; dundancy)
+  755  no entanglement
+
+  756  Table 3: Techniques Summary. The table shows a summary of
+  757  techniques employed by CTRL's storage layer and distributed recovery.
+
+  758  mance. For example, one naive way to realize identical snapshots is for the leader to produce the snapshot,
+  759  insert it into the log as yet another entry, and replicate it. However, such an approach will affect update
+  760  performance since the snapshot could be huge and all
+  761  client commands must wait while the snapshot commits [49]. Moreover, transferring the snapshot to the followers wastes network bandwidth.
+  762  CTRL takes a different approach to identical snapshots
+  763  that preserves common-case performance. The leader
+  764  initiates the snapshot procedure by first deciding the index at which a snapshot will be taken and informing the
+  765  followers of the index. Once a majority agree on the index, all nodes independently take a snapshot at the index.
+  766  When the leader learns that a majority (including itself)
+  767  have taken a snapshot at an index i, it garbage collects its
+  768  log up to i and instructs the followers to do the same.
+  769  CTRL implements the above procedure using the log.
+  770  When the leader decides to take a snapshot, it inserts
+  771  a special marker called snap into the log. When the
+  772  snap marker commits, and thus when a node applies the
+  773  marker to the state machine, it takes a snapshot (i.e., the
+  774  snapshot corresponds to the state where commands exactly up to the marker have been applied). Within each
+  775  node, we reuse the same mechanism used by the original
+  776  system (e.g., a fork-ed child) to allow new commands
+  777  to be applied while a snapshot is in progress. Notice
+  778  that the snapshot operation happens independently on all
+  779  nodes but the operation will produce identical snapshots
+  780  because the marker will be seen at the same log index by
+  781  all nodes when it is committed. When the leader learns
+  782  that a majority of nodes (including itself) have taken a
+  783  snapshot at an index i, it appends another marker called
+  784  gc for i; when the gc marker is committed and applied,
+  785  the nodes garbage collect their log entries up to i.
+
+  786  3.5.2 Recovering Snapshot Chunks
+  787  With the identical-snapshot mechanism, snapshot recovery becomes easier. Once a faulty snapshot is detected,
+  788  the local storage layer provides the distributed protocol
+  789  the snapshot index and the chunk that is faulty. The distributed protocol recovers the faulty chunk from other
+=== PAGE 11 ===
+
+  790  (b) Random Block Corruptions and Errors (c) Corruptions with Lagging Nodes
+  791  (a) shows results for targeted corruptions; we trigger two policies (truncate and crash) in the original systems. (b)
+  792  shows results for random block corruptions and errors. (c) shows results for random corruptions with crashed and lagging nodes.
+
+  793  24 16th USENIX Conference on File and Storage Technologies
+
+  794  Original CTRL
+
+  795  Outcomes Outcomes
+
+  796  Cases
+
+  797  est
+  798  T ailable ailable
+  799  Original v v
+
+  800  Recovery otal Experi-
+  801  System Scenario T Approach Una Unsafe Correct Una Unsafe Correct System ment
+  802  truncate 0 2355 46 0 0 2401 Corrupt-
+  803  Possible 2401
+  804  crash 2355 0 46 0 0 2401 ions
+  805  Not truncate 0 1695 0 1695 0 0
+  806  1695 Errors
+  807  LogCabin possible crash 1695 0 0 1695 0 0 LogCabin
+  808  truncate 0 2355 46 0 0 2401 Corrupt-
+  809  Possible 2401
+  810  eeper crash 2355 0 46 0 0 2401 eeper ions
+  811  Not truncate 0 1695 0 1695 0 0
+  812  1695 Errors
+  813  ZooK possible crash 1695 0 0 1695 0 0 ZooK
+  814  (a) Targeted Corruptions
+  815  Table 4: Log Recovery.
+
+  816  nodes. First, the leader recovers its faulty chunks from
+  817  the followers and then fixes the faulty snapshots on followers. Three cases arise during snapshot recovery.
+  818  First, the log entries for a faulty snapshot may not be
+  819  garbage collected yet; in this case, the snapshot is recovered locally from the log (after fixing the log if needed).
+  820  Second, if the log is garbage collected, then a faulty
+  821  snapshot has to be recovered from other nodes. However,
+  822  if the log entries for a snapshot are garbage collected,
+  823  then at least a majority of the nodes must have taken the
+  824  same snapshot. This is true because the gc marker is
+  825  inserted only after a majority of nodes have taken the
+  826  snapshot. Thus, faulty garbage-collected snapshots are
+  827  recovered from those redundant copies.
+  828  Third, sometimes, the leader may not know a snapshot
+  829  that a follower is querying for (for example, if a follower
+  830  took a snapshot and went offline for a long time and the
+  831  leader replaced that snapshot with an advanced one); in
+  832  this case, the leader supplies the full advanced snapshot.
+
+  833  3.6 CTRL Summary
+  834  The storage layer detects and identifies faulty data. Atop
+  835  the storage layer, the distributed protocol recovers the
+  836  faulty items from redundant copies. Both the layers exploit RSM-specific knowledge to correctly perform their
+  837  functions. A summary of CTRL's local storage and distributed recovery techniques is shown in Table 3.
+
+  838  4 Implementation
+  839  We implement CTRL in two different RSM systems, Log-
+  840  Cabin (v1.0) and ZooKeeper (v3.4.8); while LogCabin is
+  841  based on Raft, ZooKeeper is based on ZAB. Implementing CTRL's storage layer and distributed recovery took
+  842  only a moderate developer effort; CTRL adds about 1500
+  843  lines of code to each of the base systems.
+
+  844  4.1 Local Storage Layer
+  845  We implemented CLSTORE by modifying the storage engines of LogCabin and ZooKeeper. In both systems, the
+
+  846  Outcomes Outcomes
+
+  847  Original CTRL Original CTRL
+
+  848  Cases Cases
+
+  849  est est
+  850  T ailable ailable T ailable ailable
+  851  v v v v
+  852  otalT Una Unsafe Correct Una Unsafe Correct otal
+  853  System T Una Unsafe Correct Una Unsafe Correct
+  854  5000 738 793 3469 0 0 5000
+  855  5000 4194 141 665 0 0 5000
+  856  5000 2497 0 2503 0 0 5000
+
+  857  LogCabin
+  858  5000 807 656 3537 0 0 5000
+  859  eeper 5000 1306 1806 1888 0 0 5000
+  860  5000 2469 0 2531 0 0 5000
+
+  861  ZooK
+
+  862  log is a set of files, each of a fixed size and preallocated.
+  863  The header of each file is reserved for the log-entry identifiers. The size of the reserved header is proportional to
+  864  the file size. CLSTORE ensures that a log entry and its
+  865  identifier are at least a few megabytes physically apart.
+  866  Both systems batch many log entries to improve update
+  867  performance. With batching, CLSTORE performs crashcorruption disentanglement as follows: the first faulty
+  868  entry without an identifier and its subsequent entries are
+  869  discarded; faulty entries preceding that point are marked
+  870  as corrupted and passed on to the distributed layer.
+  871  In both systems, the state machine is a data tree. We
+  872  modified both the systems to take index-consistent identical snapshots: when a snap marker is applied, the state
+  873  machine (i.e., the tree) is serialized to the disk. The snapindex and snapshot size are stored separately. CLSTORE
+  874  uses a chunk size of 4K, enabling fine-grained recovery.
+  875  In LogCabin, the metainfo contains the currentTerm
+  876  and votedFor structures. Similarly, in ZooKeeper,
+  877  structures such as acceptedEpoch and currentEpoch
+  878  constitute the metainfo. CLSTORE stores redundant
+  879  copies of metainfo and protects them using checksums.
+  880  Log entries, snapshot chunks, and metainfo are protected by a CRC32 checksum. CLSTORE detects inaccessible data items by catching errors (EIO); it then populates the item's in-memory buffer with zeros, causing
+  881  a checksum mismatch. Thus, CLSTORE deals with both
+  882  corruptions and errors as checksum mismatches.
+
+  883  4.2 Distributed Recovery
+  884  LogCabin. In Raft, terms are equivalent to epochs.
+  885  Thus, a log entry is uniquely identified by its ⟨term, index⟩ pair. To fix the followers, we modified the Append-
+  886  Entries RPC used by the leader to replicate entries [50].
+  887  The followers inform the leader of their faulty log entries and snapshot chunks in the responses of this RPC;
+  888  the leader sends the correct entries and chunks in a subsequent RPC. A follower starts applying commands to
+  889  its state machine once its faulty data is fixed. To fix the
+
+  890  USENIX Association
+=== PAGE 12 ===
+
+  891  16th USENIX Conference on File and Storage Technologies 25
+
+  892  leader, we added a new RPC which the leader issues to
+  893  the followers. The leader does not proceed to normal operation until its faulty data is fixed. After a configurable
+  894  recovery timeout, the leader steps down if it is unable to
+  895  recover its faulty data (for example, due to a partition),
+  896  allowing other nodes to become the leader. Several entries and chunks are batched in a single request/response,
+  897  avoiding multiple round trips.
+  898  ZooKeeper. In ZAB, the epoch and index are packed
+  899  into the zxid which uniquely identifies a log entry [5].
+  900  Followers discover and connect to the leader in Phase 1.
+  901  We modified Phase 1 to send information about the followers' faulty data. The followers are synchronized with
+  902  the leader in Phase 2. We modified Phase 2 so that the
+  903  leader sends the correct data to the followers. The leader
+  904  waits to hear from a majority during Phase 1 after which
+  905  it sends a newEpoch message; we modified this message
+  906  to send information about the leader's faulty data. The
+  907  leader does not proceed to Phase 2 until its data is fixed.
+
+  908  5 Evaluation
+  909  We evaluate the correctness and performance of CTRL
+  910  versions of LogCabin and ZooKeeper. We conducted our
+  911  performance experiments on a three-node cluster on a 1-
+  912  Gb network; each node is a 40-core Intel Xeon CPU E5-
+  913  2660 machine with 128 GB memory running Linux 3.13,
+  914  with a 500-GB SSD and a 1-TB HDD managed by ext4.
+
+  915  5.1 Correctness
+  916  To verify CTRL's safety and availability guarantees, we
+  917  built a fault-injection framework that can inject storage faults (targeted corruptions and random block corruptions and errors). The framework can also inject
+  918  crashes. By injecting crashes at different points in time,
+  919  the framework simulates lagging nodes. After injecting
+  920  faults, we issue reads from clients to determine whether
+  921  the target system remains available and preserves safety.
+  922  We first exercise different log-recovery scenarios.
+  923  Then, we test snapshot recovery, and finally file-system
+  924  metadata fault recovery.
+
+  925  5.1.1 Log Recovery
+  926  Targeted Corruptions. We initialize the cluster with
+  927  four log entries, replicated to all three nodes. We exercise all combinations of entry corruptions across the
+  928  three nodes ((24)3 = 4096 combinations). Out of the
+  929  4096 cases, a correct recovery is possible in 2401 cases
+  930  (at least one non-faulty copy of each entry exists). In the
+  931  remaining 1695 cases, recovery is not possible because
+  932  one or more entries are corrupted on all the nodes. We
+  933  inject targeted corruptions into two different sets of ondisk structures. In the first set, on a corruption, the original systems invoke the truncate action (i.e., they truncate
+  934  faulty data and continue). In the second set, the original systems invoke the crash action (i.e., node crashes
+
+  935  USENIX Association
+
+  936  Outcomes Outcomes
+
+  937  Original CTRL Original CTRL
+
+  938  Cases Cases
+
+  939  est est
+  940  T ailable ailable T ailable ailable
+  941  v v v v
+
+  942  otal otal
+  943  System T Una Unsafe Correct Una Unsafe Correct T Una Unsafe Correct Una Unsafe Correct
+  944  1000 297 257 446 0 0 1000 1000 405 36 559 434 0 566
+
+  945  Log- Cabin
+
+  946  eeper 1000 417 200 383 0 0 1000 1000 329 192 479 502 0 498
+
+  947  Zoo- K
+  948  (a) Snapshot Recovery (b) FS Metadata Faults
+  949  Table 5: Snapshot and FS Metadata Faults. (a) and (b) show how
+  950  CTRL recovers from snapshot and FS metadata faults, respectively.
+  951  on detection). For example, while ZooKeeper truncates
+  952  when the tail of a transaction is corrupted, it crashes the
+  953  node if the transaction header is corrupted. CTRL always
+  954  recovers the corrupted data from other replicas.
+  955  Table 4(a) shows the results. When recovery is possible, the original systems recover only in 46/2401 cases.
+  956  In those 46 cases, no node or only one node is corrupted.
+  957  In the remaining 2355 cases, the original systems are
+  958  either unsafe (for truncate) or unavailable (for crash).
+  959  In contrast, CTRL correctly recovers in all 2401 cases.
+  960  When a recovery is not possible (all copies corrupted),
+  961  the original systems are either unsafe or unavailable in
+  962  all cases. CTRL, by design, correctly remains unavailable
+  963  since continuing would violate safety.
+  964  Random Block Corruptions and Errors. We initialize
+  965  the cluster by replicating a few entries to all nodes. We
+  966  first choose a random set of nodes. In each such node, we
+  967  then corrupt a randomly selected file-system block (from
+  968  the files implementing the log). We repeat this process,
+  969  producing 5000 test cases. We similarly inject block errors. Since we inject a fault into a block, several entries
+  970  and their checksums within the block will be faulty.
+  971  Table 4(b) shows the results. For block corruptions,
+  972  original LogCabin is unsafe or unavailable in about
+  973  30% ((738 + 793)/5000) of cases. Similarly, original
+  974  ZooKeeper is incorrect in about 30% of cases. On a
+  975  block error, original LogCabin and ZooKeeper simply
+  976  crash the node, leading to unavailability in about 50% of
+  977  cases. In contrast, CTRL correctly recovers in all cases.
+  978  Faults with Crashed and Lagging Nodes. In the previous experiments, all entries were committed and present
+  979  on all nodes. In this experiment, we inject crashes at
+  980  different points on a random set of nodes while inserting entries. Thus, in the resultant log states, nodes could
+  981  be lagging, entries could be uncommitted, and have different epochs on different nodes for the same log index.
+  982  ⟨S : [a1, , ],S : [b2,c3, ],S : [b2, , ]⟩ is an example
+  983  1 2 3
+  984  state where S1 appends a at index 1 in epoch 1 (shown
+  985  in superscript) and crashes, S2 appends b at index 1 in
+  986  epoch 2, replicates to S3, then S2,S3 crash and recover,
+=== PAGE 13 ===
+
+  987  (a) and (b) show the write throughput in original and
+  988  on an HDD. (c) and (d) show the same for SSD. The number on top of each bar shows the performance of
+
+  989  26 16th USENIX Conference on File and Storage Technologies
+
+  990  Original CTRL Original CTRL
+  991  500 1000 0.92
+  992  0.9 0.9
+  993  400 800
+  994  300 0.85 600
+  995  0.89
+  996  200 0.83 400
+  997  0.82 0.88 0.89
+  998  100 200 0.84
+  999  0 2 4 8 16 32 0 2 4 8 16 32
+ 1000  Throughput(ops/sec) Number of clients Throughput(ops/sec) Number of clients
+
+ 1001  (a) LogCabin: Write (HDD) (b) ZooKeeper: Write (HDD)
+ 1002  Figure 5: Common-Case Write Performance.
+
+ 1003  S2 appends c in epoch 3 and crashes. From each such
+ 1004  state, we corrupt different entries, generating 5000 test
+ 1005  cases. For example, from the above state, we corrupt a
+ 1006  on S1 and b,c on S2. If S2 is elected the leader, S2 needs
+ 1007  to fix b from S3 (since b is committed), discard c (c is
+ 1008  uncommitted and cannot be recovered), and also instruct
+ 1009  S1 to discard a (a is uncommitted) and replicate correct
+ 1010  entry b. As shown in Table 4(c), CTRL correctly recovers from all such cases, while the original versions are
+ 1011  unsafe or unavailable in many cases.
+ 1012  Model Checking. We also model checked CTRL's log
+ 1013  recovery since it involves many corner cases, using a
+ 1014  python-based model that we developed. We explored
+ 1015  over 2.5M log states all of in which CTRL correctly recovered. Also, when key decisions are tweaked, the
+ 1016  checker finds a violation immediately: for example, the
+ 1017  leader concludes that a faulty entry is uncommitted only
+ 1018  after gathering bN/2c+ 1 dontHave responses; if this
+ 1019  number is reduced, then the checker finds a safety violation. We have also added the specification of CTRL's log
+ 1020  recovery to the TLA+ specification of Raft [23] and confirmed that it correctly recovers from corruptions, while
+ 1021  the original specification violates safety.
+
+ 1022  5.1.2 Snapshot Recovery
+ 1023  We trigger the nodes to take a snapshot, crashing them at
+ 1024  different points, producing three possible states for each
+ 1025  node: l, t, and g, where l is a state where the node has
+ 1026  only the log (it has not taken a snapshot), t is a snapshot
+ 1027  for which garbage collection has not been performed yet,
+ 1028  andg is a snapshot which has been garbage collected. We
+ 1029  produce all possible combinations of states across three
+ 1030  nodes. On each such state, we randomly pick a set of
+ 1031  nodes to inject faults, and corrupt a random combination
+ 1032  of snapshots and log entries, generating 1000 test cases.
+ 1033  For example, ⟨S1 : t,S2 : g,S3 : l⟩ is a base state on which
+ 1034  we corrupt snapshot t and a few preceding log entries
+ 1035  on S1 and g on S2. In such a state, if S1 becomes the
+ 1036  leader, it has to fix its log from S3, then has to locally
+ 1037  recover its t snapshot, after which it has to fix g on S2.
+ 1038  S1 also needs to install the snapshot on S3. As shown in
+ 1039  Table 5(a), CTRL correctly recovers from all such cases.
+ 1040  Original LogCabin is incorrect in about half of the cases
+ 1041  because it obliviously loads faulty snapshots sometimes
+ 1042  and crashes sometimes. Original ZooKeeper crashes the
+
+ 1043  Original CTRL Original CTRL
+ 1044  4 0.96
+ 1045  0.99 0.97 0.96 15
+ 1046  3 0.99 0.97
+ 1047  2 10
+ 1048  0.98 0.97
+ 1049  1 5 1.04 0.98
+ 1050  0 2 4 8 16 32 0 2 4 8 16 32
+ 1051  Throughput(Kops/sec) Number of clients Throughput(Kops/sec) Number of clients
+ 1052  (c) LogCabin: Write (SSD) (d) ZooKeeper: Write (SSD)
+ 1053  CTRL versions of LogCabin and ZooKeeper
+ 1054  CTRL normalized to that of original.
+ 1055  node if it is unable to locally construct the data from the
+ 1056  snapshot and the log, leading to unavailability; unsafety
+ 1057  results because a faulty log is truncated in some cases.
+
+ 1058  5.1.3 File-system Metadata Faults
+ 1059  To test how CTRL recovers from file-system metadata
+ 1060  faults, we corrupt file-system metadata structures (such
+ 1061  as inodes and directory blocks) resulting in unopenable
+ 1062  files, missing files, and files with fewer or more bytes.
+ 1063  We inject such faults in a randomly chosen file on one or
+ 1064  two nodes at a time, creating 1000 test cases. Table 5(b)
+ 1065  shows the results. In some cases, the faulty nodes in original versions crash because of a failed deserialization or
+ 1066  assertion. However, sometimes original LogCabin and
+ 1067  ZooKeeper do not detect the fault and continue operating, violating safety in 36 and 192 cases, respectively. In
+ 1068  contrast, CTRL reliably crashes the node on a file-system
+ 1069  metadata fault, preserving safety always.
+
+ 1070  5.2 Performance
+ 1071  We now compare the common-case performance of the
+ 1072  CTRL versions against the original versions. In both Log-
+ 1073  Cabin and ZooKeeper, reads are served from memory
+ 1074  and the read paths are not affected by CTRL. Hence,
+ 1075  we show only performance of write workloads. The
+ 1076  workload runs for 300 seconds, inserting entries each of
+ 1077  size 1K. Both systems batch writes to improve throughput. Snapshots are taken periodically during the updates.
+ 1078  Numbers reported are the average over five runs.
+ 1079  Figure 5(a) and (b) show the throughput on an
+ 1080  HDD for varying number of clients in LogCabin and
+ 1081  ZooKeeper, respectively. CLSTORE physically separates
+ 1082  the identifier from the entry; this separation induces a
+ 1083  seek on disks in the update path. However, the seek cost
+ 1084  is amortized when more requests are batched; CTRL has
+ 1085  an overhead of 8%-10% for 32 clients on disks. Figure 5(c) and (d) show throughput on an SSD; CTRL adds
+ 1086  very minimal overhead on SSDs (4% in the worst case).
+ 1087  Note that our workload performs only writes and therefore shows CTRL's overheads in the worst case; for more
+ 1088  realistic workloads that predominantly perform reads,
+ 1089  the overheads should be even lower.
+ 1090  Fast Log Recovery. To show the potential reduction in
+ 1091  log-recovery time, we insert 30K log entries (each of size
+ 1092  1K) and corrupt the first entry on one node. In origi-
+
+ 1093  USENIX Association
+=== PAGE 14 ===
+
+ 1094  16th USENIX Conference on File and Storage Technologies 27
+
+ 1095  nal LogCabin, the faulty node detects the corruption but
+ 1096  truncates all entries; hence, the leader transfers all entries
+ 1097  to bring the node up-to-date. CTRL fixes only the faulty
+ 1098  entry, reducing recovery time. The faulty node is fixed in
+ 1099  1.24 seconds (32MB transferred) in the original system,
+ 1100  while CTRL takes only 1.2 ms (7KB transferred). We see
+ 1101  a similar reduction in log-recovery time in ZooKeeper.
+
+ 1102  6 Related Work
+ 1103  Our analysis of how RSM-based systems react to storage
+ 1104  faults (§2.3) builds upon several fault-injection studies.
+ 1105  Our design of CTRL (§3) builds upon several efforts on
+ 1106  tolerating practical faults in distributed systems.
+ 1107  Storage Faults. Several studies on storage faults [34, 46,
+ 1108  48, 59, 60] motivated our work. Our previous work [29,
+ 1109  30] discovered fundamental reasons why distributed systems are not resilient to storage faults. However, the
+ 1110  study did not uncover any safety or availability violations reported in §2.3; this is because the fault model in
+ 1111  our previous study considers injecting only storage faults
+ 1112  (precisely, a single storage fault on a single node at a
+ 1113  time). In contrast, our fault model in this work considers
+ 1114  crashes and network failures in addition to storage faults,
+ 1115  exposing previously unknown safety and availability violations in RSM systems.
+ 1116  Targeted Approaches. Prior research describes two approaches [15, 17] to tackle storage faults in RSM systems. However, these approaches suffer from unavailability. Furthermore, the MarkNonVoting approach [17]
+ 1117  can violate safety because important metainfo such as
+ 1118  promises can be lost on a storage fault [70]. CTRL avoids
+ 1119  such safety violations by storing two copies of metainfo
+ 1120  on each node. Approaches that improve the reliability of
+ 1121  other specific systems have also been proposed [68, 71].
+ 1122  Generic Approaches. Many generic approaches to handling practical faults other than crashes have been proposed. PASC [21] hardens systems to tolerate corruptions by maintaining two copies of the entire state on
+ 1123  each node and assumes that both the copies will not be
+ 1124  faulty at the same time. This approach does not work
+ 1125  well for storage faults; having two copies of on-disk state
+ 1126  incurs 2× space overhead. Furthermore, in most cases,
+ 1127  PASC crashes the node on a fault, causing unavailability.
+ 1128  XFT [42] is designed to tolerate non-crash faults. However, it can tolerate only a total of b(N −1)/2c crash and
+ 1129  non-crash faults. Similarly, UpRight [20] has an upper
+ 1130  bound on the total faults to remain safe and available.
+ 1131  CTRL differs from the generic approaches through its
+ 1132  special focus on storage faults. This focus brings two
+ 1133  main advantages. First, CTRL attributes faults at a fine
+ 1134  granularity: while the generic approaches consider a
+ 1135  node as faulty if any of its data is corrupted, CTRL considers faults at the granularity of individual data items.
+ 1136  Second, because of such fine-granular fault treatment,
+
+ 1137  USENIX Association
+
+ 1138  CTRL can be available as long as a majority of nodes
+ 1139  are up and at least one non-faulty copy of a data item
+ 1140  exists even though portions of data on all nodes could
+ 1141  be corrupted. CTRL cannot tolerate arbitrary non-crash
+ 1142  faults [40] (e.g., memory errors). However, CTRL can
+ 1143  augment the generic approaches: for example, a system can be hardened against memory faults using PASC
+ 1144  while making it robust to storage faults using CTRL.
+
+ 1145  7 Conclusions
+ 1146  Recovering from storage faults in distributed systems is
+ 1147  surprisingly hard. We introduce protocol-aware recovery (PAR), a new approach that exploits protocol-specific
+ 1148  knowledge of the underlying distributed system to correctly recover from storage faults. We design CTRL, a
+ 1149  protocol-aware recovery approach for RSM systems. We
+ 1150  experimentally show that CTRL correctly recovers from a
+ 1151  range of storage faults with little performance overhead.
+ 1152  Our work is only a first step in hardening distributed
+ 1153  systems to storage faults: while we have successfully applied the PAR approach to RSM systems, other classes of
+ 1154  systems (e.g., primary-backup, Dynamo-style quorums)
+ 1155  still remain to be analyzed. We believe the PAR approach
+ 1156  can be applied to such classes as well. We hope our work
+ 1157  will lead to more work on building reliable distributed
+ 1158  storage systems that are robust to storage faults.
+
+ 1159  Acknowledgments
+
+ 1160  We thank Mahesh Balakrishnan (our shepherd), the
+ 1161  anonymous reviewers, and the members of ADSL
+ 1162  for their excellent feedback. We also thank Cloud-
+ 1163  Lab [56] for providing a great environment to run our
+ 1164  experiments. This material was supported by funding from NSF grants CNS-1421033 and CNS-1218405,
+ 1165  DOE grant DE-SC0014935, and donations from EMC,
+ 1166  Huawei, Microsoft, and VMware. Any opinions, findings, and conclusions or recommendations expressed in
+ 1167  this material are those of the authors and may not reflect
+ 1168  the views of NSF, DOE, or other institutions.
+
+ 1169  References
+
+ 1170  [1] Crash-Corruption Disentanglement Proof.
+ 1171  http://research.cs.wisc.edu/adsl/
+ 1172  Publications/par/.
+
+ 1173  [2] Ittai Abraham, Gregory Chockler, Idit Keidar, and
+ 1174  Dahlia Malkhi. Byzantine Disk Paxos: Optimal
+ 1175  Resilience with Byzantine Shared Memory. Distributed Computing, 18(5):387–408, 2006.
+
+ 1176  [3] Ramnatthan Alagappan, Aishwarya Ganesan, Yuvraj Patel, Thanumalayan Sankaranarayana Pillai,
+=== PAGE 15 ===
+
+ 1177  architectureDataDistributeReplication_
+
+ 1178  28 16th USENIX Conference on File and Storage Technologies
+
+ 1179  Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-
+ 1180  Dusseau. Correlated Crash Vulnerabilities. In Proceedings of the 12th USENIX Conference on Operating Systems Design and Implementation (OSDI
+ 1181  '16), Savannah, GA, November 2016.
+ 1182  [4] Apache. ZooKeeper. https://zookeeper.
+ 1183  apache.org/.
+ 1184  [5] Apache. ZooKeeper Guarantees, Properties, and Definitions. https://
+ 1185  zookeeper.apache.org/doc/r3.2.
+ 1186  2/zookeeperInternals.html#sc_
+ 1187  guaranteesPropertiesDefinitions.
+ 1188  [6] Apache Cassandra. Cassandra Replication. http:
+ 1189  //docs.datastax.com/en/cassandra/
+ 1190  2.0/cassandra/architecture/
+
+ 1191  c.html.
+ 1192  [7] Apache ZooKeeper. Applications and Organizations using ZooKeeper. https:
+ 1193  //cwiki.apache.org/confluence/
+ 1194  display/ZOOKEEPER/PoweredBy.
+ 1195  [8] Remzi H. Arpaci-Dusseau and Andrea C. Arpaci-
+ 1196  Dusseau. Operating Systems: Three Easy Pieces.
+ 1197  Arpaci-Dusseau Books, 0.91 edition, May 2015.
+ 1198  [9] Lakshmi N. Bairavasundaram, Andrea C. Arpaci-
+ 1199  Dusseau, Remzi H. Arpaci-Dusseau, Garth R.
+ 1200  Goodson, and Bianca Schroeder. An Analysis of
+ 1201  Data Corruption in the Storage Stack. In Proceedings of the 6th USENIX Symposium on File and
+ 1202  Storage Technologies (FAST '08), San Jose, CA,
+ 1203  February 2008.
+
+ 1204  [10] Lakshmi N. Bairavasundaram, Garth R. Goodson,
+ 1205  Shankar Pasupathy, and Jiri Schindler. An Analysis
+ 1206  of Latent Sector Errors in Disk Drives. In Proceedings of the 2007 ACM SIGMETRICS Conference on
+ 1207  Measurement and Modeling of Computer Systems
+ 1208  (SIGMETRICS '07), San Diego, CA, June 2007.
+
+ 1209  [11] Lakshmi N. Bairavasundaram, Meenali Rungta,
+ 1210  Nitin Agrawal, Andrea C. Arpaci-Dusseau,
+ 1211  Remzi H. Arpaci-Dusseau, and Michael M. Swift.
+ 1212  Analyzing the Effects of Disk-Pointer Corruption.
+ 1213  In Proceedings of the International Conference
+ 1214  on Dependable Systems and Networks (DSN '08),
+ 1215  Anchorage, Alaska, June 2008.
+
+ 1216  [12] Lakshmi Narayanan Bairavasundaram. Characteristics, Impact, and Tolerance of Partial Disk Failures. PhD thesis, University of Wisconsin, Madison, 2008.
+
+ 1217  [13] Mahesh Balakrishnan, Dahlia Malkhi, Vijayan
+ 1218  Prabhakaran, Ted Wobber, Michael Wei, and
+ 1219  John D. Davis. CORFU: A Shared Log Design for
+ 1220  Flash Clusters. In Proceedings of the 9th Symposium on Networked Systems Design and Implementation (NSDI '12), San Jose, CA, April 2012.
+ 1221  [14] Andrew D. Birrell, Roy Levin, Michael D.
+ 1222  Schroeder, and Roger M. Needham. Grapevine:
+ 1223  An Exercise in Distributed Computing. Commun.
+ 1224  ACM, 25(4):260–274, April 1982.
+ 1225  [15] William J. Bolosky, Dexter Bradshaw, Randolph B.
+ 1226  Haagens, Norbert P. Kusters, and Peng Li. Paxos
+ 1227  Replicated State Machines As the Basis of a Highperformance Data Store. In Proceedings of the 8th
+ 1228  Symposium on Networked Systems Design and Implementation (NSDI '11), Boston, MA, April 2011.
+ 1229  [16] Mike Burrows. The Chubby Lock Service for
+ 1230  Loosely-Coupled Distributed Systems. In Proceedings of the 7th Symposium on Operating Systems
+ 1231  Design and Implementation (OSDI '06), Seattle,
+ 1232  WA, November 2006.
+ 1233  [17] Tushar D Chandra, Robert Griesemer, and Joshua
+ 1234  Redstone. Paxos Made Live: An Engineering Perspective. In Proceedings of the 26th ACM Symposium on Principles of Distributed Computing, Portland, OR, August 2007.
+ 1235  [18] Vijay Chidambaram, Thanumalayan Sankaranarayana Pillai, Andrea C. Arpaci-Dusseau, and
+ 1236  Remzi H. Arpaci-Dusseau. Optimistic Crash Consistency. In Proceedings of the 24th ACM Symposium on Operating Systems Principles (SOSP '13),
+ 1237  Farmington, PA, November 2013.
+ 1238  [19] Vijay Chidambaram, Tushar Sharma, Andrea C.
+ 1239  Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau.
+ 1240  Consistency Without Ordering. In Proceedings of
+ 1241  the 10th USENIX Symposium on File and Storage
+ 1242  Technologies (FAST '12), San Jose, CA, February
+ 1243  2012.
+ 1244  [20] Allen Clement, Manos Kapritsos, Sangmin Lee,
+ 1245  Yang Wang, Lorenzo Alvisi, Mike Dahlin, and Taylor Riche. Upright Cluster Services. In Proceedings
+ 1246  of the 22nd ACM Symposium on Operating Systems
+ 1247  Principles (SOSP '09), Big Sky, Montana, October
+ 1248  2009.
+ 1249  [21] Miguel Correia, Daniel G´omez Ferro, Flavio P. Junqueira, and Marco Serafini. Practical Hardening of
+ 1250  Crash-Tolerant Systems. In 2012 USENIX Annual
+ 1251  Technical Conference (USENIX ATC 12), Boston,
+ 1252  MA, June 2012.
+
+ 1253  USENIX Association
+=== PAGE 16 ===
+
+ 1254  16th USENIX Conference on File and Storage Technologies 29
+
+ 1255  [22] Jeff Dean. Building Large-Scale Internet Services.
+ 1256  http://static.googleusercontent.
+ 1257  com/media/research.google.com/en/
+ 1258  /people/jeff/SOCC2010-keynoteslides.pdf.
+ 1259  [23] Diego Ongaro. Raft TLA+ Specification. https:
+ 1260  //github.com/ongardie/raft.tla.
+ 1261  [24] epaxos. epaxos source code. https://github.
+ 1262  com/efficient/epaxos.
+ 1263  [25] etcd. etcd. https://coreos.com/etcd.
+ 1264  [26] Etcd. Etcd: Production users. https:
+ 1265  //coreos.com/etcd/docs/latest/
+ 1266  production-users.html.
+ 1267  [27] Daniel Fryer, Dai Qin, Jack Sun, Kah Wai Lee, Angela Demke Brown, and Ashvin Goel. Checking
+ 1268  the Integrity of Transactional Mechanisms. In Proceedings of the 12th USENIX Symposium on File
+ 1269  and Storage Technologies (FAST '14), Santa Clara,
+ 1270  CA, February 2014.
+ 1271  [28] Daniel Fryer, Kuei Sun, Rahat Mahmood, TingHao
+ 1272  Cheng, Shaun Benjamin, Ashvin Goel, and Angela Demke Brown. Recon: Verifying File System
+ 1273  Consistency at Runtime. In Proceedings of the 10th
+ 1274  USENIX Symposium on File and Storage Technologies (FAST '12), San Jose, CA, February 2012.
+ 1275  [29] Aishwarya Ganesan, Ramnatthan Alagappan, Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-
+ 1276  Dusseau. Redundancy Does Not Imply Fault Tolerance: Analysis of Distributed Storage Reactions to File-System Faults. ACM Trans. Storage,
+ 1277  13(3):20:1–20:33, September 2017.
+ 1278  [30] Aishwarya Ganesan, Ramnatthan Alagappan, Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-
+ 1279  Dusseau. Redundancy Does Not Imply Fault Tolerance: Analysis of Distributed Storage Reactions to
+ 1280  Single Errors and Corruptions. In Proceedings of
+ 1281  the 15th USENIX Conference on File and Storage
+ 1282  Technologies (FAST '17), Santa Clara, CA, February 2017.
+ 1283  [31] Sanjay Ghemawat, Howard Gobioff, and Shun-Tak
+ 1284  Leung. The Google File System. In Proceedings
+ 1285  of the 19th ACM Symposium on Operating Systems
+ 1286  Principles (SOSP '03), Bolton Landing, New York,
+ 1287  October 2003.
+ 1288  [32] Matthias Grawinkel, Thorsten Schafer, Andre
+ 1289  Brinkmann, Jens Hagemeyer, and Mario Porrmann. Evaluation of Applied Intra-disk Redundancy Schemes to Improve Single Disk Reliability.
+
+ 1290  USENIX Association
+
+ 1291  In Proceedings of the 19th Annual Meeting of the
+ 1292  IEEE International Symposium on Modeling, Analysis, and Simulation of Computer and Telecommunication Systems (MASCOTS), Washington, DC,
+ 1293  July 2011.
+ 1294  [33] Kevin M Greenan, Darrell DE Long, Ethan L
+ 1295  Miller, Thomas Schwarz, and Avani Wildani.
+ 1296  Building Flexible, Fault-Tolerant Flash-Based Storage Systems. In The 5th Workshop on Hot Topics in
+ 1297  System Dependability (HotDep '09), Lisbon, Portugal, June 2009.
+ 1298  [34] Laura M Grupp, Adrian M Caulfield, Joel Coburn,
+ 1299  Steven Swanson, Eitan Yaakobi, Paul H Siegel,
+ 1300  and Jack K Wolf. Characterizing Flash Memory:
+ 1301  Anomalies, Observations, and Applications. In
+ 1302  Proceedings of the 42nd Annual IEEE/ACM International Symposium on Microarchitecture (MI-
+ 1303  CRO'09), New York, New York, December 2009.
+ 1304  [35] James Hamilton. On Designing and Deploying
+ 1305  Internet-Scale Services. In Proceedings of the 21st
+ 1306  Annual Large Installation System Administration
+ 1307  Conference (LISA '07), Dallas, Texas, November
+ 1308  2007.
+ 1309  [36] James Myers. Data Integrity in Solid State Drives.
+ 1310  http://intel.ly/2cF0dTT.
+ 1311  [37] John Goerzen. Silent Data Corruption Is
+ 1312  Real. http://changelog.complete.
+ 1313  org/archives/9769-silent-datacorruption-is-real.
+ 1314  [38] Jonathan Corbet. Responding to ext4 journal
+ 1315  corruption. https://lwn.net/Articles/
+ 1316  284037/.
+ 1317  [39] Flavio P Junqueira, Benjamin C Reed, and Marco
+ 1318  Serafini. Zab: High-Performance Broadcast for
+ 1319  Primary-Backup Systems. In Proceedings of the
+ 1320  International Conference on Dependable Systems
+ 1321  and Networks (DSN '11), Hong Kong, China, June
+ 1322  2011.
+ 1323  [40] Dmitrii Kuvaiskii, Rasha Faqeh, Pramod Bhatotia, Pascal Felber, and Christof Fetzer. HAFT:
+ 1324  Hardware-assisted Fault Tolerance. In Proceedings
+ 1325  of the EuroSys Conference (EuroSys '16), London,
+ 1326  United Kingdom, April 2016.
+ 1327  [41] Leslie Lamport. Paxos Made Simple. ACM Sigact
+ 1328  News, 32(4):18–25, 2001.
+ 1329  [42] Shengyun Liu, Paolo Viotti, Christian Cachin,
+ 1330  Vivien Qu´ema, and Marko Vukolic. XFT: Practical
+ 1331  Fault Tolerance Beyond Crashes. In Proceedings
+=== PAGE 17 ===
+
+ 1332  30 16th USENIX Conference on File and Storage Technologies
+
+ 1333  of the 12th USENIX Conference on Operating Systems Design and Implementation (OSDI '16), Savannah, GA, November 2016.
+ 1334  [43] LogCabin. LogCabin. https://github.com/
+ 1335  logcabin/logcabin.
+ 1336  [44] Jacob R Lorch, Atul Adya, William J Bolosky,
+ 1337  Ronnie Chaiken, John R Douceur, and Jon Howell.
+ 1338  The SMART Way to Migrate Replicated Stateful
+ 1339  Services. In Proceedings of the EuroSys Conference (EuroSys '06), Leuven, Belgium, April 2006.
+ 1340  [45] Parisa Jalili Marandi, Christos Gkantsidis, Flavio
+ 1341  Junqueira, and Dushyanth Narayanan. Filo: Consolidated Consensus As a Cloud Service. In 2016
+ 1342  USENIX Annual Technical Conference (USENIX
+ 1343  ATC 16), Denver, CO, June 2016.
+ 1344  [46] Justin Meza, Qiang Wu, Sanjev Kumar, and Onur
+ 1345  Mutlu. A Large-Scale Study of Flash Memory Failures in the Field. In Proceedings of the 2015 ACM
+ 1346  SIGMETRICS International Conference on Measurement and Modeling of Computer Systems (SIG-
+ 1347  METRICS '15), Portland, Oregon, June 2015.
+ 1348  [47] MongoDB. MongoDB Replication.
+ 1349  https://docs.mongodb.org/manual/
+ 1350  replication/.
+ 1351  [48] Iyswarya Narayanan, Di Wang, Myeongjae Jeon,
+ 1352  Bikash Sharma, Laura Caulfield, Anand Sivasubramaniam, Ben Cutler, Jie Liu, Badriddine Khessib,
+ 1353  and Kushagra Vaid. SSD Failures in Datacenters:
+ 1354  What? When? And Why? In Proceedings of
+ 1355  the 9th ACM International on Systems and Storage Conference (SYSTOR '16), Haifa, Israel, June
+ 1356  2016.
+ 1357  [49] Diego Ongaro. Consensus: Bridging Theory and
+ 1358  Practice. PhD thesis, Stanford University, 2014.
+ 1359  [50] Diego Ongaro and John Ousterhout. In Search of
+ 1360  an Understandable Consensus Algorithm. In 2014
+ 1361  USENIX Annual Technical Conference (USENIX
+ 1362  ATC 14), Philadelphia, PA, June 2014.
+ 1363  [51] Bernd Panzer-Steindel. Data Integrity. CERN/IT,
+ 1364  2007.
+ 1365  [52] Thanumalayan Sankaranarayana Pillai, Ramnatthan Alagappan, Lanyue Lu, Vijay Chidambaram, Andrea C. Arpaci-Dusseau, and
+ 1366  Remzi H. Arpaci-Dusseau. Application Crash
+ 1367  Consistency and Performance with CCFS. In
+ 1368  Proceedings of the 15th USENIX Conference on
+ 1369  File and Storage Technologies (FAST '17), Santa
+ 1370  Clara, CA, February 2017.
+
+ 1371  [53] Thanumalayan Sankaranarayana Pillai, Vijay
+ 1372  Chidambaram, Ramnatthan Alagappan, Samer
+ 1373  Al-Kiswany, Andrea C. Arpaci-Dusseau, and
+ 1374  Remzi H. Arpaci-Dusseau. All File Systems Are
+ 1375  Not Created Equal: On the Complexity of Crafting
+ 1376  Crash-consistent Applications. In Proceedings of
+ 1377  the 11th Symposium on Operating Systems Design
+ 1378  and Implementation (OSDI '14), Broomfield, CO,
+ 1379  October 2014.
+
+ 1380  [54] Vijayan Prabhakaran, Lakshmi N. Bairavasundaram, Nitin Agrawal, Haryadi S. Gunawi, Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-
+ 1381  Dusseau. IRON File Systems. InProceedings of the
+ 1382  20th ACM Symposium on Operating Systems Principles (SOSP '05), Brighton, UK, October 2005.
+
+ 1383  [55] Redis. Redis Replication. http://redis.io/
+ 1384  topics/replication.
+
+ 1385  [56] Robert Ricci, Eric Eide, and CloudLab Team. Introducing CloudLab: Scientific infrastructure for
+ 1386  advancing cloud architectures and applications.
+ 1387  USENIX ;login:, 39(6), 2014.
+
+ 1388  [57] Robert Harris. Data corruption is worse than you
+ 1389  know. http://www.zdnet.com/article/
+ 1390  data-corruption-is-worse-thanyou-know/.
+
+ 1391  [58] Fred B. Schneider. Implementing Fault-tolerant
+ 1392  Services Using the State Machine Approach: A Tutorial. ACM Comput. Surv., 22(4):299–319, December 1990.
+
+ 1393  [59] Bianca Schroeder, Sotirios Damouras, and Phillipa
+ 1394  Gill. Understanding Latent Sector Errors and How
+ 1395  to Protect Against Them. In Proceedings of the 8th
+ 1396  USENIX Symposium on File and Storage Technologies (FAST '10), San Jose, CA, February 2010.
+
+ 1397  [60] Bianca Schroeder, Raghav Lagisetty, and Arif Merchant. Flash Reliability in Production: The Expected and the Unexpected. In Proceedings of
+ 1398  the 14th USENIX Conference on File and Storage
+ 1399  Technologies (FAST '16), Santa Clara, CA, February 2016.
+
+ 1400  [61] Michael D. Schroeder, Andrew D. Birrell, and
+ 1401  Roger M. Needham. Experience with Grapevine:
+ 1402  The Growth of a Distributed System. ACM Trans.
+ 1403  Comput. Syst., 2(1):3–23, February 1984.
+
+ 1404  [62] Thomas Schwarz, Ahmed Amer, Thomas Kroeger,
+ 1405  Ethan L. Miller, Darrell D. E. Long, and Jehan-
+ 1406  Franois Pris. RESAR: Reliable Storage at Exabyte
+
+ 1407  USENIX Association
+=== PAGE 18 ===
+
+ 1408  16th USENIX Conference on File and Storage Technologies 31
+
+ 1409  Scale. In Proceedings of the 24th Annual Meeting of the IEEE International Symposium on Modeling, Analysis, and Simulation of Computer and
+ 1410  Telecommunication Systems (MASCOTS), London,
+ 1411  United Kingdom, September 2016.
+ 1412  [63] Romain Slootmaekers and Nicolas Trangez.
+ 1413  Arakoon: A Distributed Consistent Key-Value
+ 1414  Store. In SIGPLAN OCaml Users and Developers
+ 1415  Workshop, volume 62, 2012.
+
+ 1416  [64] Stackoverflow. Can ext4 detect corrupted file
+ 1417  contents? http://stackoverflow.
+ 1418  com/questions/31345097/can-ext4detect-corrupted-file-contents.
+ 1419  [65] Stackoverflow. ZooKeeper Clear State. http:
+ 1420  //stackoverflow.com/questions/
+ 1421  17038957/org-apache-hadoop-hbasepleaseholdexception-master-isinitializing.
+ 1422  [66] Michael M. Swift, Brian N. Bershad, and Henry M.
+ 1423  Levy. Improving the Reliability of Commodity
+ 1424  Operating Systems. In Proceedings of the 19th
+ 1425  ACM Symposium on Operating Systems Principles
+ 1426  (SOSP '03), Bolton Landing, New York, October
+ 1427  2003.
+
+ 1428  [67] D. B. Terry, M. M. Theimer, Karin Petersen, A. J.
+ 1429  Demers, M. J. Spreitzer, and C. H. Hauser. Managing Update Conflicts in Bayou, a Weakly Connected Replicated Storage System. In Proceedings
+ 1430  of the 15th ACM Symposium on Operating Systems
+ 1431  Principles (SOSP '95), Copper Mountain Resort,
+ 1432  CO, December 1995.
+
+ 1433  [68] Thanh Do, Tyler Harter, Yingchao Liu, Haryadi
+ 1434  S. Gunawi, Andrea C. Arpaci-Dusseau, Remzi H.
+ 1435  Arpaci-Dusseau. HARDFS: Hardening HDFS with
+ 1436  Selective and Lightweight Versioning. In Proceedings of the 11th Conference on File and Storage Technologies (FAST '13), San Jose, California,
+ 1437  February 2013.
+
+ 1438  [69] Theodore Ts'o. What to do when the journal
+ 1439  checksum is incorrect. https://lwn.net/
+ 1440  Articles/284038/.
+ 1441  [70] Robbert Van Renesse, Nicolas Schiper, and Fred B
+ 1442  Schneider. Vive La Diff´erence: Paxos vs. Viewstamped Replication vs. Zab. IEEE Transactions
+ 1443  on Dependable and Secure Computing, 12(4):472–
+ 1444  484, 2015.
+
+ 1445  [71] Yang Wang, Manos Kapritsos, Zuocheng Ren,
+ 1446  Prince Mahajan, Jeevitha Kirubanandam, Lorenzo
+
+ 1447  USENIX Association
+
+ 1448  Alvisi, and Mike Dahlin. Robustness in the Salus
+ 1449  Scalable Block Store. In Proceedings of the 10th
+ 1450  Symposium on Networked Systems Design and Implementation (NSDI '13), Lombard, IL, April 2013.
+ 1451  [72] Yupu Zhang, Abhishek Rajimwale, Andrea C.
+ 1452  Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau.
+ 1453  End-to-end Data Integrity for File Systems: A
+ 1454  ZFS Case Study. In Proceedings of the 8th
+ 1455  USENIX Symposium on File and Storage Technologies (FAST '10), San Jose, CA, February 2010.
+ 1456  [73] ZooKeeper Jira Issues. Unable to load database
+ 1457  on disk when restarting after node freeze.
+ 1458  https://issues.apache.org/jira/
+ 1459  browse/ZOOKEEPER-1546.

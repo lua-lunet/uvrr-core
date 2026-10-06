@@ -1,0 +1,707 @@
+---
+title: "Cheap Paxos"
+authors:
+  - "Leslie Lamport"
+  - "Mike Massa"
+year: "2004"
+publication: "International Conference on Dependable Systems and Networks"
+handle_url: "https://consensus.app/papers/cheap-paxos-lamport-massa/355660d6b49b5d68868edec255a0bad7/"
+source_pdf: "research/agent366/papers/lamport2004-cheap-paxos.pdf"
+source_pdf_sha256: "86847dd2d7733b48dcae0c09c5aefc82c1216570314d189e68c20bbc56b4cc80"
+page_count: 9
+extracted_text_runs: 1544
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-05"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Asynchronous algorithms for implementing a fault-tolerant distributed system, which can make progress despite the failure of any F processors, require 2F + 1 processors. Cheap Paxos, a variant of the Paxos algorithm, guarantees liveness under the additional assumption that the set of nonfaulty processors does not "jump around" too fast, but uses only F + 1 main processors that actually execute the system and F auxiliary processors that are used only to handle the failure of a main processor. The auxiliary processors take part in reconfiguring the system to remove the failed processor, after which they can remain idle until another main processor fails.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Cheap Paxos
+
+    2  Leslie Lamport and Mike Massa
+
+    3  Appeared in
+
+    4  The International Conference on Dependable Systems and Networks
+
+    5  (DSN 2004 )
+=== PAGE 2 ===
+
+    6  Cheap Paxos
+
+    7  Leslie Lamport and Mike Massa
+
+    8  Microsoft
+
+    9  Abstract
+
+   10  Asynchronous algorithms for implementing a faulttolerant distributed system, which can make progress
+   11  despite the failure of any F processors, require 2F + 1
+   12  processors. Cheap Paxos, a variant of the Paxos algorithm, guarantees liveness under the additional assumption that the set of nonfaulty processors does not
+   13  "jump around" too fast, but uses only F + 1 main processors that actually execute the system and F auxiliary
+   14  processors that are used only to handle the failure of a
+   15  main processor. The auxiliary processors take part in
+   16  reconfiguring the system to remove the failed processor,
+   17  after which they can remain idle until another main
+   18  processor fails.
+
+   19  1 Introduction
+
+   20  The state-machine approach consists of describing a
+   21  system as a state machine that takes as input a sequence of client commands and produces a sequence of
+   22  states and outputs [4, 10]. The state machine is implemented by a collection of servers. It reduces the
+   23  problem of implementing a distributed system to that
+   24  of having the servers choose a sequence of commands.
+   25  Making the system reliable requires that all processors
+   26  agree on each command in the sequence, despite the
+   27  failure of some components. For asynchronous systems,
+   28  we require that consistency be maintained in the face
+   29  of any number of non-malicious (non-Byzantine) failures, and that progress be ensured when enough processors are nonfaulty and can communicate with one
+   30  another in a timely manner [2]. The "classic" Paxos
+   31  algorithm is an efficient, practical algorithm for achieving this [1, 5, 7].
+   32  Consider the problem of implementing a distributed
+   33  system that can make progress if all but one processor
+   34  is working. Previous algorithms, such as classic Paxos,
+   35  require three processors. Only two of those processors
+   36  need maintain the system state; but a third processor must participate in choosing the sequence of commands. The following argument shows that this third
+
+   37  processor is necessary. Suppose the system is implemented by only two processors, p and q, and suppose
+   38  that q fails. The requirement that the system continue
+   39  to make progress despite a single failed processor means
+   40  that p must continue operating the system. Now suppose that p fails and then q is repaired. Since there
+   41  is only one failed processor, q must be able to resume
+   42  operating the system. But this is clearly impossible,
+   43  since q does not know the current state of the system
+   44  because it does not know what p did after q failed.
+   45  Some third processor is needed—for example, a disk
+   46  that can be accessed by both p and q.
+   47  Suppose we are willing to weaken the liveness requirement, so that if q fails and then p fails before q is
+   48  repaired, then the system may halt until p is repaired.
+   49  Two processors are still not enough if we require that
+   50  consistency be maintained despite communication failure. With only two processors p and q, one processor
+   51  cannot distinguish failure of the other processor from
+   52  failure of the communication medium. Since consistency is lost if each processor continues operating the
+   53  system by itself, the system cannot allow each processor to continue just because it thinks that the other
+   54  processor has failed. A third processor is needed. However, that third processor does not have to participate
+   55  in choosing the sequence of commands. It must take
+   56  action only in case p or q fails, after which it does
+   57  nothing while either p or q continues to operate the
+   58  system by itself. The third processor can therefore be
+   59  a small/slow/cheap one, or a processor primarily devoted to other tasks.
+   60  This argument suggests that there exists a method
+   61  of implementing a one-fault tolerant system, satisfying
+   62  the consistency property of classic Paxos and a weaker
+   63  liveness property, using two main processors plus a
+   64  third auxiliary processor. This paper describes Cheap
+   65  Paxos, a generalization of such an algorithm that tolerates F faults with F + 1 main processors and F auxiliary processors. It maintains liveness under a sort of
+   66  "amoeba" assumption [3], under which the subnetwork
+   67  of working main processors does not move around too
+   68  quickly. The assumption can be described as follows.
+   69  A nonfaulty processor maintains a certain knowledge
+=== PAGE 3 ===
+
+   70  of the system's state. When a faulty processor is repaired, it can, in a finite length of time, re-acquire this
+   71  knowledge from any other processor that possesses it.
+   72  Liveness is maintained as long as there is at least one
+   73  main processor with knowledge of the system state and
+   74  F + 1 processors (main or auxiliary) that are nonfaulty
+   75  and can communicate with one another in a timely
+   76  manner. Consistency is always maintained (assuming
+   77  non-malicious failures).
+   78  There are two threads of previous work that superficially resemble Cheap Paxos. The first is the use of
+   79  main processors that are replaced by spares if they
+   80  fail [8]. Indeed, classic Paxos requires only F + 1
+   81  working processors to operate a system that tolerates
+   82  F faults; the remaining F processors can be used as
+   83  spares. However, unlike the auxiliary processors of
+   84  Cheap Paxos, spares must have the necessary computing power to replace a failed main processor. The second thread is the use of dynamic quorum algorithms for
+   85  maintaining multiple copies of a database. These algorithms can employ "witness" processors that need not
+   86  maintain the data [9]. However, unlike the auxiliary
+   87  processors of Cheap Paxos, these witnesses participate
+   88  in each operation.
+   89  Two moderately recent developments in computing
+   90  may make Cheap Paxos useful. First, improvements
+   91  to hardware and operating systems make computers
+   92  less likely to crash. The weaker liveness guarantee of
+   93  Cheap Paxos may therefore still provide sufficient reliability. Second, the widespread use of computers makes
+   94  it more likely that an organization will have additional
+   95  machines from which cycles can be "stolen" to implement the auxiliary processors.
+   96  One might think that the low cost of computers
+   97  would make Cheap Paxos uninteresting. However, we
+   98  have observed that people are no more willing to use
+   99  extra hardware to make a system simpler and more reliable than they were 40 years ago, even though that
+  100  hardware has become orders of magnitude cheaper.
+  101  The following section reviews Paxos, and Section 3
+  102  describes Cheap Paxos. The obligatory conclusion follows.
+
+  103  2 A Review of Paxos
+
+  104  The Paxos algorithm for implementing a distributed
+  105  state machine was introduced in [5]. We consider two
+  106  versions of Paxos. In the basic version, to which we
+  107  give the name Static Paxos, the set of servers is fixed.
+  108  A variation that we call Dynamic Paxos, mentioned
+  109  briefly in [5], uses state machine commands to change
+  110  the set of servers. We begin by considering Static
+  111  Paxos; Dynamic Paxos is explained in Section 2.3.
+
+  112  2.1 The Paxos Consensus Algorithm
+  113  To implement a distributed system as a state machine,
+  114  the processors of the system must choose a sequence
+  115  of commands. This is done by executing a sequence
+  116  of instances of a consensus algorithm, the ith instance
+  117  choosing the ith command in the sequence. We now
+  118  review the Paxos consensus algorithm.
+  119  The goal of a consensus algorithm is for a collection
+  120  of processes to agree upon a value. It is most convenient to phrase the consensus problem in terms of three
+  121  classes of agents: proposers that propose values, acceptors that cooperate to choose a single proposed value,
+  122  and learners that must learn what value has been chosen [6]. A single processor can act as more than one
+  123  kind of agent. The safety properties that a consensus
+  124  algorithm must satisfy are:
+  125  Nontriviality Only a value that has been proposed
+  126  may be chosen,
+  127  Consistency Only a single value may be chosen.
+  128  Conservatism Only a chosen value may be learned.
+  129  There is also a liveness requirement that we do not try
+  130  to state precisely; it is discussed informally below.
+  131  The Paxos consensus algorithm has been discussed
+  132  elsewhere [1, 5, 6, 7], so we do not explain here exactly
+  133  how it works. Instead, we just describe its actions.
+  134  Paxos assumes an underlying procedure for selecting a leader. Safety is guaranteed even if no leader
+  135  or multiple leaders are selected, but a unique leader
+  136  is required to ensure progress. Proposers send their
+  137  proposals to the leader.
+  138  The consensus algorithm assumes predefined sets of
+  139  acceptors called quorums. The only requirement on
+  140  the quorums is that any two quorums have at least one
+  141  acceptor in common. Paxos also assumes a set of ballot
+  142  numbers, which for simplicity we take to be the natural
+  143  numbers. The ballot numbers are partitioned among
+  144  potential leaders, each possible leader having its own
+  145  disjoint set of ballot numbers.
+  146  The consensus algorithm has two phases, each with
+  147  two subphases. The algorithm's actions are described
+  148  below. The algorithm sends messages between learners
+  149  and acceptors, and from acceptors to learners. Since
+  150  the same processor may be playing multiple roles, it
+  151  can send messages to itself.
+  152  Phase1a(l, b) Leader l chooses a number b from among
+  153  its ballot numbers and sends ⟨"1a", b⟩ messages to
+  154  the acceptors.
+  155  Phase1b(a,b) When acceptor a receives a ⟨"1a", b⟩
+  156  message from a leader l, if it has not received any
+  157  message with a ballot number greater than b, then
+
+  158  2
+=== PAGE 4 ===
+
+  159  it replies to l with a ⟨"1b", b, . . .⟩ message, where
+  160  the precise contents of the message do not concern
+  161  us. If a has received a message with ballot number
+  162  greater than b, it sends a reply to l indicating that
+  163  it is ignoring the ⟨"1a", b⟩ message. (Upon receiving that message, l will perform a Phase1a(l, b0)
+  164  action for b0 > b, if it still believes itself to be the
+  165  leader.)
+
+  166  Phase2a(l, b) If leader l has received ⟨"1b", b, . . .⟩ messages from a quorum of acceptors, then it sends a
+  167  ⟨"2a", b,v ⟩ message to the acceptors where, depending on the contents of those "1b" messages,
+  168  either:
+
+  169  • The value of v is determined by the "1b" messages, or
+  170  • l chooses v arbitrarily from among the proposals it has received.
+
+  171  This action may not be performed twice for different values of v (with the same b).
+
+  172  Phase2b(a,b, v) If acceptor a receives a ⟨"2a", b, v ⟩
+  173  message and it has not already received any message with a ballot number greater than b, it sends
+  174  a ⟨"2b", b,v ⟩ message to every learner.
+
+  175  Learn(r, v, b) If learner r has received ⟨"2b", b,v ⟩ messages from a quorum of acceptors, then it learns
+  176  that the value v has been chosen.
+  177  In normal execution, the actions occur in the order
+  178  listed above, starting with the leader's Phase1a action. However, processes may fail, messages may be
+  179  lost or delivered out of order, and several processors
+  180  could simultaneously think they are the leader, causing "1a" and "2a" messages for several different ballot
+  181  numbers to be sent concurrently. Nevertheless, the algorithm maintains its three safety properties, nontriviality, consistency, and conservatism. (We are assuming
+  182  non-Byzantine failures in which a process can halt, but
+  183  does not perform incorrect actions.) Moreover, if there
+  184  is a single working processor l that believes itself to be
+  185  the leader, has received a proposal, and can communicate with a quorum of acceptors, then some value will
+  186  eventually be chosen. Any learner that can communicate with this quorum of acceptors will then learn the
+  187  chosen value.
+  188  We can allow failed processes to be restarted if they
+  189  have stable storage that survives a failure. Processes
+  190  must maintain the following amounts of information
+  191  in stable storage: an acceptor must keep two ballot
+  192  numbers and one proposed value, and a leader must
+  193  keep one ballot number (the largest one for which it
+  194  has performed a Phase2a action).
+
+  195  As described here, the algorithm never terminates.
+  196  A leader can at any time perform a Phase1a action for
+  197  a new ballot number. In an application, there will be
+  198  some point at which enough processes have learned the
+  199  chosen value, after which processes can forget all about
+  200  this instance of the algorithm, erasing any information
+  201  about it from their stable storage.
+  202  For later reference, we make the following observations.
+
+  203  O1. We can save messages at the cost of an extra message delay by having a single distinguished learner
+  204  that informs the other learners when it finds out
+  205  that a value has been chosen. Acceptors then send
+  206  "2b" messages only to the distinguished learner.
+  207  In most applications, the roles of leader and distinguished learner are performed by the same processor.
+
+  208  O2. A leader can send its "1a" and "2a" messages just
+  209  to a quorum of acceptors. As long as all acceptors
+  210  in that quorum are working and can communicate
+  211  with the leader and the learners, there is no need
+  212  for acceptors not in the quorum to do anything.
+
+  213  O3. Acceptors do not care what value is chosen. They
+  214  simply respond to "1a" and "2a" messages, using
+  215  their stable storage to ensure that, despite failures, only a single value can be chosen. However,
+  216  if an acceptor does learn what value has been chosen, it can store the value in stable storage and
+  217  erase any other information it has saved there. If
+  218  the acceptor later receives a "1a" or "2a" message,
+  219  instead of performing its Phase1b or Phase2b action, it can simply inform the leader of the chosen
+  220  value.
+
+  221  O4. Instead of sending the value v, the leader can send
+  222  a hash of v to some acceptors in its "2a" messages. (A hash is a function H from values to a
+  223  smaller set such that there is a negligible chance
+  224  that H (v) equals H (v0 ) for two different values
+  225  v and v0.) A learner will learn that v is chosen if it receives "2b" messages for either v or its
+  226  hash from a quorum of acceptors, and at least
+  227  one of those messages contains v rather than its
+  228  hash. However, a leader could receive "1b" messages that tell it the hash of a value v that it must
+  229  use in its Phase2a action without telling it the actual value of v. If that happens, the leader cannot
+  230  execute its Phase2a action until it communicates
+  231  with some process that knows v.
+
+  232  3
+=== PAGE 5 ===
+
+  233  2.2 Implementing a State Machine
+  234  In the state machine approach, a set of servers execute
+  235  commands submitted by clients. For simplicity, we assume that each server keeps in stable storage the entire
+  236  sequence of state machine commands that have been
+  237  chosen so far. In many applications, a server would
+  238  keep only a recent checkpoint of the state machine's
+  239  state and the commands after that checkpoint.
+  240  In the traditional Paxos algorithm, the clients are
+  241  the proposers and each server acts as an acceptor, a
+  242  learner, and a potential leader in each instance of the
+  243  consensus algorithm. A quorum consists of a majority
+  244  of the servers. The leader receives client commands,
+  245  assigns each one a number, and tries to get the ith
+  246  command to be chosen by the ith instance of the Paxos
+  247  consensus algorithm.
+  248  To understand how Static Paxos works, suppose the
+  249  system has been operating for a while when the leader
+  250  fails. A new server l is then selected to be leader. Since
+  251  l is a learner, it should know most of the commands
+  252  that have already been chosen. Suppose it knows commands 1–134, 138, and 139—that is, the commands
+  253  chosen in instances 1–134, 138, and 139 of the consensus algorithm. (Such a gap in its knowledge is possible
+  254  because multiple instances of the consensus algorithm
+  255  can be executed concurrently.) Server l chooses a ballot number b that it believes to be greater than any
+  256  ballot number used by previous leaders. (The election algorithm can be used to choose b as well as l.)
+  257  It then simultaneously executes Phase1a(b, l) for instances 135–137 and for all instances greater than 139
+  258  of the consensus algorithm, sending "1a" messages to
+  259  all the servers. (Some of those messages are to itself,
+  260  since the leader is chosen from among the servers.) It
+  261  can obviously send these infinitely many virtual messages in a single physical message.
+  262  Each server then simultaneously executes Phase1b
+  263  actions in response to those virtual "1a" messages,
+  264  sending infinitely many virtual "1b" messages back to l.
+  265  Since those "1b" messages contain information only for
+  266  instances for which actions have been performed, those
+  267  virtual messages will contain only a finite amount of
+  268  information that can usually be fit into a single real
+  269  message. By observation O3 above, if a server knows
+  270  that a command was already chosen by some instance,
+  271  it responds with the chosen command rather than a
+  272  "1b" message for that instance.
+  273  Suppose that, from these messages, l learned:
+  274  • The command that was chosen in instance 135
+  275  (sent by some server instead of an instance 135
+  276  "1b" message).
+  277  • Commands v137 and v140 that it must use as the
+  278  value v in its Phase2a(l,b) actions for instances
+
+  279  137 and 140, respectively.
+  280  • For instance 136 and for all instances greater than
+  281  140, it can use any proposed command v in its
+  282  Phase2a(l, b) action.
+  283  Leader l then does the following:
+  284  • It performs Phase2a(l,b) actions for instances 137
+  285  and 140, using the commands v137 and v140 determined by the "1b" messages it received.
+  286  • It performs the Phase2a(l, b) action for instance
+  287  136, using as the command v a special no-op state
+  288  machine command that does nothing.
+  289  • In some manner that does not concern us, it ensures that all servers know commands 1–135, 138,
+  290  and 139.
+  291  If a majority of the servers are working, they will perform Phase2b actions for instances 136, 137, and 140,
+  292  and all servers will learn the commands chosen for
+  293  all instances 1–140 of the consensus algorithm. However, even before that has happened, leader l can resume normal operation. It assigns the number 141 to
+  294  the first client command it receives, and it executes
+  295  Phase2a(l, b) for instance 141 using that command as
+  296  the value v. It assigns number 142 to the next client
+  297  command and executes Phase2a(l, b) for that instance
+  298  and that command as value v. And so on.
+  299  Since each server is a learner, it learns the sequence
+  300  of chosen commands. In most applications, the leader
+  301  will act as the distinguished learner (mentioned in observation O1 above) to which "2b" messages are sent.
+  302  Once a server has learned what command the ith command is, it can delete all other information about the
+  303  ith instance of the consensus protocol from its storage.
+  304  When a failed server is repaired, it must be brought
+  305  up to date so it knows all the commands that have
+  306  already been chosen. In principle, this is a straightforward matter of having the newly repaired server obtain the information from some working server. If a
+  307  server maintains only recent commands and a checkpoint of the state, then the repaired server must update
+  308  its saved checkpoint. If the state machine maintains a
+  309  large state, this must be done in such a way that only
+  310  the part of the state that has changed is sent to the
+  311  repaired server.
+
+  312  2.3 Dynamic Paxos
+  313  So far, we have described Static Paxos, in which the set
+  314  of acceptors and the quorums are constant and fixed in
+  315  advance. A system that must continue working despite
+  316  the failure of any F processors then requires 2F + 1
+  317  servers. For example, with Static Paxos, it takes seven
+
+  318  4
+=== PAGE 6 ===
+
+  319  servers to tolerate three failures. In many systems, the
+  320  best way to achieve the desired degree of fault tolerance
+  321  is to reconfigure the system to replace failed servers by
+  322  spares. With reconfiguration, a system that uses three
+  323  active servers and two spares can tolerate a total of
+  324  three failures, if a failed server can be replaced by a
+  325  spare before another failure occurs. Reconfiguration
+  326  therefore allows fewer processors to tolerate the same
+  327  total number of failures, though not the same number
+  328  of simultaneous failures. (In most systems, simultaneous failures are much less likely than successive ones.)
+  329  In Dynamic Paxos, the set of acceptors and the
+  330  quorums are determined by the state machine itself.
+  331  Reconfiguration is performed by state machine commands. To explain how this works, let state k be the
+  332  state machine's state after executing command k. For
+  333  k ≤ 0, define state k to be the initial state. For some
+  334  fixed constant α, we let the acceptors and quorums
+  335  used for instance i of the consensus algorithm be determined by state i −α. Before performing any action for
+  336  instance i, a leader waits until it knows state i − α. In
+  337  other words, a leader must wait until it knows all commands through command number i−α before it knows
+  338  to which acceptors it should send its "2a" messages for
+  339  the ith instance of the Paxos consensus algorithm.
+  340  As a simple example of how this might work, consider a system with a fixed set S of processors that can
+  341  act as servers. Let the set of servers currently executing the system (and acting as acceptors) be G, and let
+  342  a quorum consist of a majority of the processors in G.
+  343  Suppose we want a processor to be declared to have
+  344  failed or have been repaired if a majority of the processors in G believe it has. The state machine's state
+  345  would contain the set G together with a Boolean array good, where good[p,q] indicates whether processor
+  346  p believes processor q is nonfaulty, for all p,q ∈ S. A
+  347  processor r would issue a state machine command to
+  348  change the value of good[r, s] when it believes processor
+  349  s has failed or been repaired. Such a command would
+  350  set the new value good0 of the array good in the obvious
+  351  way, and it would set the new value G0 of G to equal the
+  352  set of all processors q ∈ S such that good0[p, q] equals
+  353  true for a majority of processors p ∈ G. (Remember that a change to G caused by command number i
+  354  takes effect beginning with instance i +α of the Paxos
+  355  consensus algorithm.)
+  356  In practice, deciding when to reconfigure a system
+  357  is not easy. Replacing servers that have not failed can
+  358  cause the system to run out of servers; but not replacing a failed server lowers the system's tolerance to
+  359  additional failures. One would probably not use so
+  360  naive an algorithm as the one just described. Instead,
+  361  one would use a more sophisticated algorithm, tuned
+  362  for the particular system. Any desired algorithm can
+
+  363  easily be implemented with the state machine.
+  364  When a new server is added to the system, it must
+  365  learn the current state machine state. This is essentially the same problem as bringing a failed server up
+  366  to date, which is discussed in Section 2.2 above.
+
+  367  3 Cheap Paxos
+
+  368  3.1 The Algorithm
+
+  369  We now develop Cheap Paxos as an instance of Dynamic Paxos. In Cheap Paxos, we posit a system of
+  370  F + 1 main processors and F auxiliary processors. The
+  371  main processors act as the servers in a distributed state
+  372  machine implementation. The auxiliary processors perform actions only in the event of the failure of a main
+  373  processor, after which the main processors continue to
+  374  operate the system by themselves.
+  375  The key to Cheap Paxos is observation O2. In normal operation of the Paxos consensus algorithm, the
+  376  leader sends only "2a" messages. By O2, those messages need be sent to and acted upon by only a quorum of acceptors. Hence, to implement Cheap Paxos,
+  377  we use Dynamic Paxos to configure the system so that
+  378  the set of all working main processors forms a quorum.
+  379  As long as these processors continue working, they can
+  380  execute the system. If one of them fails, then the quorum consisting only of main processors can no longer
+  381  succeed in choosing commands. A different quorum,
+  382  containing one or more auxiliary processors, is then
+  383  used to (i) complete the execution of any of the instances of the Paxos consensus algorithm that were in
+  384  progress when the failure occurred, and (ii) propose
+  385  and choose the necessary state machine commands to
+  386  reconfigure the system. The reconfiguration removes
+  387  the failed processor and modifies the set of quorums so
+  388  the remaining main processors form a quorum. These
+  389  main processors can then resume executing the system,
+  390  while the auxiliary processors once more become idle.
+  391  Cheap Paxos uses Dynamic Paxos, where the set
+  392  G of all processors that are currently acceptors is determined by the state machine state. Let M be the
+  393  subset of G consisting of all the main processors in
+  394  G. We want M to be a quorum. Since the only requirement on quorums is that any two of them have
+  395  a non-empty intersection, we can let M be a quorum
+  396  and let the other quorums consist of all sets containing a majority of the processors in G and at least one
+  397  processor in M. (If M contains only a single processor
+  398  p, then a quorum can consist of any set containing p,
+  399  of course including M itself.) We require that G contain at least one main processor—a condition that is
+  400  satisfied by any sensible reconfiguration algorithm because failure of all main processors implies that there
+
+  401  5
+=== PAGE 7 ===
+
+  402  is no quorum of working processors, so no state machine commands can be chosen until a main processor
+  403  is repaired. (A non-sensible reconfiguration algorithm
+  404  could gratuitously remove the last working main processor from G.)
+  405  In normal operation, the processors in M execute
+  406  phase 2 of successive instances of the Paxos consensus
+  407  algorithm to choose the sequence of state machine commands. They can perform reconfiguration commands
+  408  to add a repaired main server to G and M . However,
+  409  if a main processor fails, then there will no longer be
+  410  a working quorum consisting only of main processors.
+  411  The following sequence of steps is then performed.
+  412  1. If the failed processor was the leader, a new leader
+  413  is selected from among the processors in M that
+  414  are still working.
+  415  2. The leader interrogates the other working main
+  416  processors to learn all chosen commands that any
+  417  main processor knows about.
+  418  3. The leader completes the execution of any instances of the Paxos consensus algorithm that
+  419  were in progress when the main processor failed,
+  420  using a quorum that contains one or more auxiliary processors. If a new leader was chosen in
+  421  step 1, it does this as described in Section 2.2
+  422  above by choosing a new ballot number and initiating phase 1 with that ballot number for all relevant instances of the consensus algorithm. If the
+  423  old leader is still working, it just sends to the auxiliary processors the same "2a" messages that it
+  424  had already sent to the main processors.
+  425  4. As in standard Dynamic Paxos, the working processors propose and choose a sequence of state machine commands to reconfigure the system so the
+  426  failed main processor is removed from the set G of
+  427  acceptors (and hence from M ).
+  428  5. The leader proposes and gets chosen a sequence of
+  429  α no-op state machine commands. Let j be the
+  430  command number of the last of these commands.
+  431  After step 5, the new set G of acceptors chosen in step 4
+  432  is in effect for subsequent instances of the consensus algorithm. This means that the set M of main processors
+  433  in G constitute a quorum, so they can resume executing the system. However, remember that the Paxos
+  434  consensus algorithm's ability to recover from failures
+  435  rests on acceptors maintaining certain information in
+  436  stable storage. To bound the amount of storage required by auxiliary processors, they need to be able to
+  437  forget the information they saved in steps 3–5, where
+  438  they participated in executing instances of the consensus algorithm. They can do that after the working
+
+  439  main processors have learned the commands chosen in
+  440  those instances. Therefore, before the system resumes
+  441  normal execution, the following steps should also be
+  442  performed.
+  443  6. The leader ensures that all processors in (the new)
+  444  M know all commands through command number
+  445  j (defined in step 5).
+  446  7. The leader instructs all auxiliary processors to remember in stable storage that instances 1 through
+  447  j of the consensus algorithm have chosen commands, and that they have performed no actions
+  448  for any other instances. (They need not record
+  449  any of the chosen commands.) The auxiliary processors can then erase from stable storage all information relevant to any of the first j instances
+  450  of the consensus algorithm.
+  451  This sequence of steps describes what normally happens when a main processor fails. A complete algorithm must handle abnormal cases as well—for example, if the leader fails while these steps are being performed, or if two processors both believe they are the
+  452  leader and have different views of what processor has
+  453  failed. But the actions performed in these steps are just
+  454  implementing Dynamic Paxos. (Steps 2 and 6 simply
+  455  disseminate knowledge of what commands have been
+  456  chosen.) The precise definition of these actions is therefore the same as in ordinary Paxos. The only difference
+  457  is that an auxiliary processor may not be able to respond appropriately to a "1a" or "2a" message because
+  458  it has erased the needed information in step 7. In that
+  459  case, instead of replying with the chosen command as
+  460  indicated in observation O3, it must ignore the message. (It could report to the leader why it is ignoring
+  461  the message, advising the leader to ask a main processor what command was chosen.)
+  462  The auxiliary processors are needed only in the event
+  463  of failure of one of the main processors, at which time
+  464  they must participate in the execution of only a small
+  465  number of instances of the Paxos consensus algorithm.
+  466  This would seem to imply that they do not need much
+  467  processing power. However, the consensus algorithm
+  468  requires them to write proposed commands to stable
+  469  storage. In some applications, such commands could
+  470  be quite big, and writing them to stable storage could
+  471  be expensive. If this is the case, we can apply observation O4 and have auxiliary processors receive and
+  472  store only hashes of proposed commands. Since every
+  473  quorum contains a main processor, a learner receiving
+  474  "2b" messages from a quorum must receive at least one
+  475  that contains the command rather than its hash. However, we need to prevent the problem mentioned in O4,
+  476  in which progress is prevented because a leader knows
+  477  only the hash of a value without knowing the value
+
+  478  6
+=== PAGE 8 ===
+
+  479  itself. This is done by having the leader delay sending a "2a" message with the hash of a value v to any
+  480  auxiliary processor until all the working main processors have acknowledged receipt of their "2a" messages
+  481  containing v.
+  482  As in ordinary Dynamic Paxos, we are not committed to any particular algorithm for determining that a
+  483  processor has failed or has been repaired. Since the
+  484  reconfiguration is performed by state machine commands, any algorithm can be used. In practice, the algorithm used by Cheap Paxos for determining whether
+  485  a main processor has failed will be quite different from
+  486  that used in traditional Dynamic Paxos. In traditional
+  487  implementations of Dynamic Paxos, any majority of
+  488  acceptors constitutes a quorum, so system can continue
+  489  to make progress even if a server has failed. In that
+  490  case, one can afford to wait to make sure the server
+  491  has really failed before reconfiguring it out of the system. But Cheap Paxos stops making progress as soon
+  492  as one main processor fails. It must therefore be more
+  493  aggressive in removing processors that may have failed.
+  494  Although this difference affects the details of deciding
+  495  what processors are working, it does not change the
+  496  basic state machine algorithm.
+  497  We have been tacitly assuming that the set of all
+  498  processors (main plus auxiliary) is fixed. Reconfiguration can also be used to change the set of processors.
+  499  We are already reconfiguring the set of acceptors to
+  500  remove failed main processors and add repaired ones.
+  501  Additional fault tolerance can be obtained by replacing
+  502  failed auxiliary processors with spares, just as in ordinary Dynamic Paxos. This reconfiguration can be performed with state machine commands executed by only
+  503  the main processors; auxiliary processors need only periodically inform the main processors that that are still
+  504  working. A newly installed auxiliary processor needs
+  505  to remember in its stable storage only that it has not
+  506  performed any actions for any instances of the Paxos
+  507  consensus algorithm.
+  508  An auxiliary processor acts only as an acceptor, not
+  509  a learner, so it does not know what commands are chosen. Hence, if reconfiguration can change the set of
+  510  auxiliary processors, an auxiliary processor does not
+  511  know whether it is an acceptor. This makes no difference. As observed in O3, acceptors simply respond
+  512  to "1a" and "2a" messages. Only leaders and learners, which are roles played by main processors, need to
+  513  know the set of acceptors and the quorums.
+
+  514  3.2 Correctness of Cheap Paxos
+
+  515  Cheap Paxos uses the Paxos consensus algorithm to
+  516  choose commands. Its safety properties follow directly
+  517  from the safety properties of the consensus algorithm.
+
+  518  In particular, two different servers can never disagree
+  519  about the value of the ith command, for any i.
+  520  The liveness properties of Cheap Paxos can also be
+  521  inferred from those of the Paxos consensus algorithm.
+  522  However, this is complicated because Cheap Paxos is
+  523  an implementation of Dynamic Paxos, in which liveness
+  524  depends on precisely how the reconfiguration is performed. For example, the system can make no progress
+  525  if a reconfiguration selects a set of failed or nonexistent
+  526  processors as acceptors. Moreover, simply being able
+  527  to choose new commands doesn't ensure progress. To
+  528  be able to execute the ith command, a server needs
+  529  to know not just that command, but also all previous
+  530  commands. For example, the system could make no
+  531  progress if command 1 had been chosen, but no working server knew its value. Cheap Paxos also has the
+  532  additional complication that auxiliary processors forget information that can be used by ordinary Paxos to
+  533  recover from certain failures.
+  534  To state the liveness property satisfied by Cheap
+  535  Paxos, we need some definitions. We call a set of processors nonfaulty if they are all working and can communicate with one another in a timely fashion. Define
+  536  command number i to be recorded if some auxiliary
+  537  processor has stored in its stable storage the fact that
+  538  i has been chosen. (That is, the auxiliary processor
+  539  has recorded in step 7 of the reconfiguration procedure
+  540  that all commands numbered through j have been chosen, for some j≥i.) A command number i is said to be
+  541  active if i has not been recorded, but a "2a" message
+  542  has been sent for instance i of the consensus algorithm.
+  543  We define a main processor to be up-to-date if it knows
+  544  all recorded commands. (If auxiliary processors store
+  545  only hashes of values, then for a main processor p to
+  546  be up-to-date, it must also satisfy the following condition: For every active command number i and every
+  547  "2a" message sent to an auxiliary processor in instance
+  548  i of the consensus algorithm, p must have received its
+  549  corresponding "2a" message.)
+  550  We can now state the liveness property satisfied by
+  551  Cheap Paxos. Step 6 of the reconfiguration procedure
+  552  assumes some method of propagating knowledge of chosen commands. We assume that knowledge is continually exchanged among the main processors so that, if
+  553  p and q are main processors, p knows a command, and
+  554  the set {p, q} is nonfaulty for long enough, then q will
+  555  learn that command. The liveness property satisfied
+  556  by Cheap Paxos is then:
+  557  The system makes progress if there is a nonfaulty set of processors containing a unique
+  558  leader, at least one up-to-date main processor, and, for all active command numbers i, a
+  559  quorum for instance i of the consensus algorithm.
+
+  560  7
+=== PAGE 9 ===
+
+  561  Informally, we can view the set of nonfaulty main processors as an "amoeba" that withdraws a pseudopod
+  562  when a processor fails and extends one when a processor is repaired. It takes time for knowledge of chosen commands to flow into a new pseudopod. If the
+  563  amoeba were to move around too quickly, knowledge
+  564  could be lost because processors failed before their
+  565  knowledge could flow to newly repaired processors.
+  566  Assuming that the total number of nonfaulty processors (main plus auxiliary) remains large enough, Cheap
+  567  Paxos guarantees that the system will continue to make
+  568  progress as long as the amoeba moves slowly enough
+  569  that such knowledge is not lost.
+
+  570  4 Conclusion
+
+  571  Cheap Paxos is a variant of the Paxos algorithm that
+  572  can make progress in the face of up to F failures by using F + 1 main processors plus F auxiliary processors.
+  573  Unlike the spare processors used in previous systems,
+  574  our auxiliary processors need do nothing except for a
+  575  brief period after a main processor fails. The auxiliary processors therefore do not require nearly as much
+  576  processing power or storage as the main processors. By
+  577  using auxiliary processors, Cheap Paxos can lead to a
+  578  system that achieves greater fault tolerance than other
+  579  algorithms with the same number of main processors.
+
+  580  Acknowledgement
+
+  581  Butler Lampson pointed out to us the problem of large
+  582  commands, and its solution through observation O4.
+  583  He was also first to observe that, in a configuration with
+  584  a single working main processor, every set of processors
+  585  containing that processor is a quorum.
+
+  586  References
+
+  587  [1] R. De Prisco, B. Lampson, and N. Lynch. Revisiting the paxos algorithm. Theoretical Comput. Sci.,
+  588  243:35–91, 2000.
+  589  [2] C. Dwork, N. Lynch, and L. Stockmeyer. Consensus in
+  590  the presence of partial synchrony. J. ACM, 35(2):288–
+  591  323, Apr. 1988.
+  592  [3] L. Lamport. The implementation of reliable distributed multiprocess systems. Computer Networks,
+  593  2:95–114, 1978.
+  594  [4] L. Lamport. Time, clocks, and the ordering of events
+  595  in a distributed system. Commun. ACM, 21(7):558–
+  596  565, July 1978.
+  597  [5] L. Lamport. The part-time parliament. ACM Trans.
+  598  Comput. Syst., 16(2):133–169, May 1998.
+  599  [6] L. Lamport. Paxos made simple. ACM SIGACT News
+  600  (Distributed Computing Column), 32(4 (Whole Number 121)):18–25, Dec. 2001.
+
+  601  8
+
+  602  [7] B. W. Lampson. How to build a highly available system using consensus. In O. Babaoglu and K. Marzullo,
+  603  editors, Distributed Algorithms, volume 1151 of Lecture Notes in Computer Science, pages 1–17, Berlin,
+  604  1996. Springer-Verlag.
+  605  [8] B. Liskov, S. Ghemawat, R. Gruber, P. Johnson, and
+  606  L. Shrira. Replication in the harp file system. In Proceedings of the thirteenth ACM symposium on Operating systems principles, pages 226–238. ACM Press,
+  607  1991.
+  608  [9] J.-F. Pˆaris and D. D. E. Long. Voting with regenerable
+  609  volatile witnesses. In Proceedings of the Seventh International Conference on Data Engineering, April 8-12,
+  610  1991, Kobe, Japan, pages 112–119. IEEE Computer
+  611  Society, 1991.
+  612  [10] F. B. Schneider. Implementing fault-tolerant services
+  613  using the state machine approach: A tutorial. ACM
+  614  Computing Surveys, 22(4):299–319, Dec. 1990.
