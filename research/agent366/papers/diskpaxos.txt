@@ -1,0 +1,677 @@
+---
+title: "Disk Paxos"
+authors:
+  - "Eli Gafni"
+  - "Leslie Lamport"
+year: "2003"
+publication: ""
+handle_url: "https://lamport.azurewebsites.net/pubs/disk-paxos-disc.pdf"
+source_pdf: "research/agent366/papers/disk-paxos-2003.pdf"
+source_pdf_sha256: "c30faf5ad152ab7926f35f56574c5bc35b75fb515d5cc4e9fcb6ad161ed3eee9"
+page_count: 15
+extracted_text_runs: 2826
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-07"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Disk Paxos implements a reliable distributed system using networked processors and disks. It preserves consistency despite arbitrary non-Byzantine faults and can make progress when a majority of disks remain available, even if only one processor survives.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Disk Paxos
+
+    2  Eli Gafni1 and Leslie Lamport2
+    3  1 Computer Science Department, UCLA
+    4  2 Compaq Systems Research Center
+
+    5  Abstract. We present an algorithm, called Disk Paxos, for implementing a reliable distributed system with a network of processors and disks.
+    6  Like the original Paxos algorithm, Disk Paxos maintains consistency in
+    7  the presence of arbitrary non-Byzantine faults. Progress can be guaranteed as long as a majority of the disks are available, even if all processors
+    8  but one have failed.
+
+    9  1 Introduction
+
+   10  Fault tolerance requires redundant components. Maintaining consistency in the
+   11  event of a system partition makes it impossible for a two-component system to
+   12  make progress if either component fails. There are innumerable fault-tolerant
+   13  algorithms for implementing distributed systems,but all that we know of equate
+   14  component with processor. But there are other types of components that one
+   15  might replicate instead. In particular,modern networks can now include disk
+   16  drives as independent components. Because commodity disks are cheaper than
+   17  computers,it is attractive to use them as the replicated components for achieving fault tolerance. Commodity disks differ from processors in that they are
+   18  not programmable,so we can't just substitute disks for processors in existing
+   19  algorithms.
+   20  We present here an algorithm called Disk Paxos for implementing an arbitrary fault-tolerant system with a network of processors and disks. It maintains
+   21  consistency in the event of any number of non-Byzantine failures. That is,the
+   22  algorithm tolerates faulty processors that pause for arbitrarily long periods,fail
+   23  completely,and possibly restart; and it tolerates lost and delayed messages. Disk
+   24  Paxos guarantees progress if the system is stable and there is at least one nonfaulty processor that can read and write a majority of the disks. Stability means
+   25  that each processor is either nonfaulty or has failed completely,and nonfaulty
+   26  processors can access nonfaulty disks.
+=== PAGE 2 ===
+
+   27  Disk Paxos is a variant of the classic Paxos algorithm [3,10,12], a simple,
+   28  efficient algorithm that has been used in practical distributed systems [13,16].
+   29  Classic Paxos can be viewed as an implementation of Disk Paxos in which there is
+   30  one disk per processor,and a disk can be accessed directly only by its processor.
+   31  In the next section,we recall how to reduce the problem of implementing
+   32  an arbitrary distributed system to the consensus problem. Section 3 informally
+   33  describes Disk Synod,the consensus algorithm used by Disk Paxos. It includes
+   34  a sketch of an incomplete correctness proof and explains the relation between
+   35  Disk Synod and the Synod protocol of classic Paxos. Section 4 briefly discusses
+   36  some implementation details and contains the conventional concluding remarks.
+   37  An appendix gives formal specifications of the consensus problem and the Disk
+   38  Synod algorithm. Further discussion of the specifications and a sketch of a rigorous correctness proof appear in [5].
+
+   39  2 The State-Machine Approach
+
+   40  The state-machine approach [6,14] is a general method for implementing an
+   41  arbitrary distributed system. The system is designed as a deterministic state
+   42  machine that executes a sequence of commands,and a consensus algorithm ensures that,for each n,all processors agree on the nth command. This reduces
+   43  the problem of building an arbitrary system to solving the consensus problem.
+   44  In the consensus problem,each processor p starts with an input value input[p],
+   45  and all processors output the same value,which equals input[p] for some p. A
+   46  solution should be:
+   47  Consistent All values output are the same.
+   48  Nonblocking If the system is stable and a nonfaulty processor can communicate with a majority of disks,then the processor will eventually output a
+   49  value.
+   50  It has long been known that a consistent,nonblocking consensus algorithm requires a three-phase commit protocol [15],with voting, prepare to commit,and
+   51  commit phases. Nonblocking algorithms that use fewer phases don't guarantee
+   52  consistency. For example,the group communication algorithms of Isis [2] permit
+   53  two processors belonging to the current group to disagree on whether a message
+   54  was broadcast in a previous group to which they both belonged. This algorithm
+   55  cannot,by itself,guarantee consistency because disagreement about whether a
+   56  message had been broadcast can result in disagreement about the output value.
+   57  The classic Paxos algorithm [3,10,12] achieves its efficiency by using a threephase commit protocol,called the Synod algorithm,in which the value to be
+   58  committed is not chosen until the second phase. When a new leader is elected,it
+   59  executes the first phase just once for the entire sequence of consensus algorithms
+   60  performed for all later system commands. Only the last two phases are performed
+   61  separately for each individual command.
+   62  In the Disk Synod algorithm,the consensus algorithm used by Disk Paxos,
+   63  each processor has an assigned block on each disk. The algorithm has two phases.
+=== PAGE 3 ===
+
+   64  In each phase,a processor writes to its own block and reads each other processor's
+   65  block on a majority of the disks.1 Only the last phase needs to be executed anew
+   66  for each command. So,in the normal steady-state case,a leader chooses a statemachine command by executing a single write to each of its blocks and a single
+   67  read of every other processor's blocks.
+   68  The classic result of Fischer,Lynch,and Patterson [4] implies that a purely
+   69  asynchronous nonblocking consensus algorithm is impossible. So,real-time clocks
+   70  must be introduced. The typical industry approach is to use an ad hoc algorithm
+   71  based on timeouts to elect a leader,and then have the leader choose the output.
+   72  It is easy to devise a leader-election algorithm that works when the system is
+   73  stable,which means that it works most of the time. It is very hard to make one
+   74  that always works correctly even when the system is unstable. Both classic Paxos
+   75  and Disk Paxos also assume a real-time algorithm for electing a leader. However,
+   76  the leader is used only to ensure progress. Consistency is maintained even if
+   77  there are multiple leaders. Thus,if the leader-election algorithm fails because
+   78  the network is unstable,the system can fail to make progress; it cannot become
+   79  inconsistent. The system will again make progress when it becomes stable and
+   80  a single leader is elected.
+
+   81  3 An Informal Description of Disk Synod
+
+   82  We now informally describe the Disk Synod algorithm and explain why it works.
+   83  (A formal specification appears in the appendix.) We also discuss its relation to
+   84  classic Paxos's Synod Protocol. Remember that,in normal operation,only a
+   85  single leader will be executing the algorithm. The other processors do nothing;
+   86  they simply wait for the leader to inform them of the outcome. However,the
+   87  algorithm must preserve consistency even when it is executed by multiple processors,or when the leader fails before announcing the outcome,and a new leader
+   88  is chosen.
+
+   89  3.1 The Algorithm
+
+   90  We assume that each processor p starts with an input value input[p].2 As in
+   91  Paxos's Synod algorithm,a processor executes a sequence of numbered ballots,
+   92  with increasing ballot numbers. A ballot number is a positive integer,and different processors use different ballot numbers. For example,if the processors are
+   93  numbered from 1 through N,then processor i could use ballot numbers i, i +N ,
+   94  i + 2N ,etc. A ballot has two phases:
+
+   95  Phase 1 Choose a value v.
+   96  Phase 2 Try to commit v.
+   97  1 There is also an extra phase that a processor executes when recovering from a failure.
+   98  2 If processor p fails, it can restart with a new value of input [p].
+=== PAGE 4 ===
+
+   99  In either phase,a processor aborts its ballot if it learns that another processor
+  100  has begun a higher-numbered ballot. In that case,the processor may then choose
+  101  a higher ballot number and start a new ballot. If the processor completes phase 2
+  102  without aborting—that is,without learning of a higher-numbered ballot—then
+  103  value v is committed and the processor can output it. Since a processor does not
+  104  choose the value to be committed until phase 2,phase 1 can be performed once
+  105  for any number of separate instances of the algorithm.
+  106  To ensure consistency,we must guarantee that two different values cannot be
+  107  successfully committed—either by different processors or by the same processor
+  108  in two different ballots. To ensure that the algorithm is nonblocking,we must
+  109  guarantee that,if there is only a single processor p executing it,then p will
+  110  eventually commit a value.
+  111  In practice,when a processor successfully commits a value,it will write on
+  112  its disk block that the value was committed and also broadcast that fact to the
+  113  other processors. If a processor learns that a value has been committed,it will
+  114  abort its ballot and simply output the value. It is obvious that this optimization
+  115  preserves correctness; we will not consider it further.
+  116  To execute the algorithm,a processor p maintains a record dblock[p] containing the following three components:
+  117  mbal The current ballot number.
+  118  bal The largest ballot number for which p reached phase 2.
+  119  inp The value p tried to commit in ballot number bal.
+  120  Initially, bal equal 0, inp equals a special value NotAnInput that is not a possible
+  121  input value,and mbal is any ballot number. We let disk[d][p] be the block on
+  122  disk d in which processor p writes dblock[p]. We assume that reading and writing
+  123  a block are atomic operations.
+  124  Processor p executes phase 1 or 2 of a ballot as follows. For each disk d,it
+  125  tries first to write dblock[p] to disk[d][p] and then to read disk[d][q] for all other
+  126  processors q. It aborts the ballot if,for any d and q,it finds disk[d][q].mbal >
+  127  dblock[p].mbal. The phase completes when p has written and read a majority of the disks,without reading any block whose mbal component is greater
+  128  than dblock[p].mbal. When it completes phase 1, p chooses a new value of
+  129  dblock[p].inp,sets dblock[p].bal to dblock[p].mbal (its current ballot number),
+  130  and begins phase 2. When it completes phase 2, p has committed dblock[p].inp.
+  131  To complete our description of the two phases,we now describe how processor
+  132  p chooses the value of dblock[p].inp that it tries to commit in phase 2. Let
+  133  blocksSeen be the set consisting of dblock[p] and all the records disk[d][q] read
+  134  by p in phase 1. Let nonInitBlks be the subset of blocksSeen consisting of those
+  135  records whose inp field is not NotAnInput. If nonInitBlks is empty,then p sets
+  136  dblock[p].inp to its own input value input[p]. Otherwise,it sets dblock[p].inp to
+  137  bk.inp for some record bk in nonInitBlks having the largest value of bk.bal.
+  138  Finally,we describe what processor p does when it recovers from a failure.
+  139  In this case, p reads its own block disk[d][p] from a majority of disks d. It then
+  140  sets dblock[p] to any block bk it read having the maximum value of bk.mbal,and
+  141  it starts a new ballot by increasing dblock[p].mbal and beginning phase 1.
+=== PAGE 5 ===
+
+  142  3.2 Why the Algorithm Works
+  143  Suppose processor p can read and write a majority of the disks,and all processors
+  144  other than p stop executing the algorithm. In this case, p will eventually choose
+  145  a ballot number greater than the mbal field of all blocks on the disks it can read,
+  146  and its ballot will succeed. Hence,this algorithm is nonblocking,in the sense
+  147  explained above.
+  148  We now explain,intuitively,why the Disk Synod algorithm maintains consistency. First,we consider the following shared-memory version of the algorithm
+  149  that uses single-writer,multiple-reader regular registers.3 Instead of writing to
+  150  disk,processor p writes dblock[p] to a shared register; and it reads the values of
+  151  dblock[q] for other processors q from the registers. A processor chooses its bal
+  152  and inp values for phase 2 the same way as before,except that it reads just
+  153  one dblock value for each other processor,rather than one from each disk. We
+  154  assume for now that processors do not fail.
+  155  To prove consistency,we must show that,for any processors p and q,if p
+  156  finishes phase 2 and commits the value vp and q finishes phase 2 and commits the
+  157  value vq ,then vp = vq . Let bp and bq be the respective ballot numbers on which
+  158  these values are committed. Without loss of generality,we can assume bp ≤ bq .
+  159  Moreover,using induction on bq ,we can assume that,if any processor r starts
+  160  phase 2 for a ballot br with bp ≤ br < bq ,then it does so with dblock[r].inp = vp .
+  161  When reading in phase 2, p cannot have seen the value of dblock[q].mbal
+  162  written by q in phase 1—otherwise, p would have aborted. Hence p's read of
+  163  dblock[q] in phase 2 did not follow q's phase 1 write. Because reading follows
+  164  writing in each phase,this implies that q's phase 1 read of dblock[p] must have
+  165  followed p's phase 2 write. Hence, q read the current (final) value of dblock[p]
+  166  in phase 1—a record with bal field bp and inp field vp . Let bk be any other
+  167  block that q read in its phase 1. Since q did not abort, b > bk.mbal. Since
+  168  q
+  169  bk.mbal ≥ bk.bal for any block bk,this implies b > bk.bal. By the induction
+  170  q
+  171  assumption,we obtain that,if bk.bal ≥ b ,then bk.inp = v . Since this is true
+  172  p p
+  173  for all blocks bk read by q in phase 1,and since q read the final value of dblock[p],
+  174  the algorithm implies that q must set dblock[q].inp to vp for phase 2,proving
+  175  that vp = vq.
+  176  To obtain the Disk Synod algorithm from the shared-memory version,we use
+  177  a technique due to Attiya,Bar-Noy,and Dolev [1] to implement a single-writer,
+  178  multiple reader register with a network of disks. To write a value,a processor
+  179  writes the value together with a version number to a majority of the disks. To
+  180  read,a processor reads a majority of the disks and takes the value with the
+  181  largest version number. Since two majorities of disks contain at least one disk
+  182  in common,a read must obtain either the last version for which the write was
+  183  completed,or else a later version. Hence,this implements a regular register.
+  184  With this technique,we transform the shared-memory version into a version for
+  185  a network of processors and disks.
+  186  3 A regular register is one in which a read that does not overlap a write returns the
+  187  register's current value, and a read that overlaps one or more writes returns either
+  188  the register's previous value or one of the values being written [7].
+=== PAGE 6 ===
+
+  189  The actual Disk Synod algorithm simplifies the algorithm obtained by this
+  190  transformation in two ways. First,the version number is not needed. The mbal
+  191  and bal values play the role of a version number. Second,a processor p need
+  192  not choose a single version of dblock[q] from among the ones it reads from disk.
+  193  Because mbal and bal values do not decrease,earlier versions have no effect.
+  194  So far,we have ignored processor failures. There is a trivial way to extend
+  195  the shared-memory algorithm to allow processor failures. A processor recovers
+  196  by simply reading its dblock value from its register and starting a new ballot. A
+  197  failed process then acts like one in which a processor may start a new ballot at
+  198  any time. We can show that this generalized version is also correct. However,in
+  199  the actual disk algorithm,a processor can fail while it is writing. This can leave
+  200  its disk blocks in a state in which no value has been written to a majority of
+  201  the disks. Such a state has no counterpart in the shared-memory version. There
+  202  seems to be no easy way to derive the recovery procedure from a shared-memory
+  203  algorithm. The proof of the complete Disk Synod algorithm,with failures,is
+  204  much more complicated than the one for the simple shared-memory version.
+  205  Trying to write the kind of behavioral proof given above for the simple algorithm
+  206  leads to the kind of complicated,error-prone reasoning that we have learned to
+  207  avoid. A sketch of a rigorous assertional proof is given in [5].
+
+  208  3.3 Deriving Classic Paxos from Disk Paxos
+  209  In the usual view of a distributed fault-tolerant system,a processor performs
+  210  actions and maintains its state in local memory,using stable storage to recover
+  211  from failures. An alternative view is that a processor maintains the state of its
+  212  stable storage,using local memory only to cache the contents of stable storage.
+  213  Identifying disks with stable storage,a traditional distributed system is then
+  214  a network of disks and processors in which each disk belongs to a separate
+  215  processor; other processors can read a disk only by sending messages to its
+  216  owner.
+  217  Let us now consider how to implement Disk Synod on a network of processors
+  218  that each has its own disk. To perform phase 1 or 2,a processor p would access a
+  219  disk d by sending a message containing dblock[p] to disk d's owner q. Processor
+  220  q could write dblock[p] to disk[d][p],read disk[d][r] for all r = p,and send the
+  221  values it read back to p. However,examining the Disk Synod algorithm reveals
+  222  that there's no need to send back all that data. All p needs are (i) to know if
+  223  its mbal field is larger than any other block's mbal field and,if it is,(ii) the bal
+  224  and inp fields for the block having the maximum bal field. Hence, q need only
+  225  store on disk three values: the bal and inp fields for the block with maximum
+  226  bal field,and the maximum mbal field of all disk blocks. Of course, q would have
+  227  those values cached in its memory,so it would actually write to disk only if any
+  228  of those values are changed.
+  229  A processor must also read its own disk blocks to recover from a failure.
+  230  Suppose we implement Disk Synod by letting p write to its own disk before
+  231  sending messages to any other processor. This ensures that its own disk has the
+  232  maximum value of disk[d][p].mbal among all the disks d. Hence,to restart after
+=== PAGE 7 ===
+
+  233  a failure, p need only read its block from its own disk. In addition to the mbal,
+  234  bal,and inp value mentioned above, p would also keep the value of dblock[p] on
+  235  its disk.
+  236  We can now compare this algorithm with classic Paxos's Synod protocol [10].
+  237  The mbal, bal,and inp components of dblock[p] are just lastTried[p], nextBal[p],
+  238  and prevVote[p] of the Synod Protocol. Phase 1 of the Disk Synod algorithm
+  239  corresponds to sending the NextBallot message and receiving the LastVote responses in the Synod Protocol. Phase 2 corresponds to sending the BeginBallot
+  240  and receiving the Voted replies.4 The Synod Protocol's Success message corresponds to the optimization mentioned above of recording on disk that a value
+  241  has been committed.
+  242  This version of the Disk Synod algorithm differs from the Synod Protocol
+  243  in two ways. First,the Synod Protocol's NextBallot message contains only the
+  244  mbal value; it does not contain bal and inp values. To obtain the Synod Protocol,
+  245  we would have to modify the Disk Synod algorithm so that,in phase 1,it writes
+  246  only the mbal field of its disk block and leaves the bal and inp fields unchanged.
+  247  The algorithm remains correct,with essentially the same proof,under this modification. However,the modification makes the algorithm harder to implement
+  248  with real disks.
+  249  The second difference between this version of the Disk Synod algorithm and
+  250  the Synod Protocol is in the restart procedure. A disk contains only the aforementioned mbal, bal,and inp values. It does not contain a separate copy of its
+  251  owner's dblock value. The Synod Protocol can be obtained from the following
+  252  variant of the Disk Synod algorithm. Let bk be the block disk[d][p] with maximum bal field read by processorp in the restart procedure. Processor p can begin
+  253  phase 1 with bal and inp values obtained from any disk block bk ,written by
+  254  any processor,such that bk .bal ≥ bk.bal. It can be shown that the Disk Synod
+  255  algorithm remains correct under this modification too.
+
+  256  4 Conclusion
+
+  257  4.1 Implementation Considerations
+
+  258  Implicit in our description of the Disk Synod algorithm are certain assumptions
+  259  about how reading and writing are implemented when disks are accessed over a
+  260  network. If operations sent to the disks may be lost,a processor p must receive
+  261  an acknowledgment from disk d that its write to disk[d][p] succeeded. This may
+  262  require p to explicitly read its disk block after writing it. If operations may
+  263  arrive at the disk in a different order than they were sent, p will have to wait
+  264  for the acknowledgment that its write to disk d succeeded before reading other
+  265  processors' blocks from d. Moreover,some mechanism is needed to ensure that
+  266  a write from an earlier ballot does not arrive after a write from a later one,
+  267  4 In the Synod Protocol, a processor q does not bother sending a response if p sends
+  268  it a disk block with a value of mbal smaller than one already on disk. Sending back
+  269  the maximum mbal value is an optimization mentioned in [10].
+=== PAGE 8 ===
+
+  270  overwriting the later value with the earlier one. How this is achieved will be
+  271  system dependent. (It is impossible to implement any fault-tolerant system if
+  272  writes to disk can linger arbitrarily long in the network and cause later values
+  273  to be overwritten.)
+  274  Recall that,in Disk Paxos,a sequence of instances of the Disk Synod algorithm is used to commit a sequence of commands. In a straightforward implementation of Disk Paxos,processor p would write to its disk blocks the value of
+  275  dblock[p] for the current instance of Disk Synod,plus the sequence of all commands that have already been committed. The sequence of all commands that
+  276  have ever been committed is probably too large to fit on a single disk block.
+  277  However,the complete sequence can be stored on multiple disk blocks. All that
+  278  must be kept in the same disk block as dblock[p] is a pointer to the head of the
+  279  queue. For most applications,it is not necessary to remember the entire sequence
+  280  of commands [10,Section 3.3.2]. In many cases,all the data that must be kept
+  281  will fit in a single disk block.
+  282  In the application for which Disk Paxos was devised (a future Compaq product),the set of processors is not known in advance. Each disk contains a directory
+  283  listing the processors and the locations of their disk blocks. Before reading a disk,
+  284  a processor reads the disk's directory. To write a disk's directory,a processor
+  285  must acquire a lock for that disk by executing a real-time mutual exclusion algorithm based on Fischer's protocol [8]. A processor joins the system by adding
+  286  itself to the directory on a majority of disks.
+
+  287  4.2 Concluding Remarks
+  288  We have presented Disk Paxos,an efficient implementation of the state machine
+  289  approach in a system in which processors communicate by accessing ordinary
+  290  (nonprogrammable) disks. In the normal case,the leader commits a command
+  291  by writing its own block and reading every other processor's block on a majority
+  292  of the shared disks. This is clearly the minimal number of disk accesses needed.
+  293  Disk Paxos was motivated by the recent development of the Storage Area Network (SAN)—an architecture consisting of a network of computers and disks in
+  294  which all disks can be accessed by each computer. Commodity disks are cheaper
+  295  than computers,so using redundant disks for fault tolerance is more economical
+  296  than using redundant computers. Moreover,since disks do not run applicationlevel programs,they are less likely to crash than computers.
+  297  Because commodity disks are not programmable,we could not simply substitute disks for processors in the classic Paxos algorithm. Instead we took the
+  298  ideas of classic Paxos and transplanted them to the SAN environment. What
+  299  we obtained is almost,but not quite,a generalization of classic Paxos. Indeed,
+  300  when Disk Paxos is instantiated to a single disk,we obtain what may be called
+  301  Shared-Memory Paxos. Algorithms for shared memory are usually more succinct
+  302  and clear than their message passing counterparts. Thus,Disk Paxos can be considered yet another revisiting of classic Paxos that exposes its underlying ideas
+  303  by removing the message-passing clutter. Perhaps other distributed algorithms
+  304  can also be made more clear by recasting them in a shared-memory setting.
+=== PAGE 9 ===
+
+  305  References
+
+  306  1. Hagit Attiya, Amotz Bar-Noy, and Danny Dolev. Sharing memory robustly in
+  307  message-passing systems. Journal of the ACM, 42(1):124–142, January 1995.
+  308  2. Kenneth Birman, Andr´e Schiper, and Pat Stephenson. Lightweight causal and
+  309  atomic group multicast. ACM Transactions on Computer Systems, 9(3):272–314,
+  310  August 1991.
+  311  3. Roberto De Prisco, Butler Lampson, and Nancy Lynch. Revisiting the Paxos
+  312  algorithm. In Marios Mavronicolas and Philippas Tsigas, editors, Proceedings of
+  313  the 11th International Workshop on Distributed Algorithms (WDAG 97), volume
+  314  1320 of Lecture Notes in Computer Science, pages 111–125, Saarbruken, Germany,
+  315  1997. Springer-Verlag.
+  316  4. Michael J. Fischer, Nancy Lynch, and Michael S. Paterson. Impossibility of distributed consensus with one faulty process. Journal of the ACM, 32(2):374–382,
+  317  April 1985.
+  318  5. Eli Gafni and Leslie Lamport. Disk paxos. Technical Report ??, Compaq Systems
+  319  Research Center, July 2000.
+  320  6. Leslie Lamport. Time, clocks, and the ordering of events in a distributed system.
+  321  Communications of the ACM, 21(7):558–565, July 1978.
+  322  7. Leslie Lamport. On interprocess communication. Distributed Computing, 1:77–101,
+  323  1986.
+  324  8. Leslie Lamport. A fast mutual exclusion algorithm. ACM Transactions on Computer Systems, 5(1):1–11, February 1987.
+  325  9. Leslie Lamport. The temporal logic of actions. ACM Transactions on Programming
+  326  Languages and Systems, 16(3):872–923, May 1994.
+  327  10. Leslie Lamport. The part-time parliament. ACM Transactions on Computer Systems, 16(2):133–169, May 1998.
+  328  11. Leslie Lamport. Specifying concurrent systems with TLA+. In Manfred Broy and
+  329  Ralf Steinbr¨uggen, editors, Calculational System Design, pages 183–247, Amsterdam, 1999. IOS Press.
+  330  12. Butler W. Lampson. How to build a highly available system using consensus. In
+  331  Ozalp Babaoglu and Keith Marzullo, editors, Distributed Algorithms, volume 1151
+  332  of Lecture Notes in Computer Science, pages 1–17, Berlin, 1996. Springer-Verlag.
+  333  13. Edward K. Lee and Chandramohan Thekkath. Petal: Distributed virtual disks.
+  334  In Proceedings of the Seventh International Conference on Architectural Support
+  335  for Programming Languages and Operating Systems (ASPLOS-VII), pages 84–92,
+  336  New York, October 1996. ACM Press.
+  337  14. Fred B. Schneider. Implementing fault-tolerant services using the state machine
+  338  approach: A tutorial. ACM Computing Surveys, 22(4):299–319, December 1990.
+  339  15. Marion Dale Skeen. Crash Recovery in a Distributed Database System. PhD thesis,
+  340  University of California, Berkeley, May 1982.
+  341  16. Chandramohan Thekkath, Timothy Mann, and Edward K. Lee. Frangipani: A
+  342  scalable distributed file system. In Proceedings of the 16th ACM Symposium on Operating Systems Principles, pages 224–237, New York, October 1997. ACM Press.
+  343  17. Yuan Yu, Panagiotis Manolios, and Leslie Lamport. Model checking TLA+ specifications. In Laurence Pierre and Thomas Kropf, editors, Correct Hardware Design
+  344  and Verification Methods, volume 1703 of Lecture Notes in Computer Science, pages
+  345  54–66, Berlin, Heidelberg, New York, September 1999. Springer-Verlag. 10th IFIP
+  346  wg 10.5 Advanced Research Working Conference, CHARME '99.
+=== PAGE 10 ===
+
+  347  Appendix
+
+  348  We now give precise specifications of the consensus problem solved by the Disk
+  349  Synod algorithm and of the algorithm itself. The specifications are written in
+  350  TLA+,a formal language that combines the temporal logic of actions (TLA) [9],
+  351  set theory,and first-order logic with notation for making definitions and encapsulating them in modules. These specifications have been debugged with the aid
+  352  of the TLC model checker [17]. (However,errors may have been introduced by
+  353  the manual process of translating from TLA+ to LATEX.) TLA+ is described
+  354  in [11]; annotated versions of the specifications,with fuller explanations of the
+  355  TLA+ constructs,appear in [5].
+  356  We feel that the algorithm's nonblocking property is sufficiently obvious not
+  357  to need a rigorous specification and proof,so we consider only consistency. We
+  358  therefore do not specify any liveness properties,so we make very little use of
+  359  temporal logic.
+
+  360  The Specification of Consensus
+
+  361  We assume that there are N processors,numbered 1 through N. Each processor
+  362  p has two registers: an input register input[p] that initially equals some element
+  363  of the set Inputs of possible input values,and an output register output[p] that
+  364  initially equals a special value NotAnInput that is not an element of Inputs.
+  365  Processor p chooses an output value by setting output[p]. It can also fail,which
+  366  it does by setting input[p] to any value in Inputs and resetting output[p] to
+  367  NotAnInput. The precise condition to be satisfied is that,if some processor p
+  368  ever sets output[p] to some value v,then
+
+  369  – v must be a value that is,or at one time was,the value of input[q] for some
+  370  processor q
+  371  – if any processor r (including p itself) later sets output[r] to some value w
+  372  other than NotAnInput,then w = v.
+  373  We first define a specification ISpec that has two additional variables: allInput,
+  374  the set of all inputs chosen so far,and chosen,which is set to the first output
+  375  value chosen. The actual specification SynodSpec is obtained from ISpec by hiding allInput and chosen. Hiding in TLA is expressed by the temporal existential
+  376  quantifier ∃∃∃∃∃∃ . To formally define SynodSpec in TLA+,we define ISpec in a submodule that is then instantiated. However,the reader not familiar with TLA+
+  377  can ignore these details and pretend that SynodSpec is simply defined to equal
+  378  ∃∃∃∃∃∃ allInput, chosen : ISpec.
+  379  The reader unfamiliar with TLA can consider the specification ISpec to consist of two parts: the initial predicate IInit and the next-state action INext,
+  380  which is a predicate relating the new (primed) state with the old (unprimed)
+  381  state.
+  382  Most of the TLA+ notation used in the definitions should be self-evident,
+  383  except for the following function constructs: [x ∈ S → g(x)] is the function f
+=== PAGE 11 ===
+
+  384  with domain S such that f [x] = g(x) for all x in S ; [S → T] is the set of all
+  385  functions with domain S and range a subset of T; and [f except ![x] = e]
+  386  is the function f that is the same as f except that f[x] = e. TLA+ allows
+  387  conjunctions and disjunctions to be written as bulleted lists,with indentation
+  388  used to eliminate parentheses.
+  389  The specification is contained in the following module named SynodSpec. The
+  390  module begins with an extends statement that imports the Naturals module,
+  391  which defines the set Nat of natural numbers and the usual arithmetic operations. The Naturals module also defines i . . j to be the set of natural numbers
+  392  from i through j.
+  393  module SynodSpec
+  394  extends Naturals
+  395  N , Inputs
+  396  constant
+  397  (N ∈ Nat) ∧ (N > 0)
+  398  assume
+  399  Proc = 1∆ . . N
+  400  NotAnInput =∆ c : c ∈/ Inputs
+  401  choose
+  402  variables input, output
+  403  module Inner
+  404  allInput, chosen
+  405  variables
+  406  IInit =∆ ∧ input ∈ [Proc → Inputs]
+  407  ∧ output = [p ∈ Proc → NotAnInput]
+  408  ∧ chosen = NotAnInput
+  409  ∧ allInput = {input[p] : p ∈ Proc}
+
+  410  Choose(p) =∆
+  411  ∧ output[p] = NotAnInput
+  412  ∧ chosen = NotAnInput
+  413  if
+  414  ∃ ip ∈ allInput : ∧ chosen = ip
+  415  then
+  416  ∧ output = [output ![p] = ip]
+  417  except
+  418  else ∧ output = [output except ![p] = chosen]
+  419  ∧ unchanged chosen
+  420  ∧ input, allInput
+  421  unchanged
+  422  Fail(p) =∆ ∧ output = [output ![p] = NotAnInput]
+  423  except
+  424  ∧ ∃ ip ∈ Inputs : ∧ input = [input ![p] = ip]
+  425  except
+  426  ∧ allInput = allInput ∪ {ip}
+  427  ∧ chosen
+  428  unchanged
+  429  INext =∆ ∃ p ∈ Proc : Choose(p) ∨ Fail(p)
+  430  ISpec =∆ IInit ∧ ✷[INext]
+  431  input,output, chosen,allInput
+  432  IS(chosen, allInput) =∆ Inner
+  433  instance
+  434  SynodSpec =∆ ∃∃∃∃∃∃ chosen, allInput : IS(chosen,allInput)!ISpec
+=== PAGE 12 ===
+
+  435  The Disk Synod Algorithm
+
+  436  The Disk Synod algorithm's specification appears in module DiskSynod,which
+  437  uses an extends statement to import all the declarations and definitions from
+  438  the SynodSpec module. The specification introduces three new constant parameters: an operator Ballot such that Ballot(p) is the set of ballot numbers that
+  439  processor p can use; a set Disk of disks; and a predicate IsMajority,which generalizes the notion of a majority. The specification asserts the assumptions that
+  440  different processors have disjoint sets of ballot numbers,and that,for any subsets S and T of Disk,if IsMajority(S) and IsMajority(T) are true,then S and
+  441  T are not disjoint.
+  442  The specification uses the following variables: input and output are imported
+  443  from the SynodSpec module; dblock and disk were explained in the informal
+  444  description of the algorithm; phase[p] is the current phase of processor p,which
+  445  is set to 0 when p fails and to 3 when p chooses its output; disksWritten[p]
+  446  is the set of disks that processor p has written during its current phase; and
+  447  blocksRead[p][d] is the set of values p has read from disk d during its current
+  448  phase.
+  449  Some additional TLA+ notation is introduced in the specification. TLA+
+  450  has the following record constructs: [f 1 → v1, . . . , f n → vn ] is the record r
+  451  with fields f , . . . ,f such that r.f = v ,for each i; and [f : S , . . . ,f : S ]
+  452  1 n i i 1 1 n n
+  453  is the set of all such records with vi an element of the set S i,for each i. The
+  454  except construct has the following extensions: in [f except ![x] = e],an @ in
+  455  expression e denotes f[x]; the except part can have multiple "replacements"
+  456  separated by commas; and the construct generalizes to functions of functions in
+  457  the obvious way—for example,[f ![x][y] = e]. In TLA+, S is
+  458  except subset
+  459  the set of all subsets of S,and union S is the union of all the elements of S .
+  460  The algorithm's specification is formula DiskSynodSpec,but the reader unfamiliar with TLA can consider the specification to be the initial predicate Init
+  461  and the next-state action Next. The module ends by asserting the correctness of
+  462  the algorithm,expressed in TLA by the statement that the algorithm's specification implies its correctness condition. On first reading,we recommend jumping
+  463  from the definition of Init to the definition of Next,and then reading backwards
+  464  to see what is defined in terms of what.
+
+  465  module DiskSynod
+  466  extends SynodSpec
+  467  constants Ballot( ), Disk, IsMajority( )
+  468  assume ∧ ∀p ∈ Proc : ∧ Ballot(p) ⊆ {n ∈ Nat : n > 0}
+  469  ∧ ∀q ∈ Proc \ {p} : Ballot(p) ∩ Ballot(q) = {}
+  470  ∧ ∀S, T ∈ subset Disk :
+  471  IsMajority(S) ∧ IsMajority(T) ⇒ (S ∩ T = {})
+  472  DiskBlock = [∆ mbal : ( {Ballot(p) : p ∈ Proc}) ∪ {0},
+  473  union
+  474  bal : ( {Ballot(p) : p ∈ Proc}) ∪ {0},
+  475  union
+  476  inp : Inputs ∪ {NotAnInput} ]
+=== PAGE 13 ===
+
+  477  InitDB = [∆ mbal → 0, bal → 0, inp → NotAnInput]
+  478  variables disk, dblock, phase, disksWritten, blocksRead
+  479  vars =∆ input, output, disk, phase, dblock, disksWritten, blocksRead
+  480  Init =∆ ∧ input ∈ [Proc → Inputs]
+  481  ∧ output = [p ∈ Proc → NotAnInput]
+  482  ∧ disk = [d ∈ Disk → [p ∈ Proc → InitDB]]
+  483  ∧ phase = [p ∈ Proc → 0]
+  484  ∧ dblock = [p ∈ Proc → InitDB]
+  485  ∧ output = [p ∈ Proc → NotAnInput]
+  486  ∧ disksWritten = [p ∈ Proc → {}]
+  487  ∧ blocksRead = [p ∈ Proc → [d ∈ Disk → {}]]
+
+  488  hasRead(p,d,q) =∆ ∃ br ∈ blocksRead[p][d] : br.proc = q
+  489  allBlocksRead(p) =∆ allRdBlks =∆ {blocksRead[p][d] : d ∈ Disk}
+  490  let union
+  491  in {br.block : br ∈ allRdBlks}
+  492  InitializePhase(p) =∆
+  493  ∧ disksWritten = [disksWritten ![p] = {}]
+  494  except
+  495  ∧ blocksRead = [blocksRead ![p] = [d ∈ Disk → {}]]
+  496  except
+  497  StartBallot(p) =∆
+  498  ∧ phase[p] ∈ {1, 2}
+  499  ∧ phase = [phase ![p] = 1]
+  500  except
+  501  ∧ ∃b ∈ Ballot(p) : ∧ b > dblock[p].mbal
+  502  ∧ dblock = [dblock ![p].mbal = b]
+  503  except
+  504  ∧ InitializePhase(p)
+  505  ∧ unchanged input,output, disk
+
+  506  Phase1or2Write(p, d) =∆
+  507  ∧ phase[p] ∈ {1, 2}
+  508  ∧ disk = [disk ![d][p] = dblock[p]]
+  509  except
+  510  ∧ disksWritten = [disksWritten except ![p] = @ ∪ {d}]
+  511  ∧ unchanged input,output, phase,dblock,blocksRead
+
+  512  Phase1or2Read(p, d, q) =∆
+  513  ∧ d ∈ disksWritten[p]
+  514  ∧ disk[d][q].mbal < dblock[p].mbal
+  515  if
+  516  then ∧ blocksRead =
+  517  [blocksRead except
+  518  ![p][d] = @ ∪ {[block → disk[d][q], proc → q]}]
+  519  ∧ unchanged
+  520  input, output, disk,phase, dblock, disksWritten
+  521  else StartBallot(p)
+=== PAGE 14 ===
+
+  522  Fail
+
+  523  EndPhase1or2(p) =∆
+  524  ∧ IsMajority({d ∈ disksWritten[p] : ∀ q ∈ Proc \ {p} : hasRead(p,d, q)})
+  525  ∧ ∨ ∧ phase[p] = 1
+  526  ∧ dblock =
+  527  [ dblock except
+  528  ![p].bal = dblock[p].mbal,
+  529  ![p].inp = blocksSeen =∆ allBlocksRead(p) ∪ {dblock[p]}
+  530  let
+  531  nonInitBlks =∆
+  532  {bs ∈ blocksSeen : bs.inp = NotAnInput}
+  533  maxBlk =∆ b ∈ nonInitBlks :
+  534  choose
+  535  ∀ c ∈ nonInitBlks : b.bal ≥ c.bal
+  536  in if nonInitBlks = {} then input[p]
+  537  else maxBlk.inp ]
+  538  ∧ unchanged output
+  539  ∨ ∧ phase[p] = 2
+  540  ∧ output = [output ![p] = dblock[p].inp]
+  541  except
+  542  ∧ dblock
+  543  unchanged
+  544  ∧ phase = [phase except ![p] = @ + 1]
+  545  ∧ InitializePhase(p)
+  546  ∧ input,disk
+  547  unchanged
+  548  (p) =∆ ∧ ∃ip ∈ Inputs : input = [input ![p] = ip]
+  549  except
+  550  ∧ phase = [phase ![p] = 0]
+  551  except
+  552  ∧ dblock = [dblock ![p] = InitDB]
+  553  except
+  554  ∧ output = [output ![p] = NotAnInput]
+  555  except
+  556  ∧ InitializePhase(p)
+  557  ∧ disk
+  558  unchanged
+  559  Phase0Read(p, d) =∆
+  560  ∧ phase[p] = 0
+  561  ∧ blocksRead = [blocksRead
+  562  except
+  563  ![p][d] = @ ∪ {[block → disk[d][p], proc → p]}]
+  564  ∧ input,output, disk, phase,dblock,disksWritten
+  565  unchanged
+
+  566  EndPhase0(p) =∆
+  567  ∧ phase[p] = 0
+  568  ∧ IsMajority({d ∈ Disk : hasRead(p,d,p)})
+  569  ∧ ∃b ∈ Ballot(p) :
+  570  ∧ ∀r ∈ allBlocksRead(p) : b > r.mbal
+  571  ∧ dblock = [dblock except
+  572  ![p] = [ (choose r ∈ allBlocksRead(p) :
+  573  ∀ s ∈ allBlocksRead(p) : r.bal ≥ s.bal)
+  574  !.mbal = b] ]
+  575  except
+  576  ∧ InitializePhase(p)
+  577  ∧ phase = [phase except ![p] = 1]
+  578  ∧ unchanged input,output, disk
+=== PAGE 15 ===
+
+  579  Next =∆ ∃ p ∈ Proc :
+  580  ∨ StartBallot(p)
+  581  ∨ ∃d ∈ Disk : ∨ Phase0Read(p, d)
+  582  ∨ Phase1or2Write(p,d)
+  583  ∨ ∃q ∈ Proc \ {p} : Phase1or2Read(p, d,q)
+  584  ∨ EndPhase1or2(p)
+  585  ∨ Fail(p)
+  586  ∨ EndPhase0(p)
+
+  587  DiskSynodSpec =∆ Init ∧ ✷[Next]
+  588  vars
+  589  DiskSynodSpec ⇒ SynodSpec
+  590  theorem

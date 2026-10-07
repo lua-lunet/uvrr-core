@@ -1,0 +1,565 @@
+---
+title: "A Simple Totally Ordered Broadcast Protocol"
+authors:
+  - "Benjamin Reed"
+  - "Flavio P Junqueira"
+year: "2008"
+publication: "Proceedings of the 2nd Workshop on Large-Scale Distributed Systems and Middleware"
+handle_url: "https://consensus.app/papers/a-simple-totally-ordered-broadcast-protocol-reed-junqueira/1df52a2e713a5d4db5f3655a631e9233/"
+source_pdf: "research/agent366/papers/reed2008-zab-ladis08.pdf"
+source_pdf_sha256: "37798761d1e6a9b718934e776af777c77b82b2f0d54573fd63090cb7986a5c29"
+page_count: 6
+extracted_text_runs: 772
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-07"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  This is a short overview of a totally ordered broadcast protocol used by ZooKeeper, called Zab. It is conceptually easy to understand, is easy to implement, and gives high performance. In this paper we present the requirements ZooKeeper makes on Zab, we show how the protocol is used, and we give an overview of how the protocol works.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  A simple totally ordered broadcast protocol
+
+    2  Benjamin Reed
+
+    3  Yahoo! Research
+
+    4  Santa Clara, CA - USA
+    5  breed@yahoo-inc.com
+
+    6  ABSTRACT
+    7  This is a short overview of a totally ordered broadcast protocol used by ZooKeeper, called Zab. It is conceptually
+    8  easy to understand, is easy to implement, and gives high
+    9  performance. In this paper we present the requirements
+   10  ZooKeeper makes on Zab, we show how the protocol is used,
+   11  and we give an overview of how the protocol works.
+
+   12  1. INTRODUCTION
+   13  At Yahoo! we have developed a high-performance highlyavailable coordination service called ZooKeeper [9] that allows large scale applications to perform coordination tasks
+   14  such as leader election, status propagation, and rendezvous.
+   15  This service implements a hierarchical space of data nodes,
+   16  called znodes, that clients use to implement their coordination tasks. We have found the service to be flexible with performance that easily meets the production demands of the
+   17  web-scale, mission critical applications we have at Yahoo!.
+   18  ZooKeeper foregoes locks and instead implements wait-free
+   19  shared data objects with strong guarantees on the order of
+   20  operations over these objects. Client libraries take advantage of these guarantees to implement their coordination
+   21  tasks. In general, one of the main premises of ZooKeeper
+   22  is that order of updates is more important to applications
+   23  than other typical coordination techniques such as blocking.
+   24  Embedded into ZooKeeper is a totally ordered broadcast
+   25  protocol: Zab. Ordered broadcast is crucial when implementing our client guarantees; it is also necessary to maintain replicas of the ZooKeeper state at each ZooKeeper server.
+   26  These replicas stay consistent using our totally ordered broadcast protocol, such as with replicated state-machines [13].
+   27  This paper focuses on the requirements ZooKeeper makes
+   28  on this broadcast protocol and an overview of its implementation.
+   29  A ZooKeeper service usually consists of three to seven machines. Our implementation supports more machines, but
+   30  three to seven machines provide more than enough performance and resilience. A client connects to any of the ma-
+
+   31  Permission to make digital or hard copies of all or part of this work for
+   32  personal or classroom use is granted without fee provided that copies are
+   33  not made or distributed for profit or commercial advantage and that copies
+   34  bear this notice and the full citation on the first page. To copy otherwise, to
+   35  republish, to post on servers or to redistribute to lists, requires prior specific
+   36  permission and/or a fee.
+   37  Copyright 200X ACM X-XXXXX-XX-X/XX/XX ...$5.00.
+
+   38  Flavio P. Junqueira
+
+   39  Yahoo! Research
+
+   40  Barcelona, Catalunya - Spain
+   41  fpj@yahoo-inc.com
+
+   42  chines providing the service and always has a consistent view
+   43  of the ZooKeeper state. The service tolerates up to f crash
+   44  failures, and it requires at least 2f + 1 servers.
+   45  Applications use ZooKeeper extensively and have tens
+   46  to thousands of clients accessing it concurrently, so we require high throughput. We have designed ZooKeeper for
+   47  workloads with ratios of read to write operations that are
+   48  higher than 2:1; however, we have found that ZooKeeper's
+   49  high write throughput allows it to be used for some write
+   50  dominant workloads as well. ZooKeeper provides high read
+   51  throughput by servicing the reads from the local replica of
+   52  the ZooKeeper state at each server. As a consequence, both
+   53  fault tolerance and read throughput scales by adding servers
+   54  to the service. Write throughput does not scale by adding
+   55  servers; instead it is limited by the throughput of the broadcast protocol, thus we need a broadcast protocol with highthroughput.
+
+   56  Z o o K e e p e r S e r v i c e
+   57  Write Request t x n Response
+   58  Request Processor
+   59  Replicated
+   60  Database
+   61  A t o m i c
+   62  Broadcast t x n
+
+   63  Read
+   64  Request
+   65  Figure 1: The logical components of the ZooKeeper
+   66  service.
+
+   67  Figure 1 shows the logical makeup of the ZooKeeper service. Read requests are serviced from the local database
+   68  containing the ZooKeeper state. Write requests are transformed from ZooKeeper requests to idempotent transactions
+   69  and sent through Zab before a response is generated. Many
+   70  ZooKeeper write requests are conditional in nature: a znode can only be deleted if it does not have any children; a
+   71  znode can be created with a name and a sequence number
+   72  appended to it; a change to data will only be applied if it
+   73  is at an expected version. Even the non-conditional write
+   74  requests modify meta data, such as version numbers, in a
+   75  ways that are not idempotent.
+   76  By sending all updates through a single server, referred
+   77  to as the leader, we transform non-idempotent requests into
+   78  idempotent transactions. We use the term transaction to
+   79  denote the idempotent version of a request throughout this
+   80  paper. The leader can perform the transformation because
+   81  it has a perfect view of the future state of the replicated
+=== PAGE 2 ===
+
+   82  database and can calculate the state of the new record.
+   83  The idempotent transaction is a record of this new state.
+   84  ZooKeeper takes advantage of the idempotent transactions
+   85  in many ways that are out of the scope of this paper, but
+   86  the idempotent nature of our transactions also allows us to
+   87  relax an ordering requirement of our broadcast protocol during recovery.
+
+   88  2. REQUIREMENTS
+   89  We assume a set of processes that both implement the
+   90  atomic broadcast protocol and use it. To guarantee the correct transformation into idempotent requests in ZooKeeper,
+   91  it is necessary that there is a single leader at a time, so we
+   92  we enforce that there is one such a process through the protocol implementation. We discuss it more when we present
+   93  more detail of the protocol.
+   94  ZooKeeper makes the following requirements on the broadcast protocol:
+
+   95  Reliable delivery If a message, m, is delivered by one
+   96  server, then it will be eventually delivered by all correct servers.
+
+   97  Total order If message a is delivered before message b by
+   98  one server, then every server that delivers a and b delivers a before b.
+
+   99  Causal order If message a causally precedes message b and
+  100  both messages are delivered, then a must be ordered
+  101  before b.
+
+  102  For correctness, ZooKeeper additionally requires the following prefix property:
+
+  103  Prefix property: If m is the last message delivered for a
+  104  leader L, any message proposed before m by L must
+  105  also be delivered;
+  106  Note that a process might be elected multiple times. Each
+  107  time, however, counts as a different leader for the purposes
+  108  of this prefix property.
+  109  With these three guarantees we can maintain correct replicas of the ZooKeeper database:
+  110  1. The reliability and total order guarantees ensure that
+  111  all of the replicas have a consistent state;
+
+  112  2. The causal order ensures that the replicas have state
+  113  correct from the perspective of the application using
+  114  Zab;
+
+  115  3. The leader proposes updates to the database based on
+  116  requests received.
+  117  It is important to observe that there are two types of
+  118  causal relationships taken into account by Zab:
+  119  1. If two messages, a and b, are sent by the same server
+  120  and a is proposed before b, we say that a causally precedes b;
+
+  121  2. Zab assumes a single leader server at a time that can
+  122  commit proposals. If a leader changes, any previously
+  123  proposed messages causally precede messages proposed
+  124  by the new leader.
+
+  125  Causal violation example.
+  126  To show the problems caused by violating the second dimension of our causal relationship consider
+  127  the following scenario:
+
+  128  • A ZooKeeper client C1 requests to set a znode /a to 1 which will be transformed into
+  129  a message, w1, that contains ("/a", "1", 1),
+  130  where the tuple represents path, value, and
+  131  resulting version of the znode.
+  132  • C1 then requests to set /a to 2 which will be
+  133  transformed into a message, w2, that contains
+  134  ("/a", "2", 2);
+  135  • L1 proposes and delivers w1, but it is only
+  136  able to issue w2 to itself before failing;
+  137  • A new leader L2 takes over.
+  138  • A client C2 requests to set /a to 3 conditioned on a being at version 1, which will be
+  139  transformed into a message, w3, that contains
+  140  ("/a", "3", 2);
+  141  • L2 proposes and delivers w3.
+
+  142  In this scenario, the client receives a successful response to w1 , but an error for w2 because of the
+  143  leader failure. If eventually L1 recovers, regains
+  144  leadership, and attempts to deliver the proposal for
+  145  w2, the causal ordering of the client requests will be
+  146  violated and the replicated state will be incorrect.
+
+  147  Our failure model is crash-fail with stateful recovery. We
+  148  do not assume synchronized clocks, but we do assume that
+  149  servers perceive time pass at approximately the same rate.
+  150  (We use timeouts to detect failures.) The processes that
+  151  make up Zab have persistent state, so processes can restart
+  152  after a failure and recover using the persistent state. This
+  153  means a process can have state that is partially valid such
+  154  as missing more recent transactions or, more problematic,
+  155  the process may have transactions that were never delivered
+  156  earlier and now must be skipped.
+  157  We provision to handle f failures, but we also need to handle correlated recoverable failures, for example power outages. To recover from these failures we require that messages
+  158  are recorded on the disk media of a quorum of disks before a message is delivered. (Very non-technical, pragmatic,
+  159  operations-oriented reasons prevent us from incorporating
+  160  devices like UPS devices, redundant/dedicated networking
+  161  devices, and NVRAMs into our design.)
+  162  Although we do not assume Byzantine failures, we do detect data corruption using digests. We also add extra metadata to protocol packets and use them for sanity checks.
+  163  We abort the server process if we detect data corruption or
+  164  sanity checks fail.
+  165  Practical issues of independent implementations of operating environments and of the protocols themselves make the
+  166  realization of fully Byzantine tolerant systems impractical
+  167  for our application. It has also been shown that achieving
+  168  truly reliable independent implementations requires more
+  169  than just programming resources [11]. To date, most of
+  170  our production problems have been either the result of implementation bugs that affect all replicas or problems that
+=== PAGE 3 ===
+
+  171  are outside the implementation scope of Zab, but affect Zab,
+  172  such as network misconfiguration.
+  173  ZooKeeper uses an in-memory database and stores transaction logs and periodic snapshots on disk. Zab's transaction log doubles as the database write-ahead transaction
+  174  log so that a transaction will only be written to the disk
+  175  once. Since the database is in-memory and we use gigabit
+  176  interface cards, the bottleneck is the disk I/O on the writes.
+  177  To mitigate the disk I/O bottleneck we write transactions
+  178  in batches so that we can record multiple transactions in a
+  179  single write to the disk. This batching happens at the replicas not at the the protocol level, so the implementation is
+  180  much closer to group commits [4, 6] from databases than
+  181  message packing [5]. We chose to not use message packing
+  182  to minimize latency, while still getting most of the benefits
+  183  of packing through batched I/O to the disk.
+  184  Our crash-fail with stateful recovery model means that
+  185  when a server recovers, it is going to read in its snapshot
+  186  and replay all delivered transactions after that snapshot.
+  187  Thus, during recovery the atomic broadcast does not need
+  188  to guarantee at most once delivery. Our use of idempotent
+  189  transactions means that multiple delivery of a transaction
+  190  is fine as long as on restart order is preserved. This is a
+  191  relaxation of the total order requirement. Specifically, if a is
+  192  delivered before b and after a failure a is redelivered, b will
+  193  also be redelivered after a.
+  194  Other performance requirements we have are:
+  195  Low latency: ZooKeeper is used extensively by applications and our users expect low response times.
+  196  Bursty high throughput: Applications using ZooKeeper
+  197  usually have read-dominant workloads, but occasionally radical reconfigurations occur that cause large spikes
+  198  in write throughput.
+  199  Smooth failure handling: If a server fails that is not the
+  200  leader and there is still a quorum of correct servers,
+  201  there should be no service interruption.
+
+  202  3. WHY ANOTHER PROTOCOL
+  203  Reliable broadcast protocols can present different semantics depending on the application requirements. For example, Birman and Joseph propose two primitives, ABCAST
+  204  and CBCAST, that satisfy total order and causal order, respectively [2]. Zab also provides causal and total ordering
+  205  guarantees.
+  206  A good protocol candidate in our case is Paxos [12]. Paxos
+  207  has a number of important properties, such as guaranteeing safety despite the number of process failures, allowing
+  208  processes to crash and recover, and enabling operations to
+  209  commit within three communication steps under realistic assumptions. We observe that there are a couple of realistic
+  210  assumptions we can make that enable us to simplify Paxos
+  211  and obtain high throughput. First, Paxos tolerates message
+  212  losses and reordering of messages. By using TCP to communicate between pairs of servers, we can guarantee that delivered messages are delivered in FIFO order, which enables us
+  213  to satisfy per proposer causality even when server processes
+  214  have multiple outstanding proposed messages. Paxos, however, does not directly guarantee causality because it does
+  215  not require FIFO channels.
+  216  Proposers are the agents proposing values for the different instances in Paxos. To guarantee progress, there must be
+  217  a single proposer proposing, otherwise proposers may contend forever on a given instance. Such an active proposer
+
+  218  is a leader. When Paxos recovers from a leader failure, the
+  219  new leader makes sure all partially delivered messages are
+  220  fully delivered and then resumes proposals from the instance
+  221  number the old leader left off. Because multiple leaders can
+  222  propose a value for a given instance two problems arise.
+  223  First, proposals can conflict. Paxos uses ballots to detect
+  224  and resolve conflicting proposals. Second, it is not enough
+  225  to know that a given instance number has been committed, processes must also be able to figure out which value
+  226  has been committed. Zab avoids both of these problems
+  227  by ensuring that there is only one message proposal for a
+  228  given proposal number. This obviates the need for ballots
+  229  and simplifies recovery. In Paxos, if a server believes it is
+  230  a leader, it will use a higher ballot to take over leadership
+  231  from a previous leader. However, in Zab a new leader cannot take over leadership until a quorum of servers abandon
+  232  the previous leader.
+  233  An alternative way of obtaining high throughput is by limiting the protocol message complexity per broadcast message such as with the Fixed-Sequencer Ring (FSR) protocol [8]. Throughput does not decrease with FSR as the
+  234  system grows, but latency does increase with the number
+  235  of processes, which is inconvenient in our environment. Virtual synchrony also enables high throughput when groups
+  236  are stable for long enough [1]. However, any server failure
+  237  triggers a reconfiguration of the service, thus causing brief
+  238  service interruptions during such reconfigurations. Moreover, a failure detector in such systems has to monitor all
+  239  servers. The reliability of such a failure detector is crucial
+  240  for the stability and speed of reconfiguration. Leader-based
+  241  protocols also rely upon failure detectors for liveness, but
+  242  such a failure detector only monitors one server at a time,
+  243  which is the leader. As we discuss in the next section, we
+  244  do not use fixed quorums or groups for writes and maintain
+  245  the service availability as long as the leader does not fail.
+  246  Our protocol has a fixed sequencer, according to the classification of Defago et al. [3], that we call the leader. Such
+  247  a leader is elected through a leader election algorithm and
+  248  synchronized with a quorum of other servers, called followers. Since the leader has to manage messages to all the
+  249  followers this decision of a fixed sequencer distributes load
+  250  unevenly across the servers that compose the system with
+  251  respect to the broadcast protocol. We have taken this approach, though, for the following reasons:
+  252  • Clients can connect to any server, and servers have to
+  253  serve read operations locally and maintain information
+  254  about the session of a client. This extra load of a
+  255  follower process (a process that is not a leader) makes
+  256  the load more evenly distributed;
+  257  • The number of servers involved is small. This means
+  258  that the network communication overhead does not
+  259  become the bottleneck that can affect fixed sequencer
+  260  protocols;
+  261  • Implementing more complex approaches was not necessary as this simple one provides enough performance.
+  262  Having a moving sequencer, for example, increases the
+  263  complexity of the implementation as we have to handle problems such as losing the token. Also, we opted to move
+  264  away from models based on communication history, such
+  265  as sender-based ones, to avoid the quadratic message complexity of such protocols. Destination agreement protocols
+  266  suffer from a similar problem [8].
+  267  Using a leader requires that we recover from leader failures
+=== PAGE 4 ===
+
+  268  to guarantee progress. We use techniques related to view
+  269  changes such as in the protocol of Keidar and Dolev [10].
+  270  Different from their protocol, we do not operate using group
+  271  communication. If a new server joins or leaves (perhaps by
+  272  crashing), then we do no cause a view change, unless such
+  273  an event corresponds to the leader crashing.
+
+  274  4. PROTOCOL
+  275  Zab's protocol consists of two modes: recovery and broadcast. When the service starts or after a leader failure, Zab
+  276  transitions to recovery mode. Recovery mode ends when a
+  277  leader emerges and a quorum of servers have synchronized
+  278  their state with the leader. Synchronizing their state consists of guaranteeing that the leader and new server have the
+  279  same state.
+  280  Once a leader has a quorum of synchronized followers,
+  281  it can begin to broadcast messages. As we mentioned in
+  282  the introduction, the ZooKeeper service itself uses a leader
+  283  to process requests. The leader is the server that executes
+  284  a broadcast by initiating the broadcast protocol, and any
+  285  server other than the leader that needs to broadcast a message first forwards it to the leader. By using the leader that
+  286  emerges from the recovery mode as both the leader to process write requests and to coordinate the broadcast protocol,
+  287  we eliminate the network latency of forwarding messages to
+  288  broadcast from the write request leader to the broadcast
+  289  protocol leader.
+  290  Once a leader has synchronized with a quorum of followers, it begins to broadcast messages. If a Zab server comes
+  291  online while a leader is actively broadcasting messages, the
+  292  server will start in recovery mode, discover and synchronize with the leader, and start participating in the message
+  293  broadcasts. The service remains in broadcast mode until the
+  294  leader fails or it no longer has a quorum of followers. Any
+  295  quorum of followers are sufficient for a leader and the service to stay active. For example, a Zab service made up of
+  296  three servers where one is a leader and the two other servers
+  297  are followers will move to broadcast mode. If one of the followers die, there will be no interruption in service since the
+  298  leader will still have a quorum. If the follower recovers and
+  299  the other dies, there will still be no service interruption.
+
+  300  Figure 2: The protocol for message delivery. Multiple instances of this protocol can be running concurrently. The message is delivered once the leader
+  301  issues the COMMIT.
+
+  302  4.1 Broadcast
+  303  The protocol we use while the atomic broadcast service
+  304  is operational, called broadcast mode, resembles a simple a
+
+  305  two-phase commit [7]: a leader proposes a request, collects
+  306  votes, and finally commits. Figure 2 illustrates the flow of
+  307  messages with our protocol. We are able to simplify the
+  308  two-phase commit protocol because we do not have aborts;
+  309  followers either acknowledge the leader's proposal or they
+  310  abandon the leader. The lack of aborts also mean that we
+  311  can commit once a quorum of servers ack the proposal rather
+  312  than waiting for all servers to respond. This simplified twophase commit by itself cannot handle leader failures, so we
+  313  will add recovery mode to handle leader failures.
+  314  The broadcast protocol uses FIFO (TCP) channels for all
+  315  communications. By using FIFO channels, preserving the
+  316  ordering guarantees becomes very easy. Messages are delivered in order through FIFO channels; as long as messages
+  317  are processed as they are received, order is preserved.
+  318  The leader broadcasts a proposal for a message to be delivered. Before proposing a message the leader assigns a monotonically increasing unique id, called the zxid. Because Zab
+  319  preserves causal ordering, the delivered messages will also be
+  320  ordered by their zxids. Broadcasting consists of putting the
+  321  proposal with the message attached into the outgoing queue
+  322  for each follower to be sent through the FIFO channel to the
+  323  follower. When a follower receives a proposal, it writes it to
+  324  disk, batching when it can, and sends an acknowledgement
+  325  to the leader as soon as the proposal is on the disk media.
+  326  When a leader receives ACKs from a quorum, the leader will
+  327  broadcast a COMMIT and deliver the message locally. Followers deliver the message when they receive the COMMIT
+  328  from the leader.
+  329  Note that the leader does not have to send the COM-
+  330  MIT if the followers broadcast the ACKs to each other.
+  331  Not only does this modification increases the amount of network traffic, but it also requires a complete communication
+  332  graph rather than the simple star topology, which is easier
+  333  to manage from the point of view of starting TCP connections. Maintaining this graph and tracking the ACKs at the
+  334  clients was also deemed an unacceptable complication in our
+  335  implementation.
+
+  336  4.2 Recovery
+  337  This simple broadcast protocol works great until the leader
+  338  fails or loses a quorum of followers. To guarantee progress,
+  339  a recovery procedure is necessary to elect a new leader and
+  340  bring all servers to a correct state. For leader election we
+  341  need an algorithm that succeeds with high probability to
+  342  guarantee liveness. The leader election protocol enables not
+  343  only the leader to learn that it is the leader, but also a
+  344  quorum to agree upon this decision. If the election phase
+  345  completes erroneously, servers will not make progress, they
+  346  eventually timeout, and restart the leader election. In our
+  347  implementation we have two different implementations of
+  348  leader election. The fastest completes leader election in just
+  349  a few hundreds of milliseconds if there is a quorum of correct
+  350  servers.
+  351  Part of the complication of the recovery procedure is the
+  352  sheer number of proposals that can be in flight at a given
+  353  time. The maximum number of in-flight proposals is a configurable option, but the default is one thousand. To enable
+  354  such a protocol to work despite failures of the leader there
+  355  are two specific guarantees we need to make: we must never
+  356  forget delivered messages and we need to let go of messages
+  357  that are skipped.
+  358  A message that gets delivered on one machine must be
+=== PAGE 5 ===
+
+  359  Figure 3: An example of a message that cannot be
+  360  forgotten. Server 1 is the leader. It fails, and it was
+  361  the only only server to see the COMMIT of message
+  362  2. The broadcast protocol must ensure that message
+  363  2 gets committed on all correct servers.
+
+  364  Figure 4: An example of a message that must be
+  365  skipped. Server 1 has a proposal for message 3 that
+  366  was not committed. Since later proposals have been
+  367  committed message 3 must be forgotten.
+
+  368  delivered on all even if that machine fails. This situation
+  369  can easily occur if the leader commits a message and then
+  370  fails before the COMMIT reaches any other server as shown
+  371  in Figure 3. Because the leader committed the message, a
+  372  client could have seen the result of the transaction in the
+  373  message, so the transaction must be delivered to all other
+  374  servers eventually so that the client sees a consistent view
+  375  of the service.
+  376  Conversely, a skipped message must remain skipped. Again,
+  377  this situation can easily occur if a proposal gets generated
+  378  by a leader and the leader fails before anyone else sees the
+  379  proposal. For example, in Figure 3 no other server saw proposal number 3, so in Figure 4 when server 1 comes back
+  380  up it needs to be sure to throw away proposal number 3
+  381  when it reintegrates with the system. If server 1 became a
+  382  new leader and committed 3 after messages 100000001 and
+  383  100000002 have been delivered, we would violate our ordering guarantees.
+  384  The problem of remembering delivered messages is handled with a simple tweak of the leader election protocol. If
+  385  the leader election protocol guarantees that the new leader
+  386  has the highest proposal number in a quorum of servers, a
+  387  newly elected leader will also have all committed messages.
+  388  Before proposing any new messages a newly elected leader
+  389  first makes sure that all messages that are in its transaction log have been proposed to and committed by a quorum of followers. Note that having the new leader being
+  390  a server process with highest zxid is an optimization as a
+  391  newly elected leader in this case does not need to find out
+  392  from a group of followers which one contains the highest zxid
+  393  and fetch missing transactions.
+  394  All servers that are operating correctly will either be a
+  395  leader or be following a leader. The leader ensures that
+  396  its followers have seen all the proposals and have delivered
+  397  all that have been committed. It accomplishes this task by
+  398  queuing to a newly connected follower any PROPOSAL it
+  399  has that the follower has not seen, and then queuing a COM-
+  400  MIT for all such proposals up to the last message committed.
+  401  After all such messages have been queued, the leader adds
+  402  the follower to the broadcast list for future PROPOSALs
+  403  and ACKs.
+  404  Skipping messages that have been proposed but never delivered is also simple to handle. In our implementation the
+  405  zxid is a 64-bit number with the lower 32-bits used as a
+  406  simple counter. Each proposal increments the counter. The
+  407  high order 32-bit is the epoch. Each time a new leader takes
+  408  over it will get the epoch of the highest zxid it has in its
+  409  log, increment the epoch, and using a zxid with the epoch
+  410  bits set to this new epoch and the counter set to zero. Using epochs to mark leadership changes and requiring that a
+  411  quorum of servers recognize a server as the leader for that
+  412  epoch, we avoid the possibility of multiple leaders issuing
+  413  different proposals with the same zxid. One advantage of
+  414  this scheme is that we can skip instances upon a leader failure, thus speeding up and simplifying the recovery process.
+  415  If a server that has been down is restarted with a proposal
+  416  that was never delivered from a previous epoch, it is not able
+  417  to be a new leader since every possible quorum of servers has
+  418  a server with a proposal from a newer epoch and therefore
+  419  a higher zxid. When this server connects as a follower, the
+  420  leader checks the last committed proposal for the epoch of
+  421  the follower's latest proposal and tell the follower to truncate its transaction log (i.e., forget) to the last committed
+=== PAGE 6 ===
+
+  422  proposal for that epoch. In Figure 4 when server 1 connects
+  423  to the leader, the leader tells it to purge proposal 3 from its
+  424  transaction log.
+
+  425  5. FINAL REMARKS
+  426  We were able to implement this protocol quickly and it
+  427  has proven to be robust in production. Most important,
+  428  we met our goals of high throughput and low latency. On
+  429  a non-saturated system, latencies are measured in milliseconds since the typical latencies will correspond to 4 times
+  430  the packet transmission latency irrespective of the number
+  431  of servers. Bursty loads are also handled gracefully since
+  432  messages are committed when a quorum ack proposals. A
+  433  slow server will not affect bursty throughput since fast quorums of servers that do not contain the slow server can ack
+  434  the messages. Finally, since the leader will commit messages as soon as any quorum acks a proposal followers that
+  435  fail do not affect the availability or even the throughput of
+  436  the service as long as there is a quorum of correct servers.
+  437  As result of using efficient implementations of these protocols, we have an implementation of the system that reaches
+  438  tens to hundreds of thousands of operations per second for
+  439  workload mixes of 2:1 read-to-write ratios and higher. This
+  440  system is currently in production use, and it is used by large
+  441  applications such as the Yahoo! crawler and the Yahoo! advertisement system.
+
+  442  Acknowledgements
+  443  We would to thank both of our reviewers for useful comments, and Robbert van Renesse for a very nice offline discussion on Zab which helped us to clarify several points.
+
+  444  6. REFERENCES
+  445  [1] K. Birman and T. Joseph. Exploiting virtual
+  446  synchrony in distributed systems. SIGOPS Oper. Syst.
+  447  Rev., 21(5):123–138, 1987.
+  448  [2] K. P. Birman and T. A. Joseph. Reliable
+  449  communication in the presence of failures. ACM
+  450  Trans. Comput. Syst., 5(1):47–76, 1987.
+  451  [3] X. D´efago, A. Schiper, and P. Urb´an. Total order
+  452  broadcast and multicast algorithms: Taxonomy and
+  453  survey. ACM Comput. Surv., 36(4):372–421, 2004.
+  454  [4] D. J. DeWitt, R. H. Katz, F. Olken, L. D. Shapiro,
+  455  M. R. Stonebraker, and D. Wood. Implementation
+  456  techniques for main memory database systems.
+  457  SIGMOD Rec., 14(2):1–8, 1984.
+  458  [5] R. Friedman and R. van Renesse. Packing messages as
+  459  a tool for boosting the performance of total ordering
+  460  protocols. In HPDC, pages 233–242, 1997.
+  461  [6] D. Gawlick and D. Kinkade. Varieties of concurrency
+  462  control in ims/vs fast path. IEEE Database Eng.
+  463  Bull., 8(2):3–10, 1985.
+  464  [7] J. Gray. Notes on data base operating systems. In
+  465  Operating Systems, An Advanced Course, pages
+  466  393–481, London, UK, 1978. Springer-Verlag.
+  467  [8] R. Guerraoui, R. R. Levy, B. Pochon, and V. Quema.
+  468  High throughput total order broadcast for cluster
+  469  environments. In DSN '06: Proceedings of the
+  470  International Conference on Dependable Systems and
+  471  Networks, pages 549–557, Washington, DC, USA,
+  472  2006. IEEE Computer Society.
+
+  473  [9] http://hadoop.apache.org/zookeeper. Zookeeper
+  474  project page, 2008.
+  475  [10] I. Keidar and D. Dolev. Totally ordered broadcast in
+  476  the face of network partitions. In D. R. Avresky,
+  477  editor, Dependable Network Computing, chapter 3,
+  478  pages 51–75. Kluwer Academic, 2000.
+  479  [11] J. C. Knight and N. G. Leveson. An experimental
+  480  evaluation of the assumption of independence in
+  481  multiversion programming. IEEE Trans. Softw. Eng.,
+  482  12(1):96–109, 1986.
+  483  [12] L. Lamport. The part-time parliament. ACM Trans.
+  484  Comput. Syst., 16(2):133–169, 1998.
+  485  [13] F. B. Schneider. Implementing fault-tolerant services
+  486  using the state machine approach: a tutorial. ACM
+  487  Comput. Surv., 22(4):299–319, 1990.

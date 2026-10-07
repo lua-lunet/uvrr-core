@@ -128,14 +128,20 @@ check here.
 ## Zotero is the database of record
 
 The bibliography lives in Zotero. The repository holds one Better BibTeX
-auto-export snapshot per worktree and nothing else; the snapshot is
-replaced wholesale from the export, never hand-edited, never copied
-around.
+auto-export snapshot and nothing else; the snapshot is replaced wholesale
+from the export, never hand-edited.
+
+The snapshot is exported to the `main` checkout only, forever, because
+`main` is the single place Zotero syncs to. A worktree other than `main`
+updates the bibliography by copying the snapshot out of the `main`
+checkout with `cp`, referencing that copy, and committing it. Worktrees are
+transient; the export location is not.
 
 The Zotero **local API** (Zotero Settings → Advanced → "Allow other
 applications on this computer to communicate with Zotero"):
 
-- base URL `http://localhost:23119/api/`
+- base URL `http://localhost:23119/api/`; the library's items live under
+  `/api/users/0/` (the local API's synthetic user — bare `/api/items` is 404)
 - reads need no credential; every write needs two headers:
   `Zotero-Server-ID` (this database's persistent local server id, readable
   with `select value from settings where setting='localAPI' and
@@ -152,7 +158,8 @@ applications on this computer to communicate with Zotero"):
 - item keys: `data.citationKey` when Better BibTeX has pinned one; that
   is what the snapshot's keys match.
 
-Credentials never enter git: the API key lives in the environment
-(`ZOTERO_API_KEY`) and the server id is read from the database. The
-local-API authorisation is a per-application consent, so the repository
-records the flow, not the secret.
+Credentials never enter git. The API key lives in `.env` at the repository
+root as `ZOTERO_API_KEY`, which `.gitignore` excludes and no commit ever
+carries; `MISTRAL_API_KEY` lives beside it. The server id is read from the
+database. The local-API authorisation is a per-application consent, so the
+repository records the flow, not the secret.

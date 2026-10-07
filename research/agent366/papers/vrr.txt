@@ -1,0 +1,1263 @@
+---
+title: "Viewstamped Replication Revisited"
+authors:
+  - "B Liskov"
+  - "J Cowling"
+year: "2012"
+publication: ""
+handle_url: "https://hdl.handle.net/1721.1/71763"
+source_pdf: "research/agent366/papers/vrr-2012-liskov-cowling.pdf"
+source_pdf_sha256: "a4be688ed2d5ebb02511cde31ef43001cc7668681af9393bab69b5e3397895b6"
+page_count: 15
+extracted_text_runs: 2649
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-07"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  This paper presents an updated version of Viewstamped Replication, a replication technique that handles failures in which nodes crash. It describes how client requests are handled, how the group reorganizes when a replica fails, and how a failed replica is able to rejoin the group. The paper also describes a number of important optimizations and presents a protocol for handling reconfigurations that can change both the group membership and the number of failures the group is able to handle.
+tags:
+  - "consensus"
+  - "viewstamped-replication"
+---
+
+=== PAGE 1 ===
+
+    1  Computer Science and Artificial Intelligence Laboratory
+
+    2  Technical Report
+
+    3  MIT-CSAIL-TR-2012-021 July 23, 2012
+
+    4  Viewstamped Replication Revisited
+
+    5  Barbara Liskov and James Cowling
+
+    6  m a s s a c h u s e t t s i n s t i t u t e o f t e c h n o l o g y, c a m b r i d g e , m a 0 213 9 u s a — w w w. c s a i l . m i t . e d u
+=== PAGE 2 ===
+
+    7  Viewstamped Replication Revisited
+
+    8  Barbara Liskov and James Cowling
+
+    9  MIT Computer Science and Artificial Intelligence Laboratory
+
+   10  liskov@csail.mit.edu, cowling@csail.mit.edu
+
+   11  Abstract
+
+   12  This paper presents an updated version of Viewstamped
+   13  Replication, a replication technique that handles failures
+   14  in which nodes crash. It describes how client requests are
+   15  handled, how the group reorganizes when a replica fails,
+   16  and how a failed replica is able to rejoin the group. The
+   17  paper also describes a number of important optimizations
+   18  and presents a protocol for handling reconfigurations that
+   19  can change both the group membership and the number
+   20  of failures the group is able to handle.
+
+   21  1 Introduction
+
+   22  This paper presents an updated version of Viewstamped
+   23  Replication [11, 10, 8] (referred to as VR from now on).
+   24  VR works in an asynchronous network like the Internet,
+   25  and handles failures in which nodes fail by crashing. It
+   26  supports a replicated service that runs on a number of
+   27  replica nodes. The service maintains a state, and makes
+   28  that state accessible to a set of client machines. VR
+   29  provides state machine replication [4, 13]: clients can
+   30  run general operations to observe and modify the service
+   31  state. Thus the approach is suitable for implementing
+   32  replicated services such as a lock manager or a file system.
+   33  The presentation here differs from the earlier papers
+   34  on VR in several ways:
+
+   35  • The protocol described here improves on the original: it is simpler and has better performance.
+   36  Some improvements were inspired by later work on
+   37  Byzantine fault tolerance [2, 1].
+
+   38  • The protocol does not require any use of disk; instead it uses replicated state to provide persistence.
+
+   39  • The paper presents a reconfiguration protocol that
+   40  allows the membership of the replica group to
+
+   41  change, e.g., to replace a faulty node with a different machine. A reconfiguration can also change the
+   42  group size so that the number of failures the group
+   43  can handle can increase or decrease.
+
+   44  • The paper presents the protocol independently of
+   45  any applications that use VR. The original papers
+   46  explained the protocol as part of a database [11, 10]
+   47  or file system [8], which made it difficult to separate
+   48  the protocol from other details having to do with its
+   49  use in an application.
+
+   50  VR was originally developed in the 1980s, at about
+   51  the same time as Paxos [5, 6], but without knowledge of
+   52  that work. It differs from Paxos in that it is a replication
+   53  protocol rather than a consensus protocol: it uses consensus, with a protocol very similar to Paxos, as part of
+   54  supporting a replicated state machine. Another point is
+   55  that unlike Paxos, VR did not require disk I/O during the
+   56  consensus protocol used to execute state machine operations.
+   57  Some information about the history of VR can be
+   58  found in [7]. That paper presents a similar but less complete description of VR. It also explains how later work
+   59  on Byzantine fault tolerance was based on VR and how
+   60  those protocols are related to the VR protocols.
+   61  The remainder of the paper is organized as follows.
+   62  Section 2 provides some background material and Section 3 gives an overview of the approach. The VR protocol is described in Section 4. Section 5 describes a
+   63  number of details of the implementation that ensure good
+   64  performance, while Section 6 discusses a number of optimizations that can further improve performance. Section 7 describes our reconfiguration protocol. Section 8
+   65  provides a discussion of the correctness of VR and we
+   66  conclude in Section 9.
+=== PAGE 3 ===
+
+   67  2 Background
+
+   68  This section begins with a discussion of our assumptions
+   69  about the environment in which VR runs. Section 2.2
+   70  discusses the number of replicas required to provide correct behavior, and Section 2.3 describes how to configure
+   71  a system to use VR.
+
+   72  2.1 Assumptions
+
+   73  VR handles crash failures: we assume that the only way
+   74  nodes fail is by crashing, so that a machine is either functioning correctly or completely stopped. VR does not
+   75  handle Byzantine failures, in which nodes can fail arbitrarily, perhaps due to an attack by a malicious party.
+   76  VR is intended to work in an asynchronous network,
+   77  like the Internet, in which the non-arrival of a message
+   78  indicates nothing about the state of its sender. Messages
+   79  might be lost, delivered late or out of order, and delivered
+   80  more than once; however, we assume that if sent repeatedly a message will eventually be delivered. In this paper
+   81  we assume the network is not under attack by a malicious
+   82  party who might spoof messages. If such attacks are a
+   83  concern, they can be withstood by using cryptography to
+   84  obtain secure channels.
+
+   85  2.2 Replica Groups
+
+   86  VR ensures reliability and availability when no more
+   87  than a threshold of f replicas are faulty. It does this by
+   88  using replica groups of size 2f + 1; this is the minimal
+   89  number of replicas in an asynchronous network under the
+   90  crash failure model. The rationale for needing this many
+   91  replicas is as follows:
+   92  We have to be able to carry out a request without waiting for f replicas to participate, since these replicas may
+   93  be crashed and unable to reply. However, the f replicas we didn't hear from might merely be slow to reply,
+   94  e.g., because of network congestion. f of the replicas we
+   95  did hear from may thus subsequently fail. Therefore we
+   96  need to run the protocol with enough replicas to ensure
+   97  that even if these f fail, there is a least one replica that
+   98  knows about the request. This implies that each step of
+   99  the protocol must be processed by f + 1 replicas. These
+  100  f + 1 together with the f that may not respond give us
+  101  the smallest group size of 2f + 1.
+  102  A group of f + 1 replicas is often referred to as a quorum and correctness of the protocol depends on the quorum intersection property: the quorum of replicas that
+  103  processes a particular step of the protocol must have a
+  104  non-empty intersection with the group of replicas available to handle the next step, since this way we can ensure
+  105  that at each next step at least one participant knows what
+
+  106  Figure 1: VR Architecture; the figure shows the configuration when f = 1.
+
+  107  happened in the previous step. In a group of 2f +1 replicas, f + 1 is the smallest quorum size that will work.
+  108  In general a group need not be exactly of size 2f + 1;
+  109  if it isn't, the threshold is the largest f such that 2f + 1
+  110  is less than or equal to the group size, K, and a quorum
+  111  is of size K − f. However, for a particular threshold f
+  112  there is no benefit in having a group of size larger than
+  113  2f + 1: a larger group requires larger quorums to ensure
+  114  intersection, but does not tolerate more failures. Therefore in the protocol descriptions in this paper we assume
+  115  the group size is exactly 2f + 1.
+
+  116  2.3 Architecture
+
+  117  The architecture for running VR is presented in Figure 1.
+  118  The figure shows some client machines that are using
+  119  VR, which is running on 3 replicas; thus f = 1 in this
+  120  example. Client machines run the user code on top of
+  121  the VR proxy. The user code communicates with VR
+  122  by making operation calls to the proxy. The proxy then
+  123  communicates with the replicas to cause the operation to
+  124  be carried out and returns the result to the client when the
+  125  operation has completed.
+  126  The replicas run code for the service that is being replicated using VR, e.g., a file system. The replicas also run
+  127  the VR code. The VR code accepts requests from client
+  128  proxies, carries out the protocol, and when the request is
+  129  ready to be executed, causes this to happen by making
+  130  an up-call to the service code at the replica. The service
+  131  code executes the call and returns the result to the VR
+  132  code, which sends it in a message to the client proxy that
+  133  made the request.
+  134  Of the 2f + 1 replicas, only f + 1 need to run the service code. This point is discussed further in Section 6.1.
+=== PAGE 4 ===
+
+  135  3 Overview
+
+  136  State machine replication requires that replicas start in
+  137  the same initial state, and that operations be deterministic. Given these assumptions, it is easy to see that replicas will end up in the same state if they execute the same
+  138  sequence of operations. The challenge for the replication
+  139  protocol is to ensure that operations execute in the same
+  140  order at all replicas in spite of concurrent requests from
+  141  clients and in spite of failures.
+  142  VR uses a primary replica to order client requests; the
+  143  other replicas are backups that simply accept the order
+  144  selected by the primary. Using a primary provides an
+  145  easy solution to the ordering requirement, but it also introduces a problem: what happens if the primary fails?
+  146  VR's solution to this problem is to allow different replicas to assume the role of primary over time. The system
+  147  moves through a sequence of views. In each view one of
+  148  the replicas is selected to be the primary. The backups
+  149  monitor the primary, and if it appears to be faulty, they
+  150  carry out a view change protocol to select a new primary.
+  151  To work correctly across a view change the state of the
+  152  system in the next view must reflect all client operations
+  153  that were executed in earlier views, in the previously selected order. We support this requirement by having the
+  154  primary wait until at least f + 1 replicas (including itself) know about a client request before executing it, and
+  155  by initializing the state of a new view by consulting at
+  156  least f + 1 replicas. Thus each request is known to a
+  157  quorum and the new view starts from a quorum.
+  158  VR also provides a way for nodes that have failed to
+  159  recover and then continue processing. This is important
+  160  since otherwise the number of failed nodes would eventually exceed the threshold. Correct recovery requires
+  161  that the recovering replica rejoin the protocol only after it knows a state at least as recent as its state when it
+  162  failed, so that it can respond correctly if it is needed for
+  163  a quorum. Clearly this requirement could be satisfied by
+  164  having each replica record what it knows on disk prior
+  165  to each communication. However we do not require the
+  166  use of disk for this purpose (and neither did the original
+  167  version of VR).
+  168  Thus, VR uses three sub-protocols that work together
+  169  to ensure correctness:
+
+  170  • Normal case processing of user requests.
+
+  171  • View changes to select a new primary.
+
+  172  • Recovery of a failed replica so that it can rejoin the
+  173  group.
+
+  174  These sub-protocols are described in detail in the next
+  175  section.
+
+  176  4 The VR Protocol
+
+  177  This section describes how VR works under the assumption that the group of replicas is fixed. We discuss some
+  178  ways to improve performance of the protocols in Section 5 and optimizations in Section 6. The reconfiguration protocol, which allows the group of replicas to
+  179  change, is described in Section 7.
+  180  Figure 2 shows the state of the VR layer at a replica.
+  181  The identity of the primary isn't recorded in the state but
+  182  rather is computed from the view-number and the configuration. The replicas are numbered based on their
+  183  IP addresses: the replica with the smallest IP address is
+  184  replica 1. The primary is chosen round-robin, starting
+  185  with replica 1, as the system moves to new views. The
+  186  status indicates what sub-protocol the replica is engaged
+  187  in.
+  188  The client-side proxy also has state. It records the
+  189  configuration and what it believes is the current viewnumber, which allows it to know which replica is currently the primary. Each message sent to the client informs it of the current view-number; this allows the client
+  190  to track the primary.
+  191  In addition the client records its own client-id and a
+  192  current request-number. A client is allowed to have just
+  193  one outstanding request at a time. Each request is given a
+  194  number by the client and later requests must have larger
+  195  numbers than earlier ones; we discuss how clients ensure
+  196  this if they fail and recover in Section 4.5. The request
+  197  number is used by the replicas to avoid running requests
+  198  more than once; it is also used by the client to discard
+  199  duplicate responses to its requests.
+
+  200  4.1 Normal Operation
+
+  201  This section describes how VR works when the primary
+  202  isn't faulty. Replicas participate in processing of client
+  203  requests only when their statusis normal. This constraint
+  204  is critical for correctness as discussed in Section 8.
+  205  The protocol description assumes all participating
+  206  replicas are in the same view. Every message sent from
+  207  one replica to another contains the sender's current viewnumber. Replicas only process normal protocol messages containing a view-number that matches the viewnumber they know. If the sender is behind, the receiver
+  208  drops the message. If the sender is ahead, the replica
+  209  performs a state transfer: it requests information it is
+  210  missing from the other replicas and uses this information
+  211  to bring itself up to date before processing the message.
+  212  State transfer is discussed further in Section 5.2.
+  213  The request processing protocol works as follows. The
+  214  description ignores a number of minor details, such as
+  215  re-sending protocol messages that haven't received responses.
+=== PAGE 5 ===
+
+  216  • The configuration. This is a sorted array containing
+  217  the IP addresses of each of the 2f + 1 replicas.
+  218  • The replica number. This is the index into the configuration where this replica's IP address is stored.
+  219  • The current view-number, initially 0.
+  220  • The current status, either normal, view-change, or
+  221  recovering.
+  222  • The op-number assigned to the most recently received request, initially 0.
+  223  • The log. This is an array containing op-number
+  224  entries. The entries contain the requests that have
+  225  been received so far in their assigned order.
+  226  • The commit-number is the op-number of the most
+  227  recently committed operation.
+  228  • The client-table. This records for each client the
+  229  number of its most recent request, plus, if the request has been executed, the result sent for that request.
+
+  230  Figure 2: VR state at a replica.
+
+  231  1. The client sends a ⟨REQUEST op, c, s⟩ message to
+  232  the primary, where op is the operation (with its arguments) the client wants to run, c is the client-id,
+  233  and s is the request-number assigned to the request.
+  234  2. When the primary receives the request, it compares
+  235  the request-number in the request with the information in the client table. If the request-number s isn't
+  236  bigger than the information in the table it drops the
+  237  request, but it will re-send the response if the request is the most recent one from this client and it
+  238  has already been executed.
+
+  239  3. The primary advances op-number, adds the request
+  240  to the end of the log, and updates the information
+  241  for this client in the client-table to contain the new
+  242  request number, s. Then it sends a ⟨PREPARE v, m,
+  243  n, k⟩ message to the other replicas, where v is the
+  244  current view-number, m is the message it received
+  245  from the client, n is the op-number it assigned to
+  246  the request, and k is the commit-number.
+  247  4. Backups process PREPARE messages in order: a
+  248  backup won't accept a prepare with op-number n
+  249  until it has entries for all earlier requests in its log.
+  250  When a backup ⟩ receives a PREPARE message, it
+  251  waits until it has entries in its log for all earlier requests (doing state transfer if necessary to get the
+  252  missing information). Then it increments its op-
+
+  253  Figure 3: Normal case processing in VR for a configuration with f = 1.
+
+  254  number, adds the request to the end of its log, updates the client's information in the client-table, and
+  255  sends a ⟨PREPAREOK v, n, i⟩ message to the primary to indicate that this operation and all earlier
+  256  ones have prepared locally.
+
+  257  5. The primary waits for f PREPAREOK messages
+  258  from different backups; at this point it considers
+  259  the operation (and all earlier ones) to be committed. Then, after it has executed all earlier operations
+  260  (those assigned smaller op-numbers), the primary
+  261  executes the operation by making an up-call to the
+  262  service code, and increments its commit-number.
+  263  Then it sends a ⟨REPLY v, s, x⟩ message to the
+  264  client; here v is the view-number, s is the number
+  265  the client provided in the request, and x is the result
+  266  of the up-call. The primary also updates the client's
+  267  entry in the client-table to contain the result.
+
+  268  6. Normally the primary informs backups about the
+  269  commit when it sends the next PREPARE message;
+  270  this is the purpose of the commit-number in the
+  271  PREPARE message. However, if the primary does
+  272  not receive a new client request in a timely way, it
+  273  instead informs the backups of the latest commit by
+  274  sending them a ⟨COMMIT v, k⟩ message, where k
+  275  is commit-number (note that in this case commitnumber = op-number).
+
+  276  7. When a backup learns of a commit, it waits until it has the request in its log (which may require
+  277  state transfer) and until it has executed all earlier
+  278  operations. Then it executes the operation by performing the up-call to the service code, increments
+  279  its commit-number, updates the client's entry in the
+  280  client-table, but does not send the reply to the client.
+
+  281  Figure 3 shows the phases of the normal processing
+  282  protocol.
+  283  If a client doesn't receive a timely response to a request, it re-sends the request to all replicas. This way
+  284  if the group has moved to a later view, its message will
+=== PAGE 6 ===
+
+  285  reach the new primary. Backups ignore client requests;
+  286  only the primary processes them.
+  287  The protocol could be modified to allow backups to
+  288  process PREPARE messages out of order in Step 3. However there is no great benefit in doing things this way, and
+  289  it complicates the view change protocol. Therefore backups process PREPARE messages in op-number order.
+  290  The protocol does not require any writing to disk. For
+  291  example, replicas do not need to write the log to disk
+  292  when they add the operation to the log. This point is
+  293  discussed further in Section 4.3.
+  294  The protocol as described above has backups executing operations quickly: information about commits propagates rapidly, and backups execute operations as soon as
+  295  they can. A somewhat lazier approach could be used, but
+  296  it is important that backups not lag very far behind. The
+  297  reason is that when there is a view change, the replica
+  298  that becomes the new primary will be unable to execute
+  299  new client requests until it is up to date. By executing
+  300  operations speedily, we ensure that when a replica takes
+  301  over as primary it is able to respond to new client requests with low delay.
+
+  302  4.2 View Changes
+
+  303  View changes are used to mask failures of the primary.
+  304  Backups monitor the primary: they expect to hear
+  305  from it regularly. Normally the primary is sending PREPARE messages, but if it is idle (due to no requests) it
+  306  sends COMMIT messages instead. If a timeout expires
+  307  without a communication from the primary, the replicas
+  308  carry out a view change to switch to a new primary.
+  309  The correctness condition for view changes is that every operation that has been executed by means of an upcall to the service code at one of the replicas must survive
+  310  into the new view in the same order selected for it at the
+  311  time it was executed. This up-call is performed at the old
+  312  primary first, and therefore the replicas carrying out the
+  313  view change may not know whether the up-call occurred.
+  314  However, up-calls occur only for committed operations.
+  315  This means that the old primary must have received at
+  316  least f PREPAREOK messages from other replicas, and
+  317  this in turn implies that the operation is recorded in the
+  318  logs of at least f + 1 replicas (the old primary and the f
+  319  backups that sent the PREPAREOK messages).
+  320  Therefore the view change protocol obtains information from the logs of at least f + 1 replicas. This is
+  321  sufficient to ensure that all committed operations will be
+  322  known, since each must be recorded in at least one of
+  323  these logs; here we are relying on the quorum intersection property. Operations that had not committed might
+  324  also survive, but this is not a problem: it is beneficial to
+  325  have as many operations survive as possible.
+  326  However, it's impossible to guarantee that every client
+
+  327  request that was preparing when the view change occurred makes it into the new view. For example, operation 25 might have been preparing when the view change
+  328  happened, but none of the replicas that knew about it participated in the view change protocol and as a result the
+  329  new primary knows nothing about operation 25. In this
+  330  case, the new primary might assign this number to a different operation.
+  331  If two operations are assigned the same op-number,
+  332  how can we ensure that the right one is executed at that
+  333  point in the order? The solution to this dilemma is to
+  334  use the view-number: two operations can be assigned the
+  335  same number only when there has been a view change
+  336  and in this case the one assigned a number in the later
+  337  view prevails.
+  338  The view change protocol works as follows. Again the
+  339  presentation ignores minor details having to do with filtering of duplicate messages and with re-sending of messages that appear to have been lost.
+
+  340  1. A replica ⟩ that notices the need for a view change
+  341  advances its view-number, sets its status to viewchange, and sends a ⟨STARTVIEWCHANGE v, i⟩
+  342  message to the all other replicas, where v identifies the new view. A replica notices the need
+  343  for a view change either based on its own timer,
+  344  or because it receives a STARTVIEWCHANGE or
+  345  DOVIEWCHANGE message for a view with a larger
+  346  number than its own view-number.
+
+  347  2. When replica ⟩ receives STARTVIEWCHANGE messages for its view-number from f other replicas, it
+  348  sends a ⟨DOVIEWCHANGE v, l, v', n, k, i⟩ message
+  349  to the node that will be the primary in the new view.
+  350  Here v is its view-number, l is its log, v0 is the view
+  351  number of the latest view in which its status was
+  352  normal, n is the op-number, and k is the commitnumber.
+
+  353  3. When the new primary receives f + 1
+  354  DOVIEWCHANGE messages from different
+  355  replicas (including itself), it sets its view-number
+  356  to that in the messages and selects as the new log
+  357  the one contained in the message with the largest
+  358  v0; if several messages have the same v0 it selects
+  359  the one among them with the largest n. It sets its
+  360  op-number to that of the topmost entry in the new
+  361  log, sets its commit-number to the largest such
+  362  number it received in the DOVIEWCHANGE messages, changes its status to normal, and informs the
+  363  other replicas of the completion of the view change
+  364  by sending ⟨STARTVIEW v, l, n, k⟩ messages to
+  365  the other replicas, where l is the new log, n is the
+  366  op-number, and k is the commit-number.
+=== PAGE 7 ===
+
+  367  4. The new primary starts accepting client requests. It
+  368  also executes (in order) any committed operations
+  369  that it hadn't executed previously, updates its client
+  370  table, and sends the replies to the clients.
+  371  5. When other replicas receive the STARTVIEW message, they replace their log with the one in the message, set their op-number to that of the latest entry
+  372  in the log, set their view-number to the view number in the message, change their status to normal,
+  373  and update the information in their client-table. If
+  374  there are non-committed operations in the log, they
+  375  send a ⟨PREPAREOK v, n, i⟩ message to the primary;
+  376  here n is the op-number. Then they execute all operations known to be committed that they haven't
+  377  executed previously, advance their commit-number,
+  378  and update the information in their client-table.
+
+  379  In this protocol we solve the problem of more than one
+  380  request being assigned the same op-number by taking the
+  381  log for the next view from latest previous active view and
+  382  ignoring logs from earlier view. VR as originally defined
+  383  used a slightly different approach: it assigned each operation a viewstamp. A viewstamp is a pair ⟨view-number,
+  384  op-number⟩, with the natural order: the view-number is
+  385  considered first, and then the op-number for two viewstamps with the same view-number. At any op-number,
+  386  VR retained the request with the higher viewstamp. VR
+  387  got its name from these viewstamps.
+  388  A view change may not succeed, e.g., because the new
+  389  primary fails. In this case the replicas will start a further
+  390  view change, with yet another primary.
+  391  The protocol as described is expensive because the log
+  392  is big, and therefore messages can be large. The approach we use to reduce the expense of view changes
+  393  is described in Section 5.
+
+  394  4.3 Recovery
+
+  395  When a replica recovers after a crash it cannot participate in request processing and view changes until it has
+  396  a state at least as recent as when it failed. If it could
+  397  participate sooner than this, the system can fail. For example, if it forgets that it prepared some operation, this
+  398  operation might then be known to fewer than a quorum
+  399  of replicas even though it committed, which could cause
+  400  the operation to be forgotten in a view change.
+  401  If nodes record their state on disk before sending messages, a node will be able to rejoin the system as soon
+  402  as it has reinitialized its state by reading from disk. The
+  403  reason is that in this case a recovering node hasn't forgotten anything it did before the crash (assuming the disk is
+  404  intact). Instead it is the same as a node that has been unable to communicate for some period of time: its state is
+  405  old but it hasn't forgotten anything it did before.
+
+  406  However, running the protocol this way is unattractive since it adds a delay to normal case processing: the
+  407  primary would need to write to disk before sending the
+  408  PREPARE message, and the other replicas would need to
+  409  write to disk before sending the PREPAREOK response.
+  410  Furthermore, it is unnecessary to do the disk write because the state is also stored at the other replicas and
+  411  can be retrieved from them, using a recovery protocol.
+  412  Retrieving state will be successful provided replicas are
+  413  failure independent, i.e., highly unlikely to fail at the
+  414  same time. If all replicas were to fail simultaneously,
+  415  state will be lost if the information on disk isn't up to
+  416  date; with failure independence a simultaneous failure is
+  417  unlikely. If nodes are all in the same data center, the use
+  418  of UPS's (uninterruptible power supplies) or non-volatile
+  419  memory can provide failure independence if the problem
+  420  is a power failure. Placing replicas at different geographical locations can additionally avoid loss of information
+  421  when there is a local problem like a fire.
+  422  This section describes a recovery protocol that doesn't
+  423  require disk I/O during either normal processing or during a view change. The original VR specification used
+  424  a protocol that wrote to disk during the view change but
+  425  did not require writing to disk during normal case processing.
+  426  When a node comes back up after a crash it sets its status to recovering and carries out the recovery protocol.
+  427  While a replica's status is recovering it does not participate in either the request processing protocol or the view
+  428  change protocol. To carry out the recovery protocol, the
+  429  node needs to know the configuration. It can learn this by
+  430  waiting to receive messages from other group members
+  431  and then fetching the configuration from one of them;
+  432  alternatively this information could be stored on disk.
+  433  The recovery protocol is as follows:
+  434  1. The recovering replica, ⟩, sends a ⟨RECOVERY i, x⟩
+  435  message to all other replicas, where x is a nonce.
+  436  2. A replica j replies to a RECOVERY message only
+  437  when its status is normal. In this case the replica
+  438  sends a ⟨RECOVERYRESPONSE v, x, l, n, k, j⟩ message to the recovering replica, where v is its viewnumber and x is the nonce in the RECOVERY message. If j is the primary of its view, l is its log, n is
+  439  its op-number, and k is the commit-number; otherwise these values are nil.
+  440  3. The recovering replica waits to receive at least f +
+  441  1 RECOVERYRESPONSE messages from different
+  442  replicas, all containing the nonce it sent in its RECOVERY message, including one from the primary
+  443  of the latest view it learns of in these messages.
+  444  Then it updates its state using the information from
+  445  the primary, changes its status to normal, and the
+  446  recovery protocol is complete.
+=== PAGE 8 ===
+
+  447  The protocol is expensive because logs are big and therefore the messages are big. A way to reduce this expense
+  448  is discussed in Section 5.
+  449  If the group is doing a view change at the time of recovery, and the recovering replica, ⟩, would be the primary of the new view, that view change cannot complete,
+  450  since ⟩ will not respond to the DOVIEWCHANGE messages. This will cause the group to do a further view
+  451  change, and ⟩ will be able to recover once this view
+  452  change occurs.
+  453  The protocol uses the nonce to ensure that the recovering replica accepts only RECOVERYRESPONSE messages that are for this recovery and not an earlier one. It
+  454  can produce the nonce by reading its clock; this will produce a unique nonce assuming clocks always advance.
+  455  Alternatively, it could maintain a counter on disk and advance this counter on each recovery.
+
+  456  4.4 Non-deterministic Operations
+
+  457  State machine replication requires that if replicas start in
+  458  the same state and execute the same sequence of operations, they will end up with the same state. However, applications frequently have non-deterministic operations.
+  459  For example, file reads and writes are non-deterministic
+  460  if they require setting "time-last-read" and "time-lastmodified". If these values are obtained by having each
+  461  replica read its clock independently, the states at the
+  462  replicas will diverge.
+  463  We can avoid divergence due to non-determinism by
+  464  having the primary predict the value. It can do this by
+  465  using local information, e.g., it reads its clock when a
+  466  file operation arrives. Or it can carry out a pre-step in the
+  467  protocol in which it requests values from the backups,
+  468  waits for f responses, and then computes the predicted
+  469  value as a deterministic function of their responses and
+  470  its own. The predicted value is stored in the log along
+  471  with the client request and propagated to the other replicas. When the operation is executed, the predicted value
+  472  is used.
+  473  Use of predicted values can require changes to the application code. There may need to be an up-call to obtain
+  474  a predicted value from the application prior to running
+  475  the protocol. Also, the application needs to use the predicted value when it executes the request.
+
+  476  4.5 Client Recovery
+
+  477  If a client crashes and recovers it must start up with a
+  478  request-number larger than what it had before it failed.
+  479  It fetches its latest number from the replicas and adds 2
+  480  to this value to be sure the new request-number is big
+  481  enough. Adding 2 ensures that its next request will have
+  482  a unique number even in the odd case where the latest
+
+  483  request it sent before it failed is still in transit (since that
+  484  request will have as its request number the number the
+  485  client learns plus 1).
+
+  486  5 Pragmatics
+
+  487  The description of the protocols presented in the previous section ignores a number of important issues that
+  488  must be resolved in a practical system. In this section
+  489  we discuss how to provide good performance for node
+  490  recovery, state transfer, and view changes. In all three
+  491  cases, the key issue is efficient log management.
+
+  492  5.1 Efficient Recovery
+
+  493  When a replica recovers from a crash it needs to recover
+  494  its log. The question is how to do this efficiently. Sending it the entire log, as described in Section 4.3, isn't a
+  495  practical way to proceed, since the log can get very large
+  496  in a long-lived system.
+  497  A way to reduce expense is to keep a prefix of the log
+  498  on disk. The log can be pushed to disk in the background;
+  499  there is no need to do this while running the protocol.
+  500  When the replica recovers it can read the log from disk
+  501  and then fetch the suffix from the other replicas. This reduces the cost of recovery protocol substantially. However the replica will then need to execute all the requests
+  502  in the log (or at least those that modify the state), which
+  503  can take a very long time if the log is big.
+  504  Therefore a better approach is to take advantage of the
+  505  application state at the recovering replica: if this state is
+  506  on disk, the replica doesn't need to fetch the prefix of
+  507  the log that has already been applied to the application
+  508  state and it needn't execute the requests in that prefix either. Note that this does not mean that the application is
+  509  writing to disk in the foreground; background writes are
+  510  sufficient here too.
+  511  For this approach to work, we need to know exactly
+  512  what log prefix is captured on disk, both so that we obtain all the requests after that point, and so that we avoid
+  513  rerunning operations that ran before the node failed. (Rerunning operations can cause the application state to be
+  514  incorrect unless the operations are idempotent.)
+  515  Our solution to this problem uses checkpoints and
+  516  is based on our later work on Byzantine-fault tolerance [2, 1]. Every O operations the replication code
+  517  makes an upcall to the application, requesting it to take
+  518  a checkpoint; here O is a system parameter, on the order of 100 or 1000. To take a checkpoint the application must record a snapshot of its state on disk; additionally it records a checkpoint number, which is simply the
+  519  op-number of the latest operation included in the checkpoint. When it executes operations after the checkpoint,
+=== PAGE 9 ===
+
+  520  it must not modify the snapshot, but this can be accomplished by using copy-on-write. These copied pages then
+  521  become what needs to be saved to make the next snapshot
+  522  and thus checkpoints need not be very expensive.
+  523  When a node recovers, it first obtains the application
+  524  state from another replica. To make this efficient, the
+  525  application maintains a Merkle tree [9] over the pages
+  526  in the snapshot. The recovering node uses the Merkle
+  527  tree to determine which pages to fetch; it only needs to
+  528  fetch those that differ from their counterpart at the other
+  529  replica. It's possible that the node it is fetching from may
+  530  take another checkpoint while the recovery is in process;
+  531  in this case the recovering node re-walks the Merkle tree
+  532  to pick up any additional changes.
+  533  In rare situations where a node has been out of service
+  534  for a very long time, it may be infeasible to transfer the
+  535  new state over the network. In this case it is possible
+  536  to clone the disk of an active replica, install it at the recovering node, and use this as a basis for computing the
+  537  Merkle tree.
+  538  After the recovering node has all the application state
+  539  as of the latest checkpoint at the node it is fetching from,
+  540  it can run the recovery protocol. When it runs the protocol it informs the other nodes of the current value of
+  541  its state by including the number of the checkpoint in its
+  542  RECOVERY message. The primary then sends it the log
+  543  from that point on.
+  544  As mentioned checkpoints also speed up recovery
+  545  since the recovering replica only needs to execute requests in the portion of the log not covered by the checkpoint. Furthermore checkpoints allow the system to
+  546  garbage collect the log, since only the operations after
+  547  the latest checkpoint are needed. Keeping a larger log
+  548  than the minimum is a good idea however. For example, when a recovering node runs the recovery protocol,
+  549  the primary might have just taken a checkpoint, and if
+  550  it immediately discarded the log prefix reflected in that
+  551  checkpoint, it would be unable to bring the recovering
+  552  replica up to date without transferring application state.
+  553  A large enough suffix of the log should be retained to
+  554  avoid this problem.
+
+  555  5.2 State Transfer
+
+  556  State transfer is used by a node that has gotten behind
+  557  (but hasn't crashed) to bring itself up-to-date. There
+  558  are two cases, depending on whether the slow node has
+  559  learned that it is missing requests in its current view, or
+  560  has heard about a later view. In the former case it only
+  561  needs to learn about requests after its op-number. In the
+  562  latter it needs to learn about requests after the latest committed request in its log, since requests after that might
+  563  have been reordered in the view change, so in this case it
+  564  sets its op-number to its commit-number and removes all
+
+  565  entries after this from its log.
+  566  To get the state the replica sends a ⟨GETSTATE v, n',
+  567  i⟩ message to one of the other replicas, where v is its
+  568  view-number and n0 is its op-number.
+  569  A replica responds to a GETSTATE message only if its
+  570  status is normal and it is currently in view v. In this case
+  571  it sends a ⟨NEWSTATE v, l, n, k⟩ message, where v is its
+  572  view-number, l is its log after n0, n is its op-number, and
+  573  k is its commit-number.
+  574  When replica ⟩ receives the NEWSTATE message, it
+  575  appends the log in the message to its log and updates its
+  576  state using the other information in the message.
+  577  Because of garbage collecting the log, it's possible for
+  578  there to be a gap between the last operation known to the
+  579  slow replica and what the responder knows. Should a
+  580  gap occur, the slow replica first brings itself almost up to
+  581  date using application state (like a recovering node would
+  582  do) to get to a recent checkpoint, and then completes the
+  583  job by obtaining the log forward from the point. In the
+  584  process of getting the checkpoint, it moves to the view in
+  585  which that checkpoint was taken.
+
+  586  5.3 View Changes
+
+  587  To complete a view change, the primary of the new view
+  588  must obtain an up-to-date log, and we would like the protocol to be efficient: we want to have small messages,
+  589  and we want to avoid adding steps to the protocol.
+  590  The protocol described in Section 4.2 has a small number of steps, but big messages. We can make these messages smaller, but if we do, there is always a chance that
+  591  more messages will be required.
+  592  A reasonable way to get good behavior most of the
+  593  time is for replicas to include a suffix of their log in their
+  594  DOVIEWCHANGE messages. The amount sent can be
+  595  small since the most likely case is that the new primary
+  596  is up to date. Therefore sending the latest log entry, or
+  597  perhaps the latest two entries, should be sufficient. Occasionally, this information won't be enough; in this case
+  598  the primary can ask for more information, and it might
+  599  even need to first use application state to bring itself up
+  600  to date.
+
+  601  6 Optimizations
+
+  602  This section describes several optimizations that can be
+  603  used to improve the performance of the protocol. Some
+  604  optimizations were proposed in the paper on Harp [8];
+  605  others are based on later work on the PBFT replication
+  606  protocol, which handles Byzantine failures [2, 1].
+=== PAGE 10 ===
+
+  607  6.1 Witnesses
+
+  608  Harp proposed the use of witnesses to avoid having all
+  609  replicas actively run the service. The group of 2f + 1
+  610  replicas includes f+1 activereplicas, which store the application state and execute operations, and f witnesses,
+  611  which do not. The primary is always an active replica.
+  612  Witnesses are needed for view changes and recovery.
+  613  They aren't involved in the normal case protocol as long
+  614  as the f + 1 active replicas are processing operations.
+  615  They fill in for active replicas when they aren't responding; however, even in this case witnesses do not execute
+  616  operations. Thus most of the time witnesses can be doing
+  617  other work; only the active replicas run the service code
+  618  and store the service state.
+
+  619  6.2 Batching
+
+  620  PBFT proposed the use of batching to reduce the overhead of running the protocol. Rather than running the
+  621  protocol each time a request arrives, the primary collects
+  622  a bunch of requests and then runs the protocol for all of
+  623  them at once.
+  624  The use of batching can be limited to when the primary
+  625  is heavily loaded. This way it has little impact on latency.
+  626  When the primary isn't busy it processes requests as soon
+  627  as they arrive. When it is busy, it batches, but requests
+  628  will be arriving frequently and therefore it needn't wait
+  629  very long to collect the next batch. Batching can provide
+  630  significant gains in throughput when the system is heavily loaded by amortizing the cost of the protocol over a
+  631  large number of client requests.
+
+  632  6.3 Fast Reads
+
+  633  This section discusses two ways to reduce the latency for
+  634  handling of read requests; both techniques additionally
+  635  improve overall throughput.
+
+  636  6.3.1 Reads at the Primary
+  637  Harp proposed a way to improve performance for reads,
+  638  by having the primary execute them without consulting
+  639  the other replicas. This communication is not needed because read operations don't modify state and therefore
+  640  need not survive into the next view.
+  641  However, having the primary perform read requests
+  642  unilaterally could lead to the read returning a result based
+  643  on an old state. This can happen if the request goes to
+  644  an old primary that is not aware that a view change has
+  645  occurred. For example, suppose a network partition has
+  646  isolated the old primary from other replicas. Meanwhile
+  647  a view change has happened and the new primary has
+  648  executed more operations, so that the state at the old primary is stale.
+
+  649  To prevent a primary returning results based on stale
+  650  data, Harp used leases [3]. The primary processes reads
+  651  unilaterally only if it holds valid leases from f other
+  652  replicas, and a new view will start only after leases at
+  653  f + 1 participants in the view change protocol expire.
+  654  This ensures that the new view starts after the old primary
+  655  has stopped replying to read requests, assuming clocks
+  656  rates are loosely synchronized.
+  657  In addition to reducing message traffic and delay for
+  658  processing reads, this approach has another benefit: read
+  659  requests need not run through the protocol. Thus load on
+  660  the system can be reduced substantially, especially for
+  661  workloads that are primarily read-only, which is often
+  662  the case.
+
+  663  6.3.2 Reads at Backups
+  664  Leases aren't needed if it is acceptable for the result of a
+  665  read to be based on stale information. In this case it also
+  666  works to execute read requests at backups.
+  667  To support causality, there must be a way for a client
+  668  to inform a backup of its previous operation. One way to
+  669  do this is for the client to maintain alast-request-number
+  670  in its state. When the client does a write, the primary
+  671  returns theop-number that it assigned to that request, and
+  672  the client stores this in last-request-number. When the
+  673  client sends a read request it includes this number, and
+  674  the replica responds only if it has executed operations
+  675  at least this far; in its response it includes its commitnumber, which the client stores in last-request-number.
+  676  The "reads at backups" provides a form of load balancing; effectively it allows the backups to be used as caches
+  677  that are up to date enough to satisfy the causality requirements. However unlike the first approach ("reads at the
+  678  primary") it does not provide external consistency. The
+  679  first approach provides causality even in a setting where
+  680  there are many storage repositories. In this setting, the
+  681  second approach requires a different way of capturing
+  682  causality, e.g., with vector timestamps [12] or Lamport
+  683  clocks [4].
+
+  684  7 Reconfiguration
+
+  685  This section describes a reconfiguration protocol that allows the members of the group of replicas to change over
+  686  time. Reconfiguration is needed to replace failed nodes
+  687  that cannot be recovered, as well as for other reasons,
+  688  e.g., to use more powerful computers as replicas, or to
+  689  position the replicas in different data centers.
+  690  The reconfiguration protocol can also be used to
+  691  change the threshold, f, the number of failures the group
+  692  is intended to handle: the new group can be bigger or
+  693  smaller than the old one. Changing the threshold is useful to allow the system to adapt to changing circum-
+=== PAGE 11 ===
+
+  694  • The epoch-number, initially 0.
+  695  • The old-configuration, initially empty.
+
+  696  Figure 4: Additional state needed for reconfiguration.
+
+  697  stances, e.g., if experience indicates that more or fewer
+  698  failures are happening than expected.
+  699  The approach to handling reconfigurations is as follows. A reconfiguration is triggered by a special client
+  700  request. This request is run through the normal case protocol by the old group. When the request commits, the
+  701  system moves to a new epoch, in which responsibility for
+  702  processing client requests shifts to the new group. However, the new group cannot process client requests until
+  703  its replicas are up to date: the new replicas must know all
+  704  operations that committed in the previous epoch. To get
+  705  up to date they transfer state from the old replicas, which
+  706  do not shut down until the state transfer is complete.
+
+  707  7.1 Reconfiguration Details
+
+  708  To handle reconfigurations we add some information to
+  709  the replica state, as shown in Figure 4. In addition there
+  710  is another status, transitioning. A replica sets its status
+  711  to transitioning at the beginning of the next epoch. New
+  712  replicas use the old-configuration for state transfer at the
+  713  start of an epoch; this way new nodes know where to
+  714  get the state. Replicas that are members of the replica
+  715  group for the new epoch change their status to normal
+  716  when they have received the complete log up to the start
+  717  of the epoch; replicas that are being replaced shut down
+  718  once they know their state has been transferred to the new
+  719  group.
+  720  Every message now contains an epoch-number. Replicas only process messages (from either clients or other
+  721  replicas) that match the epoch they are in. If they receive
+  722  a message with a later epoch number they move to that
+  723  epoch as discussed below. If they receive a message with
+  724  an earlier epoch number they discard the message but inform the sender about the later epoch.
+  725  Reconfigurations are requested by a client, c,
+  726  e.g., the administrator's node, which sends a
+  727  ⟨RECONFIGURATION e, c, s, new-config⟩ message
+  728  to the current primary. Here e is the current epochnumber known to c, s is c0s request-number, and
+  729  new-config provides the IP addresses of all members of
+  730  the new group. The primary will accept the request only
+  731  if s is large enough (based on the client-table) and e
+  732  is the current epoch-number. Additionally the primary
+  733  discards the request if new-config contains fewer than
+  734  3 IP addresses (since this is the minimum group size
+  735  needed for VR). The new threshold is determined by the
+  736  size of new-config: it is the largest value f0 such that
+
+  737  2f0 + 1 is less than or equal to the size of new-config.
+  738  If the primary accepts the request, it processes it in
+  739  the usual way, by carrying out the normal case protocol, but with two differences: First, the primary immediately stops accepting other client requests; the reconfiguration request is the last request processed in the current
+  740  epoch. Second, executing the request does not cause an
+  741  up-call to the service code; instead, a reconfiguration affects only the VR state.
+  742  The processing of the request happens as follows:
+
+  743  1. The primary adds the request to its log, sends a
+  744  PREPARE message to the backups, and stops accepting client requests.
+
+  745  2. The backups handle the PREPARE in the usual way:
+  746  they add the request to their log, but only when they
+  747  are up to date. Then they send PREPAREOK responses to the primary.
+
+  748  3. When the primary receives f of these responses
+  749  from different replicas, it increments its epochnumber, sends COMMIT messages to the other old
+  750  replicas, and sends ⟨STARTEPOCH e, n, old-config,
+  751  new-config⟩ messages to replicas that are being
+  752  added to the system, i.e., those that are members
+  753  of the new group but not of the old group. Here e
+  754  is the new epoch-number and n is the op-number.
+  755  Then it executes all client requests ordered before
+  756  the RECONFIGURATION request that it hadn't executed previously and sets its status to transitioning.
+
+  757  Now we explain how the two groups move to the new
+  758  epochs. First we explain the processing at replicas that
+  759  are members of the new group; these replicas may be
+  760  members of the old group, or they may be added as part
+  761  of the reconfiguration. Then we explain processing at
+  762  replicas that are being replaced, i.e., they are members
+  763  of the old group but not of the new group.
+
+  764  7.1.1 Processing in the New Group
+  765  Replicas that are members of the replica group for the
+  766  new epoch handle reconfiguration as follows:
+
+  767  1. When a replica learns of the new epoch (e.g., because it receives a STARTEPOCH or COMMIT message), it initializes its state to record the old and new
+  768  configurations, the new epoch-number, and the opnumber, sets its view-number to0, and sets its status
+  769  to transitioning.
+
+  770  2. If the replica is missing requests from its log, it
+  771  brings its state up to date by sending state transfer
+  772  messages to the old replicas and also to other new
+  773  replicas. This allows it to get a complete state up to
+=== PAGE 12 ===
+
+  774  the op-number, and thus learn of all client requests
+  775  up to the reconfiguration request.
+  776  3. Once a replica in the new group is up to date with
+  777  respect to the start of the epoch, it sets its status to
+  778  normal and starts to carry out normal processing; it
+  779  executes any requests in the log that it hasn't already
+  780  executed and, if it is the primary of the new group, it
+  781  starts accepting new requests. Additionally, it sends
+  782  ⟨EPOCHSTARTED e, i⟩ messages to the replicas that
+  783  are being replaced.
+  784  Replicas in the new group select the primary in the usual
+  785  way, by using a deterministic function of the configuration for the new epoch and the current view number.
+  786  Replicas in the new group might receive (duplicate)
+  787  STARTEPOCH messages after they have completed state
+  788  transfer. In this case they send an EPOCHSTARTED response to the sender.
+
+  789  7.1.2 Processing at Replicas being Replaced
+  790  1. When a replica being replaced learns of the new
+  791  epoch (e.g., by receiving a COMMIT message for
+  792  the reconfiguration request), it changes its epochnumber to that of the new epoch and sets its status to transitioning. If the replica doesn't yet have
+  793  the reconfiguration request in its log it obtains it
+  794  by performing state transfer from other old replicas. Then it stores the current configuration in oldconfiguration and stores the new configuration in
+  795  configuration.
+  796  2. Replicas being replaced respond to state transfer requests from replicas in the new group until they receive f0 + 1 EPOCHSTARTED messages from the
+  797  new replicas, where f0 is the threshold of the new
+  798  group. At this point the replica being replaced shuts
+  799  down.
+  800  3. If a replica being replaced doesn't receive the
+  801  EPOCHSTARTED messages in a timely way, it sends
+  802  STARTEPOCH messages to the new replicas (or
+  803  to the subset of those replicas it hasn't already
+  804  heard from). New replicas respond to these messages either by moving to the epoch, or if they
+  805  are already active in the next epoch, they send the
+  806  EPOCHSTARTED message to the old replica.
+
+  807  7.2 Other Protocol Changes
+
+  808  To support reconfigurations, we need to modify the view
+  809  change and recovery protocols so that they work while a
+  810  reconfiguration is underway.
+  811  The most important change is that a replica will not
+  812  accept messages for an epoch earlier than what it knows.
+
+  813  Thus a replica will not accept a normal case or view
+  814  change message that contains an old epoch-number; instead it informs the sender about the new epoch.
+  815  Additionally, in the view change protocol the new primary needs to recognize that a reconfiguration is in process, so that it stops accepting new client requests. To
+  816  handle this case the new primary checks the topmost request in the log; if it is a RECONFIGURATION request,
+  817  it won't accept any additional client requests. Furthermore, if the request is committed, it sends STARTEPOCH
+  818  messages to the new replicas.
+  819  The recovery protocol also needs to change. An old
+  820  replica that is attempting to recover while a reconfiguration is underway may be informed about the next epoch.
+  821  If the replica isn't a member of the new replica group
+  822  it shuts down; otherwise, it continues with recovery by
+  823  communicating with replicas in the new group. (Here
+  824  we are assuming that new replicas are warm when they
+  825  start up as discussed in Section 7.5.)
+  826  In both the view change and recovery protocols, RECONFIGURATION requests that are in the log, but not in
+  827  the topmost entry, are ignored, because in this case the
+  828  reconfiguration has already happened.
+
+  829  7.3 Shutting down Old Replicas
+
+  830  The protocol described above allows replicas to recognize when they are no longer needed so that they can shut
+  831  down. However, we also provide a way for the administrator who requested the reconfiguration to learn when it
+  832  has completed. This way machines being replaced can
+  833  be shut down quickly, even when, for example, they are
+  834  unable to communicate with other replicas because of a
+  835  long-lasting network partition.
+  836  Receiving a reply to the RECONFIGURATION request
+  837  doesn't contain the necessary information since that only
+  838  tells the administrator that the request has committed,
+  839  whereas the administrator needs to know that enough
+  840  new nodes have completed state transfer. To provide
+  841  the needed information, we provide another operation,
+  842  ⟨CHECKEPOCH e, c, s⟩; the administrator calls this operation after getting the reply to the RECONFIGURATION
+  843  request. Here c is the client machine being used by the
+  844  administrator, s is c0s request-number, and e is the new
+  845  epoch. The operation runs through the normal case protocol in the new group, and therefore when the administrator gets the reply this indicates the reconfiguration is
+  846  complete.
+  847  It's important that the administrator wait for the reconfiguration to complete before shutting down the nodes
+  848  being replaced. The reason is that if one of these nodes
+  849  were shut down prematurely, this can lead to more thanf
+  850  failures in the old group before the state has been transferred to the new group, and the new group would then
+=== PAGE 13 ===
+
+  851  be unable to process client requests.
+
+  852  7.4 Locating the Group
+
+  853  Since the group can move, a new client needs a way to
+  854  find the current configuration. This requires an out-ofband mechanism, e.g., the current configuration can be
+  855  obtained by communicating with a web site run by the
+  856  administrator.
+  857  Old clients can also use this mechanism to find the new
+  858  group. However, to make it easy for current clients to
+  859  find the group, old replicas that receive a client request
+  860  with an old epoch number inform the client about the
+  861  reconfiguration by sending it a ⟨NEWEPOCH e, v, newconfig⟩ message.
+
+  862  7.5 Discussion
+
+  863  The most important practical issue with this reconfiguration protocol is the following: while the system is moving from one epoch to the next it does not accept any new
+  864  client requests. The old group stops accepting client requests the moment the primary of the old group receives
+  865  the RECONFIGURATION request; the new group can start
+  866  processing client requests only when at least f0 + 1 new
+  867  replicas have completed state transfer.
+  868  Since client requests will be delayed until the move
+  869  is complete, we would like the move to happen quickly.
+  870  However, the problem is that state transfer can take a
+  871  long time, even with our approach of checkpoints and
+  872  Merkle trees, if the application state is large.
+  873  The way to reduce the delay is for the new nodes to
+  874  be warmed up by doing state transfer before the reconfiguration. While this state transfer is happening the old
+  875  group continues to process client requests. The RECONFIGURATION request is sent only when the new nodes
+  876  are almost up to date. As a result, the delay until the new
+  877  nodes can start handling client requests will be short.
+
+  878  8 Correctness
+
+  879  In this section we provide an informal discussion of the
+  880  correctness of the protocol. Section 8.1 discusses the correctness of the view change protocol ignoring node recovery; correctness of the recovery protocol is discussed
+  881  in Section 8.2. Section 8.3 discusses correctness of the
+  882  reconfiguration protocol.
+
+  883  8.1 Correctness of View Changes
+
+  884  Safety. The correctness condition for view changes is
+  885  that every committed operation survives into all subsequent views in the same position in the serial order. This
+
+  886  condition implies that any request that had been executed
+  887  retains its place in the order.
+  888  Clearly this condition holds in the first view. Assuming it holds in view v, the protocol will ensure that it also
+  889  holds in the next view, v0. The reasoning is as follows:
+  890  Normal case processing ensures that any operation o
+  891  that committed in view v is known to at least f + 1 replicas, each of which also knows all operations ordered before o, including (by assumption) all operations committed in views before v. The view change protocol starts
+  892  the new view with the most recent log received from
+  893  f +1 replicas. Since none of these replicas accepts PREPARE messages from the old primary after sending the
+  894  DOVIEWCHANGE message, the most recent log contains
+  895  the latest operation committed in view v (and all earlier
+  896  operations). Therefore all operations committed in views
+  897  before v0 are present in the log that starts view v0, in their
+  898  previously assigned order.
+  899  It's worth noting that it is crucial that replicas stop accepting PREPARE messages from earlier views once they
+  900  start the view change protocol (this happens because they
+  901  change their status as soon as they learn about the view
+  902  change). Without this constraint the system could get
+  903  into a state in which there are two active primaries: the
+  904  old one, which hasn't failed but is merely slow or not
+  905  well connected to the network, and the new one. If a
+  906  replica sent a PREPAREOK message to the old primary
+  907  after sending its log to the new one, the old primary
+  908  might commit an operation that the new primary doesn't
+  909  learn about in the DOVIEWCHANGE messages.
+  910  Liveness. The protocol executes client requests provided at least f + 1 non-failed replicas, including the
+  911  current primary, are able to communicate. If the primary
+  912  fails, requests cannot be executed in the current view.
+  913  However if replicas are unable to execute the client request in the current view, they will move to a new one.
+  914  Replicas monitor the primary and start a view change
+  915  by sending the STARTVIEWCHANGE messages if the
+  916  primary is unresponsive. When other replicas receive
+  917  the STARTVIEWCHANGE messages they will also advance theirview-number and send STARTVIEWCHANGE
+  918  messages. As a result, replicas will receive enough
+  919  STARTVIEWCHANGE messages so that they can send
+  920  DOVIEWCHANGE messages, and thus the new primary
+  921  will receive enough DOVIEWCHANGE messages to enable it to start the next view. And once this happens it will
+  922  be able to carry out client requests. Additionally, clients
+  923  send their requests to all replicas if they don't hear from
+  924  the primary, and thus cause requests to be executed in a
+  925  later view if necessary.
+  926  More generally liveness depends on properly setting
+  927  the timeouts used to determine whether to start a view
+  928  change so as to avoid unnecessary view changes and thus
+  929  allow useful work to get done.
+=== PAGE 14 ===
+
+  930  8.2 Correctness of the Recovery Protocol
+
+  931  Safety. The recovery protocol is correct because it guarantees that when a recovering replica changes its status
+  932  to normal it does so in a state at least as recent as what it
+  933  knew when it failed.
+  934  When a replica recovers it doesn't know what view it
+  935  was in when it failed. However, when it receives f +
+  936  1 responses to its RECOVERY message, it is certain to
+  937  learn of a view at least as recent as the one that existed
+  938  when it sent its last PREPAREOK, DOVIEWCHANGE, or
+  939  RECOVERYRESPONSE message. Furthermore it gets its
+  940  state from the primary of the latest view it hears about,
+  941  which ensures it learns the latest state of that view. In
+  942  effect, the protocol uses the volatile state at f +1 replicas
+  943  as stable state.
+  944  One important point is that the nonce is needed because otherwise a recovering replica might combine responses to an earlier RECOVERY message with those to a
+  945  later one; in this case it would not necessarily learn about
+  946  the latest state.
+  947  Another important point is that the key to correct recovery is the combination of the view change and recovery protocols. In particular the view change protocol has
+  948  two message exchanges (for the STARTVIEWCHANGE
+  949  and DOVIEWCHANGE messages). These ensure that
+  950  when a view change happens, at least f + 1 replicas already know that the view change is in progress. Therefore if a view change was in progress when the replica
+  951  failed, it is certain to recover in that view or a later one.
+  952  It's worth noting that having two message exchanges
+  953  is necessary. If there were only one exchange, i.e., just an
+  954  exchange of DOVIEWCHANGE messages, the following
+  955  scenario is possible (here we consider a group containing
+  956  three replicas, currently in view v with primary r1):
+
+  957  1. Before it failed the recovering replica, r3, had
+  958  decided to start a view change and had sent a
+  959  DOVIEWCHANGE message to r2, which will be the
+  960  primary of view v+1, but this message has been delayed in the network.
+
+  961  2. Replica r3 recovers in view v after receiving RECOVERYRESPONSE messages from both r1 and r2.
+  962  Then it starts sending PREPAREOK messages to r1
+  963  in response to r1's PREPARE messages, but these
+  964  PREPARE messages do not arrive at r2.
+
+  965  3. Replica r3's DOVIEWCHANGE message arrives at
+  966  r2, which starts view v + 1.
+
+  967  Step 3 is erroneous because the requests that committed
+  968  after r3 recovered are not included in the log for view
+  969  v+1. The round of STARTVIEWCHANGE messages prevents this scenario.
+
+  970  We could avoid the round of STARTVIEWCHANGE
+  971  messages by having replicas write the new view number to disk before sending the DoViewChange messages;
+  972  this is the approach used in the original version of VR.
+  973  Liveness. It's interesting to note that the recovery protocol requires f + 2 replicas to communicate! Nevertheless the protocol is live, assuming no more that f replicas
+  974  fail simultaneously. The reason is that a replica is considered failed until it has recovered its state. Therefore
+  975  while a replica is recovering, there must be at least f + 1
+  976  other replicas that are not failed, and thus the recovering
+  977  replica will receive at least f +1 responses to its RECOVERY message.
+
+  978  8.3 Correctness of Reconfiguration
+
+  979  Safety. Reconfiguration is correct because it preserves
+  980  all committed requests in the order selected for them.
+  981  The primary of the old group stops accepting client requests as soon as it receives a RECONFIGURATION request. This means that the RECONFIGURATION request
+  982  is the last committed request in that epoch. Furthermore
+  983  new replicas do not become active until they have completed state transfer. Thus they learn about all requests
+  984  that committed in the previous epoch, in the order selected for them, and these requests are ordered before
+  985  any client request processed in the new epoch.
+  986  An interesting point is that it's possible for the primaries in both the old and new groups to be active simultaneously. This can happen if the primary of the old
+  987  group fails after the reconfiguration request commits. In
+  988  this case it's possible for a view change to occur in the
+  989  old group, and the primary selected by this view change
+  990  might re-run the normal-case protocol for the reconfiguration request. Meanwhile the new group might be actively processing new client requests. However the old
+  991  group will not accept any new client requests (because
+  992  the primary of the new view checks whether the topmost
+  993  request in the log is a reconfiguration request and if so
+  994  it won't accept client requests). Therefore processing in
+  995  the old group cannot interfere with the ordering of requests that are handled in the new epoch.
+  996  It's worth noting that it is important that the new epoch
+  997  start in view 0 rather than using the view in which the old
+  998  epoch ended up. The reason is that STARTEPOCH messages could be sent from old epoch replicas with different
+  999  view numbers; this can happen if there is a view change
+ 1000  in the old group and the new primary re-runs the reconfiguration request. If the new group accepted the view
+ 1001  number from the old group, we could end up with two
+ 1002  primaries in the new group, which would be incorrect.
+ 1003  Liveness. The system is live because (1) the base protocol is live, which ensures that the RECONFIGURATION
+ 1004  request will eventually be executed in the old group; (2)
+=== PAGE 15 ===
+
+ 1005  new replicas will eventually move to the next epoch; and
+ 1006  (3) old replicas do not shut down until new replicas are
+ 1007  ready to process client requests.
+ 1008  New replicas are certain to learn of the new epoch
+ 1009  once a RECONFIGURATION request has committed because after this point old group members actively communicate with both old and new ones to ensure that other
+ 1010  replicas know about the reconfiguration. Most important
+ 1011  here are the STARTEPOCH messages that old nodes send
+ 1012  to new ones if they don't receive EPOCHSTARTED messages in a timely way. These messages ensure that even
+ 1013  if the old primary fails to send STARTEPOCH messages
+ 1014  to the new replicas, or if it sends these messages but they
+ 1015  fail to arrive, nevertheless the new replicas will learn of
+ 1016  the new epoch.
+ 1017  Old replicas do not shut down too early because they
+ 1018  wait for f0 + 1 EPOCHSTARTED messages before shutting down. This way we know that enough new replicas
+ 1019  have their state to ensure that the group as a whole can
+ 1020  process client requests assuming no more than a threshold of failures in the new group.
+ 1021  Old replicas might shut down before some new replicas have finished state transfer. However, this can happen
+ 1022  only after at least f0 +1 new replicas have their state, and
+ 1023  the other new replicas will then be able to get up to date
+ 1024  by doing state transfer from the new replicas.
+ 1025  A final point is that old replicas shut down by the administrator do not cause a problem, assuming the administrator doesn't do this until after executing a CHECKEPOCH request in the new epoch. Waiting until this point
+ 1026  ensures that at least f0 +1 replicas in the new group have
+ 1027  their state; therefore after this point the old replicas are
+ 1028  no longer needed.
+
+ 1029  9 Conclusions
+
+ 1030  This paper has presented an improved version of Viewstamped Replication, a protocol used to build replicated
+ 1031  systems that are able to tolerate crash failures. The protocol does not require any disk writes as client requests
+ 1032  are processed or even during view changes, yet it allows
+ 1033  nodes to recover from failures and rejoin the group.
+ 1034  The paper also presents a protocol to allow for reconfigurations that change the members of the replica group,
+ 1035  and even the failure threshold. A reconfiguration technique is necessary for the protocol to be deployed in
+ 1036  practice since the systems of interest are typically long
+ 1037  lived.
+ 1038  In addition, the paper describes a number of optimizations that make the protocol efficient. The state transfer
+ 1039  technique uses application state to speed up recovery and
+ 1040  allows us to keep the log small, by discarding prefixes.
+ 1041  The use of witnesses allows service state to be stored at
+
+ 1042  only f + 1 of the 2f + 1 replicas. The paper also describes ways to reduce latency of reads and writes, and to
+ 1043  improve throughput when the system is heavily loaded.
+ 1044  Today there is increasing use of replication protocols that handle crash failures in modern large-scale distributed systems. Our hope is that this paper will be a
+ 1045  help to those who are developing the next generation of
+ 1046  reliable distributed systems.
+
+ 1047  References
+
+ 1048  [1] CASTRO, M. Practical Byzantine Fault Tolerance. Technical Report MIT-LCS-TR-817, Laboratory for Computer Science, MIT,
+ 1049  Cambridge, Jan. 2000. Ph.D. thesis.
+ 1050  [2] CASTRO, M., ANDLISKOV, B. Practical Byzantine Fault Tolerance and Proactive Recovery. ACM Transactions on Computer
+ 1051  Systems 20, 4 (Nov. 2002), 398–461.
+ 1052  [3] GRAY, C., ANDCHERITON, D. Leases: An efficient faulttolerant mechanism for distributed file cache consistency. In Proceedings of the Twelfth ACM Symposium on Operating Systems
+ 1053  Principles (1989), ACM, pp. 202–210.
+ 1054  [4] LAMPORT, L. Time, Clocks, and the Ordering of Events in a
+ 1055  Distributed System. Comm. of the ACM 21, 7 (July 1978), 558–
+ 1056  565.
+ 1057  [5] LAMPORT, L. The Part-Time Parliament. Research Report 49,
+ 1058  Digital Equipment Corporation Systems Research Center, Palo
+ 1059  Alto, CA, Sept. 1989.
+ 1060  [6] LAMPORT, L. The Part-Time Parliament. ACM Transactions on
+ 1061  Computer Systems 10, 2 (May 1998).
+ 1062  [7] LISKOV, B. From viewstamped replication to byzantine fault
+ 1063  tolerance. In Replication: Theory and Practice (2010), no. 5959
+ 1064  in Lecture Notes in Computer Science.
+ 1065  [8] LISKOV, B., GHEMAWAT, S., GRUBER, R., JOHNSON, P.,
+ 1066  SHRIRA, L., ANDWILLIAMS, M. Replication in the Harp File
+ 1067  System. In Proceedings of the Thirteenth ACM Symposium on
+ 1068  Operating System Principles (Pacific Grove, California, 1991),
+ 1069  pp. 226–238.
+ 1070  [9] MERKLE, R. C. A Digital Signature Based on a Conventional
+ 1071  Encryption Function. In Advances in Cryptology - Crypto'87,
+ 1072  C. Pomerance, Ed., no. 293 in Lecture Notes in Computer Science. Springer-Verlag, 1987, pp. 369–378.
+ 1073  [10] OKI, B., ANDLISKOV, B. Viewstamped Replication: A New
+ 1074  Primary Copy Method to Support Highly-Available Distributed
+ 1075  Systems. In Proc. of ACM Symposium on Principles of Distributed Computing (1988), pp. 8–17.
+ 1076  [11] OKI, B. M. Viewstamped Replication for Highly Available Distributed Systems. Technical Report MIT-LCS-TR-423, Laboratory for Computer Science, MIT, Cambridge, MA, May 1988.
+ 1077  Ph.D. thesis.
+ 1078  [12] PARKER, D. S., POPEK, G. J., RUDISIN, G., STOUGHTON, A.,
+ 1079  WALKER, B., WALTON, E., CHOW, J., EDWARDS, D., KISER,
+ 1080  S., ANDKLINE, C. Detection of mutual inconsistency in distributed systems. IEEE Transactions on Software Engineering
+ 1081  SE-9, 3 (May 1983), 240–247.
+ 1082  [13] SCHNEIDER, F. Implementing Fault-Tolerant Services using the
+ 1083  State Machine Approach: a Tutorial. ACM Computing Surveys
+ 1084  22, 4 (Dec. 1990), 299–319.

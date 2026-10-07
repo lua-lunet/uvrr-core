@@ -1,0 +1,1564 @@
+---
+title: "Just Say NO to Paxos Overhead: Replacing Consensus with Network Ordering"
+authors:
+  - "Jialin Li"
+  - "Ellis Michael"
+  - "Naveen Kr Sharma"
+  - "Adriana Szekeres"
+  - "Dan R. K Ports"
+year: "2016"
+publication: ""
+handle_url: "https://www.usenix.org/system/files/conference/osdi16/osdi16-li.pdf"
+source_pdf: "research/agent366/papers/nopaxos-osdi16.pdf"
+source_pdf_sha256: "eea100460263a74e3a8cb578101070f284c35cd9d3077b0e5953dce920e99064"
+page_count: 18
+extracted_text_runs: 2822
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-07"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  NOPaxos uses network ordering to reduce consensus overhead in replicated services. It replaces part of the ordering work normally performed by replicas with an ordered network path while retaining fault tolerance.
+tags:
+  - "consensus"
+---
+
+=== PAGE 1 ===
+
+    1  Just say NO to Paxos Overhead:
+
+    2  Replacing Consensus with Network Ordering
+
+    3  Jialin Li, Ellis Michael, Naveen Kr. Sharma, Adriana Szekeres, and Dan R. K. Ports,
+
+    4  University of Washington
+
+    5  https://www.usenix.org/conference/osdi16/technical-sessions/presentation/li
+
+    6  This paper is included in the Proceedings of the
+
+    7  12th USENIX Symposium on Operating Systems Design
+
+    8  and Implementation (OSDI '16).
+
+    9  November 2–4, 2016 • Savannah, GA, USA
+
+   10  ISBN 978-1-931971-33-1
+
+   11  Open access to the Proceedings of the
+
+   12  12th USENIX Symposium on Operating Systems
+
+   13  Design and Implementation
+
+   14  is sponsored by USENIX.
+=== PAGE 2 ===
+
+   15  Just Say NO to Paxos Overhead:
+
+   16  Replacing Consensus with Network Ordering
+
+   17  Naveen Kr. Sharma
+
+   18  University of Washington
+   19  {lijl, emichael, naveenks, aaasz, drkp}@cs.washington.edu
+
+   20  12th USENIX Symposium on Operating Systems Design and Implementation 467
+
+   21  Jialin Li Ellis Michael
+
+   22  Abstract
+
+   23  Distributed applications use replication, implemented by
+   24  protocols like Paxos, to ensure data availability and transparently mask server failures. This paper presents a new
+   25  approach to achieving replication in the data center without the performance cost of traditional methods. Our work
+   26  carefully divides replication responsibility between the
+   27  network and protocol layers. The network orders requests
+   28  but does not ensure reliable delivery – using a new primitive we call ordered unreliable multicast (OUM). Implementing this primitive can be achieved with near-zero-cost
+   29  in the data center. Our new replication protocol, Network-
+   30  Ordered Paxos (NOPaxos), exploits network ordering to
+   31  provide strongly consistent replication without coordination. The resulting system not only outperforms both
+   32  latency- and throughput-optimized protocols on their respective metrics, but also yields throughput within 2%
+   33  and latency within 16 µs of an unreplicated system – providing replication without the performance cost.
+
+   34  1 Introduction
+   35  Server failures are a fact of life for data center applications. To guarantee that critical services always remain
+   36  available, today's applications rely on fault-tolerance techniques like state machine replication. These systems use
+   37  application-level consensus protocols such as Paxos to
+   38  ensure the consistency of replicas' states. Unfortunately,
+   39  these protocols require expensive coordination on every
+   40  request, imposing a substantial latency penalty and limiting system scalability. This paper demonstrates that replication in the data center need not impose such a cost by
+   41  introducing a new replication protocol with performance
+   42  within 2% of an unreplicated system.
+   43  It is well known that the communication model fundamentally affects the difficulty of consensus. Completely
+   44  asynchronous and unordered networks require the full
+   45  complexity of Paxos; if a network could provide a totally
+   46  ordered atomic broadcast primitive, ensuring replica consistency would become a trivial matter. Yet this idea has
+   47  yielded few gains in practice since traditional orderedmulticast systems are themselves equivalent to consensus;
+   48  they simply move the same coordination expense to a
+   49  different layer.
+   50  We show that a new division of responsibility between
+
+   51  USENIX Association
+
+   52  Adriana Szekeres Dan R. K. Ports
+
+   53  the network and the application can eliminate nearly all
+   54  replication overhead. Our key insight is that the communication layer should provide a new ordered unreliable
+   55  multicast (OUM) primitive – where all receivers are guaranteed to process multicast messages in the same order,
+   56  but messages may be lost. This model is weak enough to
+   57  be implemented efficiently, yet strong enough to dramatically reduce the costs of a replication protocol.
+   58  The ordered unreliable multicast model enables our
+   59  new replication protocol, Network-Ordered Paxos. In normal cases, NOPaxos avoids coordination entirely by relying on the network to deliver messages in the same
+   60  order. It requires application-level coordination only to
+   61  handle dropped packets, a fundamentally simpler problem than ordering requests. The resulting protocol is simple, achieves near-optimal throughput and latency, and
+   62  remains robust to network-level failures.
+   63  We describe several ways to build the OUM communications layer, all of which offer net performance benefits
+   64  when combined with NOPaxos. In particular, we achieve
+   65  an essentially zero-overhead implementation by relying
+   66  on the network fabric itself to sequence requests, using
+   67  software-defined networking technologies and the advanced packet processing capabilities of next-generation
+   68  data center network hardware [10, 49, 59]. We achieve
+   69  similar throughput benefits (albeit with a smaller latency
+   70  improvement) using an endpoint-based implementation
+   71  that requires no specialized hardware or network design.
+   72  By relying on the OUM primitive, NOPaxos avoids
+   73  all coordination except in rare cases, eliminating nearly
+   74  all the performance overhead of traditional replication
+   75  protocols. It provides throughput within 2% and latency
+   76  within 16 µs of an unreplicated system, demonstrating
+   77  that there need not be a tradeoff between enforcing strong
+   78  consistency and providing maximum performance.
+   79  This paper makes four specific contributions:
+
+   80  1. We define the ordered unreliable multicast model for
+   81  data center networks and argue that it strikes an effective balance between providing semantics strong
+   82  enough to be useful to application-level protocols yet
+   83  weak enough to be implemented efficiently.
+
+   84  2. We demonstrate how to implement this network model
+   85  in the data center by presenting three implementations:
+=== PAGE 3 ===
+
+   86  468 12th USENIX Symposium on Operating Systems Design and Implementation
+
+   87  (1) an implementation in P4 [9] for programmable
+   88  switches, (2) a middlebox-style prototype using a Cavium Octeon network processor, and (3) a softwarebased implementation that requires no specialized
+   89  hardware but imposes slightly higher latency.
+   90  3. We introduce NOPaxos, an algorithm which provides
+   91  state machine replication on an ordered, unreliable network. Because NOPaxos relies on the OUM primitive,
+   92  it avoids the need to coordinate on every incoming request to ensure a total ordering of requests. Instead, it
+   93  uses application-level coordination only when requests
+   94  are lost in the network or after certain failures of server
+   95  or network components.
+   96  4. We evaluate NOPaxos on a testbed using our Open-
+   97  Flow/Cavium prototype and demonstrate that it outperforms classic leader-based Paxos by 54% in latency
+   98  and 4.7× in throughput. It simultaneously provides
+   99  42% better latency and 24% better throughput than
+  100  latency- and throughput-optimized protocols respectively, circumventing a classic tradeoff.
+
+  101  2 Separating Ordering from Reliable De-
+
+  102  livery in State Machine Replication
+  103  We consider the problem of state machine replication [56].
+  104  Replication, used throughout data center applications,
+  105  keeps key services consistent and available despite the inevitability of failures. For example, Google's Chubby [11]
+  106  and Apache ZooKeeper [24] use replication to build a
+  107  highly available lock service that is widely used to coordinate access to shared resources and configuration information. It is also used in many storage services to prevent
+  108  system outages or data loss [8, 16, 54].
+  109  Correctness for state machine replication requires a system to behave as a linearizable [23] entity. Assuming that
+  110  the application code at the replicas is deterministic, establishing a single totally ordered set of operations ensures
+  111  that all replicas remain in a consistent state. We divide
+  112  this into two separate properties:
+  113  1. Ordering: If some replica processes request a before
+  114  b, no replica processes b before a.
+  115  2. Reliable Delivery: Every request submitted by a client
+  116  is either processed by all replicas or none.
+  117  Our research examines the question: Can the responsibility for either of these properties be moved from the
+  118  application layer into the network?
+  119  State of the art. Traditional state machine replication uses consensus protocol – e.g., Paxos [33, 34] or
+  120  Viewstamped Replication [42, 48] – to achieve agreement on operation order. Most deployments of Paxosbased replicated systems use the Multi-Paxos optimization [34] (equivalent to Viewstamped Replication), where
+
+  121  one replica is the designated leader and assigns an order
+  122  to requests. Its normal operation proceeds in four phases:
+  123  clients submit requests to the leader; the leader assigns a
+  124  sequence number and notifies the other replicas; a majority of other replicas acknowledge; and the leader executes
+  125  the request and notifies the client.
+  126  These protocols are designed for an asynchronous network, where there are no guarantees that packets will be
+  127  received in a timely manner, in any particular order, or
+  128  even delivered at all. As a result, the application-level
+  129  protocol assumes responsibility for both ordering and
+  130  reliability.
+  131  The case for ordering without reliable delivery. If
+  132  the network itself provided stronger guarantees, the full
+  133  complexity of Paxos-style replication would be unnecessary. At one extreme, an atomic broadcast primitive (i.e., a
+  134  virtually synchronous model) [6, 27] ensures both reliable
+  135  delivery and consistent ordering, which makes replication
+  136  trivial. Unfortunately, implementing atomic broadcast is a
+  137  problem equivalent to consensus [14] and incurs the same
+  138  costs, merely in a different layer.
+  139  This paper envisions a middle ground: an ordered but
+  140  unreliable network. We show that a new division of responsibility – providing ordering in the network layer but
+  141  leaving reliability to the replication protocol – leads to
+  142  a more efficient whole. What makes this possible is that
+  143  an ordered unreliable multicast primitive can be implemented efficiently and easily in the network, yet fundamentally simplifies the task of the replication layer.
+  144  We note that achieving reliable delivery despite the
+  145  range of possible failures is a formidable task, and the
+  146  end-to-end principle suggests that it is best left to the application [15, 55]. However, ordering without a guarantee of
+  147  reliability permits a straightforward, efficient implementation: assigning sequence numbers to messages and then
+  148  discarding those that arrive out of sequence number order.
+  149  We show in §3 that this approach can be implemented at
+  150  almost no cost in data center network hardware.
+  151  At the same time, providing an ordering guarantee simplifies the replication layer dramatically. Rather than agree
+  152  on which request should be executed next, it needs to ensure only all-or-nothing delivery of each message. We
+  153  show that this enables a simpler replication protocol that
+  154  can execute operations without inter-replica coordination
+  155  in the common case when messages are not lost, yet can
+  156  recover quickly from lost messages.
+  157  Prior work has considered an asynchronous network
+  158  that provides ordering and reliability in the common case
+  159  but does not guarantee either. Fast Paxos [36] and related
+  160  systems [29, 45, 50] provide agreement in one fewer message delay when requests usually arrive at replicas in the
+  161  same order, but they require more replicas and/or larger
+  162  quorum sizes. Speculative Paxos [53] takes this further by
+  163  having replicas speculatively execute operations without
+
+  164  USENIX Association
+=== PAGE 4 ===
+
+  165  Fast Paxos
+  166  Best-effort
+
+  167  medium
+
+  168  Table 1: Comparison of NOPaxos to prior systems.
+
+  169  12th USENIX Symposium on Operating Systems Design and Implementation 469
+
+  170  Paxos [33, 34, 48]
+  171  Network ordering No
+  172  Latency 4
+  173  Messages at bottleneck 2n
+  174  Quorum size > n/2 >
+  175  Reordering/Dropped packet penalty low
+
+  176  coordination, eliminating another message delay and a
+  177  throughput bottleneck at the cost of significantly reduced
+  178  performance (including application-level rollback) when
+  179  the network violates its best-effort ordering property. Our
+  180  approach avoids these problems by strengthening network
+  181  semantics. Table 1 summarizes the properties of these
+  182  protocols.
+
+  183  3 Ordered Unreliable Multicast
+  184  We have argued for a separation of concerns between ordering and reliable delivery. Towards this end, we seek to
+  185  design an ordered but unreliable network. In this section,
+  186  we precisely define the properties that this network provides, and show how it can be realized efficiently using
+  187  in-network processing.
+  188  We are not the first to argue for a network with ordered
+  189  delivery semantics. Prior work has observed that some
+  190  networks often deliver requests to replicas in the same
+  191  order [50,58], that data center networks can be engineered
+  192  to support a multicast primitive that has this property [53],
+  193  and that it is possible to use this fact to design protocols
+  194  that are more efficient in the common case [29, 36, 53].
+  195  We contribute by demonstrating that it is possible to build
+  196  a network with ordering guarantees rather than probabilistic or best-effort properties. As we show in §5, doing
+  197  so can support simpler and more efficient protocols.
+  198  Figure 1 shows the architecture of an OUM/NOPaxos
+  199  deployment. All components reside in a single data center. OUM is implemented by components in the network along with a library, libOUM, that runs on senders
+  200  and receivers. NOPaxos is a replication system that uses
+  201  libOUM; clients use libOUM to send messages, and replicas use libOUM to receive clients' messages.
+
+  202  3.1 Ordered Unreliable Multicast Properties
+  203  We begin by describing the basic primitive provided by
+  204  our networking layer: ordered unreliable multicast. More
+  205  specifically, our model is an asynchronous, unreliable
+  206  network that supports ordered multicast with multicast
+  207  drop detection. These properties are defined as follows:
+
+  208  • Asynchrony: There is no bound on the latency of message delivery.
+
+  209  • Unreliability: The network does not guarantee that
+  210  any message will ever be delivered to any recipient.
+
+  211  USENIX Association
+
+  212  [36] Paxos+batching Speculative Paxos [53] NOPaxos
+  213  No Best-effort Yes
+  214  3 4+ 2 2
+  215  2n 2 + 2n 2 2
+  216  b
+  217  2n/3 > n/2 > 3n/4 > n/2
+  218  low high low
+
+  219  Client App Client App Replica App
+
+  220  . . .
+  221  libnopaxos libnopaxos libnopaxoslibnopaxos
+  222  libOUM libOUM libnopaxoslibOUM
+
+  223  controller sequencer network
+
+  224  Figure 1: Architecture of NOPaxos.
+  225  • Ordered Multicast: The network supports a multicast
+  226  operation such that if two messages, m and m0, are
+  227  multicast to a set of processes, R, then all processes
+  228  in R that receive m and m0 receive them in the same
+  229  order.
+  230  • Multicast Drop Detection: If some message, m, is
+  231  multicast to some set of processes, R, then either: (1)
+  232  every process in R receives m or a notification that
+  233  there was a dropped message before receiving the
+  234  next multicast, or (2) no process in R receives m or
+  235  a dropped message notification for m.1
+
+  236  The asynchrony and unreliability properties are standard in network design. Ordered multicast is not: existing multicast mechanisms do not exhibit this property,
+  237  although Mostly-Ordered Multicast provides it on a besteffort basis [53]. Importantly, our model requires that any
+  238  pair of multicast messages successfully sent to the same
+  239  group are always delivered in the same order to all receivers – unless one of the messages is not received. In
+  240  this case, however, the receiver is notified.
+
+  241  3.2 OUM Sessions and the libOUM API
+  242  Our OUM primitive is implemented using a combination
+  243  of a network-layer sequencer and a communication library
+  244  called libOUM. libOUM's API is a refinement of the
+  245  OUM model described above. An OUM group is a set of
+  246  receivers and is identified by an IP address. We explain
+  247  group membership changes in §5.2.5.
+  248  libOUM introduces an additional concept, sessions.
+  249  For each OUM group, there are one or more sessions,
+  250  which are intervals during which the OUM guarantees
+  251  1 This second case can be thought of as a sender omission, whereas
+  252  the first case can be thought of as a receiver omission, with the added
+  253  drop notification guarantee.
+=== PAGE 5 ===
+
+  254  470 12th USENIX Symposium on Operating Systems Design and Implementation
+
+  255  libOUM Sender Interface
+  256  • send(addr destination, byte[] message) — send a message to the given OUM group
+
+  257  libOUM Receiver Interface
+  258  • getMessage() — returns the next message, a DROPNOTIFICATION, or a SESSION-TERMINATED error
+  259  • listen(int sessionNum, int messageNum) — resets
+  260  libOUM to begin listening in OUM session sessionNum for
+  261  message messageNum
+
+  262  Figure 2: The libOUM interface.
+  263  hold. Conceptually, the stream of messages being sent
+  264  to a particular group is divided into consecutive OUM
+  265  sessions. From the beginning of an OUM session to the
+  266  time it terminates, all OUM guarantees apply. However,
+  267  OUM sessions are not guaranteed to terminate at the same
+  268  point in the message stream for each multicast receiver:
+  269  an arbitrary number of messages at the end of an OUM
+  270  session could be dropped without notification, and this
+  271  number might differ for each multicast receiver. Thus,
+  272  each multicast recipient receives a prefix of the messages
+  273  assigned to each OUM session, where some messages are
+  274  replaced with drop notifications.
+  275  Sessions are generally long-lived. However, rare, exceptional network events (sequencer failures) can terminate
+  276  them. In this case, the application is notified of session
+  277  termination and then must ensure that it is in a consistent
+  278  state with the other receivers before listening for the next
+  279  session. In this respect, OUM sessions resemble TCP connections: they guarantee ordering within their lifetime,
+  280  but failures may cause them to end.
+  281  Applications access OUM sessions via the libOUM
+  282  interface (Figure 2). The receiver interface provides a
+  283  getMessage() function, which returns either a message
+  284  or a DROP-NOTIFICATION during an OUM session. When
+  285  an OUM session terminates, getMessage() returns a
+  286  special value, SESSION-TERMINATED, until the user of
+  287  libOUM starts the next OUM session. To begin listening to the next OUM session and receiving its messages
+  288  and DROP-NOTIFICATIONs, the receiver calls listen(int
+  289  newSessionNum, 0). To start an OUM session at a particular position in the message stream, the receiver can
+  290  call listen(int sessionNum, int messageNum). Users
+  291  of libOUM must ensure that all OUM receivers begin listening to the new session in a consistent state.
+
+  292  4 OUM Design and Implementation
+  293  We implement OUM in the context of a single data center
+  294  network. The basic design is straightforward: the network routes all packets destined for a given OUM group
+  295  through a single sequencer, a low-latency device that
+  296  serves one purpose: to add a sequence number to each
+  297  packet before forwarding it to its destination. Since all
+  298  packets have been marked with a sequence number, the
+
+  299  libOUM library can ensure ordering by discarding messages that are received out of order and detect and report
+  300  dropped messages by noticing gaps in the sequence number.
+  301  Achieving this design poses three challenges. First, the
+  302  network must serialize all requests through the sequencer;
+  303  we use software-defined networking (SDN) to provide this
+  304  network serialization (§4.1). Second, we must implement
+  305  a sequencer capable of high throughput and low latency.
+  306  We present three such implementations in §4.2: a zeroadditional-latency implementation for programmable data
+  307  center switches, a middlebox-like prototype using a network processor, and a pure-software implementation. Finally, the system must remain robust to failures of network
+  308  components, including the sequencer (§4.3).
+
+  309  4.1 Network Serialization
+  310  The first aspect of our design is network serialization,
+  311  where all OUM packets for a particular group are routed
+  312  through a sequencer on the common path. Network serialization was previously used to implement a best-effort
+  313  multicast [53]; we adapt that design here.
+  314  Our design targets a data center that uses softwaredefined networking, as is common today. Data center
+  315  networks are engineered networks constructed with a particular topology – generally some variant of a multi-rooted
+  316  tree. A traditional design calls for a three-level tree topology where many top-of-rack switches, each connecting
+  317  to a few dozen server, are interconnected via aggregation
+  318  switches that themselves connect through core switches.
+  319  More sophisticated topologies, such as fat-tree or Clos
+  320  networks [1, 22, 43, 46] extend this basic design to support
+  321  large numbers of physical machines using many commodity switches and often provide full bisection bandwidth.
+  322  Figure 3 shows the testbed we use, implementing a fattree network [1].
+  323  Software-defined networking additionally allows the
+  324  data center network to be managed by a central controller.
+  325  This controller can install custom forwarding, filtering,
+  326  and rewriting rules in switches. The current generation of
+  327  SDN switches, e.g., OpenFlow [44], allow these rules to
+  328  be installed at a per-flow granularity, matching on a fixed
+  329  set of packet headers.
+  330  To implement network serialization, we assign each
+  331  OUM group a distinct address in the data center network
+  332  that senders can use to address messages to the group. The
+  333  SDN controller installs forwarding rules for this address
+  334  that route messages through the sequencer, then to group
+  335  members.
+  336  To do this, the controller must select a sequencer for
+  337  each group. In the most efficient design, switches themselves are used as sequencers (§4.2.1). In this case, the
+  338  controller selects a switch that is a common ancestor of all
+  339  destination nodes in the tree hierarchy to avoid increasing
+
+  340  USENIX Association
+=== PAGE 6 ===
+
+  341  12th USENIX Symposium on Operating Systems Design and Implementation 471
+
+  342  path lengths, e.g., a root switch or an aggregation switch
+  343  if all receivers are in the same subtree. For load balancing,
+  344  different OUM groups are assigned different sequencers,
+  345  e.g., using hash-based partitioning.
+  346  Figure 3 shows an example of network serialization forwarding paths in a 12-switch, 3-level fat tree network. Sequencers are implemented as network processors (§4.2.2)
+  347  connected to root switches. Messages from a client machine are first forwarded upward to the designated sequencer – here, attached to the leftmost root switch – then
+  348  distributed downward to all recipients.
+  349  Network serialization could create longer paths than
+  350  traditional IP multicast because all traffic must be routed
+  351  to the sequencer, but this effect is minimal in practice. We
+  352  quantified this latency penalty using packet-level network
+  353  simulation. The simulated network contained 2,560 endhosts and 119 switches configured in a 3-level fat tree
+  354  network, with background traffic modeled on Microsoft
+  355  data centers [4]. Each client sent multicast messages to
+  356  a random group of 5 receivers. In 88% of cases, network serialization added no additional latency for the
+  357  message to be received by a quorum of 3 receivers; the
+  358  99th-percentile was less than 5 µs of added latency. This
+  359  minimal increase in latency is due to the fact that the sequencer is a least- common-ancestor switch of the replica
+  360  group, and most packets have to traverse that switch anyway to reach a majority of the group.
+
+  361  4.2 Implementing the Sequencer
+  362  The sequencer plays a simple but critical role: assigning a
+  363  sequence number to each message destined for a particular
+  364  OUM group, and writing that sequence number into the
+  365  packet header. This establishes a total order over packets
+  366  and is the key element that elevates our design from a
+  367  best-effort ordering property to an ordering guarantee.
+  368  Even if packets are dropped (e.g., due to congestion or
+  369  link failures) or reordered (e.g., due to multipath effects)
+  370  in the network, receivers can use the sequence numbers
+  371  to ensure that they process packets in order and deliver
+  372  drop notifications for missing packets.
+  373  Sequencers maintain one counter per OUM group. For
+  374  every packet destined for that group, they increment the
+  375  counter and write it into a designated field in the packet
+  376  header. The counter must be incremented by 1 on each
+  377  packet (as opposed to a timestamp, which monotonically
+  378  increases but may have gaps). This counter lets libOUM
+  379  return DROP-NOTIFICATIONs when it notices gaps in the
+  380  sequence numbers of incoming messages. Sequencers
+  381  also maintain and write into each packet the OUM session number that is used to handle sequencer failures; we
+  382  describe its use in §4.3.
+  383  Our sequencer design is general; we discuss three possible implementations here. The most efficient one targets
+  384  upcoming programmable network switches, using the
+
+  385  USENIX Association
+
+  386  Cavium
+  387  Processor
+
+  388  Root Layer
+  389  (Arista 7150S)
+  390  10 Gbps
+  391  Aggr. Layer
+  392  (HP 6600)
+  393  1 Gbps
+  394  ToR Layer
+  395  (HP 6600)
+  396  1 Gbps
+
+  397  Figure 3: Testbed network topology. Green lines indicate the
+  398  upward path from a client to the sequencer, and orange lines
+  399  indicate the downward path from the sequencer to receivers.
+  400  switch itself as the sequencer, incurring no latency cost
+  401  (§4.2.1). As this hardware is not yet available, we describe
+  402  a prototype that uses a network processor to implement
+  403  a middlebox-like sequencer (§4.2.2). Finally, we discuss
+  404  using an end-host as a sequencer (§4.2.3).
+  405  4.2.1 In-Switch Sequencing
+  406  Ideally, switches themselves could serve as sequencers.
+  407  The benefit of doing so is latency: packets could be sequenced by one of the switches through which they already transit, rather than having to be redirected to a
+  408  dedicated device. Moreover, switching hardware is highly
+  409  optimized for low-latency packet processing, unlike endhosts.
+  410  Using a switch as a sequencer is made possible by the
+  411  increasing ability of data center switches to perform flexible, per-packet computations. An emerging class of switch
+  412  architectures – such as Reconfigurable Match Tables [10],
+  413  Intel's FlexPipe [49], and Cavium's XPliant [59] – allow
+  414  the switch's behavior to be controlled on a per-packet
+  415  granularity, supporting the parsing and matching of arbitrary packet fields, rewriting of packet contents, and
+  416  maintaining of small amounts of state between packets.
+  417  Exposed through high-level languages like P4 [9], this
+  418  increased flexibility lets us consider network switches
+  419  as not simply forwarding elements, but as devices with
+  420  computational ability.
+  421  We implemented our switch sequencing functionality
+  422  in the P4 language, which allows it to be compiled and
+  423  deployed to upcoming programmable switches as well as
+  424  software switches. Our implementation uses the reconfigurable parser capabilities of these switches to define a
+  425  custom packet header that includes the OUM sequence
+  426  and session numbers. It uses stateful memory (register
+  427  arrays) to store the current sequence number for every
+  428  OUM group and increments it on each packet. Complete
+  429  NOPaxos P4 code is available in [39].
+=== PAGE 7 ===
+
+  430  472 12th USENIX Symposium on Operating Systems Design and Implementation
+
+  431  Programmable switches capable of this processing are
+  432  not yet commercially available, although we expect them
+  433  to be within the next year. Therefore, we cannot evaluate
+  434  their performance, but there is reason to believe they can
+  435  execute this processing with no measurable increase in latency. As evidence, Intel's FlexPipe chips (now available,
+  436  e.g., in the Arista 7150 switch) can modify packets to include the egress timestamp with zero latency cost [2, 49].
+  437  We note that a network switch provides orders-ofmagnitude lower latency and greater reliability [21] than
+  438  an end-host. Today's fastest cut-through switches can consistently process packets in approximately 300 ns [2],
+  439  while a typical Linux server has median latency in the 10–
+  440  100 µs range and 99.9th-percentile latency over 5 ms [40].
+  441  This trend seems unlikely to change: even with highperformance server operating systems [3,52], NIC latency
+  442  remains an important factor [20]. At the same time, the
+  443  limited computational model of the switch requires a careful partitioning of functionality between the network and
+  444  application. The OUM model offers such a design.
+  445  4.2.2 Hardware Middlebox Prototype Sequencing
+  446  Because available switches do not provide the necessary
+  447  flexibility to run P4 programs, we implemented a prototype using existing OpenFlow switches and a network
+  448  processor.
+  449  This prototype is part of the testbed that we use to evaluate our OUM model and its uses for distributed protocols.
+  450  This testbed simulates the 12-switch, 3-layer fat-tree network configuration depicted in Figure 3. We implemented
+  451  it on three physical switches by using VLANs and appropriate OpenFlow forwarding rules to emulate separate
+  452  virtual switches: two HP 6600 switches implement the
+  453  ToR and aggregation tiers, and one Arista 7050S switch
+  454  implements the core tier.
+  455  We implemented the sequencer as a form of middlebox
+  456  using a Cavium Octeon II CN68XX network processor.
+  457  This device contains 32 MIPS64 cores and supports 10
+  458  Gb/s Ethernet I/O. Users can customize network functionality by loading C binaries that match, route, drop
+  459  or modify packets going through the processor. Onboard
+  460  DRAM maintains per-group state. We attached the middlebox to the root switches and installed OpenFlow rules
+  461  to redirect OUM packets to the middlebox.
+  462  This implementation does not provide latency as low
+  463  as the switch-based sequencer; routing traffic through
+  464  the network processor adds latency. We measured this
+  465  latency to be 8 µs in the median case and 16 µs in the
+  466  99th percentile. This remains considerably lower than
+  467  implementing packet processing in an end-host.
+  468  4.2.3 End-host Sequencing
+  469  Finally, we also implemented the sequencing functionality on a conventional server. While this incurs higher
+
+  470  latency, it allows the OUM abstraction to be implemented
+  471  without any specialized hardware. Nevertheless, using a
+  472  dedicated host for network-level sequencing can still provide throughput, if not latency, benefits as we demonstrate
+  473  in §6. We implemented a simple Linux program that uses
+  474  raw sockets to access packet headers.
+  475  4.2.4 Sequencer Scalability
+  476  Since all OUM packets for a particular group go through
+  477  the sequencer, a valid concern is whether the sequencer
+  478  will become the performance bottleneck. Switches and
+  479  network processors are designed to process packets at line
+  480  rate and thus will not become the bottleneck for a single
+  481  OUM group (group receivers are already limited by the
+  482  link bandwidth). Previous work [28] has demonstrated
+  483  that an end-host sequencer using RDMA can process
+  484  close to 100 million requests per second, many more
+  485  than any single OUM group can process. We note that
+  486  different OUM groups need not share a sequencer, and
+  487  therefore deployment of multiple OUM groups can scale
+  488  horizontally.
+
+  489  4.3 Fault Tolerance
+  490  Designating a sequencer and placing it on the common
+  491  path for all messages to a particular group introduces an
+  492  obvious challenge: what if it fails or becomes unreachable? If link failures or failures of other switches render
+  493  the sequencer unreachable, local rerouting mechanisms
+  494  may be able to identify an alternate path [43]. However, if
+  495  the sequencer itself fails, or local rerouting is not possible,
+  496  replacing the sequencer becomes necessary.
+  497  In our design, the network controller monitors the sequencer's availability. If it fails or no longer has a path
+  498  to all OUM group members, the controller selects a different switch. It reconfigures the network to use this new
+  499  sequencer by updating routes in other switches. During
+  500  the reconfiguration period, multicast messages may not
+  501  be delivered. However, failures of root switches happen
+  502  infrequently [21], and rerouting can be completed within
+  503  a few milliseconds [43], so this should not significantly
+  504  affect system availability.
+  505  We must also ensure that the ordering guarantee of
+  506  multicast messages is robust to sequencer failures. This
+  507  requires the continuous, ordered assignment of sequence
+  508  numbers even when the network controller fails over to a
+  509  new sequencer.
+  510  To address this, we introduce a unique, monotonically
+  511  increasing session number, incremented each time sequencer failover occurs. When the controller detects a
+  512  sequencer failure, it updates the forwarding rules and
+  513  contacts the new sequencer to set its local session number to the appropriate value. As a result, the total order of messages follows the lexicographical order of the
+  514  ⟨session-number, sequence-number⟩ tuple, and clients
+
+  515  USENIX Association
+=== PAGE 8 ===
+
+  516  12th USENIX Symposium on Operating Systems Design and Implementation 473
+
+  517  can still discard packets received out of order.
+  518  Once libOUM receives a message with a session number higher than the receiver is listening for, it realizes that
+  519  a new sequencer is active and stops delivering messages
+  520  from the old session. However, libOUM does not know if
+  521  it missed any packets from the old sequencer. As a result,
+  522  it cannot deliver DROP-NOTIFICATIONs during a session
+  523  change. Instead, it delivers a SESSION-TERMINATED notification, exposing this uncertainty to the application.
+  524  NOPaxos, for example, resolves this by executing a view
+  525  change (§5.2.3) so that replicas agree on exactly which
+  526  requests were received in the old session.
+  527  The network controller must ensure that session numbers for any given group monotonically increase, even
+  528  across controller failures. Many design options are available, for example using timestamps as session numbers, or
+  529  recording session numbers in stable or replicated storage.
+  530  Our implementation uses a Paxos-replicated controller
+  531  group, since SDN controller replication is already common in practice [26, 31]. We note that our replication
+  532  protocol, NOPaxos (§5), is completely decoupled from
+  533  controller replication, and the controller updates only on
+  534  sequencer failures, not for every NOPaxos request.
+
+  535  5 NOPaxos
+
+  536  NOPaxos, or Network-Ordered Paxos, is a new replication
+  537  protocol which leverages the Ordered Unreliable Multicast sessions provided by the network layer.
+
+  538  5.1 Model
+  539  NOPaxos replicas communicate over an asynchronous
+  540  network that provides OUM sessions (via libOUM).
+  541  NOPaxos requires the network to provide ordered but
+  542  unreliable delivery of multicast messages within a session. In the normal case, these messages are delivered sequentially and are not dropped; however, it remains robust to dropped packets (presented as DROPNOTIFICATION through libOUM). NOPaxos is also robust
+  543  to SESSION-TERMINATED notifications that occur if the
+  544  sequencer fails. These network anomalies do not affect
+  545  NOPaxos's safety guarantees, and we discuss how they
+  546  affect NOPaxos's performance in §6.
+  547  NOPaxos assumes a crash failure model. It uses 2f +1
+  548  replicas, where f replicas are allowed to fail. However, in
+  549  the presence of more than f failures, the system still guarantees safety. Furthermore, NOPaxos guarantees safety
+  550  even in an asynchronous network with no bound on message latency (provided the OUM guarantees continue to
+  551  hold).
+  552  NOPaxos provides linearizability of client requests. It
+  553  provides at-most-once semantics using the standard mechanism of maintaining a table of the most recent request
+  554  from each client [42].
+
+  555  USENIX Association
+
+  556  5.2 Protocol
+  557  Overview. NOPaxos is built on top of the guarantees
+  558  of the OUM network primitive. During a single OUM
+  559  session, REQUESTs broadcast to the replicas are totally
+  560  ordered but can be dropped. As a result, the replicas have
+  561  to agree only on which REQUESTs to execute and which
+  562  to permanently ignore, a simpler task than agreeing on
+  563  the order of requests. Conceptually, this is equivalent to
+  564  running multiple rounds of binary consensus. However,
+  565  NOPaxos must explicitly run this consensus only when
+  566  DROP-NOTIFICATIONs are received. To switch OUM sessions (in the case of sequencer failure), the replicas must
+  567  agree on the contents of their shared log before they start
+  568  listening to the new session.
+  569  To these ends, NOPaxos uses a view-based approach:
+  570  each view has a single OUM session-num and a single
+  571  replica acting as leader. The leader executes requests and
+  572  drives the agreement to skip a dropped request. That is,
+  573  it decides which of the sequencer's REQUESTs to ignore
+  574  and treat as NO-OPs. The view ID is a tuple ⟨leader-num,
+  575  session-num⟩. Here, leader-num is incremented each time
+  576  a new leader is needed; the current leader of any view is
+  577  leader-num (mod n); and session-num is the latest session ID from libOUM. View IDs in NOPaxos are partially
+  578  ordered.2 However, the IDs of all views that successfully
+  579  start will be comparable.
+  580  In the normal case, the replicas receive a REQUEST
+  581  from libOUM. The replicas then reply to the client, the
+  582  leader replying with the result of the REQUEST, so the
+  583  client's REQUEST is processed in only a single round-trip.
+  584  NOPaxos uses a single round-trip in the normal case because, like many speculative protocols, the client checks
+  585  the durability of requests. However, unlike most speculative protocols, NOPaxos clients have a guarantee regarding ordering of operations; they need only check that the
+  586  operation was received.
+  587  When replicas receive a DROP-NOTIFICATION from
+  588  libOUM, they first try to recover the missing REQUEST
+  589  from each other. Failing that, the leader initiates a round of
+  590  agreement to commit a NO-OP into the corresponding slot
+  591  in the log. Finally, NOPaxos uses a view change protocol
+  592  to handle leader failures and OUM session termination
+  593  while maintaining consistency.
+  594  Outline. NOPaxos consists of four subprotocols:
+
+  595  • Normal Operations (§5.2.1): NOPaxos processes
+  596  client REQUESTs in a single round-trip in the normal
+  597  case.
+
+  598  • Gap Agreement (§5.2.2): NOPaxos ensures correctness
+  599  in the face of DROP-NOTIFICATIONs by having the
+
+  600  2 That is, v ≤ v iff both v 's leader-num and session-num are less
+  601  1 2 1
+  602  than or equal to v2's.
+=== PAGE 9 ===
+
+  603  474 12th USENIX Symposium on Operating Systems Design and Implementation
+
+  604  Replica:
+  605  • replica-num — replica number
+  606  • status — one of Normal or ViewChange
+  607  • view-id = ⟨leader-num, session-num⟩ — the view number, a
+  608  tuple of the current leader number and OUM session number,
+  609  partially ordered, initially ⟨0, 0⟩
+  610  • session-msg-num — the number of messages (REQUESTs or
+  611  DROP-NOTIFICATIONs) received in this OUM session
+  612  • log — client REQUESTs and NO-OPs in sequential order
+  613  • sync-point — the latest synchronization point
+
+  614  Figure 4: Local state of NOPaxos replicas.
+
+  615  replicas reach agreement on which sequence numbers
+  616  should be permanently dropped.
+
+  617  • View Change (§5.2.3): NOPaxos ensures correctness in
+  618  the face of leader failures or OUM session termination
+  619  using a variation of a standard view change protocol.
+
+  620  • Synchronization (§5.2.4): Periodically, the leader synchronizes the logs of all replicas.
+
+  621  Figure 4 illustrates the state maintained at each
+  622  NOPaxos replica. Replicas tag all messages sent to each
+  623  other with their current view-id, and while in the Normal Operations, Gap Agreement, and Synchronization
+  624  subprotocols, replicas ignore all messages from different
+  625  views. Only in the View Change protocol do replicas with
+  626  different view-ids communicate.
+
+  627  5.2.1 Normal Operations
+  628  In the normal case when replicas receive REQUESTs instead of DROP-NOTIFICATIONs, client requests are committed and executed in a single phase. Clients broadcast ⟨REQUEST, op, request-id⟩ to all replicas through
+  629  libOUM, where op is the operation they want to execute,
+  630  and request-id is a unique id used to match requests and
+  631  their responses.
+  632  When each replica receives the client's REQUEST, it
+  633  increments session-msg-num and appends op to the log. If
+  634  the replica is the leader of the current view, it executes the
+  635  op (or looks up the previous result if it is a duplicate of a
+  636  completed request). Each replica then replies to the client
+  637  with ⟨REPLY, view-id, log-slot-num, request-id, result⟩,
+  638  where log-slot-num is the index of op in the log. If the
+  639  replica is the leader, it includes the result of the operation;
+  640  NULL otherwise.
+  641  The client waits for REPLYs to the REQUEST with
+  642  matching view-ids and log-slot-nums from f +1 replicas, where one of those replicas is the leader of the view.
+  643  This indicates that the request will remain persistent even
+  644  across view changes. If the client does not receive the
+  645  required REPLYs within a timeout, it retries the request.
+
+  646  5.2.2 Gap Agreement
+  647  NOPaxos replicas always process operations in order.
+  648  When a replica receives a DROP-NOTIFICATION from
+  649  libOUM (and increments its session-msg-num), it must
+  650  either recover the contents of the missing request or prevent it from succeeding before moving on to subsequent
+  651  requests. Non-leader replicas do this by contacting the
+  652  leader for a copy of the request. If the leader itself receives a DROP-NOTIFICATION, it coordinates to commit
+  653  a NO-OP operation in place of that request:
+
+  654  1. If the leader receives a DROP-NOTIFICATION, it inserts a NO-OP into its log and sends a ⟨GAP-COMMIT,
+  655  log-slot⟩ to the other replicas, where log-slot is the slot
+  656  into which the NO-OP was inserted.
+
+  657  2. When a non-leader replica receives the GAP-COMMIT
+  658  and has filled all log slots up to the one specified by the
+  659  leader, it inserts a NO-OP into its log at the specified location3 (possibly overwriting a REQUEST) and replies
+  660  to the leader with a ⟨GAP-COMMIT-REP, log-slot⟩.
+
+  661  3. The leader waits for f GAP-COMMIT-REPs (retrying if
+  662  necessary).
+
+  663  Clients need not be notified explicitly when a NO-OP
+  664  has been committed in place of one of their requests.
+  665  They simply retry their request after failing to receive a
+  666  quorum of responses. Note that the retried operation will
+  667  be considered a new request and will have a new slot in the
+  668  replicas' logs. Replicas identify duplicate client requests
+  669  by checking if they have processed another request with
+  670  the same client-id and request-id, as is commonly done
+  671  in other protocols.
+  672  This protocol ensures correctness because clients do
+  673  not consider an operation completed until they receive
+  674  a response from the leader, so the leader can propose a
+  675  NO-OP regardless of whether the other replicas received
+  676  the REQUEST. However, before proceeding to the next
+  677  sequence number, the leader must ensure that a majority
+  678  of replicas have learned of its decision to commit a NOOP. When combined with the view change protocol, this
+  679  ensures that the decision persists even if the leader fails.
+  680  As an optimization, the leader can first try to contact
+  681  the other replicas to obtain a copy of the REQUEST and initiate the gap commit protocol only if no replicas respond
+  682  before a timeout. While not necessary for correctness, this
+  683  reduces the number of NO-OPs.
+
+  684  3 If the replica had not already filled log-slot in its log or received a
+  685  DROP-NOTIFICATION for that slot when it inserted the NO-OP, it ignores
+  686  the next REQUEST or DROP-NOTIFICATION from libOUM (and increments session-msg-num), maintaining consistency between its position
+  687  in the OUM session and its log.
+
+  688  USENIX Association
+=== PAGE 10 ===
+
+  689  12th USENIX Symposium on Operating Systems Design and Implementation 475
+
+  690  5.2.3 View Change
+  691  During each view, a NOPaxos group has a particular
+  692  leader and OUM session number. NOPaxos must perform
+  693  view changes to ensure progress in two cases: (1) when
+  694  the leader is suspected of having failed (e.g, by failing to
+  695  respond to pings), or (2) when a replica detects the end
+  696  of an OUM session. To successfully replace the leader
+  697  or move to a new OUM session, NOPaxos runs a view
+  698  change protocol. This protocol ensures that all successful
+  699  operations from the old view are carried over into the new
+  700  view and that all replicas start the new view in a consistent
+  701  state.
+  702  NOPaxos's view change protocol resembles that used
+  703  in Viewstamped Replication [42]. The principal difference is that NOPaxos views serve two purposes, and so
+  704  NOPaxos view IDs are therefore a tuple of ⟨leader-num,
+  705  session-num⟩ rather than a simple integer. A view change
+  706  can increment either one. However, NOPaxos ensures
+  707  that each replica's leader-num and session-num never go
+  708  backwards. This maintains a total order over all views
+  709  that successfully start.
+
+  710  1. A replica initiates a view change when: (1) it suspects that the leader in its current view has failed;
+  711  (2) it receives a SESSION-TERMINATED notification
+  712  from libOUM; or (3) it receives a VIEW-CHANGE or
+  713  VIEW-CHANGE-REQ message from another replica
+  714  with a higher leader-num or session-num. In all cases,
+  715  the replica appropriately increments the leader-num
+  716  and/or session-num in its view-id and sets its status
+  717  to ViewChange. If the replica incremented its sessionnum, it resets its session-msg-num to 0.
+
+  718  It then sends ⟨VIEW-CHANGE-REQ, view-id⟩ to the
+  719  other replicas and ⟨VIEW-CHANGE, view-id, v0,
+  720  session-msg-num, log⟩ to the leader of the new view,
+  721  where v0 is the view ID of the last view in which its
+  722  status was Normal. While in ViewChange status, the
+  723  replica ignores all replica-to-replica messages (except
+  724  START-VIEW, VIEW-CHANGE, and VIEW-CHANGEREQ).
+  725  If the replica ever times out waiting for the view change
+  726  to complete, it simply rebroadcasts the VIEW-CHANGE
+  727  and VIEW-CHANGE-REQ messages.
+
+  728  2. When the leader for the new view receives f +1 VIEWCHANGE messages (including one from itself) with
+  729  matching view-ids, it performs the following steps:
+
+  730  • The leader merges the logs from the most recent
+  731  (largest) view in which the replicas had status
+
+  732  USENIX Association
+
+  733  Normal.4 For each slot in the log, the merged result
+  734  is a NO-OP if any log has a NO-OP. Otherwise, the
+  735  result is a REQUEST if at least one has a REQUEST.
+  736  It then updates its log to the merged one.
+  737  • The leader sets its view-id to the one from the VIEWCHANGE messages and its session-msg-num to the
+  738  highest out of all the messages used to form the
+  739  merged log.
+  740  • It then sends ⟨START-VIEW, view-id,
+  741  session-msg-num, log⟩ to all replicas (including itself).
+  742  3. When a replica receives a START-VIEW message with
+  743  a view-id greater than or equal to its current view-id,
+  744  it first updates its view-id, log, and session-msg-num
+  745  to the new values. It then calls listen(session-num,
+  746  session-msg-num) in libOUM. The replica sends REPLYs to clients for all new REQUESTs added to its log
+  747  (executing them if the replica is the new leader). Finally, the replica sets its status to Normal and begins
+  748  receiving messages from libOUM again.5
+
+  749  5.2.4 Synchronization
+  750  During any view, only the leader executes operations and
+  751  provides results. Thus, all successful client REQUESTs are
+  752  committed on a stable log at the leader, which contains
+  753  only persistent client REQUESTs. In contrast, non-leader
+  754  replicas might have speculative operations throughout
+  755  their logs. If the leader crashes, the view change protocol
+  756  ensures that the new leader first recreates the stable log
+  757  of successful operations. However, it must then execute
+  758  all operations before it can process new ones. While this
+  759  protocol is correct, it is clearly inefficient.
+  760  Therefore, as an optimization, NOPaxos periodically
+  761  executes a synchronization protocol in the background.
+  762  This protocol ensures that all other replicas learn which
+  763  operations have successfully completed and which the
+  764  leader has replaced with NO-OPs. That is, synchronization
+  765  ensures that all replicas' logs are stable up to their syncpoint and that they can safely execute all REQUESTs up
+  766  to this point in the background.
+  767  For brevity, we omit the details of this protocol. See
+  768  [39] for the full specification.
+  769  5.2.5 Recovery and Reconfiguration
+  770  While the NOPaxos protocol as presented above assumes
+  771  a crash failure model and a fixed replica group, it can
+  772  4 While view-ids are only partially ordered, because individual replicas' view-ids only increase and views require a quorum of replicas to
+  773  start, all views that successfully start are comparable – so identifying
+  774  the view with the highest number is in fact meaningful. For a full proof
+  775  of this fact, see [39].
+  776  5 Replicas also send an acknowledgment to the leader's START-VIEW
+  777  message, and the leader periodically resends the START-VIEW to those
+  778  replicas from whom it has yet to receive an acknowledgment.
+=== PAGE 11 ===
+
+  779  476 12th USENIX Symposium on Operating Systems Design and Implementation
+
+  780  also facilitate recovery and reconfiguration using adaptations of standard mechanisms (e.g. Viewstamped Replication [42]). While the recovery mechanism is a direct
+  781  equivalent of the Viewstamped Replication protocol, the
+  782  reconfiguration protocol additionally requires a membership change in the OUM group. The OUM membership is
+  783  changed by contacting the controller and having it install
+  784  new forwarding rules for the new members, as well as a
+  785  new session-num in the sequencer (terminating the old
+  786  session). The protocol then ensures all members of the
+  787  new configuration start in a consistent state.
+
+  788  5.3 Benefits of NOPaxos
+  789  NOPaxos achieves the theoretical minimum latency and
+  790  maximum throughput: it can execute operations in one
+  791  round-trip from the client to the replicas and does not
+  792  require replicas to coordinate on each request. By relying
+  793  on the network to stamp requests with sequence numbers,
+  794  it requires replies only from a simple majority of replicas and uses a cheaper and rollback-free mechanism to
+  795  correctly account for network anomalies.
+  796  The OUM session guarantees mean that the replicas
+  797  already agree on the ordering of all operations. As a consequence, clients need not wait for a superquorum of
+  798  replicas to reply, as in Fast Paxos and Speculative Paxos
+  799  (and as is required by any protocol that provides fewer
+  800  message delays than Paxos in an asynchronous, unordered
+  801  network [37]). In NOPaxos, a simple majority of replicas
+  802  suffices to guarantee the durability of a REQUEST in the
+  803  replicas' shared log.
+  804  Additionally, the OUM guarantees enable NOPaxos
+  805  to avoid expensive mechanisms needed to detect when
+  806  replicas are not in the same state, such as using hashing to
+  807  detect conflicting logs from replicas. To keep the replicas'
+  808  logs consistent, the leader need only coordinate with the
+  809  other replicas when it receives DROP-NOTIFICATIONs.
+  810  Committing a NO-OP takes but a single round-trip and
+  811  requires no expensive reconciliation protocol.
+  812  NOPaxos also avoids rollback, which is usually necessary in speculative protocols. It does so not by coordinating on every operation, as in non-speculative protocols,
+  813  but by having only the leader execute operations. Nonleader replicas do not execute requests during normal
+  814  operations (except, as an optimization, when the synchronization protocol indicates it is safe to do so), so they
+  815  need not rollback. The leader executes operations speculatively, without coordinating with the other replicas,
+  816  but clients do not accept a leader's response unless it is
+  817  supported by matching responses from f other replicas.
+  818  The only rare case when a replica will execute an operation that is not eventually committed is if a functioning
+  819  leader is incorrectly replaced through a view change, losing some operations it executed. Because this case is rare,
+  820  it is reasonable to handle it by having the ousted leader
+
+  821  transfer application state from another replica, rather than
+  822  application-level rollback.
+  823  Finally, unlike many replication protocols, NOPaxos
+  824  replicas send and receive a constant number of messages
+  825  for each REQUEST in the normal case, irrespective of the
+  826  total number of replicas. This means that NOPaxos can be
+  827  deployed with an increasing number of replicas without
+  828  the typical performance degradation, allowing for greater
+  829  fault-tolerance. §6.3 demonstrates that NOPaxos achieves
+  830  the same throughput regardless of the number of replicas.
+
+  831  5.4 Correctness
+  832  NOPaxos guarantees linearizability: that operations submitted by multiple concurrent clients appear to be executed by a single, correct machine. In a sense, correctness in NOPaxos is a much simpler property than in
+  833  other systems, such as Paxos and Viewstamped Replication [33, 48], because the replicas need not agree on the
+  834  order of the REQUESTs they execute. Since the REQUEST
+  835  order is already provided by the guarantees of OUM sessions, the replicas must only agree on which REQUESTs
+  836  to execute and which REQUESTs to drop.
+  837  Below, we sketch the proof of correctness for the
+  838  NOPaxos protocol. For a full, detailed proof, see [39].
+  839  Additionally, see [39] for a TLA+ specification of the
+  840  NOPaxos protocol.
+  841  Definitions. We say that a REQUEST or NO-OP is committed in a log slot if it is processed by f +1 replicas with
+  842  matching view-ids, including the leader of that view. We
+  843  say that a REQUEST is successful if it is committed and
+  844  the client receives the f +1 suitable REPLYs. We say a
+  845  log is stable in view v if it will be a prefix of the log of
+  846  every replica in views higher than v.
+  847  Sketch of Proof. During a view, a leader's log grows
+  848  monotonically (i.e., entries are only appended and never
+  849  overwritten). Also, leaders execute only the first of duplicate REQUESTs. Therefore, to prove linearizability it
+  850  is sufficient to show that: (1) every successful operation
+  851  was appended to a stable log at the leader and that the
+  852  resulting log is also stable, and (2) replicas always start a
+  853  view listening to the correct session-msg-num in an OUM
+  854  session (i.e., the message corresponding to the number of
+  855  REQUESTs or NO-OPs committed in that OUM session).
+  856  First, note that any REQUEST or NO-OP that is committed in a log slot will stay in that log slot for all future
+  857  views: it takes f +1 replicas to commit a view and f +1
+  858  replicas to complete a view change, so, by quorum intersection, at least one replica initiating the view change will
+  859  have received the REQUEST or NO-OP. Also, because it
+  860  takes the leader to commit a REQUEST or NO-OP and its
+  861  log grows monotonically, only a single REQUEST or NOOP is ever committed in the same slot during a view. Therefore, any log consisting of only committed REQUESTs and
+
+  862  USENIX Association
+=== PAGE 12 ===
+
+  863  12th USENIX Symposium on Operating Systems Design and Implementation 477
+
+  864  NO-OPs is stable.
+  865  Next, every view that starts (i.e., f +1 replicas receive
+  866  the START-VIEW and enter Normal status) trivially starts
+  867  with a log containing only committed REQUESTs and NOOPs. Replicas send REPLYs to a REQUEST only after all
+  868  log slots before the REQUEST's slot have been filled with
+  869  REQUESTs or NO-OPs; further, a replica inserts a NO-OP
+  870  only if the leader already inserted that NO-OP. Therefore,
+  871  if a REQUEST is committed, all previous REQUESTs and
+  872  NO-OPs in the leader's log were already committed.
+  873  This means that any REQUEST that is successful in
+  874  a view must have been appended to a stable log at the
+  875  leader, and the resulting log must also be stable, showing
+  876  (1). To see that (2) is true, notice that the last entry in
+  877  the combined log formed during a view change and the
+  878  session-msg-num are taken from the same replica(s) and
+  879  therefore must be consistent.
+  880  NOPaxos also guarantees liveness given a sufficient
+  881  amount of time during which the following properties
+  882  hold: the network over which the replicas communicate
+  883  is fair-lossy; there is some bound on the relative processing speeds of replicas; there is a quorum of replicas that stays up; there is a replica that stays up that no
+  884  replica suspects of having failed; all replicas correctly suspect crashed nodes of having failed; no replica receives
+  885  a DROP-NOTIFICATION or SESSION-TERMINATED from
+  886  libOUM; and clients' REQUESTs eventually get delivered
+  887  through libOUM.
+
+  888  6 Evaluation
+
+  889  We implemented the NOPaxos protocol in approximately
+  890  5,000 lines of C++ code. We ran our experiments using
+  891  the 3-level fat-tree network testbed shown in Figure 3.
+  892  All clients and replicas ran on servers with 2.5 GHz Intel
+  893  Xeon E5-2680 processors and 64GB of RAM. All experiments used five replicas (thereby tolerating two replica
+  894  failures).
+  895  To evaluate the performance of NOPaxos, we compared it to four other replication protocols: Paxos, Fast
+  896  Paxos, Paxos with batching, and Speculative Paxos; we
+  897  also evaluated it against an unreplicated system that provides no fault tolerance. Like NOPaxos, the clients in
+  898  both Speculative Paxos and Fast Paxos multicast their
+  899  requests to the replicas through a root serialization switch
+  900  to minimize message reordering. Requests from NOPaxos
+  901  clients, however, are also routed through the Cavium processor to be stamped with the sequencer's OUM session
+  902  number and current request sequence number. For the
+  903  batching variant of Paxos, we used a sliding-window technique where the system adaptively adjusts the batch size,
+  904  keeping at least one batch in progress at all times; this
+  905  approach reduces latency at low load while still providing
+  906  throughput benefits at high load [13].
+
+  907  USENIX Association
+
+  908  1200
+  909  Paxos
+  910  1000 Fast Paxos
+  911  Batching
+  912  SpecPaxos
+  913  s) 800 NOPaxos
+  914  µ Unreplicated
+  915  600
+  916  Latency ( 400
+  917  200
+  918  0
+  919  0K50K100K150K200K250K300K350K400K
+  920  Throughput (ops/sec)
+  921  Figure 5: Latency vs. throughput comparison for testbed deployment of NOPaxos and other protocols.
+
+  922  700 NOPaxos
+  923  NOPaxos + End-host Sequencer
+  924  600 Unreplicated
+  925  s) 500
+  926  µ
+  927  400
+  928  300
+  929  Latency (
+  930  200
+  931  100
+  932  0
+  933  0K50K100K150K200K250K
+  934  Throughput (ops/sec)
+  935  Figure 6: Comparison of running NOPaxos with the prototype
+  936  Cavium sequencer and an end-host sequencer.
+
+  937  6.1 Latency vs. Throughput
+  938  To compare the latency and throughput of NOPaxos and
+  939  the other four protocols, we ran each system with an
+  940  increasing number of concurrent closed-loop clients. Figure 5 shows results of this experiment. NOPaxos achieves
+  941  a much higher maximum throughput than Paxos and Fast
+  942  Paxos (370% increases in both cases) without any additional latency. The leaders in both Paxos and Fast Paxos
+  943  send and receive more messages than the other replicas,
+  944  and the leaders' message processing quickly becomes the
+  945  bottleneck of these systems. NOPaxos has no such inefficiency. NOPaxos also achieves higher throughput than
+  946  Speculative Paxos (24% increase) because Speculative
+  947  Paxos requires replicas to compute hashes of their logs
+  948  for each client request.
+  949  Figure 5 also shows that NOPaxos has lower latency
+  950  (111 µs) than Paxos (240 µs) and Fast Paxos (193 µs) because NOPaxos requires fewer message delays in the normal case. Speculative Paxos also has higher latency than
+  951  NOPaxos because clients must wait for a superquorum of
+  952  replica replies instead of NOPaxos's simple quorum.
+  953  Batching improves Paxos's throughput by reducing the
+  954  number of messages sent by the leader. Paxos with batching is able to reach a maximum throughput equivalent
+  955  to Speculative Paxos. However, batching also increases
+  956  the latency of Paxos (385 µs at low load and 907 µs
+  957  at maximum throughput). NOPaxos attains both higher
+  958  throughput and lower latency than Paxos with batching.
+=== PAGE 13 ===
+
+  959  478 12th USENIX Symposium on Operating Systems Design and Implementation
+
+  960  350K Paxos Batching NOPaxos
+  961  300K Fast Paxos SpecPaxos Unreplicated
+  962  250K
+  963  200K
+  964  150K
+  965  Throughput (ops/sec) 100K
+  966  50K
+  967  0K
+  968  0.001% 0.01% 0.1% 1%
+  969  Simulated drop rate
+  970  Figure 7: Maximum throughput with simulated packet dropping.
+  971  NOPaxos is able to attain throughput within 2% of an
+  972  unreplicated system and latency within 16 µs. However,
+  973  we note that our middlebox prototype adds around 8 µs
+  974  to NOPaxos's latency. We envision that implementing
+  975  the sequencer in a switch could bring NOPaxos's latency
+  976  even closer to the unreplicated system. This demonstrates
+  977  that NOPaxos can achieve close to optimal performance
+  978  while providing fault-tolerance and strong consistency.
+  979  We also evaluated the performance of NOPaxos when
+  980  using an end-host as the sequencer instead of the network
+  981  processor. Figure 6 shows that NOPaxos still achieves
+  982  impressive throughput when using an end-host sequencer,
+  983  though at a cost of 36% more latency due to the additional
+  984  message delay required.
+
+  985  6.2 Resilience to Network Anomalies
+  986  To test the performance of NOPaxos in an unreliable
+  987  network, we randomly dropped a fraction of all packets.
+  988  Figure 7 shows the maximum throughput of the five protocols and the unreplicated system with an increasing
+  989  packet drop rate. Paxos's and Fast Paxos's throughput
+  990  do not decrease significantly, while Paxos with batching
+  991  shows a larger drop in throughput due to frequent state
+  992  transfers. However, the throughput of Speculative Paxos
+  993  drops substantially after 0.5% packet dropping, demonstrating NOPaxos's largest advantage over Speculative
+  994  Paxos. When 1% of packets are dropped, Speculative
+  995  Paxos's maximum throughput falls to that of Paxos. As
+  996  discussed in §5.3, Speculative Paxos performs an expensive reconciliation protocol when messages are dropped
+  997  and replica states diverge. NOPaxos is much more resilient to packet drops and reorderings. It achieves higher
+  998  throughput than Paxos with batching and much higher
+  999  throughput than Speculative Paxos at high drop rates.
+ 1000  Even with a 1% message drop rate, NOPaxos's throughput
+ 1001  does not drop significantly. Indeed, NOPaxos maintains
+ 1002  throughput roughly equivalent to an unreplicated system,
+ 1003  demonstrating its strong resilience to network anomalies.
+
+ 1004  6.3 Scalability
+ 1005  To test NOPaxos's scalability, we measured the maximum
+ 1006  throughput of the five protocols running on increasing
+ 1007  number of replicas. Figure 8 shows that both Paxos and
+
+ 1008  Paxos Batching NOPaxos
+ 1009  Fast Paxos SpecPaxos Unreplicated
+
+ 1010  100K
+
+ 1011  Throughput (ops/sec)
+
+ 1012  10K
+ 1013  3 5 7 9
+ 1014  Number of Replicas
+ 1015  Figure 8: Maximum throughput with increasing number of replicas.
+
+ 1016  300K
+ 1017  250K
+ 1018  200K
+ 1019  150K
+ 1020  100K
+ 1021  Throughput (ops/sec) 50K
+ 1022  0K
+ 1023  -0.25 0 0.25 0.5 0.75 1 1.25 1.5
+ 1024  Time (s)
+ 1025  Figure 9: NOPaxos throughput during a sequencer failover.
+ 1026  Fast Paxos suffer throughput degradation proportional
+ 1027  to the number of replicas because the leaders in those
+ 1028  protocols have to process more messages from the additional replicas. Replicas in NOPaxos and Speculative
+ 1029  Paxos, however, process a constant number of messages,
+ 1030  so those protocols maintain their throughput when more
+ 1031  replicas are added.
+
+ 1032  6.4 Sequencer Failover
+ 1033  NOPaxos relies on the sequencer to order client requests.
+ 1034  We measured the throughput of NOPaxos during a sequencer failover (Figure 9). We ran NOPaxos at peak
+ 1035  throughput for approximately 7 seconds. We then simulated a sequencer failure by sending the controller a
+ 1036  notification message. The controller modified the routing
+ 1037  rules in the network and installed a new session number
+ 1038  in the sequencer (as described in §3). The throughput of
+ 1039  the system drops to zero during the failover and takes
+ 1040  approximately 110 ms to resume normal operations and
+ 1041  approximately 270 ms to resume processing operations
+ 1042  at peak throughput. Most of this delay is caused by the
+ 1043  route update rather than the NOPaxos view change.
+
+ 1044  6.5 Application Performance
+ 1045  To further demonstrate the benefits of the NOPaxos protocol, we evaluated the performance of a distributed, inmemory key-value store. The key-value store uses twophase commit and optimistic concurrency control to support serializable transactions, and each shard runs atop our
+ 1046  replication framework. Clients issue GET and PUT requests
+ 1047  within transactions. We benchmarked the key-value store
+ 1048  using a workload based on the Retwis Twitter clone [38].
+
+ 1049  USENIX Association
+=== PAGE 14 ===
+
+ 1050  12th USENIX Symposium on Operating Systems Design and Implementation 479
+
+ 1051  14000
+ 1052  12000
+ 1053  10000
+ 1054  8000
+ 1055  6000
+ 1056  4000
+ 1057  Max Throughput (txns/sec) 2000
+ 1058  0 Paxos FastPaxos Batching SpecPaxos NOPaxos Unreplicated
+
+ 1059  Figure 10: Maximum throughput achieved by a replicated transactional key-value store within 10 ms SLO.
+ 1060  Figure 10 shows the maximum throughput of the keyvalue store with a 10ms SLO. NOPaxos outperforms all
+ 1061  other variants on this metric: it attains more than 4 times
+ 1062  the throughput of Paxos, and outperforms the best prior
+ 1063  protocol, Speculative Paxos, by 45%. Its throughput is
+ 1064  also within 4% that of an unreplicated system.
+
+ 1065  7 Related Work
+ 1066  Our work draws on techniques from consensus protocol
+ 1067  design as well as network-level processing mechanisms.
+ 1068  Consensus protocols Many protocols have been proposed for the equivalent problems of consensus, state
+ 1069  machine replication, and atomic broadcast. Most closely
+ 1070  related is a line of work on achieving better performance
+ 1071  when requests typically arrive at replicas in the same order,
+ 1072  including Fast Paxos [36], Speculative Paxos [53], and
+ 1073  Optimistic Atomic Broadcast [29, 50, 51]; Zyzzyva [32]
+ 1074  applies a similar idea in the context of Byzantine fault
+ 1075  tolerant replication. These protocols can reduce consensus latency in a manner similar to NOPaxos. However,
+ 1076  because requests are not guaranteed to arrive in the same
+ 1077  order, they incur extra complexity and require supermajority quorum sizes to complete a request (either 2/3 or
+ 1078  3/4 of replicas rather than a simple majority). This difference is fundamental: the possibility of conflicting orders
+ 1079  requires either an extra message round or a larger quorum
+ 1080  size [37].
+ 1081  Another line of work aims to reduce latency and improve throughput by avoiding coordination for operations that are commutative or otherwise need not be ordered [12, 35, 45, 60]; this requires application support to
+ 1082  identify commutative operations. NOPaxos avoids coordination for all operations.
+ 1083  Ordered Unreliable Multicast is related to a long line
+ 1084  of work on totally ordered broadcast primitives, usually
+ 1085  in the context of group communication systems [6, 7].
+ 1086  Years ago, a great debate raged in the SOSP community
+ 1087  about the effectiveness and limits of this causal and totally
+ 1088  ordered communication support (CATOCS) [5, 15]. Our
+ 1089  work draws inspiration from both sides of this debate, but
+ 1090  occupies a new point in the design space by splitting the
+
+ 1091  USENIX Association
+
+ 1092  responsibility between an ordered but unreliable communications layer and an application-level reliability layer. In
+ 1093  particular, the choice to leave reliability to the application
+ 1094  is inspired by the end-to-end argument [15, 55].
+ 1095  Network-level processing NOPaxos takes advantage
+ 1096  of flexible network processing to implement the OUM
+ 1097  model. Many designs have been proposed for flexible
+ 1098  processing, including fully flexible, software-based designs like Click [30] and others based on network processors [57] or FPGA platforms [47]. At the other extreme,
+ 1099  existing software defined networking mechanisms like
+ 1100  OpenFlow [44] can easily achieve line-rate performance
+ 1101  in commodity hardware implementations but lack the flexibility to implement our multicast primitive. We use the P4
+ 1102  language [9], which supports several high-performance
+ 1103  hardware designs like Reconfigurable Match Tables [10].
+ 1104  These processing elements have generally been used for
+ 1105  classic networking tasks like congestion control or queue
+ 1106  management. A notable exception is SwitchKV [41],
+ 1107  which uses OpenFlow switches for content-based routing
+ 1108  and load balancing in key-value stores.
+ 1109  ...and their intersection Recent work on Speculative Paxos and Mostly-Ordered Multicast proposes codesigning network primitives and consensus protocols
+ 1110  to achieve faster performance. Our work takes the next
+ 1111  step in this direction. While Speculative Paxos assumes
+ 1112  only a best-effort ordering property, NOPaxos requires
+ 1113  an ordering guarantee. Achieving this guarantee requires
+ 1114  more sophisticated network support made possible with
+ 1115  a programmable data plane (Speculative Paxos's Mostly-
+ 1116  Ordered Multicast requires only OpenFlow support).
+ 1117  However, as discussed in §5.3, NOPaxos achieves a simpler and more robust protocol as a result, avoiding the
+ 1118  need for superquorums and speculation.
+ 1119  A concurrent effort, NetPaxos [18], also explores ways
+ 1120  to use the network layer to improve the performance of
+ 1121  a replication protocol. That work proposes moving the
+ 1122  Paxos logic into switches, with one switch serving as
+ 1123  a coordinator and others as Paxos acceptors. This logic
+ 1124  can also be implemented using P4 [17]. However, as the
+ 1125  authors note, this approach requires the switches to implement substantial parts of the logic, including storing
+ 1126  potentially large amounts of state (the results of each
+ 1127  consensus instance). Our work takes a more practical approach by splitting the responsibility between the OUM
+ 1128  network model, which can be readily implemented, and
+ 1129  the NOPaxos consensus protocol.
+ 1130  Other related work uses hardware acceleration to speed
+ 1131  communication between nodes in a distributed system.
+ 1132  FaRM [19] uses RDMA to bypass the kernel and minimize CPU involvement in remote memory accesses. Consensus in a Box [25] implements a standard atomic broadcast protocol entirely on FPGAs. NOPaxos provides more
+=== PAGE 15 ===
+
+ 1133  flexible deployment options. However, its protocol could
+ 1134  be integrated with RDMA or other kernel-bypass networking for faster replica performance.
+
+ 1135  8 Conclusions
+ 1136  We presented a new approach to high-performance, faulttolerant replication, one based on dividing the responsibility for consistency between the network layer and
+ 1137  the replication protocol. In our approach, the network
+ 1138  is responsible for ordering, while the replication protocol ensures reliable delivery. "Splitting the atom" in this
+ 1139  way yields dramatic performance gains: network-level
+ 1140  ordering, while readily achievable, supports NOPaxos, a
+ 1141  simpler replication protocol that avoids coordination in
+ 1142  most cases. The resulting system outperforms state-ofthe-art replication protocols on latency, throughput, and
+ 1143  application-level metrics, demonstrating the power of this
+ 1144  approach. More significantly, it achieves both throughput
+ 1145  and latency equivalent to an unreplicated system, proving
+ 1146  that replication does not have to come with a performance
+ 1147  cost.
+
+ 1148  Acknowledgments
+ 1149  We thank Irene Zhang, the anonymous reviewers, and our
+ 1150  shepherd Dawn Song for their helpful feedback. This research was supported by the National Science Foundation
+ 1151  under awards CNS-1518702 and CNS-1615102 and by
+ 1152  gifts from Google and VMware.
+
+ 1153  480 12th USENIX Symposium on Operating Systems Design and Implementation USENIX Association
+=== PAGE 16 ===
+
+ 1154  12th USENIX Symposium on Operating Systems Design and Implementation 481
+
+ 1155  References
+ 1156  [1] M. Al-Fares, A. Loukissas, and A. Vahdat. A scalable, commodity data center network architecture.
+ 1157  In Proceedings of ACM 2008, New York, NY, USA,
+ 1158  Aug. 2008.
+ 1159  [2] Arista Networks. 7150 series ultra low latency
+ 1160  switch. https://www.arista.com/assets/data/
+ 1161  pdf/Datasheets/7150S_Datasheet.pdf.
+ 1162  [3] A. Belay, G. Prekas, A. Klimovic, S. Grossman,
+ 1163  C. Kozyrakis, and E. Bugnion. IX: A protected dataplane operating system for high throughput and
+ 1164  low latency. In Proceedings of the 11th USENIX
+ 1165  Symposium on Operating Systems Design and Implementation (OSDI '14), Broomfield, CO, USA,
+ 1166  Oct. 2014. USENIX.
+ 1167  [4] T. Benson, A. Akella, and D. A. Maltz. Network
+ 1168  traffic characteristics of data centers in the wild. In
+ 1169  Proceedings of the 10th ACM SIGCOMM Conference on Internet Measurement, IMC '10, Melbourne,
+ 1170  Australia, 2010. ACM.
+ 1171  [5] K. Birman. A response to Cheriton and Skeen's criticism of causal and totally ordered communication.
+ 1172  ACM SIGOPS Operating Systems Review, 28(1), Jan.
+ 1173  1994.
+ 1174  [6] K. P. Birman and T. A. Joseph. Exploiting virtual
+ 1175  synchrony in distributed systems. In Proceedings
+ 1176  of the 11th ACM Symposium on Operating Systems
+ 1177  Principles (SOSP '87), Austin, TX, USA, Oct. 1987.
+ 1178  [7] K. P. Birman and T. A. Joseph. Reliable communication in the presence of failures. ACM Trans. Comput.
+ 1179  Syst., 5(1), Jan. 1987.
+ 1180  [8] W. J. Bolosky, D. Bradshaw, R. B. Haagens, N. P.
+ 1181  Kusters, and P. Li. Paxos replicated state machines
+ 1182  as the basis of a high-performance data store. In
+ 1183  Proceedings of the 8th USENIX Symposium on Networked Systems Design and Implementation (NSDI
+ 1184  '11), Boston, MA, USA, Apr. 2011. USENIX.
+ 1185  [9] P. Bosshart, D. Daly, G. Gibb, M. Izzard, N. McKeown, J. Rexford, C. Schlesinger, D. Talayco, A. Vahdat, G. Varghese, and D. Walker. P4: Programming protocol-independent packet processors. SIG-
+ 1186  COMM Comput. Commun. Rev., 44(3), July 2014.
+ 1187  [10] P. Bosshart, G. Gibb, H.-S. Kim, G. Varghese, N. McKeown, M. Izzard, F. Mujica, and
+ 1188  M. Horowitz. Forwarding metamorphosis: Fast programmable match-action processing in hardware for
+ 1189  SDN. In Proceedings of ACM SIGCOMM 2013.
+ 1190  ACM, 2013.
+ 1191  [11] M. Burrows. The Chubby lock service for looselycoupled distributed systems. In Proceedings of the
+
+ 1192  USENIX Association
+
+ 1193  7th USENIX Symposium on Operating Systems Design and Implementation (OSDI '06), Seattle, WA,
+ 1194  USA, Nov. 2006.
+ 1195  [12] L. Camargos, R. Schmidt, and F. Pedone. Multicoordinated Paxos. Technical report, University of
+ 1196  Lugano Faculty of Informatics, 2007/02, Jan. 2007.
+ 1197  [13] M. Castro and B. Liskov. Practical Byzantine fault
+ 1198  tolerance. In Proceedings of the 3rd USENIX Symposium on Operating Systems Design and Implementation (OSDI '99), New Orleans, LA, USA, Feb.
+ 1199  1999.
+ 1200  [14] T. D. Chandra, V. Hadzilacos, and S. Toueg. The
+ 1201  weakest failure detector for solving consensus.
+ 1202  J. ACM, 43(4), July 1996.
+ 1203  [15] D. R. Cheriton and D. Skeen. Understanding the
+ 1204  limitations of causally and totally ordered communication. In Proceedings of the 13th ACM Symposium on Operating Systems Principles (SOSP '93),
+ 1205  Asheville, NC, USA, Dec. 1993. ACM.
+ 1206  [16] J. C. Corbett, J. Dean, M. Epstein, A. Fikes, C. Frost,
+ 1207  J. Furman, S. Ghemawat, A. Gubarev, C. Heiser,
+ 1208  P. Hochschild, W. Hsieh, S. Kanthak, E. Kogan,
+ 1209  H. Li, A. Lloyd, S. Melnik, D. Mwaura, D. Nagle,
+ 1210  S. Quinlan, R. Rao, L. Rolig, Y. Saito, M. Szymaniak, C. Taylor, R. Wang, and D. Woodford. Spanner: Google's globally-distributed database. In Proceedings of the 10th USENIX Symposium on Operating Systems Design and Implementation (OSDI
+ 1211  '12), Hollywood, CA, USA, Oct. 2012.
+ 1212  [17] H. T. Dang, P. Bressana, H. Wang, K. S. Lee,
+ 1213  H. Weatherspoon, M. Canini, F. Pedone, and
+ 1214  R. Soulé. Network hardware-accelerated consensus.
+ 1215  Technical Report USI-INF-TR-2016-03, Università
+ 1216  della Svizzera italiana, May 2016.
+ 1217  [18] H. T. Dang, D. Sciascia, M. Canini, F. Pedone, and
+ 1218  R. Soulé. NetPaxos: Consensus at network speed. In
+ 1219  Proceedings of the 1st ACM SIGCOMM Symposium
+ 1220  on Software Defined Networking Research, SOSR
+ 1221  '15, New York, NY, USA, 2015. ACM.
+ 1222  [19] A. Dragojevi´c, D. Narayanan, M. Castro, and
+ 1223  O. Hodson. FaRM: Fast remote memory. In 11th
+ 1224  USENIX Symposium on Networked Systems Design
+ 1225  and Implementation (NSDI 14), Seattle, WA, Apr.
+ 1226  2014. USENIX Association.
+ 1227  [20] M. Flajslik and M. Rosenblum. Network interface
+ 1228  design for low latency request-response protocols.
+ 1229  In Proceedings of the 2013 USENIX Annual Technical Conference, San Jose, CA, USA, June 2013.
+ 1230  USENIX.
+ 1231  [21] P. Gill, N. Jain, and N. Nagappan. Understanding
+ 1232  network failures in data centers: Measurement, anal-
+=== PAGE 17 ===
+
+ 1233  482 12th USENIX Symposium on Operating Systems Design and Implementation
+
+ 1234  ysis, and implications. In Proceedings of ACM SIG-
+ 1235  COMM 2011, Toronto, ON, Canada, Aug. 2011.
+ 1236  [22] A. Greenberg, J. R. Hamilton, N. Jain, S. Kandula,
+ 1237  C. Kim, P. Lahiri, D. A. Maltz, P. Patel, and S. Sengupta. VL2: A scalable and flexible data center
+ 1238  network. In Proceedings of ACM SIGCOMM 2009,
+ 1239  Barcelona, Spain, Aug. 2009.
+ 1240  [23] M. P. Herlihy and J. M. Wing. Linearizabiliy: A
+ 1241  correctness condition for concurrent objects. ACM
+ 1242  Transactions on Programming Languages and Systems, 12(3), July 1990.
+ 1243  [24] P. Hunt, M. Konar, F. P. Junqueira, and B. Reed.
+ 1244  ZooKeeper: Wait-free coordination for Internetscale systems. In Proceedings of the 2010 USENIX
+ 1245  Annual Technical Conference, Boston, MA, USA,
+ 1246  June 2010.
+ 1247  [25] Z. István, D. Sidler, G. Alonso, and M. Vukolic.
+ 1248  Consensus in a box: Inexpensive coordination in
+ 1249  hardware. In 13th USENIX Symposium on Networked Systems Design and Implementation (NSDI
+ 1250  16), Santa Clara, CA, Mar. 2016. USENIX Association.
+ 1251  [26] S. Jain, A. Kumar, S. Mandal, J. Ong, L. Poutievski,
+ 1252  A. Singh, S. Venkata, J. Wanderer, J. Zhou, M. Zhu,
+ 1253  J. Zolla, U. Hölzle, S. Stuart, and A. Vahdat. B4: Experience with a globally-deployed software defined
+ 1254  WAN. In Proceedings of ACM SIGCOMM 2013,
+ 1255  Hong Kong, China, Aug. 2013. ACM.
+ 1256  [27] F. P. Junqueira, B. C. Reed, and M. Serafini. Zab:
+ 1257  High-performance broadcast for primary-backup
+ 1258  systems. In Proceedings of the 2011 IEEE/IFIP
+ 1259  41st International Conference on Dependable Systems&Networks, DSN '11, Washington, DC, USA,
+ 1260  2011. IEEE Computer Society.
+ 1261  [28] A. Kalia, M. Kaminsky, and D. G. Andersen. Design guidelines for high performance RDMA systems. In 2016 USENIX Annual Technical Conference (USENIX ATC 16), Denver, CO, June 2016.
+ 1262  USENIX Association.
+ 1263  [29] B. Kemme, F. Pedone, G. Alonso, and A. Schiper.
+ 1264  Processing transactions over optimistic atomic
+ 1265  broadcast protocols. In Proceedings of the 13th
+ 1266  International Symposium on Distributed Computing
+ 1267  (DISC '99), Bratislava, Slovakia, Sept. 1999.
+ 1268  [30] E. Kohler, R. Morris, B. Chen, J. Jannotti, and M. F.
+ 1269  Kaashoek. The Click modular router. ACM Transactions on Computer Systems, 18(3), Aug. 2000.
+ 1270  [31] T. Koponen, M. Casado, N. Gude, J. Stribling,
+ 1271  L. Poutievski, M. Zhu, R. Ramanathan, Y. Iwata,
+ 1272  H. Inoue, T. Hama, and S. Shenker. Onix: A distributed control platform for large-scale production
+
+ 1273  networks. In Proceedings of the 9th USENIX Symposium on Operating Systems Design and Implementation (OSDI '10), Vancouver, BC, Canada, Oct. 2010.
+ 1274  USENIX.
+ 1275  [32] R. Kotla, L. Alvisi, M. Dahlin, A. Clement, and
+ 1276  E. Wong. Zyzzyva: Speculative Byzantine fault
+ 1277  tolerance. In Proceedings of the 21th ACM Symposium on Operating Systems Principles (SOSP '07),
+ 1278  Stevenson, WA, USA, Oct. 2007.
+ 1279  [33] L. Lamport. The part-time parliament. ACM Transactions on Computer Systems, 16(2), May 1998.
+ 1280  [34] L. Lamport. Paxos made simple. ACM SIGACT
+ 1281  News, 32(4), Dec. 2001.
+ 1282  [35] L. Lamport. Generalized consensus and Paxos.
+ 1283  Technical Report MSR-TR-2005-33, Microsoft Research, Mar. 2005.
+ 1284  [36] L. Lamport. Fast Paxos. Distributed Computing,
+ 1285  19(2), Oct. 2006.
+ 1286  [37] L. Lamport. Lower bounds for asynchronous consensus. Distributed Computing, 19(2), Oct. 2006.
+ 1287  [38] C. Leau. Spring Data Redis – Retwis-J,
+ 1288  2013. http://docs.spring.io/spring-data/
+ 1289  data-keyvalue/examples/retwisj/current/.
+ 1290  [39] J. Li, E. Michael, N. K. Sharma, A. Szekeres, and
+ 1291  D. R. K. Ports. Just say NO to Paxos overhead: Replacing consensus with network ordering [extended
+ 1292  version]. Technical Report UW-CSE-16-09-02, University of Washington CSE, Seattle, WA, USA, Nov.
+ 1293  2016.
+ 1294  [40] J. Li, N. K. Sharma, D. R. K. Ports, and S. D. Gribble. Tales of the tail: Hardware, OS, and applicationlevel sources of tail latency. In Proceedings of the
+ 1295  5th Symposium on Cloud Computing (SOCC '14),
+ 1296  Seattle, WA, USA, Nov. 2014. ACM.
+ 1297  [41] X. Li, R. Sethi, M. Kaminsky, D. G. Andersen, and
+ 1298  M. J. Freedman. Be fast, cheap and in control with
+ 1299  SwitchKV. In 13th USENIX Symposium on Networked Systems Design and Implementation (NSDI
+ 1300  16), Santa Clara, CA, Mar. 2016. USENIX Association.
+ 1301  [42] B. Liskov and J. Cowling. Viewstamped replication revisited. Technical Report MIT-CSAIL-TR-
+ 1302  2012-021, MIT Computer Science and Artificial Intelligence Laboratory, Cambridge, MA, USA, July
+ 1303  2012.
+ 1304  [43] V. Liu, D. Halperin, A. Krishnamurthy, and T. Anderson. F10: A fault-tolerant engineered network. In
+ 1305  Proceedings of the 10th USENIX Symposium on Networked Systems Design and Implementation (NSDI
+ 1306  '13), Lombard, IL, USA, Apr. 2013.
+
+ 1307  USENIX Association
+=== PAGE 18 ===
+
+ 1308  12th USENIX Symposium on Operating Systems Design and Implementation 483
+
+ 1309  [44] N. McKeown, T. Anderson, H. Balakrishnan,
+ 1310  G. Parulkar, L. Peterson, J. Rexford, S. Shenker,
+ 1311  and J. Turner. OpenFlow: enabling innovation in
+ 1312  campus networks. ACM SIGCOMM Computer Communication Review, 38(2), Apr. 2008.
+ 1313  [45] I. Moraru, D. G. Andersen, and M. Kaminsky. There
+ 1314  is more consensus in egalitarian parliaments. In
+ 1315  Proc. of SOSP, 2013.
+ 1316  [46] R. N. Mysore, A. Pamboris, N. Farrington,
+ 1317  N. Huang, P. Miri, S. Radhakrishnan, V. Subramanya, and A. Vahdat. PortLand: A scalable faulttolerant layer 2 data center network fabric. In
+ 1318  Proceedings of ACM SIGCOMM 2009, Barcelona,
+ 1319  Spain, Aug. 2009.
+ 1320  [47] J. Naous, D. Erickson, G. A. Covington, G. Appenzeller, and N. McKeown. Implementing an Open-
+ 1321  Flow switch on the NetFPGA platform. In Proceedings of the 4th ACM/IEEE Symposium on Architectures for Networking and Communications Systems,
+ 1322  ANCS '08, New York, NY, USA, 2008. ACM.
+ 1323  [48] B. M. Oki and B. H. Liskov. Viewstamped replication: A new primary copy method to support highlyavailable distributed systems. In Proceedings of the
+ 1324  7th ACM Symposium on Principles of Distributed
+ 1325  Computing (PODC '88), Toronto, Ontario, Canada,
+ 1326  Aug. 1988.
+ 1327  [49] R. Ozdag. Intel R Ethernet switch FM6000 seriessoftware defined networking.
+ 1328  [50] F. Pedone and A. Schiper. Optimistic atomic broadcast. In Proceedings of the 12th International Symposium on Distributed Computing (DISC '98), Andros, Greece, Sept. 1998.
+ 1329  [51] F. Pedone and A. Schiper. Optimistic atomic broadcast: A pragmatic viewpoint. Theor. Comput. Sci.,
+ 1330  291(1), Jan. 2003.
+ 1331  [52] S. Peter, J. Li, I. Zhang, D. R. K. Ports, D. Woos,
+ 1332  A. Krishnamurthy, T. Anderson, and T. Roscoe. Ar-
+
+ 1333  USENIX Association
+
+ 1334  rakis: The operating system is the control plane. In
+ 1335  Proceedings of the 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI
+ 1336  '14), Broomfield, CO, USA, Oct. 2014. USENIX.
+ 1337  [53] D. R. K. Ports, J. Li, V. Liu, N. K. Sharma, and A. Krishnamurthy. Designing distributed systems using
+ 1338  approximate synchrony in data center networks. In
+ 1339  Proc. of NSDI, 2015.
+ 1340  [54] J. Rao, E. J. Shekita, and S. Tata. Using Paxos to
+ 1341  build a scalable, consistent, and highly available
+ 1342  datastore. Proc. of VLDB, 4(4), Apr. 2011.
+ 1343  [55] J. H. Saltzer, D. P. Reed, and D. D. Clark. End-toend arguments in system design. ACM Transactions
+ 1344  on Computer Systems, 2(4), Nov. 1984.
+ 1345  [56] F. B. Schneider. Implementing fault-tolerant services using the state machine approach: a tutorial.
+ 1346  ACM Computing Surveys, 22(4), Dec. 1990.
+ 1347  [57] T. Spalink, S. Karlin, L. Peterson, and Y. Gottlieb.
+ 1348  Building a robust software-based router using network processors. In Proceedings of the 19th ACM
+ 1349  Symposium on Operating Systems Principles (SOSP
+ 1350  '01), Banff, Canada, Oct. 2001. ACM.
+ 1351  [58] P. Urbán, X. Défago, and A. Schiper. Chasing the
+ 1352  FLP impossibility result in a LAN: or, how robust
+ 1353  can a fault tolerant server be? In Proceedings of
+ 1354  the 20th IEEE Symposium on Reliable Distributed
+ 1355  Systems (SRDS '01), New Orleans, LA USA, Oct.
+ 1356  2001.
+ 1357  [59] XPliant Ethernet switch product family. www.cavium.com/
+ 1358  XPliant-Ethernet-Switch-Product-Family.
+ 1359  html.
+ 1360  [60] I. Zhang, N. K. Sharma, A. Szekeres, A. Krishnamurthy, and D. R. K. Ports. Building consistent
+ 1361  transactions with inconsistent replication. In Proc.
+ 1362  of SOSP, 2015.

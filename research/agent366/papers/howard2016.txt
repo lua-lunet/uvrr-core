@@ -1,0 +1,860 @@
+---
+title: "Flexible Paxos: Quorum Intersection Revisited"
+authors:
+  - "Heidi Howard"
+  - "Dahlia Malkhi"
+  - "Alexander Spiegelman"
+year: "2016"
+publication: ""
+handle_url: "https://arxiv.org/abs/1608.06696"
+source_pdf: "research/agent366/papers/fqi-2016-howard.pdf"
+source_pdf_sha256: "e0d8608855801c03d0b8e7ab01ea8ac9709f5de3ca95f40ac451c5e3829faf09"
+page_count: 20
+extracted_text_runs: 2422
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-07"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+abstract: >-
+  Distributed consensus is integral to modern distributed systems. The widely adopted Paxos algorithm uses two phases, each requiring majority agreement, to reliably reach consensus. In this paper, we demonstrate that Paxos, which lies at the foundation of many production systems, is conservative. Specifically, we observe that each of the phases of Paxos may use non-intersecting quorums. Majority quorums are not necessary as intersection is required only across phases. Using this weakening of the requirements made in the original formulation, we propose Flexible Paxos, which generalizes over the Paxos algorithm to provide flexible quorums. We show that Flexible Paxos is safe, efficient and easy to utilize in existing distributed systems. We conclude by discussing the wide reaching implications of this result. Examples include improved availability from reducing the size of second phase quorums by one when the number of acceptors is even and utilizing small disjoint phase-2 quorums to speed up the steady-state.
+tags: []
+---
+
+=== PAGE 1 ===
+
+    1  Flexible Paxos: Quorum intersection revisited
+
+    2  Heidi Howard1,2, Dahlia Malkhi1 and Alexander Spiegelman1,3
+
+    3  1VMware Research, Palo Alto, US, dahliamalkhi@gmail.com
+    4  2University of Cambridge Computing Laboratory, Cambridge, UK,
+
+    5  heidi.howard@cl.cam.ac.uk
+    6  3Viterbi Dept. of Electrical Engineering, Technion Haifa, 32000,
+
+    7  Israel, sashas@tx.technion.ac.il
+
+    8  Thursday 25th August, 2016
+
+    9  Abstract
+   10  Distributed consensus is integral to modern distributed systems. The
+   11  widely adopted Paxos algorithm uses two phases, each requiring majority
+   12  agreement, to reliably reach consensus. In this paper, we demonstrate
+   13  that Paxos, which lies at the foundation of many production systems, is
+   14  conservative. Specifically, we observe that each of the phases of Paxos
+   15  may use non-intersecting quorums. Majority quorums are not necessary
+   16  as intersection is required only across phases.
+   17  Using this weakening of the requirements made in the original formulation, we propose Flexible Paxos, which generalizes over the Paxos
+   18  algorithm to provide flexible quorums. We show that Flexible Paxos is safe,
+   19  efficient and easy to utilize in existing distributed systems. We conclude by
+   20  discussing the wide reaching implications of this result. Examples include
+   21  improved availability from reducing the size of second phase quorums by
+   22  one when the number of acceptors is even and utilizing small disjoint
+   23  phase-2 quorums to speed up the steady-state.
+
+   24  arXiv:1608.06696v1 [cs.DC] 24 Aug 2016 1 Introduction
+
+   25  Distributed consensus is the problem of reaching agreement in the face of failures.
+   26  It is a common problem in modern distributed systems and its applications range
+   27  from distributed locking and atomic broadcast to strongly consistent key value
+   28  stores and state machine replication [35]. Lamport's Paxos algorithm [18, 19] is
+   29  one such solution to this problem and since its publication it has been widely
+   30  built upon in teaching, research and practice.
+   31  At its core, Paxos uses two phases, each requires agreement from a subset of
+   32  participants (known as a quorum) to proceed. The safety and liveness of Paxos
+   33  is based on the guarantee that any two quorums will intersect. To satisfy this
+
+   34  1
+=== PAGE 2 ===
+
+   35  requirement, quorums are typically composed of any majority from a fixed set
+   36  of participants, although other quorum schemes have been proposed.
+   37  In practice, we usually wish to reach agreement over a sequence of values,
+   38  known as Multi-Paxos [19]. We use the first phase of Paxos to establish one
+   39  participant as a leader and the second phase of Paxos to propose a series of
+   40  values. To commit a value, the leader must always communicate with at least a
+   41  quorum of participants and wait for them to accept the value.
+   42  In this paper, we weaken the requirement in the original protocol that all
+   43  quorums intersect to require only that quorums from different phases intersect.
+   44  Within each of the phases of Paxos, it is safe to use disjoint quorums and majority
+   45  quorums are not necessary. We will refer to this new formulation as Flexible
+   46  Paxos (FPaxos) as it allows developers the flexibility to choose quorums for
+   47  the two phases, provided they meet the above requirement. FPaxos is strictly
+   48  more general than Paxos and FPaxos with intersecting quorums is equivalent to
+   49  Paxos.
+   50  Given that Multi-Paxos and its variants are widely deployed, such a result has
+   51  wide reaching practical applications. Since the second phase of Paxos (replication)
+   52  is far more common than the first phase (leader election), we can use FPaxos
+   53  to reduce the size of commonly used second phase quorums. For example, in a
+   54  system of 10 nodes, we can safely allow only 3 nodes to participate in replication,
+   55  provided that we require 8 nodes to participate when recovering from leader
+   56  failure. This strategy, decreasing phase 2 quorums at the cost of increasing phase
+   57  1 quorums, is referred to in the body of the paper as simple quorums.
+   58  The simple quorum system reduces latency, as leaders will no longer be
+   59  required to wait for a majority of participants to accept proposals. Likewise, it
+   60  improves steady state throughput as disjoint sets of participants can now accept
+   61  proposals, enabling better utilization of participants and decreased network load.
+   62  The price we pay for this is reduced availability as the system can tolerate fewer
+   63  failures whilst recovering from leader failure.
+   64  Later, we will illustrate that surprisingly, it is not always necessary to
+   65  compromise availability for steady state performance. Examples include reducing
+   66  the size of second phase quorums by one when the number of acceptors is even,
+   67  and utilizing quorum systems such as grid quorums, which decrease the quorum
+   68  sizes of both phases.
+   69  In the following section we outline the basic Paxos algorithm using the
+   70  standard terminology. Readers who are already familiar with the algorithm
+   71  should proceed directly to the next section. In §3 we describe the observation
+   72  in detail and then in §4 motivate why such flexibility is useful in practice. §5
+   73  gives an informal description of why it is safe to weaken Paxos's assumption on
+   74  quorum intersection. In §6 we evaluate a na¨ıve implementation of FPaxos and
+   75  demonstrate its usefulness. §7 outlines how to dynamically choose quorums and
+   76  §8 relates FPaxos to the existing work in the field. The appendix includes a
+   77  TLA+ [20] specification of the FPaxos algorithm which has been model checked
+   78  against our safety assumption.
+
+   79  2
+=== PAGE 3 ===
+
+   80  2 Paxos
+
+   81  We wish to decide a single value v between a set of processes. The system is
+   82  asynchronous, each process may fail and the messages passed between them may
+   83  be lost. Each process has one or more roles. We have three roles: the proposer,
+   84  a process who wishes to have a particular value chosen, the acceptor, a process
+   85  which agrees and persists decided values or the learner, a process wishing to
+   86  learn the decided value.
+   87  A proposer who has a candidate value will try to propose the value to the
+   88  acceptors. If a value has already been chosen, the proposer will instead learn
+   89  it. The process of proposing a value has two stages: phase 1 and phase 2, each
+   90  phase requires a majority of acceptors to agree in order to proceed. We will now
+   91  look at each of these stages in details:
+   92  Phase 1 - Prepare & Promise
+   93  i A proposer selects a unique proposal number p and sends prepare(p) to the
+   94  acceptors.
+   95  ii Each acceptor receives prepare(p). If p is the highest proposal number
+   96  promised, then p is written to persistent storage and the acceptor replies
+   97  with promise(p',v'). (p',v') is the last accepted proposal (if present) where p'
+   98  is the proposal number and v' is the corresponding proposed value.
+   99  iii Once the proposer receives promise from the majority of acceptors, it proceeds
+  100  to phase two. Otherwise, it may try again with higher proposal number.
+
+  101  Phase 2 - Propose & Accept
+  102  i The proposer must now select a value v. If more than one proposal was
+  103  returned in phase 1 then it must choose the value associated with the highest
+  104  proposal number. If no proposals were returned, then the proposer can
+  105  choose its own value for v. The proposer then sends propose(p,v) to the
+  106  acceptors.
+  107  ii Each acceptor receives a propose(p,v). If p is equal to or greater than the
+  108  highest promised proposal number, then the promised proposal number and
+  109  accepted proposal is written to persistent storage and the acceptor replies
+  110  with accept(p).
+  111  iii Once the proposer receives accept(p) from the majority of acceptors, it learns
+  112  that the value v is decided. Otherwise, it may try phase 1 again with a
+  113  higher proposal number.
+  114  Paxos guarantees that once a value is decided, the decision is final and
+  115  no different value can be chosen. Paxos will reach agreement provided that
+  116  bn/2c + 1 acceptors out of n acceptors are up and are able to communicate.
+  117  Proving progress requires us to make some assumptions about the synchrony of
+  118  the system, as we cannot guarantee progress in a truly asynchronous systems [7].
+
+  119  3
+=== PAGE 4 ===
+
+  120  80 400
+  121  latency
+  122  70 throughput 350
+  123  60 300
+  124  50 250
+  125  40 200
+  126  Latency (ms) 30 150
+  127  20 100 Throughput (reqs/sec)
+  128  10 50
+  129  0 3 4 5 6 7 8 9 10 11 12 13 14 0
+  130  Number of replicas
+
+  131  Figure 1: Performance of LibPaxos3 for varying system sizes. Details of the
+  132  experimental setup are given in §6.
+
+  133  Usually, we wish to reach agreement over a sequence of values, which we will
+  134  refer to as slots. We could use distinct instances of Paxos to decide each value in
+  135  the sequence i.e. the ⟩th slot is decided by the ⟩th instance of Paxos. In practice
+  136  however, we can do much better and this is referred to as Multi-Paxos.
+  137  The first phase of Paxos is independent of the value proposed for any given
+  138  instance, therefore phase 1 can be executed prior to knowledge of which value to
+  139  propose. Furthermore, we can aggregate phase 1 over a series of slots. We refer
+  140  to a proposer who has completed phase 1 as a leader. To avoid loss of generality,
+  141  we introduce another agent, the client who is the origin of values for proposal.
+  142  Clients may be external to the system or co-located with other processes such as
+  143  the proposers.
+  144  Figure 1 illustrates how Multi-Paxos performs in practice. The x-axis shows
+  145  the number of replicas in the system, each replica performs the roles of proposer,
+  146  acceptor and learner. The blue line indicates the commit latency observed by the
+  147  client and the red line indicates the average request throughput. As we would
+  148  expect, increasing the number of replicas will increase latency and decrease
+  149  throughput. These findings are consistent with previous studies [29, 26].
+  150  A quorum system is the method by which we choose which sets of acceptors are
+  151  able to form valid quorums. It has been observed that Paxos can be generalized
+  152  to replace majority quorums with any quorum system which guarantees that
+  153  any two quorums will have a non-empty intersection [19, 21]. The fundamental
+  154  theorem of quorum intersection states that its resilience is inversely proportional
+  155  to the load on (hence the throughput of) participants [31]. Therefore, with
+  156  Paxos and its intersecting quorums, one can only hope to increase throughput
+  157  by reducing the resilience, or vice versa. In the rest of this paper, we show that
+  158  by weakening the quorum intersection requirement, we can break away from the
+  159  inherent trade off between resilience and performance.
+
+  160  4
+=== PAGE 5 ===
+
+  161  3 FPaxos
+
+  162  In this section, we observe that the usual description of Paxos (as given in §2)
+  163  is more conservative than is necessary. To explain this observation, we will
+  164  differentiate between the quorum used by the first phase of Paxos, which we will
+  165  refer to as Q1 and the quorum for second phase, referred to as Q2.
+  166  Paxos uses majority quorums of acceptors for both Q1 and Q2. By requiring
+  167  that quorums contain at least a majority of acceptors we can guarantee that
+  168  there will be at least one acceptor in common between any two quorums. Paxos's
+  169  proof of safety and progress is built upon this assumption that all quorums
+  170  intersect.
+  171  We observe that it is only necessary for phase 1 quorums (Q1 ) and phase
+  172  2 quorums (Q2) to intersect. There is no need to require that Q1 's intersect
+  173  with each other nor Q2's intersect with each other. We refer to this as Flexible
+  174  Paxos (FPaxos) and it generalizes the Paxos algorithm. If we allow any set of at
+  175  least bn/2c + 1 acceptors to form a Q1 or Q2 quorum in FPaxos, then FPaxos
+  176  is equivalent to Paxos.
+  177  Using this observation, we can make use of many non-intersecting quorum
+  178  systems. In its most straight-forward application, we can simply decrease the
+  179  size of Q2 at the cost of increasing the size of Q1 quorums.
+  180  As we discussed earlier, the second phase of Paxos (replication) is far more
+  181  frequent than the first phase (leader election) in Multi-Paxos. Therefore, reducing
+  182  the size of Q2 decreases latency in the common case by reducing the number of
+  183  acceptors required to participate in replication, improves system tolerance to slow
+  184  acceptors and allows us to use disjoint sets of acceptors for higher throughput.
+  185  The price we pay for this is requiring more acceptors to participate when we
+  186  need to establish a new leader. Whilst electing a new leader is a rare event in
+  187  a stable system, if sufficient failures occur that we cannot form a Q1 quorum,
+  188  then we cannot make progress until some of the acceptors recover.
+  189  Like Paxos, the system is able to make progress provided that at least enough
+  190  acceptors are up and able to communicate to form both Q1 and Q2 quorums.
+  191  Unlike Paxos, we are able to make progress within a given phase, provided we are
+  192  able to form quorums corresponding to that phase. More concretely, if sufficient
+  193  failures have occurred such that a proposer can no longer form Q1 quorums
+  194  but is able to form the smaller Q2 quorums, the system can continue to safely
+  195  make progress until a new leader is required. If the acceptors recover before the
+  196  current leader fails, then the system suffers no loss in availability as a result.
+
+  197  4 Implications
+
+  198  We will now consider the practical implication of observing that quorums intersection is required only between the two phases of Paxos. There already exists
+  199  an extensive literature on quorum systems from the fields of databases and data
+  200  replication, which can now be more efficiently applied to the field of consensus.
+  201  Interesting example systems include weighted voting [9], hierarchies [15] and
+
+  202  5
+=== PAGE 6 ===
+
+  203  crumbling walls [34]. For now however, we will illustrate the utility of FPaxos
+  204  by considering three na¨ıve example quorum systems: (1) majority quorums; (2)
+  205  simple quorums and (3) grid quorums.
+
+  206  4.1 Majority quorums
+  207  Currently, Paxos requires us to use quorums of size n/2 + 1 when the number
+  208  of acceptors n is even1. Using our observation, we can safely reduce the size
+  209  of Q2 by one from n/2 + 1 to n/2 and keep Q1 the same. Such a change
+  210  would be trivial to implement and by reducing the number of acceptors required
+  211  to participate in replication, we can reduce latency and improve throughput.
+  212  Furthermore, we have also improved the fault tolerance of the system. As with
+  213  Paxos, if at most n/2 − 1 failures occur then we are guaranteed to be able to
+  214  make progress. However unlike with Paxos, if exactly n/2 acceptors fail and the
+  215  leader is still up then we are able to continue to make progress and suffer no
+  216  loss of availability.
+  217  Figure 2 shows two example traces of FPaxos with majority quorums in
+  218  practice. As the system is comprised of four acceptors, FPaxos uses a majority
+  219  (3 acceptors) for Q1 but requires only two acceptors for Q2. In the examples, the
+  220  two proposers wish to commit conflicting proposals. In figure 2a, proposer one is
+  221  first to execute FPaxos and its value a is committed. Later, proposer two executes
+  222  a round of Paxos and learns the value. In figure 2b, both proposers successfully
+  223  execute the first phase of FPaxos and simultaneously submit conflicting proposed
+  224  values to the disjoint sets of acceptors. Both Q2s will intersect with the two
+  225  Q1s, so only one of them will be successful. The unsuccessful proposer can retry
+  226  with a higher proposal number and learn the chosen value.
+
+  227  4.2 Simple quorums
+  228  We will use the term simple quorums to refer to a quorum systems where any
+  229  acceptor is able to participate in a quorum and each acceptor's participation is
+  230  counted equally. Simple quorums are a straightforward generalization of majority
+  231  quorums. Paxos requires that all quorums intersect, and therefore, as we have
+  232  previously discussed, each quorum must contain at least a strict majority of
+  233  acceptors to meet this requirement.
+  234  In contrast, FPaxos requires only that quorums from different phases intersect.
+  235  Therefore, FPaxos with simple quorums must require that |Q1| + |Q2| > N. We
+  236  know that in practice the second phase is much more common than the first
+  237  phase so we allow |Q2| < N/2 and increase the size of Q1 accordingly. For a
+  238  given size of Q2 and number of acceptors N, then minimum size of our first
+  239  phase quorum is |Q1| = N − |Q2| + 1. FPaxos will always be able to handle up
+  240  to |Q2| −1 failures. However, if between |Q2| to N − |Q2| failures occur, we can
+  241  continue replication until a new leader is required.
+  242  1 Lamport observed that majorities can be extended to include exactly half of the sets of
+  243  size n/2 [16].
+
+  244  6
+=== PAGE 7 ===
+
+  245  prepare(1)
+  246  promise()
+  247  propose(1,a)
+  248  accept()
+  249  prepare(2)
+  250  promise()
+  251  promise(1,a)
+  252  propose(2,a)
+  253  accept()
+  254  P1 A1 A2 A3 A4 P2
+  255  (a) FPaxos with two serial proposals
+  256  prepare(1)
+  257  promise()
+  258  prepare(2)
+  259  promise()
+  260  propose(1,a) propose(2,b)
+  261  accept() accept()
+
+  262  P1 A1 A2 A3 A4 P2
+  263  (b) FPaxos with two concurrent
+  264  proposals
+  265  Figure 2: Sample executions of FPaxos using improved majority quorums. The
+  266  system is comprised of four acceptors (A1-A4) and two proposers (P1,P2)
+
+  267  7
+=== PAGE 8 ===
+
+  268  (a) Paxos (b) FPaxos
+
+  269  Figure 3: Example of using a 5 by 4 grid to form quorums for a system of 20
+  270  acceptors
+
+  271  As has been previously observed [25], we do not need to send prepare and
+  272  propose messages to all acceptors, only to at least |Q1| or |Q2| acceptors. If any
+  273  of these acceptors do not reply, then the leader can send the messages to more
+  274  acceptors. This reduces the number of messages from 4 ×N to (2 × |Q1|) + (2 ×
+  275  |Q2|). This comes at the cost of increased latency, as the leader may not choose
+  276  the fastest acceptors and must retransmit when failures occur.
+
+  277  4.3 Grid quorums
+  278  The key limitation of simple quorums is that reducing the size of the Q2 requires
+  279  a corresponding increase in the size of Q1 to continue to ensure intersection.
+  280  Grid quorums are an example of an alternative quorum system. Grid quorums
+  281  can reduce the size of Q1 by offering a different trade off between quorum
+  282  sizes, flexibility when choosing quorums and failure tolerance. Grid quorum
+  283  schemes arrange the N nodes into a matrix of N1 columns by N2 rows, where
+  284  N1 × N2 = N and quorums are composed of rows and columns. As with many
+  285  other quorum systems, grid quorums restrict which combinations of acceptors
+  286  can form valid quorums. This restriction allows us to reduce the size of quorums
+  287  whilst still ensuring that they intersect.
+  288  Paxos requires that all quorums intersect thus one suitable grid scheme would
+  289  require one row and one column to form a quorum2. Figure 3a shows an example
+  290  Q1 quorum and Q2 quorum using this scheme. This would reduce the size of a
+  291  quorum from the majority of N to N1 + N2 − 1. The number of failures which
+  292  could be tolerated range from M IN(N1, N2), where one node from every row or
+  293  every column fails to (N1 − 1) × (N2 −1), leaving only one row and one column
+  294  remaining.
+  295  In FPaxos, we can safely reduce our quorums to one row of size N1 for Q1
+  296  and one column of size N2 for Q2, examples are shown in Figure 3b. This
+  297  construction is interesting as quorums from the same phase will never intersect,
+  298  2 In practice, it is sufficient to use one row plus any choice of one grid item from each row
+  299  below it. The average quorum size would become N1 + (1/2)N2 , although the worst case is
+  300  still N1 + N2 − 1.
+
+  301  8
+=== PAGE 9 ===
+
+  302  and may be useful in practice for evenly distributing the load of FPaxos across
+  303  a group of acceptors. With simple quorums, a system cannot recover from
+  304  leader failure whilst any set of |Q2| = N/2 acceptors have failed. Now with
+  305  grid quorums, we are no longer treating all failures equally, it matters which of
+  306  the acceptors have failed, not just how many have failed. Recall, that we are
+  307  able to make progress in a given phase, provided we can still form a quorum
+  308  for that phase. For example, let us consider if four acceptors in either of grids
+  309  from Figure 3 were to fail. If these failures occur across two columns then both
+  310  systems will make progress. If all the failed nodes are within one column then
+  311  no progress will be made by Paxos but FPaxos will continue until a new leader
+  312  is needed. Likewise, if all the nodes in a given row where to fail, FPaxos would
+  313  be able to complete Q1 and thus recover all past decisions, it can then safely
+  314  fall back to a reconfiguration protocol to remove or replace the failed acceptors
+  315  and continue to make progress. In practice, failures are not independent and so
+  316  we can distribute acceptors across the machines, racks or even data centers to
+  317  minimize the likelihood of simultaneous failure.
+  318  By way of a thought experiment, let us consider setting N1 = 1 and N2 = N
+  319  when using grid quorums or equivalently setting |Q1| = N and |Q2| = 1 with
+  320  simple quorums. Any single acceptor will be sufficient to form a Q2, however
+  321  every acceptor must participate in Q1. In practice, this would allow all acceptors
+  322  to learn the decided value in a single hop, however we would be unable to recover
+  323  from leader failure until every acceptor is up.
+  324  Alternatively, let us consider setting N1 = N and N2 = 1 when using grid
+  325  quorums or equivalently setting |Q1| = 1 and |Q2| = N with simple quorums.
+  326  This would require every acceptor to participate in Q2 but only a single acceptor
+  327  is needed for Q1. If any acceptors are still up, then we can complete Q1 and learn
+  328  past decisions. As it has been previously observed [25, 23], such a construction
+  329  allows us to tolerate f failures with only f + 1 acceptors instead of 2f + 1.
+
+  330  5 Safety
+
+  331  Lamport's proof of safety for Paxos does not use the full strength of the assumptions made, namely that all quorums will intersect. For the sake of completeness,
+  332  in this section we outline the proof of safety for FPaxos.
+  333  For FPaxos to be safe, every decision that is reached must be final. In other
+  334  words, once a value has been decided, no different value can be decided. This
+  335  can be formally expressed as the following requirement:
+
+  336  Theorem 1. If value v is decided with proposal number p and v0 is decided with
+  337  proposal number p0 then v = v0
+  338  For a given value v to be decided, it must first have been be proposed. Thus
+  339  the following requirement is strictly stronger:
+  340  Theorem 2. If value v is decided with proposal number p then for any message
+  341  propose(p',v') where p0 > p then v = v0
+
+  342  9
+=== PAGE 10 ===
+
+  343  Proof is by contradiction, that is, assume v 6= v0. We will consider the
+  344  smallest proposal number p0 > p for which such a message is sent.
+  345  Let Q1 and Q2 be the sets of all valid phase 1 and phase 2 quorums respectively
+  346  and A be the set of acceptors. Quorums are valid provided that:
+
+  347  ∀Q1 ∈ Q1 : Q1 ⊆ A (1)
+  348  ∀Q2 ∈ Q2 : Q2 ⊆ A (2)
+  349  ∀Q1 ∈ Q1, ∀Q2 ∈ Q2 : Q1 ∩ Q2 6= ∅ (3)
+
+  350  Equation 1 specifies that every possible phase 1 quorum is a subset of
+  351  the acceptors, likewise for equation 2. Equation 3 specifies that all possible
+  352  combinations consisting of a phase 1 and a phase 2 quorum will intersect in at
+  353  least one acceptor.
+  354  Let Qp,2 be the phase 2 quorum used by proposal number p and Qp0,1 be the
+  355  phase 1 quorum used by proposal number p0. Let ¯A be the set of acceptors which
+  356  participated both in the phase 2 quorum used by proposal number p and phase
+  357  1 quorum used by proposal number p0, thus ¯A = Q ∩ Q . Since Q ∈ Q
+  358  p,2 p0,1 p,2 2
+  359  and Qp0,1 ∈ Q1 then we can use equation 3 to infer that at least one acceptor
+  360  must participate in both quorums, ¯A 6= ∅.
+  361  Let us consider the ordering of events from the perspective of one acceptor
+  362  acc where acc ∈ A¯. It is either the case that they receive prepare(p') first or
+  363  propose(p,v) first. We will consider each of these cases separately:
+  364  CASE 1:
+  365  Acceptor acc receives prepare(p') before it receives propose(p,v). When acc
+  366  receives propose(p,v), its last promised proposal will be p0 or higher. As p0 > p
+  367  then it will not accept the proposal from p, however as acc ∈ Qp,2 it must accept
+  368  propose(p,v). This is a contradiction thus it cannot be the case.
+  369  CASE 2:
+  370  Acceptor acc receives propose(p,v) before it receives prepare(p'). When acc
+  371  receives prepare(p'), there are two cases. Either:
+  372  CASE 2a: The last promised proposal by acceptor acc is already higher
+  373  than p0. Then it will not accept the prepare from p0, however as acc ∈ Q it
+  374  p0,1
+  375  must accept prepare(p'). This is a contradiction thus it cannot be the case.
+  376  CASE 2b: The last promised proposal by acceptor acc is less than p0 then
+  377  it will reply with promise(q,v) where p ≤ q < p0 . The value v will be the same
+  378  the one acc accepted with p, under the minimility hypothesis on p0.
+  379  acc ∈ Qp0,1 therefore promise(q, v) will be at least one of the responses
+  380  received by the proposer of p0. If this is the only accepted value returned, then
+  381  its value v will be chosen. Other proposals may also be received for members of
+  382  Q 0 . Recall that p < p0. For each other proposal (q0, v00) received, either:
+  383  p ,1
+  384  CASE (i) q0 < q: These proposal will be ignored as the proposer must
+  385  choose the value associated with the highest proposal.
+  386  CASE (ii) p0 < q0: This case cannot occur as an acceptor will only reply to
+  387  prepare(p0) when last promised is < p0.
+
+  388  10
+=== PAGE 11 ===
+
+  389  50 500 50 500
+  390  latency throughput latency throughput
+  391  40 400 40 400
+  392  30 300 30 300
+  393  Latency (ms) 20 200 Latency (ms) 20 200
+  394  Throughput (reqs/sec) Throughput (reqs/sec)
+  395  10 100 10 100
+  396  0FPaxos 1 FPaxos 2 FPaxos 3 Paxos 0 FPaxos 1 FPaxos 2 FPaxos 3 FPaxos 4 FPaxos 50 Paxos 0
+  397  (a) Performance of FPaxos and Lib- (b) Performance of FPaxos and Lib-
+  398  Paxos3 with 5 replicas. Paxos3 with 8 replicas.
+
+  399  Figure 4: Throughput and average latency of FPaxos with various quorum sizes
+  400  and LibPaxos3.
+
+  401  CASE (iii) p < q0 < p0 : For an acceptor to have accepted (q0, v00) then it
+  402  must have first been proposed. This is impossible by the minimality assumption
+  403  on p0.
+  404  Thus the value v will be chosen, in contradiction to the assumption that
+  405  propose(p0, v0) was sent.
+  406  We have provided a 2 page formal specification of the single-valued FPaxos
+  407  protocol in TLA+ [20]. We model checked this specification with disjoint quorums
+  408  and the requirement 2 was preserved. The FPaxos TLA+ specification is only a
+  409  minor adaptation of the Paxos specification, given in [20].
+
+  410  6 Prototype
+
+  411  We implemented a na¨ıve FPaxos by modifying LibPaxos3 3, a commonly benchmarked Multi-Paxos implementation. Our modification simply generalized over
+  412  the size of Q1 and Q2. The simple quorums were na¨ıvely chosen at random and
+  413  messages were sent only to a quorum of nodes.
+  414  LibPaxos3 is Multi-Paxos implementation in C which uses TCP/IP for
+  415  transport. For each experiment, we tested N replicas, where each replica is a
+  416  leader, an acceptor and a proposer. We used request sizes of 64 bytes with 10
+  417  requests in progress at any given time. Our experiments were ran within a single
+  418  linux VM with a single core and 1GB of RAM, we used mininet 4 to simulate a
+  419  10 Mbps network with 20 ms round trip time. Each test was run for 120 seconds,
+  420  we discard the first and last 10 second to measure the system during its steady
+  421  state.
+  422  Figure 4 show the steady state performance of Paxos and FPaxos with varying
+  423  Q2 quorum sizes. These results are as we would expect: by reducing the size
+  424  of the Q2 quorum, we send fewer messages and thus increase throughput and
+  425  decrease latency.
+  426  3 LibPaxos3 source code https://bitbucket.org/sciascid/libpaxos
+  427  4 http://mininet.org
+
+  428  11
+=== PAGE 12 ===
+
+  429  It is worth noting that this is not the complete picture. First, FPaxos
+  430  outperforms vanilla LibPaxos even with identical quorum sizes, because FPaxos
+  431  sends messages only to a quorum of replicas unlike LibPaxos3 which sends
+  432  messages to all replicas. When utilizing this optimization in practice, one may
+  433  need to carefully trade the strategy for finding quorums in realistic settings, and
+  434  consider replica failure, relative replica speeds and communication delays. Second,
+  435  unlike Paxos, FPaxos with Q2 of size 2 would not be able to elect a new leader
+  436  when two acceptors have failed. On the other hand, in a system of 8 replicas,
+  437  FPaxos with Q2 of size 4 handles more failures than Paxos, decreases latency
+  438  (from 42ms to 37 ms) and increases throughput (from 198 to 264 reqs/sec).
+  439  This prototype demonstrates that implementing a na¨ıve FPaxos is trivial.
+  440  We show that even a very naive implementation improves performance and
+  441  we believe that systems designed for FPaxos will see far greater performance,
+  442  particularly by taking advantage of using disjoint set of acceptors and smarter
+  443  quorum construction techniques to improve failure tolerance. Our prototype
+  444  source code and associated materials are available online5.
+
+  445  7 Enhancements
+
+  446  We observe that the safety of FPaxos relies only on the assumption that a given
+  447  Q1 will intersect with all Q2s with lower proposal numbers. Therefore, we could
+  448  further weaken the quorum requirements if a proposer was able to learn which
+  449  Q2s have been used with smaller proposal numbers. We would then require only
+  450  that a proposer's Q1 intersect with these instead of all possible Q2s.
+  451  In order to take advantage of this, we can enhance FPaxos with a mechanism
+  452  for leaders to select quorum(s) and to announce their selection. There are many
+  453  ways this could be implemented, but for safety the mechanism for a leader
+  454  to make its quorum selection known must be weaved carefully into the leader
+  455  election protocol. Details are left out of the scope of this paper. Briefly, it would
+  456  be akin to Paxos reconfiguration and achieved by adopting the principles of
+  457  Vertical Paxos [23].
+  458  The implications of this enhancement can be far reaching. For example, in a
+  459  system of N = 100f nodes, a leader may start by announcing a fixed Q2 of size
+  460  f + 1 and all higher proposal numbers (and readers) will need to intersect with
+  461  only this Q2. This allow us to tolerate N − f failures. Likewise, a leader may
+  462  choose a small set of Q2's and announce all of them, allowing more flexibility in
+  463  phase 2 at the cost of less availability in phase 1. A leader may also change its
+  464  quorum selection over time using the dynamic selection mechanism.
+  465  We expect that these enhancements and others may open many new possibilities for practical system designs in the future.
+  466  5 https://github.com/fpaxos
+
+  467  12
+=== PAGE 13 ===
+
+  468  8 Related Works
+
+  469  The insightful State Machine Replication (SMR) paradigm [17, 36] underlies
+  470  many reliable systems, including pioneering works in distributed systems field
+  471  like Viewstamped Replication [32] and Isis [3]. The Paxos algorithm provides
+  472  the algorithmic solution for many production systems architected as replicated
+  473  state machines. SMR must solve a core ingredient, agreement, which Dwork
+  474  et al.[6] solved under minimal synchrony assumptions, and which is the basis
+  475  for the single position agreement protocol (called Synod) in Paxos [18]. In
+  476  the decades following its invention, the Paxos algorithm has been extensively
+  477  researched: it has been explained in simpler terms [19, 39], optimized for practical
+  478  systems [4, 11, 13, 33] and extended to handle reconfiguration [23] and arbitrary
+  479  failures [5].
+  480  Many variants of Paxos were proposed. Cheap Paxos [25] fixes a single phase
+  481  2 quorum until a leader replacement occurs. Fast Paxos [21] has a leaderless
+  482  fast-path protocol which utilizes fast-track phase 2 quorums of size f + df+1 e.
+  483  2
+  484  Mencius [26] uses a revolving leader regime. Ring-Paxos [28, 27] applies the
+  485  idea in Cheap Paxos [25] to a ring overlay using network-level multicast. Chain
+  486  Replication [41] daisy-chains acceptors and collapses the two phases into one
+  487  chain sweep. Generalized Paxos [22] extends state-machine replication with
+  488  commutative commands, and Egalitarian Paxos [30] extends Generalized Paxos
+  489  with fast-track quorums whose size is f + bf+1c. EVE [14] optimistically
+  490  2
+  491  concurrently agrees on commands and later resolves conflicts in case they do
+  492  not commute. Corfu [2] lets the leader delegate its exclusive authority to any
+  493  proposer in order to yield better parallelism. There are many other variants; a
+  494  comprehensive taxonomy of Paxos variants is given in [40]. These previous works
+  495  were built on the foundations presented in the pioneering protocols [32, 3, 6, 18],
+  496  and focused on enhancing them in order to achieve better performance. Our
+  497  new observation revisited the foundations and generalized them; it is completely
+  498  orthogonal and can be integrated into previous protocols as well as to real
+  499  production systems in order to further improve performance.
+  500  The SMR reconfiguration problem was addressed in several previous works.
+  501  Some use consensus commands to agree on next configurations [32, 24, 23],
+  502  whereas others use the first phase to determine which quorum (out of a fix set
+  503  of quorums) will be used in the second phase [25, 28]. A general framework for
+  504  reconfiguration that separates the steady state agreement mechanism from the
+  505  reconfiguration event appears in [23]. Reconfiguration for other fault tolerant
+  506  services was also previously investigated, e.g., in [10, 1, 12, 38, 8]. As discussed
+  507  in Section 7, the ideas in these works can be adopted in order to enhance FPaxos
+  508  into a reconfigurable and dynamic system.
+  509  To the best of our knowledge, we are the first to prove and implement this generalization of Paxos. During the preparation of this publication, Sougoumarane
+  510  independently made the same observation on which this work is based and
+  511  released a blog post summarizing [37] it for the systems community.
+
+  512  13
+=== PAGE 14 ===
+
+  513  9 Conclusion
+
+  514  In this paper we have described FPaxos, a generalization of the widely adopted
+  515  Paxos algorithm, which no longer requires that quorums from the same Paxos
+  516  phase intersect. We believe this result has wide ranging consequences.
+  517  Firstly, over the last two decades Multi-Paxos has been widely studied,
+  518  deployed and extended. Generalizing existing systems to use FPaxos should be
+  519  quite straightforward. Exposing replication (phase 2) quorum size to developers
+  520  would allow them to choose their own trade off between failure tolerance and
+  521  steady state latency.
+  522  Secondly, by no longer requiring replication quorums to intersect, we have
+  523  removed an important limit on scalability. Through smart quorum construction
+  524  and pragmatic system design, we believe a new breed of scalable, resilient and
+  525  performant consensus algorithms is now possible.
+
+  526  Acknowledgements. We wish to thank the following people for their
+  527  feedback: Jean Bacon, Jon Crowcroft, Stephen Dolan, Matthew Grosvenor, Anil
+  528  Madhavapeddy, Sugu Sougoumarane and Igor Zabloctchi.
+
+  529  References
+
+  530  [1] Marcos K. Aguilera, Idit Keidar, Dahlia Malkhi, and Alexander Shraer.
+  531  Dynamic atomic storage without consensus. J. ACM, 58(2):7:1–7:32,
+  532  April 2011. URL: http://doi.acm.org/10.1145/1944345.1944348, doi:
+  533  10.1145/1944345.1944348.
+  534  [2] Mahesh Balakrishnan, Dahlia Malkhi, John D. Davis, Vijayan Prabhakaran,
+  535  Michael Wei, and Ted Wobber. Corfu: A distributed shared log. ACM
+  536  Trans. Comput. Syst., 31(4):10:1–10:24, December 2013.
+  537  [3] Ken Birman and Thomas Joseph. Exploiting virtual synchrony in distributed
+  538  systems, volume 21. ACM, 1987.
+  539  [4] Mike Burrows. The chubby lock service for loosely-coupled distributed
+  540  systems. In Proceedings of the 7th Symposium on Operating Systems Design and Implementation, OSDI '06, pages 335–350, Berkeley, CA, USA,
+  541  2006. USENIX Association. URL: http://dl.acm.org/citation.cfm?id=
+  542  1298455.1298487.
+  543  [5] Miguel Castro and Barbara Liskov. Practical byzantine fault tolerance. In
+  544  Proceedings of the Third Symposium on Operating Systems Design and Implementation, OSDI '99, pages 173–186, Berkeley, CA, USA, 1999. USENIX Association. URL: http://dl.acm.org/citation.cfm?id=296806.296824.
+  545  [6] Cynthia Dwork, Nancy Lynch, and Larry Stockmeyer. Consensus in the
+  546  presence of partial synchrony. Journal of the ACM (JACM), 35(2):288–323,
+  547  1988.
+
+  548  14
+=== PAGE 15 ===
+
+  549  [7] Michael J Fischer, Nancy A Lynch, and Michael S Paterson. Impossibility of
+  550  distributed consensus with one faulty process. Journal of the ACM (JACM),
+  551  32(2):374–382, 1985.
+  552  [8] Eli Gafni and Dahlia Malkhi. Elastic configuration maintenance via a
+  553  parsimonious speculating snapshot solution. In Proceedings of the 29th International Symposium on Distributed Computing, pages 140–153. Springer,
+  554  2015.
+  555  [9] David K. Gifford. Weighted voting for replicated data. In Proceedings of
+  556  the Seventh ACM Symposium on Operating Systems Principles, SOSP '79,
+  557  pages 150–162, New York, NY, USA, 1979. ACM. URL: http://doi.acm.
+  558  org/10.1145/800215.806583, doi:10.1145/800215.806583.
+  559  [10] Seth Gilbert, Nancy A Lynch, and Alexander A Shvartsman. Rambo:
+  560  A robust, reconfigurable atomic memory service for dynamic networks.
+  561  Distributed Computing, 23(4):225–272, 2010.
+  562  [11] Patrick Hunt, Mahadev Konar, Flavio P. Junqueira, and Benjamin Reed.
+  563  Zookeeper: Wait-free coordination for internet-scale systems. In Proceedings
+  564  of the 2010 USENIX Conference on USENIX Annual Technical Conference,
+  565  USENIXATC'10, pages 11–11, Berkeley, CA, USA, 2010. USENIX Association. URL: http://dl.acm.org/citation.cfm?id=1855840.1855851.
+  566  [12] Leander Jehl, Roman Vitenberg, and Hein Meling. Smartmerge: A new
+  567  approach to reconfiguration for atomic storage. In International Symposium
+  568  on Distributed Computing, pages 154–169. Springer, 2015.
+  569  [13] Flavio P Junqueira, Benjamin C Reed, and Marco Serafini. Zab: Highperformance broadcast for primary-backup systems. In Dependable Systems
+  570  & Networks (DSN), 2011 IEEE/IFIP 41st International Conference on,
+  571  pages 245–256. IEEE, 2011.
+  572  [14] Manos Kapritsos, Yang Wang, Vivien Quema, Allen Clement, Lorenzo
+  573  Alvisi, and Mike Dahlin. All about eve: execute-verify replication for multicore servers. In Presented as part of the 10th USENIX Symposium on
+  574  Operating Systems Design and Implementation (OSDI 12), pages 237–250,
+  575  2012.
+  576  [15] Akhil Kumar. Hierarchical quorum consensus: A new algorithm for managing replicated data. IEEE Trans. Comput., 40(9):996–1004, September 1991.
+  577  URL: http://dx.doi.org/10.1109/12.83661, doi:10.1109/12.83661.
+  578  [16] Leslie Lamport. The implementation of reliable distributed multiprocess
+  579  systems. Computer Networks (1976), 2(2):95 – 114, 1978. doi:http:
+  580  //dx.doi.org/10.1016/0376-5075(78)90045-4.
+  581  [17] Leslie Lamport. Time, clocks, and the ordering of events in a distributed
+  582  system. Communications of the ACM, 21(7):558–565, 1978.
+
+  583  15
+=== PAGE 16 ===
+
+  584  [18] Leslie Lamport. The part-time parliament. ACM Trans. Comput. Syst.,
+  585  16(2):133–169, May 1998. URL: http://doi.acm.org/10.1145/279227.
+  586  279229, doi:10.1145/279227.279229.
+  587  [19] Leslie Lamport. Paxos made simple. ACM SIGACT News (Distributed
+  588  Computing Column), 2001.
+  589  [20] Leslie Lamport. Specifying Systems: The TLA+ Language and Tools for
+  590  Hardware and Software Engineers. Addison-Wesley Longman Publishing
+  591  Co., Inc., Boston, MA, USA, 2002.
+  592  [21] Leslie Lamport. Fast paxos. Technical Report MSR-TR-2005-112, Microsoft
+  593  Research, 2005.
+  594  [22] Leslie Lamport. Generalized consensus and paxos. Technical Report MSR-
+  595  TR-2005-33, Microsoft Research, March 2005.
+  596  [23] Leslie Lamport, Dahlia Malkhi, and Lidong Zhou. Vertical paxos and
+  597  primary-backup replication. In Proceedings of the 28th ACM Symposium on
+  598  Principles of Distributed Computing, PODC '09, pages 312–313, New York,
+  599  NY, USA, 2009. ACM. URL: http://doi.acm.org/10.1145/1582716.
+  600  1582783, doi:10.1145/1582716.1582783.
+  601  [24] Leslie Lamport, Dahlia Malkhi, and Lidong Zhou. Reconfiguring a state
+  602  machine. ACM SIGACT News, 41(1):63–73, 2010.
+  603  [25] Leslie Lamport and Mike Massa. Cheap paxos. In Proceedings of the 2004
+  604  International Conference on Dependable Systems and Networks, DSN '04,
+  605  pages 307–, Washington, DC, USA, 2004. IEEE Computer Society. URL:
+  606  http://dl.acm.org/citation.cfm?id=1009382.1009745.
+  607  [26] Yanhua Mao, Flavio P. Junqueira, and Keith Marzullo. Mencius: Building
+  608  efficient replicated state machines for wans. In Proceedings of the 8th
+  609  USENIX Conference on Operating Systems Design and Implementation,
+  610  OSDI'08, pages 369–384, Berkeley, CA, USA, 2008. USENIX Association.
+  611  URL: http://dl.acm.org/citation.cfm?id=1855741.1855767.
+  612  [27] Parisa Jalili Marandi, Marco Primi, and Fernando Pedone. Multi-ring
+  613  paxos. In IEEE/IFIP International Conference on Dependable Systems and
+  614  Networks (DSN 2012), pages 1–12. IEEE, 2012.
+  615  [28] Parisa Jalili Marandi, Marco Primi, Nicolas Schiper, and Fernando Pedone. Ring paxos: A high-throughput atomic broadcast protocol. In 2010
+  616  IEEE/IFIP International Conference on Dependable Systems & Networks
+  617  (DSN), pages 527–536. IEEE, 2010.
+  618  [29] P.J. Marandi, M. Primi, N. Schiper, and F. Pedone. Ring paxos: A highthroughput atomic broadcast protocol. In Dependable Systems and Networks
+  619  (DSN), 2010 IEEE/IFIP International Conference on, pages 527–536, June
+  620  2010. doi:10.1109/DSN.2010.5544272.
+
+  621  16
+=== PAGE 17 ===
+
+  622  [30] Iulian Moraru, David G. Andersen, and Michael Kaminsky. There is more
+  623  consensus in egalitarian parliaments. In Proceedings of the Twenty-Fourth
+  624  ACM Symposium on Operating Systems Principles, SOSP '13, pages 358–
+  625  372, New York, NY, USA, 2013. ACM. URL: http://doi.acm.org/10.
+  626  1145/2517349.2517350, doi:10.1145/2517349.2517350.
+  627  [31] Moni Naor and Avishai Wool. The load, capacity, and availability
+  628  of quorum systems. SIAM J. Comput., 27(2):423–447, April 1998.
+  629  URL: http://dx.doi.org/10.1137/S0097539795281232, doi:10.1137/
+  630  S0097539795281232.
+  631  [32] Brian M Oki and Barbara H Liskov. Viewstamped replication: A new
+  632  primary copy method to support highly-available distributed systems. In
+  633  Proceedings of the seventh annual ACM Symposium on Principles of distributed computing, pages 8–17. ACM, 1988.
+  634  [33] Diego Ongaro and John Ousterhout. In search of an understandable consensus algorithm. In Proc. USENIX Annual Technical Conference, pages
+  635  305–320, 2014.
+  636  [34] David Peleg and Avishai Wool. Crumbling walls: A class of practical and
+  637  efficient quorum systems. In Proceedings of the Fourteenth Annual ACM
+  638  Symposium on Principles of Distributed Computing, PODC '95, pages 120–
+  639  129, New York, NY, USA, 1995. ACM. URL: http://doi.acm.org/10.
+  640  1145/224964.224978, doi:10.1145/224964.224978.
+  641  [35] Fred B. Schneider. Implementing fault-tolerant services using the state
+  642  machine approach: A tutorial. ACM Comput. Surv., 22(4):299–319, December 1990. URL: http://doi.acm.org/10.1145/98163.98167, doi:
+  643  10.1145/98163.98167.
+  644  [36] Fred B Schneider. Implementing fault-tolerant services using the state
+  645  machine approach: A tutorial. ACM Computing Surveys (CSUR), 22(4):299–
+  646  319, 1990.
+  647  [37] Sugu Sougoumarane. A more flexible paxos. http://ssougou.blogspot.
+  648  com/2016/08/a-more-flexible-paxos.html. [Online; accessed 13-Aug-
+  649  2016].
+  650  [38] Alexander Spiegelman, Idit Keidar, and Dahlia Malkhi. Dynamic reconfiguration: A tutorial. OPODIS 2015, 2015.
+  651  [39] Robbert Van Renesse and Deniz Altinbuken. Paxos made moderately
+  652  complex. ACM Comput. Surv., 47(3):42:1–42:36, February 2015. URL:
+  653  http://doi.acm.org/10.1145/2673577, doi:10.1145/2673577.
+  654  [40] Robbert Van Renesse and Deniz Altinbuken. Paxos made moderately
+  655  complex. ACM Comput. Surv., 47(3):42:1–42:36, February 2015. URL:
+  656  http://doi.acm.org/10.1145/2673577, doi:10.1145/2673577.
+
+  657  17
+=== PAGE 18 ===
+
+  658  [41] Robbert Van Renesse and Fred B Schneider. Chain replication for supporting
+  659  high throughput and availability. In OSDI, volume 4, pages 91–104, 2004.
+
+  660  18
+=== PAGE 19 ===
+
+  661  module FPaxos
+  662  extends Integers
+  663  constant Value, Acceptor, Quorum1, Quorum2
+  664  assume QuorumAssumption =∆ ∧ ∀Q ∈ Quorum1 : Q ⊆ Acceptor
+  665  ∧ ∀Q ∈ Quorum2 : Q ⊆ Acceptor
+  666  ∧ ∀Q1 ∈ Quorum1 : ∀ Q2 ∈ Quorum2 : Q1 ∩ Q2 6= {}
+  667  Ballot =∆ Nat
+  668  None =∆ choose v : v ∈/ Ballot
+  669  Message =∆ [type : {"1a"}, bal : Ballot]
+  670  ∪ [type : {"1b"}, acc : Acceptor, bal : Ballot,
+  671  mbal : Ballot ∪ { − 1}, mval : Value ∪ {None}]
+  672  ∪ [type : {"2a"}, bal : Ballot, val : Value]
+  673  ∪ [type : {"2b"}, acc : Acceptor, bal : Ballot, val : Value]
+  674  variable maxBal,
+  675  maxVBal,
+  676  maxVal,
+  677  msgs
+  678  vars =∆ ⟨maxBal, maxVBal, maxVal, msgs⟩
+  679  Send(m) =∆ msgs0 = msgs ∪ {m}
+  680  TypeOK =∆ ∧ maxBal ∈ [Acceptor → Ballot ∪ { − 1}]
+  681  ∧ maxVBal ∈ [Acceptor → Ballot ∪ { − 1}]
+  682  ∧ maxVal ∈ [Acceptor → Value ∪ {None}]
+  683  ∧ msgs ⊆ Message
+  684  Init =∆ ∧ maxBal = [a ∈ Acceptor 7→ − 1]
+  685  ∧ maxVBal = [a ∈ Acceptor 7→ − 1]
+  686  ∧ maxVal = [a ∈ Acceptor 7→ None]
+  687  ∧ msgs = {}
+  688  Phase1a(b) =∆ ∧ Send([type 7→ "1a", bal 7→ b])
+  689  ∧ unchanged ⟨maxBal, maxVBal, maxVal⟩
+
+  690  Phase1b(a) =∆ ∧ ∃m ∈ msgs :
+  691  ∧ m.type = "1a"
+  692  ∧ m.bal > maxBal[a]
+  693  ∧ maxBal0 = [maxBal except ![a] = m.bal]
+  694  ∧ Send([type 7→ "1b", acc 7→ a, bal 7→ m.bal,
+  695  mbal 7→ maxVBal[a], mval 7→ maxVal[a]])
+  696  ∧ unchanged ⟨maxVBal, maxVal⟩
+  697  Phase2a(b, v) =∆
+
+  698  1
+=== PAGE 20 ===
+
+  699  ∧ ¬∃m ∈ msgs : m.type = "2a" ∧ m.bal = b
+  700  ∧ ∃Q ∈ Quorum1 :
+  701  let Q1b =∆ {m ∈ msgs : ∧ m.type = "1b"
+  702  ∧ m.acc ∈ Q
+  703  ∧ m.bal = b}
+  704  Q1bv =∆ {m ∈ Q1b : m.mbal ≥ 0}
+  705  in ∧ ∀a ∈ Q : ∃ m ∈ Q1b : m.acc = a
+  706  ∧ ∨ Q1bv = {}
+  707  ∨ ∃m ∈ Q1bv :
+  708  ∧ m.mval = v
+  709  ∧ ∀mm ∈ Q1bv : m.mbal ≥ mm.mbal
+  710  ∧ Send([type 7→ "2a", bal 7→ b, val 7→ v])
+  711  ∧ unchanged ⟨maxBal, maxVBal, maxVal⟩
+  712  Phase2b(a) =∆ ∃ m ∈ msgs : ∧ m.type = "2a"
+  713  ∧ m.bal ≥ maxBal[a]
+  714  ∧ maxBal0 = [maxBal except ![a] = m.bal]
+  715  ∧ maxVBal0 = [maxVBal except ! [a] = m.bal]
+  716  ∧ maxVal0 = [maxVal except ![a] = m.val]
+  717  ∧ Send([type 7→ "2b", acc 7→ a,
+  718  bal 7→ m.bal, val 7→ m.val])
+  719  Next =∆ ∨ ∃b ∈ Ballot : ∨ Phase1a(b)
+  720  ∨ ∃v ∈ Value : Phase2a(b, v)
+  721  ∨ ∃a ∈ Acceptor : Phase1b(a) ∨ Phase2b(a)
+  722  Spec =∆ Init ∧ 2[Next]
+  723  vars
+  724  Sent2b(a, v, b) =∆ ∃ m ∈ msgs : ∧ m.type = "2b"
+  725  ∧ m.acc = a
+  726  ∧ m.val = v
+  727  ∧ m.bal = b
+  728  Sent2a(v, b) =∆ ∃ m ∈ msgs : ∧ m.type = "2a"
+  729  ∧ m.val = v
+  730  ∧ m.bal = b
+
+  731  Agreed(v, b) =∆ ∃ Q ∈ Quorum2 : ∀ a ∈ Q : Sent2b(a, v, b)
+  732  NoFutureProposal(v, b) =∆ ∀v2 ∈ Value : ∀ b2 ∈ Ballot : (b2 > b ∧ Sent2a(v2, b2)) ⇒ v = v2
+  733  SafeValue =∆ ∀ v ∈ Value : ∀ b ∈ Ballot : Agreed(v, b) ⇒ NoFutureProposal(v, b)
+
+  734  2

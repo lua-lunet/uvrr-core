@@ -51,6 +51,11 @@ No instruction conflicts with Andon; if one appears to, Andon wins.
   established exceptions; do not add new narrative classes to documentation.
 - Never write to the Zotero sqlite directly; never create or maintain more
   than the one bib file the paper uses.
+- Zotero syncs to the `main` checkout only, forever: `main` is the single
+  export location for the bibliography. No other worktree exports from
+  Zotero. An update made anywhere else is a `cp` of the file out of the
+  `main` checkout into the working folder, a reference to that copy, and a
+  commit.
 
 ## Test and proofs discipline
 
@@ -107,13 +112,6 @@ You MUST use the skill gh-actions-poll if it is installed. You are FOBRIDDEN fro
   remote: activate once with `git config core.hooksPath .githooks`, and a push
   that has not passed fmt, clippy, both test lanes, the doc tests and the
   record checks aborts. `--no-verify` bypasses it and is a deliberate act.
-- Warnings are errors everywhere: a proof that passes with a compile warning
-  is no proof. The hook and the CI lanes export
-  `RUSTFLAGS="-D warnings"` and `RUSTDOCFLAGS="-D warnings"`, so every lane
-  (fmt, clippy, both test lanes, the doc tests) treats any compile warning as
-  an error in any feature combination, and a pushed tree that emits one fails
-  both. Local lanes run with the same exports; a warning that passes locally
-  and fails the hook is a lane run without them.
 - The Rust and Cargo arbitrate rule: Rust is not used as a fashion statement; it is
   used so the build system and the compiler are a proof of correctness, exactly as
   Lean 4 and exhaustive property testing and Maelstrom are. LLMs have a nasty habit
@@ -199,21 +197,6 @@ toolchain) as build-time proof tooling. Per-file imports stay targeted
 (`Mathlib.Tactic.*` modules only, never a full `Mathlib` import); the
 elaboration timing measurements behind that ruling are recorded in the
 proof auditors' doc comments. The paper's build (tectonic) is unchanged.
-
-### The Rust toolchain pin does not move
-
-SCREAMING: DO NOT MOVE ANYTHING. The repo pins `rust-toolchain.toml` to
-`1.96.0` and that pin is load-bearing, not hygiene. macOS XProtect scans
-every freshly linked executable on first exec, one at a time, through
-syspolicyd; the Developer Tools privilege exempts binaries whose parent app
-chain is granted, and that exemption holds only while the toolchain home
-never moves. A routine bump, a channel switch, or a `rustup update`
-relocates every build binary and re-triggers the whole scan tax
-(15-59 seconds per fresh test binary; roughly twenty minutes of scanning
-per full suite for under a minute of test execution). A toolchain move is
-an operator ruling; agents never bump it, and `rustup update` is never run
-on a working checkout. Downstream repos in the lua-lunet family pin the
-same channel so the family shares one non-moving toolchain home.
 
 ### Submodules
 

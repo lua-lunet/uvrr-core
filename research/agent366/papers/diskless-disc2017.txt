@@ -1,0 +1,866 @@
+---
+title: "Recovering Shared Objects Without Stable Storage"
+authors:
+  - "Ellis Michael"
+  - "Dan R. K. Ports"
+  - "Naveen Kr. Sharma"
+  - "Adriana Szekeres"
+year: "2017"
+publication: "32nd International Symposium on Distributed Computing (DISC 2017), LIPIcs 46, article 36"
+handle_url: "https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.DISC.2017.36"
+source_pdf: "research/agent366/papers/diskless-disc2017-recovering-shared-objects.pdf"
+source_pdf_sha256: "3177cab5cbb54b2aea0de7e1a18b8c6d8fa64600122b48ebba4a72cb2c08cde0"
+page_count: 16
+extracted_text_runs: 2547
+tool: "research/agent366/tools/pdftolines.py"
+tool_version: "pdftolines 1.0.0"
+extractor: "pdftohtml -xml -q -hidden -nodrm"
+extraction_date: "2026-10-07"
+reading_order: "fixed column: left column of each page in full, then right column"
+line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
+hyphenation: "words hyphenated across line breaks within a column are rejoined"
+disclaimer: >-
+  This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
+tags:
+  - "consensus"
+  - "crash recovery"
+  - "diskless"
+---
+
+=== PAGE 1 ===
+
+    1  Recovering Shared Objects Without Stable
+
+    2  ∗†
+
+    3  Storage
+
+    4  Ellis Michael1, Dan R. K. Ports2, Naveen Kr. Sharma3, and
+    5  Adriana Szekeres4
+
+    6  1 University of Washington, Seattle, USA
+    7  emichael@cs.washington.edu
+    8  2 University of Washington, Seattle, USA
+    9  drkp@cs.washington.edu
+   10  3 University of Washington, Seattle, USA
+   11  naveenks@cs.washington.edu
+   12  4 University of Washington, Seattle, USA
+   13  aaasz@cs.washington.edu
+
+   14  Abstract
+   15  This paper considers the problem of building fault-tolerant shared objects when processes can
+   16  crash and recover but lose their persistent state on recovery. This Diskless Crash-Recovery
+   17  (DCR) model matches the way many long-lived systems are built. We show that it presents
+   18  new challenges, as operations that are recorded at a quorum may not persist after some of the
+   19  processes in that quorum crash and then recover.
+   20  To address this problem, we introduce the notion of crash-consistent quorums, where no recoveries happen during the quorum responses. We show that relying on crash-consistent quorums
+   21  enables a recovery procedure that can recover all operations that successfully finished. Crashconsistent quorums can be easily identified using a mechanism we term the crash vector, which
+   22  tracks the causal relationship between crashes, recoveries, and other operations.
+   23  We apply crash-consistent quorums and crash vectors to build two storage primitives. We
+   24  give a new algorithm for multi-writer, multi-reader atomic registers in the DCR model that
+   25  guarantees safety under all conditions and termination under a natural condition. It improves
+   26  on the best prior protocol for this problem by requiring fewer rounds, fewer nodes to participate
+   27  in the quorum, and a less restrictive liveness condition. We also present a more efficient singlewriter, single-reader atomic set – a virtual stable storage abstraction. It can be used to lift any
+   28  existing algorithm from the traditional Crash-Recovery model to the DCR model. We examine
+   29  a specific application, state machine replication, and show that existing diskless protocols can
+   30  violate their correctness guarantees, while ours offers a general and correct solution.
+
+   31  1998 ACM Subject Classification E.1 Distributed Data Structures, H.3.4 Distributed Systems
+
+   32  Keywords and phrases asynchronous system, fault-tolerance, crash-recovery, R/W register, state
+   33  machine replication
+
+   34  Digital Object Identifier 10.4230/LIPIcs.DISC.2017.36
+
+   35  ∗ An extended version of this paper is available as a technical report [27].
+   36  † This material is based upon work supported by the National Science Foundation under award CNS-
+   37  1615102 and a Graduate Research Fellowship, and by gifts from Google and VMware.
+   38  © Ellis Michael, Dan R. K. Ports, Naveen Kr. Sharma, and Adriana Szekeres;
+   39  licensed under Creative Commons License CC-BY
+   40  31st International Symposium on Distributed Computing (DISC 2017).
+   41  Editor: Andréa W. Richa; Article No. 36; pp. 36:1–36:16
+   42  Leibniz International Proceedings in Informatics
+   43  Schloss Dagstuhl – Leibniz-Zentrum für Informatik, Dagstuhl Publishing, Germany
+=== PAGE 2 ===
+
+   44  36:2 Recovering Shared Objects Without Stable Storage
+
+   45  1 Introduction
+
+   46  Today's distributed systems are key pieces of infrastructure that must remain available
+   47  even though the servers that implement them are constantly failing. These systems are
+   48  long-lived and must be able to tolerate nodes crashing and rejoining the system. In particular,
+   49  nodes must be able to rejoin the system even after losing their disk state, a real concern for
+   50  large-scale data centers where hard drive failures are a regular occurrence [7].
+   51  This paper addresses the problem of how to build recoverable shared objects even when
+   52  processes lose their entire state. We consider the Diskless Crash-Recovery model: each
+   53  process in the system may go down at any time; upon recovery, it loses all state it had
+   54  before the crash except for its identity. However, processes can run a recovery protocol to
+   55  reconstruct their state before deeming themselves operational again. This model matches
+   56  the way that many distributed systems are built in practice.
+   57  The Diskless Crash-Recovery model (DCR) is more challenging than the traditional
+   58  Crash-Stop model (CS) or the Crash-Recovery with Stable Storage model (CRSS). The main
+   59  challenge is that an invariant that holds at one process may not hold on that process's next
+   60  incarnation after recovery. This leads to the problem of unstable quorums: it is possible
+   61  for a majority of processes to acknowledge a write operation, and yet processes can still
+   62  subsequently lose that knowledge after crash and recovery.
+   63  We provide a general mechanism for building recoverable shared objects in the DCR
+   64  model. We show that an operation can be made recoverable once it is stored by a crashconsistent quorum, which we informally define as one where no recoveries happen during the
+   65  quorum responses. Crash-consistent quorums can be efficiently identified using a mechanism
+   66  called the crash vector: a vector, maintained by each process, that tracks the latest known
+   67  incarnation of each process. By including crash vectors in protocol messages, processes can
+   68  identify the causal relationship between crash recoveries and other operations. This makes it
+   69  possible to discard responses that are not part of a crash-consistent quorum. We show that
+   70  this is sufficient to make storage mechanisms recoverable.
+   71  The crash-consistent quorum approach is a general strategy for making storage primitives
+   72  recoverable. We give two concrete examples in this paper, both of which are always safe and
+   73  guarantee liveness during periods of stability; other storage primitives are also possible:
+   74  First, we build a multi-writer, multi-reader atomic register by extending the well-known
+   75  ABD protocol [3] with crash vectors. This improves on the best prior protocol by Konwar
+   76  et al. [17], RADON(S), for this problem: it requires fewer rounds (2 rather than 3),
+   77  R
+   78  requires fewer nodes to participate in the protocol (a simple majority vs 3/4), and has a
+   79  less restrictive liveness condition.
+   80  Second, we construct a single-writer, single-reader atomic set, which has weaker semantics
+   81  yet permits a more efficient implementation, requiring only a single round of communication for writes. We refer to this algorithm as virtual stable storage, as it offers consistency
+   82  semantics similar to a local disk. We show that the virtual stable storage protocol can be
+   83  used to transform any protocol that operates in the traditional CS or CRSS models to
+   84  one that operates in DCR.
+   85  We discuss the application of this work to state machine replication, a widely used
+   86  distributed system technique. Recovering from disk failures is an important concern in
+   87  practice, and recent replication protocols attempt to support recovery after complete loss
+   88  of state. Surprisingly, we find that each of the three such protocols [7, 16, 22] can lose data.
+   89  We identify a general problem: while these protocols go to great lengths to ensure that a
+   90  recovering replica reconstructs the set of operations it previously processed, they fail to
+=== PAGE 3 ===
+
+   91  E. Michael, D.R.K. Ports, N.Kr. Sharma, and A. Szekeres 36:3
+
+   92  recover critical promises the replica has previously made, e.g., to elect a new leader. This
+   93  is due to the fact that these protocols rely on unstable quorums to persist these promises.
+   94  This causes nodes to break important invariants upon recovery, causing the system to violate
+   95  safety properties. Our approach provides a correct, general, and efficient solution.
+   96  To summarize, this paper makes the following contributions:
+   97  It formalizes a Diskless Crash-Recovery (DCR) failure model in a way that captures the
+   98  challenges of long-lived applications (Section 3).
+   99  It introduces the notion of crash-consistent quorums and provides two communication
+  100  primitives for reading from and writing to crash-consistent quorums (Section 4).
+  101  It presents algorithms built on top of our communications primitives for two different
+  102  shared objects in the DCR model: an atomic multi-writer, multi-reader register and an
+  103  atomic single-writer, single-reader set. The former is a general purpose register which
+  104  demonstrates the generality of our approach, while the latter provides a virtual stable
+  105  storage interface that can be used to port any protocol in the CRSS model to one for the
+  106  DCR model (Section 5).
+  107  Finally, it examines prior protocols for state machine replication in the DCR failure model
+  108  and demonstrates flaws in these protocols that lead to violations of safety properties. Our
+  109  two communication primitives can provide correct solutions (Section 6).
+
+  110  2 Background and Related Work
+
+  111  Static Systems. A static system comprises a fixed, finite set of processes. Fault-tolerant
+  112  protocols for reliable storage for static systems have been studied extensively in the Crash-Stop
+  113  (CS) failure model, where processes that fail never rejoin the system, and the Crash-Recovery
+  114  with Stable Storage model (CRSS). In the latter model, processes recover with the same state
+  115  after a crash. Consensus and related problems, in particular, have been studied extensively
+  116  in these settings [8, 12, 30]. In CRSS, a crashed and recovered node is no different than one
+  117  which was temporarily unavailable; asynchronous algorithms that tolerate lossy networks are
+  118  inherently robust to these types of failures [8].
+  119  Prior work on fault-tolerant shared objects and consensus without stable storage generally
+  120  requires some subset of the processes to never fail [2, 11]. Aguilera et al. [2] showed an
+  121  impossibility result for a crash-recovery model: even with certain synchrony assumptions,
+  122  consensus cannot be solved without at least one process that never crashes. The main
+  123  differentiator between that work and this paper is that in their model, the states of processes
+  124  were binary – either "up" or "down." We overcome this limitation by adding an extra
+  125  "recovering" state. As long as the number of processes which are "down" or "recovering" at
+  126  any given time is bounded, certain problems can be solved even without processes that never
+  127  fail.
+  128  Recently, Konwar et al. [17] presented a set of algorithms for implementing an atomic
+  129  multi-writer, multi-reader (MWMR) register in a model similar to ours. We generalize and
+  130  improve on this work using new primitives for crash-consistent quorums. Our techniques are
+  131  applicable to other forms of shared objects as well, and our MWMR register is more efficient:
+  132  it requires one fewer phase and a simple majority quorum (vs 3/4).
+  133  Several recent practical state machine replication systems [7, 16, 22] incorporate ad hoc
+  134  recovery mechanisms for nodes to recover from total disk loss. The common intuition behind
+  135  these approaches is that a write to disk can be replaced with a write to a quorum of other
+  136  nodes, recovering after a failure by performing a quorum read. However, we show that these
+  137  protocols are not correct; they can lose data in certain failure scenarios. A more recent
+  138  design, Replacement [13], provides a mechanism for replacing failed processes. Like our work
+
+  139  D I S C 2 0 1 7
+=== PAGE 4 ===
+
+  140  36:4 Recovering Shared Objects Without Stable Storage
+
+  141  and the epoch vectors in JPaxos [16], it draws on concepts like version vectors [31] and vector
+  142  clocks [9] to determine the causal dependencies between replacements and other operations.
+  143  We build on these techniques to provide generic communication primitives in DCR.
+
+  144  Dynamic Systems. In a dynamic setting, processes may leave or join the system at will.
+  145  Although we consider a static system, DCR may be viewed as a dynamic system with a
+  146  finite concurrency level [26], i.e, where there is a finite bound on the maximum number of
+  147  processes that are simultaneously active, over all runs. Here, a recovering process without
+  148  state is equivalent to a newly joined process.
+  149  Many dynamic systems implement reconfiguration protocols [1, 10, 21–24, 33]. Reconfiguration allows one to change the set of members allowed to participate in the computation.
+  150  This process allows both adding new processes and removing processes from the system.
+  151  Reconfiguration is a more general problem than recovery: it can be used to handle disk failure
+  152  by introducing a recovering node as a new member and removing its previous incarnation.
+  153  However, general reconfiguration protocols are a blunt instrument, as they must be able to
+  154  handle completely changing the membership to a disjoint set of processes . As a result, these
+  155  protocols are costly. Most use consensus to agree on the order of reconfigurations, which
+  156  delays the processing of concurrent operations [28]. DynaStore [1] is the first proposal which
+  157  does not require consensus, but reconfigurations can still delay R/W operations [28]. Smart-
+  158  Merge [14] improves on DynaStore by offering a more expressive reconfiguration interface.
+  159  Recovery is a special case of reconfiguration, where each recovering process replaces, and
+  160  has the same identity as, a previously crashed process. As a result, it permits more efficient
+  161  solutions.
+  162  Other protocols implement shared registers and other storage primitives in churn-prone
+  163  systems [4–6, 15]. In these systems, processes are constantly joining and leaving the system,
+  164  but at a bounded rate. These protocols remain safe only when churn remains within the
+  165  specified bound, in contrast to our work which is always safe. Most of these protocols also
+  166  require synchrony assumptions for correctness. However, under these assumptions they are
+  167  able to provide liveness guarantees even during constant churn.
+
+  168  3 System Model
+
+  169  We begin by defining our failure model: Diskless Crash-Recovery (DCR), a variant of the
+  170  classic Crash-Recovery model where processes lose their entire state upon crashing.
+  171  We consider an asynchronous distributed system which consists of a fixed set of n
+  172  processes, Π. Each process has a unique name (identifier) of some kind; we assume processes
+  173  are numbered 1, . . . , n for simplicity. Each process executes a protocol (formally, it is an
+  174  I/O automaton [25]) while it is up. An execution of a protocol proceeds in discrete time
+  175  steps, numbered with N, starting at t = 0. At each step, at most one process either processes
+  176  an input action, processes a message, crashes, or restarts. If it crashes, the process stops
+  177  receiving messages and input actions, loses its state, and is considered down. A process that
+  178  is down can restart and transition back to the up state. We make the following assumptions
+  179  about a process that restarts: (1) it knows it is restarting, (2) it knows its unique name
+  180  and the names of the other processes in the system (i.e., this information survives crashes),
+  181  and (3) it can obtain an incarnation ID that is distinct from all the ones that it previously
+  182  obtained. Note that the incarnation ID need only be unique among different incarnations
+  183  of a specific process, not the entire system. These are reasonable assumptions to make for
+  184  real-world systems: (1) and (2) are fixed for a given deployment, and (3) can be obtained,
+  185  for example, from a source of randomness or the local processor clock.
+=== PAGE 5 ===
+
+  186  E. Michael, D.R.K. Ports, N.Kr. Sharma, and A. Szekeres 36:5
+
+  187  Processes are connected by an asynchronous network. Messages can be duplicated a finite
+  188  number of times or reordered arbitrarily – but not modified – by the network. We assume
+  189  that if an incarnation of a process remains up, sends a message, and an incarnation of the
+  190  destination process stays up long enough, that message will eventually be delivered.1
+  191  The unique incarnation ID makes it possible to distinguish different incarnations of the
+  192  same process. Without unique incarnation IDs, processes are vulnerable to "replay attacks:"
+  193  I Theorem 1. Any state reached by a process that has crashed, restarted, and taken steps
+  194  without receiving an input action or crashing again will always be reachable by that process.
+  195  Proof. Suppose process p has crashed, restarted, and taken some number of steps without
+  196  crashing or receiving an input action. That is, suppose that after it restarted, p received some
+  197  sequence of messages, M. Because p is an I/O automaton without access to randomness or
+  198  unique incarnation IDs, anytime p crashes and restarts, it restarts into the exact same state.
+  199  Furthermore, if p crashes, restarts, and receives the same sequence of messages, M, having
+  200  been duplicated by the network, p will always end up in the same state. J
+
+  201  A corollary to Theorem 1 is that any protocol in the DCR model without unique incarnation
+  202  IDs satisfying the safety properties of consensus – or even a simple shared object such as a
+  203  register – can reach a state from which terminating states are not reachable (i.e., a state
+  204  of deadlock). If all processes crash and recover before deciding a value or receiving a write,
+  205  they can always return to this earlier state, so the protocol cannot safely make progress.
+  206  For simplicity of exposition, we assume that the incarnation ID increases monotonically.
+  207  We explain in our technical report [27] how to eliminate this requirement.
+  208  A restarting process must recover parts of its state. To do so, it runs a distinct recovery
+  209  protocol. This protocol can communicate with other processes to recover previous state.
+  210  Once the recovery protocol terminates, the process declares recovery complete and resumes
+  211  execution of its normal protocol. We describe a process that is up as recovering if it is
+  212  running its recovery protocol and operational when it is running the initial automaton. A
+  213  protocol in this model should satisfy recovery termination: a recovering process eventually
+  214  becomes operational, as long as it does not crash again in the meantime. This precludes
+  215  vacuous solutions where recovering process never again participate in the normal protocol.
+  216  Using a separate recovery protocol matches the design of existing protocols like Viewstamped Replication [22]. Importantly, the distinction between recovering and operational allows failure bounds in terms of the number of operational processes, e.g., that
+  217  fewer than half of the processes can be either down or recovering at any moment. This
+  218  circumvents Aguilera et al.'s impossibility result for consensus [2], which does not make such
+  219  a distinction (i.e., restarting processes are immediately considered operational).
+
+  220  4 Achieving Crash-Consistent Quorums
+
+  221  Making shared objects recoverable in the DCR model requires a new type of quorum to
+  222  capture the idea of persistent, recoverable knowledge. A simple quorum does not suffice. We
+  223  demonstrate the problem through a simple straw-man example, and introduce the concepts
+  224  of crash-consistent quorums and crash vectors to solve the problem. We use these to build
+  225  generic quorum communication and recovery primitives.
+  226  1 This model is equivalent to one in which the network can drop any message a finite number of times,
+  227  with the added stipulation that processes resend messages until they are acknowledged.
+
+  228  D I S C 2 0 1 7
+=== PAGE 6 ===
+
+  229  36:6 Recovering Shared Objects Without Stable Storage
+
+  230  4.1 Unstable Quorums: Intuition
+  231  Consider an intentionally simple example: a fault-tolerant safe register that supports a
+  232  single writer and multiple readers. A safe register [19] is the weakest form of register, as
+  233  the behavior of READ operations is only defined when there are no concurrent WRITEs.
+  234  We further constrain the problem by allowing the writer to only ever execute one WRITE
+  235  operation. That is, the only safety requirement is that once the WRITE completes, all
+  236  subsequent READs that return must return the value written.
+  237  In the Crash-Stop model, a trivial quorum protocol suffices: WRITE(val) broadcasts val
+  238  and waits for acknowledgments from a quorum. Here, we consider majority quorums:
+  239  I Definition 2. A quorum Q is a set of processes such that Q ∈ Q = {Q : Q ∈ 2Π ∧ |Q| >
+  240  n/2}.
+  241  A subsequent READ would then be implemented by reading from a quorum. The quorum
+  242  intersection property (i.e., ∀Q1, Q2 ∈ Q Q1 ∩ Q2 6= {} ) guarantees that at least one process
+  243  will return val for a READ that happens after the WRITE. It is easy to extend this protocol
+  244  to the CRSS model simply by having each process log val to disk before replying to a WRITE.
+  245  Could we use this same quorum protocol in our DCR model, where processes that crash
+  246  recover without stable storage, by augmenting it with a recovery protocol that satisfies
+  247  recovery termination? In fact, for this particular protocol, there is no recovery protocol that
+  248  both guarantees the safety requirement and recovery termination – even if there is a majority
+  249  of processes which are operational at any instant! In order to tolerate the crashes of a
+  250  minority of processes and satisfy recovery termination, any recovery protocol must be able to
+  251  proceed after communicating with only a simple majority of processes. However, if a process
+  252  crashes in the middle of the WRITE procedure – after acknowledging val – it may recover
+  253  before a majority of processes have received val. No recovery procedure that communicates
+  254  only with this quorum of processes can cause the process to relearn val.
+  255  We term the resulting situation an unstable quorum: the WRITE operation received
+  256  responses from a quorum, and yet by the time it completes there may no longer exist a
+  257  majority of processes that know val. It is thus possible to form a quorum of processes that
+  258  either acknowledged val but then lost it during recovery, or never received the write request
+  259  (delayed by the network). A subsequent READ could fail by reading from such a quorum.
+  260  Although this is a simple example, many important systems suffer from precisely this
+  261  problem of unstable quorums. We show in Section 6 that essentially this scenario can cause
+  262  three different state machine replication protocols to lose important pieces of state.
+
+  263  4.2 Crash-Consistent Quorums
+  264  We can avoid this problem – both for the straw-man problem above and in the general case –
+  265  by relying not just on simple quorums of responses but crash-consistent ones.
+
+  266  Crash Consistency. We informally define a crash-consistent quorum to be one where no
+  267  recoveries of processes in the quorum happen during the quorum responses. More precisely:
+  268  I Definition 3. Let E be the set of all events in an execution. A set of events, E ⊆ E, is
+  269  crash-consistent if ∀e1, e2 ∈ E there is no e3 ∈ E that takes place at a later incarnation of
+  270  the same process as e1 such that e3 → e2. Here, → represents Lamport's happens-before
+  271  relation [18].
+  272  In Section 4.3, we show how to build recoverable primitives using crash-consistent quorums,
+  273  in which all quorum replies (i.e. the message send events at a quorum) are crash-consistent.
+=== PAGE 7 ===
+
+  274  E. Michael, D.R.K. Ports, N.Kr. Sharma, and A. Szekeres 36:7
+
+  275  Crash Vectors. How does a process acquire a crash-consistent quorum of responses? The
+  276  mechanism that allows us to ensure a crash-consistent quorum is the crash vector. This
+  277  is a vector that contains, for each process, its latest known incarnation ID. Like a version
+  278  vector, processes attach their crash vector to the relevant protocol messages and use incoming
+  279  messages to update their crash vector. The crash vector thus tracks the causal relationship
+  280  between crash recoveries and other operations. When acquiring a quorum on a WRITE
+  281  operation, we check whether any of the crash vectors are inconsistent with each other,
+  282  indicating that a recovery may have happened concurrently with one of the responses. We
+  283  then discard any responses from previous incarnations of the recovering process, ensuring a
+  284  crash-consistent quorum, and thus avoiding the aforementioned problem.
+
+  285  4.3 Communication Primitives in DCR
+
+  286  We now describe in detail two generic quorum communication primitives, one of which acquires
+  287  a crash-consistent quorum, as well as a generic recovery procedure. These primitives require
+  288  their users to implement an abstract interface: Read-State, which returns a representation
+  289  of the state of the shared object; Update-State, which alters the current state with a
+  290  specific value; and Rebuild-State, which is called during recovery and takes a set of state
+  291  representations and combines them.
+  292  The Acquire-Quorum primitive writes a value to a crash-consistent quorum and returns
+  293  the latest state. The Read-Quorum primitive returns a fresh – but possibly inconsistent –
+  294  snapshot of the state as maintained at a quorum of processes. If Acquire-Quorum(val)
+  295  succeeds, then any subsequent Read-Quorum will return at least one response from a
+  296  process that knows (i.e., has previously updated its state with) val.
+  297  The detailed protocol implementing the two primitives and the recovery procedure is
+  298  presented as pseudo-code in Algorithm 1. We present the algorithm using a modified I/O
+  299  automaton notation. In our protocol, procedures are input actions that can be invoked
+  300  at any time (e.g., in a higher level protocol); functions are simple methods; and upon
+  301  clauses specify how processes handle external events (i.e., messages, system initialization, and
+  302  recovery). We use guards to prevent actions from being activated under certain conditions.
+  303  If the guard of a message handler or procedure is not satisfied, no action is taken, and the
+  304  message is not consumed (i.e., it remains in the network undelivered).
+  305  Each of the n process in Π maintains a crash vector, v, with one entry for each process in
+  306  the system. Entry i in this vector tracks the latest known incarnation ID of process i. During
+  307  an incarnation, a process numbers its acquire and read messages using the local variable
+  308  c to match messages with replies. When a process recovers, it gets a new value from its
+  309  local, monotonic clock and updates its incarnation ID in its own vector. When the recovery
+  310  procedure ends, the process becomes operational and signals this through the op flag. A
+  311  process's crash vector is updated whenever a process learns about a newer incarnation of
+  312  another process. Crash vectors are partially ordered, and a join operation, denoted t, is
+  313  defined over vectors, where (v1 t v2)[i] = max(v1[i], v2[i]). Initially, each process's crash
+  314  vector is [⊥, . . . , ⊥], where ⊥ is some value smaller than any incarnation ID.
+  315  The Acquire-Quorum function handles both writing values and recovering. Acquire-
+  316  Quorum ensures the persistence of both the process's current crash vector – in particular
+  317  the process's own incarnation ID in the vector – as well as the value to be written, val. It
+  318  provides these guarantees by collecting responses from a quorum of processes and ensuring
+  319  that those responses are crash-consistent. It uses crash vectors to detect when any process
+  320  that previously replied could have crashed and thus could have "forgotten" the written value.
+
+  321  D I S C 2 0 1 7
+=== PAGE 8 ===
+
+  322  36:8 Recovering Shared Objects Without Stable Storage
+
+  323  Algorithm 1 Communications primitives.
+
+  324  Permanent Local State: 33: function Send-Message(m, j)
+  325  n ∈ N+ . Number of processes 34: m.f ← i . Sender
+  326  i ∈ [1, . . . , n] . Process number 35: m.v ← v
+  327  36: Send m to process j
+  328  Volatile Local State: 37: end function
+  329  v ← [⊥ for i ∈ [1, . . . , n]] . Crash vector
+  330  ← 38: upon receiving hacquirei, m
+  331  op f alse . Operational flag
+  332  ← {} 39: guard: op
+  333  R . Reply set
+  334  c ← 0 . Message number 40: v ← v t m.v
+  335  41: m0 ← hacquire-repi
+  336  1: upon 42: if m.val 6= null then
+  337  System-Initialize
+  338  2: op ← true 43: Update-State(m.val)
+  339  44: end if
+  340  3: end upon 45: m0.s ←
+  341  Read-State
+  342  4: upon 46: m0.c ← m.c
+  343  Recover 0
+  344  5: v[i] ← 47: Send-Message(m , m.f )
+  345  Read-Clock
+  346  6: Σ ← Acquire-Quorum(null) 48: end upon
+  347  7: Rebuild-State(Σ) 49: upon receiving h i, m
+  348  8: op ← true acquire-rep
+  349  50: guard: m.v[i] = v[i] ∧ c = m.c
+  350  9: end upon v ← v t m.v
+  351  51:
+  352  10: function Acquire-Quorum(val) 52: Add m to R
+  353  11: R ← {} . Discard inconsistent, duplicate replies
+  354  12: c ← c + 1 53: while ∃m0 ∈ R where
+  355  13: m ← hacquirei 54: m0.v[m0.f ] < v[m0.f] do
+  356  14: m.c ← c 55: Remove m0 from R
+  357  15: m.val ← val 56: Resend hacquirei message to m0.f
+  358  16: for all j ∈ [1, . . . , n] do 57: end while
+  359  17: Send-Message(m, j) 58: while ∃m0, m00 ∈ R where
+  360  18: end for 59: m0.f = m00.f ∧ m0 6= m00 do
+  361  19: Wait until |R| > n/2 0
+  362  { ∈ } 60: Remove m from R
+  363  20: return m.s : m R
+  364  61: end while
+  365  21: end function
+  366  62: end upon
+  367  22: function Read-Quorum 63: upon receiving hreadi, m
+  368  23: R ← {} 64: guard: op
+  369  24: c ← c + 1 65: v ← v t m.v
+  370  25: m ← hreadi 66: m0 ← h i
+  371  ← read-rep
+  372  26: m.c c 67: m0.s ←
+  373  ∈ Read-State
+  374  27: for all j [1, . . . , n] do 68: m0.c ← m.c
+  375  28: Send-Message(m, j) 69: (m0, m.f )
+  376  Send-Message
+  377  29: end for
+  378  | | 70: end upon
+  379  30: Wait until R > n/2
+  380  31: return {m.s : m ∈ R} 71: upon receiving hread-repi, m
+  381  32: end function 72: guard: m.v[i] = v[i] ∧ c = m.c
+  382  73: v ← v t m.v
+  383  74: Add m to R
+  384  75: end upon
+
+  385  4.4 Correctness
+
+  386  We show that our primitives provide the same safety properties as writing and reading to
+  387  simple quorums in the Crash-Stop model. First, we formally define quorum knowledge in
+  388  the DCR context.
+
+  389  I Definition 4 (Stable Properties). A predicate on the history of an incarnation of a process
+  390  (i.e., the sequence of events it has processed) is a stable property if it is monotonic (i.e., X
+  391  being true of history h implies that X is true of any history with h as a prefix).
+
+  392  I Definition 5. If stable property X is true of some incarnation of a process, p, we say that
+  393  incarnation of p knows X.
+=== PAGE 9 ===
+
+  394  E. Michael, D.R.K. Ports, N.Kr. Sharma, and A. Szekeres 36:9
+
+  395  I Definition 6 (Quorum Knowledge). We say that a quorum Q knows stable property X if,
+  396  for all processes p ∈ Q, one of the following holds:
+  397  (1) p is down,
+  398  (2) p is operational and knows X, or
+  399  (3) p is recovering and either already knows X or will know X if and when it finishes
+  400  recovery.
+  401  In our analysis of Algorithm 1, we are concerned with knowledge of two types of stable
+  402  properties: knowledge of values and knowledge of incarnation IDs. An incarnation of a process
+  403  knows value val if it has either executed Update-State(val) or executed Rebuild-State
+  404  with an acquire-rep message in the reply set sent by a process which knew val. Knowledge
+  405  of a process's incarnation ID, i, is the stable property of having an entry in a crash vector
+  406  for that process greater than or equal to i.
+  407  Next, we define crash-consistency on acquire-rep messages with crash vectors.
+  408  I Definition 7 (Crash Consistency). A set of acquire-rep messages R is crash-consistent if
+  409  ∀s1, s2 ∈ R. s1.v[s2.f] ≤ s2.v[s2.f].
+  410  Note that Definition 7, phrased in terms of crash vectors, is equivalent to the sending events
+  411  of the acquire-rep messages being crash-consistent according to Definition 3.
+  412  I Definition 8 (Quorum Promise). We say that a crash-consistent set of acquire-rep
+  413  messages constitutes a quorum promise for stable property X if the set of senders of those
+  414  messages is a quorum, and each sender knew X when it sent the message.
+  415  I Definition 9. If process p sent one of the acquire-rep message belonging to a quorum
+  416  promise received by some process, we say that p participated in that quorum promise.
+  417  The post-condition of the loop on line 53 guarantees the crash-consistency of the reply set
+  418  by discarding any inconsistent messages; the next loop guarantees that there is at most one
+  419  message from each process in the reply set. Therefore, the termination of Acquire-Quorum
+  420  (line 10) implies that the process has received a quorum promise showing that val was written
+  421  and that every participant had a crash vector greater than or equal to its own vector when
+  422  it sent the acquire message. This implies that whenever a process finishes recovery, it
+  423  must have received a quorum promise showing that the participants in its recovery had that
+  424  process's latest incarnation ID in their crash vectors.
+  425  Unlike having a stable property, that a process participated in a quorum promise holds
+  426  across failures and recoveries. That is, we say that a process, not a specific incarnation of
+  427  that process, participated in a quorum promise. Also note that only operational processes
+  428  ever participate in a quorum promise, guaranteed by the guard on the acquire message
+  429  handler.
+
+  430  4.4.1 Safety
+  431  Finally, we are ready to state the main safety properties of our generic read/write primitives.
+  432  I Theorem 10 (Persistence of Quorum Knowledge). If at time t, some quorum, Q, knows
+  433  stable property X, then for all times t0 ≥ t, Q knows X.
+  434  Proof. We prove by strong induction on t0 that the following invariant, I, holds for all t0 ≥ t:
+  435  For all p in Q: (1) p is operational and knows X, (2) p is recovering, or (3) p is down.
+  436  In the base case at time t, Q knows X by assumption, so I holds.
+
+  437  D I S C 2 0 1 7
+=== PAGE 10 ===
+
+  438  36:10 Recovering Shared Objects Without Stable Storage
+
+  439  Now, assuming I holds at all times t0 − 1 ≥ t, we show that I holds at time t0. The only
+  440  step any process p ∈ Q could take to falsify I is finishing recovery. If recovery began at or
+  441  before time t, then because Q knew X, p must know X now that it has finished recovering.
+  442  Otherwise, if it began after time t, then p must have received some set of acquire-rep
+  443  messages from a quorum, all of which were sent after time t. By quorum intersection, one
+  444  of these messages must have come from some process in Q. Call this process q. Since q's
+  445  acquire-rep message, m, was sent after time t and before t0 , by the induction hypothesis,
+  446  q must have known X when it sent m. Therefore, p must know X upon finishing recovery
+  447  since it updates its crash vector and rebuilds its state using m.
+  448  Since I holds for all times t0 ≥ t, this implies the theorem. J
+  449  I Theorem 11 (Acquisition of Quorum Knowledge). If process p receives a quorum promise
+  450  for stable property X from quorum Q, then Q knows X.
+  451  Proof. We again prove this theorem by (strong) induction, showing that the following
+  452  invariant, I, holds for all times, t:
+  453  1. If a process receives a quorum promise for stable property X from quorum Q, then Q
+  454  knows X.
+  455  2. If process p ever participated in a quorum promise for X at or before time t, and p is
+  456  operational, then p knows X.
+  457  I holds vacuously at t = 0. We show that if I holds at time t − 1, it holds at time t:
+  458  First, we consider part 1 of I. If p has received a quorum promise, R, from quorum Q for
+  459  X, then because R is crash-consistent, we know that at the time they participated in R no
+  460  process in Q had participated in the recovery of any later incarnation of any other process in
+  461  Q than the one that participated in R. If they had, then by the induction hypothesis, such a
+  462  process would have known the recovered process's new incarnation ID when it participated
+  463  in R, and R would not have been crash-consistent.
+  464  Given that fact, we will use a secondary induction to show that for all times, t0, all of the
+  465  processes in Q either:
+  466  (1) haven't yet participated in R,
+  467  (2) are down,
+  468  (3) are recovering, or
+  469  (4) are operational and know X.
+  470  In the base case, no process in Q has yet participated in R. For the inductive step, note that
+  471  the only step any process q could take that would falsify our invariant is transitioning from
+  472  recovering to operational after having participated in R. If q finished recovering, it must
+  473  have received a quorum promise showing that the senders knew its new incarnation ID. By
+  474  quorum intersection, at least one of these came from some process r ∈ Q. We already know
+  475  r couldn't have participated in q's recovery before participating in R. So by the induction
+  476  hypothesis, r knew X at the time it participated in q's recovery. Because knowledge of values
+  477  and incarnation IDs is transferred through acquire-rep messages, q knows X, completing
+  478  this secondary induction.
+  479  Finally, we know that since p has received R at time t, all of the process in Q have already
+  480  participated in R, so all of the processes in Q are either down, recovering (and will know
+  481  X upon finishing recovery), or are operational and know X. Therefore, Q knows X, and
+  482  this completes the proof that part 1 of I holds at time t.
+  483  Now, we consider part 2 of I. Suppose, for the sake of contradiction, that p is operational
+  484  at time t and doesn't know X, but participated in quorum promise R for X at or before
+=== PAGE 11 ===
+
+  485  E. Michael, D.R.K. Ports, N.Kr. Sharma, and A. Szekeres 36:11
+
+  486  time t. Let Q be the set of processes participating in R. Since p does not know X, p must
+  487  have crashed and recovered since participating in R. Consider p's most recent recovery, and
+  488  let the quorum promise it received showing that the senders knew p's new incarnation ID (or
+  489  a greater one) be R0. Let the set of participants in R0 be Q0. By quorum intersection, there
+  490  exists some r ∈ Q ∩ Q0 .
+  491  It must be the case that r participated in R0 before R; otherwise by induction, when
+  492  r participated in R0, it would have known X, and then transferred that knowledge to the
+  493  current incarnation of p (at time t). r couldn't have participated in R before time t, because
+  494  then by part 2 of I, it would have known p's latest incarnation ID when participating in R,
+  495  violating the consistency of R. However, r cannot participate in R at or after time t, either.
+  496  Because p has received a quorum promise for its new incarnation ID at or before time t, by
+  497  part 1 of I, Q0 knows p's new incarnation ID. By Theorem 10, Q0 continues to know this at
+  498  all later times. Because r ∈ Q0, it must know p's incarnation ID, and thus cannot participate
+  499  in R without violating its crash-consistency. This contradicts the fact that r participates in
+  500  R and completes the proof that part 2 holds at time t. J
+
+  501  Since Acquire-Quorum(val) obtains a quorum promise for val, Theorem 11 implies
+  502  quorum knowledge of val, and Theorem 10 shows that that knowledge will persist for all
+  503  future time, subsequent Acquire-Quorums and Read-Quorums will get a response from
+  504  a process which knows val.
+
+  505  4.4.2 Liveness
+
+  506  Acquire-Quorum and Read-Quorum terminate if there is some quorum of processes that
+  507  all remain operational for a sufficient period of time.2 This is easy to see since a writing
+  508  or recovering process will eventually get an acquire-rep from each of these operational
+  509  processes, and those replies must be crash-consistent. Note that the termination of Acquire-
+  510  Quorum implies the termination of the recovery procedure, Recover. Therefore, the same
+  511  liveness conditions are required for Acquire-Quorum and for recovery termination.
+  512  We define a sufficient liveness condition, LC, below. It is a slightly weaker version of
+  513  the network stability condition N2 from [17]: the period in which processes must remain
+  514  operational is shorter.
+  515  I Definition 12 (Liveness Condition (LC)). Consider a process p executing either the
+  516  Acquire-Quorum or Read-Quorum function, φ, and consider the following statements:
+  517  1. There exists a quorum of processes, Q, all of which consume their respective messages
+  518  sent from φ.
+  519  2. Every process in Q either
+  520  a. remains operational during the interval [T1, T2], where T1 is the point in time
+  521  at which φ was invoked and T2 the earliest point in time at which p completes the
+  522  consumption of all the responses sent by the processes in Q or
+  523  b. becomes down and remains down during the same interval after p consumed its
+  524  response.
+  525  If these two statements are true for every invocation of a Acquire-Quorum or Read-
+  526  Quorum function, then we say that LC is satisfied.
+  527  2 We assume that the application-provided Read-State, Update-State, and Rebuild-State functions
+  528  execute entirely locally and do not block.
+
+  529  D I S C 2 0 1 7
+=== PAGE 12 ===
+
+  530  36:12 Recovering Shared Objects Without Stable Storage
+
+  531  Our protocol implementing the group communication primitives is live if LC is satisfied. For
+  532  LC to be satisfied, it is necessary that at most a minority of processes are down at any
+  533  given time. Otherwise, no process can ever receive replies from a quorum again.
+
+  534  5 Recoverable Shared Objects in DCR
+
+  535  In this section we demonstrate the benefits of our quorum communication primitives for DCR:
+  536  generality and efficiency. We present protocols for two different shared objects: a multi-writer,
+  537  multi-reader (MWMR) atomic register and a single-writer, single-reader (SWSR) atomic set.
+  538  In both protocols, Read and Write are intended to be invoked serially.
+  539  The first protocol implements a shared, fault-tolerant MWMR atomic register in DCR. It
+  540  is more efficient and has better liveness conditions than prior work. The second protocol
+  541  implements a weaker abstraction – a shared, fault-tolerant SWSR atomic set. We use this
+  542  set as a basic storage primitive to provide processes with access to their own virtual stable
+  543  storage (VSS), an emulation of a local disk. This enables easy migration of protocols to DCR.
+
+  544  5.1 Multi-writer, Multi-reader Atomic Register
+  545  We present a protocol for implementing a fault-tolerant, recoverable multi-writer, multireader (MWMR) atomic register in DCR, which guarantees the linearizability of Reads
+  546  and Writes [19]. Our protocol is similar to the ABD protocol [3] but augments it with
+  547  a recovery procedure. Its pseudo-code is presented in Algorithm 2. Timestamps are used
+  548  for version control, as in the original protocol. A timestamp is defined as a triple (z, i, v[i]),
+  549  where z ∈ N, i ∈ [1..n] is the ID of the writing process, and v[i] is the incarnation ID of that
+  550  process. Timestamps are ordered lexicographically. By replacing each quorum write phase
+  551  in the original protocol with our Acquire-Quorum function and each quorum read phase
+  552  with Read-Quorum, we guarantee that every successful write phase is visible to subsequent
+  553  read phases, despite concurrent crashes and recoveries, thus preserving safety in DCR. The
+  554  Rebuild-State function reconstructs a value of the register at least as new as the one of
+  555  the last successful write that finished before the process crashed.
+
+  556  Discussion. The most recent protocol for fault-tolerant, recoverable, MWMR atomic registers is RADON [17]. The always-safe version of RADON, RADON(S), introduces an
+  557  R
+  558  additional communication phase after each quorum write to check whether any of the processes that acknowledged the write crashed in the meantime. This increases the latency
+  559  of both the Read and Write procedures. Also, our liveness conditions are weaker: our
+  560  protocol is live if any majority of processes do not crash for a sufficient period of time, while
+  561  RADON(S) requires a supermajority (3/ ) of processes to not crash.
+  562  R 4
+
+  563  5.2 Virtual Stable Storage
+  564  Algorithm 3 presents a protocol for a fault-tolerant, recoverable, SWSR set, where the reader
+  565  is the same as the writer. It guarantees that the values written by completed Writes and
+  566  those returned in Reads are returned in subsequent Reads. Given the group communication
+  567  primitives, its implementation is straightforward; the only additional detail is that values
+  568  read during recovery should be written back to ensure atomicity (line 17).
+
+  569  Discussion. We can use this set to provide a virtual stable storage abstraction. It is well
+  570  known that any correct protocol in CS can be transformed into a correct protocol in the
+=== PAGE 13 ===
+
+  571  E. Michael, D.R.K. Ports, N.Kr. Sharma, and A. Szekeres 36:13
+
+  572  Algorithm 2 Multi-writer, multi-reader atomic register in Diskless Crash-Recovery.
+  573  Volatile Local State: 15: function Update-State(val)
+  574  (t, d) ← (t0, d0 ) . Value of register 16: if val.t > t then
+  575  17: (t, d) ← val
+  576  1: procedure Write(dnew) 18: end if
+  577  2: guard: op 19: end function
+  578  . Get latest timestamp 20: function
+  579  ← Read-State
+  580  3: Σ Read-Quorum 21: return (t, d)
+  581  4: (tmax, dmax) ← max(Σ) 22: end function
+  582  . Write value
+  583  5: tnew ← (tmax.z + 1, i, v[i]) 23: function Rebuild-State(Σ)
+  584  6: Acquire-Quorum((tnew, dnew)) 24: (t, d) ← max(Σ)
+  585  7: end procedure 25: end function
+  586  8: procedure Read
+  587  9: guard: op
+  588  . Get latest register value
+  589  10: Σ ← Read-Quorum
+  590  11: (tmax, dmax) ← max(Σ)
+  591  . Write latest register value
+  592  12: Acquire-Quorum((tmax, dmax))
+  593  13: return dmax
+  594  14: end procedure
+
+  595  Algorithm 3 Single writer, single reader atomic set in Diskless Crash-Recovery.
+  596  Permanent Local State: 10: function Update-State(val)
+  597  owner . Owner of set flag 11: S ← S ∪ val
+  598  12: end function
+  599  Volatile Local State:
+  600  ← {} 13: function Read-State
+  601  S . Local set
+  602  14: return S
+  603  1: procedure (s) 15: end function
+  604  Write
+  605  2: guard: op ∧ owner 16: function Rebuild-State(Σ)
+  606  3: Acquire-Quorum({s}) 17: Acquire-Quorum(Σ)
+  607  4: S ← S ∪ {s} 18: S ← SΣ
+  608  5: end procedure 19: end function
+  609  6: procedure Read
+  610  7: guard: op ∧ owner
+  611  8: return S
+  612  9: end procedure
+
+  613  CRSS model by having processes write every message they receive (or the analogous state
+  614  update) to their local disk before sending a reply. By equipping each process with VSS, any
+  615  correct protocol in the CRSS model can then be converted into a safe protocol in the DCR
+  616  model, wherein processes write to crash-consistent quorums instead of stable storage.
+
+  617  6 Recoverable Replicated State Machines in DCR
+
+  618  We further extend our study of DCR to another specific problem: state machine replication
+  619  (SMR). SMR is a classic approach for building fault-tolerant services [18, 32] that calls for the
+  620  service to be modeled as a deterministic state machine, replicated over a group of replicas.
+  621  System correctness requires each replica to execute the same set of operations in the same
+  622  order, even as replicas and network links fail. This is typically achieved using a consensusbased replication protocol such as Multi-Paxos [20] or Viewstamped Replication [22, 29] to
+  623  establish a global order of client requests.
+
+  624  D I S C 2 0 1 7
+=== PAGE 14 ===
+
+  625  36:14 Recovering Shared Objects Without Stable Storage
+
+  626  We examined three diskless recovery protocols for SMR: Viewstamped Replication [22],
+  627  Paxos Made Live [7], and JPaxos [16]. We found that each of these protocols suffers from the
+  628  problem illustrated in the example at the beginning of Section 4: they use regular quorums of
+  629  responses (instead of crash-consistent ones) when persisting critical data, which could violate
+  630  their invariants. This can lead to operations being lost, or different operations being executed
+  631  at different replicas, both serious correctness violations. We provide here brief explanations
+  632  of the problems in each of these protocols. For more details on how the protocols work and
+  633  complete traces, see our technical report [27].
+  634  Viewstamped Replication [29] is the first consensus-based SMR protocol. The original
+  635  version of the protocol requires a single write to disk, during a view change. A recent VR
+  636  variant [22] replaces the write to disk with a write to a quorum of replicas, in an attempt to
+  637  eliminate the necessity for disks. However, it uses simple quorum responses, allowing the
+  638  recovering replica to violate an important invariant: once a replica committed to take part
+  639  in a new view, it will never operate in a lower view. As a result, an operation can complete
+  640  successfully and then be lost after a view change.
+  641  Paxos Made Live [7] is Google's Multi-Paxos implementation. To handle corrupted
+  642  disks, it lets a replica rejoin the system without its previous state and runs an (unspecified)
+  643  recovery protocol to restore the application state. The replica must then wait to observe
+  644  a full instance of successful consensus before participating. This successfully prevents the
+  645  replica from accepting multiple values for the same instance (e.g., one before and one after the
+  646  crash). However, it does not prevent the replica from sending different promises (i.e., leader
+  647  change commitments) to potential new leaders, which can lead to a new leader deciding a
+  648  new value for a prior successful instance of consensus.
+  649  JPaxos [16], a hybrid of Multi-Paxos and VR, provides a variety of deployment options,
+  650  including a diskless one. Nodes in JPaxos maintain an epoch vector that tracks which nodes
+  651  have crashed and recovered to discard lost promises made by prior incarnations of recovered
+  652  nodes. However, like VR and PML, certain failures during node recovery can cause the
+  653  system to lose state and violate safety properties.
+  654  All of these protocols can be correctly migrated to DCR, with little effort, using VSS
+  655  write operations, as explained in Section 5.2. This approach is straightforward, efficient, and
+  656  requires no invasive protocol modifications.
+
+  657  7 Conclusion
+
+  658  This paper examined the Diskless Crash-Recovery model, where process can crash and recover
+  659  but lose their state. We show how to provide persistence guarantees in this model using
+  660  new quorum primitives that write to and read from crash-consistent quorums. These general
+  661  primitives allow us to construct shared objects in the DCR model. In particular, we show a
+  662  MWMR atomic register protocol requiring fewer communication rounds and weaker liveness
+  663  assumptions than the best prior work. We also build a SWSR atomic set that can be used
+  664  to provide each process with virtual stable storage, which can be used to easily migrate any
+  665  protocol from traditional Crash-Recovery models to DCR.
+
+  666  Acknowledgments. We thank Marcos K. Aguilera for his comments on early drafts of this
+  667  work, as well as Irene Zhang, the anonymous reviewers, and Jennifer L. Welch for their
+  668  helpful feedback.
+=== PAGE 15 ===
+
+  669  E. Michael, D.R.K. Ports, N.Kr. Sharma, and A. Szekeres 36:15
+
+  670  References
+  671  1 Marcos K. Aguilera, Idit Keidar, Dahlia Malkhi, and Alexander Shraer. Dynamic atomic
+  672  storage without consensus. J. ACM, 58(2):7:1–7:32, April 2011.
+  673  2 Marcos Kawazoe Aguilera, Wei Chen, and Sam Toueg. Failure detection and consensus in
+  674  the crash-recovery model. In Proc. of DISC, 1998.
+  675  3 Hagit Attiya, Amotz Bar-Noy, and Danny Dolev. Sharing memory robustly in messagepassing systems. J. of the ACM, 42(1):124–142, January 1995.
+  676  4 Hagit Attiya, Hyun Chul Chung, Faith Ellen, Saptaparni Kumar, and Jennifer L. Welch.
+  677  Simulating a shared register in an asynchronous system that never stops changing. In Proc.
+  678  of DISC, 2015.
+  679  5 Roberto Baldoni, Silvia Bonomi, Anne-Marie Kermarrec, and Michel Raynal. Implementing
+  680  a register in a dynamic distributed system. In Proc. of ICDCS, 2009.
+  681  6 Roberto Baldoni, Silvia Bonomi, and Michel Raynal. Implementing a regular register in
+  682  an eventually synchronous distributed system prone to continuous churn. IEEE Trans.
+  683  Parallel Distrib. Syst., 23(1):102–109, January 2012.
+  684  7 Tushar D Chandra, Robert Griesemer, and Joshua Redstone. Paxos made live: An engineering perspective. In Proc. of PODC, 2007.
+  685  8 Danny Dolev, Roy Friedman, Idit Keidar, and Dahlia Malkhi. Failure detectors in omission
+  686  failure environments. In Proc. of PODC, 1997.
+  687  9 Colin J. Fidge. Timestamps in message-passing systems that preserve the partial ordering.
+  688  In Proc. of ACSC, 1988.
+  689  10 Eli Gafni and Dahlia Malkhi. Elastic configuration maintenance via a parsimonious speculating snapshot solution. In Proc. of DISC, 2015.
+  690  11 Rachid Guerraoui, Ron R. Levy, Bastian Pochon, and Jim Pugh. The collective memory
+  691  of amnesic processes. ACM Trans. Algorithms, 4(1):12:1–12:31, March 2008.
+  692  12 Michel Hurfin, Achour Mostéfaoui, and Michel Raynal. Consensus in asynchronous systems
+  693  where processes can crash and recover. In Proc. of SRDS, 1998.
+  694  13 Leander Jehl, Tormod Erevik Lea, and Hein Meling. Replacement: Decentralized failure
+  695  handling for replicated state machines. In Proc. of SRDS, 2015.
+  696  14 Leander Jehl, Roman Vitenberg, and Hein Meling. SmartMerge: A new approach to
+  697  reconfiguration for atomic storage. In Proc. of DISC, 2015.
+  698  15 Andreas Klappenecker, Hyunyoung Lee, and Jennifer L. Welch. Dynamic regular registers
+  699  in systems with churn. Theor. Comput. Sci., 512:84–97, November 2013.
+  700  16 Jan Kończak, Nuno Santos, Tomasz Żurkowski, Paweł T. Wojciechowski, and André
+  701  Schiper. JPaxos: State machine replication based on the Paxos protocol. Technical Report
+  702  EPFL-REPORT-167765, 2011.
+  703  17 Kishori M. Konwar, N. Prakash, Nancy A. Lynch, and Muriel Médard. RADON: Repairable
+  704  atomic data object in networks. In Proc. of OPODIS, 2016.
+  705  18 Leslie Lamport. Time, clocks, and the ordering of events in a distributed system. Comm.
+  706  of the ACM, 1978.
+  707  19 Leslie Lamport. On interprocess communication. Distributed Computing. Parts I and II,
+  708  1986.
+  709  20 Leslie Lamport. Paxos made simple. ACM SIGACT News 32, 2001.
+  710  21 Leslie Lamport, Dahlia Malkhi, and Lidong Zhou. Reconfiguring a state machine. SIGACT
+  711  News, 41(1):63–73, March 2010.
+  712  22 Barbara Liskov and James Cowling. Viewstamped Replication revisited. Technical report,
+  713  MIT, July 2012.
+  714  23 Jacob R. Lorch, Atul Adya, William J. Bolosky, Ronnie Chaiken, John R. Douceur, and
+  715  Jon Howell. The SMART way to migrate replicated stateful services. In Proc. of EuroSys,
+  716  2006.
+
+  717  D I S C 2 0 1 7
+=== PAGE 16 ===
+
+  718  36:16 Recovering Shared Objects Without Stable Storage
+
+  719  24 Nancy A. Lynch and Alexander A. Shvartsman. RAMBO: A reconfigurable atomic memory
+  720  service for dynamic networks. In Proc. of DISC, 2002.
+  721  25 Nancy A. Lynch and Mark R. Tuttle. An introduction to input/output automata. CWI
+  722  Quarterly, 2:219–246, 1989.
+  723  26 Michael Merritt and Gadi Taubenfeld. Computing with infinitely many processes under
+  724  assumptions on concurrency and participation. In Proc. of DISC, 2000.
+  725  27 Ellis Michael, Dan R. K. Ports, Naveen Kr. Sharma, and Adriana Szekeres. Recovering
+  726  shared objects without stable storage [extended version]. Technical Report UW-CSE-17-
+  727  08-01, University of Washington CSE, August 2017.
+  728  28 Peter Musial, Nicolas Nicolaou, and Alexander A. Shvartsman. Implementing distributed
+  729  shared memory for dynamic networks. Comm. of the ACM, 57(6), June 2014.
+  730  29 Brian M. Oki and Barbara H. Liskov. Viewstamped Replication: A new primary copy
+  731  method to support highly-available distributed systems. In Proc. of PODC, 1988.
+  732  30 R.C. Oliveira, R. Guerraoui, and A. Schiper. Consensus in the crash recover model. Technical Report TR-97/239, EPFL, Lausanne, Switzerland, 1997.
+  733  31 D.S. Parker, G.J. Popek, G. Rudisin, A. Stoughton, B.J. Walker, E. Walton, J.M. Chow,
+  734  D. Edwards, S. Kiser, and C. Kline. Detection of mutual inconsistency in distributed
+  735  systems. In IEEE Trans. on Software Engineering, 1983.
+  736  32 Fred B. Schneider. Implementing fault-tolerant services using the state machine approach:
+  737  A tutorial. ACM Computing Surveys, 1990.
+  738  33 Alexander Shraer, Benjamin Reed, Dahlia Malkhi, and Flavio P. Junqueira. Dynamic
+  739  reconfiguration of primary/backup clusters. In Proc. of USENIX ATC, 2012.
