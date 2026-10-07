@@ -14,7 +14,7 @@ sys.path.insert(0, str(TLAPLUS.parent / "knowledge-graphlite"))
 from kglite.importers import parse_bib  # noqa: E402
 
 DEST = pathlib.Path.home() / "icloud" / "2026" / "UVRR"
-BIB = TLAPLUS / "research" / "literature" / "turner" / "paxos-reconf-latest.bib"
+BIB = TLAPLUS / "paper" / "papers" / "references.bib"
 ZOTERO = pathlib.Path.home() / "Zotero" / "storage"
 ICLOUD = pathlib.Path.home() / "icloud" / "2026"
 

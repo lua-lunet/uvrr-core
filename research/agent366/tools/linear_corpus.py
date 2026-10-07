@@ -27,7 +27,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-BIB = ROOT / "research/literature/turner/paxos-reconf-latest.bib"
+BIB = ROOT / "paper/papers/references.bib"
 TOOL = ROOT / "research/agent366/tools/pdftolines.py"
 OUT = ROOT / "research/agent366/papers"
 ORDER = ROOT / "paper/paper.md.j2"

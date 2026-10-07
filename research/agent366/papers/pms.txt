@@ -1,10 +1,10 @@
 ---
 title: "Paxos Made Simple"
 authors:
-  - "L Lamport"
+  - "Leslie Lamport"
 year: "2001"
-publication: ""
-handle_url: "https://lamport.org/pubs/paxos-simple.pdf"
+publication: "ACM SIGACT News (Distributed Computing Column)"
+handle_url: "https://www.microsoft.com/en-us/research/publication/paxos-made-simple/"
 source_pdf: "research/agent366/papers/paxos-made-simple-2001.pdf"
 source_pdf_sha256: "c83b5141257730d6fd20097ef17ebd02a02dfcb1809bad5873b7739659bb3f2b"
 page_count: 14
@@ -12,7 +12,7 @@ extracted_text_runs: 750
 tool: "research/agent366/tools/pdftolines.py"
 tool_version: "pdftolines 1.0.0"
 extractor: "pdftohtml -xml -q -hidden -nodrm"
-extraction_date: "2026-10-05"
+extraction_date: "2026-10-07"
 reading_order: "fixed column: left column of each page in full, then right column"
 line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
 hyphenation: "words hyphenated across line breaks within a column are rejoined"

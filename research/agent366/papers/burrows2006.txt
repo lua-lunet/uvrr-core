@@ -12,7 +12,7 @@ extracted_text_runs: 2343
 tool: "research/agent366/tools/pdftolines.py"
 tool_version: "pdftolines 1.0.0"
 extractor: "pdftohtml -xml -q -hidden -nodrm"
-extraction_date: "2026-10-05"
+extraction_date: "2026-10-07"
 reading_order: "fixed column: left column of each page in full, then right column"
 line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
 hyphenation: "words hyphenated across line breaks within a column are rejoined"

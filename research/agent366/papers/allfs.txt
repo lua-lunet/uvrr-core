@@ -1,5 +1,5 @@
 ---
-title: "All File Systems Are Not Created Equal: On the Complexity of Crafting Crash Consistent Applications"
+title: "All File Systems Are Not Created Equal: On the Complexity of Crafting Crash-Consistent Applications"
 authors:
   - "Thanumalayan Sankaranarayana Pillai"
   - "Vijay Chidambaram"
@@ -8,8 +8,8 @@ authors:
   - "Andrea C {Arpaci-Dusseau}"
   - "Remzi H {Arpaci-Dusseau}"
 year: "2014"
-publication: ""
-handle_url: "https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-pillai.pdf"
+publication: "Proceedings of the 11th USENIX Symposium on Operating Systems Design and Implementation"
+handle_url: "https://www.usenix.org/conference/osdi14/technical-sessions/presentation/pillai"
 source_pdf: "research/agent366/papers/osdi14-pillai-allfs.pdf"
 source_pdf_sha256: "44dd92938871b09d3233a09ca1234313e920c451863eb85e5cc719b61ccfc18b"
 page_count: 17
@@ -17,14 +17,14 @@ extracted_text_runs: 3004
 tool: "research/agent366/tools/pdftolines.py"
 tool_version: "pdftolines 1.0.0"
 extractor: "pdftohtml -xml -q -hidden -nodrm"
-extraction_date: "2026-10-05"
+extraction_date: "2026-10-07"
 reading_order: "fixed column: left column of each page in full, then right column"
 line_numbering: "right-aligned, body lines only; blank separators and page markers unnumbered"
 hyphenation: "words hyphenated across line breaks within a column are rejoined"
 disclaimer: >-
   This is an AI extraction with line numbers, provided as-is with no warranty of correctness. OCR and extraction issues are possible; always read the original paper for the authoritative source.
 abstract: >-
-  This paper studies how file systems differ in the guarantees they provide after a crash. It examines application techniques for crash consistency and shows why assumptions about write ordering and persistence can fail across file systems.
+  We present the first comprehensive study of application-level crash-consistency protocols built atop modern file systems. We find that applications use complex update protocols to persist state, and that the correctness of these protocols is highly dependent on subtle behaviors of the underlying file system, which we term persistence properties. We develop a tool named BOB that empirically tests persistence properties, and use it to demonstrate that these properties vary widely among six popular Linux file systems. We build a framework named ALICE that analyzes application update protocols and finds crash vulnerabilities, i.e., update protocol code that requires specific persistence properties to hold for correctness. Using ALICE, we analyze eleven widely-used systems (including databases, key-value stores, version control systems, distributed systems, and virtualization software) and find a total of 60 vulnerabilities, many of which lead to severe consequences. We also show that ALICE can be used to evaluate the effect of new file-system designs on application-level consistency.
 tags: []
 ---
 
