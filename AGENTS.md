@@ -51,6 +51,11 @@ No instruction conflicts with Andon; if one appears to, Andon wins.
   established exceptions; do not add new narrative classes to documentation.
 - Never write to the Zotero sqlite directly; never create or maintain more
   than the one bib file the paper uses.
+- Zotero syncs to the `main` checkout only, forever: `main` is the single
+  export location for the bibliography. No other worktree exports from
+  Zotero. An update made anywhere else is a `cp` of the file out of the
+  `main` checkout into the working folder, a reference to that copy, and a
+  commit.
 
 ## Test and proofs discipline
 
