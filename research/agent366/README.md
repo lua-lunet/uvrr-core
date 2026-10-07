@@ -43,6 +43,6 @@ lives, and the sharp edges of the local API encoded once.
 ## A cold copy of the fragment corpus
 
 The knowledge-base fragment corpus is mirrored, append-only and content
-addressed, to `~/icloud/2026/UVRR/kb` by `research/kb-mirror/kb_mirror.py`. That
+addressed, to `~/icloud/2026/UVRR/kb`. That
 mirror is derived from git, so it is a backup rather than a second source of
 truth; its rules and its deferrals are stated in the README beside it.
