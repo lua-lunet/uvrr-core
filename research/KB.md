@@ -34,8 +34,8 @@ second export location.
 
 - **Files are the content; the database is the index.** The golden source of
   the paper is files in git. The graphlite index under `.kg/` is derived and
-  gitignored, so losing it costs nothing: `paper/kg_load.py` rebuilds it from
-  the fragments.
+  gitignored, so losing it costs nothing: it is rebuilt from the fragments
+  and the export.
 - **The index is never hand-edited and the database is never written
   directly.** Zotero is driven only through its HTTP API; its sqlite file is
   opened `mode=ro`, and only to read the local server id.
@@ -55,7 +55,8 @@ Recovery is a read, not an archaeology project.
 
 - Lost prose: the fragment files in git are the content; the mirror holds the
   same bytes under their hashes and is greppable without any tooling.
-- Lost index: rebuild from the fragments with `paper/kg_load.py`.
+- Lost index: rebuild it from the fragments and the export; the loading
+  tooling is recorded in the repository's history.
 - Lost bibliography: re-export from Zotero and replace the snapshot wholesale.
 - Lost reading folder: copy the corpus out of git; the copies are verified
   byte-identical by construction and by check.
@@ -73,6 +74,6 @@ Zotero library.
 - **The version model in the database.** Revisions will become an encoding in
   graphlite when the formalism is refactored; until then the mirror is the
   record and the mirror is honest about being scaffolding.
-- **The automatic hook.** Today the mirror is maintained by running
-  `research/kb-mirror/kb_mirror.py`; wiring it into the loader is deferred
-  until the refactor, because the loader's write path is what will change.
+- **The automatic hook.** The mirror is maintained by its own tool rather
+  than by the loader's write path; wiring it in is deferred until the
+  refactor, because the loader's write path is what will change.
