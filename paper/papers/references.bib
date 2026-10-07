@@ -96,6 +96,21 @@
   file = {/Users/consensussolutions/Zotero/storage/RLSBEIZQ/diskless-tr16.pdf}
 }
 
+@inproceedings{diskless-disc2017,
+  title = {Recovering {{Shared Objects Without Stable Storage}}},
+  booktitle = {32nd {{International Symposium}} on {{Distributed Computing}} ({{DISC}} 2017)},
+  author = {Michael, Ellis and Ports, Dan R. K. and Sharma, Naveen Kr. and Szekeres, Adriana},
+  year = 2017,
+  series = {{{LIPIcs}}},
+  volume = {46},
+  pages = {36:1-36:16},
+  doi = {10.4230/LIPIcs.DISC.2017.36},
+  url = {https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.DISC.2017.36},
+  abstract = {We show how to recover a replicated state machine (RSM) without stable storage. Existing protocols such as VRR and Raft rely on stable storage for recovery; this paper provides a construction that removes that requirement. The amnesia counterexample against VRR is in its Appendix A.1.},
+  keywords = {consensus},
+  file = {/Users/consensussolutions/Zotero/storage/LVSQ5NQS/diskless-disc2017-recovering-shared-objects.pdf}
+}
+
 @misc{diskpaxos,
   title = {Disk Paxos},
   author = {Gafni, Eli and Lamport, Leslie},
@@ -337,20 +352,6 @@
   file = {/Users/consensussolutions/Zotero/storage/RIWD63FQ/malkhi2005-omega-meets-paxos.pdf}
 }
 
-@inproceedings{michael2017,
-  title = {Recovering {{Shared Objects Without Stable Storage}}},
-  booktitle = {32nd {{International Symposium}} on {{Distributed Computing}} ({{DISC}} 2017)},
-  author = {Michael, Ellis and Ports, Dan R. K. and Sharma, Naveen Kr. and Szekeres, Adriana},
-  year = 2017,
-  series = {{{LIPIcs}}},
-  number = {46},
-  pages = {36:1-36:16},
-  doi = {10.4230/LIPIcs.DISC.2017.36},
-  url = {https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.DISC.2017.36},
-  abstract = {We show how to recover a replicated state machine (RSM) without stable storage. Existing protocols such as VRR and Raft rely on stable storage for recovery; this paper provides a construction that removes that requirement. The amnesia counterexample against VRR is in its Appendix A.1.},
-  file = {/Users/consensussolutions/Zotero/storage/LVSQ5NQS/diskless-disc2017-recovering-shared-objects.pdf}
-}
-
 @inproceedings{moraru2013,
   title = {There Is More Consensus in {{Egalitarian}} Parliaments},
   booktitle = {Proceedings of the {{Twenty-Fourth ACM Symposium}} on {{Operating Systems Principles}}},
@@ -451,11 +452,17 @@
   file = {/Users/consensussolutions/Zotero/storage/TVX8WHWY/fast18-alagappan-par.pdf}
 }
 
-@misc{pms,
-  title = {Paxos Made Simple},
-  author = {Lamport, L.},
+@article{pms,
+  title = {Paxos {{Made Simple}}},
+  author = {Lamport, Leslie},
   year = 2001,
-  url = {https://lamport.org/pubs/paxos-simple.pdf},
+  month = dec,
+  journal = {ACM SIGACT News (Distributed Computing Column)},
+  volume = {32},
+  number = {4},
+  pages = {51--58},
+  doi = {10.1145/568425.568433},
+  url = {https://www.microsoft.com/en-us/research/publication/paxos-made-simple/},
   abstract = {The Paxos algorithm, when presented in plain English, is very simple.},
   keywords = {consensus},
   file = {/Users/consensussolutions/Zotero/storage/JVPHJGEP/paxos-made-simple-2001.pdf}
@@ -601,3 +608,4 @@
   abstract = {ZooKeeper is a coordination service for distributed applications. The paper describes its wait-free interface, replicated architecture, implementation, and evaluation.},
   file = {/Users/consensussolutions/Zotero/storage/2Z57LAX2/zookeeper-atc10-hunt.pdf}
 }
+

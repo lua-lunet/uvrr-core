@@ -49,6 +49,8 @@ No instruction conflicts with Andon; if one appears to, Andon wins.
   explicitly requested by the User or added manually by the User. Dated
   evidence artifacts (lab book, audit logs, rung transcripts) are the
   established exceptions; do not add new narrative classes to documentation.
+- Never write to the Zotero sqlite directly; never create or maintain more
+  than the one bib file the paper uses.
 
 ## Test and proofs discipline
 

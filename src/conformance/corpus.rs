@@ -777,6 +777,20 @@ pub fn prepare_ok(view: Ballot, slot: Slot) -> Message {
     }
 }
 
+/// A [`crate::wire::Tag::Commit`] announcement as the exporter builds it, at the view named.
+pub fn commit(view: Ballot, frontier: Slot) -> Message {
+    Message {
+        header: Header {
+            tag: Tag::Commit,
+            view,
+            slot: frontier,
+        },
+        body: Body::Commit {
+            committed: frontier,
+        },
+    }
+}
+
 /// A [`crate::wire::Tag::GossipRequest`] as the exporter builds it, at the view named.
 pub fn gossip_request(view: Ballot, prepared: Slot, committed: Slot) -> Message {
     Message {
