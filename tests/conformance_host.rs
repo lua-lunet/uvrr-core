@@ -262,7 +262,8 @@ fn the_session_endpoints_replay_a_case_through_the_host_interface() {
 
 /// The export and sync gate for the Hurl suite: the suite generated from
 /// the committed corpus equals the committed suite, file by file, and the
-/// suite directory holds exactly the generated families.
+/// suite directory holds exactly the generated families. Both failures
+/// name the files and the regeneration command.
 #[test]
 fn the_committed_hurl_suite_equals_the_generated_suite() {
     let generated = suite::generated_suite();
@@ -270,23 +271,38 @@ fn the_committed_hurl_suite_equals_the_generated_suite() {
     let expected: Vec<&str> = generated.iter().map(|(name, _)| name.as_str()).collect();
     let declared: Vec<&str> = committed.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(
-        declared, expected,
-        "the suite directory holds exactly the generated families; a hand-written file \
-         carries no `corpus-` prefix and the gate leaves it alone"
+        declared,
+        expected,
+        "{} does not hold exactly the generated families; a hand-written file carries no\n\
+         `corpus-` prefix and the gate leaves it alone, and a generated family that is missing\n\
+         fails here. Regenerate and commit the suite with\n    {REGEN}",
+        suite::SUITE
     );
     for ((generated_name, generated_text), (name, text)) in generated.iter().zip(&committed) {
         assert_eq!(name, generated_name, "the families are in order");
         assert_eq!(
-            text, generated_text,
-            "{name}: the committed suite equals the generated suite; a corpus change that \
-             was not re-exported fails here"
+            text,
+            generated_text,
+            "{}/{} is stale: the suite generated from the committed corpus differs from the\n\
+             committed bytes, so a corpus change was never re-exported. Regenerate and commit\n\
+             it with\n    {REGEN}",
+            suite::SUITE,
+            name,
         );
     }
 }
 
+/// The command that regenerates the committed suite. Every message the
+/// drift gate fails with names it, because a failure that says only what
+/// differs leaves the reader to guess what to run.
+const REGEN: &str = "cargo test --features conformance_host --test conformance_host -- --ignored export_hurl  \
+     (make hurl-export)";
+
 /// Regenerates the Hurl suite from the committed corpus. Ignored by
 /// default: `cargo test --features conformance_host --test conformance_host
-/// -- --ignored export_hurl`.
+/// -- --ignored export_hurl`, which is what `make hurl-export` runs. The
+/// export overwrites whatever the committed file holds, so a hand edit
+/// belongs in the corpus.
 #[test]
 #[ignore = "the exporter writes the suite; run it deliberately"]
 fn export_hurl() {

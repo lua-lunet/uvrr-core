@@ -20,11 +20,13 @@ RATE       ?= 20
 INTERVAL   ?= 10
 WORKLOAD   ?= lin-kv
 
-.PHONY: help build check test conformance test-clean test-partition test-kill test-resurrect test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local labbook labbook-serve
+.PHONY: help build check test conformance corpus-export hurl-export test-clean test-partition test-kill test-resurrect test-all serve e2e docker-build docker-run tla tla-build tla-run tla-even tla-deep tla-mutations tla-local labbook
 
 help:
 	@echo "make test            - the Rust test suite"
 	@echo "make conformance     - the corpus replayed over HTTP by the hurl client"
+	@echo "make corpus-export   - regenerate the compliance corpus (commit the result)"
+	@echo "make hurl-export     - regenerate the Hurl suite from the corpus (commit the result)"
 	@echo "make check           - fmt, clippy and the Rust test suite"
 	@echo "make build           - release-build the cdylib and the Maelstrom node"
 	@echo "make test-clean      - lin-kv, no faults (plumbing + baseline linearizability)"
@@ -34,7 +36,6 @@ help:
 	@echo "make test-all        - lin-kv under partition + kill + pause"
 	@echo "make serve           - browse past results at http://localhost:8080"
 	@echo "make labbook         - build the proof lab book (docs/labbook/index.html)"
-	@echo "make labbook-serve   - serve the lab book with Mistral voice at http://127.0.0.1:8613"
 	@echo "make e2e             - Docker: build image and run all Maelstrom tests"
 	@echo "make tla             - Docker: model-check the TLA+ safety models"
 	@echo "make tla-even        - Docker: exhaustively check the even-split transition"
@@ -65,13 +66,23 @@ conformance:
 	#   cargo test --features conformance_host --test conformance_host -- --ignored export_hurl
 	cargo test --features conformance_host --test conformance_host
 
+# The two exporters for the generated compliance artefacts, the corpus
+# first and then the Hurl suite that replays it. Both artefacts are
+# committed files and both are generated: a reference change that moves a
+# byte of either requires a regeneration here and a commit of the result,
+# or the sync gates fail (see tests/compliance/mod.rs). These targets wrap
+# the exporters exactly as they are invoked, so there is one spelling.
+corpus-export:
+	cargo test --all-features --test compliance -- --ignored export_corpus
+
+hurl-export:
+	cargo test --features conformance_host --test conformance_host -- --ignored export_hurl
+
 check:
 	cargo fmt -- --check
 	cargo clippy --all-targets -- -D warnings
 	# The Maelstrom adapter binary is feature-gated; the lane must build it.
 	cargo test --features maelstrom
-	# The uvrr-reconfig operator binary is feature-gated; the lane must build it.
-	cargo test --features "maelstrom sysadmin_tool"
 
 # The lanes run the node's volatile default: no state dir, no file I/O.
 # Persistence is opt-in — `MAELSTROM_UVRR_STATE_DIR`, set per invocation.
@@ -115,10 +126,7 @@ serve:
 	cd maelstrom && $(LEIN) run serve
 
 labbook:
-	python3 .tmp/labbook/build_labbook.py
-
-labbook-serve:
-	python3 .tmp/labbook/serve_labbook.py
+	python3 scripts/build_labbook.py
 
 # Docker targets - no local JDK/Leiningen required
 # Works with Colima (no BuildKit, no volume mounts).

@@ -128,7 +128,7 @@ impl HeaderSlotRole {
 /// | [`crate::wire::Tag::GetState`] | `Frontier` | the requester's accepted frontier; the fetch resumes one past it (§4, §13.1 step 5) |
 /// | [`crate::wire::Tag::NewState`] | `Frontier` | the last slot the chunk covers; `more` on a partial answer resumes from the requester's cursor (§4, §13.1 step 5) |
 /// | `Reincarnation` | `Absent` | names two identities, no history claim (`docs/uvrr-protocols.md`, the reincarnation chapter §4) |
-/// | [`crate::wire::Tag::Fuse`] | `Operation` | `first_slot`, the slot of the first packed op; each subsequent op occupies `first_slot + i` (`docs/uvrr-fuse.md` §1) |
+/// | [`crate::wire::Tag::Fuse`] | `Operation` | `first_slot`, the slot of the first packed op, carrying that slot's ballot; each subsequent op occupies `first_slot + i` at its own ballot (`docs/uvrr-fuse.md` §1) |
 /// | [`crate::wire::Tag::FuseOk`] | `Operation` | the last accepted slot of the batch (`docs/uvrr-fuse.md` §3) |
 /// | [`crate::wire::Tag::CommitBatch`] | `Frontier` | the last committed frontier of the batch, mirroring [`crate::wire::Tag::Commit`] (`docs/uvrr-fuse.md` §4) |
 /// | [`crate::wire::Tag::GossipRequest`] | `Absent` | the frontiers ride the body (`docs/uvrr-protocols.md`, the rejoin chapter §2–§3) |
@@ -177,7 +177,8 @@ pub fn header_slot_role(tag: Tag) -> HeaderSlotRole {
 ///    history re-selection, signalled by `retained` changing.
 /// 2. **View succession** (§8.7.3, W1): `current` never regresses; a change is a
 ///    legal successor, delegated to [`crate::ids::Ballot::is_legal_successor`], never
-///    re-derived.
+///    re-derived, or the commit-time nomination walk of the per-slot era law
+///    (`docs/uvrr-fuse.md` §4 step 4), checked on the pair's own evidence.
 /// 3. **Retained provenance** (§1.3): `retained` changes only on re-selection,
 ///    restart, or a [`crate::wire::Tag::DoViewChange`]/[`crate::wire::Tag::StartView`]/[`crate::wire::Tag::NewState`] peer message.
 /// 4. **Revision**: exactly +1, so a stale plan is rejected by comparison (§12).
@@ -239,8 +240,79 @@ fn rule1_frontiers_violated(old: &Progress, new: &Progress) -> bool {
 /// with era equal or +1 (§8.7.3, W1). The rule is [`Ballot::is_legal_successor`]'s; this
 /// function only applies it, because two copies of an inequality are two chances
 /// to get it wrong.
+///
+/// The one advance past that adjacency is the commit-time nomination walk
+/// (`docs/uvrr-fuse.md` §4 step 4, the NOMINATE chapter of
+/// `docs/uvrr-protocols.md`): under the per-slot era law a fused slab spans
+/// one era per establishing slot, and the riders the slab carries bump the
+/// serving view across every era the slab's commit establishes, in the one
+/// published transition, so the leader stays stable across the slab's eras.
+/// The gate admits the walk on the pair's own evidence, never on trust in
+/// how the candidate was built: the pair sits at the §1.3 [`Status::Normal`]
+/// equality (the bump re-selects no history, so `retained` joins `current`),
+/// the ballot and the view number both strictly increase, the per-slot
+/// advance law holds — the total era jump divided by the slot count the
+/// transition commits lies in `(0, 1]` — and every era the
+/// jump spans is GROUNDED, established by a slot the new committed frontier
+/// covers. A jump that fails any conjunct is no walk and refuses; every view
+/// change keeps the `+1` adjacency, enforced at construction by
+/// [`crate::progress::Progress::with_view_change`] and
+/// [`crate::progress::Progress::with_view_installed`].
 fn rule2_view_succession_violated(old: &Progress, new: &Progress) -> bool {
-    new.current() != old.current() && !old.current().is_legal_successor(new.current())
+    if new.current() == old.current() {
+        return false;
+    }
+    if old.current().is_legal_successor(new.current()) {
+        return false;
+    }
+    !is_grounded_nomination_walk(old, new)
+}
+
+/// The walk clause of rule 2: the serving view may cross more than one era
+/// in one transition exactly when the crossing is the nomination walk —
+/// `Normal` at the §1.3 equality, both components strictly advancing, the
+/// per-slot advance law, and every era in `(old.era, new.era]` established
+/// by a slot the new committed frontier covers, so the node serves no era
+/// its own committed history has not established.
+///
+/// The per-slot advance law (Dijkstra's Repetitive Construct: the slab is
+/// transmitted as one uninterruptible unit, and within it everything is one
+/// slot at a time): the fused message carries a slot count and the view
+/// jumps by a total; the quotient — the total era jump divided by the slot
+/// count the transition commits — is a decimal that MUST lie in `(0, 1]`.
+/// One era per establishing slot: no slot advances the view by more than
+/// its unit, and a walk advances. In integer terms the check is
+/// `1 <= jump <= committed` — in particular a jump with no slots carrying
+/// it (the quotient's denominator zero, every spanned era established by an
+/// earlier commit) is not a commit-time walk and refuses.
+fn is_grounded_nomination_walk(old: &Progress, new: &Progress) -> bool {
+    let (from, to) = (old.current(), new.current());
+    if new.status() != Status::Normal || new.retained() != to {
+        return false;
+    }
+    if to.era <= from.era || to.view <= from.view {
+        return false;
+    }
+    let jump = u64::from(to.era.0 - from.era.0);
+    let count = new.committed().0.saturating_sub(old.committed().0);
+    if jump > count {
+        return false;
+    }
+    let mut era = from.era;
+    while era < to.era {
+        let Some(next) = era.next() else {
+            return false;
+        };
+        let grounded = new
+            .config()
+            .record(next)
+            .is_some_and(|record| record.established_by <= new.committed());
+        if !grounded {
+            return false;
+        }
+        era = next;
+    }
+    true
 }
 
 /// Rule 3, `retained` identifies the provenance of the retained history (§1.3),
@@ -278,8 +350,8 @@ fn rule3_retained_violated(old: &Progress, new: &Progress, input: &InputKind) ->
             // §2–§3), so it can never reselect a retained history.
             | Tag::GossipRequest => false,
             // The fuse envelopes are ordinary accept-path packing
-            // (`docs/uvrr-fuse.md`): receiving a `Fuse` is defined as
-            // receiving the equivalent sequence of `Prepare`s at the same
+            // (`docs/uvrr-fuse.md`): receiving a `Fuse` is receiving the
+            // equivalent sequence of `Prepare`s, every packed slot at its own
             // ballot, and none of the three reselects a retained history.
             Tag::Fuse | Tag::FuseOk | Tag::CommitBatch => false,
         },

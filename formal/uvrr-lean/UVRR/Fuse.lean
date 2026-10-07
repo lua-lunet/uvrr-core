@@ -133,7 +133,9 @@ theorem five_quorum_of_survivor_mass (q : NSet Nat) (k i : Nat)
   unfold fiveQuorums WeightedGeneral.majority
   omega
 
-/-- A shared ballot in the initial era covers at most the next era under this guard. -/
+/-- The ordinary accept path's era guard, entry era at most the ballot era
+and its successor, leaves at most one era of headroom between the ballot's
+era and the last packed era. -/
 theorem same_ballot_era_guard (initialEra lastEraOffset ballotEra : Nat)
     (hballot : ballotEra = initialEra)
     (hguard : ∀ i, i ≤ lastEraOffset → initialEra + i ≤ ballotEra + 1) :
@@ -159,16 +161,19 @@ def ScheduleFamily {A : Type} (nodes : List A) (eraWeight : Nat → A → Nat) :
 response set `R` acknowledges every packed slot: the atomic batch property
 (`docs/uvrr-fuse.md` §2) — a node processes the whole slab before reading any
 other node's message, so the batch cannot be interrupted; all pass or all
-fail. The fuse header ballot is both Phase 1 and Phase 2 for every command in
-the fused batch, so the same replies count at every slot; a majority on the
-first transition is a majority on every transition, with the same outcome.
+fail. Every packed slot carries its own ballot, the head ballot in the header
+and the tail ballot at the slab's last slot, and accepting a Phase2 at a slot
+is a promise to that slot's ballot even when its Phase1 was lost; one reply
+set therefore counts at every packed slot, each counted at that slot's ballot,
+and a majority on the first transition is a majority on every transition the
+same response set qualifies for.
 
 Quorum-backed evidence at the first transition telescopes: the base case is
 `R` a quorum at `E0` (the first transition's quorum condition), the
 preservation step carries `R` across `E0 → E1` — exactly the first transition
-passing — and the finite induction over the batch (the one Lamport runs:
-one leader, one ballot, all future slots, until interrupted) certifies every
-slot of the fused range, including the second transition's slots at
+passing — and the finite induction over the batch (the one Lamport runs: one
+leader, one ballot, that ballot's future slots, until interrupted) certifies
+every slot of the fused range, including the second transition's slots at
 `E1 → E2`, provided the schedule's quorum family is preserved at both
 boundaries. -/
 theorem telescope_pass {A : Type} (nodes : List A) (eraWeight : Nat → A → Nat)

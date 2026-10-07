@@ -371,9 +371,12 @@ three-node reincarnation paid one round trip per era transition. The temptation 
 new message family with its own state machine.
 
 **Decision.** Fuse is message packing. One datagram carries the schedule's per-slot
-`Prepare` messages: shared ballot in the header, `first_slot`, `count ×
-SystemOperation`. Receiving a `Fuse` is defined as receiving the equivalent sequence of
-`Prepare`s at the same ballot; per-op safety is the ordinary accept path. Replies are
+`Prepare` messages: the head ballot in the header, `first_slot`, `count ×
+SystemOperation`. Every packed slot carries its own ballot, computed by the
+solver as it folds the schedule slot by slot; the header carries only the first of
+them. Accepting a Phase2 at a slot promises that slot's ballot even when the
+Phase1 was lost, so the acceptor ends promised at the tail ballot, the slab's last.
+Per-op safety is the ordinary accept path. Replies are
 `FuseOk` and `CommitBatch` batches of slots, never ranges. The envelope is atomic in
 transport (single checksummed datagram, cache-line scale), so the first op in the batch
 decides the whole batch and no proof over interruptions mid-reconfiguration is owed.
@@ -626,7 +629,14 @@ results never enter consensus state. A host may keep an ephemeral
 association exists, discarding it otherwise; a crash clears associations, so an I/O
 failure leaves the write outcome unknowable to the caller, who must reconnect and
 query according to the host protocol. Transport, leader forwarding, connection
-tracking, and response formatting remain host extensions.
+tracking, and response formatting remain host extensions. The role a node
+holds when it terminates alien application traffic is the **gateway**; the
+gateway, the session it holds, and the obligations an application protocol
+owes are specified in `docs/uvrr-application-protocol.md`. The reference
+client-facing deployment (a two-site cluster behind a layer-4 load balancer,
+the command circuit from accept to reply, and where the paper's
+one-outstanding-request rule lands in the host) is stated in
+`docs/clients.md`.
 
 **Recorded API consequences** (normative for the implementation items that follow):
 

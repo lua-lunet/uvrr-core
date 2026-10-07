@@ -204,6 +204,29 @@ visibly. The export and sync gate runs in CI: the runner replays the
 committed corpus, and the regenerator rebuilds it in memory and
 compares, so a drifted corpus fails the gate without writing.
 
+### 6.1 Regenerating the generated artefacts
+
+Two committed file sets are generated from the reference behaviour, and
+they are regenerated in that order, because the second is a function of
+the first:
+
+| artefact | directory | command |
+|---|---|---|
+| the corpus | `tests/compliance/corpus/` | `make corpus-export`, which runs `cargo test --all-features --test compliance -- --ignored export_corpus` |
+| the Hurl suite | `tests/hurl/` | `make hurl-export`, which runs `cargo test --features conformance_host --test conformance_host -- --ignored export_hurl` |
+
+Both artefacts are committed files and both are gates. A pull request
+whose committed artefacts differ from the regenerated ones fails a
+named CI step, `the generated compliance artefacts are current`, and
+the two in-process gates fail with the file that differs and the
+command that regenerates it. A tag regenerates both in its own
+checkout and attaches them to the release.
+
+The exporters overwrite without guard: a hand edit inside either
+artefact directory is destroyed by the next export, silently. An edit
+belongs in the reference behaviour (`tests/compliance.rs`), and the
+artefact is the mechanical consequence of it.
+
 ## 7. Register
 
 The corpus files live in `tests/compliance/corpus/`, one file per
@@ -211,6 +234,12 @@ family. The reference runner reads every file and executes every case;
 a failure reports the case `id`, the clause, and the first mismatch.
 The suite grows by families; a family MUST state its clauses before its
 cases are generated.
+
+The corpus has a second copy downstream: `lunet-locks` pins this crate
+at `ext/uvrr-core` and carries its own copy of `tests/compliance/corpus`
+at the pinned version, so a regeneration here is a change the
+downstream lock must re-sync before its own consumers see the corpus
+the release carries.
 
 The families are seeded per Lean rung, and each case names its theorem:
 

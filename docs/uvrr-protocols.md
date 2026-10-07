@@ -134,10 +134,11 @@ thread-safely, with no lock and no mutation.
 
 The planner's output is what travels on the wire. Under Fuse
 (`docs/uvrr-fuse.md`) a schedule of at least two operations is packed:
-one datagram per recipient, the shared ballot in the envelope header, each op
-at its own consecutive slot. The planner certifies the sequence once; the
+one datagram per recipient, the head ballot in the envelope header, each op
+at its own consecutive slot and its own ballot, the solver computing those
+ballots slot by slot. The planner certifies the sequence once; the
 envelope is delivered atomically; the first op in the batch decides the whole
-batch.
+batch, and the acceptor that folds it ends promised at the tail ballot.
 
 ### 6. The reincarnation sequence
 
@@ -692,49 +693,47 @@ caught up. The gossip layer is the outer complement to that mechanism:
 
 ## Weighted reconfiguration solver
 
-`uvrr::solver::solve(current, target, available)` returns committed-era batches
-and their resulting configurations. It preserves a strict available majority
-at every boundary and intersects consecutive strict-majority quorum families.
-It uses only the existing operation alphabet and adds no dependencies.
-The target's exact membership order and weights are honoured; its era is ignored.
+`uvrr::solve::solve(current, target)` returns the legal operation path from
+the current configuration to the target, and `uvrr::solve::fold(path,
+current, (era, view, slot))` places the path into slots, computing the era
+and the view each slot establishes. The search is exhaustive over the mover
+set with a visited set over membership shapes — at most 16 members, weights
+in {0, 1, 2} — so termination follows from the finite space, and `None` is
+a proof of unreachability under the rules, not a timeout. Legality is
+judged by `Configuration::apply` alone: the search never re-implements a
+rule, so the solver and the fold cannot disagree about what is legal. The
+target's exact membership order and weights are honoured; its era is
+ignored. The candidate movers are ordered towards the target: joins and
+weight raises first, drains and departures after.
 
-For identical ordered identities, the solver decreases unavailable weights,
-increases available weights, decreases available weights, then increases
-unavailable weights. This takes the minimum number of unit edits. Exact global
-doubling or halving takes one batch. For different identities or order, the
-longest common prefix the two orders share, member and weight alike, stays
-put: the current's tail drains and leaves, and the target's tail joins and
-takes its weights, each live joiner promoted at its join, the dead joiners'
-weights restored last. A prefix whose own mass cannot hold a majority falls
-back to the available one-voter intermediate, which reserves one live voter
-and transfers the vote to a live target member when necessary, complete
-within the membership cap but reducing tolerance of additional failures.
-The target's exact membership order and weights are honoured; its era is
-ignored. Every step carries a `Nominate` rider that bumps the view into
-the era the step establishes, keeping the leader constant through the plan
-(the NOMINATE chapter); the serving view is an argument, a
-snapshot supplied by the operator like the availability.
+The fold advances the era at every establishing slot and mints the
+`Nominate` rider that keeps the leader stable across the reconfiguration
+(the NOMINATE chapter): the serving view is an argument, a snapshot supplied
+by the operator. The wire shape of a multi-operation step is the fuse
+envelope's (`docs/uvrr-fuse.md`): the step's operations pack one per
+consecutive slot, the per-slot eras the fold computed.
 
-`solve_replacement(current, old, new, available)` retains the old member's weight
-and position under a fresh identity. It prefers the full standard schedule when
-its intermediate configurations remain available and its endpoint matches:
-two batches for three unit voters, six including doubling and halving for five.
-Otherwise it uses the general constructor. Replan a partially committed request
-with `solve` from the current configuration to the original target.
-
-Run the operator tool from the repository:
+The offline handle is the operator tool:
 
 ```sh
-cargo run --features sysadmin_tool --bin uvrr-reconfig -- plan --current members.jsonl --replace 2:3 --available 0,1,3
-cargo run --features sysadmin_tool --bin uvrr-reconfig -- apply --plan plan.jsonl --leader 10.0.0.1:9000
+cargo run --bin uvrr-solve -- current.txt target.txt 3
 ```
+
+It reads the two configurations (one `node <id> <weight>` record per line,
+the deployment's running `era` and `view` named in the current file) and
+prints the plan one slot per line: the slot, the era and the view the slot
+establishes, and the operations the slot carries, riders included.
+`unreachable` is a proof, not an error.
 
 Acquire state before promoting a learner.
 Select a live, positive-weight leader using a quorum-backed view change when
 needed; `next_view_selecting` can select a later view directly without polling
 through each skipped view. A returned plan does not itself send or acknowledge
 messages, commit configurations, or establish leadership. Availability is a
-snapshot supplied by the operator: re-evaluate it when failures change.
+judgement the operator makes in naming the target: the solver's paths are
+legal under every quorum interpretation of the membership, and the runtime's
+gates re-judge every boundary (Q1) at proposal time, but no solver can make
+a dead voter vote.
 
 ### Reconfiguration plans
 
@@ -748,13 +747,14 @@ step line per era.
 
 ```
 {"kind":"plan","version":1,"initial":[{"id":0,"weight":1},{"id":1,"weight":1},{"id":2,"weight":1}],"target":[{"id":0,"weight":1},{"id":1,"weight":1},{"id":3,"weight":1}]}
-{"kind":"step","ops":[{"op":"decrement","node":2},{"op":"join","node":3,"position":2}]}
-{"kind":"step","ops":[{"op":"increment","node":3},{"op":"leave","node":2}]}
+{"kind":"step","ops":[{"op":"decrement","node":2},{"op":"join","node":3,"position":2},{"op":"nominate","from":0,"offset":2}]}
+{"kind":"step","ops":[{"op":"increment","node":3},{"op":"leave","node":2},{"op":"nominate","from":2,"offset":1}]}
 ```
 
 `target` is the membership the steps reach. The operation vocabulary is exactly
 the existing `SystemOperation` alphabet, `increment`, `decrement`, `double`,
-`halve`, `join` (with `position`), `leave`, each naming `node` where the
+`halve`, `join` (with `position`), `leave`, and the `nominate` rider (with
+`from` and `offset`, the NOMINATE chapter), each naming `node` where the
 operation has one. JSON is parsed once at the tool perimeter into the
 serde-free `Plan`; the core never sees JSON. The codec refuses, on the way in,
 an initial membership that is not a legal configuration, any step the fold
@@ -779,18 +779,17 @@ poll is usually empty, but a plan never waits behind client traffic. The core
 side is the `Input::SubmitPlan` input and the `Effect::AdminResponse` verdict
 effect.
 
-`plan` computes the schedule with the solver and writes plan JSONL to stdout
-or `--out`. `apply` sends the plan as ONE UDP datagram to the leader's admin
-port, prefixed by the header line `{"kind":"plan_submit","version":1}`; a
-serialised submission larger than 60 000 bytes is refused locally. The
-verdict is one JSON line, `{"kind":"plan_response","verdict":"accepted"}` or
-`{"kind":"plan_response","verdict":"rejected","reason":"..."}`; `apply` waits
-ten seconds for it, prints it, and exits 0 on `accepted`, 1 on `rejected`.
-Availability is a snapshot supplied by the operator: re-evaluate it when
-failures change.
+The submission is one datagram to the leader's admin ingress: the header
+line `{"kind":"plan_submit","version":1}`, then the plan JSONL; a
+serialised submission larger than 60 000 bytes is refused at the
+perimeter. The verdict is one JSON line,
+`{"kind":"plan_response","verdict":"accepted"}` or
+`{"kind":"plan_response","verdict":"rejected","reason":"..."}`. The solver
+renders the steps; the host renders the artefact and carries it.
 
 For `(1,2,1,2) -> (2,1,2,1)`, total mass is unchanged but old quorum `{B,D}` and
-new quorum `{A,C}` are disjoint. The solver increments A and C before decreasing
+new quorum `{A,C}` are disjoint. The solver's candidate order puts the
+weight raises first, so the path increments A and C before decreasing
 B and D, producing four safe boundaries. Failure tolerance is separate: weights
 `(1,1,2,2)` split across two datacentres tolerate loss of the lighter datacentre,
 but not the heavier one. The solver's guarantee is for `WeightedMajority`;
@@ -847,9 +846,25 @@ the era the nomination's own establishing run established, so the bump
 enters the new arithmetic directly: the leader under the new
 configuration is `record(era).primary(from + offset)`, the same node the
 old arithmetic elected. The era component is never a claim the message
-carries: it is the fold's own answer, and the §8.7.3 accept-time
-relation already bounds it, an entry two eras past a node's view era is
-refused at accept, so no committed nomination can name a two-era jump.
+carries: it is the fold's own answer. Under the per-slot era law
+(`docs/uvrr-fuse.md` §1) a fused slab spans one era per establishing
+slot, so the run a rider sits in can establish an era several past the
+view the committing advance started from, and a committed nomination
+lands the serving view there in the one published transition — the walk
+is grounded, every spanned era established by a slot the same advance
+commits, which is the clause the transition gate's view-succession rule
+checks. The law the walk is judged by is the per-slot advance: the slab
+is transmitted as one uninterruptible unit and within it everything is
+one slot at a time, so the total era jump divided by the slot count the
+advance commits is a decimal in `(0, 1]`: one era per establishing
+slot, no slot advancing the view by more than its unit, the walk always
+advancing. A jump with no slots carrying it is not a commit-time walk.
+The era window's adjacency, era equal or +1, still governs every view
+change; the bump is not a view change, it is a commit. The walk's
+correctness is not pen and paper: the same schedule fed through a node
+one slot at a time, each step honouring the rule, lands in the same
+final state the fused jump does, and that equivalence is the jump's
+proof.
 
 The nomination issues no `StartViewChange`, no fence, no evidence, no
 install: the bump is not a view change, it is a commit. At the wrap the
@@ -894,18 +909,19 @@ from 0, or a `Decrement` to 0.
 
 ### The solver's emission
 
-`solve` and `solve_replacement` take the serving view, the view number
-the leader holds when the plan begins, and name it in every emitted
-nomination. The emission pass runs over the computed steps: walking with
-the running view `v`, the view the parameter names plus the advances of
-the steps already walked, and the previous step's configuration, every
-step whose batch carries no scaling operation gains a
-`Nominate { from: v, offset: u }` as its last sub-operation, `u` the
-least positive offset with `primary(next, v + u) == primary(previous, v)`.
-The rider's bump is the era entry the §8.7.8 gate demands: the
-re-electing offset across a wrap that would move the leader, and the
-count, the least offset that preserves the index, at a step that keeps
-it, which is the same view the machinery's own §13.4 selector names.
+`uvrr::solve::solve` computes the legal path and `uvrr::solve::fold` emits
+it one step per establishing slot, taking the serving view, the view
+number the leader holds when the plan begins, and naming it in the first
+emitted nomination. The fold walks the running view `v` — the view the
+parameter names plus the advances of the steps already walked — and every
+establishing slot whose operation is not a scaling operation gains a
+`Nominate { from: v, offset: u }` riding it, `u` the least positive offset
+with `primary(next, v + u) == primary(previous, v)`, the slot's era the one
+its own fold establishes. The rider's bump is the era entry the §8.7.8
+gate demands: the re-electing offset across a wrap that would move the
+leader, and the count, the least offset that preserves the index, at a
+step that keeps it, which is the same view the machinery's own §13.4
+selector names.
 
 A scaling step carries no rider: R13 keeps `Double` and `Halve`
 solitary, and the scaling preserves the positive-weight sequence
@@ -917,31 +933,15 @@ whichever carries the boundary. The running view advances by `u` at
 every step; the chained `from` values are the views the cluster actually
 holds, each rider's bump landing at its step's commit. A step that
 evicts the serving leader from the voter sequence cannot keep it: no
-offset re-elects the evicted, the rider names the era-entering increment
-alone, and the leadership passes to the arithmetic's choice; the next
-step's emission continues from the leader the new arithmetic names.
+offset re-elects the evicted, the step rides no rider, and the
+leadership passes to the arithmetic's choice; the next step's emission
+continues from the leader the new arithmetic names.
 
 The forced-reincarnation machine's own runtime recomputation
 (`replica::forced_steps`) emits no nominations: its §6 schedule is
 crash-restart idempotent and its leadership is the fence machinery's
-business. `solve_replacement` prefers that schedule and the emission pass
-wraps it, so the solver's plans carry the nominations and the machine's
-ticks do not. The operator tool's `plan` takes the serving view as it
-takes the availability snapshot.
-
-The routes the emission wraps are the common-prefix routes: the longest
-prefix the two orders share, member and weight alike, stays put; the
-current's tail drains and leaves; and the target's tail joins and takes
-its weights, each live joiner promoted at its join (the expansion's
-shape: join at weight zero, increment, join, increment), the dead
-joiners' weights restored last. The prefix-only intermediate must itself
-be a legal, available configuration; a prefix whose mass cannot hold a
-majority falls back to the anchor route, which reserves one live voter
-and is always available. The prefix retention keeps the voter count at
-two or more through every prefix the ladder drives, so the establishing
-rounds always have a voter to acknowledge them: the anchor route's
-drained intermediates, one voter and then one member, are the standing
-question's and the host's business, not the plan's.
+business. The solver's plans carry the nominations and the machine's
+ticks do not.
 
 The standing question (§4, R4): a weight-zero member's acknowledgement
 counts against no quorum and is not recorded, but its arrival still asks
@@ -958,9 +958,12 @@ where the recorded votes hold no quorum the question changes nothing.
   computes the same leader: the configuration its committed history has
   established, evaluated at its current view number, names the node the
   plan started under, at every step of every scenario.
-* **Era adjacency.** The bump's era is the establishing run's era, exactly
-  one past the receiver's pre-fold row, and the accept-time §8.7.3
-  relation enforces the bound before the commit ever sees the entry.
+* **Era adjacency.** The bump's era is the establishing run's era. The
+  ordinary path establishes one era per committed entry, so the bump
+  lands exactly one past the receiver's pre-fold row; the fused slab
+  (`docs/uvrr-fuse.md` §1) establishes one era per establishing slot and
+  the walk across them is grounded — every spanned era is established by
+  a slot the same advance commits, the clause the transition gate checks.
 * **Weight-zero joins cannot vote.** The nomination moves no weights, and
   the §8.4 learner stays what it was: invisible to every majority and
   never the primary.
@@ -1003,28 +1006,26 @@ step would have carried names, and the plan continues.
 
 The scenarios, in order:
 
-1. **Expansion 3 to 5** at serving view 3, leader `n(0)`: `solve` from the
-   genesis `(1, 1, 1)` to `(1, 1, 1, 1, 1)`. The common-prefix route keeps
-   the genesis membership as the target's prefix and appends: join at
+1. **Expansion 3 to 5** at serving view 3, leader `n(0)`: the solver from
+   the genesis `(1, 1, 1)` to `(1, 1, 1, 1, 1)`. The route keeps the
+   genesis membership as the target's prefix and appends: join at
    weight zero, increment, second join, second increment, the promotions
    the wraps that carry the re-electing riders; four steps, four riders,
    the plan ends at view 15 with the unit-weight five.
 2. **The three-node replacement** at serving view 3, leader `n(0)`:
-   `solve` from `(n0, n1, n2)` to `(n0, n1, n3)`. The common-prefix
-   route keeps the shared prefix, drains and leaves the old tail, joins
-   and promotes the fresh one, the drain and the promotion the moving
-   wraps; four steps, four riders, the plan ends at view 9 with the old
+   the solver from `(n0, n1, n2)` to `(n0, n1, n3)`. The route joins
+   the fresh identity at the old one's position, promotes it, drains the
+   old identity, and evicts it, the promotion and the drain the moving
+   wraps; four steps, four riders, the plan ends at view 12 with the old
    identity evicted and the fresh one seated at unit weight.
 3. **The five-node crash-reincarnation replace** at serving view 5,
-   leader `n(0)`: crash `n(4)`, reopen its bumped life, and
-   `solve_replacement` over the six-era forced schedule, `Double`, the
-   join and promotion of the bumped identity, the drain of the old, its
-   departure, the promotion, and `Halve`. The four unit-mass steps carry
-   their riders, the moving wraps (the bumped identity's promotion,
-   voters 5 to 6, and the old identity's drain to zero, voters 6 to 5)
-   re-electing; the scaling eras' boundaries are the leader-preserving
-   view changes; the plan ends at view 30 with the unit-weight five, the
-   bumped identity in the old seat.
+   leader `n(0)`: crash `n(4)`, reopen its bumped life, and the solver
+   from the unit five to the bumped identity in the old one's seat: join
+   the bumped identity at weight zero, promote it, drain the old
+   identity, evict it. The four steps carry their riders, the moving
+   wraps (the bumped identity's promotion, voters 5 to 6, and the old
+   identity's drain, voters 6 to 5) re-electing; the plan ends at view
+   20 with the unit-weight five, the bumped identity in the old seat.
 
 The Red rung is the ladder run against the un-nominated solver, and it
 fails twice over: the assertion fails at the first wrap's committed slot,
@@ -1034,7 +1035,7 @@ view 3), and the plan cannot even cross its era boundaries, the §8.7.8
 gate refuses the second establishing operation while the view lags the
 established era (`EraTransitionOutstanding`, the face the
 crash-reincarnation scenario reaches first, at its second step). The
-emission pass and the commit-time bump make the same ladder green, the
+fold's riders and the commit-time bump make the same ladder green, the
 constant leader at every committed slot of all three scenarios. The
 bumped life's own seating is the §10 acquisition, the rejoin path's
 business, and is not the ladder's assertion: the scenario asserts the

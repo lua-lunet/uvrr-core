@@ -5,20 +5,13 @@
 
 mod harness;
 
-use harness::{Harness, StepOutcome};
-use uvrr::configuration::{Member, SystemOperation, Weight};
+use harness::{Harness, StepOutcome, provisioned_id as n, provisioned_member as member};
+use uvrr::configuration::{SystemOperation, Weight};
 use uvrr::effects::{Effect, PlanVerdict};
-use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
+use uvrr::ids::{Ballot, Era, OperationId, Slot, View};
 use uvrr::journal::Payload;
 use uvrr::observe::Diagnostic;
 use uvrr::plan::{Plan, PlanRejection};
-
-fn n(id: u32) -> NodeId {
-    NodeId::new(
-        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
-        CrashCounter::new(1).expect("one is non-zero"),
-    )
-}
 
 /// An operation identity for the scripts: the host assigns it, the core
 /// carries it opaque (§11.1, B2).
@@ -26,36 +19,11 @@ fn op_id(lsb: u64) -> OperationId {
     OperationId { msb: 0, lsb }
 }
 
-fn member(id: u32, weight: u32) -> Member {
-    Member {
-        node: n(id),
-        weight: Weight(weight),
-    }
-}
-
 /// A three-node unit cluster whose view-change machinery is inert: the
 /// era-boundary view changes these scripts drive are the host's say-so
 /// (§14.2), not timeouts.
 fn cluster() -> Harness {
     Harness::provision(3)
-}
-
-/// Bootstraps the cluster: the genesis primary promotes itself and both
-/// backups adopt view (1, 0) from the promotion's [`uvrr::wire::Tag::Commit`] announcement
-/// (§13.3).
-fn bootstrap(h: &mut Harness) {
-    h.tick_all();
-    quiesce(h);
-    h.assert_safety();
-}
-
-/// Delivers everything until the network is empty: proposals, cascades and
-/// announcements are all ordinary steps, and a committed cascade may queue
-/// more.
-fn quiesce(h: &mut Harness) {
-    while h.queued_len() > 0 {
-        h.deliver_all();
-    }
 }
 
 /// The two-era plan every execution script runs: join node 3 as a learner
@@ -93,14 +61,14 @@ fn retained_era_view() -> Ballot {
 #[test]
 fn accepted_plan_executes_both_eras_amid_client_traffic() {
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // Client traffic before the plan.
     assert!(matches!(
         h.propose(n(0), op_id(1), b"before"),
         StepOutcome::Published { .. }
     ));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 3);
 
     let outcome = h.submit_plan(n(0), join_then_promote());
@@ -116,7 +84,7 @@ fn accepted_plan_executes_both_eras_amid_client_traffic() {
         )),
         "the verdict surfaces: {effects:?}"
     );
-    quiesce(&mut h);
+    h.quiesce();
     // The plan's first era committed, establishing era 2 (§8.7.1).
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 4);
     assert_eq!(
@@ -137,7 +105,7 @@ fn accepted_plan_executes_both_eras_amid_client_traffic() {
         h.propose(n(0), op_id(2), b"between"),
         StepOutcome::Published { .. }
     ));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 5);
 
     // The era boundary: the machine is armed with the second step pending,
@@ -148,12 +116,12 @@ fn accepted_plan_executes_both_eras_amid_client_traffic() {
         h.force_view(n(0), retained_era_view()),
         StepOutcome::Published { .. }
     ));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 5);
 
     // The continuation proposes the second step on an ordinary tick.
     assert!(matches!(h.tick(n(0)), StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 6);
     assert_eq!(
         h.era_table(n(0))
@@ -170,7 +138,7 @@ fn accepted_plan_executes_both_eras_amid_client_traffic() {
         h.propose(n(0), op_id(3), b"after"),
         StepOutcome::Published { .. }
     ));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 7);
 
     // The final configuration is the plan's target.
@@ -185,7 +153,7 @@ fn accepted_plan_executes_both_eras_amid_client_traffic() {
     // would either re-propose the promotion (era 4) or abort by name.
     h.tick_all();
     h.tick_all();
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.era_table(n(0)).expect("live").current().era, Era(3));
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 7);
     assert_eq!(h.diagnostic(n(0)), Some(Diagnostic::None));
@@ -199,7 +167,7 @@ fn accepted_plan_executes_both_eras_amid_client_traffic() {
 #[test]
 fn rejected_stale_plans_name_the_reason_and_change_nothing() {
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // Wrong weights, wrong order, wrong membership: one plan per refusal.
     let cases = [
@@ -258,7 +226,7 @@ fn rejected_stale_plans_name_the_reason_and_change_nothing() {
             h.era_table(n(0)).expect("live").current().config.order(),
             [member(0, 1), member(1, 1), member(2, 1)]
         );
-        quiesce(&mut h);
+        h.quiesce();
     }
     h.assert_safety();
 }
@@ -270,11 +238,11 @@ fn rejected_stale_plans_name_the_reason_and_change_nothing() {
 #[test]
 fn drift_aborts_the_machine_with_a_named_diagnostic() {
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let outcome = h.submit_plan(n(0), join_then_promote());
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 3);
     assert_eq!(h.era_table(n(0)).expect("live").current().era, Era(2));
 
@@ -283,7 +251,7 @@ fn drift_aborts_the_machine_with_a_named_diagnostic() {
         h.force_view(n(0), retained_era_view()),
         StepOutcome::Published { .. }
     ));
-    quiesce(&mut h);
+    h.quiesce();
 
     // Drift: a host reconfiguration departs the very learner the plan's
     // second step promotes. The commit is an ordinary, legal transition.
@@ -291,7 +259,7 @@ fn drift_aborts_the_machine_with_a_named_diagnostic() {
         h.reconfigure(n(0), SystemOperation::Leave(n(3)), None),
         StepOutcome::Published { .. }
     ));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 4);
     assert_eq!(h.era_table(n(0)).expect("live").current().era, Era(3));
     assert_eq!(
@@ -327,7 +295,7 @@ fn drift_aborts_the_machine_with_a_named_diagnostic() {
 #[test]
 fn admin_first_polling_puts_the_first_era_in_flight_before_client_traffic() {
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The host holds a client command in its regular queue and a plan in
     // its admin queue. The selection polls the admin queue FIRST.
@@ -377,7 +345,7 @@ fn admin_first_polling_puts_the_first_era_in_flight_before_client_traffic() {
         "the client command is an operation slot, not {client:?}"
     );
 
-    quiesce(&mut h);
+    h.quiesce();
     // Both commit in slot order: the plan's era first.
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 4);
     assert_eq!(
@@ -399,11 +367,11 @@ fn admin_first_polling_puts_the_first_era_in_flight_before_client_traffic() {
 #[test]
 fn leader_crash_discards_the_machine_and_the_new_leader_continues_nothing() {
     let mut h = cluster();
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let outcome = h.submit_plan(n(0), join_then_promote());
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(0)).expect("live").committed, 3);
     assert_eq!(h.era_table(n(0)).expect("live").current().era, Era(2));
 
@@ -422,14 +390,14 @@ fn leader_crash_discards_the_machine_and_the_new_leader_continues_nothing() {
         ),
         StepOutcome::Published { .. }
     ));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(1)).expect("live").committed, 3);
 
     // The new leader continues nothing automatically: ticks propose no
     // establishing batch, and the era the crash's survivor reached stands.
     h.tick(n(1));
     h.tick(n(1));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.era_table(n(1)).expect("live").current().era, Era(2));
     assert_eq!(h.snapshot(n(1)).expect("live").committed, 3);
     assert_eq!(h.diagnostic(n(1)), Some(Diagnostic::None));
@@ -455,7 +423,7 @@ fn leader_crash_discards_the_machine_and_the_new_leader_continues_nothing() {
         )),
         "the verdict surfaces: {effects:?}"
     );
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(h.snapshot(n(1)).expect("live").committed, 4);
     assert_eq!(
         h.era_table(n(1)).expect("live").current().config.order(),

@@ -146,68 +146,76 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// commit-frontier advance `(from, through]` newly covers (§8.7.1).
     /// `overlay` supplies the entries an in-transition install adds to the
     /// picture, exactly as in [`crate::replica::Replica::applied_walk`]. Returns the
-    /// receiver's own table when the advance covers no system operation,
-    /// the fold is the identity, no allocation.
+    /// folded table, the frontier the fold actually covered, whether the
+    /// era window stopped the fold short of `through`, and the nomination
+    /// bump the covered runs carried (`docs/uvrr-protocols.md`, the NOMINATE chapter): the
+    /// view a serving node publishes after the riders its commit covered,
+    /// `None` when no rider matched the node's view. The receiver's own
+    /// table back when the advance covers no system operation: the fold is
+    /// the identity, no allocation.
     ///
-    /// A maximal run of two or more CONSECUTIVE system entries folds as
-    /// the ONE establishing batch it is (`docs/uvrr-fuse.md` §1: the
-    /// packed schedule a fuse envelope carried, one op per consecutive
-    /// slot): the run's operations fold through the batch applier at the
-    /// run's first slot and establish exactly one era, the same history
-    /// the ordinary per-op [`crate::wire::Tag::Prepare`] path journals for the same batch.
-    /// The genesis pair ([`crate::configuration::SystemOperation::Void`], [`crate::configuration::SystemOperation::Init`]) is the one run the batch applier
+    /// A maximal run of two or more CONSECUTIVE system entries SHARING ONE
+    /// ENTRY ERA folds as the ONE establishing batch it is
+    /// (`docs/uvrr-fuse.md` §1: the packed schedule a fuse envelope
+    /// carried journals one op per consecutive slot, each stamped with the
+    /// era the fold of the preceding slots established): the run's
+    /// operations fold through the batch applier at the run's first slot
+    /// and establish exactly one era, the same history the ordinary
+    /// per-op [`crate::wire::Tag::Prepare`] path journals for the same batch.
+    /// Consecutive system entries of DIFFERENT entry eras are separately
+    /// committed eras that happen to be adjacent — the fused slab's
+    /// per-slot stamps mark the boundaries — and each folds on its own:
+    /// gluing them would collapse two committed eras into one, and the
+    /// folding node's era numbering would diverge from the incumbents that
+    /// committed them one at a time. The genesis pair
+    /// ([`crate::configuration::SystemOperation::Void`], [`crate::configuration::SystemOperation::Init`]) is the one run the batch applier
     /// refuses (R15), and it folds per entry as it always has; a batch
     /// refusal on any other run is the per-entry fallback's only other
     /// caller, and the era discipline the candidate carries names it.
     /// A run the advance would SPLIT is refused
     /// ([`crate::CommitFold::SplitBatch`]): a batch commits whole or not at all.
+    ///
+    /// `paced` engages the §8.7.3 era window (W1, `docs/uvrr-fuse.md` §4
+    /// step 4): the fold advances only as far as the node's own serving
+    /// view can carry — an extension may establish at most one era past
+    /// the running ballot's era — except that a run whose nomination rider
+    /// matches the running view redeems its own advance, the bump landing
+    /// the serving view at the run's era in the same advance and the
+    /// window walking with it, so the solver's ridered schedules commit a
+    /// whole slab in one advance however many eras it spans. A run the
+    /// view cannot carry DEFERS: the fold stops before it, `stopped`
+    /// marks the deferral, and the tail commits once the durable view has
+    /// walked into the era the folded table established, the paced
+    /// emission of `docs/uvrr-fuse.md` §6. A fenced node runs no
+    /// nomination, so its window is the published view's era and never
+    /// walks, the boot-acquisition pacing of §10. `paced = false` is the
+    /// unbounded install fold: the installed committed history was
+    /// committed lawfully under the electing view the install publishes,
+    /// so the fold reproduces it whole.
     pub(in crate::replica) fn fold_committed(
         &self,
         journal: &J::View,
         overlay: &[LogEntry],
         from: Slot,
         through: Slot,
-    ) -> Result<(Arc<EraTable>, Option<Ballot>), CommitFold> {
-        let (table, _, _, bumped) =
-            self.fold_committed_windowed(journal, overlay, from, through, None)?;
-        Ok((table, bumped))
-    }
-
-    /// The windowed form of the fold (§8.7.3, W1): `window` names the era
-    /// successor the fold may not walk past. The fold stops before an
-    /// extension would establish an era more than one past the window's
-    /// era, the covered frontier stops at the last folded slot, and
-    /// `stopped` marks the deferral, the tail is folded by the next
-    /// round, once the caller's durable view has walked into the era the
-    /// folded table established. `window = None` is the unbounded fold the
-    /// ordinary candidates run. The fourth element is the nomination bump
-    /// the covered runs carried (`docs/uvrr-protocols.md`, the NOMINATE chapter):
-    /// the view a serving node publishes after the riders its commit
-    /// covered, `None` when no rider matched the node's view.
-    pub(in crate::replica) fn fold_committed_windowed(
-        &self,
-        journal: &J::View,
-        overlay: &[LogEntry],
-        from: Slot,
-        through: Slot,
-        window: Option<crate::ids::Era>,
+        paced: bool,
     ) -> Result<(Arc<EraTable>, Slot, bool, Option<Ballot>), CommitFold> {
         trace!(
-            "FOLD_W from={:?} through={:?} window={:?} table_era={:?}",
+            "FOLD_W from={:?} through={:?} paced={} table_era={:?}",
             from,
             through,
-            window,
+            paced,
             self.progress.config().current().era
         );
         let mut table = Arc::clone(self.progress.config());
         let mut covered = from;
         let mut slot = from;
         let mut window_stopped = false;
+        let current = self.progress.current();
         // The nomination CAS runs over the node's published view, and only
         // a serving node can match a rider's `from` (the bump is the serving
         // leader's instrument, never a fenced or electing node's).
-        let mut running =
-            (self.progress.status() == Status::Normal).then_some(self.progress.current());
+        let mut running = (self.progress.status() == Status::Normal).then_some(current);
         let mut bumped: Option<Ballot> = None;
         while let Some(next) = slot.next() {
             if next > through {
@@ -232,14 +240,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                             None => break,
                         },
                     };
-                    // A run is one establishing batch, the fuse envelope's
-                    // ops journal as consecutive entries of the SAME entry
-                    // era. Consecutive system entries of DIFFERENT entry
-                    // eras are separately committed eras that happen to be
-                    // adjacent: gluing them would collapse two committed
-                    // eras into one, and the folding node's era numbering
-                    // would diverge from the incumbents that committed them
-                    // one at a time.
+                    // A run is one establishing batch, one era's fold:
+                    // consecutive system entries of the SAME entry era.
+                    // Entries of DIFFERENT entry eras are separately
+                    // committed eras that happen to be adjacent: gluing
+                    // them would collapse two committed eras into one,
+                    // and the folding node's era numbering would diverge
+                    // from the incumbents that committed them one at a
+                    // time.
                     if follow_entry.era != entry.era {
                         break;
                     }
@@ -252,62 +260,62 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                         _ => break,
                     }
                 }
-                if ops.len() >= 2 {
+                // The tentative extension: the run folds through the batch
+                // applier as one era's establishing operation, the genesis
+                // pair and a refused batch falling to the per-entry fold.
+                let (extended, riders, end) = if ops.len() >= 2 {
                     if end > through {
                         return Err(CommitFold::SplitBatch);
                     }
-                    if let Ok(extended) = table.extend(&SystemOperation::Batch(ops.clone()), next) {
-                        if window.is_some_and(|successor| extended.current().era > successor) {
-                            // The era window is spent: the fold stops
-                            // before this slot, whose establishing
-                            // operation awaits the next acquisition round
-                            // (after the view's era walked).
-                            trace!(
-                                "FOLD_W batch@{:?}: era {:?} > window {:?}, STOP",
-                                next,
-                                extended.current().era,
-                                window
-                            );
-                            window_stopped = true;
-                            break;
+                    match table.extend(&SystemOperation::Batch(ops.clone()), next) {
+                        Ok(extended) => (extended, ops, end),
+                        Err(_batch_refusal) => {
+                            let extended = table
+                                .extend(op, next)
+                                .map_err(|error| CommitFold::Breach { slot: next, error })?;
+                            (extended, vec![op.clone()], next)
                         }
+                    }
+                } else {
+                    let extended = table
+                        .extend(op, next)
+                        .map_err(|error| CommitFold::Breach { slot: next, error })?;
+                    (extended, vec![op.clone()], next)
+                };
+                let established = extended.current().era;
+                let nominated = run_nominations(running, &riders, established);
+                if paced {
+                    // The era the node's own view can carry: one past the
+                    // running ballot's era while it serves, one past the
+                    // published view's era otherwise. A run past the
+                    // window folds only when its nomination redeems the
+                    // advance, the bump landing the serving view at the
+                    // run's own era.
+                    let carry = running.map_or(current.era, |ballot| ballot.era);
+                    let past = match carry.next() {
+                        Some(cap) => established > cap,
+                        None => true,
+                    };
+                    if past && nominated == running {
+                        // The era window is spent and no nomination
+                        // redeems the advance: the fold stops before this
+                        // run, whose establishing operation awaits the
+                        // next round, once the durable view has walked
+                        // into the era the folded table established.
                         trace!(
-                            "FOLD_W batch@{:?}: folded, era={:?}",
-                            next,
-                            extended.current().era
+                            "FOLD_W run@{:?}: era {:?} past the window, STOP",
+                            next, established
                         );
-                        running = run_nominations(running, &ops, extended.current().era);
-                        bumped = running.filter(|view| *view != self.progress.current());
-                        table = Arc::new(extended);
-                        covered = end;
-                        slot = end;
-                        continue;
+                        window_stopped = true;
+                        break;
                     }
                 }
-                let extended = table
-                    .extend(op, next)
-                    .map_err(|error| CommitFold::Breach { slot: next, error })?;
-                if window.is_some_and(|successor| extended.current().era > successor) {
-                    trace!(
-                        "FOLD_W op@{:?}: era {:?} > window {:?}, STOP",
-                        next,
-                        extended.current().era,
-                        window
-                    );
-                    window_stopped = true;
-                    break;
-                }
-                trace!(
-                    "FOLD_W op@{:?}: folded, era={:?}",
-                    next,
-                    extended.current().era
-                );
-                running =
-                    run_nominations(running, std::slice::from_ref(op), extended.current().era);
-                bumped = running.filter(|view| *view != self.progress.current());
+                trace!("FOLD_W run@{:?}: folded, era={:?}", next, established);
+                running = nominated;
+                bumped = running.filter(|view| *view != current);
                 table = Arc::new(extended);
-                covered = next;
-                slot = next;
+                covered = end;
+                slot = end;
             } else {
                 covered = next;
                 slot = next;
@@ -581,7 +589,9 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// the next unsent slot, body = the batch's operations in plan order,
     /// one proposal record per packed slot (the leader's own vote is
     /// implicit, as in the ordinary path), and one journaled entry per
-    /// packed slot, each stamped with the ballot's era (§1). The gates are
+    /// packed slot, each stamped with the era of that slot's own ballot as
+    /// the solver folded the schedule (§1): the header carries the head
+    /// ballot alone, and the slab's last ballot is the tail ballot. The gates are
     /// the shared reconfiguration gates run on the WHOLE batch: the fold
     /// validates the batch applier's preconditions (R13–R15) and the
     /// closed intersection obligations for the one era the batch
@@ -617,16 +627,23 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // packed schedule at the slot its first op occupies.
         let batch = SystemOperation::Batch(ops.to_vec());
         self.reconfigure_gates(journal, &batch, first_slot)?;
-        // One journaled entry per packed slot, each stamped with the
-        // ballot's era (§1, ruling 3): the envelope is the equivalent
-        // sequence of `Prepare`s at the same ballot.
+        // One journaled entry per packed slot, each stamped with the era
+        // of that slot's own ballot (§1): the per-slot fold stamps each
+        // slot with the era the fold of the preceding slots established,
+        // the head slot with the header's era, and the slab's ballots
+        // advance slot by slot to the tail ballot. The gates folded the
+        // batch whole, so the per-slot fold's judging cannot refuse here.
+        let (eras, _established) = record
+            .config
+            .fold_slots(ops)
+            .map_err(PlanRefusal::Reconfigure)?;
         let mut entries = Vec::with_capacity(ops.len());
         let mut cursor = Some(first_slot);
-        for op in ops {
+        for (op, era) in ops.iter().zip(eras) {
             let slot = cursor.ok_or(PlanRefusal::SlotSpaceExhausted)?;
             entries.push(LogEntry {
                 slot,
-                era: current.era,
+                era,
                 payload: Payload::System(op.clone()),
             });
             cursor = slot.next();
@@ -690,10 +707,10 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// A [`crate::wire::Tag::Fuse`] envelope's acceptor transition (`docs/uvrr-fuse.md` §3).
     /// The envelope is ATOMIC (§2): the packed schedule folds whole or the
     /// whole envelope is refused, there is no partial fold and no wire
-    /// nack. Receiving a [`crate::wire::Tag::Fuse`] is defined as receiving the equivalent
-    /// sequence of [`crate::wire::Tag::Prepare`]s at the same ballot, one per slot, in batch
-    /// order, so the header guards are `plan_prepare`'s, run once, and the
-    /// per-op perimeter is the ordinary system-op fold.
+    /// nack. The slab's slots each carry their own ballot, the head ballot in
+    /// the header and the tail ballot at the slab's last slot, so the header
+    /// guards are `plan_prepare`'s, run once at the head slot, and the
+    /// per-op perimeter is the ordinary system-op fold at each slot's ballot.
     ///
     /// The guards, in `plan_prepare`'s order: era evaluable, sender is the
     /// primary of the message's view, the higher-view staleness signal, view
@@ -706,9 +723,13 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// each packed op then folds against the schedule's own fold chain,
     /// the validation runs on the clone, exactly as `plan_prepare` folds an
     /// arriving system entry, and the frontier advances per op. The
-    /// journaled entries are stamped with the ballot's era (`docs/uvrr-fuse.md`
-    /// §1: the header carries the ballot shared by every packed op), which is
-    /// also what any retransmission of a packed slot's [`crate::wire::Tag::Prepare`] must carry.
+    /// journaled entries are stamped with the era of each packed slot's own
+    /// ballot (`docs/uvrr-fuse.md` §1: the header carries the head ballot),
+    /// which is also what any retransmission of a packed slot's
+    /// [`crate::wire::Tag::Prepare`] must carry. Accepting a Phase2 at a slot
+    /// promises that slot's ballot even when the Phase1 was lost, so the
+    /// slab installs over `[first_slot, first_slot + count)` with the promise
+    /// ending at the tail ballot.
     /// Nothing commits: the era table folds at commit (§8.7.1), so the
     /// candidate carries the published configuration unchanged. All ops
     /// accepted: one [`crate::wire::Tag::FuseOk`] to the sender, its header slot the LAST
@@ -791,27 +812,31 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         if header.slot != first_slot {
             return self.drop_plan(Diagnostic::FuseRefusal, kind);
         }
-        // The explode: the schedule folds on the clone, one op at its own
-        // slot, each precondition judged at its point in the sequence, the
-        // same perimeter an individual `Prepare`'s system entry meets. A
-        // refusal anywhere refuses the whole envelope (§3 step 4: never a
-        // partial fold). The folded table is the validation's witness; the
-        // candidate carries the published configuration, because the era
-        // advances only at commit (§8.7.1).
-        let mut folded = self.progress.config().current().config.as_ref().clone();
-        let mut entries = Vec::with_capacity(ops.len());
-        let mut cursor = Some(first_slot);
-        for op in ops {
-            let slot = cursor.ok_or(PlanRefusal::SlotSpaceExhausted)?;
+        // The explode: the schedule folds through the per-slot fold, one op
+        // at its own slot, each precondition judged in-era at its point in
+        // the sequence — the rider folds to the identical configuration
+        // beside its carrier, never a solitary refusal — the same perimeter
+        // an individual `Prepare`'s system entry meets. A refusal anywhere
+        // refuses the whole envelope (§3 step 4: never a partial fold). The
+        // folded configuration is the validation's witness; the candidate
+        // carries the published configuration, because the era advances only
+        // at commit (§8.7.1).
+        let (eras, _established) = match self.progress.config().current().config.fold_slots(ops) {
+            Ok(fold) => fold,
             // A fold refusal names the envelope's one outcome (§3 step 4):
             // the whole batch drops, never a partial fold.
-            folded = match folded.apply(op, slot) {
-                Ok(folded) => folded,
-                Err(_error) => return self.drop_plan(Diagnostic::FuseRefusal, kind),
-            };
+            Err(_error) => return self.drop_plan(Diagnostic::FuseRefusal, kind),
+        };
+        let mut entries = Vec::with_capacity(ops.len());
+        let mut cursor = Some(first_slot);
+        for (op, era) in ops.iter().zip(eras) {
+            let slot = cursor.ok_or(PlanRefusal::SlotSpaceExhausted)?;
+            // Each packed slot is stamped with the era of its own ballot
+            // (§1): the era the fold of the preceding slots established,
+            // the head slot carrying the header's era.
             entries.push(LogEntry {
                 slot,
-                era: header.view.era,
+                era,
                 payload: Payload::System(op.clone()),
             });
             cursor = slot.next();

@@ -1,10 +1,11 @@
-//! The [`uvrr::wire::Tag::Fuse`] acceptor (`docs/uvrr-fuse.md` §3): one envelope, one ballot,
-//! one atomic batch. Receiving a [`uvrr::wire::Tag::Fuse`] is *defined* as receiving the
-//! equivalent sequence of [`uvrr::wire::Tag::Prepare`] messages at the same ballot, one per
-//! slot, in batch order; only the wire shape changes, so every assertion
+//! The [`uvrr::wire::Tag::Fuse`] acceptor (`docs/uvrr-fuse.md` §3): one envelope,
+//! one slab of consecutive slots, each at its own ballot,
+//! one atomic batch. Only the wire shape changes, so every assertion
 //! here runs through the ordinary accept perimeter's observables: the
 //! journal (the durable configuration record, §8.7.1), the queued replies,
-//! and the harness's independent safety checker.
+//! and the harness's independent safety checker. Accepting a Phase2 at a slot
+//! promises that slot's ballot even when the Phase1 was lost, so the acceptor's
+//! promise ends at the slab's tail ballot.
 //!
 //! The leader side (§4) is exercised through the public plan path: the
 //! armed schedule's establishing batch travels as one [`uvrr::wire::Tag::Fuse`] per backup,
@@ -13,33 +14,17 @@
 
 mod harness;
 
-use harness::{Harness, StepOutcome};
+use harness::{Harness, StepOutcome, provisioned_id as n, provisioned_member as member};
 use std::sync::Arc;
 
-use uvrr::configuration::{Member, SystemOperation, Weight};
+use uvrr::configuration::SystemOperation;
 use uvrr::effects::Effect;
-use uvrr::ids::{Ballot, CrashCounter, Era, NodeId, OperationId, Slot, SystemId, View};
+use uvrr::ids::{Ballot, Era, NodeId, OperationId, Slot, View};
 use uvrr::journal::Payload;
 use uvrr::message::{Body, Message};
 use uvrr::observe::Diagnostic;
 use uvrr::plan::Plan;
 use uvrr::wire::{Header, Pack, Tag, Unpack, UnpackError};
-
-fn n(id: u32) -> NodeId {
-    NodeId::new(
-        SystemId::new((id + 1) as u16).expect("test system ids are small and non-zero"),
-        CrashCounter::new(1).expect("one is non-zero"),
-    )
-}
-
-/// The bootstrap of `tests/reconfiguration_stepwise.rs`: the genesis
-/// primary promotes itself and both backups adopt view (1, 0) from the
-/// promotion's [`uvrr::wire::Tag::Commit`] announcement (§13.3).
-fn bootstrap(h: &mut Harness) {
-    h.tick_all();
-    h.deliver_all();
-    h.assert_safety();
-}
 
 /// The view every node here bootstraps into: era 1, view 0, primary `n(0)`
 /// under the genesis order `[0, 1, 2]` (§1.2).
@@ -88,7 +73,7 @@ fn encode_header(header: &Header) -> Vec<u8> {
 #[test]
 fn valid_fuse_is_accepted_as_a_whole() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The schedule: `[Join(new), Increment(new)]`, the shape of the
     // five-node replacement's second batch (`docs/uvrr-protocols.md`, the reincarnation chapter
@@ -142,10 +127,12 @@ fn valid_fuse_is_accepted_as_a_whole() {
         "acks name every packed slot in batch order"
     );
 
-    // The journal records the contiguous batch, each op at its own slot,
-    // exactly as the equivalent sequence of `Prepare`s would have journaled
-    // it (§1's definition; the configuration record of §8.7.1 advanced per
-    // op). The era table itself advances at commit (§8.7.1: the commit-time
+    // The journal records the contiguous slab, each op at its own slot and
+    // its own ballot, exactly as the equivalent sequence of `Prepare`s
+    // would have journaled it (§1; the configuration record of §8.7.1
+    // advanced per op): the head slot authorised by the header's era, the
+    // tail slot by the era the head slot's fold established. The era table
+    // itself advances at commit (§8.7.1: the commit-time
     // fold is the only place the era advances) and is untouched here.
     let entries = h.journal_entries(n(1));
     assert_eq!(
@@ -157,7 +144,7 @@ fn valid_fuse_is_accepted_as_a_whole() {
     assert_eq!(
         entries[2].era,
         Era(1),
-        "every packed slot is authorised by the ballot"
+        "the head slot is authorised by the header's era"
     );
     assert_eq!(
         entries[2].payload,
@@ -167,7 +154,11 @@ fn valid_fuse_is_accepted_as_a_whole() {
         })
     );
     assert_eq!(entries[3].slot, Slot(4));
-    assert_eq!(entries[3].era, Era(1));
+    assert_eq!(
+        entries[3].era,
+        Era(2),
+        "the tail slot carries the era the head slot's fold established"
+    );
     assert_eq!(
         entries[3].payload,
         Payload::System(SystemOperation::Increment(n(3)))
@@ -190,7 +181,7 @@ fn valid_fuse_is_accepted_as_a_whole() {
 #[test]
 fn stale_view_fuse_is_refused_as_a_whole() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The same legal schedule, but the header names the genesis view
     // (era 0, view 0), below the acceptor's current view (1, 0). Era 0 is
@@ -248,7 +239,7 @@ fn malformed_fuse_is_dropped_without_partial_accept() {
     // test cannot construct the mid-batch refusal without forging a
     // schedule no planner would certify, which §3 rules out of scope.
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The malformed-decode drop: a valid 20-byte header tagging `Fuse`,
     // then a body whose first op carries an unknown discriminant. The
@@ -288,7 +279,7 @@ fn malformed_fuse_is_dropped_without_partial_accept() {
 #[test]
 fn fuse_slots_must_be_contiguous_from_the_accept_frontier() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // A legal schedule whose `first_slot` is NOT the acceptor's next slot:
     // the envelope claims a range the frontier does not start at.
@@ -317,7 +308,7 @@ fn fuse_slots_must_be_contiguous_from_the_accept_frontier() {
 #[test]
 fn accepted_fuse_reply_slots_are_explicit_not_ranges() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // Three zero-mass ops: three joins of absent learners. R14's unit rule
     // moves no mass, so the schedule is legal at every op boundary, and
@@ -398,17 +389,15 @@ fn op_id(lsb: u64) -> OperationId {
     OperationId { msb: 0, lsb }
 }
 
-fn member(id: u32, weight: u32) -> Member {
-    Member {
-        node: n(id),
-        weight: Weight(weight),
-    }
-}
-
-/// The 3-node two-era reincarnation shape
+/// The 3-node two-step reincarnation shape
 /// (`docs/uvrr-protocols.md`, the reincarnation chapter §5, the weight-1 row) submitted as an
-/// operator plan: the crossing batch `[Decrement(old), Join(new)]` and the
-/// promotion batch `[Increment(new), Leave(old)]`, one era each.
+/// operator plan: the crossing batch `[Decrement(old), Join(new), Nominate]`
+/// and the promotion batch `[Increment(new), Leave(old), Nominate]`, each
+/// spanning one era per establishing slot, the riders keeping the leader
+/// stable across the slab (`docs/uvrr-fuse.md` §1: the nomination rides
+/// with the era the slot establishes). The rider arithmetic is the
+/// solver's: `from` the running view, `offset` the least positive jump
+/// re-electing the serving leader under the step's own succession.
 fn reincarnation_shape_plan() -> Plan {
     Plan {
         initial: vec![member(0, 1), member(1, 1), member(2, 1)],
@@ -419,17 +408,32 @@ fn reincarnation_shape_plan() -> Plan {
                     node: n(3),
                     position: 2,
                 },
+                // Two voters after the crossing: the least jump from view
+                // 0 re-electing the leader is 2.
+                SystemOperation::Nominate {
+                    from: View(0),
+                    offset: 2,
+                },
             ],
             vec![
                 SystemOperation::Increment(n(3)),
                 SystemOperation::Leave(n(2)),
+                // Three voters after the promotion: from the running view
+                // 2 the least re-electing jump is 1.
+                SystemOperation::Nominate {
+                    from: View(2),
+                    offset: 1,
+                },
             ],
         ],
     }
 }
 
-/// A one-step plan whose establishing batch packs two operations: the
-/// learner join and its promotion in one era.
+/// A one-step plan whose establishing batch packs two establishing
+/// operations and the nomination rider: the learner join and its
+/// promotion, one era per establishing slot (`docs/uvrr-fuse.md` §1). The
+/// rider's arithmetic: four voters after the promotion, so the least
+/// positive jump from view 0 re-electing the leader is 4.
 fn join_and_promote_step() -> Plan {
     Plan {
         initial: vec![member(0, 1), member(1, 1), member(2, 1)],
@@ -439,21 +443,18 @@ fn join_and_promote_step() -> Plan {
                 position: 3,
             },
             SystemOperation::Increment(n(3)),
+            SystemOperation::Nominate {
+                from: View(0),
+                offset: 4,
+            },
         ]],
-    }
-}
-
-/// Delivers everything until the network is empty.
-fn quiesce(h: &mut Harness) {
-    while h.queued_len() > 0 {
-        h.deliver_all();
     }
 }
 
 #[test]
 fn leader_emits_one_fuse_per_backup_for_a_whole_schedule() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let outcome = h.submit_plan(n(0), reincarnation_shape_plan());
     let StepOutcome::Published { effects, .. } = outcome else {
@@ -495,15 +496,22 @@ fn leader_emits_one_fuse_per_backup_for_a_whole_schedule() {
                     node: n(3),
                     position: 2
                 },
+                SystemOperation::Nominate {
+                    from: View(0),
+                    offset: 2
+                },
             ],
             "the body carries the schedule's operations in plan order"
         );
     }
 
     // The leader accepted its own proposal: one journaled entry per packed
-    // slot, each stamped with the ballot's era (§1, ruling 3).
+    // slot, each stamped with the era of that slot's own ballot (§1): the
+    // head slot at the header's era, each later establishing slot at the
+    // era the fold of the preceding slots established, and the rider
+    // sharing its carrier's era.
     let entries = h.journal_entries(n(0));
-    assert_eq!(entries.len(), 4, "genesis plus the two packed slots");
+    assert_eq!(entries.len(), 5, "genesis plus the three packed slots");
     assert_eq!(entries[2].slot, Slot(3));
     assert_eq!(entries[2].era, Era(1));
     assert_eq!(
@@ -511,7 +519,7 @@ fn leader_emits_one_fuse_per_backup_for_a_whole_schedule() {
         Payload::System(SystemOperation::Decrement(n(2)))
     );
     assert_eq!(entries[3].slot, Slot(4));
-    assert_eq!(entries[3].era, Era(1));
+    assert_eq!(entries[3].era, Era(2));
     assert_eq!(
         entries[3].payload,
         Payload::System(SystemOperation::Join {
@@ -519,8 +527,17 @@ fn leader_emits_one_fuse_per_backup_for_a_whole_schedule() {
             position: 2
         })
     );
+    assert_eq!(entries[4].slot, Slot(5));
+    assert_eq!(entries[4].era, Era(2), "the rider shares its carrier's era");
+    assert_eq!(
+        entries[4].payload,
+        Payload::System(SystemOperation::Nominate {
+            from: View(0),
+            offset: 2
+        })
+    );
     let snapshot = h.snapshot(n(0)).expect("live");
-    assert_eq!(snapshot.accepted, 4, "the frontier advanced per op");
+    assert_eq!(snapshot.accepted, 5, "the frontier advanced per op");
     assert_eq!(snapshot.committed, 2, "arming commits nothing");
 
     h.assert_safety();
@@ -529,7 +546,7 @@ fn leader_emits_one_fuse_per_backup_for_a_whole_schedule() {
 #[test]
 fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let outcome = h.submit_plan(n(0), join_and_promote_step());
     assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -537,12 +554,14 @@ fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
     // The envelopes land; the backups accept whole and queue their acks.
     h.deliver_tag(n(1), Tag::Fuse);
     h.deliver_tag(n(2), Tag::Fuse);
-    assert_eq!(h.snapshot(n(1)).expect("live").accepted, 4);
+    assert_eq!(h.snapshot(n(1)).expect("live").accepted, 5);
     assert_eq!(h.snapshot(n(1)).expect("live").committed, 2);
 
     // The first FuseOk completes the quorum (2-of-3: the leader's own vote
     // is implicit, §4 step 2). The commit cascade commits the packed slots
-    // in order and emits the per-era CommitBatch (§4 step 4).
+    // in order — one era per establishing slot, the rider's bump carrying
+    // the serving view to the slab's final era in the same advance — and
+    // emits the per-era CommitBatch (§4 step 4).
     let outcome = h.deliver_tag(n(0), Tag::FuseOk).expect("the ack is queued");
     assert!(
         matches!(outcome.outcome, StepOutcome::Published { .. }),
@@ -571,28 +590,45 @@ fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
         };
         assert_eq!(
             committed,
-            &vec![Slot(3), Slot(4)],
-            "one committed frontier per packed slot, in batch order, no ranges"
+            &vec![Slot(4), Slot(5)],
+            "one committed frontier per slot of the slab's second era, in \
+             batch order, no ranges"
         );
     }
 
     // Every packed slot committed in order; the era table advanced through
-    // the whole schedule: the batch is ONE establishing operation (§8.7.1).
+    // the whole schedule: one era per establishing slot (§8.7.1), the
+    // serving view landing at the slab's final era on the rider's bump.
     let snapshot = h.snapshot(n(0)).expect("live");
-    assert_eq!(snapshot.committed, 4, "both packed slots committed");
+    assert_eq!(snapshot.committed, 5, "the packed slots committed");
+    assert_eq!(
+        (snapshot.era, snapshot.view),
+        (3, 4),
+        "the nomination carried the leader's view into the slab's final era"
+    );
     let table = h.era_table(n(0)).expect("live");
     let record = table.record(Era(2)).expect("era 2 is recorded");
-    assert_eq!(record.established_by, Slot(3), "the batch's first slot");
+    assert_eq!(record.established_by, Slot(3), "the join's own slot");
+    assert_eq!(
+        record.establishing_operation,
+        SystemOperation::Join {
+            node: n(3),
+            position: 3
+        },
+        "the head slot establishes its own era"
+    );
+    let record = table.record(Era(3)).expect("era 3 is recorded");
+    assert_eq!(record.established_by, Slot(4), "the promotion's own slot");
     assert_eq!(
         record.establishing_operation,
         SystemOperation::Batch(vec![
-            SystemOperation::Join {
-                node: n(3),
-                position: 3
-            },
             SystemOperation::Increment(n(3)),
+            SystemOperation::Nominate {
+                from: View(0),
+                offset: 4
+            },
         ]),
-        "the era's establishing operation is the batch the envelope packed"
+        "the promotion and its rider fold as the second era's establishing run"
     );
     assert_eq!(
         record.config.order(),
@@ -604,9 +640,9 @@ fn fuseok_majority_commits_every_slot_and_emits_commitbatch() {
     // blocking: the next proposal lands at first_slot + N and commits.
     let outcome = h.propose(n(0), op_id(1), b"after");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
-    assert_eq!(h.snapshot(n(0)).expect("live").committed, 5);
-    assert_eq!(h.snapshot(n(1)).expect("live").committed, 5);
+    h.quiesce();
+    assert_eq!(h.snapshot(n(0)).expect("live").committed, 6);
+    assert_eq!(h.snapshot(n(1)).expect("live").committed, 6);
     h.assert_safety();
 }
 
@@ -633,7 +669,7 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
     // Four nodes: the commit quorum is three, so the forged subset vote
     // alone leaves the round in flight and the next genuine vote decides.
     let mut h = Harness::provision(4);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let plan = Plan {
         initial: vec![member(0, 1), member(1, 1), member(2, 1), member(3, 1)],
@@ -643,24 +679,23 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
                 position: 4,
             },
             SystemOperation::Increment(n(4)),
+            // Five voters after the promotion: the least jump from view 0
+            // re-electing the leader is 5.
+            SystemOperation::Nominate {
+                from: View(0),
+                offset: 5,
+            },
         ]],
     };
     let outcome = h.submit_plan(n(0), plan);
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    let ops = vec![
-        SystemOperation::Join {
-            node: n(4),
-            position: 4,
-        },
-        SystemOperation::Increment(n(4)),
-    ];
 
     // Two of the three backups accept the envelope; their genuine FuseOks
     // are queued at the leader. The third backup's envelope stays queued.
     h.deliver_tag(n(1), Tag::Fuse);
     h.deliver_tag(n(2), Tag::Fuse);
-    assert_eq!(h.snapshot(n(1)).expect("live").accepted, 4);
-    assert_eq!(h.snapshot(n(2)).expect("live").accepted, 4);
+    assert_eq!(h.snapshot(n(1)).expect("live").accepted, 5);
+    assert_eq!(h.snapshot(n(2)).expect("live").accepted, 5);
 
     // The forged subset: `n(1)` HAS accepted (the journal above), but its
     // reply names only the batch's first slot, the header slot the last,
@@ -670,7 +705,7 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
         header: Header {
             tag: Tag::FuseOk,
             view: current_view(),
-            slot: Slot(4),
+            slot: Slot(5),
         },
         body: Body::FuseOk {
             acks: vec![Slot(3)],
@@ -696,9 +731,11 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
         .expect("the genuine ack is queued");
     assert!(matches!(outcome.outcome, StepOutcome::Published { .. }));
 
-    // The next backup's genuine FuseOk completes the quorum on BOTH
-    // packed slots, the header-slot vouch telescoped the batch, and
-    // the commit fires: the cascade commits the batch whole.
+    // The next backup's genuine FuseOk completes the quorum on every
+    // packed slot, the header-slot vouch telescoped the batch, and the
+    // commit fires: the cascade commits the batch whole, one era per
+    // establishing slot, the rider's bump carrying the serving view to
+    // the slab's final era in the same advance.
     let outcome = h
         .deliver_tag(n(0), Tag::FuseOk)
         .expect("the second ack is queued");
@@ -710,12 +747,12 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
     );
     let snapshot = h.snapshot(n(0)).expect("live");
     assert_eq!(
-        snapshot.committed, 4,
-        "the ONE atomic vote covers the batch: both packed slots hold quorum"
+        snapshot.committed, 5,
+        "the ONE atomic vote covers the batch: every packed slot holds quorum"
     );
 
-    // The per-era commit emission and the era table: the batch established
-    // ONE era at its first slot (§4 step 4).
+    // The per-era commit emission and the era table: the slab established
+    // an era per establishing slot (§4 step 4).
     for to in [n(1), n(2), n(3)] {
         let message = h
             .peek_queued(to, Tag::CommitBatch)
@@ -725,17 +762,33 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
         };
         assert_eq!(
             committed,
-            &vec![Slot(3), Slot(4)],
-            "one committed frontier per packed slot, in batch order"
+            &vec![Slot(4), Slot(5)],
+            "one committed frontier per slot of the slab's second era, in batch order"
         );
     }
     let table = h.era_table(n(0)).expect("live");
     let record = table.record(Era(2)).expect("era 2 is recorded");
-    assert_eq!(record.established_by, Slot(3), "the batch's first slot");
+    assert_eq!(record.established_by, Slot(3), "the join's own slot");
     assert_eq!(
         record.establishing_operation,
-        SystemOperation::Batch(ops),
-        "the era's establishing operation is the batch the envelope packed"
+        SystemOperation::Join {
+            node: n(4),
+            position: 4
+        },
+        "the head slot establishes its own era"
+    );
+    let record = table.record(Era(3)).expect("era 3 is recorded");
+    assert_eq!(record.established_by, Slot(4), "the promotion's own slot");
+    assert_eq!(
+        record.establishing_operation,
+        SystemOperation::Batch(vec![
+            SystemOperation::Increment(n(4)),
+            SystemOperation::Nominate {
+                from: View(0),
+                offset: 5
+            },
+        ]),
+        "the promotion and its rider fold as the second era's establishing run"
     );
     assert_eq!(
         record.config.order(),
@@ -751,75 +804,135 @@ fn fuseok_is_one_atomic_vote_telescoping_the_batch() {
 
     // The third backup's envelope lands late; its FuseOk arrives to a
     // committed header slot and is dropped as harmless-but-named.
-    quiesce(&mut h);
+    h.quiesce();
     h.assert_safety();
 }
 
 // ---------------------------------------------------------------------------
-// 8. The reproduction: one commit transition folding across the two
-//    era-establishing slots of a packed schedule.
+// 8. The paced commit: what one commit transition folds when the packed
+//    schedule spans more eras than the serving view can carry
+//    (`docs/uvrr-fuse.md` §4 step 4).
 // ---------------------------------------------------------------------------
 
-/// THE REPRODUCTION for the CommitBatch verdict (`docs/uvrr-fuse.md` §4
-/// step 4). Review flagged an unconfirmed analytic claim: the closed
-/// era/slot discipline (§8.7.3, invariant rule 6) appears to refuse ONE
-/// commit transition folding across two era-establishing slots, the table
-/// would sit at `view_era + 2`, outside the +1 window. The state is built
-/// through the public acceptor path: the packed schedule is accepted at
-/// the backups, and the commit announcement that covers both slots,
-/// exactly the transition the leader's cascade would run, is delivered.
-/// The test asserts the resolved behaviour: the packed schedule's slots
-/// commit in ONE transition, folding as the ONE establishing batch they
-/// are, and the era table records it. The Red result this Green assertion
-/// replaced: on the then-unchanged code the fold ran per entry and the
-/// transition was refused.
+/// THE PACED COMMIT (`docs/uvrr-fuse.md` §4 step 4). A riderless slab
+/// carries no nomination, so nothing redeems the second era's advance in
+/// the committing transition: the paced fold commits the head era and
+/// defers the tail, the tail committing once the durable view has walked
+/// into the era the head established. The state is built through the
+/// public path: the leader proposes the packed schedule, the backups
+/// accept it, the quorum's ack fires the commit, and the leader's commit
+/// announcement carries the paced frontier to the backups. The deferral
+/// this pins: the era window (§8.7.3, W1) stops the fold before the run
+/// whose era the view cannot carry, never a split run, never a refused
+/// transition.
 #[test]
-fn commit_batch_across_two_era_establishing_slots_folds_as_one_batch() {
+fn the_riderless_slab_commits_as_the_view_paces_its_eras() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
-    // The packed schedule: two operations, two slots, each an
-    // era-establishing entry under the per-entry fold.
-    let ops = vec![
-        SystemOperation::Join {
-            node: n(3),
-            position: 3,
-        },
-        SystemOperation::Increment(n(3)),
-    ];
-    h.inject(n(0), n(1), fuse_envelope(Slot(3), ops.clone()));
-    h.inject(n(0), n(2), fuse_envelope(Slot(3), ops.clone()));
+    // The packed schedule: two establishing operations, two slots, two
+    // eras under the per-slot fold — and no rider to carry the view.
+    let plan = Plan {
+        initial: vec![member(0, 1), member(1, 1), member(2, 1)],
+        steps: vec![vec![
+            SystemOperation::Join {
+                node: n(3),
+                position: 3,
+            },
+            SystemOperation::Increment(n(3)),
+        ]],
+    };
+    let outcome = h.submit_plan(n(0), plan);
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.deliver_tag(n(1), Tag::Fuse);
+    h.deliver_tag(n(2), Tag::Fuse);
     assert_eq!(h.snapshot(n(1)).expect("live").accepted, 4);
     assert_eq!(h.snapshot(n(1)).expect("live").committed, 2);
 
-    // The commit transition that covers both slots, the announcement the
-    // leader's cascade emits at quorum.
-    let commit = Message {
-        header: Header {
-            tag: Tag::Commit,
-            view: current_view(),
-            slot: Slot(4),
-        },
-        body: Body::Commit { committed: Slot(4) },
-    };
-    let outcome = h.inject(n(0), n(1), commit);
+    // The first ack completes the quorum: the leader's commit transition
+    // covers both packed slots, the head era commits, the tail defers —
+    // the fold stops before the era the view cannot carry.
+    let outcome = h
+        .deliver_tag(n(0), Tag::FuseOk)
+        .expect("the ack is queued while the round is in flight");
     assert!(
-        matches!(outcome, StepOutcome::Published { .. }),
-        "the commit transition publishes, not {outcome:?}\n{}",
-        h.trace_dump()
+        matches!(outcome.outcome, StepOutcome::Published { .. }),
+        "the commit transition publishes: {:?}",
+        outcome.outcome
+    );
+    let snapshot = h.snapshot(n(0)).expect("live");
+    assert_eq!(
+        snapshot.committed, 3,
+        "the head era committed; the tail defers past the era window"
+    );
+    assert_eq!(
+        (snapshot.era, snapshot.view),
+        (1, 0),
+        "the deferral moves no view"
     );
 
-    // One transition, one fold: the batch establishes ONE era and the
-    // frontiers advance whole.
+    // The announcement carries the paced frontier to the backup: the same
+    // head-only commit, the same standing view, the head era established
+    // at the head slot alone.
+    let outcome = h
+        .deliver_tag(n(1), Tag::Commit)
+        .expect("the commit announcement is queued");
+    assert!(
+        matches!(outcome.outcome, StepOutcome::Published { .. }),
+        "the backup's commit transition publishes: {:?}",
+        outcome.outcome
+    );
     let snapshot = h.snapshot(n(1)).expect("live");
-    assert_eq!(snapshot.committed, 4, "both packed slots committed");
+    assert_eq!(snapshot.committed, 3, "the head era committed");
+    assert_eq!((snapshot.era, snapshot.view), (1, 0));
     let table = h.era_table(n(1)).expect("live");
     let record = table.record(Era(2)).expect("era 2 is recorded");
     assert_eq!(record.established_by, Slot(3));
     assert_eq!(
         record.establishing_operation,
-        SystemOperation::Batch(ops),
-        "the fold recognised the packed schedule as the one batch it is"
+        SystemOperation::Join {
+            node: n(3),
+            position: 3
+        },
+        "the head slot establishes its own era"
+    );
+    assert!(
+        table.record(Era(3)).is_none(),
+        "the tail's era is not established before the view walks"
+    );
+    h.assert_safety();
+
+    // The view walks into the era the head slot established (the §14.2
+    // host say-so), and the tail commits behind it.
+    let target = view_selecting(&h, n(0), Era(2));
+    assert_eq!(
+        target,
+        Ballot {
+            era: Era(2),
+            view: View(3)
+        },
+        "the least view past the current one selecting the leader"
+    );
+    view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2)]);
+
+    // The new view's first proposal gathers the votes that vouch the
+    // accepted tail: the deferred run's era is the view's own successor
+    // now, so the fold covers it and the client slot behind it.
+    let outcome = h.propose(n(0), op_id(1), b"paced");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.quiesce();
+    let snapshot = h.snapshot(n(1)).expect("live");
+    assert_eq!(
+        snapshot.committed, 5,
+        "the tail committed behind the walked view"
+    );
+    let table = h.era_table(n(1)).expect("live");
+    let record = table.record(Era(3)).expect("era 3 is recorded");
+    assert_eq!(record.established_by, Slot(4));
+    assert_eq!(
+        record.establishing_operation,
+        SystemOperation::Increment(n(3)),
+        "the tail slot establishes its own era"
     );
     assert_eq!(
         record.config.order(),
@@ -836,14 +949,14 @@ fn commit_batch_across_two_era_establishing_slots_folds_as_one_batch() {
 #[test]
 fn oversized_schedule_falls_back_to_ordinary_prepares() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // One establishing batch packing eight zero-mass joins, one past the
     // builder's envelope budget (`FUSE_MAX_OPS`, justified by the nominal
     // 1300-byte payload check in `tests/wire_contract.rs`).
     let joins: Vec<SystemOperation> = (0..8)
         .map(|i| SystemOperation::Join {
-            node: n(u32::try_from(i + 3).expect("eight learners fit a u32")),
+            node: n(i + 3),
             position: u32::try_from(i + 3).expect("eight positions fit a u32"),
         })
         .collect();
@@ -877,7 +990,7 @@ fn oversized_schedule_falls_back_to_ordinary_prepares() {
     // The batch commits as ONE era; the final committed state is the fold
     // of the same schedule the fuse path would have carried, the two
     // paths are the same sequence of logical accepts (§4 step 5).
-    quiesce(&mut h);
+    h.quiesce();
     let snapshot = h.snapshot(n(0)).expect("live");
     assert_eq!(snapshot.committed, 3, "the batch committed at its slot");
     let expected = uvrr::configuration::Configuration::void()
@@ -911,8 +1024,10 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
     // Four nodes: the commit quorum is three, so one FuseOk leaves the
     // round in flight.
     let mut h = Harness::provision(4);
-    bootstrap(&mut h);
+    h.bootstrap();
 
+    // The packed schedule carries no rider: the pending round has nothing
+    // to carry a surviving view across the slab's eras.
     let plan = Plan {
         initial: vec![member(0, 1), member(1, 1), member(2, 1), member(3, 1)],
         steps: vec![vec![
@@ -944,7 +1059,7 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
         },
     );
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     assert_eq!(
         h.snapshot(n(1)).expect("live").committed,
         2,
@@ -958,27 +1073,65 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
 
     // The new primary's catch-up proceeds through the ordinary path: its
     // own proposals' acknowledgements cascade over the accepted tail, and
-    // the packed schedule commits as the one establishing batch it is.
+    // the paced fold commits what the new view can carry — the head era
+    // alone; the tail's era is past the window and defers, taking the
+    // client slot with it, the frontier a prefix as ever.
     let outcome = h.propose(n(1), op_id(1), b"catch-up");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
+    h.quiesce();
     let snapshot = h.snapshot(n(1)).expect("live");
     assert_eq!(
-        snapshot.committed, 5,
-        "the packed slots and the client slot committed"
+        snapshot.committed, 3,
+        "the head era committed; the tail and the client slot defer past the era window"
     );
     let table = h.era_table(n(1)).expect("live");
     let record = table.record(Era(2)).expect("era 2 is recorded");
     assert_eq!(record.established_by, Slot(3));
     assert_eq!(
         record.establishing_operation,
-        SystemOperation::Batch(vec![
-            SystemOperation::Join {
-                node: n(4),
-                position: 4
-            },
-            SystemOperation::Increment(n(4)),
-        ])
+        SystemOperation::Join {
+            node: n(4),
+            position: 4
+        },
+        "the head slot establishes its own era"
+    );
+    assert!(
+        table.record(Era(3)).is_none(),
+        "the tail's era waits for the view to pace it"
+    );
+
+    // The host paces the view into the era the head established, and the
+    // next proposal's acknowledgements vouch the accepted tail: the
+    // deferred run, the stranded client slot, and the new proposal commit
+    // in slot order.
+    let target = view_selecting(&h, n(1), Era(2));
+    view_change_between_eras(&mut h, n(1), target, &[n(0), n(1), n(2), n(3)]);
+    let outcome = h.propose(n(1), op_id(2), b"paced");
+    assert!(matches!(outcome, StepOutcome::Published { .. }));
+    h.quiesce();
+    let snapshot = h.snapshot(n(1)).expect("live");
+    assert_eq!(
+        snapshot.committed, 6,
+        "the tail, the stranded client slot, and the new proposal committed"
+    );
+    let table = h.era_table(n(1)).expect("live");
+    let record = table.record(Era(3)).expect("era 3 is recorded");
+    assert_eq!(record.established_by, Slot(4));
+    assert_eq!(
+        record.establishing_operation,
+        SystemOperation::Increment(n(4)),
+        "the tail slot establishes its own era"
+    );
+    assert_eq!(
+        record.config.order(),
+        [
+            member(0, 1),
+            member(1, 1),
+            member(2, 1),
+            member(3, 1),
+            member(4, 1)
+        ],
+        "the schedule's final configuration"
     );
     h.assert_safety();
 }
@@ -990,7 +1143,7 @@ fn leadership_loss_kills_the_pending_fuse_slots() {
 #[test]
 fn client_operations_are_not_blocked_by_the_fuse_round() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let outcome = h.submit_plan(n(0), join_and_promote_step());
     assert!(matches!(outcome, StepOutcome::Published { .. }));
@@ -1004,7 +1157,7 @@ fn client_operations_are_not_blocked_by_the_fuse_round() {
     let outcome = h.propose(n(0), op_id(1), b"while-in-flight");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
     let entry = h
-        .journal_entry(n(0), Slot(5))
+        .journal_entry(n(0), Slot(6))
         .expect("the client op took the slot above the fused range");
     assert!(
         matches!(entry.payload, Payload::Operation { .. }),
@@ -1021,14 +1174,37 @@ fn client_operations_are_not_blocked_by_the_fuse_round() {
         h.journal_entry(n(0), Slot(4)).expect("packed").payload,
         Payload::System(SystemOperation::Increment(n(3)))
     );
+    assert_eq!(
+        h.journal_entry(n(0), Slot(5)).expect("packed").payload,
+        Payload::System(SystemOperation::Nominate {
+            from: View(0),
+            offset: 4
+        }),
+        "the rider packs its own slot, sharing its carrier's era"
+    );
+
+    // The client op's acks gather while the fuse round is in flight: the
+    // serving view still stands, so they count. The nomination bump the
+    // slab's commit publishes retires the view — an ack arriving after it
+    // is the stale-view drop of every view succession — so the op gathers
+    // its quorum before the round's ack, never blocked by it.
+    h.deliver_tag(n(1), Tag::Prepare);
+    h.deliver_tag(n(2), Tag::Prepare);
+    h.deliver_tag(n(0), Tag::PrepareOk);
+    h.deliver_tag(n(0), Tag::PrepareOk);
 
     // The round completes; the packed slots commit in order and the client
-    // op lands behind them.
+    // op lands behind them, in the same advance.
     h.deliver_tag(n(0), Tag::FuseOk);
-    quiesce(&mut h);
+    h.quiesce();
     let snapshot = h.snapshot(n(0)).expect("live");
-    assert_eq!(snapshot.committed, 5, "the schedule then the client op");
-    assert_eq!(snapshot.accepted, 5);
+    assert_eq!(
+        snapshot.committed,
+        6,
+        "the schedule then the client op\n{}",
+        h.trace_dump()
+    );
+    assert_eq!(snapshot.accepted, 6);
     h.assert_safety();
 }
 
@@ -1106,7 +1282,7 @@ fn fuse_round(h: &mut Harness, leader: NodeId, backups: &[NodeId], committed_thr
         }
     }
     fuse_acks_until_committed(h, leader, committed_through);
-    quiesce(h);
+    h.quiesce();
     h.assert_safety();
 }
 
@@ -1127,7 +1303,7 @@ fn prepare_round(h: &mut Harness, leader: NodeId, backups: &[NodeId], committed_
         committed_through,
         "the ordinary establishing batch committed"
     );
-    quiesce(h);
+    h.quiesce();
     h.assert_safety();
 }
 
@@ -1159,9 +1335,11 @@ fn view_change_between_eras(h: &mut Harness, leader: NodeId, target: Ballot, liv
         "the forced fence publishes: {outcome:?}\n{}",
         h.trace_dump()
     );
-    quiesce(h);
+    h.quiesce();
     for &id in live {
-        let snapshot = h.snapshot(id).expect("live");
+        let snapshot = h
+            .snapshot(id)
+            .unwrap_or_else(|| panic!("{id:?} is not live\n{}", h.trace_dump()));
         assert_eq!(
             (snapshot.era, snapshot.view),
             (target.era.0, target.view.0),
@@ -1171,15 +1349,19 @@ fn view_change_between_eras(h: &mut Harness, leader: NodeId, target: Ballot, liv
     h.assert_safety();
 }
 
-/// The two-era 3-node canonical split (`docs/uvrr-protocols.md`, the reincarnation chapter §5)
-/// driven end to end through the fuse path: one Fuse per backup per era,
-/// the acks telescoping, the commits firing per era, and the final
-/// configuration the plan's steps reach. Two round trips for the whole
-/// forced schedule, single digits, as §6 promises.
+/// The two-step 3-node canonical split (`docs/uvrr-protocols.md`, the reincarnation chapter §5)
+/// driven end to end through the fuse path: one Fuse per backup per step,
+/// the acks telescoping, the commits firing per step, and the final
+/// configuration the plan's steps reach. Under the per-slot era law each
+/// step spans one era per establishing slot, and the nomination rider
+/// carries the serving view across the slab's eras in the committing
+/// transition, so the machine's leader stays in the chair with no
+/// between-steps view change. Two round trips for the whole forced
+/// schedule, single digits, as §6 promises.
 #[test]
 fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
     let mut h = Harness::provision(3);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     let outcome = h.submit_plan(n(0), reincarnation_shape_plan());
     let StepOutcome::Published { effects, .. } = outcome else {
@@ -1195,9 +1377,10 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
         "the verdict surfaces: {effects:?}"
     );
 
-    // Era 2, the crossing batch proposed WITH the verdict: two ops, one
-    // Fuse per backup of the era-1 cluster, and the body carries the
-    // schedule in plan order at the shared ballot.
+    // The crossing step proposed WITH the verdict: two establishing ops
+    // and the nomination rider, one Fuse per backup of the era-1 cluster,
+    // the body carrying the schedule in plan order, each packed slot at
+    // its own ballot.
     for to in [n(1), n(2)] {
         let message = h
             .peek_queued(to, Tag::Fuse)
@@ -1213,25 +1396,47 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
                         node: n(3),
                         position: 2
                     },
+                    SystemOperation::Nominate {
+                        from: View(0),
+                        offset: 2
+                    },
                 ]
             }
         );
     }
-    fuse_round(&mut h, n(0), &[n(1), n(2)], 4);
+    fuse_round(&mut h, n(0), &[n(1), n(2)], 5);
 
-    // The era row: the batch established ONE era at its first slot.
+    // The era rows: one era per establishing slot — the crossing's
+    // decrement establishes era 2 at its own slot, the join and its rider
+    // fold as era 3's establishing run.
     let table = h.era_table(n(0)).expect("live");
     let record = table.record(Era(2)).expect("era 2 is recorded");
     assert_eq!(record.established_by, Slot(3));
     assert_eq!(
         record.establishing_operation,
+        SystemOperation::Decrement(n(2)),
+        "the head slot establishes its own era"
+    );
+    assert_eq!(
+        record.config.order(),
+        [member(0, 1), member(1, 1), member(2, 0)],
+        "the draining era: the old identity at zero"
+    );
+    let record = table.record(Era(3)).expect("era 3 is recorded");
+    assert_eq!(record.established_by, Slot(4));
+    assert_eq!(
+        record.establishing_operation,
         SystemOperation::Batch(vec![
-            SystemOperation::Decrement(n(2)),
             SystemOperation::Join {
                 node: n(3),
                 position: 2
             },
-        ])
+            SystemOperation::Nominate {
+                from: View(0),
+                offset: 2
+            },
+        ]),
+        "the join and its rider fold as the era's establishing run"
     );
     assert_eq!(
         record.config.order(),
@@ -1239,32 +1444,38 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
         "the crossing era: the old identity at zero, the new one joined at zero"
     );
 
-    // The ordinary view change into the era the crossing batch
-    // established; the machine's leader stays in the chair.
-    let target = view_selecting(&h, n(0), Era(2));
+    // The rider's bump carried the serving view into the slab's final era
+    // in the committing transition: no view change between the steps.
+    let snapshot = h.snapshot(n(0)).expect("live");
     assert_eq!(
-        target,
-        Ballot {
-            era: Era(2),
-            view: View(2)
-        },
-        "the least view past the current one selecting the leader"
+        (snapshot.era, snapshot.view),
+        (3, 2),
+        "the nomination kept the leader stable across the slab's eras"
     );
-    view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2)]);
 
-    // Era 3, the eviction batch: three backups of the era-2 cluster (the
-    // weight-0 standbys included, they accept and journal, their acks
-    // count nothing), one Fuse each. The schedule's second round trip.
+    // The eviction step: three backups of the era-3 cluster (the weight-0
+    // standbys included, they accept and journal, their acks count
+    // nothing), one Fuse each. The schedule's second round trip.
     propose_next_step(&mut h, n(0));
-    fuse_round(&mut h, n(0), &[n(1), n(3), n(2)], 6);
+    fuse_round(&mut h, n(0), &[n(1), n(3), n(2)], 8);
     let table = h.era_table(n(0)).expect("live");
-    let record = table.record(Era(3)).expect("era 3 is recorded");
-    assert_eq!(record.established_by, Slot(5));
+    let record = table.record(Era(4)).expect("era 4 is recorded");
+    assert_eq!(record.established_by, Slot(6));
+    assert_eq!(
+        record.establishing_operation,
+        SystemOperation::Increment(n(3)),
+        "the promotion establishes its own era"
+    );
+    let record = table.record(Era(5)).expect("era 5 is recorded");
+    assert_eq!(record.established_by, Slot(7));
     assert_eq!(
         record.establishing_operation,
         SystemOperation::Batch(vec![
-            SystemOperation::Increment(n(3)),
             SystemOperation::Leave(n(2)),
+            SystemOperation::Nominate {
+                from: View(2),
+                offset: 1
+            },
         ])
     );
     assert_eq!(
@@ -1272,32 +1483,43 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_three_nodes() {
         [member(0, 1), member(1, 1), member(3, 1)],
         "the final configuration: the old identity evicted, the new one voting"
     );
+    let snapshot = h.snapshot(n(0)).expect("live");
+    assert_eq!(
+        (snapshot.era, snapshot.view),
+        (5, 3),
+        "the second rider carried the view across the eviction slab's eras"
+    );
 
     // The client stream is never blocked: the next proposal lands above
     // the fused range and commits under the final configuration.
     let outcome = h.propose(n(0), op_id(1), b"after");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
-    assert_eq!(h.snapshot(n(0)).expect("live").committed, 7);
+    h.quiesce();
+    assert_eq!(h.snapshot(n(0)).expect("live").committed, 9);
     h.assert_safety();
 }
 
-/// The six-era 5-node weighted sequence
+/// The 5-node weighted sequence
 /// (`docs/uvrr-protocols.md`, the reincarnation chapter §5, rules §6) driven end to end through
-/// the fuse path: the solitary scaling batches travel as ordinary
-/// establishing [`uvrr::wire::Tag::Prepare`]s, the two-op batches travel as one Fuse per
-/// backup, every era commits through one round trip, six round trips for
-/// the whole sequence, and the era table advances through all seven
-/// configurations the schedule names.
+/// the fuse path under the per-slot era law: the solitary scaling batches
+/// travel as ordinary establishing [`uvrr::wire::Tag::Prepare`]s and their era
+/// boundaries are crossed by the host's view changes (R13 rides no rider);
+/// every other step carries its nomination rider and commits its whole
+/// slab in one advance, the serving view landing at the slab's final era.
+/// Six steps, one round trip each, and the era table advances one era per
+/// establishing slot through the eight configurations the schedule names.
 #[test]
 fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     let mut h = Harness::provision(5);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // The schedule (rules §6): `[DOUBLE]`, `[JOIN(new), INCREMENT(new)]`,
     // `[DECREMENT(old)]`, `[DECREMENT(old), LEAVE(old)]`, `[INCREMENT(new)]`,
     // `[HALVE]`, old `n(4)`, new `n(5)` joined at the old identity's
-    // succession position. The plan carries it as one operator artefact.
+    // succession position. Every non-scaling step carries its `Nominate`
+    // rider (the NOMINATE chapter's emission): `from` the running view,
+    // `offset` the least positive jump re-electing the leader under the
+    // step's own succession. The plan carries it as one operator artefact.
     let plan = Plan {
         initial: vec![
             member(0, 1),
@@ -1314,13 +1536,33 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
                     position: 4,
                 },
                 SystemOperation::Increment(n(5)),
+                SystemOperation::Nominate {
+                    from: View(5),
+                    offset: 1,
+                },
             ],
-            vec![SystemOperation::Decrement(n(4))],
+            vec![
+                SystemOperation::Decrement(n(4)),
+                SystemOperation::Nominate {
+                    from: View(6),
+                    offset: 6,
+                },
+            ],
             vec![
                 SystemOperation::Decrement(n(4)),
                 SystemOperation::Leave(n(4)),
+                SystemOperation::Nominate {
+                    from: View(12),
+                    offset: 3,
+                },
             ],
-            vec![SystemOperation::Increment(n(5))],
+            vec![
+                SystemOperation::Increment(n(5)),
+                SystemOperation::Nominate {
+                    from: View(15),
+                    offset: 5,
+                },
+            ],
             vec![SystemOperation::Halve],
         ],
     };
@@ -1338,8 +1580,8 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
         "the verdict surfaces: {effects:?}"
     );
 
-    // Era 2, `[DOUBLE]` is solitary (R13): the ordinary establishing
-    // `Prepare`, one per backup, no envelope. Proposed with the verdict.
+    // `[DOUBLE]` is solitary (R13): the ordinary establishing `Prepare`,
+    // one per backup, no envelope. Proposed with the verdict.
     prepare_round(&mut h, n(0), &[n(1), n(2), n(3), n(4)], 3);
     let table = h.era_table(n(0)).expect("live");
     let record = table.record(Era(2)).expect("era 2 is recorded");
@@ -1359,7 +1601,8 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
         ]
     );
 
-    // The view change into era 2: the doubled voters keep the leader.
+    // The scaling step rides no rider: the host's view change crosses the
+    // boundary. The doubled voters keep the leader.
     let target = view_selecting(&h, n(0), Era(2));
     assert_eq!(
         target,
@@ -1370,22 +1613,46 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
     );
     view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3), n(4)]);
 
-    // Era 3, the introduce batch packs two ops: ONE Fuse per backup of
-    // the doubled era-2 cluster. The second round trip.
+    // The introduce step packs two establishing ops and the rider: ONE
+    // Fuse per backup of the doubled era-2 cluster. The slab spans eras 2
+    // and 3, establishes eras 3 and 4, and the rider lands the serving
+    // view at the slab's final era in the committing transition.
     propose_next_step(&mut h, n(0));
-    fuse_round(&mut h, n(0), &[n(1), n(2), n(3), n(4)], 5);
+    fuse_round(&mut h, n(0), &[n(1), n(2), n(3), n(4)], 6);
     let table = h.era_table(n(0)).expect("live");
     let record = table.record(Era(3)).expect("era 3 is recorded");
     assert_eq!(record.established_by, Slot(4));
     assert_eq!(
         record.establishing_operation,
+        SystemOperation::Join {
+            node: n(5),
+            position: 4
+        },
+        "the head slot establishes its own era"
+    );
+    assert_eq!(
+        record.config.order(),
+        [
+            member(0, 2),
+            member(1, 2),
+            member(2, 2),
+            member(3, 2),
+            member(5, 0),
+            member(4, 2)
+        ]
+    );
+    let record = table.record(Era(4)).expect("era 4 is recorded");
+    assert_eq!(record.established_by, Slot(5));
+    assert_eq!(
+        record.establishing_operation,
         SystemOperation::Batch(vec![
-            SystemOperation::Join {
-                node: n(5),
-                position: 4
-            },
             SystemOperation::Increment(n(5)),
-        ])
+            SystemOperation::Nominate {
+                from: View(5),
+                offset: 1
+            },
+        ]),
+        "the promotion and its rider fold as the era's establishing run"
     );
     assert_eq!(
         record.config.order(),
@@ -1398,30 +1665,30 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
             member(4, 2)
         ]
     );
-
-    // The view change into era 3: six voters (the joiner included at
-    // weight 1), the leader stays in the chair.
-    let target = view_selecting(&h, n(0), Era(3));
+    let snapshot = h.snapshot(n(0)).expect("live");
     assert_eq!(
-        target,
-        Ballot {
-            era: Era(3),
-            view: View(6)
-        }
+        (snapshot.era, snapshot.view),
+        (4, 6),
+        "the rider carried the view across the introduce slab's eras"
     );
-    view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3), n(4)]);
 
-    // Era 4, the first solitary `DECREMENT(old)`: ordinary path, one
-    // `Prepare` per backup of the era-3 cluster. The new identity (a
-    // weight-1 voter now) and the old identity both receive it.
+    // The first drain step packs the `DECREMENT(old)` and its rider: ONE
+    // Fuse per backup of the era-4 cluster. The new identity (a weight-1
+    // voter now) and the old identity both receive it.
     propose_next_step(&mut h, n(0));
-    prepare_round(&mut h, n(0), &[n(1), n(2), n(3), n(5), n(4)], 6);
+    fuse_round(&mut h, n(0), &[n(1), n(2), n(3), n(5), n(4)], 8);
     let table = h.era_table(n(0)).expect("live");
-    let record = table.record(Era(4)).expect("era 4 is recorded");
-    assert_eq!(record.established_by, Slot(6));
+    let record = table.record(Era(5)).expect("era 5 is recorded");
+    assert_eq!(record.established_by, Slot(7));
     assert_eq!(
         record.establishing_operation,
-        SystemOperation::Batch(vec![SystemOperation::Decrement(n(4))])
+        SystemOperation::Batch(vec![
+            SystemOperation::Decrement(n(4)),
+            SystemOperation::Nominate {
+                from: View(6),
+                offset: 6
+            },
+        ])
     );
     assert_eq!(
         record.config.order(),
@@ -1434,30 +1701,43 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
             member(4, 1)
         ]
     );
+    let snapshot = h.snapshot(n(0)).expect("live");
+    assert_eq!((snapshot.era, snapshot.view), (5, 12));
 
-    // The view change into era 4.
-    let target = view_selecting(&h, n(0), Era(4));
-    assert_eq!(
-        target,
-        Ballot {
-            era: Era(4),
-            view: View(12)
-        }
-    );
-    view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3), n(4)]);
-
-    // Era 5, the remove batch packs two ops: ONE Fuse per backup of the
-    // era-4 cluster. The third round trip; the old identity leaves.
+    // The remove step packs two establishing ops and the rider: ONE Fuse
+    // per backup of the era-5 cluster; the old identity leaves. The slab
+    // spans eras 5 and 6, establishes eras 6 and 7.
     propose_next_step(&mut h, n(0));
-    fuse_round(&mut h, n(0), &[n(1), n(2), n(3), n(5), n(4)], 8);
+    fuse_round(&mut h, n(0), &[n(1), n(2), n(3), n(5), n(4)], 11);
     let table = h.era_table(n(0)).expect("live");
-    let record = table.record(Era(5)).expect("era 5 is recorded");
-    assert_eq!(record.established_by, Slot(7));
+    let record = table.record(Era(6)).expect("era 6 is recorded");
+    assert_eq!(record.established_by, Slot(9));
+    assert_eq!(
+        record.establishing_operation,
+        SystemOperation::Decrement(n(4)),
+        "the head slot establishes its own era"
+    );
+    assert_eq!(
+        record.config.order(),
+        [
+            member(0, 2),
+            member(1, 2),
+            member(2, 2),
+            member(3, 2),
+            member(5, 1),
+            member(4, 0)
+        ]
+    );
+    let record = table.record(Era(7)).expect("era 7 is recorded");
+    assert_eq!(record.established_by, Slot(10));
     assert_eq!(
         record.establishing_operation,
         SystemOperation::Batch(vec![
-            SystemOperation::Decrement(n(4)),
             SystemOperation::Leave(n(4)),
+            SystemOperation::Nominate {
+                from: View(12),
+                offset: 3
+            },
         ])
     );
     assert_eq!(
@@ -1470,28 +1750,26 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
             member(5, 1)
         ]
     );
+    let snapshot = h.snapshot(n(0)).expect("live");
+    assert_eq!((snapshot.era, snapshot.view), (7, 15));
 
-    // The view change into era 5.
-    let target = view_selecting(&h, n(0), Era(5));
-    assert_eq!(
-        target,
-        Ballot {
-            era: Era(5),
-            view: View(15)
-        }
-    );
-    view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3), n(4)]);
-
-    // Era 6, the solitary `INCREMENT(new)`: ordinary path. The joiner
-    // reaches the doubled corner that makes the final halve integral.
+    // The corner step packs the `INCREMENT(new)` and its rider: the
+    // joiner reaches the doubled corner that makes the final halve
+    // integral. ONE Fuse per backup of the era-7 cluster.
     propose_next_step(&mut h, n(0));
-    prepare_round(&mut h, n(0), &[n(1), n(2), n(3), n(5)], 9);
+    fuse_round(&mut h, n(0), &[n(1), n(2), n(3), n(5)], 13);
     let table = h.era_table(n(0)).expect("live");
-    let record = table.record(Era(6)).expect("era 6 is recorded");
-    assert_eq!(record.established_by, Slot(9));
+    let record = table.record(Era(8)).expect("era 8 is recorded");
+    assert_eq!(record.established_by, Slot(12));
     assert_eq!(
         record.establishing_operation,
-        SystemOperation::Batch(vec![SystemOperation::Increment(n(5))])
+        SystemOperation::Batch(vec![
+            SystemOperation::Increment(n(5)),
+            SystemOperation::Nominate {
+                from: View(15),
+                offset: 5
+            },
+        ])
     );
     assert_eq!(
         record.config.order(),
@@ -1503,26 +1781,16 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
             member(5, 2)
         ]
     );
+    let snapshot = h.snapshot(n(0)).expect("live");
+    assert_eq!((snapshot.era, snapshot.view), (8, 20));
 
-    // The view change into era 6: the old identity left with era 5,
-    // it is addressed by nothing now and installs nothing.
-    let target = view_selecting(&h, n(0), Era(6));
-    assert_eq!(
-        target,
-        Ballot {
-            era: Era(6),
-            view: View(20)
-        }
-    );
-    view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3)]);
-
-    // Era 7, the final `HALVE`: ordinary path, and the sequence's last
-    // round trip. Six eras, six round trips, every era quorum-safe.
+    // The final `HALVE` is solitary: the ordinary path, and the
+    // sequence's last round trip.
     propose_next_step(&mut h, n(0));
-    prepare_round(&mut h, n(0), &[n(1), n(2), n(3), n(5)], 10);
+    prepare_round(&mut h, n(0), &[n(1), n(2), n(3), n(5)], 14);
     let table = h.era_table(n(0)).expect("live");
-    let record = table.record(Era(7)).expect("era 7 is recorded");
-    assert_eq!(record.established_by, Slot(10));
+    let record = table.record(Era(9)).expect("era 9 is recorded");
+    assert_eq!(record.established_by, Slot(14));
     assert_eq!(
         record.establishing_operation,
         SystemOperation::Batch(vec![SystemOperation::Halve])
@@ -1540,11 +1808,26 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
          old identity replaced"
     );
 
+    // The host's view change crosses the scaling boundary: the old
+    // identity left with era 7, it is addressed by nothing now and
+    // installs nothing; the joiner was never booted in this harness —
+    // it exists as a journal identity alone — so the installing set is
+    // the four live voters.
+    let target = view_selecting(&h, n(0), Era(9));
+    assert_eq!(
+        target,
+        Ballot {
+            era: Era(9),
+            view: View(25)
+        }
+    );
+    view_change_between_eras(&mut h, n(0), target, &[n(0), n(1), n(2), n(3)]);
+
     // The client stream is never blocked by the sequence.
     let outcome = h.propose(n(0), op_id(1), b"after");
     assert!(matches!(outcome, StepOutcome::Published { .. }));
-    quiesce(&mut h);
-    assert_eq!(h.snapshot(n(0)).expect("live").committed, 11);
+    h.quiesce();
+    assert_eq!(h.snapshot(n(0)).expect("live").committed, 15);
     h.assert_safety();
 }
 
@@ -1558,21 +1841,25 @@ fn full_forced_reincarnation_schedule_travels_the_fuse_path_on_five_nodes() {
 // ---------------------------------------------------------------------------
 
 /// The even-sized commit-quorum choreography shared by the 4-node and
-/// 6-node tests: the 2-op join-and-promote schedule travels as one Fuse
-/// per backup; the named number of acks leaves the round in flight and
-/// the NEXT ack commits the batch whole in one transition; a further ack
-/// arrives to a committed header slot and drops by name; the
-/// [`uvrr::wire::Tag::CommitBatch`] names one committed frontier per packed slot, no
+/// 6-node tests: the join-and-promote schedule, rider riding the
+/// promotion slot, travels as one Fuse per backup; the named number of
+/// acks leaves the round in flight and the NEXT ack commits the batch
+/// whole in one transition; a further ack arrives to a committed header
+/// slot and drops by name; the [`uvrr::wire::Tag::CommitBatch`] names one
+/// committed frontier per packed slot of the slab's second era, no
 /// ranges, and the ordinary commit announcement advances the backups.
 
 #[test]
 fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority() {
     let mut h = Harness::provision(4);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // Four unit voters: the strict majority of the even total is three
     // (§8.4's eager `2n → n+1`), the leader plus TWO acks, one fewer
     // than the odd-sized equivalent would demand of the next size up.
+    // The schedule carries its nomination rider: five voters after the
+    // promotion, so the least positive jump from view 0 re-electing the
+    // leader is 5.
     let outcome = h.submit_plan(
         n(0),
         Plan {
@@ -1583,6 +1870,10 @@ fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority()
                     position: 4,
                 },
                 SystemOperation::Increment(n(4)),
+                SystemOperation::Nominate {
+                    from: View(0),
+                    offset: 5,
+                },
             ]],
         },
     );
@@ -1599,19 +1890,21 @@ fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority()
         2,
         "two of three is not the eager majority of four"
     );
-    // The second ack completes it: BOTH packed slots commit in ONE
-    // transition (the telescoping vouch).
+    // The second ack completes it: ALL packed slots commit in ONE
+    // transition (the telescoping vouch), the rider carrying the serving
+    // view across the slab's eras in the same advance.
     h.deliver_tag(n(2), Tag::Fuse);
     h.deliver_tag(n(0), Tag::FuseOk);
     assert_eq!(
         h.snapshot(n(0)).expect("live").committed,
-        4,
+        5,
         "the eager majority commits the batch whole"
     );
 
     // The per-era emission: one `CommitBatch` per backup naming one
-    // committed frontier per packed slot, no ranges, and the ordinary
-    // commit announcement is what advances the backups.
+    // committed frontier per packed slot of the slab's second era, no
+    // ranges, and the ordinary commit announcement is what advances the
+    // backups.
     for to in [n(1), n(2), n(3)] {
         let message = h
             .peek_queued(to, Tag::CommitBatch)
@@ -1620,7 +1913,7 @@ fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority()
         assert_eq!(
             message.body,
             Body::CommitBatch {
-                committed: vec![Slot(3), Slot(4)]
+                committed: vec![Slot(4), Slot(5)]
             }
         );
     }
@@ -1640,15 +1933,26 @@ fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority()
     h.deliver_tag(n(1), Tag::Commit);
     assert_eq!(
         h.snapshot(n(1)).expect("live").committed,
-        4,
+        5,
         "the ordinary commit announcement advances the backup"
     );
-    quiesce(&mut h);
+    h.quiesce();
 
-    // The era row: the batch established ONE era, the joiner voting.
+    // The era rows: one era per establishing slot, the rider sharing its
+    // carrier's era, the joiner voting.
     let table = h.era_table(n(0)).expect("live");
     let record = table.record(Era(2)).expect("era 2 is recorded");
     assert_eq!(record.established_by, Slot(3));
+    assert_eq!(
+        record.establishing_operation,
+        SystemOperation::Join {
+            node: n(4),
+            position: 4
+        },
+        "the head slot establishes its own era"
+    );
+    let record = table.record(Era(3)).expect("era 3 is recorded");
+    assert_eq!(record.established_by, Slot(4));
     assert_eq!(
         record.config.order(),
         [
@@ -1665,10 +1969,12 @@ fn even_sized_four_node_cluster_commits_the_fused_batch_with_an_eager_majority()
 #[test]
 fn even_sized_six_node_cluster_commits_the_fused_batch_with_an_eager_majority() {
     let mut h = Harness::provision(6);
-    bootstrap(&mut h);
+    h.bootstrap();
 
     // Six unit voters: the strict majority of the even total is four,
-    // the leader plus THREE acks.
+    // the leader plus THREE acks. The schedule carries its nomination
+    // rider: seven voters after the promotion, so the least positive
+    // jump from view 0 re-electing the leader is 7.
     let outcome = h.submit_plan(
         n(0),
         Plan {
@@ -1686,6 +1992,10 @@ fn even_sized_six_node_cluster_commits_the_fused_batch_with_an_eager_majority() 
                     position: 6,
                 },
                 SystemOperation::Increment(n(6)),
+                SystemOperation::Nominate {
+                    from: View(0),
+                    offset: 7,
+                },
             ]],
         },
     );
@@ -1705,19 +2015,32 @@ fn even_sized_six_node_cluster_commits_the_fused_batch_with_an_eager_majority() 
         2,
         "three of four is not the eager majority of six"
     );
-    // The third ack completes it: the batch commits whole.
+    // The third ack completes it: the batch commits whole, the rider
+    // carrying the serving view across the slab's eras in the one
+    // transition.
     h.deliver_tag(n(0), Tag::FuseOk);
     assert_eq!(
         h.snapshot(n(0)).expect("live").committed,
-        4,
+        5,
         "the eager majority commits the batch whole"
     );
-    quiesce(&mut h);
+    h.quiesce();
 
-    // The era row: the batch established ONE era over seven members.
+    // The era rows: one era per establishing slot, the batch's span
+    // established over seven members.
     let table = h.era_table(n(0)).expect("live");
     let record = table.record(Era(2)).expect("era 2 is recorded");
     assert_eq!(record.established_by, Slot(3));
+    assert_eq!(
+        record.establishing_operation,
+        SystemOperation::Join {
+            node: n(6),
+            position: 6
+        },
+        "the head slot establishes its own era"
+    );
+    let record = table.record(Era(3)).expect("era 3 is recorded");
+    assert_eq!(record.established_by, Slot(4));
     assert_eq!(
         record.config.order(),
         [

@@ -270,21 +270,30 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             // §8.7.1: the era table folds the system operations the
             // advance newly covers. Every entry in the range is journaled
             // here, so a fold refusal is committed history the
-            // configuration cannot hold, the breach faults.
-            let (config, bump) =
-                match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
-                    Ok((config, bump)) => (config, bump),
-                    Err(CommitFold::Unavailable(slot)) => {
-                        return Err(PlanRefusal::JournalEntryUnavailable { slot });
-                    }
-                    // The commit frontier would split an establishing
-                    // batch (`docs/uvrr-fuse.md`): refused by name, the
-                    // gap rule's fetch is the repair.
-                    Err(CommitFold::SplitBatch) => {
-                        return self.drop_plan(Diagnostic::FuseRefusal, kind);
-                    }
-                    Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
-                };
+            // configuration cannot hold, the breach faults. The paced
+            // fold covers only what this node's own view can carry
+            // (`docs/uvrr-fuse.md` §4 step 4); a deferred tail commits
+            // once the view has walked.
+            let (config, covered, _stopped, bump) = match self.fold_committed(
+                journal,
+                &[],
+                self.progress.committed(),
+                new_committed,
+                true,
+            ) {
+                Ok((config, covered, stopped, bump)) => (config, covered, stopped, bump),
+                Err(CommitFold::Unavailable(slot)) => {
+                    return Err(PlanRefusal::JournalEntryUnavailable { slot });
+                }
+                // The commit frontier would split an establishing
+                // batch (`docs/uvrr-fuse.md`): refused by name, the
+                // gap rule's fetch is the repair.
+                Err(CommitFold::SplitBatch) => {
+                    return self.drop_plan(Diagnostic::FuseRefusal, kind);
+                }
+                Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
+            };
+            let new_committed = covered;
             let candidate = self.candidate_with(
                 status,
                 accepted,
@@ -329,13 +338,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // refusal names committed history the configuration cannot hold,
         // the breach faults.
         let overlay = [entry.clone()];
-        let (config, bump) = match self.fold_committed(
+        let (config, covered, _stopped, bump) = match self.fold_committed(
             journal,
             &overlay,
             self.progress.committed(),
             new_committed,
+            true,
         ) {
-            Ok((config, bump)) => (config, bump),
+            Ok((config, covered, stopped, bump)) => (config, covered, stopped, bump),
             Err(CommitFold::Unavailable(slot)) => {
                 return Err(PlanRefusal::JournalEntryUnavailable { slot });
             }
@@ -356,21 +366,81 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
             }
             Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
         };
+        // The paced fold covers only what this node's own view can carry
+        // (`docs/uvrr-fuse.md` §4 step 4); a deferred tail commits once the
+        // view has walked.
+        let new_committed = covered;
         if new_committed < entry.slot {
             // The system-operation perimeter (§8.7.2): an arriving system
             // entry the piggyback did not commit must fold onto the
             // post-piggyback table BEFORE it may be accepted, a peer's
             // invalid operation is dropped by name, never journaled.
-            if let Payload::System(op) = &entry.payload
-                && let Err(error) = config.extend(op, entry.slot)
-            {
-                return self.drop_plan(
-                    Diagnostic::InvalidSystemOperation {
-                        slot: entry.slot,
-                        error,
-                    },
-                    kind,
-                );
+            if let Payload::System(op) = &entry.payload {
+                // The post-piggyback table is the base of the chain, not the
+                // judge: the entry's guards are evaluated against the
+                // configuration the fold of the accepted-but-uncommitted
+                // predecessors established (`docs/uvrr-fuse.md` §6), exactly
+                // as though they had arrived as separate datagrams with
+                // nothing between them, or the step-through diverges from
+                // the slab it mirrors.
+                let mut chain = Arc::clone(&config);
+                let mut cursor = new_committed;
+                // The run the candidate joins: the accepted-but-uncommitted
+                // predecessors sharing the entry's era are the head of the
+                // maximal same-era run the commit fold glues as ONE
+                // establishing batch, so the perimeter judges the candidate
+                // inside that run's fold and the per-op refusal that would
+                // name a rider solitary never fires. The fold's rule is
+                // mirrored exactly: the batch fold first, the per-entry
+                // fallback on a batch refusal.
+                let mut run: Vec<SystemOperation> = Vec::new();
+                let mut run_first_slot = entry.slot;
+                let mut chain_at_run = Arc::clone(&chain);
+                while let Some(next) = cursor.next() {
+                    if next >= entry.slot {
+                        break;
+                    }
+                    let held = journal
+                        .get(next)
+                        .ok_or(PlanRefusal::JournalEntryUnavailable { slot: next })?;
+                    if let Payload::System(predecessor) = &held.payload {
+                        if held.era == entry.era && run.is_empty() {
+                            run_first_slot = next;
+                            chain_at_run = Arc::clone(&chain);
+                        }
+                        if held.era == entry.era {
+                            run.push(predecessor.clone());
+                        }
+                        chain = match chain.extend(predecessor, next) {
+                            Ok(folded) => Arc::new(folded),
+                            Err(error) => {
+                                return self.drop_plan(
+                                    Diagnostic::InvalidSystemOperation { slot: next, error },
+                                    kind,
+                                );
+                            }
+                        };
+                    }
+                    cursor = next;
+                }
+                let judged = if run.is_empty() {
+                    chain.extend(op, entry.slot)
+                } else {
+                    let mut ops = run;
+                    ops.push(op.clone());
+                    chain_at_run
+                        .extend(&SystemOperation::Batch(ops), run_first_slot)
+                        .or_else(|_| chain.extend(op, entry.slot))
+                };
+                if let Err(error) = judged {
+                    return self.drop_plan(
+                        Diagnostic::InvalidSystemOperation {
+                            slot: entry.slot,
+                            error,
+                        },
+                        kind,
+                    );
+                }
             }
             // Era authorization (§8.7.3, §8.7.8): the entry's era must
             // name an era the committed history has established, the
@@ -587,10 +657,15 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // the advance newly covers. Every entry in the range is
         // journaled (the cascade walks the accepted tail), so a fold
         // refusal is committed history the configuration cannot hold,
-        // the breach faults.
-        let (config, bump) =
-            match self.fold_committed(journal, &[], self.progress.committed(), committed) {
-                Ok((config, bump)) => (config, bump),
+        // the breach faults. The paced fold covers only what this node's
+        // own view can carry (`docs/uvrr-fuse.md` §4 step 4): a run the
+        // view cannot carry defers, the committed frontier stops at the
+        // last folded slot, and the tail commits once the view has
+        // walked — the nomination rider's bump is what carries the whole
+        // slab in one advance.
+        let (config, committed, _stopped, bump) =
+            match self.fold_committed(journal, &[], self.progress.committed(), committed, true) {
+                Ok((config, covered, stopped, bump)) => (config, covered, stopped, bump),
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
@@ -742,10 +817,14 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // the advance newly covers. Every entry in the range is
         // journaled (the frontier never claims what the journal does not
         // record), so a fold refusal is committed history the
-        // configuration cannot hold, the breach faults.
-        let (config, bump) =
-            match self.fold_committed(journal, &[], self.progress.committed(), new_committed) {
-                Ok((config, bump)) => (config, bump),
+        // configuration cannot hold, the breach faults. The paced fold
+        // covers only what this node's own view can carry
+        // (`docs/uvrr-fuse.md` §4 step 4); a deferred tail commits once
+        // the view has walked.
+        let (config, covered, _stopped, bump) =
+            match self.fold_committed(journal, &[], self.progress.committed(), new_committed, true)
+            {
+                Ok((config, covered, stopped, bump)) => (config, covered, stopped, bump),
                 Err(CommitFold::Unavailable(slot)) => {
                     return Err(PlanRefusal::JournalEntryUnavailable { slot });
                 }
@@ -757,6 +836,7 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
                 }
                 Err(CommitFold::Breach { .. }) => return self.breach_plan(kind),
             };
+        let new_committed = covered;
         let candidate = self.candidate_with(
             status,
             self.progress.accepted(),
@@ -770,19 +850,28 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     }
 
     /// The commit cascade's atomic segment beginning at `next`: a maximal
-    /// run of consecutive system entries, the establishing batch a fuse
-    /// envelope packed (`docs/uvrr-fuse.md` §1), commits whole, and any
-    /// other slot commits alone. The run is bounded by the accepted
-    /// frontier, which is where the journal's system tail ends.
+    /// run of consecutive system entries SHARING ONE ENTRY ERA, one era's
+    /// establishing fold — the fused slab's per-slot stamps mark the era
+    /// boundaries (`docs/uvrr-fuse.md` §1) — commits whole, and any other
+    /// slot commits alone. The run is bounded by the accepted frontier,
+    /// which is where the journal's system tail ends.
     fn commit_segment(&self, journal: &J::View, next: Slot, accepted: Slot) -> (Slot, Slot) {
         let mut end = next;
         let mut cursor = next;
+        let Some(head) = journal.get(next) else {
+            return (next, end);
+        };
         while let Some(follow) = cursor.next() {
             if follow > accepted {
                 break;
             }
             match journal.get(follow) {
                 Some(entry) if matches!(entry.payload, Payload::System(_)) => {
+                    // A new era begins a new segment: the eras commit one
+                    // establishing fold at a time (§8.7.1).
+                    if entry.era != head.era {
+                        break;
+                    }
                     end = follow;
                     cursor = follow;
                 }
@@ -855,7 +944,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// §2): one [`crate::wire::Tag::FuseOk`] is ONE atomic vote vouching for the whole
     /// envelope, a node processes the full datagram before reading any
     /// other message, so the leader counts a majority response on the
-    /// FIRST message in batch and telescopes the remaining slots. The
+    /// FIRST message in batch and telescopes the remaining slots, each packed
+    /// slot's acceptance being evidence at that slot's own ballot. The
     /// guards mirror `plan_prepare_ok`, [`crate::progress::Status::Normal`], own is the primary of
     /// the current view, the view matches, the sender is a member voting
     /// with weight ≥ 1, the HEADER slot an outstanding proposal slot (a
@@ -868,7 +958,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
     /// `plan_prepare_ok` feeds.
     ///
     /// The commit cascade is `plan_prepare_ok`'s, segment-atomic: the
-    /// packed schedule's slots share their ackers (§2), so the batch's
+    /// packed schedule's slots share their ackers (§2), each accept carrying
+    /// its own slot's ballot, so the batch's
     /// quorum lands whole, the establishing batch commits as the ONE era
     /// it is, the commit cascade runs in slot order, and the per-era
     /// [`crate::wire::Tag::CommitBatch`] joins the ordinary commit announcement. The
@@ -925,7 +1016,8 @@ impl<J: Journal, Q: QuorumStrategy> Replica<J, Q> {
         // The sender is vouched cumulatively onto every outstanding slot
         // the header slot covers, `plan_prepare_ok`'s bookkeeping pairs,
         // driven by the header's coverage (§2: majority is computed on
-        // the first message in batch; the remaining slots telescope).
+        // the first message in batch; the remaining slots telescope, each
+        // at its own ballot).
         let mut oks: Vec<(Slot, NodeId)> = Vec::new();
         let mut covered = self.progress.committed();
         while let Some(next) = covered.next() {

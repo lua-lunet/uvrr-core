@@ -1,23 +1,45 @@
 name: CI
 
-# Lane split modeled on the sibling lua-lunet/lunet-locks CI (itself modeled
-# on upstream lua-lunet/lunet): regular builds (pull requests, pushes to the
-# working branches) run the fast Linux lane; tagged builds (v*) verify the
-# tag matches the manifest version, add macOS, package per-platform release
-# archives of the C ABI library, and publish-release creates the GitHub
-# release. A release tag publishes only when Cargo.toml's version equals the
-# tag: the bump is part of the change that earns the release.
+# Two lanes, split by what a run proves. A push or a pull request runs
+# the gate: the three-platform build matrix, and the repository
+# verification gate exactly as it runs locally (fmt, clippy with
+# warnings denied, both test lanes, the doc tests, the record checks).
+# The matrix runs on pull requests and on pushes to the working
+# branches, the protected trunk, and the release series.
+#
+# A v* tag runs no build of its own: no matrix, no release build, no
+# platform archive. A tag is cut from a commit already merged to main,
+# and main is protected, so that commit has passed this gate in the push
+# that merged it: rebuilding it on the tag proves nothing the merge did
+# not already prove. What remains for a release is regeneration and
+# publication. The tag's own job stamps the manifest from the tag name
+# in its own checkout, regenerates the two compliance artefact sets
+# there (one debug compile, the exporters being `cargo test`
+# invocations), and attaches the archive to the release carrying the
+# same tag. A release tag therefore publishes only when the stamped
+# manifest version equals the tag, and it fails closed on a bad stamp.
 
 on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, uVRR]
+    # `0.*` is the release-series pattern: 0.15.x and every successor
+    # carrying the 0.x.y line. The series branches are verified by the
+    # same gate as main, never in silence.
+    branches: [main, uVRR, '0.*']
     tags:
       - 'v*'
 
 permissions:
   contents: write # publish-release creates GitHub releases on v* tags
+
+# A proof that passes with a compile warning is no proof. Every lane in
+# every job compiles with warnings denied: rustc and rustdoc treat any
+# warning as an error, so a pushed tree that emits one fails the gate
+# exactly as the pre-push hook fails it, in any feature combination.
+env:
+  RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
 
 # Cancel previous runs when a new commit is pushed to the same PR/branch.
 concurrency:
@@ -27,30 +49,15 @@ concurrency:
 jobs:
   setup-matrix:
     name: Setup build matrix
+    # The matrix exists for the gate, and the gate runs on branches and
+    # pull requests only: a tag builds nothing, so the tag path has no
+    # matrix to set up.
+    if: github.ref_type != 'tag'
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
-      # The release discipline, checked once before the lanes start: a v*
-      # tag publishes only when the manifest version equals the tag. A
-      # forgotten bump blocks the release instead of shipping a lie.
-      # Branch and PR builds have no tag and skip this step.
-      - name: Verify the tag matches the manifest version
-        if: github.ref_type == 'tag'
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME#v}"
-          CARGO=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          if [ -z "$CARGO" ]; then
-            echo "could not read the manifest version" >&2
-            exit 1
-          fi
-          if [ "$TAG" != "$CARGO" ]; then
-            echo "tag v$TAG does not match manifest version $CARGO" >&2
-            exit 1
-          fi
       - id: set-matrix
         run: |
           # The lane: Linux amd64 + arm64 + macOS — the branch rules require the macos status check on every run.
@@ -59,6 +66,10 @@ jobs:
           echo "matrix=$ALL" >> "$GITHUB_OUTPUT"
   gate:
     name: ${{ matrix.target_key }}
+    # Pull requests and pushes to the working branches only. A tag does
+    # not build: the commit it names was merged to a protected branch
+    # and passed this gate there.
+    if: github.ref_type != 'tag'
     needs: setup-matrix
     runs-on: ${{ matrix.os }}
     strategy:
@@ -72,7 +83,7 @@ jobs:
       # deliberate older pin: a toolchain exists to build this code, and a
       # version CI does not share with the developers hides lint drift
       # until it blocks a release.
-      - uses: dtolnay/rust-toolchain@1.96
+      - uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: rustfmt, clippy
       - name: Ensure ripgrep
@@ -99,9 +110,8 @@ jobs:
       # rather than `.deb` or `brew`, so the arm64 container runner needs
       # no package manager, and one verified artifact covers all three.
       #
-      # The release publishes each artifact's sha256 as a bare hash with no
-      # filename, so `sha256sum -c` cannot read it. The comparison is made
-      # explicitly, against the hash and the file this step downloaded.
+      # The release attaches the compliance archive, which carries no
+      # sha256 of its own, so nothing here publishes a digest.
       - name: Install the Hurl client
         shell: bash
         run: |
@@ -146,6 +156,24 @@ jobs:
           echo "${bindir}" >> "$GITHUB_PATH"
           rm -rf "${stage}" "${asset}" "${asset}.sha256"
           "${bindir}/hurl" --version
+      # The generated compliance artefacts are a committed file, and a
+      # reference change that moves a corpus byte or a suite byte is a
+      # change nobody can see in a review. This step is the named,
+      # visible form of the two sync gates: it runs the exporters
+      # (the same two `make` targets) and fails the pull request on any
+      # diff. It runs before the long verification gate so a stale
+      # artefact set is the reported failure, not a buried one, and it
+      # restores nothing and writes nothing outside the exporters' own
+      # outputs: the working tree is left exactly as the exporters left
+      # it, for `git diff` to judge.
+      - name: The generated compliance artefacts are current
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --all-features --test compliance -- --ignored export_corpus
+          cargo test --features conformance_host --test conformance_host -- --ignored export_hurl
+          git diff --exit-code -- tests/compliance/corpus tests/hurl
       # The repository verification gate, run exactly as it is run locally.
       - name: Verification gate
         shell: bash
@@ -175,61 +203,87 @@ jobs:
           # tree, exempt in the committed evidence archives (research/ and
           # the dated formal/ reports and lab book).
           ! (git ls-files | rg -v '^maelstrom|^research/|^formal/|\.github/' | xargs rg -n 'item[0-9]')
-      # Tagged builds only: package the C ABI library (cdylib + staticlib)
-      # from the tree that just passed the gate, for publish-release.
-      - name: Package release archive
-        if: github.ref_type == 'tag'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --release --all-features
-          stage="uvrr-core-${{ matrix.target_key }}"
-          mkdir -p "$stage"
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            cp target/release/libuvrr.dylib target/release/libuvrr.a "$stage/"
-          else
-            cp target/release/libuvrr.so target/release/libuvrr.a "$stage/"
-          fi
-          tar czf "uvrr-core-${{ matrix.target_key }}.tar.gz" -C "$stage" .
-      - name: Upload release archive
-        if: github.ref_type == 'tag'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.target_key }}
-          path: uvrr-core-${{ matrix.target_key }}.tar.gz
-          retention-days: 5
 
-  # Tagged builds only, modeled on the sibling's publish-release: runs after
-  # every gate lane passed and creates the GitHub release with all platform
-  # archives attached.
+  # Tagged releases only. The tag's jobs are regeneration and
+  # publication, in this order and nothing else: the manifest is stamped
+  # from the tag name before anything reads it, the two compliance
+  # artefact sets are regenerated in this checkout, and the archive of
+  # those artefacts is attached to the release carrying the same tag.
+  # The gate is not a dependency: it runs on pull requests and pushes,
+  # and the commit a tag names was merged to a protected branch through
+  # one of them.
   publish-release:
     name: Publish release
     if: github.ref_type == 'tag'
-    needs: [gate]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Download release archives
-        uses: actions/download-artifact@v4
-        with:
-          pattern: release-*
-          merge-multiple: true
-          path: release-assets
-      - name: Verify expected archives
+      # The pinned toolchain, as every other lane: the exporters compile
+      # the crate, so the tag path builds it with the one toolchain the
+      # crate is built and released with locally. No rustfmt and no
+      # clippy component: this job regenerates artefacts, it does not
+      # lint or test.
+      - uses: dtolnay/rust-toolchain@1.96.0
+      # The stamp, before anything reads the manifest: cargo reads
+      # Cargo.toml to compile the exporters below, and the release
+      # carries the tag's own version. The checkout is a detached tag
+      # HEAD and the stamp is never committed and never pushed back, so
+      # the branch's own manifest keeps its own version. The read-back is
+      # the release discipline, checked once and failing closed: no
+      # version line to read, or a stamped version that is not the tag,
+      # aborts the release instead of shipping a lie.
+      - name: Stamp the manifest from the tag
+        shell: bash
         run: |
           set -euo pipefail
-          ls -la release-assets
-          for target in linux-amd64 linux-arm64 macos; do
-            test -f "release-assets/uvrr-core-$target.tar.gz" || {
-              echo "missing release asset: uvrr-core-$target.tar.gz" >&2
-              exit 1
-            }
-          done
+          TAG="${GITHUB_REF_NAME#v}"
+          # The address-less substitution is the form both BSD and GNU sed
+          # accept (`0,/re/` is GNU-only and no-ops elsewhere, which would
+          # abort every release rather than stamp one), and the manifest
+          # carries exactly one version line. The suffixed `-i.bak` is the
+          # in-place form both accept; the backup is removed in the same
+          # step, so the stamp is the only edit to the tree.
+          sed -i.bak "s|^version = \".*\"|version = \"$TAG\"|" Cargo.toml
+          rm -f Cargo.toml.bak
+          STAMPED=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ -z "$STAMPED" ]; then
+            echo "the stamp did not land: no manifest version reads" >&2
+            exit 1
+          fi
+          if [ "$TAG" != "$STAMPED" ]; then
+            echo "tag v$TAG does not match the stamped manifest version $STAMPED" >&2
+            exit 1
+          fi
+          echo "stamped the manifest at $STAMPED for tag v$TAG"
+      # The two documented exporters, byte for byte the `make
+      # corpus-export` and `make hurl-export` targets: the corpus from
+      # the reference behaviour, then the Hurl suite from the corpus
+      # just written. Both are `cargo test` invocations of #[ignore]d
+      # exporters, so this step compiles the library and these two test
+      # targets in debug and runs them. Nothing is packaged for release
+      # on a tag: no release build, no platform archive, no matrix.
+      - name: Regenerate the compliance artefacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --all-features --test compliance -- --ignored export_corpus
+          cargo test --features conformance_host --test conformance_host -- --ignored export_hurl
+      # The release's one attachment: the generated compliance artefacts
+      # and nothing else. The corpus directory is wholly generated; the
+      # suite directory is the generated families plus the hand-written
+      # `contract.hurl` that drives the session endpoints, which the
+      # generated families are replayed beside, so the suite ships whole.
+      # The listing is in the log because the release body does not
+      # enumerate the archive.
+      - name: Archive the compliance artefacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip --quiet --recurse-paths "uvrr-compliance-${GITHUB_REF_NAME}.zip" \
+            tests/compliance/corpus tests/hurl
+          unzip -l "uvrr-compliance-${GITHUB_REF_NAME}.zip"
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            release-assets/uvrr-core-linux-amd64.tar.gz
-            release-assets/uvrr-core-linux-arm64.tar.gz
-            release-assets/uvrr-core-macos.tar.gz
+          files: uvrr-compliance-${{ github.ref_name }}.zip

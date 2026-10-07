@@ -1,5 +1,5 @@
 # The `prepare-accept` family of the uVRR compliance corpus, replayed over the
-# transport (`docs/uvrr-host-compliance.md` §8): 52 cases, each POSTed
+# transport (`docs/uvrr-host-compliance.md` §8): 54 cases, each POSTed
 # to the host's case endpoint with its expectation in the body, so the host
 # compares its own capture against the committed bytes.
 #
@@ -8382,6 +8382,271 @@ Content-Type: application/json
 HTTP 200
 [Asserts]
 jsonpath "$.id" == "prepare-accept-boot-restarting-view-greater-slot-greater-piggyback-greater"
+jsonpath "$.family" == "prepare-accept"
+jsonpath "$.verdict" == "pass"
+jsonpath "$.mismatch" not exists
+jsonpath "$.expect.deliveries" count == 0
+
+# prepare-accept-the-chain-fold-judges-the-promotion-inside-it
+# A system entry MUST be judged against the configuration the fold of its accepted but uncommitted predecessors established: the member an uncommitted join introduced is promoted, the entry journals at its own slot, and the committed frontier stays where the chain left it
+POST {{base_url}}/case
+Content-Type: application/json
+{
+  "id": "prepare-accept-the-chain-fold-judges-the-promotion-inside-it",
+  "family": "prepare-accept",
+  "theorem": "Acceptor.accept_preserves",
+  "clause": "A system entry MUST be judged against the configuration the fold of its accepted but uncommitted predecessors established: the member an uncommitted join introduced is promoted, the entry journals at its own slot, and the committed frontier stays where the chain left it",
+  "keywords": [
+    "MUST"
+  ],
+  "setup": [
+    {
+      "op": "provision",
+      "nodes": 3,
+      "timeout": 3
+    },
+    {
+      "op": "settle"
+    },
+    {
+      "op": "deliver",
+      "to": "2:1",
+      "from": "1:1",
+      "wire": "000000020000000100000000000000000000000302000000000000000300000001020700040001000000030000000000000002"
+    }
+  ],
+  "input": {
+    "op": "deliver",
+    "to": "2:1",
+    "from": "1:1",
+    "wire": "0000000200000001000000000000000000000004020000000000000004000000010203000400010000000000000002"
+  },
+  "expect": {
+    "deliveries": [
+      {
+        "from": "2:1",
+        "to": "1:1",
+        "wire": "000000030000000100000000000000000000000303"
+      },
+      {
+        "from": "2:1",
+        "to": "1:1",
+        "wire": "000000030000000100000000000000000000000403"
+      }
+    ],
+    "post": [
+      {
+        "node": "1:1",
+        "status": "Normal",
+        "era": 1,
+        "view": 0,
+        "accepted": 2,
+        "committed": 2,
+        "applied": 2,
+        "journal": [
+          "void",
+          "init order=1:1,2:1,3:1"
+        ],
+        "members": [
+          "1:1",
+          "2:1",
+          "3:1"
+        ],
+        "weights": [
+          1,
+          1,
+          1
+        ],
+        "markers": [
+          "Joining@1:1"
+        ],
+        "witnesses": []
+      },
+      {
+        "node": "2:1",
+        "status": "Normal",
+        "era": 1,
+        "view": 0,
+        "accepted": 4,
+        "committed": 2,
+        "applied": 2,
+        "journal": [
+          "void",
+          "init order=1:1,2:1,3:1",
+          "join 4:1 at 3",
+          "increment 4:1"
+        ],
+        "members": [
+          "1:1",
+          "2:1",
+          "3:1"
+        ],
+        "weights": [
+          1,
+          1,
+          1
+        ],
+        "markers": [
+          "Joining@2:1"
+        ],
+        "witnesses": []
+      },
+      {
+        "node": "3:1",
+        "status": "Normal",
+        "era": 1,
+        "view": 0,
+        "accepted": 2,
+        "committed": 2,
+        "applied": 2,
+        "journal": [
+          "void",
+          "init order=1:1,2:1,3:1"
+        ],
+        "members": [
+          "1:1",
+          "2:1",
+          "3:1"
+        ],
+        "weights": [
+          1,
+          1,
+          1
+        ],
+        "markers": [
+          "Joining@3:1"
+        ],
+        "witnesses": []
+      }
+    ]
+  }
+}
+HTTP 200
+[Asserts]
+jsonpath "$.id" == "prepare-accept-the-chain-fold-judges-the-promotion-inside-it"
+jsonpath "$.family" == "prepare-accept"
+jsonpath "$.verdict" == "pass"
+jsonpath "$.mismatch" not exists
+jsonpath "$.expect.deliveries" count == 2
+
+# prepare-accept-without-the-accepted-predecessor-the-promotion-is-refused
+# The same promotion with nothing accepted before it MUST be refused: the committed configuration holds no such member, the receiver keeps its own state, and nothing journals or answers
+POST {{base_url}}/case
+Content-Type: application/json
+{
+  "id": "prepare-accept-without-the-accepted-predecessor-the-promotion-is-refused",
+  "family": "prepare-accept",
+  "theorem": "Acceptor.reachable_inv",
+  "clause": "The same promotion with nothing accepted before it MUST be refused: the committed configuration holds no such member, the receiver keeps its own state, and nothing journals or answers",
+  "keywords": [
+    "MUST"
+  ],
+  "setup": [
+    {
+      "op": "provision",
+      "nodes": 3,
+      "timeout": 3
+    },
+    {
+      "op": "settle"
+    }
+  ],
+  "input": {
+    "op": "deliver",
+    "to": "2:1",
+    "from": "1:1",
+    "wire": "0000000200000001000000000000000000000003020000000000000003000000010203000400010000000000000002"
+  },
+  "expect": {
+    "deliveries": [],
+    "post": [
+      {
+        "node": "1:1",
+        "status": "Normal",
+        "era": 1,
+        "view": 0,
+        "accepted": 2,
+        "committed": 2,
+        "applied": 2,
+        "journal": [
+          "void",
+          "init order=1:1,2:1,3:1"
+        ],
+        "members": [
+          "1:1",
+          "2:1",
+          "3:1"
+        ],
+        "weights": [
+          1,
+          1,
+          1
+        ],
+        "markers": [
+          "Joining@1:1"
+        ],
+        "witnesses": []
+      },
+      {
+        "node": "2:1",
+        "status": "Normal",
+        "era": 1,
+        "view": 0,
+        "accepted": 2,
+        "committed": 2,
+        "applied": 2,
+        "journal": [
+          "void",
+          "init order=1:1,2:1,3:1"
+        ],
+        "members": [
+          "1:1",
+          "2:1",
+          "3:1"
+        ],
+        "weights": [
+          1,
+          1,
+          1
+        ],
+        "markers": [
+          "Joining@2:1"
+        ],
+        "witnesses": []
+      },
+      {
+        "node": "3:1",
+        "status": "Normal",
+        "era": 1,
+        "view": 0,
+        "accepted": 2,
+        "committed": 2,
+        "applied": 2,
+        "journal": [
+          "void",
+          "init order=1:1,2:1,3:1"
+        ],
+        "members": [
+          "1:1",
+          "2:1",
+          "3:1"
+        ],
+        "weights": [
+          1,
+          1,
+          1
+        ],
+        "markers": [
+          "Joining@3:1"
+        ],
+        "witnesses": []
+      }
+    ]
+  }
+}
+HTTP 200
+[Asserts]
+jsonpath "$.id" == "prepare-accept-without-the-accepted-predecessor-the-promotion-is-refused"
 jsonpath "$.family" == "prepare-accept"
 jsonpath "$.verdict" == "pass"
 jsonpath "$.mismatch" not exists

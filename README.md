@@ -176,6 +176,13 @@ the verdict.
 
 ## Status
 
+**Release advisory.** v0.13.0 is buggy on the fused-reconfiguration acceptance
+path: the per-slot `Prepare` acceptance perimeter judged a system entry against
+the committed configuration alone, so the accepted-but-uncommitted predecessors
+the `Fuse` envelope folds whole were invisible to it, and a schedule the envelope
+accepted and committed entire was dropped entry by entry when it arrived as
+individual `Prepare`s (`docs/uvrr-fuse.md` §6). Fixed in 0.13.1.
+
 Pre-alpha: the API is not stable. The protocol is covered by the tests above
 and by Maelstrom. The codebase is intended to stay small and has adversarial
 tests; an absence of new features is an absence of bugs and regressions. The

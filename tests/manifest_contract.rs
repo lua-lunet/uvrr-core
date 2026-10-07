@@ -153,10 +153,10 @@ fn msrv_is_declared() {
 }
 
 #[test]
-fn feature_table_declares_serde_maelstrom_and_sysadmin_tool() {
+fn feature_table_declares_the_gated_lanes() {
     let features = table(MANIFEST, "features").expect("[features] table must exist");
 
-    for required in ["default", "serde", "maelstrom", "sysadmin_tool"] {
+    for required in ["default", "serde", "maelstrom", "conformance_host"] {
         let declared = features
             .lines()
             .map(str::trim)
@@ -171,11 +171,8 @@ fn feature_table_declares_serde_maelstrom_and_sysadmin_tool() {
 /// The complete set of permitted optional `[dependencies]`, in sorted order.
 ///
 /// Every entry is feature-gated and never reaches a `default-features = false`
-/// consumer; the non-optional gate above is what protects the consumer. The
-/// `sysadmin_tool` operator tool added `clap` deliberately (decision P3
-/// amendment): the
-/// `uvrr-reconfig` binary is the operator interface for reconfiguration plans.
-const OPTIONAL_DEPENDENCY_ALLOWLIST: [&str; 3] = ["clap", "serde", "serde_json"];
+/// consumer; the non-optional gate above is what protects the consumer.
+const OPTIONAL_DEPENDENCY_ALLOWLIST: [&str; 2] = ["serde", "serde_json"];
 
 #[test]
 fn optional_dependency_set_is_exactly_the_allowlist() {

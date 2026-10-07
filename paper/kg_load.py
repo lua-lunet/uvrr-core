@@ -50,7 +50,7 @@ def parse_fragment(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", default=None)
-    ap.add_argument("--bib", default=ROOT / "research/literature/turner/paxos-reconf-latest.bib")
+    ap.add_argument("--bib", default=ROOT / "paper/papers/references.bib")
     ap.add_argument("--fragments", default=ROOT / "papers/fragments")
     args = ap.parse_args()
     session = args.session
